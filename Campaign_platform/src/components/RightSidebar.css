@@ -1,0 +1,116 @@
+/* Left Sidebar Styles */
+.right-sidebar {
+  position: fixed;
+  top: 70px;
+  left: 0;
+  width: 280px;
+  height: calc(100vh - 70px);
+  /* Updated sidebar background to use primary navy blue */
+  background: #1f2937;
+  color: white;
+  padding: 20px;
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+  overflow-y: auto;
+  transition: all 0.3s ease;
+}
+
+.sidebar-section {
+  margin-bottom: 30px;
+}
+
+.sidebar-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 15px;
+  color: #ffffff;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.sidebar-nav {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.sidebar-nav-item {
+  margin-bottom: 8px;
+}
+
+/* Added dropdown functionality styles */
+.nav-item.dropdown {
+  position: relative;
+}
+
+.dropdown-toggle {
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  justify-content: space-between;
+}
+
+.dropdown-arrow {
+  transition: transform 0.3s ease;
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.dropdown-arrow.rotated {
+  transform: rotate(180deg);
+}
+
+.sidebar-nav-link {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  /* Updated nav link color to use medium gray */
+  color: #fefeff;
+  text-decoration: none;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  font-weight: 500;
+}
+
+.sidebar-nav-link:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  transform: translateX(5px);
+}
+
+.sidebar-nav-link.active {
+  /* Updated active background to use accent orange with opacity */
+  background: rgba(244, 124, 32, 0.2);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.sidebar-nav-icon {
+  margin-right: 12px;
+  font-size: 16px;
+}
+
+.sidebar-submenu {
+  margin-left: 20px;
+  margin-top: 8px;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.nav-item.dropdown.open .sidebar-submenu {
+  max-height: 300px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .right-sidebar {
+    width: 100%;
+    transform: translateX(-100%);
+  }
+
+  .right-sidebar.mobile-open {
+    transform: translateX(0);
+  }
+}
