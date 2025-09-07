@@ -51,14 +51,26 @@
   justify-content: space-between;
 }
 
+/* Fixed dropdown arrow positioning to stay centered when rotated */
 .dropdown-arrow {
   transition: transform 0.3s ease;
-  font-size: 12px;
+  font-size: 16px;
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  /* Removed background and hover effects, fixed positioning for stable rotation */
+  color: #ffffff;
+  transform-origin: center center;
+  flex-shrink: 0;
 }
 
+/* Removed hover effects as requested */
 .dropdown-arrow.rotated {
   transform: rotate(180deg);
+  margin-top:1px;
 }
 
 .sidebar-nav-link {
@@ -66,11 +78,13 @@
   align-items: center;
   padding: 12px 16px;
   /* Updated nav link color to use medium gray */
-  color: #fefeff;
+  color: #f3f3f3;
   text-decoration: none;
   border-radius: 8px;
   transition: all 0.3s ease;
+  font-size: 16px;
   font-weight: 500;
+  height:40px;
 }
 
 .sidebar-nav-link:hover {

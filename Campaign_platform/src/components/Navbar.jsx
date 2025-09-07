@@ -32,7 +32,7 @@ function Navbar({ profileDropdownOpen, setProfileDropdownOpen, selectedSection, 
             <div className="logo-section">
               <img src="/Logo.png" alt="Company Logo" className="logo-image" />
             </div>
-            <span className="dropdown-arrow">▼</span>
+            <span className="dropdown-arrow">⏷</span>
           </button>
           <div className="logo-dropdown-menu">
             <button className="logo-dropdown-item" onClick={() => handleSectionSelect("sales")}>
@@ -64,7 +64,7 @@ function Navbar({ profileDropdownOpen, setProfileDropdownOpen, selectedSection, 
           <button className="profile-button" onClick={handleProfileDropdownToggle}>
             <div className="profile-avatar">JD</div>
             <span className="profile-name">John Doe</span>
-            <span className="dropdown-arrow">▼</span>
+            <span className="dropdown-arrow">⏷</span>
           </button>
           <div className="profile-menu">
             <Link to="/profile" className="profile-menu-item">

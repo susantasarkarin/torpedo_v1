@@ -188,30 +188,31 @@ h6 {
 
 .dropdown-arrow {
   transition: transform 0.3s ease;
-  font-size: 1rem;
+  font-size: 1.5rem;
   /* Made arrow more visible with white background and dark text */
-  background: rgba(255, 255, 255, 0.9);
-  color: #1f2937;
-  padding: 0.25rem;
+  
+  color: white;
+  
   border-radius: 50%;
   font-weight: 600;
-  height:25px;
-  width:25px;
+  height:30px;
+  width:30px;
+  margin-top:-15px;
   
   
 }
 
 /* Added hover effect only to the arrow */
 .dropdown-arrow:hover {
-  background: #f47c20;
-  color: white;
-  transform: scale(1.1);
+  
+  color: orange;
+  
 }
 
 .logo-dropdown.open .dropdown-arrow {
   transform: rotate(180deg);
   /* Keep arrow highlighted when dropdown is open */
-  background: #f47c20;
+  margin-top:-20px;
   color: white;
 }
 
@@ -341,6 +342,7 @@ h6 {
 
 .campaign-dropdown.open .campaign-dropdown-menu {
   max-height: 200px;
+  
 }
 
 .campaign-submenu-item {

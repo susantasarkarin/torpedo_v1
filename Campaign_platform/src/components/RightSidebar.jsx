@@ -28,7 +28,9 @@ function RightSidebar() {
 
   return (
     <aside className="right-sidebar">
-      <br></br>
+      <div className="sidebar-section">
+        <h3 className="sidebar-title">Sales Navigation</h3>
+      </div>
 
       <nav className="sidebar-nav">
         <ul className="sidebar-nav">
@@ -46,8 +48,8 @@ function RightSidebar() {
             <div className={`nav-item dropdown ${campaignDropdownOpen ? "open" : ""}`}>
               <button className="sidebar-nav-link dropdown-toggle" onClick={handleCampaignToggle} type="button">
                 <span className="sidebar-nav-icon">🎯</span>
-                <span style={{fontSize:"15px",fontWeight:"Bold"}}>Campaign</span>
-                <span className={`dropdown-arrow ${campaignDropdownOpen ? "rotated" : ""}`}>▼</span>
+                <span>Campaign</span>
+                <span className={`dropdown-arrow ${campaignDropdownOpen ? "rotated" : ""}`}>⏷</span>
               </button>
               <div className="sidebar-submenu">
                 <Link
