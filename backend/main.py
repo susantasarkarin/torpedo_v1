@@ -69,9 +69,9 @@ def send_email(to_email: str, subject: str, body: str):
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"MailerSend error: {str(e)}")
 
-# ---------------------------
+# --------------------------
 # CSV Upload Endpoint
-# ---------------------------
+# --------------------------
 @app.post("/upload-csv/")
 async def upload_csv(file: UploadFile = File(...)):
     if not file.filename.endswith(".csv"):
