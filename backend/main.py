@@ -106,7 +106,7 @@ async def upload_csv(file: UploadFile = File(...)):
             send_email(
                 to_email=email,
                 subject="Welcome from CRM",
-                body=f"Hello {name or 'there'},\nThis is a test email from our CRM automation!"
+                body=f"Greetings {name or 'there'},\nThis is a test email from our CRM automation!"
             )
         except Exception as e:
             print(f"MailerSend failed for {email}: {e}")
