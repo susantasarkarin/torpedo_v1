@@ -65,19 +65,49 @@ function CreateContacts({ onBack }) {
     setSelectedFile(null)
   }
 
-  const handleImportContacts = () => {
-    if (!selectedFile) {
-      alert("Please select a CSV file first")
-      return
-    }
-    // Here you would implement the actual import logic
-    console.log("Importing contacts...", {
-      file: selectedFile,
-      subscriptionType,
-      fieldMapping,
-    })
-    alert("Contacts imported successfully!")
+  // const handleImportContacts = () => {
+  //   if (!selectedFile) {
+  //     alert("Please select a CSV file first")
+  //     return
+  //   }
+  //   // Here you would implement the actual import logic
+  //   console.log("Importing contacts...", {
+  //     file: selectedFile,
+  //     subscriptionType,
+  //     fieldMapping,
+  //   })
+  //   alert("Contacts imported successfully!")
+  // }
+
+  const handleImportContacts = async () => {
+  if (!selectedFile) {
+    alert("Please select a CSV file first");
+    return;
   }
+
+  const formData = new FormData();
+  formData.append("file", selectedFile);
+
+  try {
+    const res = await fetch("http://localhost:8000/upload-csv/", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await res.json();
+    if (res.ok) {
+      alert(data.message);
+      console.log("Contacts uploaded:", data.contacts);
+    } else {
+      alert("Error: " + (data.detail || "Upload failed"));
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Something went wrong");
+  }
+};
+
+
 
   const handleManualFormSubmit = (e) => {
     e.preventDefault()
