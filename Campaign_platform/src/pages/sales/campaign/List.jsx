@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import CreateContacts from "./CreateContacts"
 import "./List.css"
 
@@ -8,14 +8,68 @@ function List() {
   const [showCreateContacts, setShowCreateContacts] = useState(false)
   const [currentView, setCurrentView] = useState("main") // 'main', 'createForm', 'listDetail'
   const [selectedList, setSelectedList] = useState(null)
-  const [lists, setLists] = useState([
-    { id: 1, name: "Test Campaign", contacts: 0, created: "Sep 6, 2022", status: "active" },
-    { id: 2, name: "Independence Day Campaign", contacts: 1948, created: "Jul 4, 2023", status: "active" },
-  ])
+  const [lists, setLists] = useState([])
   const [newListName, setNewListName] = useState("")
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchLists()
+  }, [])
+
+  const fetchLists = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch("http://localhost:8000/get-all-lists/")
+      const data = await response.json()
+      setLists(data.lists || [])
+    } catch (error) {
+      console.error("Error fetching lists:", error)
+      setLists([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const createList = async (listName) => {
+    try {
+      const response = await fetch("http://localhost:8000/create-list/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: listName,
+          created: new Date().toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+          }),
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.detail || "Failed to create list")
+      }
+
+      const data = await response.json()
+      // Refresh the lists after creating a new one
+      await fetchLists()
+      return data
+    } catch (error) {
+      console.error("Error creating list:", error)
+      throw error
+    }
+  }
 
   if (showCreateContacts) {
-    return <CreateContacts onBack={() => setShowCreateContacts(false)} />
+    return (
+      <CreateContacts
+        onBack={() => setShowCreateContacts(false)}
+        listName={selectedList?.name}
+        listId={selectedList?.id}
+      />
+    )
   }
 
   if (currentView === "createForm") {
@@ -53,22 +107,15 @@ function List() {
               </button>
               <button
                 className="create-list-btn"
-                onClick={() => {
+                onClick={async () => {
                   if (newListName.trim()) {
-                    const newList = {
-                      id: lists.length + 1,
-                      name: newListName,
-                      contacts: 0,
-                      created: new Date().toLocaleDateString("en-US", {
-                        year: "numeric",
-                        month: "short",
-                        day: "numeric",
-                      }),
-                      status: "active",
+                    try {
+                      await createList(newListName.trim())
+                      setNewListName("")
+                      setCurrentView("main")
+                    } catch (error) {
+                      alert(`Error creating list: ${error.message}`)
                     }
-                    setLists([...lists, newList])
-                    setNewListName("")
-                    setCurrentView("main")
                   }
                 }}
                 disabled={!newListName.trim()}
@@ -103,6 +150,16 @@ function List() {
               Create Contacts
             </button>
           </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="list-container">
+        <div className="loading-state">
+          <p>Loading lists...</p>
         </div>
       </div>
     )

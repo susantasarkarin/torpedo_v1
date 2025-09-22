@@ -1,262 +1,194 @@
-/* Complete redesign with modern gradient and enhanced card styling */
 .create-contacts-container {
-  background: #f8fafc; /* Replaced bright gradient with professional muted colors */
-  min-height: 100vh;
-  padding: 0;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
 }
 
 .page-header {
-  background: #1f2937; /* Updated page header with muted gradient colors */
-  padding: 40px 30px 60px;
-  color: white;
-  text-align: center;
+  margin-bottom: 2rem;
 }
 
 .breadcrumb {
   display: flex;
   align-items: center;
-  justify-content: center;
-  margin-bottom: 24px;
-  font-size: 14px;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
 }
 
 .breadcrumb-link {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.8);
+  color: #6b7280;
   cursor: pointer;
   text-decoration: underline;
-  font-size: 14px;
-  transition: color 0.2s;
 }
 
 .breadcrumb-link:hover {
-  color: white;
+  color: #374151;
 }
 
 .breadcrumb-separator {
-  margin: 0 12px;
-  color: rgba(255, 255, 255, 0.6);
+  color: #9ca3af;
 }
 
 .breadcrumb-current {
-  color: white;
+  color: #374151;
   font-weight: 500;
 }
 
 .page-title {
-  font-size: 36px;
+  font-size: 2rem;
   font-weight: 700;
-  margin: 0 0 12px 0;
-  color: white;
+  color: #111827;
+  margin-bottom: 0.5rem;
 }
 
 .page-description {
-  font-size: 18px;
-  opacity: 0.9;
-  margin: 0;
-  max-width: 600px;
-  margin: 0 auto;
+  color: #6b7280;
+  font-size: 1.125rem;
 }
 
-/* Enhanced card design with modern styling and hover effects */
 .method-cards {
-  max-width: 1400px;
-  margin: -30px auto 0;
-  padding: 0 30px 60px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); /* Updated grid template columns */
-  gap: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  gap: 2rem;
 }
 
 .method-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  padding: 2rem;
   background: white;
-  border-radius: 12px; /* Updated border radius */
-  overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); /* Updated box shadow */
-  transition: all 0.3s ease;
-  border: 1px solid #e2e8f0; /* Updated border color */
-  width: 350px;
-  height: 520px;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  transition: all 0.2s;
 }
 
 .method-card:hover {
-  transform: translateY(-4px); /* Updated transform value */
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12); /* Updated box shadow on hover */
-}
-
-.method-card.csv {
-  border-top: 3px solid #4299e1; /* Added new method card type */
-}
-
-.method-card.manual {
-  border-top: 3px solid #48bb78; /* Updated border top color */
-}
-
-.method-card.form {
-  border-top: 3px solid #ed8936; /* Updated border top color */
-}
-
-.method-card.database {
-  border-top: 3px solid #9f7aea; /* Added new method card type */
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
 }
 
 .card-content {
-  padding: 40px 30px 30px;
+  margin-bottom: 2rem;
 }
 
 .card-icon-wrapper {
-  margin-bottom: 24px;
+  margin-bottom: 1.5rem;
 }
 
 .card-icon {
-  width: 64px;
-  height: 64px;
-  border-radius: 16px;
+  width: 3rem;
+  height: 3rem;
+  background: #f3f4f6;
+  border-radius: 0.5rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto;
-  transition: all 0.3s ease;
-}
-
-.csv .card-icon {
-  background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%); /* Updated card icons with muted gradient colors */
-  color: white;
-}
-
-.manual .card-icon {
-  background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
-  color: white;
-}
-
-.form .card-icon {
-  background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
-  color: white;
-}
-
-.database .card-icon {
-  background: linear-gradient(135deg, #9f7aea 0%, #805ad5 100%);
-  color: white;
+  color: #6b7280;
 }
 
 .card-title {
-  font-size: 24px;
-  font-weight: 700;
-  color: #2d3748;
-  margin: 0 0 12px 0;
-  text-align: center;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 0.75rem;
 }
 
 .card-description {
-  font-size: 16px;
-  color: #718096;
+  color: #6b7280;
+  margin-bottom: 1.5rem;
   line-height: 1.6;
-  margin: 0 0 20px 0;
-  text-align: center;
 }
 
 .card-features {
   list-style: none;
   padding: 0;
-  margin: 0 0 30px 0;
+  margin: 0;
 }
 
 .card-features li {
-  padding: 8px 0;
-  font-size: 14px;
-  color: #4a5568;
+  color: #6b7280;
+  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
   position: relative;
-  padding-left: 24px;
+  padding-left: 1rem;
 }
 
 .card-features li::before {
   content: "✓";
   position: absolute;
   left: 0;
-  top: 8px;
-  width: 16px;
-  height: 16px;
-  background: #48bb78;
-  color: white;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  font-weight: bold;
+  color: #10b981;
+  font-weight: 600;
 }
 
 .card-button {
-  width: 80%;
-  padding: 16px 24px;
-  border: none;
-  background: #1f2937; /* Updated button with muted professional gradient */
+  width: 100%;
+  background: #3b82f6;
   color: white;
-  font-size: 16px;
-  font-weight: 600;
-  border-radius: 0;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  font-weight: 500;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  transition: all 0.3s ease;
-  margin: 0 auto;
-  border-radius: 2px;
+  gap: 0.5rem;
+  transition: background-color 0.2s;
 }
 
 .card-button:hover {
-  background: linear-gradient(135deg, #2d3748 0%, #1a202c 100%); /* Updated button hover gradient */
-  transform: translateY(-2px);
+  background: #2563eb;
 }
 
 .button-arrow {
-  font-size: 18px;
-  transition: transform 0.3s ease;
+  font-size: 1.25rem;
 }
 
-.card-button:hover .button-arrow {
-  transform: translateX(4px);
-}
-
-/* Added styles for CSV upload interface */
 .csv-upload-container {
   max-width: 800px;
-  margin: -30px auto 0;
-  padding: 0 30px 60px;
+  margin: 0 auto;
 }
 
 .upload-card {
   background: white;
-  border-radius: 12px;
-  padding: 40px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  border: 1px solid #e2e8f0;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  padding: 2rem;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
 }
 
 .upload-section {
-  margin-bottom: 40px;
+  margin-bottom: 2rem;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.upload-section:last-of-type {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
 }
 
 .section-title {
-  font-size: 20px;
+  font-size: 1.25rem;
   font-weight: 600;
-  color: #2d3748;
-  margin-bottom: 16px;
+  color: #111827;
+  margin-bottom: 1rem;
 }
 
 .file-upload-area {
-  border: 2px dashed #cbd5e0;
-  border-radius: 8px;
-  padding: 40px;
+  border: 2px dashed #d1d5db;
+  border-radius: 0.5rem;
+  padding: 3rem;
   text-align: center;
-  transition: all 0.3s ease;
+  transition: border-color 0.2s;
 }
 
 .file-upload-area:hover {
-  border-color: #4299e1;
-  background-color: #f7fafc;
+  border-color: #9ca3af;
 }
 
 .file-input {
@@ -269,205 +201,277 @@
 }
 
 .upload-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
+  font-size: 3rem;
+  margin-bottom: 1rem;
 }
 
 .upload-text {
-  font-size: 16px;
+  font-size: 1.125rem;
   font-weight: 500;
-  color: #2d3748;
-  margin-bottom: 8px;
+  color: #374151;
+  margin-bottom: 0.5rem;
 }
 
 .upload-subtext {
-  font-size: 14px;
-  color: #718096;
+  color: #6b7280;
+  font-size: 0.875rem;
 }
 
 .subscription-section {
-  margin-bottom: 40px;
+  margin-bottom: 2rem;
 }
 
 .subscription-options {
   display: flex;
-  gap: 24px;
-  margin-bottom: 12px;
+  gap: 2rem;
+  margin-bottom: 1rem;
+}
+
+.radio-group {
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
 }
 
 .radio-option {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0.75rem;
   cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 0.375rem;
+  transition: background-color 0.2s;
+}
+
+.radio-option:hover {
+  background: #f1f5f9;
 }
 
 .radio-option input[type="radio"] {
-  margin: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
+.radio-option span {
+  font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  user-select: none;
+}
+
+.radio-option input[type="radio"]:checked + span {
+  color: #1e40af;
+  font-weight: 600;
 }
 
 .radio-label {
-  font-size: 16px;
-  color: #2d3748;
+  color: #374151;
+  font-weight: 500;
 }
 
 .subscription-note {
-  font-size: 14px;
-  color: #718096;
-  margin: 0;
+  color: #6b7280;
+  font-size: 0.875rem;
+  font-style: italic;
 }
 
 .field-mapping-section {
-  margin-bottom: 40px;
+  margin-bottom: 2rem;
 }
 
 .mapping-description {
-  font-size: 14px;
-  color: #718096;
-  margin-bottom: 24px;
+  color: #6b7280;
+  margin-bottom: 1.5rem;
 }
 
 .mapping-grid {
   display: grid;
-  gap: 16px;
+  gap: 1.5rem;
 }
 
 .mapping-row {
   display: grid;
   grid-template-columns: 200px 1fr;
+  gap: 1rem;
   align-items: center;
-  gap: 16px;
 }
 
 .mapping-label {
-  font-size: 14px;
   font-weight: 500;
-  color: #2d3748;
+  color: #374151;
 }
 
 .mapping-select {
-  padding: 8px 12px;
-  border: 1px solid #cbd5e0;
-  border-radius: 6px;
-  font-size: 14px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
   background: white;
+  color: #374151;
+}
+
+.mapping-select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
 .advanced-options-section {
-  margin-bottom: 40px;
+  margin-bottom: 2rem;
 }
 
 .advanced-toggle {
   background: none;
   border: none;
-  color: #4299e1;
-  font-size: 14px;
+  color: #3b82f6;
   cursor: pointer;
-  padding: 0;
-  margin-bottom: 16px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.advanced-toggle:hover {
+  color: #2563eb;
 }
 
 .advanced-content {
-  padding-left: 16px;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
 }
 
 .checkbox-option {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.checkbox-option input[type="checkbox"] {
-  margin: 0;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
 }
 
 .checkbox-option label {
-  font-size: 14px;
-  color: #2d3748;
+  color: #374151;
   cursor: pointer;
 }
 
 .action-buttons {
   display: flex;
-  gap: 16px;
+  gap: 1rem;
   justify-content: flex-end;
 }
 
-.btn-primary {
-  background: #4299e1;
-  color: white;
-  border: none;
-  padding: 12px 24px;
-  border-radius: 6px;
-  font-size: 16px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.btn-primary:hover {
-  background: #3182ce;
-}
-
 .btn-secondary {
+  padding: 0.75rem 1.5rem;
+  border: 1px solid #d1d5db;
   background: white;
-  color: #4a5568;
-  border: 1px solid #cbd5e0;
-  padding: 12px 24px;
-  border-radius: 6px;
-  font-size: 16px;
+  color: #374151;
+  border-radius: 0.375rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .btn-secondary:hover {
-  background: #f7fafc;
-  border-color: #a0aec0;
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+.btn-primary {
+  padding: 0.75rem 1.5rem;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 0.375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-primary:hover {
+  background: #2563eb;
+}
+
+.business-unit-section {
+  margin-bottom: 2rem;
+  padding: 1.5rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+}
+
+.business-unit-section .mapping-label {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 1rem;
+  display: block;
+}
+
+/* Adding styles for the new email section */
+.email-section {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 0.5rem;
+}
+
+.email-section h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #0c4a6e;
+  margin-bottom: 1rem;
+}
+
+.checkbox-options {
+  margin-bottom: 1.5rem;
+}
+
+.email-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+.email-buttons .btn-secondary {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+
+.email-buttons .btn-secondary:hover {
+  background: #e2e8f0;
+  border-color: #94a3b8;
+}
+
+.email-buttons .btn-primary {
+  background: #0ea5e9;
+}
+
+.email-buttons .btn-primary:hover {
+  background: #0284c7;
 }
 
 @media (max-width: 768px) {
-  .page-header {
-    padding: 30px 20px 40px;
-  }
-
-  .page-title {
-    font-size: 28px;
-  }
-
-  .page-description {
-    font-size: 16px;
+  .create-contacts-container {
+    padding: 1rem;
   }
 
   .method-cards {
     grid-template-columns: 1fr;
-    gap: 20px;
-    padding: 0 20px 40px;
-  }
-
-  .card-content {
-    padding: 30px 20px 20px;
-  }
-
-  .card-button {
-    margin: 0 -20px -20px;
-  }
-
-  .csv-upload-container {
-    padding: 0 20px 40px;
-  }
-
-  .upload-card {
-    padding: 30px 20px;
   }
 
   .mapping-row {
     grid-template-columns: 1fr;
-    gap: 8px;
+    gap: 0.5rem;
   }
 
   .action-buttons {
+    flex-direction: column;
+  }
+
+  /* Adding mobile styles for email section */
+  .email-buttons {
     flex-direction: column;
   }
 }

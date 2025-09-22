@@ -6,14 +6,38 @@ import "./CreateContacts.css"
 function CreateContacts({ onBack }) {
   const [currentView, setCurrentView] = useState("methods") // 'methods', 'csv-upload', or 'manual-form'
   const [selectedFile, setSelectedFile] = useState(null)
-  const [subscriptionType, setSubscriptionType] = useState("subscribed")
+  const [csvHeaders, setCsvHeaders] = useState([])
+  const [businessUnit, setBusinessUnit] = useState("Cogentix research") // Default to first option
   const [fieldMapping, setFieldMapping] = useState({
     email: "",
     firstName: "",
     lastName: "",
     phone: "",
+    name: "",
+    emailStatus: "",
+    title: "",
+    linkedin: "",
+    location: "",
+    addedOn: "",
+    companyName: "",
+    companyDomain: "",
+    companyWebsite: "",
+    companyEmployeeCount: "",
+    companyEmployeeCountRange: "",
+    companyFounded: "",
+    companyIndustry: "",
+    companyType: "",
+    companyHeadquarters: "",
+    companyRevenueRange: "",
+    companyLinkedinUrl: "",
+    companyCrunchbaseUrl: "",
+    companyFundingRounds: "",
+    companyLastFundingRoundAmount: "",
+    companyLogoUrlPrimary: "",
+    companyLogoUrlSecondary: "",
   })
-  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
+  const [importedContacts, setImportedContacts] = useState([])
+  const [showEmailOptions, setShowEmailOptions] = useState(false)
 
   const [manualFormData, setManualFormData] = useState({
     name: "",
@@ -41,12 +65,24 @@ function CreateContacts({ onBack }) {
     companyLastFundingRoundAmount: "",
     companyLogoUrlPrimary: "",
     companyLogoUrlSecondary: "",
+    businessUnit: "Cogentix research", // Default to first option
   })
 
-  const handleFileSelect = (event) => {
+  const handleFileSelect = async (event) => {
     const file = event.target.files[0]
     if (file && (file.type === "text/csv" || file.name.endsWith(".csv"))) {
       setSelectedFile(file)
+
+      // Parse CSV headers
+      try {
+        const text = await file.text()
+        const firstLine = text.split("\n")[0]
+        const headers = firstLine.split(",").map((header) => header.trim().replace(/"/g, ""))
+        setCsvHeaders(headers)
+      } catch (error) {
+        console.error("Error parsing CSV headers:", error)
+        setCsvHeaders([])
+      }
     } else {
       alert("Please select a valid CSV file")
     }
@@ -63,51 +99,116 @@ function CreateContacts({ onBack }) {
   const handleBackToMethods = () => {
     setCurrentView("methods")
     setSelectedFile(null)
+    setCsvHeaders([])
+    // Reset imported contacts and email options when going back to methods
+    setImportedContacts([])
+    setShowEmailOptions(false)
   }
-
-  // const handleImportContacts = () => {
-  //   if (!selectedFile) {
-  //     alert("Please select a CSV file first")
-  //     return
-  //   }
-  //   // Here you would implement the actual import logic
-  //   console.log("Importing contacts...", {
-  //     file: selectedFile,
-  //     subscriptionType,
-  //     fieldMapping,
-  //   })
-  //   alert("Contacts imported successfully!")
-  // }
 
   const handleImportContacts = async () => {
-  if (!selectedFile) {
-    alert("Please select a CSV file first");
-    return;
-  }
-
-  const formData = new FormData();
-  formData.append("file", selectedFile);
-
-  try {
-    const res = await fetch("http://localhost:8000/upload-csv/", {
-      method: "POST",
-      body: formData,
-    });
-
-    const data = await res.json();
-    if (res.ok) {
-      alert(data.message);
-      console.log("Contacts uploaded:", data.contacts);
-    } else {
-      alert("Error: " + (data.detail || "Upload failed"));
+    if (!selectedFile) {
+      alert("Please select a CSV file first")
+      return
     }
-  } catch (err) {
-    console.error(err);
-    alert("Something went wrong");
+
+    if (!fieldMapping.email) {
+      alert("Please map the Email field before importing contacts")
+      return
+    }
+
+    try {
+      // Step 1: Read CSV as text
+      const text = await selectedFile.text()
+
+      // Step 2: Parse CSV into rows
+      const rows = text
+        .split("\n")
+        .map((row) => row.trim())
+        .filter((r) => r)
+      const headers = rows[0].split(",").map((h) => h.trim())
+      const dataRows = rows.slice(1)
+
+      console.log("[v0] CSV Headers:", headers)
+      console.log("[v0] Field Mapping:", fieldMapping)
+
+      // Step 3: Apply field mapping
+      const mappedContacts = dataRows.map((row) => {
+        const values = row.split(",").map((v) => v.trim())
+        const contact = {}
+
+        contact.businessUnit = businessUnit
+
+        Object.entries(fieldMapping).forEach(([field, mappedColumn]) => {
+          if (mappedColumn) {
+            const colIndex = headers.indexOf(mappedColumn)
+            if (colIndex !== -1) {
+              contact[field] = values[colIndex] || ""
+            }
+          }
+        })
+
+        return contact
+      })
+
+      console.log("[v0] Mapped Contacts:", mappedContacts)
+      console.log("[v0] Sample contact:", mappedContacts[0])
+
+      // Step 4: Send mapped data to backend for database storage only
+      const res = await fetch("http://localhost:8000/upload-csv/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contacts: mappedContacts }),
+      })
+
+      const data = await res.json()
+      if (res.ok) {
+        alert(data.message || "Contacts uploaded successfully to database!")
+        console.log("[v0] Backend response:", data)
+        setImportedContacts(mappedContacts)
+        setShowEmailOptions(true)
+      } else {
+        console.log("[v0] Backend error:", data)
+        alert("Error: " + (data.detail || "Upload failed"))
+      }
+    } catch (err) {
+      console.error("[v0] Import error:", err)
+      alert("Error importing contacts: " + err.message)
+    }
   }
-};
 
+  const handleSendEmails = async () => {
+    if (importedContacts.length === 0) {
+      alert("No contacts to send emails to. Please import contacts first.")
+      return
+    }
 
+    try {
+      const res = await fetch("http://localhost:8000/send-emails/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contacts: importedContacts,
+          sendWelcome: document.getElementById("send-welcome")?.checked || false,
+          validateEmails: document.getElementById("validate-emails")?.checked || false,
+        }),
+      })
+
+      const data = await res.json()
+      if (res.ok) {
+        alert(data.message || "Emails sent successfully!")
+        console.log("[v0] Email response:", data)
+        // Optionally reset after sending emails
+        // setShowEmailOptions(false);
+        // setImportedContacts([]);
+      } else {
+        console.log("[v0] Email error:", data)
+        alert("Error: " + (data.detail || "Email sending failed"))
+      }
+    } catch (err) {
+      console.error("[v0] Email error:", err)
+      alert("Error sending emails: " + err.message)
+    }
+  }
 
   const handleManualFormSubmit = (e) => {
     e.preventDefault()
@@ -144,6 +245,7 @@ function CreateContacts({ onBack }) {
       companyLastFundingRoundAmount: "",
       companyLogoUrlPrimary: "",
       companyLogoUrlSecondary: "",
+      businessUnit: "Cogentix research", // Default to first option
     })
   }
 
@@ -206,7 +308,7 @@ function CreateContacts({ onBack }) {
                       value={manualFormData.lastName}
                       onChange={(e) => handleManualFormChange("lastName", e.target.value)}
                       className="mapping-select"
-                      placeholder="Last name"
+                      placeholder="last name"
                     />
                   </div>
                   <div className="mapping-row">
@@ -458,6 +560,31 @@ function CreateContacts({ onBack }) {
                       placeholder="Secondary logo URL"
                     />
                   </div>
+                  <div className="mapping-row">
+                    <label className="mapping-label">Business Unit</label>
+                    <div className="radio-group">
+                      <label className="radio-option">
+                        <input
+                          type="radio"
+                          name="businessUnit"
+                          value="Cogentix research"
+                          checked={manualFormData.businessUnit === "Cogentix research"}
+                          onChange={(e) => handleManualFormChange("businessUnit", e.target.value)}
+                        />
+                        <span>Cogentix research</span>
+                      </label>
+                      <label className="radio-option">
+                        <input
+                          type="radio"
+                          name="businessUnit"
+                          value="Survey Field Work"
+                          checked={manualFormData.businessUnit === "Survey Field Work"}
+                          onChange={(e) => handleManualFormChange("businessUnit", e.target.value)}
+                        />
+                        <span>Survey Field Work</span>
+                      </label>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -511,131 +638,479 @@ function CreateContacts({ onBack }) {
               </div>
             </div>
 
-            <div className="subscription-section">
-              <h3 className="section-title">Subscription Type</h3>
-              <div className="subscription-options">
-                <label className="radio-option">
-                  <input
-                    type="radio"
-                    name="subscription"
-                    value="subscribed"
-                    checked={subscriptionType === "subscribed"}
-                    onChange={(e) => setSubscriptionType(e.target.value)}
-                  />
-                  <span className="radio-label">Subscribed</span>
-                </label>
-                <label className="radio-option">
-                  <input
-                    type="radio"
-                    name="subscription"
-                    value="unsubscribed"
-                    checked={subscriptionType === "unsubscribed"}
-                    onChange={(e) => setSubscriptionType(e.target.value)}
-                  />
-                  <span className="radio-label">Unsubscribed</span>
-                </label>
+            {selectedFile && csvHeaders.length > 0 && (
+              <div className="field-mapping-section">
+                <h3 className="section-title">Field Mapping</h3>
+                <p className="mapping-description">
+                  Map your CSV columns to our contact fields to ensure proper data import
+                </p>
+
+                <div className="business-unit-section">
+                  <label className="mapping-label">Business Unit</label>
+                  <div className="radio-group">
+                    <label className="radio-option">
+                      <input
+                        type="radio"
+                        name="businessUnit"
+                        value="Cogentix research"
+                        checked={businessUnit === "Cogentix research"}
+                        onChange={(e) => setBusinessUnit(e.target.value)}
+                      />
+                      <span>Cogentix research</span>
+                    </label>
+                    <label className="radio-option">
+                      <input
+                        type="radio"
+                        name="businessUnit"
+                        value="Survey Field Work"
+                        checked={businessUnit === "Survey Field Work"}
+                        onChange={(e) => setBusinessUnit(e.target.value)}
+                      />
+                      <span>Survey Field Work</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="mapping-grid">
+                  <div className="mapping-row">
+                    <label className="mapping-label">Name</label>
+                    <select
+                      value={fieldMapping.name}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, name: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">First Name</label>
+                    <select
+                      value={fieldMapping.firstName}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, firstName: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Last Name</label>
+                    <select
+                      value={fieldMapping.lastName}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, lastName: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Email Address *</label>
+                    <select
+                      value={fieldMapping.email}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, email: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Email Status</label>
+                    <select
+                      value={fieldMapping.emailStatus}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, emailStatus: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Title</label>
+                    <select
+                      value={fieldMapping.title}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, title: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">LinkedIn</label>
+                    <select
+                      value={fieldMapping.linkedin}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, linkedin: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Location</label>
+                    <select
+                      value={fieldMapping.location}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, location: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Added On</label>
+                    <select
+                      value={fieldMapping.addedOn}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, addedOn: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Company Name</label>
+                    <select
+                      value={fieldMapping.companyName}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, companyName: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Company Domain</label>
+                    <select
+                      value={fieldMapping.companyDomain}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, companyDomain: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Company Website</label>
+                    <select
+                      value={fieldMapping.companyWebsite}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, companyWebsite: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Company Employee Count</label>
+                    <select
+                      value={fieldMapping.companyEmployeeCount}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, companyEmployeeCount: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Company Employee Count Range</label>
+                    <select
+                      value={fieldMapping.companyEmployeeCountRange}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, companyEmployeeCountRange: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Company Founded</label>
+                    <select
+                      value={fieldMapping.companyFounded}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, companyFounded: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Company Industry</label>
+                    <select
+                      value={fieldMapping.companyIndustry}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, companyIndustry: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Company Type</label>
+                    <select
+                      value={fieldMapping.companyType}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, companyType: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      <option value="Public">Public</option>
+                      <option value="Private">Private</option>
+                      <option value="Startup">Startup</option>
+                      <option value="Non-profit">Non-profit</option>
+                      <option value="Government">Government</option>
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Company Headquarters</label>
+                    <select
+                      value={fieldMapping.companyHeadquarters}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, companyHeadquarters: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Company Revenue Range</label>
+                    <select
+                      value={fieldMapping.companyRevenueRange}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, companyRevenueRange: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      <option value="$0-$1M">$0-$1M</option>
+                      <option value="$1M-$10M">$1M-$10M</option>
+                      <option value="$10M-$50M">$10M-$50M</option>
+                      <option value="$50M-$100M">$50M-$100M</option>
+                      <option value="$100M-$500M">$100M-$500M</option>
+                      <option value="$500M+">$500M+</option>
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Company LinkedIn URL</label>
+                    <select
+                      value={fieldMapping.companyLinkedinUrl}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, companyLinkedinUrl: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Company Crunchbase URL</label>
+                    <select
+                      value={fieldMapping.companyCrunchbaseUrl}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, companyCrunchbaseUrl: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Company Funding Rounds</label>
+                    <select
+                      value={fieldMapping.companyFundingRounds}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, companyFundingRounds: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Company Last Funding Round Amount</label>
+                    <select
+                      value={fieldMapping.companyLastFundingRoundAmount}
+                      onChange={(e) =>
+                        setFieldMapping({ ...fieldMapping, companyLastFundingRoundAmount: e.target.value })
+                      }
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Company Logo URL Primary</label>
+                    <select
+                      value={fieldMapping.companyLogoUrlPrimary}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, companyLogoUrlPrimary: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="mapping-row">
+                    <label className="mapping-label">Company Logo URL Secondary</label>
+                    <select
+                      value={fieldMapping.companyLogoUrlSecondary}
+                      onChange={(e) => setFieldMapping({ ...fieldMapping, companyLogoUrlSecondary: e.target.value })}
+                      className="mapping-select"
+                    >
+                      <option value="">Select column</option>
+                      {csvHeaders.map((header, index) => (
+                        <option key={index} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
-              <p className="subscription-note">
-                Choose the most accurate subscription status to avoid contacts from unsubscribing
-              </p>
-            </div>
+            )}
 
-            <div className="field-mapping-section">
-              <h3 className="section-title">Field Mapping</h3>
-              <p className="mapping-description">
-                Map your CSV columns to our contact fields to ensure proper data import
-              </p>
-
-              <div className="mapping-grid">
-                <div className="mapping-row">
-                  <label className="mapping-label">Email Address *</label>
-                  <select
-                    value={fieldMapping.email}
-                    onChange={(e) => setFieldMapping({ ...fieldMapping, email: e.target.value })}
-                    className="mapping-select"
-                  >
-                    <option value="">Select column</option>
-                    <option value="email">Email</option>
-                    <option value="email_address">Email Address</option>
-                    <option value="contact_email">Contact Email</option>
-                  </select>
+            {selectedFile && csvHeaders.length > 0 && (
+              <>
+                <div className="import-section">
+                  {!showEmailOptions ? (
+                    <button className="btn-primary" onClick={handleImportContacts}>
+                      Import Contacts to Database
+                    </button>
+                  ) : (
+                    <div className="email-section">
+                      <h3>Send Emails (Optional)</h3>
+                      <div className="checkbox-options">
+                        <div className="checkbox-option">
+                          <input type="checkbox" id="skip-duplicates" />
+                          <label htmlFor="skip-duplicates">Skip duplicate contacts</label>
+                        </div>
+                        <div className="checkbox-option">
+                          <input type="checkbox" id="validate-emails" />
+                          <label htmlFor="validate-emails">Validate email addresses</label>
+                        </div>
+                      </div>
+                      <div className="email-buttons">
+                        <button className="btn-secondary" onClick={handleBackToMethods}>
+                          Back to Import
+                        </button>
+                        <button className="btn-primary" onClick={handleSendEmails}>
+                          Send Emails
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-
-                <div className="mapping-row">
-                  <label className="mapping-label">First Name</label>
-                  <select
-                    value={fieldMapping.firstName}
-                    onChange={(e) => setFieldMapping({ ...fieldMapping, firstName: e.target.value })}
-                    className="mapping-select"
-                  >
-                    <option value="">Select column</option>
-                    <option value="first_name">First Name</option>
-                    <option value="fname">FName</option>
-                    <option value="given_name">Given Name</option>
-                  </select>
-                </div>
-
-                <div className="mapping-row">
-                  <label className="mapping-label">Last Name</label>
-                  <select
-                    value={fieldMapping.lastName}
-                    onChange={(e) => setFieldMapping({ ...fieldMapping, lastName: e.target.value })}
-                    className="mapping-select"
-                  >
-                    <option value="">Select column</option>
-                    <option value="last_name">Last Name</option>
-                    <option value="lname">LName</option>
-                    <option value="surname">Surname</option>
-                  </select>
-                </div>
-
-                <div className="mapping-row">
-                  <label className="mapping-label">Phone Number</label>
-                  <select
-                    value={fieldMapping.phone}
-                    onChange={(e) => setFieldMapping({ ...fieldMapping, phone: e.target.value })}
-                    className="mapping-select"
-                  >
-                    <option value="">Select column</option>
-                    <option value="phone">Phone</option>
-                    <option value="phone_number">Phone Number</option>
-                    <option value="mobile">Mobile</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div className="advanced-options-section">
-              <button className="advanced-toggle" onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}>
-                Show advanced options {showAdvancedOptions ? "▼" : "▶"}
-              </button>
-
-              {showAdvancedOptions && (
-                <div className="advanced-content">
-                  <div className="checkbox-option">
-                    <input type="checkbox" id="skip-duplicates" />
-                    <label htmlFor="skip-duplicates">Skip duplicate contacts</label>
-                  </div>
-                  <div className="checkbox-option">
-                    <input type="checkbox" id="validate-emails" />
-                    <label htmlFor="validate-emails">Validate email addresses</label>
-                  </div>
-                  <div className="checkbox-option">
-                    <input type="checkbox" id="send-welcome" />
-                    <label htmlFor="send-welcome">Send welcome email to new contacts</label>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="action-buttons">
-              <button className="btn-secondary" onClick={handleBackToMethods}>
-                Back to Methods
-              </button>
-              <button className="btn-primary" onClick={handleImportContacts}>
-                Import Contacts
-              </button>
-            </div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -691,8 +1166,8 @@ function CreateContacts({ onBack }) {
               <div className="card-icon">
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M9 12l2 2 4-4" />
-                  <path d="M21 12c-1 0-3-1-3-3s2-3 3-3 3 1 3 3-2 3-3 3" />
-                  <path d="M3 12c1 0 3-1 3-3s-2-3-3-3-3 1-3 3 2 3 3 3" />
+                  <path d="M21 12c-1 0-3-1-9-3s-9-1.34-9-3 2-3 9-3 9 1.34 9 3" />
+                  <path d="M3 12c1 0 3-1 3-3s-2-3-3-3-3 1-3 3" />
                   <path d="M12 3v6m0 6v6" />
                 </svg>
               </div>

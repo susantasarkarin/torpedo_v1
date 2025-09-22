@@ -1,11 +1,11 @@
 import os
-import csv
 import traceback
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from pymongo import MongoClient
 from mailersend import MailerSendClient, EmailBuilder
+from typing import List, Dict, Any
 
 # ----------------------------
 # Load environment variables
@@ -63,54 +63,70 @@ def send_email(to_email: str, subject: str, body: str):
         email = email_builder.build()
         response = mailer.emails.send(email)
         return response
-
     except Exception as e:
         print(f"❌ MailerSend failed for {to_email}: {e}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"MailerSend error: {str(e)}")
 
-# --------------------------
-# CSV Upload Endpoint
-# --------------------------
+# ----------------------------
+# Upload Contacts (Database Only)
+# ----------------------------
 @app.post("/upload-csv/")
-async def upload_csv(file: UploadFile = File(...)):
-    if not file.filename.endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Only CSV files are allowed")
+async def upload_csv(data: Dict[str, List[Dict[str, Any]]] = Body(...)):
+    contacts = data.get("contacts", [])
+    inserted_contacts = []
 
-    contents = await file.read()
-    decoded = contents.decode("utf-8").splitlines()
-    reader = csv.DictReader(decoded)
-
-    contacts = []
-
-    for row in reader:
-        # Strip spaces to prevent invalid emails
-        email = (row.get("email") or row.get("Email") or "").strip()
-        name = (row.get("name") or row.get("Name") or "").strip()
-
+    for contact in contacts:
+        email = contact.get("email", "").strip()
         if not email:
             continue  # Skip rows without email
 
-        contact = {"email": email, "name": name}
-
-        # Insert into MongoDB
         try:
             result = contacts_collection.insert_one(contact)
-            contact["_id"] = str(result.inserted_id)  # Convert ObjectId to string
+            contact["_id"] = str(result.inserted_id)
+            inserted_contacts.append(contact)
         except Exception as e:
             print(f"MongoDB insert failed for {email}: {e}")
             continue
 
-        # Send email
+    return {"message": f"Successfully uploaded {len(inserted_contacts)} contacts to database!", "contacts": inserted_contacts}
+
+# ----------------------------
+# Send Emails (Separate Endpoint)
+# ----------------------------
+@app.post("/send-emails/")
+async def send_emails(data: Dict[str, Any] = Body(...)):
+    contacts = data.get("contacts", [])
+    send_welcome = data.get("sendWelcome", False)
+    validate_emails = data.get("validateEmails", False)
+    
+    if not contacts:
+        raise HTTPException(status_code=400, detail="No contacts provided")
+    
+    sent_emails = []
+    failed_emails = []
+
+    for contact in contacts:
+        email = contact.get("email", "").strip()
+        if not email:
+            continue
+
         try:
+            subject = "Welcome from CRM" if send_welcome else "Greetings from CRM"
+            body = f"Greetings {contact.get('firstName') or contact.get('name') or 'there'},\nHope you are doing well,This is a new message from our CRM system!"
+            
             send_email(
                 to_email=email,
-                subject="Welcome from CRM",
-                body=f"Greetings {name or 'there'},\nThis is a test email from our CRM automation!"
+                subject=subject,
+                body=body
             )
+            sent_emails.append(email)
         except Exception as e:
             print(f"MailerSend failed for {email}: {e}")
+            failed_emails.append({"email": email, "error": str(e)})
 
-        contacts.append(contact)
-
-    return {"message": "CSV uploaded and emails processed!", "contacts": contacts}
+    return {
+        "message": f"Emails sent to {len(sent_emails)} contacts!",
+        "sent": sent_emails,
+        "failed": failed_emails
+    }
