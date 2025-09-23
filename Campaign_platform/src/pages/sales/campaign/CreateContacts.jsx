@@ -1,9 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import "./CreateContacts.css"
 
-function CreateContacts({ onBack }) {
+function CreateContacts({ onBack, listName }) {
+  // Added listName prop
   const [currentView, setCurrentView] = useState("methods") // 'methods', 'csv-upload', or 'manual-form'
   const [selectedFile, setSelectedFile] = useState(null)
   const [csvHeaders, setCsvHeaders] = useState([])
@@ -12,7 +13,6 @@ function CreateContacts({ onBack }) {
     email: "",
     firstName: "",
     lastName: "",
-    phone: "",
     name: "",
     emailStatus: "",
     title: "",
@@ -38,6 +38,9 @@ function CreateContacts({ onBack }) {
   })
   const [importedContacts, setImportedContacts] = useState([])
   const [showEmailOptions, setShowEmailOptions] = useState(false)
+  const [dbCount, setDbCount] = useState(null)
+  const [lastUploadSummary, setLastUploadSummary] = useState(null) // { parsed, inserted, skipped }
+  const [csvPreview, setCsvPreview] = useState([]) // first few uploaded contacts for UI preview
 
   const [manualFormData, setManualFormData] = useState({
     name: "",
@@ -67,6 +70,28 @@ function CreateContacts({ onBack }) {
     companyLogoUrlSecondary: "",
     businessUnit: "Cogentix research", // Default to first option
   })
+
+  async function refreshDbCount() {
+    if (!listName) return
+    try {
+      console.log("[v0] fetching Mongo count for list:", listName)
+      const r = await fetch(`http://localhost:8000/contact-count?listName=${encodeURIComponent(listName)}`)
+      if (!r.ok) throw new Error(`count request failed: ${r.status}`)
+      const j = await r.json()
+      setDbCount(typeof j?.count === "number" ? j.count : 0)
+    } catch (e) {
+      console.log("[v0] count fetch failed:", e?.message || e)
+      setDbCount(null) // hide the banner if backend not ready
+    }
+  }
+
+  useEffect(() => {
+    refreshDbCount()
+  }, [listName])
+
+  useEffect(() => {
+    // Add any necessary effect here
+  }, [])
 
   const handleFileSelect = async (event) => {
     const file = event.target.files[0]
@@ -103,6 +128,8 @@ function CreateContacts({ onBack }) {
     // Reset imported contacts and email options when going back to methods
     setImportedContacts([])
     setShowEmailOptions(false)
+    setLastUploadSummary(null)
+    setCsvPreview([])
   }
 
   const handleImportContacts = async () => {
@@ -113,6 +140,11 @@ function CreateContacts({ onBack }) {
 
     if (!fieldMapping.email) {
       alert("Please map the Email field before importing contacts")
+      return
+    }
+
+    if (!listName) {
+      alert("No list selected. Please go back and select a list.")
       return
     }
 
@@ -130,6 +162,7 @@ function CreateContacts({ onBack }) {
 
       console.log("[v0] CSV Headers:", headers)
       console.log("[v0] Field Mapping:", fieldMapping)
+      console.log("[v0] List Name:", listName) // Added logging for listName
 
       // Step 3: Apply field mapping
       const mappedContacts = dataRows.map((row) => {
@@ -137,6 +170,7 @@ function CreateContacts({ onBack }) {
         const contact = {}
 
         contact.businessUnit = businessUnit
+        contact.listName = listName
 
         Object.entries(fieldMapping).forEach(([field, mappedColumn]) => {
           if (mappedColumn) {
@@ -153,6 +187,9 @@ function CreateContacts({ onBack }) {
       console.log("[v0] Mapped Contacts:", mappedContacts)
       console.log("[v0] Sample contact:", mappedContacts[0])
 
+      setLastUploadSummary({ parsed: mappedContacts.length, inserted: 0, skipped: 0 })
+      setCsvPreview(mappedContacts.slice(0, 5))
+
       // Step 4: Send mapped data to backend for database storage only
       const res = await fetch("http://localhost:8000/upload-csv/", {
         method: "POST",
@@ -162,10 +199,18 @@ function CreateContacts({ onBack }) {
 
       const data = await res.json()
       if (res.ok) {
-        alert(data.message || "Contacts uploaded successfully to database!")
-        console.log("[v0] Backend response:", data)
-        setImportedContacts(mappedContacts)
+        const inserted = Array.isArray(data?.contacts) ? data.contacts.length : 0
+        const skipped = Math.max(mappedContacts.length - inserted, 0)
+        setLastUploadSummary({ parsed: mappedContacts.length, inserted, skipped })
+        setImportedContacts(Array.isArray(data?.contacts) && data.contacts.length > 0 ? data.contacts : mappedContacts)
+        setCsvPreview(
+          Array.isArray(data?.contacts) && data.contacts.length > 0
+            ? data.contacts.slice(0, 5)
+            : mappedContacts.slice(0, 5),
+        )
         setShowEmailOptions(true)
+
+        refreshDbCount()
       } else {
         console.log("[v0] Backend error:", data)
         alert("Error: " + (data.detail || "Upload failed"))
@@ -620,6 +665,65 @@ function CreateContacts({ onBack }) {
           </div>
           <h1 className="page-title">Import Contacts</h1>
           <p className="page-description">Upload your contact list and configure import settings</p>
+
+          <div className="mt-2 flex items-center gap-2">
+            <button className="btn-secondary" onClick={onBack} type="button">
+              {"← Back to Lists"}
+            </button>
+            {selectedFile && (
+              <span className="inline-flex items-center rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-xs text-[var(--foreground)]">
+                File: <span className="ml-1 font-medium">{selectedFile.name}</span>
+              </span>
+            )}
+          </div>
+
+          {dbCount !== null && (
+            <div className="mt-3 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm text-[var(--muted-foreground)]">
+              Ready to add contacts — <span className="font-medium text-[var(--foreground)]">{dbCount}</span> in MongoDB
+              for "{listName}"
+              <button
+                className="ml-3 inline-flex items-center rounded-md border border-[var(--border)] px-2 py-1 text-xs hover:bg-[var(--accent)]"
+                onClick={refreshDbCount}
+                type="button"
+              >
+                Refresh
+              </button>
+            </div>
+          )}
+
+          {lastUploadSummary && (
+            <div className="mt-3 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm text-[var(--muted-foreground)]">
+              CSV uploaded — Parsed:
+              <span className="mx-1 font-medium text-[var(--foreground)]">{lastUploadSummary.parsed}</span>, Inserted:
+              <span className="mx-1 font-medium text-[var(--foreground)]">{lastUploadSummary.inserted}</span>,
+              Skipped/duplicates:
+              <span className="mx-1 font-medium text-[var(--foreground)]">{lastUploadSummary.skipped}</span>
+              {csvPreview.length > 0 && (
+                <div className="mt-2 overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="text-[var(--foreground)]">
+                      <tr>
+                        <th className="py-1 pr-3">Email</th>
+                        <th className="py-1 pr-3">Name</th>
+                        <th className="py-1 pr-3">Company</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {csvPreview.map((c, idx) => (
+                        <tr key={idx} className="border-t border-[var(--border)]">
+                          <td className="py-1 pr-3">{c.email || "-"}</td>
+                          <td className="py-1 pr-3">
+                            {c.name || `${(c.firstName || "").trim()} ${(c.lastName || "").trim()}`.trim() || "-"}
+                          </td>
+                          <td className="py-1 pr-3">{c.companyName || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="csv-upload-container">
@@ -1129,6 +1233,12 @@ function CreateContacts({ onBack }) {
         </div>
         <h1 className="page-title">Choose Your Contact Method</h1>
         <p className="page-description">Select the best way to build your contact list</p>
+
+        <div className="mt-2">
+          <button className="btn-secondary" onClick={onBack} type="button">
+            {"← Back to Lists"}
+          </button>
+        </div>
       </div>
 
       <div className="method-cards">

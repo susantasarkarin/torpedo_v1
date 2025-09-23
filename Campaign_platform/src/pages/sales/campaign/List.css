@@ -311,6 +311,26 @@
   transition: all 0.2s ease;
 }
 
+.back-btn.back-btn--contrast,
+.detail-header .back-btn {
+  background: linear-gradient(135deg, #eef2ff 0%, #ede9fe 100%);
+  color: #1f2a44; /* dark readable text */
+  border: 1px solid #667eea; /* tie into brand blue */
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.25);
+}
+
+.back-btn.back-btn--contrast:hover,
+.detail-header .back-btn:hover {
+  background: #e0e7ff;
+  color: #1e1b4b;
+}
+
+.back-btn.back-btn--contrast:focus-visible,
+.detail-header .back-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.35);
+}
+
 .back-btn:hover {
   background: rgba(255, 255, 255, 0.3);
 }
