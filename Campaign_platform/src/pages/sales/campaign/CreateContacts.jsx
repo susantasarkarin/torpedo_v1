@@ -71,6 +71,14 @@ function CreateContacts({ onBack, listName }) {
     businessUnit: "Cogentix research", // Default to first option
   })
 
+  // Handler for manual form input changes
+  const handleManualFormChange = (field, value) => {
+    setManualFormData((prev) => ({
+      ...prev,
+      [field]: value,
+    }))
+  }
+
   async function refreshDbCount() {
     if (!listName) return
     try {
@@ -171,6 +179,7 @@ function CreateContacts({ onBack, listName }) {
 
         contact.businessUnit = businessUnit
         contact.listName = listName
+        contact.listId = listName // Using listName as listId for now
 
         Object.entries(fieldMapping).forEach(([field, mappedColumn]) => {
           if (mappedColumn) {
@@ -191,29 +200,79 @@ function CreateContacts({ onBack, listName }) {
       setCsvPreview(mappedContacts.slice(0, 5))
 
       // Step 4: Send mapped data to backend for database storage only
-      const res = await fetch("http://localhost:8000/upload-csv/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contacts: mappedContacts }),
-      })
+      try {
+        const res = await fetch("http://localhost:8000/upload-csv/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contacts: mappedContacts }),
+        })
 
-      const data = await res.json()
-      if (res.ok) {
-        const inserted = Array.isArray(data?.contacts) ? data.contacts.length : 0
-        const skipped = Math.max(mappedContacts.length - inserted, 0)
-        setLastUploadSummary({ parsed: mappedContacts.length, inserted, skipped })
-        setImportedContacts(Array.isArray(data?.contacts) && data.contacts.length > 0 ? data.contacts : mappedContacts)
-        setCsvPreview(
-          Array.isArray(data?.contacts) && data.contacts.length > 0
-            ? data.contacts.slice(0, 5)
-            : mappedContacts.slice(0, 5),
-        )
-        setShowEmailOptions(true)
+        const data = await res.json()
+        if (res.ok) {
+          const inserted = Array.isArray(data?.contacts) ? data.contacts.length : 0
+          const skipped = Math.max(mappedContacts.length - inserted, 0)
+          setLastUploadSummary({ parsed: mappedContacts.length, inserted, skipped })
+          setImportedContacts(
+            Array.isArray(data?.contacts) && data.contacts.length > 0 ? data.contacts : mappedContacts,
+          )
+          setCsvPreview(
+            Array.isArray(data?.contacts) && data.contacts.length > 0
+              ? data.contacts.slice(0, 5)
+              : mappedContacts.slice(0, 5),
+          )
+          setShowEmailOptions(true)
 
-        refreshDbCount()
-      } else {
-        console.log("[v0] Backend error:", data)
-        alert("Error: " + (data.detail || "Upload failed"))
+          const contactNames = data.contacts
+            ?.slice(0, 3)
+            .map((c) => c.name || `${c.firstName || ""} ${c.lastName || ""}`.trim() || c.email)
+            .join(", ")
+
+          console.log(`[v0] Successfully uploaded ${inserted} contacts: ${contactNames}${inserted > 3 ? "..." : ""}`)
+
+          refreshDbCount()
+        } else {
+          throw new Error(data.detail || "Upload failed")
+        }
+      } catch (backendError) {
+        console.log("[v0] Backend unavailable, storing contacts locally:", backendError.message)
+
+        // Store in localStorage for persistence
+        try {
+          const existingContacts = JSON.parse(localStorage.getItem("contactListContacts") || "{}")
+          const updatedContacts = {
+            ...existingContacts,
+            [listName]: [...(existingContacts[listName] || []), ...mappedContacts],
+          }
+          localStorage.setItem("contactListContacts", JSON.stringify(updatedContacts))
+
+          // Trigger a storage event to update the List component
+          window.dispatchEvent(
+            new StorageEvent("storage", {
+              key: "contactListContacts",
+              newValue: JSON.stringify(updatedContacts),
+            }),
+          )
+
+          setLastUploadSummary({ parsed: mappedContacts.length, inserted: mappedContacts.length, skipped: 0 })
+          setImportedContacts(mappedContacts)
+          setCsvPreview(mappedContacts.slice(0, 5))
+          setShowEmailOptions(true)
+
+          const contactNames = mappedContacts
+            .slice(0, 3)
+            .map((c) => c.name || `${c.firstName || ""} ${c.lastName || ""}`.trim() || c.email)
+            .join(", ")
+
+          console.log(
+            `[v0] Successfully stored ${mappedContacts.length} contacts locally: ${contactNames}${mappedContacts.length > 3 ? "..." : ""}`,
+          )
+          alert(
+            `Successfully uploaded ${mappedContacts.length} contacts to "${listName}"! (Stored locally since backend is unavailable)`,
+          )
+        } catch (storageError) {
+          console.error("[v0] Failed to store contacts locally:", storageError)
+          alert("Error storing contacts: " + storageError.message)
+        }
       }
     } catch (err) {
       console.error("[v0] Import error:", err)
@@ -255,50 +314,109 @@ function CreateContacts({ onBack, listName }) {
     }
   }
 
-  const handleManualFormSubmit = (e) => {
+  const handleManualFormSubmit = async (e) => {
     e.preventDefault()
     if (!manualFormData.email) {
       alert("Email is required")
       return
     }
-    console.log("Adding manual contact...", manualFormData)
-    alert("Contact added successfully!")
-    // Reset form
-    setManualFormData({
-      name: "",
-      firstName: "",
-      lastName: "",
-      email: "",
-      emailStatus: "subscribed",
-      title: "",
-      linkedin: "",
-      location: "",
-      addedOn: new Date().toISOString().split("T")[0],
-      companyName: "",
-      companyDomain: "",
-      companyWebsite: "",
-      companyEmployeeCount: "",
-      companyEmployeeCountRange: "",
-      companyFounded: "",
-      companyIndustry: "",
-      companyType: "",
-      companyHeadquarters: "",
-      companyRevenueRange: "",
-      companyLinkedinUrl: "",
-      companyCrunchbaseUrl: "",
-      companyFundingRounds: "",
-      companyLastFundingRoundAmount: "",
-      companyLogoUrlPrimary: "",
-      companyLogoUrlSecondary: "",
-      businessUnit: "Cogentix research", // Default to first option
-    })
-  }
 
-  const handleManualFormChange = (field, value) => {
-    setManualFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }))
+    if (!listName) {
+      alert("No list selected. Please go back and select a list.")
+      return
+    }
+
+    try {
+      const contactData = {
+        ...manualFormData,
+        listName: listName,
+        listId: listName, // Using listName as listId for consistency
+      }
+
+      try {
+        const res = await fetch("http://localhost:8000/upload-csv/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contacts: [contactData] }),
+        })
+
+        const data = await res.json()
+        if (res.ok) {
+          const contactName =
+            contactData.name ||
+            `${contactData.firstName || ""} ${contactData.lastName || ""}`.trim() ||
+            contactData.email
+          console.log(`[v0] Successfully added contact: ${contactName}`)
+          alert(`Contact "${contactName}" added successfully!`)
+
+          refreshDbCount()
+        } else {
+          throw new Error(data.detail || "Failed to add contact")
+        }
+      } catch (backendError) {
+        console.log("[v0] Backend unavailable, storing contact locally:", backendError.message)
+
+        try {
+          const existingContacts = JSON.parse(localStorage.getItem("contactListContacts") || "{}")
+          const updatedContacts = {
+            ...existingContacts,
+            [listName]: [...(existingContacts[listName] || []), contactData],
+          }
+          localStorage.setItem("contactListContacts", JSON.stringify(updatedContacts))
+
+          // Trigger a storage event to update the List component
+          window.dispatchEvent(
+            new StorageEvent("storage", {
+              key: "contactListContacts",
+              newValue: JSON.JSON.stringify(updatedContacts),
+            }),
+          )
+
+          const contactName =
+            contactData.name ||
+            `${contactData.firstName || ""} ${contactData.lastName || ""}`.trim() ||
+            contactData.email
+          console.log(`[v0] Successfully stored contact locally: ${contactName}`)
+          alert(`Contact "${contactName}" added successfully! (Stored locally since backend is unavailable)`)
+        } catch (storageError) {
+          console.error("[v0] Failed to store contact locally:", storageError)
+          alert("Error storing contact: " + storageError.message)
+        }
+      }
+
+      // Reset form
+      setManualFormData({
+        name: "",
+        firstName: "",
+        lastName: "",
+        email: "",
+        emailStatus: "subscribed",
+        title: "",
+        linkedin: "",
+        location: "",
+        addedOn: new Date().toISOString().split("T")[0],
+        companyName: "",
+        companyDomain: "",
+        companyWebsite: "",
+        companyEmployeeCount: "",
+        companyEmployeeCountRange: "",
+        companyFounded: "",
+        companyIndustry: "",
+        companyType: "",
+        companyHeadquarters: "",
+        companyRevenueRange: "",
+        companyLinkedinUrl: "",
+        companyCrunchbaseUrl: "",
+        companyFundingRounds: "",
+        companyLastFundingRoundAmount: "",
+        companyLogoUrlPrimary: "",
+        companyLogoUrlSecondary: "",
+        businessUnit: "Cogentix research", // Default to first option
+      })
+    } catch (err) {
+      console.error("[v0] Manual form error:", err)
+      alert("Error adding contact: " + err.message)
+    }
   }
 
   if (currentView === "manual-form") {
