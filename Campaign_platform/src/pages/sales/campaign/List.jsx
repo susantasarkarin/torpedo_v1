@@ -13,6 +13,14 @@ function List() {
   const [contacts, setContacts] = useState([]) // ✅ store contacts for selected list
   const [backendConnected, setBackendConnected] = useState(false)
 
+  const [filters, setFilters] = useState({
+    search: "",
+    status: "all",
+    contactCount: "all",
+    dateRange: "all",
+  })
+  const [sortBy, setSortBy] = useState("recent")
+
   const [localContacts, setLocalContacts] = useState(() => {
     try {
       const stored = localStorage.getItem("contactListContacts")
@@ -52,13 +60,27 @@ function List() {
       name: "Sales Prospects",
       contacts: 2,
       created: "Dec 13, 2024",
-      status: "active",
+      status: "inactive",
     },
     {
       _id: "list5",
       name: "List 5",
       contacts: 1,
       created: "Dec 16, 2024",
+      status: "active",
+    },
+    {
+      _id: "list6",
+      name: "VIP Customers",
+      contacts: 8,
+      created: "Dec 10, 2024",
+      status: "active",
+    },
+    {
+      _id: "list7",
+      name: "Newsletter Subscribers",
+      contacts: 15,
+      created: "Nov 28, 2024",
       status: "active",
     },
   ]
@@ -112,6 +134,148 @@ function List() {
         name: "Bob Davis",
         companyName: "Global Business",
         businessUnit: "Finance",
+      },
+    ],
+    "VIP Customers": [
+      {
+        email: "vip1@example.com",
+        name: "VIP One",
+        companyName: "VIP Co",
+        businessUnit: "Executive",
+      },
+      {
+        email: "vip2@example.com",
+        name: "VIP Two",
+        companyName: "VIP Co",
+        businessUnit: "Executive",
+      },
+      {
+        email: "vip3@example.com",
+        name: "VIP Three",
+        companyName: "VIP Co",
+        businessUnit: "Executive",
+      },
+      {
+        email: "vip4@example.com",
+        name: "VIP Four",
+        companyName: "VIP Co",
+        businessUnit: "Executive",
+      },
+      {
+        email: "vip5@example.com",
+        name: "VIP Five",
+        companyName: "VIP Co",
+        businessUnit: "Executive",
+      },
+      {
+        email: "vip6@example.com",
+        name: "VIP Six",
+        companyName: "VIP Co",
+        businessUnit: "Executive",
+      },
+      {
+        email: "vip7@example.com",
+        name: "VIP Seven",
+        companyName: "VIP Co",
+        businessUnit: "Executive",
+      },
+      {
+        email: "vip8@example.com",
+        name: "VIP Eight",
+        companyName: "VIP Co",
+        businessUnit: "Executive",
+      },
+    ],
+    "Newsletter Subscribers": [
+      {
+        email: "subscriber1@example.com",
+        name: "Subscriber One",
+        companyName: "Subscriber Co",
+        businessUnit: "Marketing",
+      },
+      {
+        email: "subscriber2@example.com",
+        name: "Subscriber Two",
+        companyName: "Subscriber Co",
+        businessUnit: "Marketing",
+      },
+      {
+        email: "subscriber3@example.com",
+        name: "Subscriber Three",
+        companyName: "Subscriber Co",
+        businessUnit: "Marketing",
+      },
+      {
+        email: "subscriber4@example.com",
+        name: "Subscriber Four",
+        companyName: "Subscriber Co",
+        businessUnit: "Marketing",
+      },
+      {
+        email: "subscriber5@example.com",
+        name: "Subscriber Five",
+        companyName: "Subscriber Co",
+        businessUnit: "Marketing",
+      },
+      {
+        email: "subscriber6@example.com",
+        name: "Subscriber Six",
+        companyName: "Subscriber Co",
+        businessUnit: "Marketing",
+      },
+      {
+        email: "subscriber7@example.com",
+        name: "Subscriber Seven",
+        companyName: "Subscriber Co",
+        businessUnit: "Marketing",
+      },
+      {
+        email: "subscriber8@example.com",
+        name: "Subscriber Eight",
+        companyName: "Subscriber Co",
+        businessUnit: "Marketing",
+      },
+      {
+        email: "subscriber9@example.com",
+        name: "Subscriber Nine",
+        companyName: "Subscriber Co",
+        businessUnit: "Marketing",
+      },
+      {
+        email: "subscriber10@example.com",
+        name: "Subscriber Ten",
+        companyName: "Subscriber Co",
+        businessUnit: "Marketing",
+      },
+      {
+        email: "subscriber11@example.com",
+        name: "Subscriber Eleven",
+        companyName: "Subscriber Co",
+        businessUnit: "Marketing",
+      },
+      {
+        email: "subscriber12@example.com",
+        name: "Subscriber Twelve",
+        companyName: "Subscriber Co",
+        businessUnit: "Marketing",
+      },
+      {
+        email: "subscriber13@example.com",
+        name: "Subscriber Thirteen",
+        companyName: "Subscriber Co",
+        businessUnit: "Marketing",
+      },
+      {
+        email: "subscriber14@example.com",
+        name: "Subscriber Fourteen",
+        companyName: "Subscriber Co",
+        businessUnit: "Marketing",
+      },
+      {
+        email: "subscriber15@example.com",
+        name: "Subscriber Fifteen",
+        companyName: "Subscriber Co",
+        businessUnit: "Marketing",
       },
     ],
   }
@@ -250,6 +414,102 @@ function List() {
     setCurrentView("main")
   }
 
+  const getFilteredAndSortedLists = () => {
+    let filteredLists = [...lists]
+
+    // Apply search filter
+    if (filters.search) {
+      filteredLists = filteredLists.filter((list) => list.name.toLowerCase().includes(filters.search.toLowerCase()))
+    }
+
+    // Apply status filter
+    if (filters.status !== "all") {
+      filteredLists = filteredLists.filter((list) => list.status === filters.status)
+    }
+
+    // Apply contact count filter
+    if (filters.contactCount !== "all") {
+      filteredLists = filteredLists.filter((list) => {
+        const count = list.contacts || 0
+        switch (filters.contactCount) {
+          case "empty":
+            return count === 0
+          case "small":
+            return count >= 1 && count <= 5
+          case "medium":
+            return count >= 6 && count <= 15
+          case "large":
+            return count > 15
+          default:
+            return true
+        }
+      })
+    }
+
+    // Apply date range filter
+    if (filters.dateRange !== "all") {
+      const now = new Date()
+      filteredLists = filteredLists.filter((list) => {
+        const listDate = new Date(list.created)
+        const daysDiff = Math.floor((now - listDate) / (1000 * 60 * 60 * 24))
+
+        switch (filters.dateRange) {
+          case "today":
+            return daysDiff === 0
+          case "week":
+            return daysDiff <= 7
+          case "month":
+            return daysDiff <= 30
+          case "older":
+            return daysDiff > 30
+          default:
+            return true
+        }
+      })
+    }
+
+    // Apply sorting
+    filteredLists.sort((a, b) => {
+      switch (sortBy) {
+        case "recent":
+          return new Date(b.created) - new Date(a.created)
+        case "name":
+          return a.name.localeCompare(b.name)
+        case "contacts":
+          return (b.contacts || 0) - (a.contacts || 0)
+        default:
+          return 0
+      }
+    })
+
+    return filteredLists
+  }
+
+  const handleFilterChange = (filterType, value) => {
+    setFilters((prev) => ({
+      ...prev,
+      [filterType]: value,
+    }))
+  }
+
+  const clearAllFilters = () => {
+    setFilters({
+      search: "",
+      status: "all",
+      contactCount: "all",
+      dateRange: "all",
+    })
+  }
+
+  const getActiveFilterCount = () => {
+    let count = 0
+    if (filters.search) count++
+    if (filters.status !== "all") count++
+    if (filters.contactCount !== "all") count++
+    if (filters.dateRange !== "all") count++
+    return count
+  }
+
   if (showCreateContacts) {
     return (
       <CreateContacts
@@ -385,6 +645,9 @@ function List() {
     )
   }
 
+  const filteredLists = getFilteredAndSortedLists()
+  const activeFilterCount = getActiveFilterCount()
+
   return (
     <div className="list-container">
       <div className="list-header">
@@ -406,60 +669,165 @@ function List() {
           <div className="stat-label">Total Lists</div>
         </div>
         <div className="stat-card">
-          <div className="stat-number">85%</div>
-          <div className="stat-label">Active Rate</div>
+          <div className="stat-number">{filteredLists.length}</div>
+          <div className="stat-label">Filtered Results</div>
         </div>
       </div>
 
       <div className="content-wrapper">
         <div className="filters-panel">
-          <h3 className="panel-title">Filters</h3>
-          {/* your filter controls remain unchanged */}
+          <div className="filter-header">
+            <h3 className="panel-title">Filters</h3>
+            {activeFilterCount > 0 && (
+              <button className="clear-filters-btn" onClick={clearAllFilters}>
+                Clear All ({activeFilterCount})
+              </button>
+            )}
+          </div>
+
+          <div className="filter-group">
+            <label className="filter-label">Search Lists</label>
+            <input
+              type="text"
+              className="filter-input"
+              placeholder="Search by name..."
+              value={filters.search}
+              onChange={(e) => handleFilterChange("search", e.target.value)}
+            />
+          </div>
+
+          <div className="filter-group">
+            <label className="filter-label">Status</label>
+            <div className="radio-group">
+              {[
+                { value: "all", label: "All Status" },
+                { value: "active", label: "Active" },
+                { value: "inactive", label: "Inactive" },
+              ].map((option) => (
+                <label key={option.value} className="radio-item">
+                  <input
+                    type="radio"
+                    name="status"
+                    value={option.value}
+                    checked={filters.status === option.value}
+                    onChange={(e) => handleFilterChange("status", e.target.value)}
+                  />
+                  <span className="radio-text">{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="filter-group">
+            <label className="filter-label">Contact Count</label>
+            <div className="radio-group">
+              {[
+                { value: "all", label: "Any Size" },
+                { value: "empty", label: "Empty (0)" },
+                { value: "small", label: "Small (1-5)" },
+                { value: "medium", label: "Medium (6-15)" },
+                { value: "large", label: "Large (15+)" },
+              ].map((option) => (
+                <label key={option.value} className="radio-item">
+                  <input
+                    type="radio"
+                    name="contactCount"
+                    value={option.value}
+                    checked={filters.contactCount === option.value}
+                    onChange={(e) => handleFilterChange("contactCount", e.target.value)}
+                  />
+                  <span className="radio-text">{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="filter-group">
+            <label className="filter-label">Created</label>
+            <div className="radio-group">
+              {[
+                { value: "all", label: "Any Time" },
+                { value: "today", label: "Today" },
+                { value: "week", label: "This Week" },
+                { value: "month", label: "This Month" },
+                { value: "older", label: "Older" },
+              ].map((option) => (
+                <label key={option.value} className="radio-item">
+                  <input
+                    type="radio"
+                    name="dateRange"
+                    value={option.value}
+                    checked={filters.dateRange === option.value}
+                    onChange={(e) => handleFilterChange("dateRange", e.target.value)}
+                  />
+                  <span className="radio-text">{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="lists-section">
           <div className="section-header">
             <h2 className="section-title">Your Lists</h2>
-            <select className="sort-select">
-              <option>Recently Created</option>
-              <option>Name A-Z</option>
-              <option>Most Contacts</option>
+            <select className="sort-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+              <option value="recent">Recently Created</option>
+              <option value="name">Name A-Z</option>
+              <option value="contacts">Most Contacts</option>
             </select>
           </div>
 
+          {activeFilterCount > 0 && (
+            <div className="filter-results">
+              Showing {filteredLists.length} of {lists.length} lists
+            </div>
+          )}
+
           <div className="lists-grid">
-            {lists.map((list) => (
-              <div
-                key={list._id}
-                className="list-card clickable"
-                onClick={() => {
-                  setSelectedList(list)
-                  setCurrentView("listDetail")
-                }}
-              >
-                <div className="card-header">
-                  <div className="list-info">
-                    <h3 className="list-name">{list.name}</h3>
+            {filteredLists.length > 0 ? (
+              filteredLists.map((list) => (
+                <div
+                  key={list._id}
+                  className="list-card clickable"
+                  onClick={() => {
+                    setSelectedList(list)
+                    setCurrentView("listDetail")
+                  }}
+                >
+                  <div className="card-header">
+                    <div className="list-info">
+                      <h3 className="list-name">{list.name}</h3>
+                      {/* <p className="contact-count">{list.contacts || 0} contacts</p> */}
+                    </div>
+                    <div className="card-actions">
+                      <button
+                        className="delete-btn"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDelete(list._id)
+                        }}
+                        title="Delete List"
+                      >
+                        🗑️
+                      </button>
+                    </div>
                   </div>
-                  <div className="card-actions">
-                    <button
-                      className="delete-btn"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDelete(list._id)
-                      }}
-                      title="Delete List"
-                    >
-                      🗑️
-                    </button>
+                  <div className="card-meta">
+                    <span className="created-date">Created {list.created}</span>
+                    <span className={`status-badge ${list.status}`}>{list.status}</span>
                   </div>
                 </div>
-                <div className="card-meta">
-                  <span className="created-date">Created {list.created}</span>
-                  <span className={`status-badge ${list.status}`}>{list.status}</span>
-                </div>
+              ))
+            ) : (
+              <div className="no-results">
+                <div className="no-results-icon">🔍</div>
+                <h3>No lists match your filters</h3>
+                <p>Try adjusting your search criteria or clearing some filters.</p>
+                <button className="clear-filters-btn" onClick={clearAllFilters}>
+                  Clear All Filters
+                </button>
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>
