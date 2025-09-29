@@ -30,19 +30,37 @@
     <div class="signature">
       <p class="signature-name">{{sender.name}}</p>
       <p class="signature-title">{{sender.title}} - {{sender.companyName}}</p>
-      <div class="social-icons">
-        <a href="https://linkedin.com"><img src="/placeholder.svg?height=24&width=24" alt="LinkedIn"></a>
-        <a href="https://instagram.com"><img src="/placeholder.svg?height=24&width=24" alt="Instagram"></a>
-        <a href="https://facebook.com"><img src="/placeholder.svg?height=24&width=24" alt="Facebook"></a>
-      </div>
-      <div class="company-info">
-        <img src="/placeholder.svg?height=40&width=150" alt="Company Logo" class="company-logo">
-        <div class="contact-details">
-          <div><img src="/placeholder.svg?height=16&width=16" alt="Email"> {{sender.email}}</div>
-          <div><img src="/placeholder.svg?height=16&width=16" alt="Website"> {{sender.website}}</div>
-          <div><img src="/placeholder.svg?height=16&width=16" alt="Location"> {{sender.address}}</div>
-        </div>
-      </div>
+<div class="social-icons">
+  <a href="https://linkedin.com">
+    <img src="https://img.icons8.com/color/48/linkedin.png" alt="LinkedIn">
+  </a>
+  <a href="https://instagram.com">
+    <img src="https://img.icons8.com/color/48/instagram-new.png" alt="Instagram">
+  </a>
+  <a href="https://facebook.com">
+    <img src="https://img.icons8.com/color/48/facebook.png" alt="Facebook">
+  </a>
+</div>
+
+<div class="company-info">
+  <img src="https://dummyimage.com/150x40/0056b3/ffffff.png&text=Company+Logo" 
+       alt="Company Logo" class="company-logo">
+  <div class="contact-details">
+    <div>
+      <img src="https://img.icons8.com/ios-filled/50/new-post.png" alt="Email">
+      {{sender.email}}
+    </div>
+    <div>
+      <img src="https://img.icons8.com/ios-filled/50/domain.png" alt="Website">
+      {{sender.website}}
+    </div>
+    <div>
+      <img src="https://img.icons8.com/ios-filled/50/marker.png" alt="Location">
+      {{sender.address}}
+    </div>
+  </div>
+</div>
+
     </div>
   </div>
 </body>

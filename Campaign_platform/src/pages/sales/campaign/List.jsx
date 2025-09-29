@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useLocation, useNavigate } from "react-router-dom"
 import CreateContacts from "./CreateContacts"
 import "./List.css"
 
@@ -30,6 +31,11 @@ function List() {
     }
   })
 
+  // ✅ Workflow integration
+  const location = useLocation()
+  const navigate = useNavigate()
+  const { selectedTemplate } = location.state || {}
+
   const addContactsToLocal = (listName, newContacts) => {
     const updated = {
       ...localContacts,
@@ -40,246 +46,6 @@ function List() {
     console.log(`[v0] Added ${newContacts.length} contacts to local storage for "${listName}"`)
   }
 
-  const mockLists = [
-    {
-      _id: "list1",
-      name: "list 11",
-      contacts: 1,
-      created: "Dec 15, 2024",
-      status: "active",
-    },
-    {
-      _id: "list2",
-      name: "Marketing Leads",
-      contacts: 3,
-      created: "Dec 14, 2024",
-      status: "active",
-    },
-    {
-      _id: "list3",
-      name: "Sales Prospects",
-      contacts: 2,
-      created: "Dec 13, 2024",
-      status: "inactive",
-    },
-    {
-      _id: "list5",
-      name: "List 5",
-      contacts: 1,
-      created: "Dec 16, 2024",
-      status: "active",
-    },
-    {
-      _id: "list6",
-      name: "VIP Customers",
-      contacts: 8,
-      created: "Dec 10, 2024",
-      status: "active",
-    },
-    {
-      _id: "list7",
-      name: "Newsletter Subscribers",
-      contacts: 15,
-      created: "Nov 28, 2024",
-      status: "active",
-    },
-  ]
-
-  const mockContacts = {
-    "list 11": [
-      {
-        email: "info@surveyfieldwork.com",
-        name: "info",
-        companyName: "Cogentix research",
-        businessUnit: "-",
-      },
-    ],
-    "List 5": [
-      {
-        email: "contact@example.com",
-        name: "John Doe",
-        companyName: "Example Corp",
-        businessUnit: "Sales",
-      },
-    ],
-    "Marketing Leads": [
-      {
-        email: "john@example.com",
-        name: "John Smith",
-        companyName: "Tech Corp",
-        businessUnit: "Marketing",
-      },
-      {
-        email: "sarah@company.com",
-        name: "Sarah Johnson",
-        companyName: "Business Inc",
-        businessUnit: "Sales",
-      },
-      {
-        email: "mike@startup.io",
-        name: "Mike Wilson",
-        companyName: "Startup LLC",
-        businessUnit: "Product",
-      },
-    ],
-    "Sales Prospects": [
-      {
-        email: "alice@corp.com",
-        name: "Alice Brown",
-        companyName: "Enterprise Corp",
-        businessUnit: "Operations",
-      },
-      {
-        email: "bob@business.net",
-        name: "Bob Davis",
-        companyName: "Global Business",
-        businessUnit: "Finance",
-      },
-    ],
-    "VIP Customers": [
-      {
-        email: "vip1@example.com",
-        name: "VIP One",
-        companyName: "VIP Co",
-        businessUnit: "Executive",
-      },
-      {
-        email: "vip2@example.com",
-        name: "VIP Two",
-        companyName: "VIP Co",
-        businessUnit: "Executive",
-      },
-      {
-        email: "vip3@example.com",
-        name: "VIP Three",
-        companyName: "VIP Co",
-        businessUnit: "Executive",
-      },
-      {
-        email: "vip4@example.com",
-        name: "VIP Four",
-        companyName: "VIP Co",
-        businessUnit: "Executive",
-      },
-      {
-        email: "vip5@example.com",
-        name: "VIP Five",
-        companyName: "VIP Co",
-        businessUnit: "Executive",
-      },
-      {
-        email: "vip6@example.com",
-        name: "VIP Six",
-        companyName: "VIP Co",
-        businessUnit: "Executive",
-      },
-      {
-        email: "vip7@example.com",
-        name: "VIP Seven",
-        companyName: "VIP Co",
-        businessUnit: "Executive",
-      },
-      {
-        email: "vip8@example.com",
-        name: "VIP Eight",
-        companyName: "VIP Co",
-        businessUnit: "Executive",
-      },
-    ],
-    "Newsletter Subscribers": [
-      {
-        email: "subscriber1@example.com",
-        name: "Subscriber One",
-        companyName: "Subscriber Co",
-        businessUnit: "Marketing",
-      },
-      {
-        email: "subscriber2@example.com",
-        name: "Subscriber Two",
-        companyName: "Subscriber Co",
-        businessUnit: "Marketing",
-      },
-      {
-        email: "subscriber3@example.com",
-        name: "Subscriber Three",
-        companyName: "Subscriber Co",
-        businessUnit: "Marketing",
-      },
-      {
-        email: "subscriber4@example.com",
-        name: "Subscriber Four",
-        companyName: "Subscriber Co",
-        businessUnit: "Marketing",
-      },
-      {
-        email: "subscriber5@example.com",
-        name: "Subscriber Five",
-        companyName: "Subscriber Co",
-        businessUnit: "Marketing",
-      },
-      {
-        email: "subscriber6@example.com",
-        name: "Subscriber Six",
-        companyName: "Subscriber Co",
-        businessUnit: "Marketing",
-      },
-      {
-        email: "subscriber7@example.com",
-        name: "Subscriber Seven",
-        companyName: "Subscriber Co",
-        businessUnit: "Marketing",
-      },
-      {
-        email: "subscriber8@example.com",
-        name: "Subscriber Eight",
-        companyName: "Subscriber Co",
-        businessUnit: "Marketing",
-      },
-      {
-        email: "subscriber9@example.com",
-        name: "Subscriber Nine",
-        companyName: "Subscriber Co",
-        businessUnit: "Marketing",
-      },
-      {
-        email: "subscriber10@example.com",
-        name: "Subscriber Ten",
-        companyName: "Subscriber Co",
-        businessUnit: "Marketing",
-      },
-      {
-        email: "subscriber11@example.com",
-        name: "Subscriber Eleven",
-        companyName: "Subscriber Co",
-        businessUnit: "Marketing",
-      },
-      {
-        email: "subscriber12@example.com",
-        name: "Subscriber Twelve",
-        companyName: "Subscriber Co",
-        businessUnit: "Marketing",
-      },
-      {
-        email: "subscriber13@example.com",
-        name: "Subscriber Thirteen",
-        companyName: "Subscriber Co",
-        businessUnit: "Marketing",
-      },
-      {
-        email: "subscriber14@example.com",
-        name: "Subscriber Fourteen",
-        companyName: "Subscriber Co",
-        businessUnit: "Marketing",
-      },
-      {
-        email: "subscriber15@example.com",
-        name: "Subscriber Fifteen",
-        companyName: "Subscriber Co",
-        businessUnit: "Marketing",
-      },
-    ],
-  }
-
   useEffect(() => {
     async function fetchLists() {
       try {
@@ -287,16 +53,13 @@ function List() {
         const res = await fetch("http://localhost:8000/lists/")
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
         const data = await res.json()
-        console.log("[v0] Successfully connected to backend! Fetched", data.lists?.length || 0, "lists")
+        console.log("[v0] ✅ Got", data.lists?.length || 0, "lists from backend")
         setLists(data.lists || [])
         setBackendConnected(true)
       } catch (err) {
-        console.log("[v0] Backend connection failed:", err.message)
-        console.log(
-          "[v0] Using mock data. To see real database data, start backend with: cd backend && uvicorn main:app --reload --port 8000",
-        )
-        setLists(mockLists)
+        console.log("[v0] ❌ Backend connection failed:", err.message)
         setBackendConnected(false)
+        setLists([]) // no mocks
       }
     }
     fetchLists()
@@ -309,61 +72,22 @@ function List() {
       console.log("[v0] Fetching contacts for list:", selectedList.name, "ID:", selectedList._id)
 
       try {
-        console.log("[v0] Testing backend connection...")
-        const healthCheck = await fetch("http://localhost:8000/lists/")
-        if (!healthCheck.ok) {
-          throw new Error("Backend not available")
-        }
-        console.log("[v0] Backend is available, fetching contacts...")
-        setBackendConnected(true)
-      } catch (err) {
-        console.log("[v0] Backend not available:", err.message)
-        setBackendConnected(false)
-
-        // Use fallback data when backend is not available
-        console.log("[v0] Using fallback data (local + mock)")
-        const localContactsForList = localContacts[selectedList.name] || []
-        const mockContactsForList = mockContacts[selectedList.name] || []
-        const allContacts = [...localContactsForList, ...mockContactsForList]
-
-        console.log("[v0] Local contacts:", localContactsForList.length, "Mock contacts:", mockContactsForList.length)
-        setContacts(allContacts)
-        return
-      }
-
-      try {
-        console.log("[v0] Attempting database fetch for contacts...")
-        let res = await fetch(`http://localhost:8000/contacts/${selectedList._id}`)
-        console.log("[v0] Fetch by ID response status:", res.status)
-
-        if (!res.ok) {
-          console.log("[v0] Trying fetch by name:", selectedList.name)
-          res = await fetch(`http://localhost:8000/contacts/${encodeURIComponent(selectedList.name)}`)
-          console.log("[v0] Fetch by name response status:", res.status)
-        }
-
+        const res = await fetch(`http://localhost:8000/contacts/${selectedList._id}`)
         if (res.ok) {
           const data = await res.json()
-          console.log("[v0] ✅ SUCCESS! Fetched", data.contacts?.length || 0, "contacts from DATABASE")
-          console.log("[v0] Contact data:", data.contacts)
           setContacts(data.contacts || [])
-          return // Exit early when real data is found
+          setBackendConnected(true)
+          return
         } else {
-          console.log("[v0] API returned error status:", res.status)
-          const errorText = await res.text()
-          console.log("[v0] Error response:", errorText)
+          console.log("[v0] ❌ Contacts fetch failed with status:", res.status)
         }
       } catch (err) {
-        console.log("[v0] ❌ Database fetch failed:", err.message)
+        console.log("[v0] ❌ Database fetch error:", err.message)
       }
 
-      console.log("[v0] Using fallback data (local + mock)")
+      // fallback: localStorage only
       const localContactsForList = localContacts[selectedList.name] || []
-      const mockContactsForList = mockContacts[selectedList.name] || []
-      const allContacts = [...localContactsForList, ...mockContactsForList]
-
-      console.log("[v0] Local contacts:", localContactsForList.length, "Mock contacts:", mockContactsForList.length)
-      setContacts(allContacts)
+      setContacts(localContactsForList)
     }
     fetchContacts()
   }, [selectedList, localContacts])
@@ -417,17 +141,16 @@ function List() {
   const getFilteredAndSortedLists = () => {
     let filteredLists = [...lists]
 
-    // Apply search filter
     if (filters.search) {
-      filteredLists = filteredLists.filter((list) => list.name.toLowerCase().includes(filters.search.toLowerCase()))
+      filteredLists = filteredLists.filter((list) =>
+        list.name.toLowerCase().includes(filters.search.toLowerCase()),
+      )
     }
 
-    // Apply status filter
     if (filters.status !== "all") {
       filteredLists = filteredLists.filter((list) => list.status === filters.status)
     }
 
-    // Apply contact count filter
     if (filters.contactCount !== "all") {
       filteredLists = filteredLists.filter((list) => {
         const count = list.contacts || 0
@@ -446,7 +169,6 @@ function List() {
       })
     }
 
-    // Apply date range filter
     if (filters.dateRange !== "all") {
       const now = new Date()
       filteredLists = filteredLists.filter((list) => {
@@ -468,7 +190,6 @@ function List() {
       })
     }
 
-    // Apply sorting
     filteredLists.sort((a, b) => {
       switch (sortBy) {
         case "recent":
@@ -563,8 +284,6 @@ function List() {
   }
 
   if (currentView === "listDetail" && selectedList) {
-    console.log("[v0] Rendering list detail for:", selectedList.name, "with", contacts.length, "contacts")
-
     return (
       <div className="list-container">
         <div className="list-detail-container">
@@ -573,29 +292,11 @@ function List() {
               ← Back to Lists
             </button>
             <h1 className="detail-title">{selectedList.name}</h1>
-            <div className="connection-status">
-              {backendConnected ? (
-                <span className="status-indicator status-connected">🟢 Connected to Database</span>
-              ) : (
-                <>
-                  <span className="status-indicator status-disconnected">🔴 Database Offline</span>
-                  <p className="status-help">
-                    To see your real database contacts, start the backend server:
-                    <br />
-                    <code>cd backend && uvicorn main:app --reload --port 8000</code>
-                  </p>
-                </>
-              )}
-            </div>
           </div>
 
           {contacts.length > 0 ? (
             <div className="uploaded-contacts">
-              <h2>
-                {backendConnected
-                  ? `${contacts.length} contact${contacts.length !== 1 ? "s" : ""} from your MongoDB database:`
-                  : `${contacts.length} contact${contacts.length !== 1 ? "s" : ""} (using fallback data):`}
-              </h2>
+              <h2>{contacts.length} contact(s) loaded</h2>
               <table className="contacts-table">
                 <thead>
                   <tr>
@@ -606,24 +307,31 @@ function List() {
                   </tr>
                 </thead>
                 <tbody>
-                  {contacts.map((c, idx) => {
-                    console.log("[v0] Rendering contact:", c)
-                    return (
-                      <tr key={idx}>
-                        <td>{c.email || "-"}</td>
-                        <td>
-                          {c.name ||
-                            (c.firstName || c.lastName ? `${c.firstName || ""} ${c.lastName || ""}`.trim() : "-")}
-                        </td>
-                        <td>{c.companyName || "-"}</td>
-                        <td>{c.businessUnit || "-"}</td>
-                      </tr>
-                    )
-                  })}
+                  {contacts.map((c, idx) => (
+                    <tr key={idx}>
+                      <td>{c.email || "-"}</td>
+                      <td>{c.name || "-"}</td>
+                      <td>{c.companyName || "-"}</td>
+                      <td>{c.businessUnit || "-"}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
+
               <button className="create-contacts-btn" onClick={() => setShowCreateContacts(true)}>
                 Add More Contacts
+              </button>
+
+              {/* 🚀 Workflow integration button */}
+              <button
+                className="create-contacts-btn"
+                onClick={() =>
+                  navigate("/sales/campaign/workflow", {
+                    state: { selectedTemplate, list: selectedList, contacts },
+                  })
+                }
+              >
+                🚀 Use This List in Workflow
               </button>
             </div>
           ) : (
@@ -797,7 +505,6 @@ function List() {
                   <div className="card-header">
                     <div className="list-info">
                       <h3 className="list-name">{list.name}</h3>
-                      {/* <p className="contact-count">{list.contacts || 0} contacts</p> */}
                     </div>
                     <div className="card-actions">
                       <button

@@ -766,34 +766,11 @@ function CreateContacts({ onBack, listName }) {
     )
   }
 
-  if (currentView === "csv-upload") {
+ if (currentView === "csv-upload") {
     return (
       <div className="create-contacts-container">
         <div className="page-header">
-          <div className="breadcrumb">
-            <button className="breadcrumb-link" onClick={onBack}>
-              Lists
-            </button>
-            <span className="breadcrumb-separator">/</span>
-            <button className="breadcrumb-link" onClick={handleBackToMethods}>
-              Add Contacts
-            </button>
-            <span className="breadcrumb-separator">/</span>
-            <span className="breadcrumb-current">Import Contacts</span>
-          </div>
-          <h1 className="page-title">Import Contacts</h1>
-          <p className="page-description">Upload your contact list and configure import settings</p>
-
-          <div className="mt-2 flex items-center gap-2">
-            <button className="btn-secondary" onClick={onBack} type="button">
-              {"← Back to Lists"}
-            </button>
-            {selectedFile && (
-              <span className="inline-flex items-center rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-xs text-[var(--foreground)]">
-                File: <span className="ml-1 font-medium">{selectedFile.name}</span>
-              </span>
-            )}
-          </div>
+          {/* ... your header & breadcrumbs ... */}
 
           {dbCount !== null && (
             <div className="mt-3 rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm text-[var(--muted-foreground)]">
@@ -847,6 +824,7 @@ function CreateContacts({ onBack, listName }) {
         <div className="csv-upload-container">
           <div className="upload-card">
             <div className="upload-section">
+              {/* File Upload */}
               <h3 className="section-title">File Upload</h3>
               <div className="file-upload-area">
                 <input type="file" accept=".csv" onChange={handleFileSelect} className="file-input" id="csv-file" />
@@ -1297,48 +1275,21 @@ function CreateContacts({ onBack, listName }) {
                     </select>
                   </div>
                 </div>
-              </div>
+               </div>
             )}
 
             {selectedFile && csvHeaders.length > 0 && (
-              <>
-                <div className="import-section">
-                  {!showEmailOptions ? (
-                    <button className="btn-primary" onClick={handleImportContacts}>
-                      Import Contacts to Database
-                    </button>
-                  ) : (
-                    <div className="email-section">
-                      <h3>Send Emails (Optional)</h3>
-                      <div className="checkbox-options">
-                        <div className="checkbox-option">
-                          <input type="checkbox" id="skip-duplicates" />
-                          <label htmlFor="skip-duplicates">Skip duplicate contacts</label>
-                        </div>
-                        <div className="checkbox-option">
-                          <input type="checkbox" id="validate-emails" />
-                          <label htmlFor="validate-emails">Validate email addresses</label>
-                        </div>
-                      </div>
-                      <div className="email-buttons">
-                        <button className="btn-secondary" onClick={handleBackToMethods}>
-                          Back to Import
-                        </button>
-                        <button className="btn-primary" onClick={handleSendEmails}>
-                          Send Emails
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
+  <div className="import-section">
+    <button className="btn-primary" onClick={handleImportContacts}>
+      Import Contacts to Database
+    </button>
+  </div>
+)}
+</div>
         </div>
       </div>
     )
   }
-
   return (
     <div className="create-contacts-container">
       <div className="page-header">
