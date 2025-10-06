@@ -3,12 +3,14 @@ import traceback
 import re
 from fastapi import FastAPI, HTTPException, Body, Path, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response, RedirectResponse
 from dotenv import load_dotenv
 from pymongo import MongoClient
 from mailersend import MailerSendClient, EmailBuilder
 from typing import List, Dict, Any
 from bson import ObjectId
-
+from datetime import datetime
+from fastapi import Path
 # ----------------------------
 # Load environment variables
 # ----------------------------
@@ -29,18 +31,18 @@ if not API_KEY or not SENDER_EMAIL or not MONGO_URI:
 client = MongoClient(MONGO_URI)
 db = client["email_automation"]
 contacts_collection = db["contacts"]
-lists_collection = db["lists"]  # lists collection for storing list data
+lists_collection = db["lists"]
 templates_collection = db["templates"]
+reports_collection = db["reports"]
 
 # ----------------------------
 # FastAPI app
 # ----------------------------
 app = FastAPI()
 
-# Enable CORS for React frontend (add other origins if your dev server runs on a different port)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],  # add ports you use
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -52,7 +54,7 @@ app.add_middleware(
 mailer = MailerSendClient(api_key=API_KEY)
 
 # ----------------------------
-# Helper function to send HTML emails
+# Helper: send HTML emails
 # ----------------------------
 def send_email_html(to_email: str, subject: str, html_content: str, text_content: str = None):
     try:
@@ -61,7 +63,7 @@ def send_email_html(to_email: str, subject: str, html_content: str, text_content
             .from_email(SENDER_EMAIL)
             .subject(subject)
             .text(text_content or "This is an HTML email. Please enable HTML view.")
-            .html(html_content)  # ✅ full HTML with images and placeholders
+            .html(html_content)
             .to(to_email)
         )
         email = email_builder.build()
@@ -73,7 +75,24 @@ def send_email_html(to_email: str, subject: str, html_content: str, text_content
         raise HTTPException(status_code=500, detail=f"MailerSend error: {str(e)}")
 
 # ----------------------------
-# Endpoint to create and store lists
+# Helper: rewrite links with tracking
+# ----------------------------
+def rewrite_links_with_tracking(html_body: str, campaign_id: str, email: str):
+    return re.sub(
+        r'href="(http[s]?://[^"]+)"',
+        lambda m: f'href=\"http://localhost:8000/track/click?c={campaign_id}&e={email}&url={m.group(1)}\"',
+        html_body
+    )
+
+# ----------------------------
+# Helper: inject open tracking pixel
+# ----------------------------
+def inject_open_tracking(html_body: str, campaign_id: str, email: str):
+    pixel = f'<img src="http://localhost:8000/track/open?c={campaign_id}&e={email}" width="1" height="1" style="display:none;" />'
+    return html_body + pixel
+
+# ----------------------------
+# List Endpoints
 # ----------------------------
 @app.post("/create-list/")
 async def create_list(list_data: Dict[str, Any] = Body(...)):
@@ -85,9 +104,6 @@ async def create_list(list_data: Dict[str, Any] = Body(...)):
         print(f"❌ List creation failed: {e}")
         raise HTTPException(status_code=500, detail=f"List creation error: {str(e)}")
 
-# ----------------------------
-# Endpoint to get all lists
-# ----------------------------
 @app.get("/lists/")
 async def get_lists():
     try:
@@ -99,9 +115,6 @@ async def get_lists():
         print(f"❌ Failed to fetch lists: {e}")
         raise HTTPException(status_code=500, detail=f"Fetch lists error: {str(e)}")
 
-# ----------------------------
-# Endpoint to delete list (and its contacts)
-# ----------------------------
 @app.delete("/delete-list/{list_id}")
 async def delete_list(list_id: str):
     try:
@@ -125,7 +138,6 @@ async def upload_csv(data: Dict[str, List[Dict[str, Any]]] = Body(...)):
         email = (contact.get("email") or "").strip()
         list_name = contact.get("listName")
         incoming_list_id = contact.get("listId")
-
         if not email:
             continue
 
@@ -142,17 +154,13 @@ async def upload_csv(data: Dict[str, List[Dict[str, Any]]] = Body(...)):
         except Exception as e:
             print(f"[upload-csv] Error resolving list id/name: {e}")
 
-        if resolved_list_id and list_name:
-            query = {"email": email, "$or": [{"listId": resolved_list_id}, {"listName": list_name}]}
-        elif resolved_list_id:
-            query = {"email": email, "listId": resolved_list_id}
+        query = {"email": email}
+        if resolved_list_id:
+            query["listId"] = resolved_list_id
         elif list_name:
-            query = {"email": email, "listName": list_name}
-        else:
-            query = {"email": email}
+            query["listName"] = list_name
 
         if contacts_collection.find_one(query):
-            print(f"⚠️ Contact {email} already exists in list, skipping")
             continue
 
         if list_name:
@@ -168,13 +176,10 @@ async def upload_csv(data: Dict[str, List[Dict[str, Any]]] = Body(...)):
             print(f"❌ MongoDB insert failed for {email}: {e}")
             continue
 
-    return {
-        "message": f"Successfully uploaded {len(inserted_contacts)} contacts to database!",
-        "contacts": inserted_contacts
-    }
+    return {"message": f"Uploaded {len(inserted_contacts)} contacts!", "contacts": inserted_contacts}
 
 # ----------------------------
-# Fetch contacts
+# Fetch Contacts
 # ----------------------------
 @app.get("/contacts/{list_identifier}")
 async def get_contacts(list_identifier: str = Path(...)):
@@ -185,58 +190,29 @@ async def get_contacts(list_identifier: str = Path(...)):
             {"listName": {"$regex": f"^{re.escape(list_identifier)}$", "$options": "i"}}
         ]
         contacts = list(contacts_collection.find({"$or": or_clauses}, {"_id": 0}))
-
-        if len(contacts) == 0 and ObjectId.is_valid(list_identifier):
-            try:
-                list_doc = lists_collection.find_one({"_id": ObjectId(list_identifier)})
-                if list_doc:
-                    resolved_id = str(list_doc["_id"])
-                    name = list_doc.get("name")
-                    contacts = list(
-                        contacts_collection.find(
-                            {"$or": [{"listId": resolved_id}, {"listName": name}]}, {"_id": 0}
-                        )
-                    )
-            except Exception as e:
-                print(f"[API] Error looking up list by ObjectId: {e}")
-
         return {"contacts": contacts}
     except Exception as e:
         print(f"❌ Failed to fetch contacts: {e}")
         raise HTTPException(status_code=500, detail=f"Fetch contacts error: {str(e)}")
 
 # ----------------------------
-# Contact count endpoint
-# ----------------------------
-@app.get("/contact-count")
-async def contact_count(listId: str = Query(None), listName: str = Query(None)):
-    try:
-        q = {}
-        if listId:
-            q["$or"] = [{"listId": listId}, {"listName": listId}]
-        elif listName:
-            q["$or"] = [{"listName": listName}, {"listId": listName}]
-        else:
-            raise HTTPException(status_code=400, detail="Provide listId or listName")
-
-        count = contacts_collection.count_documents(q)
-        return {"count": count}
-    except Exception as e:
-        print(f"❌ contact-count failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Contact count error: {str(e)}")
-
-# ----------------------------
-# Template endpoints
+# Templates
 # ----------------------------
 @app.post("/templates/")
 async def save_template(template: Dict[str, Any] = Body(...)):
     try:
-        result = templates_collection.insert_one(template)
-        template["_id"] = str(result.inserted_id)
-        return {"message": "Template saved successfully", "template": template}
+        # strip client-sent _id to avoid string _id pollution
+        data = dict(template)
+        data.pop("_id", None)
+
+        result = templates_collection.insert_one(data)
+        saved = templates_collection.find_one({"_id": result.inserted_id})
+        saved["_id"] = str(saved["_id"])
+        return {"message": "Template saved successfully", "template": saved}
     except Exception as e:
         print(f"❌ Template save failed: {e}")
         raise HTTPException(status_code=500, detail=f"Template save error: {str(e)}")
+
 
 @app.get("/templates/")
 async def get_templates():
@@ -249,49 +225,140 @@ async def get_templates():
         raise HTTPException(status_code=500, detail=f"Template fetch error: {str(e)}")
 
 # ----------------------------
-# Send Emails with Template Personalization
+# Send Emails
 # ----------------------------
 @app.post("/send-emails/")
 async def send_emails(data: Dict[str, Any] = Body(...)):
     contacts = data.get("contacts", [])
     template = data.get("template")
-
     if not contacts or not template:
         raise HTTPException(status_code=400, detail="Missing contacts or template")
 
-    sent_emails = []
-    failed_emails = []
+    subject = template.get("subject", "No Subject")
+    html_content = template.get("htmlContent", "")
+    campaign_id = str(ObjectId())
+
+    reports_collection.insert_one({
+        "campaignId": campaign_id,
+        "subject": subject,
+        "sent": [],
+        "opens": [],
+        "clicks": [],
+        "createdAt": datetime.utcnow()
+    })
+
+    sent_emails, failed_emails = [], []
 
     for contact in contacts:
         email = (contact.get("email") or "").strip()
         if not email:
             continue
-
         try:
-            subject = template.get("subject", "No Subject")
-            html_body = template.get("htmlContent", "")
+            personalized_html = re.sub(r"{{\s*contact.name\s*}}", contact.get("name") or "there", html_content)
+            personalized_html = re.sub(r"{{\s*sender.companyName\s*}}", "Cogentix Research", personalized_html)
 
-            # Replace placeholders
-            html_body = re.sub(r"{{\s*contact.name\s*}}", contact.get("name") or contact.get("firstName") or "there", html_body)
-            html_body = re.sub(r"{{\s*sender.companyName\s*}}", "Cogentix Research", html_body)
-            html_body = re.sub(r"{{\s*sender.name\s*}}", "CRM System", html_body)
-            html_body = re.sub(r"{{\s*sender.title\s*}}", "Team", html_body)
-            html_body = re.sub(r"{{\s*sender.email\s*}}", SENDER_EMAIL, html_body)
-            html_body = re.sub(r"{{\s*sender.website\s*}}", "https://example.com", html_body)
-            html_body = re.sub(r"{{\s*sender.address\s*}}", "123 Main Street", html_body)
+            personalized_html = rewrite_links_with_tracking(personalized_html, campaign_id, email)
+            personalized_html = inject_open_tracking(personalized_html, campaign_id, email)
 
-            send_email_html(
-                to_email=email,
-                subject=subject,
-                html_content=html_body
-            )
+            send_email_html(email, subject, personalized_html)
             sent_emails.append(email)
+
+            reports_collection.update_one(
+                {"campaignId": campaign_id},
+                {"$push": {"sent": {"email": email, "time": datetime.utcnow()}}}
+            )
         except Exception as e:
-            print(f"❌ MailerSend failed for {email}: {e}")
             failed_emails.append({"email": email, "error": str(e)})
 
-    return {
-        "message": f"Emails sent to {len(sent_emails)} contacts!",
-        "sent": sent_emails,
-        "failed": failed_emails
-    }
+    return {"message": f"Sent {len(sent_emails)} emails!", "sent": sent_emails, "failed": failed_emails}
+
+# ----------------------------
+# Tracking Endpoints
+# ----------------------------
+@app.get("/track/open")
+async def track_open(c: str, e: str):
+    reports_collection.update_one(
+        {"campaignId": c},
+        {"$push": {"opens": {"email": e, "time": datetime.utcnow()}}},
+        upsert=True
+    )
+    transparent_pixel = (
+        b"\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80"
+        b"\xff\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04"
+        b"\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01"
+        b"\x00\x01\x00\x00\x02\x02\x4c\x01\x00\x3b"
+    )
+    return Response(content=transparent_pixel, media_type="image/gif")
+
+@app.get("/track/click")
+async def track_click(c: str, e: str, url: str):
+    reports_collection.update_one(
+        {"campaignId": c},
+        {"$push": {"clicks": {"email": e, "url": url, "time": datetime.utcnow()}}},
+        upsert=True
+    )
+    return RedirectResponse(url)
+
+# ----------------------------
+# Reports
+# ----------------------------
+@app.get("/reports/")
+async def get_reports():
+    try:
+        campaigns = list(reports_collection.find({}, {"_id": 0}))
+        return {"campaigns": campaigns}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Reports fetch error: {str(e)}")
+# ----------------------------
+# Update Template
+# ----------------------------
+@app.put("/templates/{template_id}")
+async def update_template(template_id: str, template_data: Dict[str, Any] = Body(...)):
+    try:
+        # Never allow _id to be updated
+        template_data = {k: v for k, v in template_data.items() if k != "_id"}
+
+        matched = 0
+        if ObjectId.is_valid(template_id):
+            result = templates_collection.update_one(
+                {"_id": ObjectId(template_id)}, {"$set": template_data}
+            )
+            matched = result.matched_count
+
+        if matched == 0:
+            result = templates_collection.update_one(
+                {"_id": template_id}, {"$set": template_data}
+            )
+            matched = result.matched_count
+
+        if matched == 0:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        return {"message": "Template updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Template update error: {str(e)}")
+
+
+
+# ----------------------------
+# Delete Template
+# ----------------------------
+@app.delete("/templates/{template_id}")
+async def delete_template(template_id: str = Path(...)):
+    try:
+        # Try ObjectId FIRST if the string looks like one
+        if ObjectId.is_valid(template_id):
+            result = templates_collection.delete_one({"_id": ObjectId(template_id)})
+            if result.deleted_count == 0:
+                # Then try as plain string
+                result = templates_collection.delete_one({"_id": template_id})
+        else:
+            result = templates_collection.delete_one({"_id": template_id})
+
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail=f"Template not found")
+
+        return {"message": "Template deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Template delete error: {str(e)}")
+

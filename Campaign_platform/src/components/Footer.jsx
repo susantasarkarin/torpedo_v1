@@ -4,7 +4,7 @@ function Footer() {
       <div className="nav-container">
         <p>&copy; 2024 Email Campaigns Platform. All rights reserved.</p>
         <div style={{ display: "flex", gap: "1rem" }}>
-          <a href="#" style={{ color: "#64748b", textDecoration: "none" }}>
+          {/* <a href="#" style={{ color: "#64748b", textDecoration: "none" }}>
             Privacy Policy
           </a>
           <a href="#" style={{ color: "#64748b", textDecoration: "none" }}>
@@ -12,7 +12,7 @@ function Footer() {
           </a>
           <a href="#" style={{ color: "#64748b", textDecoration: "none" }}>
             Support
-          </a>
+          </a> */}
         </div>
       </div>
     </footer>

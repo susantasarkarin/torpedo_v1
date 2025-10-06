@@ -24,6 +24,56 @@
   margin: 0;
 }
 
+/* Base button styles for consistency across the page */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
+}
+
+.btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: #0070f3;
+  color: #ffffff;
+}
+
+.btn-primary:hover {
+  background: #0051cc;
+}
+
+.btn-save {
+  background: #0070f3;
+  color: #ffffff;
+  border: none;
+}
+
+.btn-save:hover {
+  background: #0051cc;
+}
+
+.btn-cancel {
+  background: #ffffff;
+  color: #666;
+  border: 1px solid #e1e5e9;
+}
+
+.btn-cancel:hover {
+  color: #0070f3;
+  border-color: #0070f3;
+}
+
 .templates-actions {
   margin-bottom: 30px;
 }
@@ -252,6 +302,75 @@
   height: 400px; /* Adjust as needed */
   border: 1px solid #e1e5e9;
   border-radius: 4px;
+}
+
+/* Professional form styling */
+.template-form {
+  margin-bottom: 24px;
+  border: 1px solid #e1e5e9;
+  border-radius: 12px;
+  padding: 16px;
+  background: #fff;
+  display: grid;
+  gap: 12px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #e1e5e9;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #1a1a1a;
+  background: #ffffff;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.form-input:focus {
+  border-color: #0070f3;
+  box-shadow: 0 0 0 3px rgba(0, 112, 243, 0.15);
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+/* Empty state styling */
+.empty-state {
+  border: 1px dashed #e1e5e9;
+  border-radius: 12px;
+  padding: 32px;
+  text-align: center;
+  background: #ffffff;
+  color: #1a1a1a;
+  margin-bottom: 16px;
+}
+
+.empty-state h4 {
+  margin: 0 0 6px 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.empty-state p {
+  margin: 0 0 16px 0;
+  color: #666;
+  font-size: 14px;
+}
+
+/* Ensure selects look consistent with inputs */
+select.form-input {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, #666 50%),
+    linear-gradient(135deg, #666 50%, transparent 50%);
+  background-position: calc(100% - 16px) calc(50% - 4px), calc(100% - 12px) calc(50% - -4px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 32px;
 }
 
 /* Responsive adjustments */
