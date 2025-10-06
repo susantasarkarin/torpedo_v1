@@ -262,12 +262,13 @@
   justify-content: center;
   align-items: center;
   z-index: 1000;
+  
 }
 
 .modal-content {
   background: white;
   padding: 20px;
-  border-radius: 8px;
+ border:2px solid red;
   max-width: 800px;
   width: 90%;
   max-height: 90vh;
@@ -295,6 +296,7 @@
   font-weight: bold;
   margin-bottom: 15px;
   color: #1a1a1a;
+  
 }
 
 .template-preview-iframe {
@@ -302,6 +304,7 @@
   height: 400px; /* Adjust as needed */
   border: 1px solid #e1e5e9;
   border-radius: 4px;
+  
 }
 
 /* Professional form styling */
@@ -313,6 +316,7 @@
   background: #fff;
   display: grid;
   gap: 12px;
+  
 }
 
 .form-input {

@@ -1,7 +1,23 @@
+:root {
+  --bg: #f8fafc;
+  --card: #ffffff;
+  --border: #e5e7eb;
+  --text: #111827;
+  --muted: #6b7280;
+  --primary: #2563eb;
+  --primary-600: #1d4ed8;
+  --success: #10b981;
+  --danger: #ef4444;
+  --radius: 12px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 8px 24px rgba(2, 6, 23, 0.08);
+}
+
 .create-contacts-container {
   max-width: 1200px;
   margin: 0 auto;
   padding: 2rem;
+  background: var(--bg);
 }
 
 .page-header {
@@ -56,17 +72,17 @@
 }
 
 .method-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   padding: 2rem;
-  background: white;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
   transition: all 0.2s;
 }
 
 .method-card:hover {
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
   transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
 }
 
 .card-content {
@@ -153,17 +169,17 @@
 }
 
 .upload-card {
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.75rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   padding: 2rem;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-sm);
 }
 
 .upload-section {
   margin-bottom: 2rem;
   padding-bottom: 2rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border);
 }
 
 .upload-section:last-of-type {
@@ -180,15 +196,16 @@
 }
 
 .file-upload-area {
-  border: 2px dashed #d1d5db;
+  border: 2px dashed var(--border);
   border-radius: 0.5rem;
   padding: 3rem;
   text-align: center;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, background-color 0.2s;
 }
 
 .file-upload-area:hover {
-  border-color: #9ca3af;
+  border-color: var(--primary);
+  background-color: #f5f8ff;
 }
 
 .file-input {
@@ -250,7 +267,7 @@
 .radio-option input[type="radio"] {
   width: 1.25rem;
   height: 1.25rem;
-  accent-color: #3b82f6;
+  accent-color: var(--primary);
   cursor: pointer;
 }
 
@@ -305,16 +322,16 @@
 
 .mapping-select {
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.375rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
   background: white;
   color: #374151;
 }
 
 .mapping-select:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
 .advanced-options-section {
@@ -333,13 +350,13 @@
 }
 
 .advanced-toggle:hover {
-  color: #2563eb;
+  color: var(--primary);
 }
 
 .advanced-content {
   margin-top: 1rem;
   padding-top: 1rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border);
 }
 
 .checkbox-option {
@@ -362,33 +379,35 @@
 
 .btn-secondary {
   padding: 0.75rem 1.5rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border);
   background: white;
   color: #374151;
-  border-radius: 0.375rem;
+  border-radius: 10px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .btn-secondary:hover {
-  background: #f9fafb;
-  border-color: #9ca3af;
+  background: #f8fafc;
+  border-color: var(--primary);
+  color: var(--text);
 }
 
 .btn-primary {
   padding: 0.75rem 1.5rem;
-  background: #3b82f6;
+  background: var(--primary);
   color: white;
   border: none;
-  border-radius: 0.375rem;
+  border-radius: 10px;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, box-shadow 0.2s;
 }
 
 .btn-primary:hover {
-  background: #2563eb;
+  background: var(--primary-600);
+  box-shadow: var(--shadow-md);
 }
 
 .business-unit-section {
@@ -429,7 +448,7 @@
 
 .email-buttons {
   display: flex;
-  gap: 1rem;
+  gap: 12px;
   justify-content: flex-end;
 }
 
@@ -459,6 +478,7 @@
 
   .method-cards {
     grid-template-columns: 1fr;
+    gap: 1.25rem;
   }
 
   .mapping-row {

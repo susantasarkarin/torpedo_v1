@@ -766,7 +766,7 @@ function CreateContacts({ onBack, listName }) {
     )
   }
 
- if (currentView === "csv-upload") {
+  if (currentView === "csv-upload") {
     return (
       <div className="create-contacts-container">
         <div className="page-header">
@@ -1275,17 +1275,17 @@ function CreateContacts({ onBack, listName }) {
                     </select>
                   </div>
                 </div>
-               </div>
+              </div>
             )}
 
             {selectedFile && csvHeaders.length > 0 && (
-  <div className="import-section">
-    <button className="btn-primary" onClick={handleImportContacts}>
-      Import Contacts to Database
-    </button>
-  </div>
-)}
-</div>
+              <div className="import-section">
+                <button className="btn-primary" onClick={handleImportContacts}>
+                  Import Contacts to Database
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     )

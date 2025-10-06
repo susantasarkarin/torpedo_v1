@@ -142,9 +142,7 @@ function List() {
     let filteredLists = [...lists]
 
     if (filters.search) {
-      filteredLists = filteredLists.filter((list) =>
-        list.name.toLowerCase().includes(filters.search.toLowerCase()),
-      )
+      filteredLists = filteredLists.filter((list) => list.name.toLowerCase().includes(filters.search.toLowerCase()))
     }
 
     if (filters.status !== "all") {
@@ -318,34 +316,50 @@ function List() {
                 </tbody>
               </table>
 
-              <button className="create-contacts-btn" onClick={() => setShowCreateContacts(true)}>
-                Add More Contacts
-              </button>
+              {/* Grouped action buttons */}
+              <div className="actions-row" role="group" aria-label="List actions">
+                <button
+                  className="create-contacts-btn"
+                  onClick={() => setShowCreateContacts(true)}
+                  aria-label="Add more contacts"
+                >
+                  Add More Contacts
+                </button>
 
-              {/* 🚀 Workflow integration button */}
-              <button
-                className="create-contacts-btn"
-                onClick={() =>
-                  navigate("/sales/campaign/workflow", {
-                    state: { selectedTemplate, list: selectedList, contacts },
-                  })
-                }
-              >
-                🚀 Use This List in Workflow
-              </button>
+                {/* 🚀 Workflow integration button */}
+                <button
+                  className="create-contacts-btn"
+                  onClick={() =>
+                    navigate("/sales/campaign/workflow", {
+                      state: { selectedTemplate, list: selectedList, contacts },
+                    })
+                  }
+                  aria-label="Use this list in workflow"
+                  title="Use This List in Workflow"
+                >
+                  🚀 Use This List in Workflow
+                </button>
+              </div>
             </div>
           ) : (
             <div className="empty-state">
               <div className="empty-icon">📋</div>
               <h2 className="empty-title">Ready to add contacts?</h2>
-              <p className="empty-description">
+              <p className="empty-description" style={{margin:"auto"}}>
                 {backendConnected
                   ? "No contacts found in your database for this list. Start by adding some contacts."
                   : "Start building your contact database by adding contacts to this list."}
               </p>
-              <button className="create-contacts-btn" onClick={() => setShowCreateContacts(true)}>
-                Add Contacts
-              </button>
+              {/* Grouped action buttons */}
+              <div className="actions-row" role="group" aria-label="List actions">
+                <button
+                  className="create-contacts-btn"
+                  onClick={() => setShowCreateContacts(true)}
+                  aria-label="Add more contacts" style={{margin:"auto"}}
+                >
+                  Add Contacts
+                </button>
+              </div>
             </div>
           )}
         </div>

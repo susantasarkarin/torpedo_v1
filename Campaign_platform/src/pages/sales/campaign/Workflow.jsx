@@ -2,6 +2,7 @@
 
 import { useLocation } from "react-router-dom"
 import { useState, useEffect } from "react"
+import "./workflow.css"
 
 function Workflow() {
   const location = useLocation()
@@ -54,8 +55,8 @@ function Workflow() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contacts: contacts,
-          template: selectedTemplate
-        })
+          template: selectedTemplate,
+        }),
       })
       const data = await res.json()
       if (res.ok) {
@@ -72,24 +73,33 @@ function Workflow() {
   }
 
   return (
-    <div style={{ padding: "1rem" }}>
-      <h2>Workflow</h2>
-      <p>
-        <strong>Template:</strong>{" "}
-        {selectedTemplate ? selectedTemplate.name : "❌ None selected"}
+    <div className="wf">
+      <h2 className="wf-title">Workflow</h2>
+
+      <p className="wf-row">
+        <strong className="wf-label">Template:</strong>{" "}
+        <span className={selectedTemplate ? "wf-badge wf-badge-ok" : "wf-badge wf-badge-bad"}>
+          {selectedTemplate ? selectedTemplate.name : "None selected"}
+        </span>
       </p>
-      <p>
-        <strong>List:</strong> {list ? list.name : "❌ None selected"}
+
+      <p className="wf-row">
+        <strong className="wf-label">List:</strong>{" "}
+        <span className={list ? "wf-badge wf-badge-ok" : "wf-badge wf-badge-bad"}>
+          {list ? list.name : "None selected"}
+        </span>
       </p>
-      <p>
-        <strong>Contacts loaded:</strong>{" "}
-        {loading ? "Loading..." : contacts.length}
+
+      <p className="wf-row" role="status" aria-live="polite">
+        <strong className="wf-label">Contacts loaded:</strong>{" "}
+        <span className={loading ? "wf-text-muted" : "wf-count"}>{loading ? "Loading..." : contacts.length}</span>
       </p>
 
       <button
-        className="btn btn-primary"
+        className="wf-btn wf-btn-primary"
         onClick={handleSendEmails}
         disabled={sending || loading || contacts.length === 0}
+        aria-busy={sending ? "true" : "false"}
       >
         {sending ? "Sending..." : "Send Emails"}
       </button>

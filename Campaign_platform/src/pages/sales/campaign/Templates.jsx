@@ -257,7 +257,7 @@ function Templates() {
               &times;
             </button>
             <h2 className="modal-title">Preview: {previewTitle}</h2>
-            <iframe
+            <iframe 
               srcDoc={previewContent}
               title="Template Preview"
               className="template-preview-iframe"
