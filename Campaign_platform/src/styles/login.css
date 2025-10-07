@@ -1,0 +1,219 @@
+/* Add standalone CSS to match the split-screen rocket design */
+
+/* Color tokens (3-5 colors total) */
+:root {
+  --bg-dark-1: #0f172a; /* deep slate */
+  --bg-dark-2: #111827; /* slightly lighter */
+  --text-strong: #e5e7eb; /* light gray */
+  --text-muted: #94a3b8; /* slate-400 */
+  --accent: #f97316; /* orange accent for glow */
+  --white: #ffffff;
+}
+
+/* Reset bits */
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--bg-dark-1);
+  color: var(--text-strong);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji",
+    "Segoe UI Emoji";
+}
+a {
+  color: inherit;
+}
+
+/* Accessible hide */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Layout: split screen */
+.login-page {
+  display: grid;
+  grid-template-columns: 44% 56%;
+  min-height: 100vh;
+  background: linear-gradient(180deg, var(--bg-dark-1), var(--bg-dark-2));
+}
+
+.login-left {
+  position: relative;
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  padding: 4rem 2rem;
+  background: linear-gradient(180deg, #0e1629 0%, #101827 100%);
+}
+
+.login-left::after {
+  /* subtle vertical divider shadow */
+  content: "";
+  position: absolute;
+  top: 0;
+  right: -1px;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0));
+  opacity: 0.15;
+}
+
+.login-left-inner {
+  width: 100%;
+  max-width: 440px;
+}
+
+.brand {
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-strong);
+  margin: 0 0 0.25rem 0;
+  text-wrap: balance;
+}
+
+.subtitle {
+  color: var(--text-muted);
+  margin: 0 0 2rem 0;
+}
+
+/* Form */
+.login-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.field {
+  display: grid;
+}
+
+.input {
+  height: 48px;
+  width: 100%;
+  padding: 0 1.1rem;
+  color: var(--text-strong);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 9999px;
+  outline: none;
+  transition: border-color .2s ease, box-shadow .2s ease, background .2s ease;
+}
+
+.input::placeholder {
+  color: rgba(229, 231, 235, 0.8);
+}
+
+.input:focus {
+  border-color: rgba(255, 255, 255, 0.28);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08) inset, 0 0 0 2px rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.password-wrap {
+  position: relative;
+  display: grid;
+}
+
+.chevron {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(229, 231, 235, 0.8);
+  pointer-events: none;
+  font-size: 14px;
+}
+
+/* Button */
+.btn-login {
+  height: 48px;
+  border-radius: 9999px;
+  border: none;
+  background: var(--white);
+  color: #0f172a;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform .06s ease, filter .2s ease;
+}
+
+.btn-login:hover {
+  filter: brightness(0.97);
+}
+.btn-login:active {
+  transform: translateY(1px);
+}
+
+/* Meta row */
+.login-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: .25rem;
+  color: var(--text-muted);
+  font-size: .9rem;
+}
+
+.remember {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  cursor: pointer;
+}
+.remember input {
+  accent-color: var(--accent);
+}
+
+.forgot {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.forgot:hover {
+  color: var(--text-strong);
+}
+
+/* Right panel: hero image */
+.login-right {
+  position: relative;
+  background-image: url("/images/download.jpeg");
+  background-size: cover;
+  background-position: center;
+}
+
+/* Soft orange glow toward the bottom center to match rocket flame */
+.login-right::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(30% 30% at 50% 70%, rgba(249, 115, 22, 0.35), transparent 60%),
+    radial-gradient(18% 18% at 50% 82%, rgba(249, 115, 22, 0.25), transparent 60%),
+    radial-gradient(100% 100% at 50% 50%, rgba(0, 0, 0, 0.25), rgba(0, 0, 0, 0.55));
+  pointer-events: none;
+}
+
+/* Responsive: stack on small screens */
+@media (max-width: 900px) {
+  .login-page {
+    grid-template-columns: 1fr;
+  }
+  .login-left {
+    padding: 3rem 1.25rem;
+  }
+  .login-right {
+    display: none;
+  }
+}
