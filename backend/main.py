@@ -362,3 +362,34 @@ async def delete_template(template_id: str = Path(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Template delete error: {str(e)}")
 
+# ----------------------------
+# Users (Hardcoded for now)
+# ----------------------------
+users_collection = db["users"]
+
+# Insert one default user if not exists
+if not users_collection.find_one({"username": "admin"}):
+    users_collection.insert_one({
+        "username": "admin",
+        "password": "password123",  # ⚠️ For demo only, store hashed later
+        "createdAt": datetime.utcnow()
+    })
+
+
+@app.post("/login/")
+async def login(credentials: Dict[str, str] = Body(...)):
+    try:
+        username = credentials.get("username")
+        password = credentials.get("password")
+
+        if not username or not password:
+            raise HTTPException(status_code=400, detail="Missing username or password")
+
+        user = users_collection.find_one({"username": username, "password": password})
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+
+        return {"message": "Login successful", "username": username}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
+

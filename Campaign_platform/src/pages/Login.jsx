@@ -1,25 +1,48 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 function Login() {
-  const [credentials, setCredentials] = useState({ username: "", password: "" })
-  const navigate = useNavigate()
+  const [credentials, setCredentials] = useState({ username: "", password: "" });
+  const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    // Placeholder login logic
-    console.log("Login attempt:", credentials)
-    navigate("/")
-  }
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    try {
+      const response = await fetch("http://localhost:8000/login/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(credentials),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        alert("❌ " + (err.detail || "Login failed"));
+        return;
+      }
+
+      const data = await response.json();
+      console.log("✅ Login success:", data);
+
+      // Save auth flag in localStorage
+      localStorage.setItem("auth", "true");
+
+      // Redirect to dashboard
+      navigate("/dashboard", { replace: true });
+    } catch (error) {
+      console.error("Login error:", error);
+      alert("❌ Login failed. Please try again.");
+    }
+  };
 
   const handleChange = (e) => {
     setCredentials({
       ...credentials,
       [e.target.name]: e.target.value,
-    })
-  }
+    });
+  };
 
   return (
     <div
@@ -42,7 +65,14 @@ function Login() {
         }}
       >
         <div style={{ textAlign: "center", marginBottom: "2rem" }}>
-          <h1 style={{ fontSize: "2rem", fontWeight: "bold", color: "#1e293b", marginBottom: "0.5rem" }}>
+          <h1
+            style={{
+              fontSize: "2rem",
+              fontWeight: "bold",
+              color: "#1e293b",
+              marginBottom: "0.5rem",
+            }}
+          >
             Email Campaigns Platform
           </h1>
           <p style={{ color: "#64748b" }}>Sign in to your account</p>
@@ -82,39 +112,46 @@ function Login() {
           </div>
 
           <div
-            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1.5rem" }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: "1.5rem",
+            }}
           >
-            <label style={{ display: "flex", alignItems: "center", fontSize: "0.875rem" }}>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                fontSize: "0.875rem",
+              }}
+            >
               <input type="checkbox" style={{ marginRight: "0.5rem" }} />
               Remember me
             </label>
-            <a href="#" style={{ fontSize: "0.875rem", color: "#3b82f6", textDecoration: "none" }}>
+            <a
+              href="#"
+              style={{
+                fontSize: "0.875rem",
+                color: "#3b82f6",
+                textDecoration: "none",
+              }}
+            >
               Forgot password?
             </a>
           </div>
 
-          <button type="submit" className="btn btn-primary" style={{ width: "100%", marginBottom: "1rem" }}>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            style={{ width: "100%", marginBottom: "1rem" }}
+          >
             Sign In
           </button>
-
-          <div style={{ textAlign: "center" }}>
-            <p style={{ fontSize: "0.875rem", color: "#64748b" }}>
-              Don't have an account?{" "}
-              <a href="#" style={{ color: "#3b82f6", textDecoration: "none" }}>
-                Sign up
-              </a>
-            </p>
-          </div>
         </form>
-
-        <div style={{ marginTop: "2rem", textAlign: "center" }}>
-          <Link to="/" style={{ fontSize: "0.875rem", color: "#6b7280", textDecoration: "none" }}>
-            ← Back to Dashboard
-          </Link>
-        </div>
       </div>
     </div>
-  )
+  );
 }
 
-export default Login
+export default Login;

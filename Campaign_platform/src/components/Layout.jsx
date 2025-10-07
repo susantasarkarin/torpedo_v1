@@ -29,9 +29,17 @@ function Layout() {
         </div>
         {selectedSection === "sales" && <RightSidebar />}
       </div>
+
+      
+
+
       <Footer />
     </div>
+
+
   )
+
+  
 }
 
 export default Layout

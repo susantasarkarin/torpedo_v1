@@ -1,45 +1,60 @@
-import { Routes, Route } from "react-router-dom"
-import Layout from "./components/Layout"
-import Login from "./pages/Login"
-import Dashboard from "./pages/Dashboard"
-import Sales from "./pages/Sales"
-import Marketing from "./pages/Marketing"
-import Finance from "./pages/Finance"
-import Operations from "./pages/Operations"
-import HR from "./pages/HR"
-import Campaign from "./pages/sales/Campaign"
-import Leads from "./pages/sales/Leads"
-import Contacts from "./pages/sales/Contacts"
-import Account from "./pages/sales/Account"
-import RFQ from "./pages/sales/RFQ"
-import List from "./pages/sales/campaign/List"
-import Templates from "./pages/sales/campaign/Templates"
-import Workflow from "./pages/sales/campaign/Workflow"
-import Reports from "./pages/sales/campaign/Reports"
+import { Routes, Route, Navigate } from "react-router-dom";
+import Layout from "./components/Layout";
+import ProtectedRoute from "./components/ProtectedRoute";
+
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import Sales from "./pages/Sales";
+import Marketing from "./pages/Marketing";
+import Finance from "./pages/Finance";
+import Operations from "./pages/Operations";
+import HR from "./pages/HR";
+import Campaign from "./pages/sales/Campaign";
+import Leads from "./pages/sales/Leads";
+import Contacts from "./pages/sales/Contacts";
+import Account from "./pages/sales/Account";
+import RFQ from "./pages/sales/RFQ";
+import List from "./pages/sales/campaign/List";
+import Templates from "./pages/sales/campaign/Templates";
+import Workflow from "./pages/sales/campaign/Workflow";
+import Reports from "./pages/sales/campaign/Reports";
 
 function App() {
   return (
     <Routes>
+      {/* Redirect root `/` to login */}
+      <Route path="/" element={<Navigate to="/login" replace />} />
+
+      {/* Public login page */}
       <Route path="/login" element={<Login />} />
+
+      {/* Protected pages inside Layout */}
       <Route path="/" element={<Layout />}>
-        <Route index element={<Dashboard />} />
-        <Route path="sales" element={<Sales />} />
-        <Route path="sales/campaign" element={<Campaign />} />
-        <Route path="sales/leads" element={<Leads />} />
-        <Route path="sales/contacts" element={<Contacts />} />
-        <Route path="sales/account" element={<Account />} />
-        <Route path="sales/rfq" element={<RFQ />} />
-        <Route path="sales/campaign/list" element={<List />} />
-        <Route path="sales/campaign/templates" element={<Templates />} />
-        <Route path="sales/campaign/workflow" element={<Workflow />} />
-        <Route path="sales/campaign/reports" element={<Reports />} />
-        <Route path="marketing" element={<Marketing />} />
-        <Route path="finance" element={<Finance />} />
-        <Route path="operations" element={<Operations />} />
-        <Route path="hr" element={<HR />} />
+        <Route
+          path="dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="sales" element={<ProtectedRoute><Sales /></ProtectedRoute>} />
+        <Route path="sales/campaign" element={<ProtectedRoute><Campaign /></ProtectedRoute>} />
+        <Route path="sales/leads" element={<ProtectedRoute><Leads /></ProtectedRoute>} />
+        <Route path="sales/contacts" element={<ProtectedRoute><Contacts /></ProtectedRoute>} />
+        <Route path="sales/account" element={<ProtectedRoute><Account /></ProtectedRoute>} />
+        <Route path="sales/rfq" element={<ProtectedRoute><RFQ /></ProtectedRoute>} />
+        <Route path="sales/campaign/list" element={<ProtectedRoute><List /></ProtectedRoute>} />
+        <Route path="sales/campaign/templates" element={<ProtectedRoute><Templates /></ProtectedRoute>} />
+        <Route path="sales/campaign/workflow" element={<ProtectedRoute><Workflow /></ProtectedRoute>} />
+        <Route path="sales/campaign/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+        <Route path="marketing" element={<ProtectedRoute><Marketing /></ProtectedRoute>} />
+        <Route path="finance" element={<ProtectedRoute><Finance /></ProtectedRoute>} />
+        <Route path="operations" element={<ProtectedRoute><Operations /></ProtectedRoute>} />
+        <Route path="hr" element={<ProtectedRoute><HR /></ProtectedRoute>} />
       </Route>
     </Routes>
-  )
+  );
 }
 
-export default App
+export default App;
