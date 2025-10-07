@@ -19,7 +19,7 @@ function Navbar({ profileDropdownOpen, setProfileDropdownOpen, selectedSection, 
     setLogoDropdownOpen(false)
   }
 
-  const handleNonSalesSection = () => {
+  const handleNonSidebarSection = () => {
     setSelectedSection(null)
     setLogoDropdownOpen(false)
   }
@@ -39,19 +39,20 @@ function Navbar({ profileDropdownOpen, setProfileDropdownOpen, selectedSection, 
               <span className="dropdown-icon">💼</span>
               Sales
             </button>
-            <Link to="/marketing" className="logo-dropdown-item" onClick={handleNonSalesSection}>
+            <Link to="/marketing" className="logo-dropdown-item" onClick={handleNonSidebarSection}>
               <span className="dropdown-icon">📈</span>
               Marketing
             </Link>
-            <Link to="/finance" className="logo-dropdown-item" onClick={handleNonSalesSection}>
+            <Link to="/finance" className="logo-dropdown-item" onClick={handleNonSidebarSection}>
               <span className="dropdown-icon">💰</span>
               Finance
             </Link>
-            <Link to="/operations" className="logo-dropdown-item" onClick={handleNonSalesSection}>
+            {/* ✅ Operations now opens sidebar */}
+            <button className="logo-dropdown-item" onClick={() => handleSectionSelect("operations")}>
               <span className="dropdown-icon">⚙️</span>
               Operations
-            </Link>
-            <Link to="/hr" className="logo-dropdown-item" onClick={handleNonSalesSection}>
+            </button>
+            <Link to="/hr" className="logo-dropdown-item" onClick={handleNonSidebarSection}>
               <span className="dropdown-icon">👥</span>
               HR
             </Link>

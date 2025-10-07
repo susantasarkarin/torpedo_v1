@@ -3,6 +3,7 @@
 import { Outlet } from "react-router-dom"
 import Navbar from "./Navbar"
 import RightSidebar from "./RightSidebar"
+import OperationsSidebar from "./OperationsSidebar"
 import Footer from "./Footer"
 import { useState } from "react"
 
@@ -23,23 +24,31 @@ function Layout() {
         selectedSection={selectedSection}
         setSelectedSection={setSelectedSection}
       />
+
       <div className="main-layout">
-        <div className={`content-area ${selectedSection === "sales" ? "with-left-sidebar" : ""}`}>
+        {/* ✅ Operations sidebar (left) */}
+        {selectedSection === "operations" && <OperationsSidebar />}
+
+        {/* ✅ Content area shifts depending on sidebar */}
+        <div
+          className={`content-area ${
+            selectedSection === "operations"
+              ? "with-left-sidebar"
+              : selectedSection === "sales"
+              ? "with-right-sidebar"
+              : ""
+          }`}
+        >
           <Outlet />
         </div>
+
+        {/* ✅ Sales sidebar (right) */}
         {selectedSection === "sales" && <RightSidebar />}
       </div>
 
-      
-
-
       <Footer />
     </div>
-
-
   )
-
-  
 }
 
 export default Layout
