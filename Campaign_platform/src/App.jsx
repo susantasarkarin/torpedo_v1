@@ -9,6 +9,7 @@ import Marketing from "./pages/Marketing";
 import Finance from "./pages/Finance";
 import Operations from "./pages/Operations";
 import HR from "./pages/HR";
+
 import Campaign from "./pages/sales/Campaign";
 import Leads from "./pages/sales/Leads";
 import Contacts from "./pages/sales/Contacts";
@@ -18,6 +19,8 @@ import List from "./pages/sales/campaign/List";
 import Templates from "./pages/sales/campaign/Templates";
 import Workflow from "./pages/sales/campaign/Workflow";
 import Reports from "./pages/sales/campaign/Reports";
+
+import ClientsPage from "./pages/operations/ClientsPage";
 
 function App() {
   return (
@@ -52,6 +55,11 @@ function App() {
         <Route path="finance" element={<ProtectedRoute><Finance /></ProtectedRoute>} />
         <Route path="operations" element={<ProtectedRoute><Operations /></ProtectedRoute>} />
         <Route path="hr" element={<ProtectedRoute><HR /></ProtectedRoute>} />
+
+         {/* Operations Module */}
+        <Route path="operations" element={<ProtectedRoute><Operations /></ProtectedRoute>} />
+        <Route path="operations/clients" element={<ProtectedRoute><ClientsPage /></ProtectedRoute>} />
+        {/* Later you can add vendors, projects, reports, etc. */}
       </Route>
     </Routes>
   );

@@ -393,3 +393,53 @@ async def login(credentials: Dict[str, str] = Body(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
 
+# ----------------------------
+# Clients Collection
+# ----------------------------
+clients_collection = db["clients"]
+
+# Create a client
+@app.post("/clients/")
+async def create_client(client_data: Dict[str, Any] = Body(...)):
+    try:
+        result = clients_collection.insert_one(client_data)
+        client_data["_id"] = str(result.inserted_id)
+        return {"message": "Client created successfully", "client": client_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Client creation error: {str(e)}")
+
+# Get all clients
+@app.get("/clients/")
+async def get_clients():
+    try:
+        clients = list(clients_collection.find())
+        for c in clients:
+            c["_id"] = str(c["_id"])
+        return {"clients": clients}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fetch clients error: {str(e)}")
+
+# Update a client
+@app.put("/clients/{client_id}")
+async def update_client(client_id: str, client_data: Dict[str, Any] = Body(...)):
+    try:
+        client_data = {k: v for k, v in client_data.items() if k != "_id"}
+        result = clients_collection.update_one(
+            {"_id": ObjectId(client_id)}, {"$set": client_data}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Client not found")
+        return {"message": "Client updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Client update error: {str(e)}")
+
+# Delete a client
+@app.delete("/clients/{client_id}")
+async def delete_client(client_id: str):
+    try:
+        result = clients_collection.delete_one({"_id": ObjectId(client_id)})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Client not found")
+        return {"message": "Client deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Client delete error: {str(e)}")
