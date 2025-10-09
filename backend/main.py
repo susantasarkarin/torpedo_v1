@@ -11,6 +11,14 @@ from typing import List, Dict, Any
 from bson import ObjectId
 from datetime import datetime
 from fastapi import Path
+
+
+# ----------------------------
+# Config
+# ----------------------------
+#changes 4
+API_BASE = os.getenv("API_BASE", "http://34.14.202.129:8000")  
+
 # ----------------------------
 # Load environment variables
 # ----------------------------
@@ -42,7 +50,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000","http://34.14.202.129"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -80,13 +88,24 @@ def send_email_html(to_email: str, subject: str, html_content: str, text_content
 def rewrite_links_with_tracking(html_body: str, campaign_id: str, email: str):
     return re.sub(
         r'href="(http[s]?://[^"]+)"',
-        lambda m: f'href=\"http://localhost:8000/track/click?c={campaign_id}&e={email}&url={m.group(1)}\"',
+        lambda m: f'href=\"{API_BASE}/track/click?c={campaign_id}&e={email}&url={m.group(1)}\"',
         html_body
     )
-
+#changes 5
+# def rewrite_links_with_tracking(html_body: str, campaign_id: str, email: str):
+#     return re.sub(
+#         r'href="(http[s]?://[^"]+)"',
+#         lambda m: f'href=\"http://localhost:8000/track/click?c={campaign_id}&e={email}&url={m.group(1)}\"',
+#         html_body
+#     )
+c
 # ----------------------------
 # Helper: inject open tracking pixel
 # ----------------------------
+def inject_open_tracking(html_body: str, campaign_id: str, email: str):
+    pixel = f'<img src="{API_BASE}/track/open?c={campaign_id}&e={email}" width="1" height="1" style="display:none;" />'
+    return html_body + pixel
+#changes 6
 def inject_open_tracking(html_body: str, campaign_id: str, email: str):
     pixel = f'<img src="http://localhost:8000/track/open?c={campaign_id}&e={email}" width="1" height="1" style="display:none;" />'
     return html_body + pixel

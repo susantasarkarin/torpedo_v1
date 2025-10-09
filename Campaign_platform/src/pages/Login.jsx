@@ -4,7 +4,8 @@ import { useState } from "react"
 import { useNavigate, Link } from "react-router-dom"
 import "../styles/login.css"
 import bgImg from "/images/login-hero.jpg"
-
+//changes 2
+import { API_BASE_URL } from "../config"
 
 function Login() {
   const [credentials, setCredentials] = useState({ username: "", password: "" })
@@ -13,14 +14,18 @@ function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     try {
-      const response = await fetch("http://localhost:8000/login/", {
+      const response = await fetch(`${API_BASE_URL}/login/`, {
+        //changes 1
+        // const response = await fetch("http://localhost:8000/login/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(credentials),
       })
 
       if (!response.ok) {
-        const err = await response.json()
+        //changes 3
+        //const err = await response.json()
+        const err = await response.json().catch(() => ({}))
         alert("❌ " + (err.detail || "Login failed"))
         return
       }
@@ -50,11 +55,9 @@ function Login() {
           <p className="subtitle">Login Form</p>
 
           <form onSubmit={handleSubmit} className="login-form" aria-describedby="login-help">
-            {/* Email */}
+            {/* Username */}
             <div className="field">
-              <label htmlFor="username" className="sr-only">
-                Email
-              </label>
+              <label htmlFor="username" className="sr-only">Email</label>
               <input
                 id="username"
                 name="username"
@@ -68,11 +71,9 @@ function Login() {
               />
             </div>
 
-            {/* Password with trailing icon */}
+            {/* Password */}
             <div className="field">
-              <label htmlFor="password" className="sr-only">
-                Password
-              </label>
+              <label htmlFor="password" className="sr-only">Password</label>
               <div className="password-wrap">
                 <input
                   id="password"
@@ -85,9 +86,7 @@ function Login() {
                   required
                   className="input"
                 />
-                <span className="chevron" aria-hidden="true">
-                  ▾
-                </span>
+                <span className="chevron" aria-hidden="true">▾</span>
               </div>
             </div>
 
@@ -108,12 +107,13 @@ function Login() {
       </section>
 
       {/* Right panel: hero image */}
-<section
-  className="login-right"
-  style={{ backgroundImage: `url(${bgImg})` }}
-  aria-label="Rocket launching illustration"
-  role="img"
-/>    </main>
+      <section
+        className="login-right"
+        style={{ backgroundImage: `url(${bgImg})` }}
+        aria-label="Rocket launching illustration"
+        role="img"
+      />
+    </main>
   )
 }
 
