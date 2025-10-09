@@ -21,6 +21,7 @@ import Workflow from "./pages/sales/campaign/Workflow";
 import Reports from "./pages/sales/campaign/Reports";
 
 import ClientsPage from "./pages/operations/ClientsPage";
+import VendorsPage from "./pages/operations/VendorsPage";
 
 function App() {
   return (
@@ -59,6 +60,7 @@ function App() {
          {/* Operations Module */}
         <Route path="operations" element={<ProtectedRoute><Operations /></ProtectedRoute>} />
         <Route path="operations/clients" element={<ProtectedRoute><ClientsPage /></ProtectedRoute>} />
+        <Route path="operations/vendors" element={<ProtectedRoute><VendorsPage /></ProtectedRoute>} />
         {/* Later you can add vendors, projects, reports, etc. */}
       </Route>
     </Routes>

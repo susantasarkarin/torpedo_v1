@@ -443,3 +443,51 @@ async def delete_client(client_id: str):
         return {"message": "Client deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Client delete error: {str(e)}")
+vendors_collection = db["vendors"]
+
+def generate_vendor_no():
+    while True:
+        vendor_no = str(datetime.utcnow().microsecond % 10000).zfill(4)
+        if not vendors_collection.find_one({"vendorNo": vendor_no}):
+            return vendor_no
+
+@app.post("/vendors/")
+async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
+    try:
+        vendor_data["vendorNo"] = generate_vendor_no()
+        result = vendors_collection.insert_one(vendor_data)
+        vendor_data["_id"] = str(result.inserted_id)
+        return {"message": "Vendor created successfully", "vendor": vendor_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Vendor creation error: {str(e)}")
+
+@app.get("/vendors/")
+async def get_vendors():
+    try:
+        vendors = list(vendors_collection.find())
+        for v in vendors:
+            v["_id"] = str(v["_id"])
+        return {"vendors": vendors}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fetch vendors error: {str(e)}")
+
+@app.put("/vendors/{vendor_id}")
+async def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...)):
+    try:
+        vendor_data = {k: v for k, v in vendor_data.items() if k != "_id" and k != "vendorNo"}
+        result = vendors_collection.update_one({"_id": ObjectId(vendor_id)}, {"$set": vendor_data})
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Vendor not found")
+        return {"message": "Vendor updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Vendor update error: {str(e)}")
+
+@app.delete("/vendors/{vendor_id}")
+async def delete_vendor(vendor_id: str):
+    try:
+        result = vendors_collection.delete_one({"_id": ObjectId(vendor_id)})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Vendor not found")
+        return {"message": "Vendor deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Vendor delete error: {str(e)}")
