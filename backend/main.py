@@ -98,7 +98,7 @@ def rewrite_links_with_tracking(html_body: str, campaign_id: str, email: str):
 #         lambda m: f'href=\"http://localhost:8000/track/click?c={campaign_id}&e={email}&url={m.group(1)}\"',
 #         html_body
 #     )
-c
+
 # ----------------------------
 # Helper: inject open tracking pixel
 # ----------------------------
@@ -106,9 +106,9 @@ def inject_open_tracking(html_body: str, campaign_id: str, email: str):
     pixel = f'<img src="{API_BASE}/track/open?c={campaign_id}&e={email}" width="1" height="1" style="display:none;" />'
     return html_body + pixel
 #changes 6
-def inject_open_tracking(html_body: str, campaign_id: str, email: str):
-    pixel = f'<img src="http://localhost:8000/track/open?c={campaign_id}&e={email}" width="1" height="1" style="display:none;" />'
-    return html_body + pixel
+# def inject_open_tracking(html_body: str, campaign_id: str, email: str):
+#     pixel = f'<img src="http://localhost:8000/track/open?c={campaign_id}&e={email}" width="1" height="1" style="display:none;" />'
+#     return html_body + pixel
 
 # ----------------------------
 # List Endpoints
