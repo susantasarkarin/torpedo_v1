@@ -3,8 +3,6 @@
 import { useState } from "react"
 import { useNavigate, Link } from "react-router-dom"
 import "../styles/login.css"
-// import bgImg from "/images/login-hero.jpg"   // remove image
-import bgVideo from "/videos/login-hero.mp4"   // add video import
 import { API_BASE_URL } from "../config"
 
 function Login() {
@@ -86,12 +84,9 @@ function Login() {
       </section>
 
       <section className="login-right">
-        <video
-          src={bgVideo}
-          autoPlay
-          loop
-          muted
-          playsInline
+        <img
+          src="/images/login-hero.jpg"
+          alt="Login background"
           className="video-bg"
         />
       </section>
