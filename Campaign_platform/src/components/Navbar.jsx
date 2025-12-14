@@ -114,15 +114,15 @@ function Navbar({
           </button>
 
           <div className="profile-menu">
-            <Link to="/profile" className="profile-menu-item">
+            <Link to="/admin/profile" className="profile-menu-item">
               <span className="profile-menu-icon">👤</span>
               My Profile
             </Link>
-            <Link to="/settings" className="profile-menu-item">
+            <Link to="/admin/settings" className="profile-menu-item">
               <span className="profile-menu-icon">⚙️</span>
               Settings
             </Link>
-            <Link to="/notifications" className="profile-menu-item">
+            <Link to="/admin/notifications" className="profile-menu-item">
               <span className="profile-menu-icon">🔔</span>
               Notifications
             </Link>

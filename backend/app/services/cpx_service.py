@@ -1,7 +1,7 @@
 import os
 import requests
 import hashlib
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
 from pymongo import MongoClient
@@ -70,6 +70,37 @@ class CPXService:
         """
         hash_string = f"{ext_user_id}-{secure_hash_key}"
         return hashlib.md5(hash_string.encode()).hexdigest()
+    
+    def generate_entry_link(
+        self,
+        survey_id: str,
+        respondent_id: str,
+    ) -> str:
+        """
+        Generate CPX survey entry link with required parameters.
+        Substitutes {unique_user_id} with the actual respondent_id.
+        
+        Args:
+            survey_id: The survey ID
+            respondent_id: The respondent ID to use as ext_user_id
+            
+        Returns:
+            Fully constructed entry URL with ext_user_id, app_id, and secure_hash
+        """
+        # Generate secure hash using respondent_id as ext_user_id
+        secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
+        
+        # Build query parameters
+        params = {
+            "app_id": self.app_id,
+            "ext_user_id": respondent_id,  # Replace {unique_user_id} with respondent_id
+            "secure_hash": secure_hash,
+            "survey_id": survey_id,
+        }
+        
+        base_url = "https://offers.cpx-research.com/index.php"
+        query_string = urlencode(params)
+        return f"{base_url}?{query_string}"
     
     @staticmethod
     def _get_client_ip() -> str:
@@ -201,13 +232,13 @@ class CPXService:
             print(f"❌ CPX fetch error: {e}")
             return []
     
-    @staticmethod
-    def _normalize_survey(survey: Dict[str, Any]) -> Dict[str, Any]:
+    def _normalize_survey(self, survey: Dict[str, Any], respondent_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Normalize CPX survey data to internal format
         
         Args:
             survey: Raw survey data from CPX API
+            respondent_id: Optional respondent ID to generate entry_link
             
         Returns:
             Normalized survey dictionary
@@ -236,6 +267,14 @@ class CPXService:
             "last_updated": datetime.utcnow(),
             "raw_data": survey,  # Store raw data for reference
         }
+        
+        # Generate entry_link if respondent_id is provided
+        if respondent_id:
+            normalized["entry_link"] = self.generate_entry_link(
+                survey_id=str(survey_id),
+                respondent_id=respondent_id
+            )
+        
         return normalized
     
     @staticmethod
@@ -427,3 +466,31 @@ class CPXService:
         except Exception as e:
             print(f"❌ Error fetching filter settings: {e}")
             return {}
+    
+    def cleanup_old_surveys(self, days: int = 3) -> int:
+        """
+        Delete surveys that are older than specified number of days
+        
+        Args:
+            days: Number of days after which surveys should be deleted (default: 3)
+            
+        Returns:
+            Number of surveys deleted
+        """
+        try:
+            cutoff_date = datetime.utcnow() - timedelta(days=days)
+            
+            # Delete surveys where last_updated is older than cutoff_date
+            result = self.cpx_surveys_collection.delete_many({
+                "last_updated": {"$lt": cutoff_date}
+            })
+            
+            deleted_count = result.deleted_count
+            if deleted_count > 0:
+                print(f"🗑️  Cleaned up {deleted_count} surveys older than {days} days")
+            
+            return deleted_count
+            
+        except Exception as e:
+            print(f"❌ Error cleaning up old surveys: {e}")
+            return 0

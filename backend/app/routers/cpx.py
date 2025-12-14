@@ -208,20 +208,12 @@ async def assign_traffic_to_survey(
         if not survey:
             raise HTTPException(status_code=404, detail=f"Survey {survey_id} not found")
         
-        # Extract survey URL and client ID from raw_data or use defaults
-        survey_url = survey.get('raw_data', {}).get('href_new', '')
-        if not survey_url:
-            # Fallback to constructing URL
-            app_id = os.getenv("CPX_APP_ID", "10754")
-            ext_user_id = os.getenv("CPX_EXT_USER_ID", "")
-            survey_url = f"https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&survey_id={survey_id}"
-        
         client_id = os.getenv("CPX_APP_ID", "10754")
         
-        # Perform batch assignment
-        result = traffic_service.batch_assign_surveys(
+        # Perform batch assignment with CPX service for entry link generation
+        result = traffic_service.batch_assign_surveys_with_entry_links(
             survey_id=survey_id,
-            survey_url=survey_url,
+            cpx_service=service,
             client_id=client_id,
             batch_size=batch_size
         )

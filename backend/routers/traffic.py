@@ -173,9 +173,12 @@ async def health():
 
 
 @router.get("/api/traffic/stats")
-async def get_traffic_stats(request: Request):
+async def get_traffic_stats(
+    request: Request,
+    survey_id: str = Query(None, description="Optional survey ID to filter stats")
+):
     """
-    Get traffic statistics by status
+    Get traffic statistics by status, optionally filtered by survey_id
     Requires authentication
     """
     try:
@@ -187,7 +190,7 @@ async def get_traffic_stats(request: Request):
         if traffic_service is None:
             raise HTTPException(status_code=503, detail="Traffic service not initialized")
         
-        stats = traffic_service.get_traffic_stats()
+        stats = traffic_service.get_traffic_stats(survey_id=survey_id)
         return stats
         
     except HTTPException:

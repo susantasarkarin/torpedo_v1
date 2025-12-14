@@ -119,26 +119,114 @@ export default function SurveyDataTable({ surveys, token, onSurveySelect, select
                     <div className="traffic-stats-inline">
                       {loadingStats[survey.survey_id] ? (
                         <div className="stats-loading">⏳ Loading traffic stats...</div>
-                      ) : trafficStats[survey.survey_id] ? (
+                      ) : (
                         <>
-                          <div className="stats-header">
-                            <h4>📊 Traffic Statistics for Survey {survey.survey_id}</h4>
-                          </div>
-                          <div className="stats-summary">
-                            <div className="stat-box">
-                              <span className="stat-label">Total</span>
-                              <span className="stat-number">{trafficStats[survey.survey_id].total || 0}</span>
-                            </div>
-                            {Object.entries(trafficStats[survey.survey_id].by_status || {}).map(([status, count]) => (
-                              <div key={status} className="stat-box" data-status={status.toLowerCase()}>
-                                <span className="stat-label">{status}</span>
-                                <span className="stat-number">{count}</span>
+                          {/* Survey Details Section */}
+                          <div className="survey-details-section">
+                            <h4>📋 Survey Details</h4>
+                            <div className="survey-details-grid">
+                              <div className="detail-item">
+                                <span className="detail-label">Survey ID</span>
+                                <span className="detail-value">{survey.survey_id}</span>
                               </div>
-                            ))}
+                              <div className="detail-item">
+                                <span className="detail-label">Title</span>
+                                <span className="detail-value">{survey.title || 'N/A'}</span>
+                              </div>
+                              <div className="detail-item">
+                                <span className="detail-label">Length of Interview</span>
+                                <span className="detail-value">{survey.loi} minutes</span>
+                              </div>
+                              <div className="detail-item">
+                                <span className="detail-label">Payout</span>
+                                <span className="detail-value">${survey.payout?.toFixed(2) || '0.00'}</span>
+                              </div>
+                              <div className="detail-item">
+                                <span className="detail-label">Country</span>
+                                <span className="detail-value">{survey.country || 'N/A'}</span>
+                              </div>
+                              <div className="detail-item">
+                                <span className="detail-label">Category</span>
+                                <span className="detail-value">{survey.category || 'N/A'}</span>
+                              </div>
+                              <div className="detail-item">
+                                <span className="detail-label">Provider</span>
+                                <span className="detail-value">{survey.provider || 'CPX'}</span>
+                              </div>
+                              <div className="detail-item">
+                                <span className="detail-label">Conversion Rate</span>
+                                <span className="detail-value">{survey.conversion_rate ? `${(survey.conversion_rate * 100).toFixed(1)}%` : 'N/A'}</span>
+                              </div>
+                            </div>
+                            
+                            {/* Entry Link Section */}
+                            {(survey.entry_link || survey.raw_data?.href_new) && (
+                              <div className="entry-link-section">
+                                <span className="entry-link-label">🔗 Live Entry URL</span>
+                                <div className="entry-link-container">
+                                  <input 
+                                    type="text" 
+                                    readOnly 
+                                    value={survey.entry_link || survey.raw_data?.href_new || ''} 
+                                    className="entry-link-input"
+                                    onClick={(e) => e.target.select()}
+                                  />
+                                  <button 
+                                    className="copy-link-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      navigator.clipboard.writeText(survey.entry_link || survey.raw_data?.href_new || '');
+                                    }}
+                                    title="Copy to clipboard"
+                                  >
+                                    📋
+                                  </button>
+                                  <a 
+                                    href={survey.entry_link || survey.raw_data?.href_new} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="open-link-btn"
+                                    onClick={(e) => e.stopPropagation()}
+                                    title="Open in new tab"
+                                  >
+                                    🔗
+                                  </a>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Traffic Statistics Section */}
+                          <div className="traffic-stats-section">
+                            <h4>📊 Traffic Statistics</h4>
+                            <div className="stats-summary">
+                              <div className="stat-box">
+                                <span className="stat-label">Total Entrants</span>
+                                <span className="stat-number">{trafficStats[survey.survey_id]?.total || 0}</span>
+                              </div>
+                              <div className="stat-box" data-status="complete">
+                                <span className="stat-label">Completes</span>
+                                <span className="stat-number">{trafficStats[survey.survey_id]?.by_status?.COMPLETE || 0}</span>
+                              </div>
+                              <div className="stat-box" data-status="terminated">
+                                <span className="stat-label">Terminates</span>
+                                <span className="stat-number">{trafficStats[survey.survey_id]?.by_status?.TERMINATED || 0}</span>
+                              </div>
+                              <div className="stat-box" data-status="quotafull">
+                                <span className="stat-label">Quota Full</span>
+                                <span className="stat-number">{trafficStats[survey.survey_id]?.by_status?.QUOTAFULL || 0}</span>
+                              </div>
+                              <div className="stat-box" data-status="incomplete">
+                                <span className="stat-label">Incomplete</span>
+                                <span className="stat-number">{trafficStats[survey.survey_id]?.by_status?.INCOMPLETE || 0}</span>
+                              </div>
+                              <div className="stat-box" data-status="new">
+                                <span className="stat-label">New</span>
+                                <span className="stat-number">{trafficStats[survey.survey_id]?.by_status?.NEW || 0}</span>
+                              </div>
+                            </div>
                           </div>
                         </>
-                      ) : (
-                        <div className="stats-empty">No traffic data available for this survey</div>
                       )}
                     </div>
                   </td>
@@ -188,8 +276,56 @@ const styles = `
 }
 
 .traffic-stats-inline {
-  padding: 16px;
+  padding: 20px;
   border-left: 3px solid #667eea;
+}
+
+.survey-details-section {
+  margin-bottom: 24px;
+}
+
+.survey-details-section h4,
+.traffic-stats-section h4 {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #495057;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.survey-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.detail-item {
+  background: white;
+  padding: 12px 16px;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+}
+
+.detail-item .detail-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #6c757d;
+  margin-bottom: 4px;
+}
+
+.detail-item .detail-value {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: #212529;
+}
+
+.traffic-stats-section {
+  margin-top: 16px;
 }
 
 .stats-header h4 {
@@ -210,7 +346,7 @@ const styles = `
   padding: 12px 16px;
   border-radius: 6px;
   border: 1px solid #dee2e6;
-  min-width: 100px;
+  min-width: 120px;
   text-align: center;
 }
 
@@ -241,6 +377,68 @@ const styles = `
   padding: 20px;
   color: #6c757d;
   font-style: italic;
+}
+
+/* Entry Link Section Styles */
+.entry-link-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #dee2e6;
+}
+
+.entry-link-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #495057;
+  margin-bottom: 8px;
+}
+
+.entry-link-container {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.entry-link-input {
+  flex: 1;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: 'Courier New', monospace;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  color: #667eea;
+  cursor: text;
+}
+
+.entry-link-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.copy-link-btn,
+.open-link-btn {
+  padding: 8px 12px;
+  background: #667eea;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background 0.2s;
+}
+
+.copy-link-btn:hover,
+.open-link-btn:hover {
+  background: #5a6fd6;
+}
+
+.open-link-btn {
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 `;
 

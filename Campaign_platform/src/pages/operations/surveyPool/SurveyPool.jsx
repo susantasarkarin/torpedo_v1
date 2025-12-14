@@ -50,7 +50,7 @@ export default function SurveyPool() {
       setLoading(true);
       fetchSurveys({
         page: 1,
-        page_size: 1000, // Get all surveys
+        page_size: 100, // Max allowed by backend API (le=100)
       }).then((data) => {
         if (data?.last_updated) {
           setLastUpdated(data.last_updated);

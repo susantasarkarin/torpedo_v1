@@ -20,12 +20,14 @@ try:
     from .routers import traffic as traffic_router
     from .app.routers import cpx as cpx_router
     from .routers import finance as finance_router
+    from .routers import settings as settings_router
     from .app.services.cpx_service import CPXService
 except Exception:
     # Fallback to absolute import for other runtimes
     from routers import traffic as traffic_router
     from app.routers import cpx as cpx_router
     from routers import finance as finance_router
+    from routers import settings as settings_router
     from app.services.cpx_service import CPXService
 
 # Ensure stdout/stderr use UTF-8 on Windows consoles to avoid UnicodeEncodeError
@@ -220,6 +222,13 @@ if cpx_surveys_collection is not None and cpx_filters_collection is not None:
 else:
     print("⚠️ CPX Research router not initialized due to database connection issue")
 
+# Settings router
+try:
+    app.include_router(settings_router.router)
+    print("✅ Settings router included")
+except Exception as e:
+    print(f"⚠️ Settings router not included: {e}")
+
 # ----------------------------
 # MailerSend client
 # ----------------------------
@@ -239,6 +248,11 @@ def refresh_cpx_inventory():
     
     try:
         print(f"🔄 [CPX] Starting scheduled refresh at {datetime.utcnow().isoformat()}")
+        
+        # Cleanup surveys older than 7 days
+        cpx_service.cleanup_old_surveys(days=7)
+        
+        # Fetch and upsert new surveys
         surveys = cpx_service.fetch_cpx_surveys()
         count = cpx_service.upsert_surveys(surveys)
         print(f"✅ [CPX] Refresh complete: {len(surveys)} fetched, {count} upserted")

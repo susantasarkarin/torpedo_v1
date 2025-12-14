@@ -46,6 +46,9 @@ import ReportsPage from "./pages/finance/ReportsPage"
 // User Pages
 import TrafficFlowParser from "./pages/user/TrafficFlowParser"
 
+// Settings Page
+import Settings from "./pages/Settings"
+
 function App() {
   return (
     <Routes>
@@ -100,6 +103,9 @@ function App() {
           path="finance/settings"
           element={<div style={{ padding: "2rem" }}>Finance Settings (Coming Soon)</div>}
         />
+
+        {/* Settings */}
+        <Route path="settings" element={<Settings />} />
 
         {/* Operations Routes */}
         <Route path="operations" element={<Operations />} />

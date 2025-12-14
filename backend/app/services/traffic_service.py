@@ -228,6 +228,99 @@ class TrafficService:
                 "error": str(e)
             }
     
+    def batch_assign_surveys_with_entry_links(
+        self,
+        survey_id: str,
+        cpx_service: Any,
+        client_id: str,
+        batch_size: int = 100
+    ) -> Dict[str, Any]:
+        """
+        Assign a survey to a batch of NEW traffic records with dynamically generated entry links.
+        Each respondent gets a unique entry_link with their respondent_id as ext_user_id.
+        
+        Args:
+            survey_id: Survey ID to assign
+            cpx_service: CPX service instance for generating entry links
+            client_id: Client ID for the survey
+            batch_size: Number of records to process (default: 100)
+            
+        Returns:
+            Dictionary with assignment statistics
+        """
+        try:
+            # Get batch of NEW traffic records
+            traffic_batch = self.get_new_traffic_batch(batch_size)
+            
+            if not traffic_batch:
+                return {
+                    "success": True,
+                    "survey_id": survey_id,
+                    "total_records": 0,
+                    "assigned": 0,
+                    "failed": 0,
+                    "message": "No NEW traffic records available"
+                }
+            
+            assigned_count = 0
+            failed_count = 0
+            redirect_urls = []
+            
+            for traffic in traffic_batch:
+                try:
+                    traffic_id = traffic["_id"]
+                    country_code = traffic.get("countryCode", "")
+                    respondent_id = traffic.get("respondentId", "")
+                    
+                    # Generate unique entry link with respondent_id as ext_user_id
+                    # This replaces {unique_user_id} with the actual respondent_id
+                    entry_link = cpx_service.generate_entry_link(
+                        survey_id=survey_id,
+                        respondent_id=respondent_id
+                    )
+                    
+                    # Build final redirect URL with additional tracking params
+                    redirect_url = f"{entry_link}&clientId={client_id}-{traffic_id}&cc={country_code}"
+                    
+                    # Assign survey and update status
+                    if self.assign_survey_to_traffic(traffic_id, survey_id, redirect_url):
+                        assigned_count += 1
+                        redirect_urls.append({
+                            "traffic_id": traffic_id,
+                            "respondent_id": respondent_id,
+                            "redirect_url": redirect_url
+                        })
+                    else:
+                        failed_count += 1
+                        
+                except Exception as e:
+                    print(f"❌ Error processing traffic record {traffic.get('_id')}: {e}")
+                    failed_count += 1
+            
+            result = {
+                "success": True,
+                "survey_id": survey_id,
+                "total_records": len(traffic_batch),
+                "assigned": assigned_count,
+                "failed": failed_count,
+                "redirect_urls": redirect_urls[:10],  # Return first 10 for verification
+                "message": f"Assigned {assigned_count} traffic records to survey {survey_id} with unique entry links"
+            }
+            
+            print(f"✅ Batch assignment with entry links complete: {assigned_count} assigned, {failed_count} failed")
+            return result
+            
+        except Exception as e:
+            print(f"❌ Error in batch assignment with entry links: {e}")
+            return {
+                "success": False,
+                "survey_id": survey_id,
+                "total_records": 0,
+                "assigned": 0,
+                "failed": 0,
+                "error": str(e)
+            }
+    
     def update_traffic_status(
         self,
         traffic_id: str,
@@ -273,22 +366,35 @@ class TrafficService:
             print(f"❌ Error updating traffic status: {e}")
             return False
     
-    def get_traffic_stats(self) -> Dict[str, Any]:
+    def get_traffic_stats(self, survey_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Get traffic statistics by status
+        Get traffic statistics by status, optionally filtered by survey_id
         
+        Args:
+            survey_id: Optional survey ID to filter stats
+            
         Returns:
             Dictionary with counts by status
         """
         try:
-            pipeline = [
-                {
-                    "$group": {
-                        "_id": "$status",
-                        "count": {"$sum": 1}
-                    }
+            # Build match stage for filtering
+            match_stage = {}
+            if survey_id:
+                match_stage["assignedSurveyId"] = survey_id
+            
+            pipeline = []
+            
+            # Add match stage if filtering
+            if match_stage:
+                pipeline.append({"$match": match_stage})
+            
+            # Group by status
+            pipeline.append({
+                "$group": {
+                    "_id": "$status",
+                    "count": {"$sum": 1}
                 }
-            ]
+            })
             
             results = list(self.traffic_collection.aggregate(pipeline))
             
