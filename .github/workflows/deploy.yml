@@ -1,0 +1,33 @@
+name: Deploy to Google Cloud VM
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: SSH into Google Cloud VM and deploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.GCP_VM_IP }}
+          username: santoshpradhan
+          key: ${{ secrets.GCP_SSH_KEY }}
+          script: |
+            cd ~/campaign_platform
+            git fetch origin main
+            git reset --hard origin/main
+            source ~/campaign_platform/backend/venv/bin/activate
+            pip install -r ~/campaign_platform/backend/requirements.txt
+            sudo systemctl restart backend
+            cd ~/campaign_platform/Campaign_platform
+            npm install
+            npm run build
+            sudo systemctl restart frontend
+
