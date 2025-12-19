@@ -143,7 +143,7 @@ function FinanceDashboard({ loading, displayKpis, formatCurrency, activities, to
   const quickActions = [
     { href: "/admin/finance/customers", icon: "👥", label: "Customers", color: "#0d6efd" },
     { href: "/admin/finance/vendors", icon: "🏢", label: "Vendors", color: "#8b5cf6" },
-    { href: "/admin/finance/items", icon: "📦", label: "Estimates", color: "#f59e0b" },
+    { href: "/admin/finance/estimates", icon: "📝", label: "Estimates", color: "#f59e0b" },
     { href: "/admin/finance/invoices", icon: "📄", label: "Invoices", color: "#10b981" },
     { href: "/admin/finance/bills", icon: "🧾", label: "Bills", color: "#ef4444" },
     { href: "/admin/finance/expenses", icon: "💸", label: "Expenses", color: "#ec4899" },

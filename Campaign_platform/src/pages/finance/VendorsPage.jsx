@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { API_BASE_URL } from "../../config"
 import { Building2, Search, Pencil, Trash2, Loader2, Upload, Download } from "lucide-react"
 
@@ -41,6 +41,8 @@ function VendorsPage() {
   const [formErrors, setFormErrors] = useState({})
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [recordsPerPage, setRecordsPerPage] = useState(10)
   const fileInputRef = useRef(null)
   
   const initialFormData = {
@@ -241,12 +243,32 @@ function VendorsPage() {
     setFormErrors({})
   }
 
-  const filteredVendors = vendors.filter(
-    (v) =>
-      v.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      v.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      v.gstin?.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  const filteredVendors = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase()
+    if (!q) return vendors
+    return vendors.filter(
+      (v) =>
+        v.name?.toLowerCase().includes(q) ||
+        v.email?.toLowerCase().includes(q) ||
+        v.gstin?.toLowerCase().includes(q)
+    )
+  }, [vendors, searchTerm])
+
+  // Pagination
+  const totalPages = Math.ceil(filteredVendors.length / recordsPerPage)
+  const startIdx = (currentPage - 1) * recordsPerPage
+  const endIdx = startIdx + recordsPerPage
+  const paginatedVendors = filteredVendors.slice(startIdx, endIdx)
+
+  const handleSearch = (value) => {
+    setSearchTerm(value)
+    setCurrentPage(1)
+  }
+
+  const handleRecordsPerPageChange = (value) => {
+    setRecordsPerPage(parseInt(value))
+    setCurrentPage(1)
+  }
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat("en-IN", {
@@ -366,16 +388,27 @@ function VendorsPage() {
           />
           <input
             type="text"
-            placeholder="Search vendors..."
+            placeholder="Search by name, email, GSTIN..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => handleSearch(e.target.value)}
             style={styles.searchInput}
           />
         </div>
+        <select
+          style={styles.recordsPerPageSelect}
+          value={recordsPerPage}
+          onChange={(e) => handleRecordsPerPageChange(e.target.value)}
+        >
+          <option value={10}>10 per page</option>
+          <option value={20}>20 per page</option>
+          <option value={50}>50 per page</option>
+          <option value={100}>100 per page</option>
+          <option value={200}>200 per page</option>
+        </select>
         <div style={styles.stats}>
-          <span>
-            Total: <strong>{filteredVendors.length}</strong>
-          </span>
+          <span>Total: <strong>{vendors.length}</strong></span>
+          <span>Active: <strong>{vendors.filter(v => v.status === "active").length}</strong></span>
+          <span>Inactive: <strong>{vendors.filter(v => v.status === "inactive").length}</strong></span>
         </div>
       </div>
 
@@ -403,13 +436,13 @@ function VendorsPage() {
                 <th style={styles.th}>Email</th>
                 <th style={styles.th}>Phone</th>
                 <th style={styles.th}>GSTIN</th>
+                <th style={styles.th}>Status</th>
                 <th style={styles.th}>Outstanding</th>
-                <th style={styles.th}>Trust Score</th>
                 <th style={styles.th}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredVendors.map((vendor) => (
+              {paginatedVendors.map((vendor) => (
                 <tr key={vendor._id} style={styles.tr}>
                   <td style={styles.td}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
@@ -444,23 +477,15 @@ function VendorsPage() {
                       {vendor.gstin || "-"}
                     </code>
                   </td>
-                  <td style={{ ...styles.td, fontWeight: "600" }}>{formatCurrency(vendor.outstanding_amount)}</td>
                   <td style={styles.td}>
-                    <span
-                      style={{
-                        display: "inline-block",
-                        padding: "0.375rem 0.75rem",
-                        borderRadius: "0.375rem",
-                        fontSize: "0.8rem",
-                        fontWeight: "600",
-                        backgroundColor:
-                          vendor.trust_score >= 80 ? "#d1fae5" : vendor.trust_score >= 50 ? "#fef3c7" : "#fee2e2",
-                        color: vendor.trust_score >= 80 ? "#065f46" : vendor.trust_score >= 50 ? "#92400e" : "#991b1b",
-                      }}
-                    >
-                      {vendor.trust_score || 100}%
+                    <span style={{
+                      ...styles.statusBadge,
+                      ...(vendor.status === 'active' ? styles.statusActive : styles.statusInactive)
+                    }}>
+                      {vendor.status === 'active' ? 'Active' : 'Inactive'}
                     </span>
                   </td>
+                  <td style={{ ...styles.td, fontWeight: "600" }}>{formatCurrency(vendor.outstanding_amount)}</td>
                   <td style={styles.td}>
                     <div style={styles.actionButtons}>
                       <button style={styles.btnEdit} onClick={() => handleEdit(vendor)}>
@@ -473,7 +498,7 @@ function VendorsPage() {
                   </td>
                 </tr>
               ))}
-              {filteredVendors.length === 0 && (
+              {paginatedVendors.length === 0 && filteredVendors.length === 0 && (
                 <tr>
                   <td colSpan={7} style={styles.emptyState}>
                     <Building2 style={{ width: "48px", height: "48px", margin: "0 auto 1rem", opacity: 0.5 }} />
@@ -483,6 +508,29 @@ function VendorsPage() {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div style={styles.paginationContainer}>
+          <button
+            style={{...styles.paginationBtn, ...(currentPage === 1 ? styles.paginationBtnDisabled : {})}}
+            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+            disabled={currentPage === 1}
+          >
+            ← Previous
+          </button>
+          <div style={styles.pageInfo}>
+            Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+          </div>
+          <button
+            style={{...styles.paginationBtn, ...(currentPage === totalPages ? styles.paginationBtnDisabled : {})}}
+            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage === totalPages}
+          >
+            Next →
+          </button>
         </div>
       )}
 
@@ -936,6 +984,22 @@ const styles = {
     fontSize: "0.9rem",
     color: "#374151",
   },
+  statusBadge: {
+    display: "inline-block",
+    padding: "0.375rem 0.75rem",
+    borderRadius: "0.375rem",
+    fontSize: "0.8rem",
+    fontWeight: "600",
+    textTransform: "capitalize",
+  },
+  statusActive: {
+    backgroundColor: "#d1fae5",
+    color: "#065f46",
+  },
+  statusInactive: {
+    backgroundColor: "#e5e7eb",
+    color: "#6b7280",
+  },
   actionButtons: {
     display: "flex",
     gap: "0.5rem",
@@ -966,6 +1030,47 @@ const styles = {
     textAlign: "center",
     padding: "3rem",
     color: "#9ca3af",
+  },
+  recordsPerPageSelect: {
+    padding: "0.75rem 1rem",
+    border: "1px solid #d1d5db",
+    borderRadius: "0.5rem",
+    fontSize: "0.95rem",
+    backgroundColor: "white",
+    cursor: "pointer",
+  },
+  paginationContainer: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: "1rem",
+    marginTop: "2rem",
+    padding: "1rem",
+    backgroundColor: "white",
+    borderRadius: "0.75rem",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+  },
+  paginationBtn: {
+    padding: "0.5rem 1rem",
+    backgroundColor: "#0d6efd",
+    color: "white",
+    border: "none",
+    borderRadius: "0.375rem",
+    fontSize: "0.9rem",
+    fontWeight: "500",
+    cursor: "pointer",
+    transition: "all 0.2s",
+  },
+  paginationBtnDisabled: {
+    backgroundColor: "#d1d5db",
+    cursor: "not-allowed",
+    opacity: "0.6",
+  },
+  pageInfo: {
+    fontSize: "0.9rem",
+    color: "#6b7280",
+    minWidth: "150px",
+    textAlign: "center",
   },
   modal: {
     position: "fixed",

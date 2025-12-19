@@ -1,0 +1,16 @@
+# Add credentials.json here (DO NOT COMMIT TO VERSION CONTROL)
+# Download from Google Cloud Console:
+# 1. Go to https://console.cloud.google.com/
+# 2. Create/select a project
+# 3. Enable Gmail API
+# 4. Create OAuth 2.0 credentials (Desktop App)
+# 5. Download and rename to credentials.json
+
+*.pickle
+token*.pickle
+credentials.json
+*.log
+__pycache__/
+*.pyc
+.env
+accounts.json

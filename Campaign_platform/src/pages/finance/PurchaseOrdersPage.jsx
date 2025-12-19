@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { API_BASE_URL } from "../../config"
 import { Package, Plus, Search, Eye, FileText, CheckCircle, X, Loader2, Trash2, Upload, Download } from "lucide-react"
 
@@ -14,6 +14,8 @@ function PurchaseOrdersPage() {
   const [showModal, setShowModal] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [recordsPerPage, setRecordsPerPage] = useState(10)
   const fileInputRef = useRef(null)
   const [formData, setFormData] = useState({
     vendor_id: "",
@@ -188,13 +190,37 @@ function PurchaseOrdersPage() {
     }, 0)
   }
 
-  const filteredPOs = purchaseOrders.filter((po) => {
-    const matchesSearch =
-      po.po_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      po.vendor_name?.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = statusFilter === "all" || po.status === statusFilter
-    return matchesSearch && matchesStatus
-  })
+  const filteredPOs = useMemo(() => {
+    return purchaseOrders.filter((po) => {
+      const q = searchTerm.trim().toLowerCase()
+      const matchesSearch = !q ||
+        po.po_number?.toLowerCase().includes(q) ||
+        po.vendor_name?.toLowerCase().includes(q)
+      const matchesStatus = statusFilter === "all" || po.status === statusFilter
+      return matchesSearch && matchesStatus
+    })
+  }, [purchaseOrders, searchTerm, statusFilter])
+
+  // Pagination
+  const totalPages = Math.ceil(filteredPOs.length / recordsPerPage)
+  const startIdx = (currentPage - 1) * recordsPerPage
+  const endIdx = startIdx + recordsPerPage
+  const paginatedPOs = filteredPOs.slice(startIdx, endIdx)
+
+  const handleSearch = (value) => {
+    setSearchTerm(value)
+    setCurrentPage(1)
+  }
+
+  const handleStatusFilter = (value) => {
+    setStatusFilter(value)
+    setCurrentPage(1)
+  }
+
+  const handleRecordsPerPageChange = (value) => {
+    setRecordsPerPage(parseInt(value))
+    setCurrentPage(1)
+  }
 
   // Export purchase orders to CSV
   const handleExportCSV = async () => {
@@ -307,15 +333,15 @@ function PurchaseOrdersPage() {
           <input
             style={styles.searchInput}
             type="text"
-            placeholder="Search purchase orders..."
+            placeholder="Search by PO #, vendor..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => handleSearch(e.target.value)}
           />
         </div>
         <select
-          style={styles.select}
+          style={styles.statusSelect}
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => handleStatusFilter(e.target.value)}
         >
           <option value="all">All Status</option>
           <option value="draft">Draft</option>
@@ -324,10 +350,21 @@ function PurchaseOrdersPage() {
           <option value="received">Received</option>
           <option value="cancelled">Cancelled</option>
         </select>
+        <select
+          style={styles.recordsPerPageSelect}
+          value={recordsPerPage}
+          onChange={(e) => handleRecordsPerPageChange(e.target.value)}
+        >
+          <option value={10}>10 per page</option>
+          <option value={20}>20 per page</option>
+          <option value={50}>50 per page</option>
+          <option value={100}>100 per page</option>
+        </select>
         <div style={styles.stats}>
-          <span>
-            Total: <strong>{filteredPOs.length}</strong>
-          </span>
+          <span>Total: <strong>{purchaseOrders.length}</strong></span>
+          <span>Draft: <strong>{purchaseOrders.filter(po => po.status === "draft").length}</strong></span>
+          <span>Approved: <strong>{purchaseOrders.filter(po => po.status === "approved").length}</strong></span>
+          <span>Received: <strong>{purchaseOrders.filter(po => po.status === "received").length}</strong></span>
         </div>
       </div>
 
@@ -361,7 +398,7 @@ function PurchaseOrdersPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredPOs.map((po) => (
+              {paginatedPOs.map((po) => (
                 <tr key={po._id} style={styles.tr}>
                   <td style={styles.td}>
                     <code
@@ -398,7 +435,7 @@ function PurchaseOrdersPage() {
                   </td>
                 </tr>
               ))}
-              {filteredPOs.length === 0 && (
+              {paginatedPOs.length === 0 && filteredPOs.length === 0 && (
                 <tr>
                   <td colSpan={7} style={styles.emptyState}>
                     <Package style={{ width: "48px", height: "48px", margin: "0 auto 1rem", opacity: 0.5 }} />
@@ -408,6 +445,29 @@ function PurchaseOrdersPage() {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div style={styles.paginationContainer}>
+          <button
+            style={{...styles.paginationBtn, ...(currentPage === 1 ? styles.paginationBtnDisabled : {})}}
+            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+            disabled={currentPage === 1}
+          >
+            ← Previous
+          </button>
+          <div style={styles.pageInfo}>
+            Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+          </div>
+          <button
+            style={{...styles.paginationBtn, ...(currentPage === totalPages ? styles.paginationBtnDisabled : {})}}
+            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage === totalPages}
+          >
+            Next →
+          </button>
         </div>
       )}
 
@@ -702,6 +762,22 @@ const styles = {
     borderRadius: "0.5rem",
     fontSize: "0.95rem",
   },
+  statusSelect: {
+    padding: "0.75rem 1rem",
+    border: "1px solid #d1d5db",
+    borderRadius: "0.5rem",
+    fontSize: "0.95rem",
+    backgroundColor: "white",
+    cursor: "pointer",
+  },
+  recordsPerPageSelect: {
+    padding: "0.75rem 1rem",
+    border: "1px solid #d1d5db",
+    borderRadius: "0.5rem",
+    fontSize: "0.95rem",
+    backgroundColor: "white",
+    cursor: "pointer",
+  },
   stats: {
     display: "flex",
     gap: "2rem",
@@ -777,6 +853,39 @@ const styles = {
     textAlign: "center",
     padding: "3rem",
     color: "#9ca3af",
+  },
+  paginationContainer: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: "1rem",
+    marginTop: "2rem",
+    padding: "1rem",
+    backgroundColor: "white",
+    borderRadius: "0.75rem",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+  },
+  paginationBtn: {
+    padding: "0.5rem 1rem",
+    backgroundColor: "#0d6efd",
+    color: "white",
+    border: "none",
+    borderRadius: "0.375rem",
+    fontSize: "0.9rem",
+    fontWeight: "500",
+    cursor: "pointer",
+    transition: "all 0.2s",
+  },
+  paginationBtnDisabled: {
+    backgroundColor: "#d1d5db",
+    cursor: "not-allowed",
+    opacity: "0.6",
+  },
+  pageInfo: {
+    fontSize: "0.9rem",
+    color: "#6b7280",
+    minWidth: "150px",
+    textAlign: "center",
   },
   modal: {
     position: "fixed",

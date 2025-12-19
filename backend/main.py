@@ -21,6 +21,7 @@ try:
     from .app.routers import cpx as cpx_router
     from .routers import finance as finance_router
     from .routers import settings as settings_router
+    from .routers import gmail as gmail_router
     from .app.services.cpx_service import CPXService
 except Exception:
     # Fallback to absolute import for other runtimes
@@ -28,6 +29,7 @@ except Exception:
     from app.routers import cpx as cpx_router
     from routers import finance as finance_router
     from routers import settings as settings_router
+    from routers import gmail as gmail_router
     from app.services.cpx_service import CPXService
 
 # Ensure stdout/stderr use UTF-8 on Windows consoles to avoid UnicodeEncodeError
@@ -228,6 +230,13 @@ try:
     print("✅ Settings router included")
 except Exception as e:
     print(f"⚠️ Settings router not included: {e}")
+
+# Gmail router for Gmail API integration
+try:
+    app.include_router(gmail_router.router)
+    print("✅ Gmail router included")
+except Exception as e:
+    print(f"⚠️ Gmail router not included: {e}")
 
 # ----------------------------
 # MailerSend client

@@ -38,6 +38,7 @@ import FinanceCustomersPage from "./pages/finance/CustomersPage"
 import FinanceCustomersImport from "./pages/finance/CustomersImport"
 import FinanceVendorsPage from "./pages/finance/VendorsPage"
 import FinanceItems from "./pages/finance/ItemsPage"
+import EstimatesPage from "./pages/finance/EstimatesPage"
 import InvoicesPage from "./pages/finance/InvoicesPage"
 import BillsPage from "./pages/finance/BillsPage"
 import ExpensesPage from "./pages/finance/ExpensesPage"
@@ -106,6 +107,7 @@ function App() {
         <Route path="finance/payments" element={<PaymentsPage />} />
         <Route path="finance/reports" element={<ReportsPage />} />
         <Route path="finance/items" element={<FinanceItems />} />
+        <Route path="finance/estimates" element={<EstimatesPage />} />
         <Route
           path="finance/settings"
           element={<div style={{ padding: "2rem" }}>Finance Settings (Coming Soon)</div>}

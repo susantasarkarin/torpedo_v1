@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { Link } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { CURRENCIES, DEFAULT_CURRENCY, formatCurrency } from "../../utils/currency"
@@ -30,6 +30,8 @@ function InvoicesPage() {
   const [showModal, setShowModal] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [recordsPerPage, setRecordsPerPage] = useState(10)
   const fileInputRef = useRef(null)
   
   const initialFormData = {
@@ -269,13 +271,37 @@ function InvoicesPage() {
     }
   }
 
-  const filteredInvoices = invoices.filter((inv) => {
-    const matchesSearch =
-      inv.invoice_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      inv.customer_name?.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesStatus = statusFilter === "all" || inv.status === statusFilter
-    return matchesSearch && matchesStatus
-  })
+  const filteredInvoices = useMemo(() => {
+    return invoices.filter((inv) => {
+      const q = searchTerm.trim().toLowerCase()
+      const matchesSearch = !q || 
+        inv.invoice_number?.toLowerCase().includes(q) ||
+        inv.customer_name?.toLowerCase().includes(q)
+      const matchesStatus = statusFilter === "all" || inv.status === statusFilter
+      return matchesSearch && matchesStatus
+    })
+  }, [invoices, searchTerm, statusFilter])
+
+  // Pagination
+  const totalPages = Math.ceil(filteredInvoices.length / recordsPerPage)
+  const startIdx = (currentPage - 1) * recordsPerPage
+  const endIdx = startIdx + recordsPerPage
+  const paginatedInvoices = filteredInvoices.slice(startIdx, endIdx)
+
+  const handleSearch = (value) => {
+    setSearchTerm(value)
+    setCurrentPage(1)
+  }
+
+  const handleStatusFilter = (value) => {
+    setStatusFilter(value)
+    setCurrentPage(1)
+  }
+
+  const handleRecordsPerPageChange = (value) => {
+    setRecordsPerPage(parseInt(value))
+    setCurrentPage(1)
+  }
 
   return (
     <div style={styles.container}>
@@ -330,15 +356,15 @@ function InvoicesPage() {
           <input
             style={styles.searchInput}
             type="text"
-            placeholder="Search invoices..."
+            placeholder="Search by invoice #, customer..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => handleSearch(e.target.value)}
           />
         </div>
         <select
-          style={styles.recordsPerPageSelect}
+          style={styles.statusSelect}
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => handleStatusFilter(e.target.value)}
         >
           <option value="all">All Status</option>
           <option value="draft">Draft</option>
@@ -346,10 +372,21 @@ function InvoicesPage() {
           <option value="paid">Paid</option>
           <option value="overdue">Overdue</option>
         </select>
+        <select
+          style={styles.recordsPerPageSelect}
+          value={recordsPerPage}
+          onChange={(e) => handleRecordsPerPageChange(e.target.value)}
+        >
+          <option value={10}>10 per page</option>
+          <option value={20}>20 per page</option>
+          <option value={50}>50 per page</option>
+          <option value={100}>100 per page</option>
+        </select>
         <div style={styles.stats}>
-          <span>
-            Total: <strong>{filteredInvoices.length}</strong>
-          </span>
+          <span>Total: <strong>{invoices.length}</strong></span>
+          <span>Draft: <strong>{invoices.filter(i => i.status === "draft").length}</strong></span>
+          <span>Paid: <strong>{invoices.filter(i => i.status === "paid").length}</strong></span>
+          <span>Overdue: <strong>{invoices.filter(i => i.status === "overdue").length}</strong></span>
         </div>
       </div>
 
@@ -384,7 +421,7 @@ function InvoicesPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredInvoices.map((invoice) => (
+              {paginatedInvoices.map((invoice) => (
                 <tr key={invoice._id} style={styles.tr}>
                   <td style={styles.td}>
                     <code
@@ -402,19 +439,10 @@ function InvoicesPage() {
                   <td style={styles.td}>{invoice.customer_name || "N/A"}</td>
                   <td style={styles.td}>{new Date(invoice.invoice_date).toLocaleDateString("en-IN")}</td>
                   <td style={styles.td}>{new Date(invoice.due_date).toLocaleDateString("en-IN")}</td>
-                  <td
-                    style={{
-                      ...styles.td,
-                      backgroundColor: "#dbeafe",
-                      color: "#1e40af",
-                      borderRadius: "0.375rem",
-                      display: "inline-block",
-                      padding: "0.375rem 0.75rem",
-                      fontSize: "0.8rem",
-                      fontWeight: "600",
-                    }}
-                  >
-                    {invoice.currency_code || "INR"}
+                  <td style={styles.td}>
+                    <span style={styles.currencyBadge}>
+                      {invoice.currency_code || "INR"}
+                    </span>
                   </td>
                   <td style={{ ...styles.td, fontWeight: "600" }}>
                     {formatCurrency(invoice.total_amount, invoice.currency_code || "INR")}
@@ -439,7 +467,7 @@ function InvoicesPage() {
                   </td>
                 </tr>
               ))}
-              {filteredInvoices.length === 0 && (
+              {paginatedInvoices.length === 0 && filteredInvoices.length === 0 && (
                 <tr>
                   <td colSpan={8} style={styles.emptyState}>
                     <FileText style={{ width: "48px", height: "48px", margin: "0 auto 1rem", opacity: 0.5 }} />
@@ -449,6 +477,29 @@ function InvoicesPage() {
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div style={styles.paginationContainer}>
+          <button
+            style={{...styles.paginationBtn, ...(currentPage === 1 ? styles.paginationBtnDisabled : {})}}
+            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+            disabled={currentPage === 1}
+          >
+            ← Previous
+          </button>
+          <div style={styles.pageInfo}>
+            Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+          </div>
+          <button
+            style={{...styles.paginationBtn, ...(currentPage === totalPages ? styles.paginationBtnDisabled : {})}}
+            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage === totalPages}
+          >
+            Next →
+          </button>
         </div>
       )}
 
@@ -945,6 +996,8 @@ const styles = {
     backgroundColor: "white",
     borderRadius: "0.75rem",
     boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+    gap: "1rem",
+    flexWrap: "wrap",
   },
   searchInput: {
     width: "100%",
@@ -955,6 +1008,14 @@ const styles = {
     border: "1px solid #d1d5db",
     borderRadius: "0.5rem",
     fontSize: "0.95rem",
+  },
+  statusSelect: {
+    padding: "0.75rem 1rem",
+    border: "1px solid #d1d5db",
+    borderRadius: "0.5rem",
+    fontSize: "0.95rem",
+    backgroundColor: "white",
+    cursor: "pointer",
   },
   recordsPerPageSelect: {
     padding: "0.75rem 1rem",
@@ -1062,6 +1123,48 @@ const styles = {
     textAlign: "center",
     padding: "3rem",
     color: "#9ca3af",
+  },
+  currencyBadge: {
+    display: "inline-block",
+    backgroundColor: "#dbeafe",
+    color: "#1e40af",
+    borderRadius: "0.375rem",
+    padding: "0.375rem 0.75rem",
+    fontSize: "0.8rem",
+    fontWeight: "600",
+  },
+  paginationContainer: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: "1rem",
+    marginTop: "2rem",
+    padding: "1rem",
+    backgroundColor: "white",
+    borderRadius: "0.75rem",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+  },
+  paginationBtn: {
+    padding: "0.5rem 1rem",
+    backgroundColor: "#0d6efd",
+    color: "white",
+    border: "none",
+    borderRadius: "0.375rem",
+    fontSize: "0.9rem",
+    fontWeight: "500",
+    cursor: "pointer",
+    transition: "all 0.2s",
+  },
+  paginationBtnDisabled: {
+    backgroundColor: "#d1d5db",
+    cursor: "not-allowed",
+    opacity: "0.6",
+  },
+  pageInfo: {
+    fontSize: "0.9rem",
+    color: "#6b7280",
+    minWidth: "150px",
+    textAlign: "center",
   },
   modal: {
     position: "fixed",

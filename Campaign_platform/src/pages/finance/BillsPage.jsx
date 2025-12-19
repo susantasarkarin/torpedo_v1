@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { Link } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "../../utils/currency"
@@ -11,10 +11,11 @@ function BillsPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [bills, setBills] = useState([])
-  const [filteredBills, setFilteredBills] = useState([])
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [recordsPerPage, setRecordsPerPage] = useState(10)
   const fileInputRef = useRef(null)
   const [formData, setFormData] = useState({
     vendor_id: "",
@@ -30,21 +31,38 @@ function BillsPage() {
     fetchVendors()
   }, [])
 
-  useEffect(() => {
-    // Filter bills when search term or status filter changes
-    let filtered = bills
-    if (searchTerm) {
-      filtered = filtered.filter(
-        (bill) =>
-          bill.bill_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          bill.vendor_name?.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    }
-    if (statusFilter !== "all") {
-      filtered = filtered.filter((bill) => bill.status === statusFilter)
-    }
-    setFilteredBills(filtered)
+  // Filtered bills with useMemo
+  const filteredBills = useMemo(() => {
+    return bills.filter((bill) => {
+      const q = searchTerm.trim().toLowerCase()
+      const matchesSearch = !q ||
+        bill.bill_number?.toLowerCase().includes(q) ||
+        bill.vendor_name?.toLowerCase().includes(q)
+      const matchesStatus = statusFilter === "all" || bill.status === statusFilter
+      return matchesSearch && matchesStatus
+    })
   }, [bills, searchTerm, statusFilter])
+
+  // Pagination
+  const totalPages = Math.ceil(filteredBills.length / recordsPerPage)
+  const startIdx = (currentPage - 1) * recordsPerPage
+  const endIdx = startIdx + recordsPerPage
+  const paginatedBills = filteredBills.slice(startIdx, endIdx)
+
+  const handleSearch = (value) => {
+    setSearchTerm(value)
+    setCurrentPage(1)
+  }
+
+  const handleStatusFilter = (value) => {
+    setStatusFilter(value)
+    setCurrentPage(1)
+  }
+
+  const handleRecordsPerPageChange = (value) => {
+    setRecordsPerPage(parseInt(value))
+    setCurrentPage(1)
+  }
 
   const fetchBills = async () => {
     try {
@@ -52,7 +70,6 @@ function BillsPage() {
       if (response.ok) {
         const data = await response.json()
         setBills(data)
-        setFilteredBills(data)
       }
     } catch (error) {
       console.error("Error fetching bills:", error)
@@ -240,6 +257,8 @@ function BillsPage() {
       backgroundColor: "white",
       borderRadius: "0.75rem",
       boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+      gap: "1rem",
+      flexWrap: "wrap",
     },
     searchInput: {
       width: "100%",
@@ -250,6 +269,14 @@ function BillsPage() {
       border: "1px solid #d1d5db",
       borderRadius: "0.5rem",
       fontSize: "0.95rem",
+    },
+    statusSelect: {
+      padding: "0.75rem 1rem",
+      border: "1px solid #d1d5db",
+      borderRadius: "0.5rem",
+      fontSize: "0.95rem",
+      backgroundColor: "white",
+      cursor: "pointer",
     },
     recordsPerPageSelect: {
       padding: "0.75rem 1rem",
@@ -351,10 +378,54 @@ function BillsPage() {
       fontSize: "1rem",
       transition: "all 0.2s",
     },
+    btnEdit: {
+      padding: "0.5rem 0.75rem",
+      backgroundColor: "#6b7280",
+      color: "white",
+      border: "none",
+      borderRadius: "0.375rem",
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+    },
     emptyState: {
       textAlign: "center",
       padding: "3rem",
       color: "#9ca3af",
+    },
+    paginationContainer: {
+      display: "flex",
+      justifyContent: "center",
+      alignItems: "center",
+      gap: "1rem",
+      marginTop: "2rem",
+      padding: "1rem",
+      backgroundColor: "white",
+      borderRadius: "0.75rem",
+      boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+    },
+    paginationBtn: {
+      padding: "0.5rem 1rem",
+      backgroundColor: "#0d6efd",
+      color: "white",
+      border: "none",
+      borderRadius: "0.375rem",
+      fontSize: "0.9rem",
+      fontWeight: "500",
+      cursor: "pointer",
+      transition: "all 0.2s",
+    },
+    paginationBtnDisabled: {
+      backgroundColor: "#d1d5db",
+      cursor: "not-allowed",
+      opacity: "0.6",
+    },
+    pageInfo: {
+      fontSize: "0.9rem",
+      color: "#6b7280",
+      minWidth: "150px",
+      textAlign: "center",
     },
     modal: {
       position: "fixed",
@@ -614,23 +685,34 @@ function BillsPage() {
           />
           <input
             type="text"
-            placeholder="Search bills..."
+            placeholder="Search by bill #, vendor..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => handleSearch(e.target.value)}
             style={styles.searchInput}
           />
         </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={styles.recordsPerPageSelect}>
+        <select value={statusFilter} onChange={(e) => handleStatusFilter(e.target.value)} style={styles.statusSelect}>
           <option value="all">All Status</option>
           <option value="pending">Pending</option>
           <option value="paid">Paid</option>
           <option value="partial">Partially Paid</option>
           <option value="overdue">Overdue</option>
         </select>
+        <select
+          style={styles.recordsPerPageSelect}
+          value={recordsPerPage}
+          onChange={(e) => handleRecordsPerPageChange(e.target.value)}
+        >
+          <option value={10}>10 per page</option>
+          <option value={20}>20 per page</option>
+          <option value={50}>50 per page</option>
+          <option value={100}>100 per page</option>
+        </select>
         <div style={styles.stats}>
-          <span>
-            Total: <strong>{filteredBills.length}</strong>
-          </span>
+          <span>Total: <strong>{bills.length}</strong></span>
+          <span>Pending: <strong>{bills.filter(b => b.status === "pending").length}</strong></span>
+          <span>Paid: <strong>{bills.filter(b => b.status === "paid").length}</strong></span>
+          <span>Overdue: <strong>{bills.filter(b => b.status === "overdue").length}</strong></span>
         </div>
       </div>
 
@@ -665,15 +747,15 @@ function BillsPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredBills.map((bill) => (
+              {paginatedBills.map((bill) => (
                 <tr key={bill._id} style={styles.tr}>
                   <td style={styles.td}>
                     <code
                       style={{
                         fontSize: "0.85rem",
                         backgroundColor: "#f3f4f6",
-                        padding: "0.25rem 0.5rem",
-                        borderRadius: "0.25rem",
+                        padding: "0.375rem 0.75rem",
+                        borderRadius: "0.375rem",
                         fontFamily: "monospace",
                       }}
                     >
@@ -698,26 +780,49 @@ function BillsPage() {
                   </td>
                   <td style={styles.td}>
                     <div style={styles.actionButtons}>
-                      <button style={styles.btnIcon}>
-                        <Eye style={{ width: "1rem", height: "1rem" }} />
+                      <button style={styles.btnEdit}>
+                        <Eye style={{ width: "16px", height: "16px" }} />
                       </button>
-                      <button style={styles.btnIcon}>
-                        <CreditCard style={{ width: "1rem", height: "1rem" }} />
+                      <button style={styles.btnEdit}>
+                        <CreditCard style={{ width: "16px", height: "16px" }} />
                       </button>
                     </div>
                   </td>
                 </tr>
               ))}
-              {filteredBills.length === 0 && (
+              {paginatedBills.length === 0 && filteredBills.length === 0 && (
                 <tr style={styles.tr}>
                   <td colSpan={8} style={styles.emptyState}>
-                    <FileText style={{ width: "3rem", height: "3rem", margin: "0 auto 1rem", opacity: "0.5" }} />
+                    <FileText style={{ width: "48px", height: "48px", margin: "0 auto 1rem", opacity: "0.5" }} />
                     <p>No bills found. Click "Create Bill" to add one.</p>
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div style={styles.paginationContainer}>
+          <button
+            style={{...styles.paginationBtn, ...(currentPage === 1 ? styles.paginationBtnDisabled : {})}}
+            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+            disabled={currentPage === 1}
+          >
+            ← Previous
+          </button>
+          <div style={styles.pageInfo}>
+            Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+          </div>
+          <button
+            style={{...styles.paginationBtn, ...(currentPage === totalPages ? styles.paginationBtnDisabled : {})}}
+            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage === totalPages}
+          >
+            Next →
+          </button>
         </div>
       )}
 

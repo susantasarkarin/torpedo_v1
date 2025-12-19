@@ -27,7 +27,7 @@ function FinanceSidebar() {
       icon: "💼",
       submenu: [
         { title: "Customers", path: "/admin/finance/customers", icon: "👥" },
-        { title: "Estimates", path: "/admin/finance/items", icon: "📦" },
+        { title: "Estimates", path: "/admin/finance/estimates", icon: "📝" },
         { title: "Invoices", path: "/admin/finance/invoices", icon: "📄" },
         { title: "Payments", path: "/admin/finance/payments", icon: "💵" },
       ],

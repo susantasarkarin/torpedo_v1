@@ -1,0 +1,60 @@
+{
+    "app": {
+        "name": "Gmail Automation",
+        "version": "1.0.0",
+        "description": "Automated email management with AI-powered analysis"
+    },
+    "authentication": {
+        "credentials_path": "credentials.json",
+        "token_path": "token.pickle",
+        "scopes": [
+            "https://www.googleapis.com/auth/gmail.readonly",
+            "https://www.googleapis.com/auth/gmail.send",
+            "https://www.googleapis.com/auth/gmail.compose",
+            "https://www.googleapis.com/auth/gmail.modify",
+            "https://www.googleapis.com/auth/gmail.labels"
+        ]
+    },
+    "fetching": {
+        "default_query": "is:unread",
+        "max_results": 50,
+        "include_spam_trash": false,
+        "fetch_attachments": false
+    },
+    "categorization": {
+        "use_default_rules": true,
+        "custom_rules": [
+            {
+                "name": "client_emails",
+                "category": "client",
+                "keywords": ["project", "deliverable", "milestone"],
+                "sender_patterns": [],
+                "priority": "HIGH"
+            }
+        ],
+        "vip_senders": [],
+        "blocked_senders": []
+    },
+    "sentiment_analysis": {
+        "enabled": true,
+        "use_openai": false,
+        "openai_model": "gpt-3.5-turbo",
+        "openai_api_key_env": "OPENAI_API_KEY"
+    },
+    "email_composition": {
+        "default_sender_name": "",
+        "company_name": "",
+        "include_original_in_reply": true,
+        "default_signature": ""
+    },
+    "accounts": {
+        "multi_account_enabled": false,
+        "default_account": "primary",
+        "daily_send_limit": 500
+    },
+    "logging": {
+        "level": "INFO",
+        "file": "gmail_automation.log",
+        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    }
+}
