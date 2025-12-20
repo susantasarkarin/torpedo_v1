@@ -20,8 +20,14 @@ NC='\033[0m' # No Color
 
 # Get script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Script is in campaign_platform/, so go up one level for project root
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Script is in the project root (campaign_platform/)
+# Check if .git exists in current dir, otherwise try parent (for flexibility)
+if [ -d "$SCRIPT_DIR/.git" ]; then
+    PROJECT_DIR="$SCRIPT_DIR"
+else
+    # Try parent directory (in case script is moved)
+    PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+fi
 
 # Log file configuration (set up early)
 LOG_FILE="/var/www/campaign_platform/cron-deploy.log"
@@ -74,6 +80,12 @@ log_message() {
 
 # Initialize log file immediately
 init_log_file
+
+# Load git credentials if .git-credentials file exists
+if [ -f "$SCRIPT_DIR/.git-credentials" ]; then
+    source "$SCRIPT_DIR/.git-credentials"
+    log_message "Loaded git credentials from .git-credentials"
+fi
 
 # Configuration
 FRONTEND_DIR="$SCRIPT_DIR/Campaign_platform"
@@ -202,6 +214,44 @@ check_git_status() {
     print_info "Current branch: $CURRENT_BRANCH"
 }
 
+# Configure git credentials
+setup_git_credentials() {
+    cd "$PROJECT_DIR"
+    
+    if [ ! -d .git ]; then
+        return
+    fi
+    
+    # Check if credentials are provided via environment variables
+    if [ -n "$GIT_USERNAME" ] && [ -n "$GIT_PASSWORD" ]; then
+        print_info "Configuring git credentials from environment..."
+        # Configure git to use credential helper
+        git config --local credential.helper store
+        # Set up credential in URL format for this session
+        GIT_URL=$(git remote get-url origin 2>/dev/null || echo "")
+        if [ -n "$GIT_URL" ]; then
+            # Replace URL with credentials embedded (for HTTPS)
+            if echo "$GIT_URL" | grep -q "^https://"; then
+                # Extract repo path
+                REPO_PATH=$(echo "$GIT_URL" | sed 's|https://||' | sed 's|.*@||' | sed 's|.*github.com/||' | sed 's|.*gitlab.com/||')
+                if [ -n "$REPO_PATH" ]; then
+                    # Set remote with embedded credentials
+                    git remote set-url origin "https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/${REPO_PATH}" 2>/dev/null || \
+                    git remote set-url origin "https://${GIT_USERNAME}:${GIT_PASSWORD}@gitlab.com/${REPO_PATH}" 2>/dev/null || true
+                fi
+            fi
+        fi
+    else
+        # Try to use git credential helper if already configured
+        if git config --get credential.helper > /dev/null 2>&1; then
+            print_info "Using existing git credential helper"
+        else
+            # Set up credential helper to cache credentials
+            git config --local credential.helper 'cache --timeout=3600' 2>/dev/null || true
+        fi
+    fi
+}
+
 # Git pull
 git_pull() {
     if [ "$SKIP_PULL" = true ]; then
@@ -217,6 +267,9 @@ git_pull() {
         print_warning "Not a git repository. Skipping git pull."
         return
     fi
+    
+    # Setup git credentials before pulling
+    setup_git_credentials
     
     print_info "Fetching latest changes..."
     git fetch origin
@@ -378,16 +431,25 @@ build_backend() {
         print_success "Virtual environment created"
     fi
     
-    # Activate virtual environment and install/update dependencies
-    print_info "Installing/updating Python dependencies..."
-    source "$BACKEND_VENV/bin/activate"
+    # Use venv's pip directly (more reliable than activation)
+    VENV_PIP="$BACKEND_VENV/bin/pip"
+    VENV_PYTHON="$BACKEND_VENV/bin/python"
     
-    if pip install -q --upgrade pip && pip install -q -r requirements.txt; then
+    if [ ! -f "$VENV_PIP" ]; then
+        print_error "Virtual environment pip not found. Recreating venv..."
+        rm -rf "$BACKEND_VENV"
+        python3 -m venv "$BACKEND_VENV"
+        VENV_PIP="$BACKEND_VENV/bin/pip"
+        VENV_PYTHON="$BACKEND_VENV/bin/python"
+    fi
+    
+    # Install/update dependencies using venv's pip directly
+    print_info "Installing/updating Python dependencies..."
+    
+    if "$VENV_PIP" install -q --upgrade pip && "$VENV_PIP" install -q -r requirements.txt; then
         print_success "Backend dependencies installed"
-        deactivate
     else
         print_error "Backend dependency installation failed"
-        deactivate
         exit 1
     fi
 }
@@ -441,11 +503,17 @@ restart_backend() {
         
         print_info "Starting backend server..."
         
-        # Activate venv and start uvicorn in background
-        source "$BACKEND_VENV/bin/activate"
+        # Use venv's python directly (more reliable than activation)
+        VENV_PYTHON="$BACKEND_VENV/bin/python"
         
-        # Start uvicorn in background and save PID
-        nohup uvicorn main:app --host 0.0.0.0 --port 8000 > "$BACKEND_DIR/backend.log" 2>&1 &
+        if [ ! -f "$VENV_PYTHON" ]; then
+            print_error "Virtual environment Python not found. Run build_backend first."
+            exit 1
+        fi
+        
+        # Start uvicorn in background using venv's python and save PID
+        cd "$BACKEND_DIR"
+        nohup "$VENV_PYTHON" -m uvicorn main:app --host 0.0.0.0 --port 8000 > "$BACKEND_DIR/backend.log" 2>&1 &
         BACKEND_PID=$!
         
         # Wait a moment for server to start
@@ -461,11 +529,8 @@ restart_backend() {
             echo $BACKEND_PID > "$BACKEND_DIR/.backend.pid"
         else
             print_error "Backend failed to start. Check logs: tail -f $BACKEND_DIR/backend.log"
-            deactivate
             exit 1
         fi
-        
-        deactivate
     fi
 }
 
