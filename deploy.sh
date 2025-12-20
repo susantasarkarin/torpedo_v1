@@ -81,6 +81,12 @@ log_message() {
 # Initialize log file immediately
 init_log_file
 
+# Load git credentials if .git-credentials file exists
+if [ -f "$SCRIPT_DIR/.git-credentials" ]; then
+    source "$SCRIPT_DIR/.git-credentials"
+    print_info "Loaded git credentials from .git-credentials"
+fi
+
 # Configuration
 FRONTEND_DIR="$SCRIPT_DIR/Campaign_platform"
 FRONTEND_DIST="$FRONTEND_DIR/dist"
@@ -208,6 +214,44 @@ check_git_status() {
     print_info "Current branch: $CURRENT_BRANCH"
 }
 
+# Configure git credentials
+setup_git_credentials() {
+    cd "$PROJECT_DIR"
+    
+    if [ ! -d .git ]; then
+        return
+    fi
+    
+    # Check if credentials are provided via environment variables
+    if [ -n "$GIT_USERNAME" ] && [ -n "$GIT_PASSWORD" ]; then
+        print_info "Configuring git credentials from environment..."
+        # Configure git to use credential helper
+        git config --local credential.helper store
+        # Set up credential in URL format for this session
+        GIT_URL=$(git remote get-url origin 2>/dev/null || echo "")
+        if [ -n "$GIT_URL" ]; then
+            # Replace URL with credentials embedded (for HTTPS)
+            if echo "$GIT_URL" | grep -q "^https://"; then
+                # Extract repo path
+                REPO_PATH=$(echo "$GIT_URL" | sed 's|https://||' | sed 's|.*@||' | sed 's|.*github.com/||' | sed 's|.*gitlab.com/||')
+                if [ -n "$REPO_PATH" ]; then
+                    # Set remote with embedded credentials
+                    git remote set-url origin "https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/${REPO_PATH}" 2>/dev/null || \
+                    git remote set-url origin "https://${GIT_USERNAME}:${GIT_PASSWORD}@gitlab.com/${REPO_PATH}" 2>/dev/null || true
+                fi
+            fi
+        fi
+    else
+        # Try to use git credential helper if already configured
+        if git config --get credential.helper > /dev/null 2>&1; then
+            print_info "Using existing git credential helper"
+        else
+            # Set up credential helper to cache credentials
+            git config --local credential.helper 'cache --timeout=3600' 2>/dev/null || true
+        fi
+    fi
+}
+
 # Git pull
 git_pull() {
     if [ "$SKIP_PULL" = true ]; then
@@ -223,6 +267,9 @@ git_pull() {
         print_warning "Not a git repository. Skipping git pull."
         return
     fi
+    
+    # Setup git credentials before pulling
+    setup_git_credentials
     
     print_info "Fetching latest changes..."
     git fetch origin

@@ -53,3 +53,4 @@ writable/session/
 
 .env
 venv/
+.git-credentials
