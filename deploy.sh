@@ -84,7 +84,7 @@ init_log_file
 # Load git credentials if .git-credentials file exists
 if [ -f "$SCRIPT_DIR/.git-credentials" ]; then
     source "$SCRIPT_DIR/.git-credentials"
-    print_info "Loaded git credentials from .git-credentials"
+    log_message "Loaded git credentials from .git-credentials"
 fi
 
 # Configuration
