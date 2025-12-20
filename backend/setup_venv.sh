@@ -78,7 +78,22 @@ fi
 
 # Upgrade pip first
 echo -e "${BLUE}ℹ️  Upgrading pip...${NC}"
-"$VENV_PIP" install --upgrade pip --quiet
+if ! "$VENV_PIP" install --upgrade pip --quiet 2>&1; then
+    # If upgrade fails with externally-managed-environment, the venv is broken
+    if "$VENV_PIP" install --upgrade pip 2>&1 | grep -q "externally-managed-environment"; then
+        echo -e "${RED}❌ Virtual environment is broken (still using system pip)${NC}"
+        echo -e "${YELLOW}   Recreating virtual environment...${NC}"
+        rm -rf "$BACKEND_VENV"
+        python3 -m venv "$BACKEND_VENV"
+        VENV_PIP="$BACKEND_VENV/bin/pip"
+        VENV_PYTHON="$BACKEND_VENV/bin/python"
+        echo -e "${BLUE}ℹ️  Upgrading pip in new venv...${NC}"
+        "$VENV_PIP" install --upgrade pip --quiet
+    else
+        echo -e "${RED}❌ Failed to upgrade pip${NC}"
+        exit 1
+    fi
+fi
 
 # Install dependencies
 echo -e "${BLUE}ℹ️  Installing Python dependencies from requirements.txt...${NC}"
