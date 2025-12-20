@@ -1,315 +1,1064 @@
-import { useState, useEffect } from "react"
+"use client"
+import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
-
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000"
+import { API_BASE_URL } from "../../config"
 
 function Contacts() {
-  const navigate = useNavigate()
-  const [lists, setLists] = useState([])
+  const navigate = useNavigate();
   const [contacts, setContacts] = useState([])
-  const [selectedList, setSelectedList] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [search, setSearch] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [recordsPerPage, setRecordsPerPage] = useState(10)
 
+  const emptyForm = {
+    name: "",
+    firstName: "",
+    lastName: "",
+    email: "",
+    emailStatus: "Valid",
+    title: "",
+    linkedin: "",
+    location: "",
+    companyName: "",
+    companyEmail: "",
+    companyDomain: "",
+    companyWebsite: "",
+    companyEmployeeCount: "",
+    companyEmployeeCountRange: "",
+    companyFounded: "",
+    companyIndustry: "",
+    companyType: "",
+    companyHeadquarters: "",
+    companyRevenueRange: "",
+    companyLinkedinUrl: "",
+    companyCrunchbaseUrl: "",
+    companyFundingRounds: "",
+    companyLastFundingRoundAmount: "",
+    companyLogoPrimary: "",
+    companyLogoSecondary: "",
+    stage: "RFQ",
+  }
+  const [formData, setFormData] = useState(emptyForm)
+
+  // Fetch contacts
   useEffect(() => {
-    fetchLists()
-  }, [])
-
-  const fetchLists = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/lists/`)
-      if (res.ok) {
-        const data = await res.json()
-        setLists(data)
+    const run = async () => {
+      const sessionId = localStorage.getItem("session_id");
+      if (!sessionId) {
+        navigate("/login");
+        return;
       }
-    } catch (err) {
-      console.error("Failed to fetch lists:", err)
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/contacts/`, {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: sessionId,
+          },
+        });
+
+        if (res.status === 401) {
+          alert("Session expired. Please login again.");
+          localStorage.removeItem("session_id");
+          navigate("/login");
+          return;
+        }
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Failed to load contacts");
+        setContacts(data.contacts || []);
+      } catch (e) {
+        setError(e.message || "Failed to load contacts");
+      }
+    };
+    run();
+  }, [navigate]);
+
+  // Handle form input
+  const handleChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value })
+  }
+
+  // Open modal for create
+  const openCreate = () => {
+    setEditingId(null)
+    setFormData(emptyForm)
+    setShowForm(true)
+  }
+
+  // Open modal for edit
+  const openEdit = (contact) => {
+    setEditingId(contact._id)
+    setFormData({
+      name: contact.name || "",
+      firstName: contact.firstName || "",
+      lastName: contact.lastName || "",
+      email: contact.email || "",
+      emailStatus: contact.emailStatus || "Valid",
+      title: contact.title || "",
+      linkedin: contact.linkedin || "",
+      location: contact.location || "",
+      companyName: contact.companyName || "",
+      companyDomain: contact.companyDomain || "",
+      companyWebsite: contact.companyWebsite || "",
+      companyEmployeeCount: contact.companyEmployeeCount || "",
+      companyEmployeeCountRange: contact.companyEmployeeCountRange || "",
+      companyFounded: contact.companyFounded || "",
+      companyIndustry: contact.companyIndustry || "",
+      companyType: contact.companyType || "",
+      companyHeadquarters: contact.companyHeadquarters || "",
+      companyRevenueRange: contact.companyRevenueRange || "",
+      companyLinkedinUrl: contact.companyLinkedinUrl || "",
+      companyCrunchbaseUrl: contact.companyCrunchbaseUrl || "",
+      companyFundingRounds: contact.companyFundingRounds || "",
+      companyLastFundingRoundAmount: contact.companyLastFundingRoundAmount || "",
+      companyLogoPrimary: contact.companyLogoPrimary || "",
+      companyLogoSecondary: contact.companyLogoSecondary || "",
+      stage: contact.stage || "RFQ",
+    })
+    setShowForm(true)
+  }
+
+  // Create or Update contact
+  const saveContact = async () => {
+    // Validate required fields
+    if (!formData.email || !formData.email.trim()) {
+      setError("❌ Email is required");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    const sessionId = localStorage.getItem("session_id");
+    if (!sessionId) {
+      navigate("/login");
+      return;
+    }
+
+    try {
+      const payload = { ...formData };
+
+      const url = editingId
+        ? `${API_BASE_URL}/contacts/${editingId}`
+        : `${API_BASE_URL}/contacts/`;
+      const method = editingId ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.status === 401) {
+        alert("Session expired. Please login again.");
+        localStorage.removeItem("session_id");
+        navigate("/login");
+        return;
+      }
+
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.detail || "Failed to save contact");
+
+      if (editingId) {
+        setContacts((prev) =>
+          prev.map((c) => (c._id === editingId ? { ...c, ...payload } : c))
+        );
+      } else {
+        setContacts((prev) => [...prev, data.contact]);
+      }
+
+      setShowForm(false);
+      setEditingId(null);
+      setFormData(emptyForm);
+    } catch (e) {
+      setError(e.message || "Save failed");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
-  const fetchContacts = async (listId) => {
+  // Delete contact
+  const deleteContact = async (id) => {
+    if (!window.confirm("Delete this contact?")) return;
+
+    const sessionId = localStorage.getItem("session_id");
+    if (!sessionId) {
+      navigate("/login");
+      return;
+    }
+
     try {
-      const res = await fetch(`${API_BASE}/contacts/${listId}`)
-      if (res.ok) {
-        const data = await res.json()
-        setContacts(data.contacts || [])
+      const res = await fetch(`${API_BASE_URL}/contacts/${id}`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+      });
+
+      if (res.status === 401) {
+        alert("Session expired. Please login again.");
+        localStorage.removeItem("session_id");
+        navigate("/login");
+        return;
       }
-    } catch (err) {
-      console.error("Failed to fetch contacts:", err)
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Failed to delete contact");
+
+      setContacts((prev) => prev.filter((c) => c._id !== id));
+    } catch (e) {
+      setError(e.message || "Delete failed");
     }
-  }
+  };
 
-  const handleListClick = (list) => {
-    setSelectedList(list)
-    fetchContacts(list._id)
-  }
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return contacts;
+    return contacts.filter((c) =>
+      ["name", "firstName", "lastName", "email", "title", "companyName", "companyIndustry", "location", "stage"].some((field) =>
+        String(c[field] || "").toLowerCase().includes(q)
+      )
+    );
+  }, [contacts, search]);
 
-  const getTotalContacts = () => {
-    return lists.reduce((sum, list) => sum + (list.contactCount || 0), 0)
+  const totalPages = Math.ceil(filtered.length / recordsPerPage);
+  const startIdx = (currentPage - 1) * recordsPerPage;
+  const endIdx = startIdx + recordsPerPage;
+  const paginatedContacts = filtered.slice(startIdx, endIdx);
+
+  const handleSearch = (value) => {
+    setSearch(value);
+    setCurrentPage(1);
+  };
+
+  const handleRecordsPerPageChange = (value) => {
+    setRecordsPerPage(parseInt(value));
+    setCurrentPage(1);
+  };
+
+  // Stage badge colors
+  const getStageStyle = (stage) => {
+    const stages = {
+      'RFQ': { bg: '#dbeafe', color: '#1e40af' },
+      'Proposal': { bg: '#fef3c7', color: '#92400e' },
+      'Negotiation': { bg: '#e0e7ff', color: '#3730a3' },
+      'Won': { bg: '#d1fae5', color: '#065f46' },
+      'Lost': { bg: '#fee2e2', color: '#991b1b' },
+    }
+    return stages[stage] || { bg: '#f3f4f6', color: '#374151' }
   }
 
   return (
-    <div className="p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+    <div style={styles.container}>
+      <div style={styles.header}>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Contact Management</h1>
-          <p className="text-gray-600 mt-1">Upload and manage your email contact lists and segments.</p>
+          <h2 style={styles.title}>Contacts</h2>
+          <p style={styles.subtitle}>Manage qualified leads through the sales pipeline stages</p>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate("/admin/sales/contacts/import")}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-              />
-            </svg>
-            Import CSV
-          </button>
-          <button className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 flex items-center gap-2">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Add Contact
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          {contacts.length > 0 && contacts.some(c => !c.name && !c.firstName && !c.companyName) && (
+            <button 
+              style={{...styles.btnPrimary, backgroundColor: '#dc3545'}} 
+              onClick={() => {
+                if (window.confirm('⚠️ Clear all old contacts that are missing the new fields? This cannot be undone!')) {
+                  const oldContacts = contacts.filter(c => !c.name && !c.firstName && !c.companyName);
+                  oldContacts.forEach(c => deleteContact(c._id));
+                }
+              }}
+            >
+              🗑️ Clear Old Contacts ({contacts.filter(c => !c.name && !c.firstName && !c.companyName).length})
+            </button>
+          )}
+          <button style={styles.btnPrimary} onClick={openCreate}>
+            + Add New Contact
           </button>
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-blue-50 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-                />
-              </svg>
-            </div>
-            <div>
-              <p className="text-sm text-gray-600">Total Contacts</p>
-              <p className="text-2xl font-bold text-gray-900">{getTotalContacts().toLocaleString()}</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-green-50 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                />
-              </svg>
-            </div>
-            <div>
-              <p className="text-sm text-gray-600">Contact Lists</p>
-              <p className="text-2xl font-bold text-gray-900">{lists.length}</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-purple-50 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
-                />
-              </svg>
-            </div>
-            <div>
-              <p className="text-sm text-gray-600">Active Segments</p>
-              <p className="text-2xl font-bold text-gray-900">{lists.filter((l) => l.isActive !== false).length}</p>
-            </div>
-          </div>
+      {error && <div style={styles.errorAlert}>{error}</div>}
+
+      {/* Search and Stats */}
+      <div style={styles.searchSection}>
+        <input
+          style={styles.searchInput}
+          type="text"
+          placeholder="Search contacts by name, email, company..."
+          value={search}
+          onChange={e => handleSearch(e.target.value)}
+        />
+        <select
+          style={styles.recordsPerPageSelect}
+          value={recordsPerPage}
+          onChange={e => handleRecordsPerPageChange(e.target.value)}
+        >
+          <option value={10}>10 per page</option>
+          <option value={20}>20 per page</option>
+          <option value={50}>50 per page</option>
+          <option value={100}>100 per page</option>
+          <option value={200}>200 per page</option>
+        </select>
+        <div style={styles.stats}>
+          <span>Total: <strong>{contacts.length}</strong></span>
+          <span>RFQ: <strong>{contacts.filter(c => c.stage === "RFQ").length}</strong></span>
+          <span>Won: <strong>{contacts.filter(c => c.stage === "Won").length}</strong></span>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Contact Lists */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="p-4 border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-gray-900">Contact Lists</h2>
-              <button className="text-blue-600 hover:text-blue-700 text-sm font-medium">+ New List</button>
-            </div>
-          </div>
-          <div className="divide-y divide-gray-100 max-h-96 overflow-y-auto">
-            {loading ? (
-              <div className="p-4 text-center text-gray-500">Loading...</div>
-            ) : lists.length === 0 ? (
-              <div className="p-8 text-center">
-                <svg
-                  className="w-12 h-12 text-gray-300 mx-auto mb-3"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                  />
-                </svg>
-                <p className="text-gray-500 mb-3">No lists yet</p>
-                <button
-                  onClick={() => navigate("/admin/sales/contacts/import")}
-                  className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                >
-                  Import your first contacts →
-                </button>
-              </div>
-            ) : (
-              lists.map((list) => (
-                <div
-                  key={list._id}
-                  onClick={() => handleListClick(list)}
-                  className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors ${
-                    selectedList?._id === list._id ? "bg-blue-50 border-l-4 border-l-blue-600" : ""
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
+      {/* Contacts Table */}
+      <div style={styles.tableContainer}>
+        <table style={styles.table}>
+          <thead style={styles.thead}>
+            <tr>
+              <th style={styles.th}>Name</th>
+              <th style={styles.th}>Email</th>
+              <th style={styles.th}>Title</th>
+              <th style={styles.th}>Company</th>
+              <th style={styles.th}>Industry</th>
+              <th style={styles.th}>Stage</th>
+              <th style={styles.th}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paginatedContacts.map(contact => {
+              const stageStyle = getStageStyle(contact.stage)
+              return (
+                <tr key={contact._id} style={styles.tr}>
+                  <td style={styles.td}>
+                    {contact.name || `${contact.firstName} ${contact.lastName}`.trim() || '-'}
+                  </td>
+                  <td style={styles.td}>
                     <div>
-                      <h3 className="font-medium text-gray-900">{list.name}</h3>
-                      <p className="text-sm text-gray-500">{list.contactCount || 0} contacts</p>
+                      {contact.email}
+                      {contact.emailStatus && (
+                        <span style={{
+                          ...styles.statusBadge,
+                          ...(contact.emailStatus === 'Valid' ? styles.statusValid : styles.statusInvalid),
+                          marginLeft: '0.5rem'
+                        }}>
+                          {contact.emailStatus}
+                        </span>
+                      )}
                     </div>
-                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
-                </div>
-              ))
+                  </td>
+                  <td style={styles.td}>{contact.title || '-'}</td>
+                  <td style={styles.td}>{contact.companyName || '-'}</td>
+                  <td style={styles.td}>{contact.companyIndustry || '-'}</td>
+                  <td style={styles.td}>
+                    <span style={{
+                      ...styles.statusBadge,
+                      backgroundColor: stageStyle.bg,
+                      color: stageStyle.color
+                    }}>
+                      {contact.stage || 'RFQ'}
+                    </span>
+                  </td>
+                  <td style={styles.td}>
+                    <div style={styles.actionButtons}>
+                      <button style={styles.btnEdit} onClick={() => openEdit(contact)}>✏️</button>
+                      <button style={styles.btnDelete} onClick={() => deleteContact(contact._id)}>🗑️</button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+            {paginatedContacts.length === 0 && filtered.length === 0 && (
+              <tr>
+                <td colSpan={7} style={styles.emptyState}>
+                  No contacts found. Move leads from the Leads page to get started!
+                </td>
+              </tr>
             )}
-          </div>
-        </div>
+          </tbody>
+        </table>
+      </div>
 
-        {/* Contacts Table */}
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="p-4 border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-gray-900">
-                {selectedList ? `Contacts in "${selectedList.name}"` : "Select a list to view contacts"}
-              </h2>
-              {selectedList && (
-                <div className="flex items-center gap-2">
+      {totalPages > 1 && (
+        <div style={styles.paginationContainer}>
+          <button
+            style={{...styles.paginationBtn, ...(currentPage === 1 ? styles.paginationBtnDisabled : {})}}
+            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+            disabled={currentPage === 1}
+          >
+            ← Previous
+          </button>
+          <div style={styles.pageInfo}>
+            Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+          </div>
+          <button
+            style={{...styles.paginationBtn, ...(currentPage === totalPages ? styles.paginationBtnDisabled : {})}}
+            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage === totalPages}
+          >
+            Next →
+          </button>
+        </div>
+      )}
+
+      {/* Add/Edit Modal */}
+      {showForm && (
+        <div style={styles.modal} onClick={(e) => {
+          if (e.target === e.currentTarget) setShowForm(false)
+        }}>
+          <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>{editingId ? "Edit Contact" : "Add New Contact"}</h3>
+              <button style={styles.closeBtn} onClick={() => setShowForm(false)}>×</button>
+            </div>
+
+            <div style={styles.modalBody}>
+              <h4 style={styles.sectionTitle}>Personal Information</h4>
+              
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Full Name</label>
+                <input
+                  style={styles.input}
+                  name="name"
+                  placeholder="Enter full name"
+                  value={formData.name}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>First Name</label>
                   <input
-                    type="text"
-                    placeholder="Search contacts..."
-                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    style={styles.input}
+                    name="firstName"
+                    placeholder="Enter first name"
+                    value={formData.firstName}
+                    onChange={handleChange}
                   />
                 </div>
-              )}
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Last Name</label>
+                  <input
+                    style={styles.input}
+                    name="lastName"
+                    placeholder="Enter last name"
+                    value={formData.lastName}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Email <span style={styles.required}>*</span></label>
+                  <input
+                    style={styles.input}
+                    name="email"
+                    type="email"
+                    placeholder="Enter email address"
+                    value={formData.email}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Email Status</label>
+                  <select
+                    style={styles.select}
+                    name="emailStatus"
+                    value={formData.emailStatus}
+                    onChange={handleChange}
+                  >
+                    <option>Valid</option>
+                    <option>Invalid</option>
+                    <option>Unknown</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Title</label>
+                  <input
+                    style={styles.input}
+                    name="title"
+                    placeholder="Enter job title"
+                    value={formData.title}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Location</label>
+                  <input
+                    style={styles.input}
+                    name="location"
+                    placeholder="Enter location"
+                    value={formData.location}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>LinkedIn Profile</label>
+                <input
+                  style={styles.input}
+                  name="linkedin"
+                  placeholder="Enter LinkedIn URL"
+                  value={formData.linkedin}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <h4 style={styles.sectionTitle}>Sales Stage</h4>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Stage <span style={styles.required}>*</span></label>
+                <select
+                  style={styles.select}
+                  name="stage"
+                  value={formData.stage}
+                  onChange={handleChange}
+                >
+                  <option>RFQ</option>
+                  <option>Proposal</option>
+                  <option>Negotiation</option>
+                  <option>Won</option>
+                  <option>Lost</option>
+                </select>
+              </div>
+
+              <h4 style={styles.sectionTitle}>Company Information</h4>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Company Name</label>
+                <input
+                  style={styles.input}
+                  name="companyName"
+                  placeholder="Enter company name"
+                  value={formData.companyName}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Company Email</label>
+                <input
+                  style={styles.input}
+                  type="email"
+                  name="companyEmail"
+                  placeholder="Enter company email"
+                  value={formData.companyEmail}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Company Domain</label>
+                  <input
+                    style={styles.input}
+                    name="companyDomain"
+                    placeholder="e.g., example.com"
+                    value={formData.companyDomain}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Company Website</label>
+                  <input
+                    style={styles.input}
+                    name="companyWebsite"
+                    placeholder="Enter website URL"
+                    value={formData.companyWebsite}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Employee Count</label>
+                  <input
+                    style={styles.input}
+                    name="companyEmployeeCount"
+                    placeholder="Enter employee count"
+                    value={formData.companyEmployeeCount}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Employee Count Range</label>
+                  <input
+                    style={styles.input}
+                    name="companyEmployeeCountRange"
+                    placeholder="e.g., 50-200"
+                    value={formData.companyEmployeeCountRange}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Industry</label>
+                  <input
+                    style={styles.input}
+                    name="companyIndustry"
+                    placeholder="Enter industry"
+                    value={formData.companyIndustry}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Company Type</label>
+                  <input
+                    style={styles.input}
+                    name="companyType"
+                    placeholder="e.g., Private, Public"
+                    value={formData.companyType}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Founded Year</label>
+                  <input
+                    style={styles.input}
+                    name="companyFounded"
+                    placeholder="e.g., 2015"
+                    value={formData.companyFounded}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Headquarters</label>
+                  <input
+                    style={styles.input}
+                    name="companyHeadquarters"
+                    placeholder="Enter headquarters location"
+                    value={formData.companyHeadquarters}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Revenue Range</label>
+                <input
+                  style={styles.input}
+                  name="companyRevenueRange"
+                  placeholder="e.g., $10M - $50M"
+                  value={formData.companyRevenueRange}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Company LinkedIn URL</label>
+                  <input
+                    style={styles.input}
+                    name="companyLinkedinUrl"
+                    placeholder="Enter company LinkedIn URL"
+                    value={formData.companyLinkedinUrl}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Crunchbase URL</label>
+                  <input
+                    style={styles.input}
+                    name="companyCrunchbaseUrl"
+                    placeholder="Enter Crunchbase URL"
+                    value={formData.companyCrunchbaseUrl}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Funding Rounds</label>
+                  <input
+                    style={styles.input}
+                    name="companyFundingRounds"
+                    placeholder="e.g., Series A, B"
+                    value={formData.companyFundingRounds}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Last Funding Amount</label>
+                  <input
+                    style={styles.input}
+                    name="companyLastFundingRoundAmount"
+                    placeholder="e.g., $5M"
+                    value={formData.companyLastFundingRoundAmount}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Company Logo (Primary URL)</label>
+                  <input
+                    style={styles.input}
+                    name="companyLogoPrimary"
+                    placeholder="Enter logo URL"
+                    value={formData.companyLogoPrimary}
+                    onChange={handleChange}
+                  />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Company Logo (Secondary URL)</label>
+                  <input
+                    style={styles.input}
+                    name="companyLogoSecondary"
+                    placeholder="Enter secondary logo URL"
+                    value={formData.companyLogoSecondary}
+                    onChange={handleChange}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button style={styles.btnCancel} onClick={() => setShowForm(false)} disabled={loading}>
+                Cancel
+              </button>
+              <button style={styles.btnSave} onClick={saveContact} disabled={loading}>
+                {loading ? "Saving..." : editingId ? "Save Changes" : "Add Contact"}
+              </button>
             </div>
           </div>
-          <div className="overflow-x-auto">
-            {!selectedList ? (
-              <div className="p-12 text-center">
-                <svg
-                  className="w-16 h-16 text-gray-300 mx-auto mb-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
-                  />
-                </svg>
-                <p className="text-gray-500">Select a list from the left to view its contacts</p>
-              </div>
-            ) : contacts.length === 0 ? (
-              <div className="p-12 text-center">
-                <svg
-                  className="w-16 h-16 text-gray-300 mx-auto mb-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
-                  />
-                </svg>
-                <p className="text-gray-500 mb-3">No contacts in this list</p>
-                <button
-                  onClick={() => navigate("/admin/sales/contacts/import")}
-                  className="text-blue-600 hover:text-blue-700 font-medium"
-                >
-                  Import contacts →
-                </button>
-              </div>
-            ) : (
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Email
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Name
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Company
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Phone
-                    </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {contacts.map((contact, idx) => (
-                    <tr key={idx} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm text-gray-900">{contact.email}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
-                        {contact.name || `${contact.firstName || ""} ${contact.lastName || ""}`.trim() || "-"}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{contact.company || "-"}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{contact.phone || "-"}</td>
-                      <td className="px-4 py-3 text-right">
-                        <button className="text-gray-400 hover:text-gray-600">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
-                            />
-                          </svg>
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
         </div>
-      </div>
+      )}
     </div>
   )
+}
+
+const styles = {
+  container: {
+    maxWidth: '1400px',
+    margin: '0 auto',
+    padding: '2rem',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    backgroundColor: '#f8f9fa',
+    minHeight: '100vh',
+  },
+  header: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: '2rem',
+  },
+  title: {
+    fontSize: '2rem',
+    fontWeight: '700',
+    margin: '0 0 0.5rem 0',
+    color: '#1a1a1a',
+  },
+  subtitle: {
+    color: '#6b7280',
+    margin: '0',
+    fontSize: '0.95rem',
+  },
+  btnPrimary: {
+    padding: '0.75rem 1.5rem',
+    backgroundColor: '#0d6efd',
+    color: 'white',
+    border: 'none',
+    borderRadius: '0.5rem',
+    fontSize: '0.95rem',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  },
+  errorAlert: {
+    padding: '1rem',
+    marginBottom: '1.5rem',
+    backgroundColor: '#fee2e2',
+    color: '#991b1b',
+    borderRadius: '0.5rem',
+    border: '1px solid #fecaca',
+  },
+  searchSection: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '1.5rem',
+    padding: '1.25rem',
+    backgroundColor: 'white',
+    borderRadius: '0.75rem',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+  },
+  searchInput: {
+    flex: '1',
+    maxWidth: '400px',
+    padding: '0.75rem 1rem',
+    border: '1px solid #d1d5db',
+    borderRadius: '0.5rem',
+    fontSize: '0.95rem',
+  },
+  recordsPerPageSelect: {
+    padding: '0.75rem 1rem',
+    border: '1px solid #d1d5db',
+    borderRadius: '0.5rem',
+    fontSize: '0.95rem',
+    backgroundColor: 'white',
+    cursor: 'pointer',
+  },
+  stats: {
+    display: 'flex',
+    gap: '2rem',
+    fontSize: '0.9rem',
+    color: '#6b7280',
+  },
+  tableContainer: {
+    backgroundColor: 'white',
+    borderRadius: '0.75rem',
+    overflow: 'hidden',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse',
+  },
+  thead: {
+    backgroundColor: '#f9fafb',
+    borderBottom: '2px solid #e5e7eb',
+  },
+  th: {
+    padding: '1rem',
+    textAlign: 'left',
+    fontSize: '0.75rem',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    color: '#6b7280',
+    letterSpacing: '0.05em',
+  },
+  tr: {
+    borderBottom: '1px solid #e5e7eb',
+    transition: 'background-color 0.15s',
+  },
+  td: {
+    padding: '1rem',
+    fontSize: '0.9rem',
+    color: '#374151',
+  },
+  statusBadge: {
+    display: 'inline-block',
+    padding: '0.25rem 0.5rem',
+    borderRadius: '0.25rem',
+    fontSize: '0.7rem',
+    fontWeight: '600',
+    textTransform: 'capitalize',
+  },
+  statusValid: {
+    backgroundColor: '#d1fae5',
+    color: '#065f46',
+  },
+  statusInvalid: {
+    backgroundColor: '#fee2e2',
+    color: '#991b1b',
+  },
+  actionButtons: {
+    display: 'flex',
+    gap: '0.5rem',
+  },
+  btnEdit: {
+    padding: '0.5rem 0.75rem',
+    backgroundColor: '#6b7280',
+    color: 'white',
+    border: 'none',
+    borderRadius: '0.375rem',
+    cursor: 'pointer',
+    fontSize: '1rem',
+  },
+  btnDelete: {
+    padding: '0.5rem 0.75rem',
+    backgroundColor: '#ef4444',
+    color: 'white',
+    border: 'none',
+    borderRadius: '0.375rem',
+    cursor: 'pointer',
+    fontSize: '1rem',
+  },
+  emptyState: {
+    textAlign: 'center',
+    padding: '3rem',
+    color: '#9ca3af',
+  },
+  modal: {
+    position: 'fixed',
+    top: '0',
+    left: '0',
+    right: '0',
+    bottom: '0',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: '1000',
+    padding: '1rem',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: '0.75rem',
+    width: '100%',
+    maxWidth: '900px',
+    maxHeight: '90vh',
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
+    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+  },
+  modalHeader: {
+    padding: '1.5rem',
+    borderBottom: '1px solid #e5e7eb',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'white',
+  },
+  modalTitle: {
+    fontSize: '1.5rem',
+    fontWeight: '600',
+    color: '#1a1a1a',
+    margin: '0',
+  },
+  closeBtn: {
+    background: 'none',
+    border: 'none',
+    fontSize: '2rem',
+    color: '#9ca3af',
+    cursor: 'pointer',
+    padding: '0',
+    width: '2rem',
+    height: '2rem',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    lineHeight: '1',
+  },
+  modalBody: {
+    padding: '1.5rem',
+    overflowY: 'auto',
+    flex: '1',
+  },
+  sectionTitle: {
+    fontSize: '1.1rem',
+    fontWeight: '600',
+    color: '#374151',
+    marginTop: '1.5rem',
+    marginBottom: '1rem',
+    paddingBottom: '0.5rem',
+    borderBottom: '2px solid #e5e7eb',
+  },
+  formRow: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '1rem',
+  },
+  formGroup: {
+    display: 'flex',
+    flexDirection: 'column',
+    marginBottom: '1rem',
+  },
+  label: {
+    marginBottom: '0.5rem',
+    fontSize: '0.875rem',
+    fontWeight: '500',
+    color: '#374151',
+  },
+  required: {
+    color: '#ef4444',
+  },
+  input: {
+    padding: '0.75rem',
+    border: '1px solid #d1d5db',
+    borderRadius: '0.5rem',
+    fontSize: '0.95rem',
+    transition: 'all 0.2s',
+    backgroundColor: 'white',
+  },
+  select: {
+    padding: '0.75rem',
+    border: '1px solid #d1d5db',
+    borderRadius: '0.5rem',
+    fontSize: '0.95rem',
+    transition: 'all 0.2s',
+    cursor: 'pointer',
+    backgroundColor: 'white',
+  },
+  modalFooter: {
+    padding: '1rem 1.5rem',
+    borderTop: '1px solid #e5e7eb',
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '0.75rem',
+    backgroundColor: 'white',
+  },
+  btnCancel: {
+    padding: '0.75rem 1.5rem',
+    backgroundColor: '#6b7280',
+    color: 'white',
+    border: 'none',
+    borderRadius: '0.5rem',
+    fontSize: '0.95rem',
+    fontWeight: '500',
+    cursor: 'pointer',
+  },
+  btnSave: {
+    padding: '0.75rem 1.5rem',
+    backgroundColor: '#0d6efd',
+    color: 'white',
+    border: 'none',
+    borderRadius: '0.5rem',
+    fontSize: '0.95rem',
+    fontWeight: '500',
+    cursor: 'pointer',
+  },
+  paginationContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: '1rem',
+    marginTop: '2rem',
+    padding: '1rem',
+    backgroundColor: 'white',
+    borderRadius: '0.75rem',
+    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+  },
+  paginationBtn: {
+    padding: '0.5rem 1rem',
+    backgroundColor: '#0d6efd',
+    color: 'white',
+    border: 'none',
+    borderRadius: '0.375rem',
+    fontSize: '0.9rem',
+    fontWeight: '500',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  },
+  paginationBtnDisabled: {
+    backgroundColor: '#d1d5db',
+    cursor: 'not-allowed',
+    opacity: '0.6',
+  },
+  pageInfo: {
+    fontSize: '0.9rem',
+    color: '#6b7280',
+    minWidth: '150px',
+    textAlign: 'center',
+  },
 }
 
 export default Contacts

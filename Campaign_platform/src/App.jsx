@@ -20,6 +20,7 @@ import Leads from "./pages/sales/Leads"
 import Contacts from "./pages/sales/Contacts"
 import ContactsImport from "./pages/sales/ContactsImport"
 import Account from "./pages/sales/Account"
+import CompanyDetail from "./pages/sales/CompanyDetail"
 import RFQ from "./pages/sales/RFQ"
 import List from "./pages/sales/campaign/List"
 import Templates from "./pages/sales/campaign/Templates"
@@ -86,6 +87,7 @@ function App() {
         <Route path="sales/contacts" element={<Contacts />} />
         <Route path="sales/contacts/import" element={<ContactsImport />} />
         <Route path="sales/account" element={<Account />} />
+        <Route path="sales/account/:companyName" element={<CompanyDetail />} />
         <Route path="sales/rfq" element={<RFQ />} />
         <Route path="sales/campaign/list" element={<List />} />
         <Route path="sales/campaign/templates" element={<Templates />} />

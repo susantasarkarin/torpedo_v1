@@ -736,6 +736,11 @@ async def get_clients():
 @app.put("/clients/{client_id}")
 async def update_client(client_id: str, client_data: Dict[str, Any] = Body(...)):
     try:
+        # Get the current client to check if it has an accountId
+        current_client = clients_collection.find_one({"_id": ObjectId(client_id)})
+        if not current_client:
+            raise HTTPException(status_code=404, detail="Client not found")
+        
         # Exclude _id and clientNo from updates (clientNo is system-generated)
         client_data = {k: v for k, v in client_data.items() if k not in ["_id", "clientNo"]}
 
@@ -747,11 +752,40 @@ async def update_client(client_id: str, client_data: Dict[str, Any] = Body(...))
         if "contactPerson" in client_data and (not client_data["contactPerson"] or not client_data["contactPerson"].strip()):
             raise HTTPException(status_code=400, detail="Phone number cannot be empty")
 
+        # Update client
         result = clients_collection.update_one(
             {"_id": ObjectId(client_id)}, {"$set": client_data}
         )
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Client not found")
+        
+        # Sync to accounts if accountId exists
+        if current_client.get("accountId"):
+            account_update = {
+                "name": client_data.get("name", current_client.get("name")),
+                "email": client_data.get("email", current_client.get("email")),
+                "phone": client_data.get("contactPerson", current_client.get("contactPerson")),
+                "address": client_data.get("address", current_client.get("address", "")),
+                "status": client_data.get("status", current_client.get("status", "Active")),
+                "updatedAt": datetime.utcnow()
+            }
+            accounts_collection.update_one(
+                {"_id": ObjectId(current_client["accountId"])},
+                {"$set": account_update}
+            )
+            
+            # Sync to customers (finance_db)
+            customer_update = {
+                "name": client_data.get("name", current_client.get("name")),
+                "company_name": client_data.get("name", current_client.get("name")),
+                "email": client_data.get("email", current_client.get("email")),
+                "phone": client_data.get("contactPerson", current_client.get("contactPerson")),
+            }
+            finance_customers_collection.update_one(
+                {"accountId": current_client["accountId"]},
+                {"$set": customer_update}
+            )
+        
         return {"message": "Client updated successfully"}
     except HTTPException:
         raise
@@ -768,6 +802,417 @@ async def delete_client(client_id: str):
         return {"message": "Client deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Client delete error: {str(e)}")
+
+# ----------------------------
+# Leads Collection
+# ----------------------------
+leads_collection = db["leads"]
+
+# Create a lead
+@app.post("/leads/")
+async def create_lead(lead_data: Dict[str, Any] = Body(...)):
+    try:
+        # Validate required fields
+        if not lead_data.get("email") or not lead_data["email"].strip():
+            raise HTTPException(status_code=400, detail="Email is required")
+
+        lead_data["addedOn"] = datetime.utcnow()
+        lead_data["createdAt"] = datetime.utcnow()
+        lead_data["updatedAt"] = datetime.utcnow()
+        result = leads_collection.insert_one(lead_data)
+        lead_data["_id"] = str(result.inserted_id)
+        return {"message": "Lead created successfully", "lead": lead_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lead creation error: {str(e)}")
+
+# Get all leads
+@app.get("/leads/", dependencies=[Depends(verify_session)])
+async def get_leads():
+    try:
+        leads = list(leads_collection.find())
+        for lead in leads:
+            lead["_id"] = str(lead["_id"])
+            # Convert datetime to string for JSON serialization
+            for date_field in ["createdAt", "updatedAt", "addedOn"]:
+                if date_field in lead:
+                    lead[date_field] = lead[date_field].isoformat() if isinstance(lead[date_field], datetime) else str(lead[date_field])
+        return {"leads": leads}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fetch leads error: {str(e)}")
+
+# Update a lead
+@app.put("/leads/{lead_id}")
+async def update_lead(lead_id: str, lead_data: Dict[str, Any] = Body(...)):
+    try:
+        # Exclude _id from updates
+        lead_data = {k: v for k, v in lead_data.items() if k not in ["_id", "createdAt", "addedOn"]}
+
+        # Validate required fields if they are being updated
+        if "email" in lead_data and (not lead_data["email"] or not lead_data["email"].strip()):
+            raise HTTPException(status_code=400, detail="Email cannot be empty")
+
+        lead_data["updatedAt"] = datetime.utcnow()
+        result = leads_collection.update_one(
+            {"_id": ObjectId(lead_id)}, {"$set": lead_data}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        return {"message": "Lead updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lead update error: {str(e)}")
+
+# Delete a lead
+@app.delete("/leads/{lead_id}")
+async def delete_lead(lead_id: str):
+    try:
+        result = leads_collection.delete_one({"_id": ObjectId(lead_id)})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        return {"message": "Lead deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lead delete error: {str(e)}")
+
+# Move lead to contacts (RFQ stage)
+@app.post("/leads/{lead_id}/move-to-contacts")
+async def move_lead_to_contacts(lead_id: str, stage_data: Dict[str, Any] = Body(...)):
+    try:
+        # Find the lead
+        lead = leads_collection.find_one({"_id": ObjectId(lead_id)})
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        
+        # Create contact from lead data
+        contact_data = {k: v for k, v in lead.items() if k != "_id"}
+        contact_data["stage"] = stage_data.get("stage", "RFQ")
+        contact_data["movedFromLeadAt"] = datetime.utcnow()
+        contact_data["createdAt"] = lead.get("createdAt", datetime.utcnow())
+        contact_data["updatedAt"] = datetime.utcnow()
+        
+        # Insert into contacts
+        result = contacts_collection.insert_one(contact_data)
+        contact_data["_id"] = str(result.inserted_id)
+        
+        # Delete from leads
+        leads_collection.delete_one({"_id": ObjectId(lead_id)})
+        
+        return {"message": "Lead moved to contacts successfully", "contact": contact_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Move lead error: {str(e)}")
+
+# ----------------------------
+# Contacts Collection (Qualified Leads with Stages)
+# ----------------------------
+# Create a contact
+@app.post("/contacts/")
+async def create_contact(contact_data: Dict[str, Any] = Body(...)):
+    try:
+        # Validate required fields
+        if not contact_data.get("email") or not contact_data["email"].strip():
+            raise HTTPException(status_code=400, detail="Email is required")
+        
+        contact_data["stage"] = contact_data.get("stage", "RFQ")
+        contact_data["createdAt"] = datetime.utcnow()
+        contact_data["updatedAt"] = datetime.utcnow()
+        result = contacts_collection.insert_one(contact_data)
+        contact_data["_id"] = str(result.inserted_id)
+        
+        # Auto-sync to Accounts: create/update account with company info
+        if contact_data.get("companyName"):
+            # Check if account already exists for this company
+            existing_account = accounts_collection.find_one({"name": contact_data["companyName"]})
+            
+            if existing_account:
+                # Update existing account with latest company info (only update email if provided)
+                update_fields = {"updatedAt": datetime.utcnow()}
+                if contact_data.get("companyEmail"):
+                    update_fields["email"] = contact_data["companyEmail"]
+                
+                accounts_collection.update_one(
+                    {"_id": existing_account["_id"]},
+                    {"$set": update_fields}
+                )
+            else:
+                # Create new account for this company
+                new_account = {
+                    "name": contact_data["companyName"],
+                    "contactPerson": "",
+                    "email": contact_data.get("companyEmail", ""),
+                    "phone": "",
+                    "address": contact_data.get("companyHeadquarters", ""),
+                    "accountValue": "",
+                    "status": "Active",
+                    "createdAt": datetime.utcnow(),
+                    "updatedAt": datetime.utcnow(),
+                }
+                accounts_collection.insert_one(new_account)
+        
+        return {"message": "Contact created successfully", "contact": contact_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Contact creation error: {str(e)}")
+
+# Get all contacts
+@app.get("/contacts/", dependencies=[Depends(verify_session)])
+async def get_contacts():
+    try:
+        contacts = list(contacts_collection.find())
+        for contact in contacts:
+            contact["_id"] = str(contact["_id"])
+            # Convert datetime to string for JSON serialization
+            for date_field in ["createdAt", "updatedAt", "movedFromLeadAt", "addedOn"]:
+                if date_field in contact:
+                    contact[date_field] = contact[date_field].isoformat() if isinstance(contact[date_field], datetime) else str(contact[date_field])
+        return {"contacts": contacts}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fetch contacts error: {str(e)}")
+
+# Update a contact
+@app.put("/contacts/{contact_id}")
+async def update_contact(contact_id: str, contact_data: Dict[str, Any] = Body(...)):
+    try:
+        # Exclude _id from updates
+        contact_data = {k: v for k, v in contact_data.items() if k not in ["_id", "createdAt", "movedFromLeadAt"]}
+        
+        # Validate required fields if they are being updated
+        if "email" in contact_data and (not contact_data["email"] or not contact_data["email"].strip()):
+            raise HTTPException(status_code=400, detail="Email cannot be empty")
+        
+        contact_data["updatedAt"] = datetime.utcnow()
+        result = contacts_collection.update_one(
+            {"_id": ObjectId(contact_id)}, {"$set": contact_data}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Contact not found")
+        
+        # Auto-sync to Accounts: update account with company info
+        if contact_data.get("companyName"):
+            # Check if account exists for this company
+            existing_account = accounts_collection.find_one({"name": contact_data["companyName"]})
+            
+            if existing_account:
+                # Update existing account (only update email if provided)
+                update_fields = {"updatedAt": datetime.utcnow()}
+                if contact_data.get("companyEmail"):
+                    update_fields["email"] = contact_data["companyEmail"]
+                
+                accounts_collection.update_one(
+                    {"_id": existing_account["_id"]},
+                    {"$set": update_fields}
+                )
+        
+        return {"message": "Contact updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Contact update error: {str(e)}")
+
+# Delete a contact
+@app.delete("/contacts/{contact_id}")
+async def delete_contact(contact_id: str):
+    try:
+        result = contacts_collection.delete_one({"_id": ObjectId(contact_id)})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Contact not found")
+        return {"message": "Contact deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Contact delete error: {str(e)}")
+
+# ----------------------------
+# Accounts Collection (syncs with Clients and Customers)
+# ----------------------------
+accounts_collection = db["accounts"]
+finance_db = client["finance_db"]
+finance_customers_collection = finance_db["customers"]
+
+def generate_client_no_for_account():
+    """Generate a unique 7-digit client number"""
+    while True:
+        client_no = str(datetime.utcnow().microsecond % 10000000).zfill(7)
+        if not clients_collection.find_one({"clientNo": client_no}):
+            return client_no
+
+# Create an account (syncs to clients and customers)
+@app.post("/accounts/")
+async def create_account(account_data: Dict[str, Any] = Body(...)):
+    try:
+        # Validate required fields
+        if not account_data.get("name") or not account_data["name"].strip():
+            raise HTTPException(status_code=400, detail="Account name is required")
+        if not account_data.get("email") or not account_data["email"].strip():
+            raise HTTPException(status_code=400, detail="Email address is required")
+
+        account_data["createdAt"] = datetime.utcnow()
+        account_data["updatedAt"] = datetime.utcnow()
+        
+        # Insert into accounts collection
+        result = accounts_collection.insert_one(account_data.copy())
+        account_data["_id"] = str(result.inserted_id)
+        
+        # Sync to clients collection
+        client_data = {
+            "clientNo": generate_client_no_for_account(),
+            "name": account_data.get("name"),
+            "contactPerson": account_data.get("phone", ""),  # phone maps to contactPerson in clients
+            "email": account_data.get("email"),
+            "address": account_data.get("address", ""),
+            "clientVariable": "",
+            "currency": "USD",
+            "clientType": "Offline",
+            "status": account_data.get("status", "Active"),
+            "accountId": str(result.inserted_id),  # Link to account
+        }
+        clients_collection.insert_one(client_data)
+        
+        # Sync to customers collection (finance module) - using finance_db
+        customer_data = {
+            "name": account_data.get("name"),
+            "customer_type": "business",
+            "company_name": account_data.get("name"),
+            "email": account_data.get("email"),
+            "phone": account_data.get("phone", ""),
+            "gst_treatment": "unregistered",
+            "gstin": "",
+            "pan": "",
+            "billing_address": {
+                "line1": account_data.get("address", ""),
+                "line2": "",
+                "city": "",
+                "state": "",
+                "pincode": "",
+                "country": "India",
+            },
+            "shipping_address": {
+                "line1": account_data.get("address", ""),
+                "line2": "",
+                "city": "",
+                "state": "",
+                "pincode": "",
+                "country": "India",
+            },
+            "same_as_billing": True,
+            "payment_terms": 30,
+            "credit_limit": 0,
+            "currency": "INR",
+            "opening_balance": 0,
+            "notes": "",
+            "status": "active" if account_data.get("status") == "Active" else "inactive",
+            "accountId": str(result.inserted_id),  # Link to account
+            "createdAt": datetime.utcnow(),
+        }
+        finance_customers_collection.insert_one(customer_data)
+        
+        return {"message": "Account created successfully and synced to clients and customers", "account": account_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Account creation error: {str(e)}")
+
+# Get all accounts
+@app.get("/accounts/", dependencies=[Depends(verify_session)])
+async def get_accounts():
+    try:
+        accounts = list(accounts_collection.find())
+        for account in accounts:
+            account["_id"] = str(account["_id"])
+            if "createdAt" in account:
+                account["createdAt"] = account["createdAt"].isoformat() if isinstance(account["createdAt"], datetime) else str(account["createdAt"])
+            if "updatedAt" in account:
+                account["updatedAt"] = account["updatedAt"].isoformat() if isinstance(account["updatedAt"], datetime) else str(account["updatedAt"])
+        return {"accounts": accounts}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fetch accounts error: {str(e)}")
+
+# Update an account (syncs to clients and customers)
+@app.put("/accounts/{account_id}")
+async def update_account(account_id: str, account_data: Dict[str, Any] = Body(...)):
+    try:
+        # Exclude _id from updates
+        account_data = {k: v for k, v in account_data.items() if k not in ["_id", "createdAt"]}
+
+        # Validate required fields if they are being updated
+        if "name" in account_data and (not account_data["name"] or not account_data["name"].strip()):
+            raise HTTPException(status_code=400, detail="Account name cannot be empty")
+        if "email" in account_data and (not account_data["email"] or not account_data["email"].strip()):
+            raise HTTPException(status_code=400, detail="Email address cannot be empty")
+
+        account_data["updatedAt"] = datetime.utcnow()
+        
+        # Update accounts collection
+        result = accounts_collection.update_one(
+            {"_id": ObjectId(account_id)}, {"$set": account_data}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Account not found")
+        
+        # Sync updates to clients collection
+        client_update = {}
+        if "name" in account_data:
+            client_update["name"] = account_data["name"]
+        if "email" in account_data:
+            client_update["email"] = account_data["email"]
+        if "phone" in account_data:
+            client_update["contactPerson"] = account_data["phone"]  # phone maps to contactPerson in clients
+        if "address" in account_data:
+            client_update["address"] = account_data["address"]
+        if "status" in account_data:
+            client_update["status"] = account_data["status"]
+        
+        if client_update:
+            clients_collection.update_one(
+                {"accountId": account_id}, {"$set": client_update}
+            )
+        
+        # Sync updates to customers collection (finance_db)
+        customer_update = {}
+        if "name" in account_data:
+            customer_update["name"] = account_data["name"]
+            customer_update["company_name"] = account_data["name"]
+        if "email" in account_data:
+            customer_update["email"] = account_data["email"]
+        if "phone" in account_data:
+            customer_update["phone"] = account_data["phone"]
+        if "address" in account_data:
+            customer_update["billing_address.line1"] = account_data["address"]
+            customer_update["shipping_address.line1"] = account_data["address"]
+        if "status" in account_data:
+            customer_update["status"] = "active" if account_data["status"] == "Active" else "inactive"
+        
+        if customer_update:
+            finance_customers_collection.update_one(
+                {"accountId": account_id}, {"$set": customer_update}
+            )
+        
+        return {"message": "Account updated successfully and synced to clients and customers"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Account update error: {str(e)}")
+
+# Delete an account (syncs to clients and customers)
+@app.delete("/accounts/{account_id}")
+async def delete_account(account_id: str):
+    try:
+        # Delete from accounts collection
+        result = accounts_collection.delete_one({"_id": ObjectId(account_id)})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Account not found")
+        
+        # Delete from clients collection
+        clients_collection.delete_one({"accountId": account_id})
+        
+        # Delete from customers collection (finance_db)
+        finance_customers_collection.delete_one({"accountId": account_id})
+        
+        return {"message": "Account deleted successfully from all collections"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Account delete error: {str(e)}")
 
 vendors_collection = db["vendors"]
 

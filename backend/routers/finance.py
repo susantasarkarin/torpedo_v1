@@ -39,6 +39,11 @@ expenses_collection = finance_db["expenses"]
 payments_received_collection = finance_db["payments_received"]
 payments_made_collection = finance_db["payments_made"]
 
+# Access main DB collections for syncing
+main_db = client["email_automation"]
+accounts_collection = main_db["accounts"]
+clients_collection = main_db["clients"]
+
 print("✅ Finance collections initialized")
 
 
@@ -375,15 +380,48 @@ async def create_customer(customer_data: Dict[str, Any] = Body(...)):
 async def update_customer(customer_id: str, customer_data: Dict[str, Any] = Body(...)):
     """Update a customer"""
     try:
+        # Get current customer to check for accountId
+        current_customer = customers_collection.find_one({"_id": ObjectId(customer_id)})
+        if not current_customer:
+            raise HTTPException(status_code=404, detail="Customer not found")
+        
         customer_data.pop("_id", None)
         customer_data["updated_at"] = datetime.utcnow()
         
+        # Update customer
         result = customers_collection.update_one(
             {"_id": ObjectId(customer_id)},
             {"$set": customer_data}
         )
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Customer not found")
+        
+        # Sync to accounts if accountId exists
+        if current_customer.get("accountId"):
+            account_update = {
+                "name": customer_data.get("name", current_customer.get("name")),
+                "email": customer_data.get("email", current_customer.get("email")),
+                "phone": customer_data.get("phone", current_customer.get("phone")),
+                "status": customer_data.get("status", current_customer.get("status", "Active")),
+                "updatedAt": datetime.utcnow()
+            }
+            accounts_collection.update_one(
+                {"_id": ObjectId(current_customer["accountId"])},
+                {"$set": account_update}
+            )
+            
+            # Sync to clients (email_automation.clients)
+            client_update = {
+                "name": customer_data.get("name", current_customer.get("name")),
+                "email": customer_data.get("email", current_customer.get("email")),
+                "contactPerson": customer_data.get("phone", current_customer.get("phone")),
+                "status": customer_data.get("status", current_customer.get("status", "Active")),
+            }
+            clients_collection.update_one(
+                {"accountId": current_customer["accountId"]},
+                {"$set": client_update}
+            )
+        
         return {"message": "Customer updated successfully"}
     except HTTPException:
         raise

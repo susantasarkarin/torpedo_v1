@@ -33,8 +33,23 @@ try:
     from gmail_automation.sentiment_analyzer import SentimentAnalyzer
     from gmail_automation.email_composer import EmailComposer, EmailTemplate
     from gmail_automation.account_manager import AccountManager, EmailAccount, EmailAlias, RoutingRule
+    GMAIL_AVAILABLE = True
 except ImportError as e:
     logging.warning(f"Gmail automation import error: {e}")
+    GMAIL_AVAILABLE = False
+    # Create dummy classes to prevent NameError
+    GmailAuthenticator = None
+    EmailFetcher = None
+    EmailCategorizer = None
+    CategorizationRule = None
+    CategoryPriority = None
+    SentimentAnalyzer = None
+    EmailComposer = None
+    EmailTemplate = None
+    AccountManager = None
+    EmailAccount = None
+    EmailAlias = None
+    RoutingRule = None
 
 load_dotenv()
 
@@ -58,7 +73,7 @@ settings_collection = gmail_db["settings"]
 
 # In-memory cache for authenticated services
 _gmail_services: Dict[str, Any] = {}
-_authenticators: Dict[str, GmailAuthenticator] = {}
+_authenticators: Dict[str, Any] = {}  # Changed type hint to Any since GmailAuthenticator might be None
 
 
 # ============================================
