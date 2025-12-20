@@ -20,8 +20,14 @@ NC='\033[0m' # No Color
 
 # Get script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Script is in campaign_platform/, so go up one level for project root
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Script is in the project root (campaign_platform/)
+# Check if .git exists in current dir, otherwise try parent (for flexibility)
+if [ -d "$SCRIPT_DIR/.git" ]; then
+    PROJECT_DIR="$SCRIPT_DIR"
+else
+    # Try parent directory (in case script is moved)
+    PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+fi
 
 # Log file configuration (set up early)
 LOG_FILE="/var/www/campaign_platform/cron-deploy.log"
