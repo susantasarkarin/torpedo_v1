@@ -712,10 +712,67 @@ async def create_client(client_data: Dict[str, Any] = Body(...)):
         if not client_data.get("contactPerson") or not client_data["contactPerson"].strip():
             raise HTTPException(status_code=400, detail="Phone number is required")
 
+        # First create an account
+        account_data = {
+            "name": client_data.get("name"),
+            "email": client_data.get("email"),
+            "phone": client_data.get("contactPerson", ""),
+            "address": client_data.get("address", ""),
+            "status": client_data.get("status", "Active"),
+            "contactPerson": "",
+            "companyName": client_data.get("name"),
+            "companyEmail": client_data.get("email"),
+            "createdAt": datetime.utcnow()
+        }
+        account_result = accounts_collection.insert_one(account_data)
+        account_id = str(account_result.inserted_id)
+        
+        # Create client with accountId link
         client_data["clientNo"] = generate_client_no()
+        client_data["accountId"] = account_id
         result = clients_collection.insert_one(client_data)
         client_data["_id"] = str(result.inserted_id)
-        return {"message": "Client created successfully", "client": client_data}
+        
+        # Create customer in finance_db
+        customer_data = {
+            "name": client_data.get("name"),
+            "customer_type": "business",
+            "company_name": client_data.get("name"),
+            "email": client_data.get("email"),
+            "phone": client_data.get("contactPerson", ""),
+            "gst_treatment": "unregistered",
+            "gstin": "",
+            "pan": "",
+            "billing_address": {
+                "line1": client_data.get("address", ""),
+                "line2": "",
+                "city": "",
+                "state": "",
+                "pincode": "",
+                "country": "India",
+            },
+            "shipping_address": {
+                "line1": client_data.get("address", ""),
+                "line2": "",
+                "city": "",
+                "state": "",
+                "pincode": "",
+                "country": "India",
+            },
+            "same_as_billing": True,
+            "payment_terms": 30,
+            "credit_limit": 0,
+            "currency": "INR",
+            "opening_balance": 0,
+            "notes": "",
+            "status": "active" if client_data.get("status") == "Active" else "inactive",
+            "accountId": account_id,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+        }
+        finance_customers_collection.insert_one(customer_data)
+        
+        return {"message": "Client created successfully and synced to accounts and customers", "client": client_data}
     except HTTPException:
         raise
     except Exception as e:
@@ -796,10 +853,20 @@ async def update_client(client_id: str, client_data: Dict[str, Any] = Body(...))
 @app.delete("/clients/{client_id}")
 async def delete_client(client_id: str):
     try:
-        result = clients_collection.delete_one({"_id": ObjectId(client_id)})
-        if result.deleted_count == 0:
+        # Get client to find accountId
+        client = clients_collection.find_one({"_id": ObjectId(client_id)})
+        if not client:
             raise HTTPException(status_code=404, detail="Client not found")
-        return {"message": "Client deleted successfully"}
+        
+        # Delete client
+        result = clients_collection.delete_one({"_id": ObjectId(client_id)})
+        
+        # Delete corresponding account and customer if accountId exists
+        if client.get("accountId"):
+            accounts_collection.delete_one({"_id": ObjectId(client["accountId"])})
+            finance_customers_collection.delete_one({"accountId": client["accountId"]})
+        
+        return {"message": "Client deleted successfully from all collections"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Client delete error: {str(e)}")
 
@@ -950,7 +1017,62 @@ async def create_contact(contact_data: Dict[str, Any] = Body(...)):
                     "createdAt": datetime.utcnow(),
                     "updatedAt": datetime.utcnow(),
                 }
-                accounts_collection.insert_one(new_account)
+                account_result = accounts_collection.insert_one(new_account)
+                account_id = str(account_result.inserted_id)
+                
+                # Create corresponding client
+                client_data = {
+                    "clientNo": generate_client_no(),
+                    "name": contact_data["companyName"],
+                    "contactPerson": "",
+                    "email": contact_data.get("companyEmail", ""),
+                    "address": contact_data.get("companyHeadquarters", ""),
+                    "clientVariable": "",
+                    "currency": "",
+                    "clientType": "Offline",
+                    "status": "Active",
+                    "accountId": account_id
+                }
+                clients_collection.insert_one(client_data)
+                
+                # Create corresponding customer (finance_db)
+                customer_data = {
+                    "name": contact_data["companyName"],
+                    "customer_type": "business",
+                    "company_name": contact_data["companyName"],
+                    "email": contact_data.get("companyEmail", ""),
+                    "phone": "",
+                    "gst_treatment": "unregistered",
+                    "gstin": "",
+                    "pan": "",
+                    "billing_address": {
+                        "line1": contact_data.get("companyHeadquarters", ""),
+                        "line2": "",
+                        "city": "",
+                        "state": "",
+                        "pincode": "",
+                        "country": "India",
+                    },
+                    "shipping_address": {
+                        "line1": contact_data.get("companyHeadquarters", ""),
+                        "line2": "",
+                        "city": "",
+                        "state": "",
+                        "pincode": "",
+                        "country": "India",
+                    },
+                    "same_as_billing": True,
+                    "payment_terms": 30,
+                    "credit_limit": 0,
+                    "currency": "INR",
+                    "opening_balance": 0,
+                    "notes": "",
+                    "status": "active",
+                    "accountId": account_id,
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                }
+                finance_customers_collection.insert_one(customer_data)
         
         return {"message": "Contact created successfully", "contact": contact_data}
     except HTTPException:
@@ -1001,11 +1123,43 @@ async def update_contact(contact_id: str, contact_data: Dict[str, Any] = Body(..
                 update_fields = {"updatedAt": datetime.utcnow()}
                 if contact_data.get("companyEmail"):
                     update_fields["email"] = contact_data["companyEmail"]
+                if contact_data.get("companyHeadquarters"):
+                    update_fields["address"] = contact_data["companyHeadquarters"]
                 
                 accounts_collection.update_one(
                     {"_id": existing_account["_id"]},
                     {"$set": update_fields}
                 )
+                
+                # Sync to clients and customers as well
+                account_id = str(existing_account["_id"])
+                
+                # Update client
+                client_update = {}
+                if contact_data.get("companyEmail"):
+                    client_update["email"] = contact_data["companyEmail"]
+                if contact_data.get("companyHeadquarters"):
+                    client_update["address"] = contact_data["companyHeadquarters"]
+                
+                if client_update:
+                    clients_collection.update_one(
+                        {"accountId": account_id},
+                        {"$set": client_update}
+                    )
+                
+                # Update customer
+                customer_update = {}
+                if contact_data.get("companyEmail"):
+                    customer_update["email"] = contact_data["companyEmail"]
+                if contact_data.get("companyHeadquarters"):
+                    customer_update["billing_address.line1"] = contact_data["companyHeadquarters"]
+                    customer_update["shipping_address.line1"] = contact_data["companyHeadquarters"]
+                
+                if customer_update:
+                    finance_customers_collection.update_one(
+                        {"accountId": account_id},
+                        {"$set": customer_update}
+                    )
         
         return {"message": "Contact updated successfully"}
     except HTTPException:

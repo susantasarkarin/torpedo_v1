@@ -358,10 +358,48 @@ async def create_customer(customer_data: Dict[str, Any] = Body(...)):
         if not validate_pan(customer_data.get("pan", "")):
             raise HTTPException(status_code=400, detail="Invalid PAN format (e.g., ABCDE1234F)")
         
+        # First create an account
+        account_data = {
+            "name": customer_data.get("name"),
+            "email": customer_data.get("email"),
+            "phone": customer_data.get("phone", ""),
+            "address": customer_data.get("billing_address", {}).get("line1", ""),
+            "status": "Active" if customer_data.get("status", "active") == "active" else "Inactive",
+            "contactPerson": "",
+            "companyName": customer_data.get("company_name", customer_data.get("name")),
+            "companyEmail": customer_data.get("email"),
+            "createdAt": datetime.utcnow()
+        }
+        account_result = accounts_collection.insert_one(account_data)
+        account_id = str(account_result.inserted_id)
+        
+        # Create client in email_automation.clients
+        def generate_client_no():
+            """Generate a unique 7-digit client number"""
+            while True:
+                client_no = str(datetime.utcnow().microsecond % 10000000).zfill(7)
+                if not clients_collection.find_one({"clientNo": client_no}):
+                    return client_no
+        
+        client_data = {
+            "clientNo": generate_client_no(),
+            "name": customer_data.get("name"),
+            "contactPerson": customer_data.get("phone", ""),
+            "email": customer_data.get("email"),
+            "address": customer_data.get("billing_address", {}).get("line1", ""),
+            "clientVariable": "",
+            "currency": customer_data.get("currency", "INR"),
+            "clientType": "Offline",
+            "status": "Active" if customer_data.get("status", "active") == "active" else "Inactive",
+            "accountId": account_id
+        }
+        clients_collection.insert_one(client_data)
+        
         customer_data["created_at"] = datetime.utcnow()
         customer_data["updated_at"] = datetime.utcnow()
         customer_data["total_receivables"] = 0
         customer_data["total_paid"] = 0
+        customer_data["accountId"] = account_id
         
         # Generate customer number if not provided
         if not customer_data.get("customer_number"):
@@ -441,10 +479,20 @@ async def delete_customer(customer_id: str):
                 detail=f"Cannot delete customer with {invoice_count} invoices. Delete invoices first."
             )
         
-        result = customers_collection.delete_one({"_id": ObjectId(customer_id)})
-        if result.deleted_count == 0:
+        # Get customer to find accountId
+        customer = customers_collection.find_one({"_id": ObjectId(customer_id)})
+        if not customer:
             raise HTTPException(status_code=404, detail="Customer not found")
-        return {"message": "Customer deleted successfully"}
+        
+        # Delete customer
+        result = customers_collection.delete_one({"_id": ObjectId(customer_id)})
+        
+        # Delete corresponding account and client if accountId exists
+        if customer.get("accountId"):
+            accounts_collection.delete_one({"_id": ObjectId(customer["accountId"])})
+            clients_collection.delete_one({"accountId": customer["accountId"]})
+        
+        return {"message": "Customer deleted successfully from all collections"}
     except HTTPException:
         raise
     except Exception as e:

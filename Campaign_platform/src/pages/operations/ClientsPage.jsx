@@ -26,39 +26,64 @@ function ClientsPage() {
   }
   const [formData, setFormData] = useState(emptyForm)
 
-  // Fetch clients
- useEffect(() => {
-    const run = async () => {
-      const sessionId = localStorage.getItem("session_id");
-      if (!sessionId) {
+  // Fetch clients function - extracted for reusability
+  const fetchClients = async () => {
+    const sessionId = localStorage.getItem("session_id");
+    if (!sessionId) {
+      navigate("/login");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/clients/`, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+      });
+
+      if (res.status === 401) {
+        alert("Session expired. Please login again.");
+        localStorage.removeItem("session_id");
         navigate("/login");
         return;
       }
 
-      try {
-        const res = await fetch(`${API_BASE_URL}/clients/`, {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: sessionId,
-          },
-        });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Failed to load clients");
+      setClients(data.clients || []);
+    } catch (e) {
+      setError(e.message || "Failed to load clients");
+    }
+  };
 
-        if (res.status === 401) {
-          alert("Session expired. Please login again.");
-          localStorage.removeItem("session_id");
-          navigate("/login");
-          return;
-        }
+  // Fetch on mount
+  useEffect(() => {
+    fetchClients();
+  }, []);
 
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "Failed to load clients");
-        setClients(data.clients || []);
-      } catch (e) {
-        setError(e.message || "Failed to load clients");
+  // Auto-refresh when window regains focus or tab becomes visible
+  useEffect(() => {
+    const handleFocus = () => {
+      console.log('Window focused, refreshing clients...');
+      fetchClients();
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log('Tab visible, refreshing clients...');
+        fetchClients();
       }
     };
-    run();
-  }, [navigate]);
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
 
   // Handle form input
@@ -229,9 +254,18 @@ function ClientsPage() {
           <h2 style={styles.title}>Clients</h2>
           <p style={styles.subtitle}>Manage your survey clients and their information</p>
         </div>
-        <button style={styles.btnPrimary} onClick={openCreate}>
-          + Add New Client
-        </button>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button 
+            style={{ ...styles.btnSecondary, padding: '8px 16px' }} 
+            onClick={fetchClients}
+            title="Refresh to see latest changes from Accounts and Customers"
+          >
+            🔄 Refresh
+          </button>
+          <button style={styles.btnPrimary} onClick={openCreate}>
+            + Add New Client
+          </button>
+        </div>
       </div>
 
       {error && <div style={styles.errorAlert}>{error}</div>}

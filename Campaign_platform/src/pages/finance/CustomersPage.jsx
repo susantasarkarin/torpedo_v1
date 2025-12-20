@@ -80,9 +80,33 @@ function CustomersPage() {
   
   const [formData, setFormData] = useState(initialFormData)
 
+  // Fetch on mount
   useEffect(() => {
     fetchCustomers()
   }, [])
+
+  // Auto-refresh when window regains focus or tab becomes visible
+  useEffect(() => {
+    const handleFocus = () => {
+      console.log('Window focused, refreshing customers...');
+      fetchCustomers();
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log('Tab visible, refreshing customers...');
+        fetchCustomers();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   const fetchCustomers = async () => {
     const sessionId = localStorage.getItem("session_id")
@@ -424,6 +448,13 @@ function CustomersPage() {
           <p style={styles.subtitle}>Manage your customer accounts</p>
         </div>
         <div style={{ display: "flex", gap: "0.75rem" }}>
+          <button 
+            style={{ ...styles.btnSecondary, padding: "8px 16px" }} 
+            onClick={fetchCustomers}
+            title="Refresh to see latest changes from Accounts and Clients"
+          >
+            🔄 Refresh
+          </button>
           <button 
             style={styles.btnSecondary} 
             onClick={() => navigate("/admin/finance/customers/import")}
