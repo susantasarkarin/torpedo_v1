@@ -378,16 +378,25 @@ build_backend() {
         print_success "Virtual environment created"
     fi
     
-    # Activate virtual environment and install/update dependencies
-    print_info "Installing/updating Python dependencies..."
-    source "$BACKEND_VENV/bin/activate"
+    # Use venv's pip directly (more reliable than activation)
+    VENV_PIP="$BACKEND_VENV/bin/pip"
+    VENV_PYTHON="$BACKEND_VENV/bin/python"
     
-    if pip install -q --upgrade pip && pip install -q -r requirements.txt; then
+    if [ ! -f "$VENV_PIP" ]; then
+        print_error "Virtual environment pip not found. Recreating venv..."
+        rm -rf "$BACKEND_VENV"
+        python3 -m venv "$BACKEND_VENV"
+        VENV_PIP="$BACKEND_VENV/bin/pip"
+        VENV_PYTHON="$BACKEND_VENV/bin/python"
+    fi
+    
+    # Install/update dependencies using venv's pip directly
+    print_info "Installing/updating Python dependencies..."
+    
+    if "$VENV_PIP" install -q --upgrade pip && "$VENV_PIP" install -q -r requirements.txt; then
         print_success "Backend dependencies installed"
-        deactivate
     else
         print_error "Backend dependency installation failed"
-        deactivate
         exit 1
     fi
 }
@@ -441,11 +450,17 @@ restart_backend() {
         
         print_info "Starting backend server..."
         
-        # Activate venv and start uvicorn in background
-        source "$BACKEND_VENV/bin/activate"
+        # Use venv's python directly (more reliable than activation)
+        VENV_PYTHON="$BACKEND_VENV/bin/python"
         
-        # Start uvicorn in background and save PID
-        nohup uvicorn main:app --host 0.0.0.0 --port 8000 > "$BACKEND_DIR/backend.log" 2>&1 &
+        if [ ! -f "$VENV_PYTHON" ]; then
+            print_error "Virtual environment Python not found. Run build_backend first."
+            exit 1
+        fi
+        
+        # Start uvicorn in background using venv's python and save PID
+        cd "$BACKEND_DIR"
+        nohup "$VENV_PYTHON" -m uvicorn main:app --host 0.0.0.0 --port 8000 > "$BACKEND_DIR/backend.log" 2>&1 &
         BACKEND_PID=$!
         
         # Wait a moment for server to start
@@ -461,11 +476,8 @@ restart_backend() {
             echo $BACKEND_PID > "$BACKEND_DIR/.backend.pid"
         else
             print_error "Backend failed to start. Check logs: tail -f $BACKEND_DIR/backend.log"
-            deactivate
             exit 1
         fi
-        
-        deactivate
     fi
 }
 
