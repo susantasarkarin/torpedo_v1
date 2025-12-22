@@ -1,0 +1,23 @@
+# Gmail Automation Package Requirements
+
+# Core Gmail API dependencies
+google-api-python-client>=2.100.0
+google-auth-httplib2>=0.1.1
+google-auth-oauthlib>=1.1.0
+
+# Sentiment Analysis (TextBlob - offline analysis)
+textblob>=0.17.1
+
+# Optional: OpenAI for advanced AI analysis
+# Uncomment if you want to use GPT-powered analysis
+# openai>=1.0.0
+
+# Data handling
+python-dateutil>=2.8.2
+
+# Development dependencies (optional)
+# pytest>=7.4.0
+# pytest-cov>=4.1.0
+# black>=23.9.1
+# flake8>=6.1.0
+# mypy>=1.5.1

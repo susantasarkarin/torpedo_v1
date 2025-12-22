@@ -1,0 +1,16 @@
+.finance-wrapper {
+  display: flex;
+  height: calc(100vh - 60px);
+  width: 100%;
+  overflow: hidden;
+}
+
+.finance-main-content {
+  flex: 1;
+  overflow-y: auto;
+  background-color: #f8f9fa;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

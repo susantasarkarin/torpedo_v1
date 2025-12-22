@@ -1,0 +1,1 @@
+﻿invoice_number,customer_name,invoice_date,due_date,total_amount,currency,status\nINV-1001,Acme Corp,2025-12-01,2026-01-01,1500,INR,sent

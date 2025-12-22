@@ -1,0 +1,8 @@
+# Copy this line to your crontab (crontab -e)
+# Runs deploy.sh every 10 minutes
+
+*/10 * * * * cd /var/www/campaign_platform && ./deploy.sh --no-confirm >> /var/www/campaign_platform/cron-deploy.log 2>&1
+
+
+
+
