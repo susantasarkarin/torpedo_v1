@@ -54,7 +54,7 @@ class TrafficService:
                 "vendorId": vendor_id,
                 "countryCode": country_code,
                 "respondentId": respondent_id,
-                "status": "NEW",
+                "status": "INCOMPLETE",
                 "createdAt": datetime.utcnow(),
                 "updatedAt": datetime.utcnow(),
                 "url": url,
@@ -86,7 +86,7 @@ class TrafficService:
         """
         try:
             records = list(
-                self.traffic_collection.find({"status": "NEW"})
+                self.traffic_collection.find({"status": "INCOMPLETE"})
                 .limit(batch_size)
             )
             
@@ -233,7 +233,8 @@ class TrafficService:
         survey_id: str,
         cpx_service: Any,
         client_id: str,
-        batch_size: int = 100
+        batch_size: int = 100,
+        live_link: str = ""
     ) -> Dict[str, Any]:
         """
         Assign a survey to a batch of NEW traffic records with dynamically generated entry links.
@@ -244,6 +245,7 @@ class TrafficService:
             cpx_service: CPX service instance for generating entry links
             client_id: Client ID for the survey
             batch_size: Number of records to process (default: 100)
+            live_link: The base live link from CPX API to append parameters to
             
         Returns:
             Dictionary with assignment statistics
@@ -272,10 +274,10 @@ class TrafficService:
                     country_code = traffic.get("countryCode", "")
                     respondent_id = traffic.get("respondentId", "")
                     
-                    # Generate unique entry link with respondent_id as ext_user_id
-                    # This replaces {unique_user_id} with the actual respondent_id
+                    # Generate unique entry link by appending params to live_link
+                    # The respondent_id is used as ext_user_id (unique per user)
                     entry_link = cpx_service.generate_entry_link(
-                        survey_id=survey_id,
+                        live_link=live_link,
                         respondent_id=respondent_id
                     )
                     

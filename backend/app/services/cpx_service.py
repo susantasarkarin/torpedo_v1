@@ -80,34 +80,56 @@ class CPXService:
     
     def generate_entry_link(
         self,
-        survey_id: str,
+        live_link: str,
         respondent_id: str,
     ) -> str:
         """
-        Generate CPX survey entry link with required parameters.
-        Substitutes {unique_user_id} with the actual respondent_id.
+        Generate CPX survey entry link by appending required parameters to live_link.
         
         Args:
-            survey_id: The survey ID
-            respondent_id: The respondent ID to use as ext_user_id
+            live_link: The base live link from CPX API (href or href_new)
+            respondent_id: The respondent ID to use as ext_user_id (unique per user)
             
         Returns:
-            Fully constructed entry URL with ext_user_id, app_id, and secure_hash
+            Fully constructed entry URL with required parameters appended
         """
+        if not live_link:
+            return ""
+            
         # Generate secure hash using respondent_id as ext_user_id
+        # Formula: md5({unique_user_id}-{app_secure_hash})
         secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
         
-        # Build query parameters
-        params = {
-            "app_id": self.app_id,
-            "ext_user_id": respondent_id,  # Replace {unique_user_id} with respondent_id
-            "secure_hash": secure_hash,
-            "survey_id": survey_id,
-        }
+        # Build additional query parameters to append
+        additional_params = (
+            f"&ext_user_id={respondent_id}"
+            f"&app_id={self.app_id}"
+            f"&secure_hash={secure_hash}"
+        )
         
-        base_url = "https://offers.cpx-research.com/index.php"
-        query_string = urlencode(params)
-        return f"{base_url}?{query_string}"
+        return f"{live_link}{additional_params}"
+    
+    def generate_entry_link_template(self, live_link: str) -> str:
+        """
+        Generate a template entry link by appending placeholders to live_link.
+        Used for display purposes - actual values should be substituted at runtime.
+        
+        Args:
+            live_link: The base live link from CPX API (href or href_new)
+            
+        Returns:
+            Entry URL template with placeholders appended to live_link
+        """
+        if not live_link:
+            return ""
+            
+        template = (
+            f"{live_link}"
+            f"&ext_user_id={{ext_user_id}}"
+            f"&app_id={self.app_id}"
+            f"&secure_hash={{secure_hash}}"
+        )
+        return template
     
     @staticmethod
     def _get_client_ip() -> str:
@@ -258,6 +280,12 @@ class CPXService:
             0
         )
         
+        # Get country with default to IN if missing
+        country = survey.get("survey_country") or survey.get("country", "") or "IN"
+        
+        # Get live link from raw survey data if available
+        live_link = survey.get("href") or survey.get("href_new") or survey.get("link") or ""
+        
         # Map CPX field names to internal field names
         normalized = {
             "_id": str(survey_id),  # Map to _id for MongoDB
@@ -267,19 +295,28 @@ class CPXService:
             "payout": float(payout_value),
             "payout_publisher_usd": float(payout_value),
             "conversion_rate": float(survey.get("conversion_rate", 0)),
-            "country": survey.get("survey_country") or survey.get("country", ""),
+            "country": country,
             "category": survey.get("survey_category") or survey.get("category", ""),
             "provider": "CPX",
+            "source": "CPX",
             "last_updated": datetime.utcnow(),
+            "live_link": live_link,  # Store live link from CPX API
             "raw_data": survey,  # Store raw data for reference
         }
         
-        # Generate entry_link if respondent_id is provided
-        if respondent_id:
+        # Generate entry_link by appending parameters to live_link
+        if respondent_id and live_link:
             normalized["entry_link"] = self.generate_entry_link(
-                survey_id=str(survey_id),
+                live_link=live_link,
                 respondent_id=respondent_id
             )
+        elif live_link:
+            # Generate entry_link template with placeholders appended to live_link
+            normalized["entry_link"] = self.generate_entry_link_template(
+                live_link=live_link
+            )
+        else:
+            normalized["entry_link"] = ""
         
         return normalized
     
@@ -324,9 +361,14 @@ class CPXService:
         try:
             upserted_count = 0
             for survey in surveys:
+                # Use $set for all fields except inserted_at
+                # Use $setOnInsert for inserted_at to preserve original insert time
                 result = self.cpx_surveys_collection.update_one(
                     {"_id": survey.get("_id")},
-                    {"$set": survey},
+                    {
+                        "$set": survey,
+                        "$setOnInsert": {"inserted_at": datetime.utcnow()}
+                    },
                     upsert=True
                 )
                 upserted_count += 1
@@ -403,8 +445,12 @@ class CPXService:
             # Clean up and serialize surveys for JSON response
             cleaned_surveys = []
             for survey in surveys:
-                # Remove raw_data to reduce response size
+                # Remove raw_data to reduce response size, but keep live_link and entry_link
                 if "raw_data" in survey:
+                    # Preserve href/link from raw_data if live_link is not set
+                    if not survey.get("live_link"):
+                        raw = survey["raw_data"]
+                        survey["live_link"] = raw.get("href") or raw.get("href_new") or raw.get("link") or ""
                     del survey["raw_data"]
                 
                 # Convert ObjectId to string if present
@@ -414,6 +460,10 @@ class CPXService:
                 # Convert datetime to ISO string
                 if "last_updated" in survey:
                     survey["last_updated"] = survey["last_updated"].isoformat()
+                
+                # Convert inserted_at to ISO string if present
+                if "inserted_at" in survey:
+                    survey["inserted_at"] = survey["inserted_at"].isoformat()
                 
                 cleaned_surveys.append(survey)
             

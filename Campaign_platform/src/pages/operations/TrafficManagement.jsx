@@ -6,7 +6,6 @@ import "./TrafficManagement.css"
 
 // Status badge color mapping
 const statusColors = {
-  NEW: { bg: "#e3f2fd", color: "#1565c0" },
   INCOMPLETE: { bg: "#fff3e0", color: "#e65100" },
   COMPLETE: { bg: "#e8f5e9", color: "#2e7d32" },
   TERMINATED: { bg: "#ffebee", color: "#c62828" },
@@ -230,6 +229,7 @@ export default function TrafficManagement() {
               <thead>
                 <tr>
                   <th></th>
+                  <th>Record ID</th>
                   <th>Created At</th>
                   <th>Vendor ID</th>
                   <th>Country</th>
@@ -244,6 +244,7 @@ export default function TrafficManagement() {
                   <>
                     <tr key={record._id} onClick={() => toggleExpandRow(record._id)} className="clickable-row">
                       <td className="expand-cell">{expandedRow === record._id ? "▼" : "▶"}</td>
+                      <td className="record-id" title={record._id}>{record._id?.slice(-8) || "N/A"}</td>
                       <td>{formatDate(record.createdAt)}</td>
                       <td>{record.vendorId || "N/A"}</td>
                       <td>{record.countryCode || "N/A"}</td>
@@ -264,7 +265,7 @@ export default function TrafficManagement() {
                     </tr>
                     {expandedRow === record._id && (
                       <tr className="expanded-row">
-                        <td colSpan="8">
+                        <td colSpan="9">
                           <div className="expanded-content">
                             <div className="expanded-section">
                               <h4>📋 Record Details</h4>

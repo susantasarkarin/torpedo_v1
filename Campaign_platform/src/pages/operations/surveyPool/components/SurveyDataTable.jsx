@@ -160,14 +160,14 @@ export default function SurveyDataTable({ surveys, token, onSurveySelect, select
                             </div>
                             
                             {/* Entry Link Section */}
-                            {(survey.entry_link || survey.raw_data?.href_new) && (
+                            {survey.live_link && (
                               <div className="entry-link-section">
-                                <span className="entry-link-label">🔗 Live Entry URL</span>
+                                <span className="entry-link-label">🔗 Live Link</span>
                                 <div className="entry-link-container">
                                   <input 
                                     type="text" 
                                     readOnly 
-                                    value={survey.entry_link || survey.raw_data?.href_new || ''} 
+                                    value={survey.live_link} 
                                     className="entry-link-input"
                                     onClick={(e) => e.target.select()}
                                   />
@@ -175,14 +175,14 @@ export default function SurveyDataTable({ surveys, token, onSurveySelect, select
                                     className="copy-link-btn"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      navigator.clipboard.writeText(survey.entry_link || survey.raw_data?.href_new || '');
+                                      navigator.clipboard.writeText(survey.live_link);
                                     }}
                                     title="Copy to clipboard"
                                   >
                                     📋
                                   </button>
                                   <a 
-                                    href={survey.entry_link || survey.raw_data?.href_new} 
+                                    href={survey.live_link} 
                                     target="_blank" 
                                     rel="noopener noreferrer"
                                     className="open-link-btn"
@@ -191,6 +191,34 @@ export default function SurveyDataTable({ surveys, token, onSurveySelect, select
                                   >
                                     🔗
                                   </a>
+                                </div>
+                              </div>
+                            )}
+                            
+                            {survey.entry_link && (
+                              <div className="entry-link-section">
+                                <span className="entry-link-label">🎯 Entry Link (Template)</span>
+                                <div className="entry-link-container">
+                                  <input 
+                                    type="text" 
+                                    readOnly 
+                                    value={survey.entry_link} 
+                                    className="entry-link-input"
+                                    onClick={(e) => e.target.select()}
+                                  />
+                                  <button 
+                                    className="copy-link-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      navigator.clipboard.writeText(survey.entry_link);
+                                    }}
+                                    title="Copy to clipboard"
+                                  >
+                                    📋
+                                  </button>
+                                </div>
+                                <div style={{ color: '#888', marginTop: '6px', fontSize: '0.8rem', lineHeight: '1.4' }}>
+                                  <strong>Replace:</strong> {'{ext_user_id}'} (unique ID), {'{secure_hash}'} (MD5)
                                 </div>
                               </div>
                             )}
@@ -219,10 +247,6 @@ export default function SurveyDataTable({ surveys, token, onSurveySelect, select
                               <div className="stat-box" data-status="incomplete">
                                 <span className="stat-label">Incomplete</span>
                                 <span className="stat-number">{trafficStats[survey.survey_id]?.by_status?.INCOMPLETE || 0}</span>
-                              </div>
-                              <div className="stat-box" data-status="new">
-                                <span className="stat-label">New</span>
-                                <span className="stat-number">{trafficStats[survey.survey_id]?.by_status?.NEW || 0}</span>
                               </div>
                             </div>
                           </div>
@@ -366,7 +390,6 @@ const styles = `
   color: #212529;
 }
 
-.stat-box[data-status="new"] .stat-number { color: #17a2b8; }
 .stat-box[data-status="incomplete"] .stat-number { color: #ffc107; }
 .stat-box[data-status="complete"] .stat-number { color: #28a745; }
 .stat-box[data-status="terminated"] .stat-number { color: #dc3545; }

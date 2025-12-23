@@ -60,9 +60,8 @@ export default function TrafficStats({ token, refreshTrigger }) {
     return null;
   }
 
-  const statusOrder = ['NEW', 'INCOMPLETE', 'COMPLETE', 'TERMINATED', 'QUOTAFULL'];
+  const statusOrder = ['INCOMPLETE', 'COMPLETE', 'TERMINATED', 'QUOTAFULL'];
   const statusColors = {
-    NEW: '#17a2b8',
     INCOMPLETE: '#ffc107',
     COMPLETE: '#28a745',
     TERMINATED: '#dc3545',
