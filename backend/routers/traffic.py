@@ -23,6 +23,8 @@ ZOHO_QUOTA_URL = f"{FRONTEND_URL}/nosurvey"
 # This will be injected from main.py
 url_parameters_collection: Optional[Collection] = None
 traffic_service: Optional[Any] = None
+survey_allocation_service: Optional[Any] = None
+cpx_service: Optional[Any] = None
 
 
 def set_url_parameters_collection(collection: Collection):
@@ -37,11 +39,24 @@ def set_traffic_service(service: Any):
     traffic_service = service
 
 
+def set_survey_allocation_service(service: Any):
+    """Set the survey allocation service instance"""
+    global survey_allocation_service
+    survey_allocation_service = service
+
+
+def set_cpx_service(service: Any):
+    """Set the CPX service instance for survey allocation"""
+    global cpx_service
+    cpx_service = service
+
+
 @router.post("/api/store")
-async def store_url_params(data: Dict[str, Any] = Body(...)):
+async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
     """
     Store URL parameters from survey tracking
     Creates a traffic record with vid, cc, rid if available
+    Also attempts to allocate a survey to the respondent
     """
     try:
         if url_parameters_collection is None:
@@ -52,6 +67,11 @@ async def store_url_params(data: Dict[str, Any] = Body(...)):
         vendor_id = params.get('vid', '')
         country_code = params.get('cc', '')
         respondent_id = params.get('rid', '')
+        
+        traffic_id = None
+        entry_link = None
+        survey_id = None
+        allocation_success = False
         
         # If traffic service is available and we have the required params, use it
         if traffic_service and vendor_id and country_code and respondent_id:
@@ -64,17 +84,99 @@ async def store_url_params(data: Dict[str, Any] = Body(...)):
                     user_agent=data.get('userAgent'),
                     params=params
                 )
-                return {"id": traffic_id, "type": "traffic_record"}
             except Exception as e:
                 print(f"⚠️ Failed to create traffic record, falling back to legacy: {e}")
         
         # Legacy fallback - store as before
-        data['timestamp'] = datetime.utcnow().isoformat()
-        data['status'] = 'incomplete'
-        data['redirectUrl'] = None
+        if not traffic_id:
+            data['timestamp'] = datetime.utcnow().isoformat()
+            data['status'] = 'incomplete'
+            data['redirectUrl'] = None
+            result = url_parameters_collection.insert_one(data)
+            traffic_id = str(result.inserted_id)
         
-        result = url_parameters_collection.insert_one(data)
-        return {"id": str(result.inserted_id), "type": "legacy"}
+        # Try to allocate a survey using CPX service directly
+        if cpx_service and vendor_id and country_code and respondent_id:
+            try:
+                # Get available CPX surveys and pick one for the respondent
+                surveys_result = cpx_service.get_surveys(page=1, page_size=10)
+                surveys = surveys_result.get('surveys', [])
+                
+                if surveys:
+                    # Pick the first available survey (you can add filtering logic here)
+                    selected_survey = surveys[0]
+                    survey_id = selected_survey.get('survey_id') or selected_survey.get('id')
+                    
+                    # Get the live_link or href_new link (direct survey link)
+                    base_link = selected_survey.get('live_link') or selected_survey.get('href_new') or selected_survey.get('href')
+                    
+                    if base_link:
+                        # Generate entry link with respondent ID as ext_user_id
+                        entry_link = cpx_service.generate_entry_link(
+                            live_link=base_link,
+                            respondent_id=respondent_id
+                        )
+                        allocation_success = True
+                        
+                        # Update the traffic record with the assigned survey
+                        if traffic_service:
+                            traffic_service.assign_survey_to_traffic(
+                                traffic_id=traffic_id,
+                                survey_id=str(survey_id),
+                                redirect_url=entry_link
+                            )
+                        
+                        print(f"✅ Allocated CPX survey {survey_id} to respondent vid={vendor_id}, rid={respondent_id}")
+                else:
+                    print(f"⚠️ No CPX surveys available for allocation")
+                    
+            except Exception as e:
+                print(f"⚠️ CPX survey allocation error: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Fallback to survey allocation service if CPX failed
+        if not allocation_success and survey_allocation_service and vendor_id and country_code and respondent_id:
+            try:
+                from app.models.survey_allocation import AllocationRequest
+                
+                allocation_request = AllocationRequest(
+                    vid=vendor_id,
+                    cc=country_code.upper(),
+                    rid=respondent_id,
+                    ip_address=request.client.host if request else None,
+                    user_agent=data.get('userAgent')
+                )
+                
+                allocation_result = survey_allocation_service.allocate_respondent(allocation_request)
+                
+                if allocation_result.success and allocation_result.entry_link:
+                    entry_link = allocation_result.entry_link
+                    survey_id = allocation_result.survey_id
+                    allocation_success = True
+                    
+                    if traffic_service:
+                        traffic_service.assign_survey_to_traffic(
+                            traffic_id=traffic_id,
+                            survey_id=survey_id,
+                            redirect_url=entry_link
+                        )
+                    
+                    print(f"✅ Allocated survey {survey_id} via allocation service")
+                else:
+                    print(f"⚠️ Survey allocation service failed: {allocation_result.message}")
+                    
+            except Exception as e:
+                print(f"⚠️ Survey allocation service error: {e}")
+        
+        return {
+            "id": traffic_id,
+            "type": "traffic_record" if traffic_service else "legacy",
+            "allocation_success": allocation_success,
+            "entry_link": entry_link,
+            "survey_id": survey_id
+        }
+        
     except Exception as e:
         print(f"Error storing URL parameters: {e}")
         raise HTTPException(status_code=500, detail=f"Store error: {str(e)}")

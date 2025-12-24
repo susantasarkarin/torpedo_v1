@@ -49,12 +49,20 @@ export default function TrafficFlowParser() {
         const result = await response.json();
         const objectId = result.id;
         const recordType = result.type || "unknown";
+        const entryLink = result.entry_link;
+        const allocationSuccess = result.allocation_success;
 
         console.log(`✅ Traffic record created: ${objectId} (type: ${recordType})`);
 
-        // ✅ Redirect to survey with traffic ObjectId
-        // This will be replaced with actual survey assignment later
-        window.location.href = `https://survey.zohopublic.in/zs/lTCyZz?rid=${objectId}`;
+        // Check if survey was allocated successfully
+        if (allocationSuccess && entryLink) {
+          console.log(`✅ Survey allocated successfully, redirecting to: ${entryLink}`);
+          window.location.href = entryLink;
+        } else {
+          // Fallback to Zoho survey if no survey was allocated
+          console.log("⚠️ No survey allocated, redirecting to fallback survey");
+          window.location.href = `https://survey.zohopublic.in/zs/lTCyZz?rid=${objectId}`;
+        }
       } else {
         const errorData = await response.json().catch(() => ({ detail: "Unknown error" }));
         throw new Error(errorData.detail || "Failed to store data");

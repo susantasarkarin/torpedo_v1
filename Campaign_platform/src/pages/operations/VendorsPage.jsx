@@ -69,8 +69,16 @@ function VendorsPage() {
       setError("❌ Vendor Name is required");
       return;
     }
-    if (!formData.email || !formData.email.trim()) {
-      setError("❌ Email Address is required");
+    if (!formData.vendorVariable || !formData.vendorVariable.trim()) {
+      setError("❌ Vendor Variable is required");
+      return;
+    }
+    if (!formData.vendorType || !formData.vendorType.trim()) {
+      setError("❌ Vendor Type is required");
+      return;
+    }
+    if (!formData.status || !formData.status.trim()) {
+      setError("❌ Status is required");
       return;
     }
 
@@ -384,32 +392,21 @@ function VendorsPage() {
                   />
                 </div>
 
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Email Address <span style={styles.required}>*</span></label>
-                  <input
-                    style={styles.input}
-                    name="vendorEmail"
-                    type="email"
-                    value={formData.vendorEmail}
-                    onChange={e => setFormData({ ...formData, vendorEmail: e.target.value })}
-                    placeholder="vendor@example.com"
-                  />
-                </div>
-
                 <div style={styles.formRow}>
                   <div style={styles.formGroup}>
-                    <label style={styles.label}>Vendor Variable</label>
+                    <label style={styles.label}>Vendor Variable <span style={styles.required}>*</span></label>
                     <input
                       style={styles.input}
                       name="vendorVariable"
                       value={formData.vendorVariable}
                       onChange={e => setFormData({ ...formData, vendorVariable: e.target.value })}
                       placeholder="Variable name"
+                      required
                     />
                   </div>
 
                   <div style={styles.formGroup}>
-                    <label style={styles.label}>Vendor Type</label>
+                    <label style={styles.label}>Vendor Type <span style={styles.required}>*</span></label>
                     <select
                       style={styles.select}
                       name="vendorType"
@@ -417,19 +414,20 @@ function VendorsPage() {
                       onChange={e => setFormData({ ...formData, vendorType: e.target.value })}
                     >
                       <option>Panel</option>
-                      <option>Affiliate</option>
+                      <option>DIY Platform</option>
                       <option>API</option>
                     </select>
                   </div>
                 </div>
 
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>Status</label>
+                  <label style={styles.label}>Status <span style={styles.required}>*</span></label>
                   <select
                     style={styles.select}
                     name="status"
                     value={formData.status}
                     onChange={e => setFormData({ ...formData, status: e.target.value })}
+                    required
                   >
                     <option>Active</option>
                     <option>Inactive</option>

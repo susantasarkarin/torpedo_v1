@@ -255,6 +255,15 @@ if url_parameters_collection is not None:
             print("✅ Traffic service initialized")
         except Exception as e:
             print(f"⚠️ Traffic service initialization issue: {e}")
+    
+    # Inject Survey Allocation Service into traffic router
+    try:
+        from app.services.survey_allocation_service import get_survey_allocation_service
+        survey_allocation_service_instance = get_survey_allocation_service()
+        traffic_router.set_survey_allocation_service(survey_allocation_service_instance)
+        print("✅ Survey allocation service injected into traffic router")
+    except Exception as e:
+        print(f"⚠️ Survey allocation service injection issue: {e}")
 
 app.include_router(traffic_router.router)
 
@@ -282,8 +291,10 @@ if cpx_surveys_collection is not None and cpx_filters_collection is not None:
         settings_collection=app_settings_collection,  # Pass settings collection for filter settings
     )
     cpx_router.set_cpx_service(cpx_service)
+    traffic_router.set_cpx_service(cpx_service)  # Inject CPX service into traffic router for survey allocation
     app.include_router(cpx_router.router)
     print("✅ CPX Research router initialized")
+    print("✅ CPX service injected into traffic router")
 else:
     print("⚠️ CPX Research router not initialized due to database connection issue")
 
@@ -1221,8 +1232,12 @@ async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
         # Validate required fields
         if not vendor_data.get("vendorName") or not vendor_data["vendorName"].strip():
             raise HTTPException(status_code=400, detail="Vendor name is required")
-        if not vendor_data.get("vendorEmail") or not vendor_data["vendorEmail"].strip():
-            raise HTTPException(status_code=400, detail="Email address is required")
+        if not vendor_data.get("vendorVariable") or not vendor_data["vendorVariable"].strip():
+            raise HTTPException(status_code=400, detail="Vendor Variable is required")
+        if not vendor_data.get("vendorType") or not vendor_data["vendorType"].strip():
+            raise HTTPException(status_code=400, detail="Vendor Type is required")
+        if not vendor_data.get("status") or not vendor_data["status"].strip():
+            raise HTTPException(status_code=400, detail="Status is required")
 
         vendor_data["vendorNo"] = generate_vendor_no()
         result = vendors_collection.insert_one(vendor_data)
