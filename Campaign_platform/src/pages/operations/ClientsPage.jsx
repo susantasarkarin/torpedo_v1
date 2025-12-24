@@ -3,6 +3,54 @@ import { useEffect, useMemo, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 
+// Helper functions to map between client UI format and customer API format
+const customerToClient = (customer) => ({
+  _id: customer._id,
+  clientNo: customer._id?.substring(0, 7) || 'N/A',  // Use first 7 chars of _id as clientNo
+  name: customer.company_name || customer.name || "",
+  contactPerson: customer.phone || "",
+  email: customer.email || "",
+  address: customer.billing_address?.line1 || "",
+  clientVariable: customer.notes || "",
+  currency: customer.currency || "INR",
+  clientType: customer.customer_type === "business" ? "Offline" : "Online",
+  status: customer.status === "active" ? "Active" : "Inactive",
+});
+
+const clientToCustomer = (clientData) => ({
+  name: clientData.name,
+  customer_type: clientData.clientType === "Offline" ? "business" : "individual",
+  company_name: clientData.name,
+  email: clientData.email,
+  phone: clientData.contactPerson,
+  gst_treatment: "unregistered",
+  gstin: "",
+  pan: "",
+  billing_address: {
+    line1: clientData.address || "",
+    line2: "",
+    city: "",
+    state: "",
+    pincode: "",
+    country: "India",
+  },
+  shipping_address: {
+    line1: clientData.address || "",
+    line2: "",
+    city: "",
+    state: "",
+    pincode: "",
+    country: "India",
+  },
+  same_as_billing: true,
+  payment_terms: 30,
+  credit_limit: 0,
+  currency: clientData.currency || "INR",
+  opening_balance: 0,
+  notes: clientData.clientVariable || "",
+  status: clientData.status === "Active" ? "active" : "inactive",
+});
+
 function ClientsPage() {
    const navigate = useNavigate();
   const [clients, setClients] = useState([])
@@ -26,7 +74,7 @@ function ClientsPage() {
   }
   const [formData, setFormData] = useState(emptyForm)
 
-  // Fetch clients function - extracted for reusability
+  // Fetch clients function - now uses finance customers API
   const fetchClients = async () => {
     const sessionId = localStorage.getItem("session_id");
     if (!sessionId) {
@@ -35,7 +83,7 @@ function ClientsPage() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/clients/`, {
+      const res = await fetch(`${API_BASE_URL}/finance/finance/customers/`, {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -51,7 +99,9 @@ function ClientsPage() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Failed to load clients");
-      setClients(data.clients || []);
+      // Map customers to client format for UI
+      const mappedClients = (Array.isArray(data) ? data : data.customers || []).map(customerToClient);
+      setClients(mappedClients);
     } catch (e) {
       setError(e.message || "Failed to load clients");
     }
@@ -115,7 +165,7 @@ function ClientsPage() {
     setShowForm(true)
   }
 
-  // Create or Update client
+  // Create or Update client - now uses finance customers API
   const saveClient = async () => {
     // Validate required fields
     if (!formData.name || !formData.name.trim()) {
@@ -141,12 +191,12 @@ function ClientsPage() {
     }
 
     try {
-      const payload = { ...formData };
-      delete payload.clientNo; // system generated
+      // Convert client form data to customer API format
+      const payload = clientToCustomer(formData);
 
       const url = editingId
-        ? `${API_BASE_URL}/clients/${editingId}`
-        : `${API_BASE_URL}/clients/`;
+        ? `${API_BASE_URL}/finance/finance/customers/${editingId}`
+        : `${API_BASE_URL}/finance/finance/customers/`;
       const method = editingId ? "PUT" : "POST";
 
       const res = await fetch(url, {
@@ -169,13 +219,8 @@ function ClientsPage() {
 
       if (!res.ok) throw new Error(data.detail || "Failed to save client");
 
-      if (editingId) {
-        setClients((prev) =>
-          prev.map((c) => (c._id === editingId ? { ...c, ...payload } : c))
-        );
-      } else {
-        setClients((prev) => [...prev, data.client]);
-      }
+      // Refresh the list to get updated data
+      await fetchClients();
 
       setShowForm(false);
       setEditingId(null);
@@ -187,7 +232,7 @@ function ClientsPage() {
     }
   };
 
-  // Delete client
+  // Delete client - now uses finance customers API
   const deleteClient = async (id) => {
     if (!window.confirm("Delete this client?")) return;
 
@@ -198,7 +243,7 @@ function ClientsPage() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/clients/${id}`, {
+      const res = await fetch(`${API_BASE_URL}/finance/finance/customers/${id}`, {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",

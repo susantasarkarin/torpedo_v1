@@ -35,9 +35,9 @@ function OperationsSidebar() {
               <span className="sidebar-icon">📋</span> Survey Pool
             </Link>
           </li>
-          <li className={`sidebar-item ${isActive("/operations/quotas") ? "active" : ""}`}>
-            <Link to="/admin/operations/quotas" className="sidebar-link">
-              <span className="sidebar-icon">📊</span> Traffic Management
+          <li className={`sidebar-item ${isActive("/operations/traffic") ? "active" : ""}`}>
+            <Link to="/admin/operations/traffic" className="sidebar-link">
+              <span className="sidebar-icon">🚦</span> Traffic Management
             </Link>
           </li>
           <li className={`sidebar-item ${isActive("/operations/reports") ? "active" : ""}`}>

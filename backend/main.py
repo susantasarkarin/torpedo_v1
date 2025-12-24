@@ -1,12 +1,11 @@
 import os
 import traceback
 import re
-from fastapi import FastAPI, HTTPException, Body, Path, Query
+from fastapi import FastAPI, HTTPException, Body, Path, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, RedirectResponse
 from dotenv import load_dotenv
 from pymongo import MongoClient
-from mailersend import MailerSendClient, EmailBuilder
 from typing import List, Dict, Any, Optional
 from bson import ObjectId
 from datetime import datetime, timedelta
@@ -23,6 +22,7 @@ try:
     from .routers import settings as settings_router
     from .routers import gmail as gmail_router
     from .app.services.cpx_service import CPXService
+    from .app.routers import survey_allocation as survey_allocation_router
 except Exception:
     # Fallback to absolute import for other runtimes
     from routers import traffic as traffic_router
@@ -31,6 +31,7 @@ except Exception:
     from routers import settings as settings_router
     from routers import gmail as gmail_router
     from app.services.cpx_service import CPXService
+    from app.routers import survey_allocation as survey_allocation_router
 
 # Ensure stdout/stderr use UTF-8 on Windows consoles to avoid UnicodeEncodeError
 import sys
@@ -51,27 +52,15 @@ load_dotenv()
 #changes 4
 API_BASE = os.getenv("API_BASE", "http://34.14.202.129:8000") 
 
-API_KEY = os.getenv("MAILERSEND_API_KEY")
-SENDER_EMAIL = os.getenv("SENDER_EMAIL")
-MONGO_URI = os.getenv("MONGO_URI")
-
-# CPX Research Configuration
-CPX_APP_ID = os.getenv("CPX_APP_ID")
-CPX_EXT_USER_ID = os.getenv("CPX_EXT_USER_ID")
-CPX_SECURE_HASH_KEY = os.getenv("CPX_SECURE_HASH_KEY")
-CPX_API_TIMEOUT = int(os.getenv("CPX_API_TIMEOUT", "30"))
-CPX_FETCH_LIMIT = int(os.getenv("CPX_FETCH_LIMIT", "1000"))
+# MONGO_URI can be set via .env or configured via Settings UI (profile > settings)
+# Default to localhost if not provided
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 
 # CORS Origins - comma-separated list
 CORS_ORIGINS = os.getenv(
     "CORS_ORIGINS", 
-    "http://localhost:5173,http://localhost:3000,http://localhost:9945,http://34.14.202.129"
+    "http://localhost:5173,http://localhost:3000,http://localhost:9945,http://34.14.202.129,https://www.surveyieldwork.com,https://surveyieldwork.com"
 ).split(",")
-
-if not API_KEY or not SENDER_EMAIL or not MONGO_URI:
-    raise RuntimeError(
-        "❌ Missing MAILERSEND_API_KEY, SENDER_EMAIL, or MONGO_URI in .env"
-    )
 
 # ----------------------------
 # MongoDB connection
@@ -108,6 +97,76 @@ except Exception as e:
     cpx_filters_collection = None
     print(f"⚠️ CPX Research database initialization issue: {e}")
 
+# Settings database for app configuration (profile > settings)
+try:
+    settings_db = client["torpedo_settings"]
+    app_settings_collection = settings_db["app_settings"]
+except Exception as e:
+    app_settings_collection = None
+    print(f"⚠️ Settings database initialization issue: {e}")
+
+
+def get_cpx_config() -> Dict[str, Any]:
+    """
+    Get CPX configuration from settings database with env vars as fallback.
+    This allows CPX credentials to be configured via profile > settings UI.
+    """
+    config = {
+        "cpx_app_id": os.getenv("CPX_APP_ID", ""),
+        "cpx_ext_user_id": os.getenv("CPX_EXT_USER_ID", ""),
+        "cpx_secure_hash_key": os.getenv("CPX_SECURE_HASH_KEY", ""),
+        "cpx_api_timeout": int(os.getenv("CPX_API_TIMEOUT", "30")),
+        "cpx_fetch_limit": int(os.getenv("CPX_FETCH_LIMIT", "1000")),
+    }
+    
+    # Try to get config from settings database
+    if app_settings_collection is not None:
+        try:
+            stored = app_settings_collection.find_one({"_id": "app_config"})
+            if stored:
+                # Override with stored values if they exist and are not empty
+                if stored.get("cpx_app_id"):
+                    config["cpx_app_id"] = stored["cpx_app_id"]
+                if stored.get("cpx_ext_user_id"):
+                    config["cpx_ext_user_id"] = stored["cpx_ext_user_id"]
+                if stored.get("cpx_secure_hash_key"):
+                    config["cpx_secure_hash_key"] = stored["cpx_secure_hash_key"]
+                if stored.get("cpx_api_timeout"):
+                    config["cpx_api_timeout"] = int(stored["cpx_api_timeout"])
+        except Exception as e:
+            print(f"⚠️ Could not read CPX config from settings: {e}")
+    
+    return config
+
+
+def get_survey_filter_settings() -> Dict[str, Any]:
+    """
+    Get survey filter settings from settings database.
+    Used for CPX filtering, cleanup, and refresh scheduling.
+    """
+    defaults = {
+        "max_loi": 20,
+        "min_cpi": 1.0,
+        "deletion_period_days": 7,
+        "auto_refresh_enabled": True,
+        "refresh_interval_seconds": 60,
+    }
+    
+    if app_settings_collection is not None:
+        try:
+            stored = app_settings_collection.find_one({"_id": "survey_filters"})
+            if stored:
+                return {
+                    "max_loi": stored.get("max_loi", defaults["max_loi"]),
+                    "min_cpi": stored.get("min_cpi", defaults["min_cpi"]),
+                    "deletion_period_days": stored.get("deletion_period_days", defaults["deletion_period_days"]),
+                    "auto_refresh_enabled": stored.get("auto_refresh_enabled", defaults["auto_refresh_enabled"]),
+                    "refresh_interval_seconds": stored.get("refresh_interval_seconds", defaults["refresh_interval_seconds"]),
+                }
+        except Exception as e:
+            print(f"\u26a0\ufe0f Could not read survey filter settings: {e}")
+    
+    return defaults
 
 
 # ----------------------------
@@ -208,15 +267,19 @@ except Exception as e:
 
 # CPX Research router
 if cpx_surveys_collection is not None and cpx_filters_collection is not None:
+    # Get CPX config from settings database (with env vars as fallback)
+    cpx_config = get_cpx_config()
+    
     # Initialize CPX service with database collections
     cpx_service = CPXService(
-        app_id=CPX_APP_ID,
-        ext_user_id=CPX_EXT_USER_ID,
-        secure_hash_key=CPX_SECURE_HASH_KEY,
-        api_timeout=CPX_API_TIMEOUT,
-        fetch_limit=CPX_FETCH_LIMIT,
+        app_id=cpx_config["cpx_app_id"],
+        ext_user_id=cpx_config["cpx_ext_user_id"],
+        secure_hash_key=cpx_config["cpx_secure_hash_key"],
+        api_timeout=cpx_config["cpx_api_timeout"],
+        fetch_limit=cpx_config.get("cpx_fetch_limit", 1000),
         surveys_collection=cpx_surveys_collection,
         filters_collection=cpx_filters_collection,
+        settings_collection=app_settings_collection,  # Pass settings collection for filter settings
     )
     cpx_router.set_cpx_service(cpx_service)
     app.include_router(cpx_router.router)
@@ -238,10 +301,12 @@ try:
 except Exception as e:
     print(f"⚠️ Gmail router not included: {e}")
 
-# ----------------------------
-# MailerSend client
-# ----------------------------
-mailer = MailerSendClient(api_key=API_KEY)
+# Survey Allocation & Quality Control Engine router
+try:
+    app.include_router(survey_allocation_router.router)
+    print("✅ Survey Allocation router included")
+except Exception as e:
+    print(f"⚠️ Survey Allocation router not included: {e}")
 
 # ----------------------------
 # APScheduler for CPX refresh job
@@ -258,8 +323,12 @@ def refresh_cpx_inventory():
     try:
         print(f"🔄 [CPX] Starting scheduled refresh at {datetime.utcnow().isoformat()}")
         
-        # Cleanup surveys older than 7 days
-        cpx_service.cleanup_old_surveys(days=7)
+        # Get filter settings from database
+        filter_settings = get_survey_filter_settings()
+        deletion_days = filter_settings.get("deletion_period_days", 7)
+        
+        # Cleanup surveys older than configured days
+        cpx_service.cleanup_old_surveys(days=deletion_days)
         
         # Fetch and upsert new surveys
         surveys = cpx_service.fetch_cpx_surveys()
@@ -280,16 +349,24 @@ async def startup_event():
             print("🚀 Performing initial CPX survey fetch...")
             refresh_cpx_inventory()
             
-            # Start scheduler for periodic refreshes
-            scheduler.start()
-            cpx_refresh_job = scheduler.add_job(
-                refresh_cpx_inventory,
-                IntervalTrigger(seconds=60),
-                id="cpx_refresh",
-                name="CPX Survey Inventory Refresh",
-                replace_existing=True
-            )
-            print("✅ CPX refresh job scheduled (every 60 seconds)")
+            # Get refresh settings from database
+            filter_settings = get_survey_filter_settings()
+            auto_refresh = filter_settings.get("auto_refresh_enabled", True)
+            refresh_interval = filter_settings.get("refresh_interval_seconds", 60)
+            
+            if auto_refresh:
+                # Start scheduler for periodic refreshes
+                scheduler.start()
+                cpx_refresh_job = scheduler.add_job(
+                    refresh_cpx_inventory,
+                    IntervalTrigger(seconds=refresh_interval),
+                    id="cpx_refresh",
+                    name="CPX Survey Inventory Refresh",
+                    replace_existing=True
+                )
+                print(f"✅ CPX refresh job scheduled (every {refresh_interval} seconds)")
+            else:
+                print("⚠️ CPX auto-refresh is disabled in settings")
         except Exception as e:
             print(f"❌ Failed to schedule CPX refresh job: {str(e)}")
             traceback.print_exc()
@@ -362,30 +439,100 @@ async def logout(request: Request):
     return {"message": "Logged out successfully"}
 
 
-
-
-
-
 # ----------------------------
-# Helper: send HTML emails
+# User Profile Endpoints
 # ----------------------------
-def send_email_html(to_email: str, subject: str, html_content: str, text_content: str = None):
+@app.get("/profile/", dependencies=[Depends(verify_session)])
+async def get_profile(request: Request):
+    """Get current user's profile information (audit-safe fields only)"""
     try:
-        email_builder = (
-            EmailBuilder()
-            .from_email(SENDER_EMAIL)
-            .subject(subject)
-            .text(text_content or "This is an HTML email. Please enable HTML view.")
-            .html(html_content)
-            .to(to_email)
-        )
-        email = email_builder.build()
-        response = mailer.emails.send(email)
-        return response
+        session_id = request.headers.get("Authorization")
+        username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
+        
+        user = users_collection.find_one({"username": username})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Return only audit-safe fields - no passwords or system secrets
+        return {
+            "username": user.get("username", ""),
+            "email": user.get("email", ""),
+            "role": user.get("role", "admin"),
+            "createdAt": user.get("createdAt", "").isoformat() if user.get("createdAt") else "",
+        }
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"❌ MailerSend failed for {to_email}: {e}")
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"MailerSend error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Profile fetch error: {str(e)}")
+
+
+@app.put("/profile/update", dependencies=[Depends(verify_session)])
+async def update_profile(request: Request, profile_data: Dict[str, Any] = Body(...)):
+    """Update user's profile (audit-safe fields only - email)"""
+    try:
+        session_id = request.headers.get("Authorization")
+        username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
+        
+        # Only allow updating audit-safe fields
+        allowed_fields = ["email"]
+        update_data = {k: v for k, v in profile_data.items() if k in allowed_fields}
+        
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No valid fields to update")
+        
+        update_data["updatedAt"] = datetime.utcnow()
+        
+        result = users_collection.update_one(
+            {"username": username},
+            {"$set": update_data}
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return {"message": "Profile updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Profile update error: {str(e)}")
+
+
+@app.put("/profile/change-password", dependencies=[Depends(verify_session)])
+async def change_password(request: Request, password_data: Dict[str, str] = Body(...)):
+    """Change user's password (requires current password verification)"""
+    try:
+        session_id = request.headers.get("Authorization")
+        username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
+        
+        current_password = password_data.get("current_password")
+        new_password = password_data.get("new_password")
+        
+        if not current_password or not new_password:
+            raise HTTPException(status_code=400, detail="Current and new password are required")
+        
+        if len(new_password) < 6:
+            raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+        
+        # Verify current password
+        user = users_collection.find_one({"username": username, "password": current_password})
+        if not user:
+            raise HTTPException(status_code=401, detail="Current password is incorrect")
+        
+        # Update password
+        result = users_collection.update_one(
+            {"username": username},
+            {"$set": {"password": new_password, "updatedAt": datetime.utcnow()}}
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return {"message": "Password changed successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Password change error: {str(e)}")
+
 
 # ----------------------------
 # Helper: rewrite links with tracking
@@ -687,189 +834,6 @@ async def delete_template(template_id: str = Path(...)):
         raise HTTPException(status_code=500, detail=f"Template delete error: {str(e)}")
 
 
-
-# ----------------------------
-# Clients Collection
-# ----------------------------
-clients_collection = db["clients"]
-
-def generate_client_no():
-    """Generate a unique 7-digit client number"""
-    while True:
-        client_no = str(datetime.utcnow().microsecond % 10000000).zfill(7)
-        if not clients_collection.find_one({"clientNo": client_no}):
-            return client_no
-
-# Create a client
-@app.post("/clients/")
-async def create_client(client_data: Dict[str, Any] = Body(...)):
-    try:
-        # Validate required fields
-        if not client_data.get("name") or not client_data["name"].strip():
-            raise HTTPException(status_code=400, detail="Client name is required")
-        if not client_data.get("email") or not client_data["email"].strip():
-            raise HTTPException(status_code=400, detail="Email address is required")
-        if not client_data.get("contactPerson") or not client_data["contactPerson"].strip():
-            raise HTTPException(status_code=400, detail="Phone number is required")
-
-        # First create an account
-        account_data = {
-            "name": client_data.get("name"),
-            "email": client_data.get("email"),
-            "phone": client_data.get("contactPerson", ""),
-            "address": client_data.get("address", ""),
-            "status": client_data.get("status", "Active"),
-            "contactPerson": "",
-            "companyName": client_data.get("name"),
-            "companyEmail": client_data.get("email"),
-            "createdAt": datetime.utcnow()
-        }
-        account_result = accounts_collection.insert_one(account_data)
-        account_id = str(account_result.inserted_id)
-        
-        # Create client with accountId link
-        client_data["clientNo"] = generate_client_no()
-        client_data["accountId"] = account_id
-        result = clients_collection.insert_one(client_data)
-        client_data["_id"] = str(result.inserted_id)
-        
-        # Create customer in finance_db
-        customer_data = {
-            "name": client_data.get("name"),
-            "customer_type": "business",
-            "company_name": client_data.get("name"),
-            "email": client_data.get("email"),
-            "phone": client_data.get("contactPerson", ""),
-            "gst_treatment": "unregistered",
-            "gstin": "",
-            "pan": "",
-            "billing_address": {
-                "line1": client_data.get("address", ""),
-                "line2": "",
-                "city": "",
-                "state": "",
-                "pincode": "",
-                "country": "India",
-            },
-            "shipping_address": {
-                "line1": client_data.get("address", ""),
-                "line2": "",
-                "city": "",
-                "state": "",
-                "pincode": "",
-                "country": "India",
-            },
-            "same_as_billing": True,
-            "payment_terms": 30,
-            "credit_limit": 0,
-            "currency": "INR",
-            "opening_balance": 0,
-            "notes": "",
-            "status": "active" if client_data.get("status") == "Active" else "inactive",
-            "accountId": account_id,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
-        }
-        finance_customers_collection.insert_one(customer_data)
-        
-        return {"message": "Client created successfully and synced to accounts and customers", "client": client_data}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Client creation error: {str(e)}")
-
-# Get all clients
-@app.get("/clients/",dependencies=[Depends(verify_session)])
-async def get_clients():
-    try:
-        clients = list(clients_collection.find())
-        for c in clients:
-            c["_id"] = str(c["_id"])
-        return {"clients": clients}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Fetch clients error: {str(e)}")
-
-# Update a client
-@app.put("/clients/{client_id}")
-async def update_client(client_id: str, client_data: Dict[str, Any] = Body(...)):
-    try:
-        # Get the current client to check if it has an accountId
-        current_client = clients_collection.find_one({"_id": ObjectId(client_id)})
-        if not current_client:
-            raise HTTPException(status_code=404, detail="Client not found")
-        
-        # Exclude _id and clientNo from updates (clientNo is system-generated)
-        client_data = {k: v for k, v in client_data.items() if k not in ["_id", "clientNo"]}
-
-        # Validate required fields if they are being updated
-        if "name" in client_data and (not client_data["name"] or not client_data["name"].strip()):
-            raise HTTPException(status_code=400, detail="Client name cannot be empty")
-        if "email" in client_data and (not client_data["email"] or not client_data["email"].strip()):
-            raise HTTPException(status_code=400, detail="Email address cannot be empty")
-        if "contactPerson" in client_data and (not client_data["contactPerson"] or not client_data["contactPerson"].strip()):
-            raise HTTPException(status_code=400, detail="Phone number cannot be empty")
-
-        # Update client
-        result = clients_collection.update_one(
-            {"_id": ObjectId(client_id)}, {"$set": client_data}
-        )
-        if result.matched_count == 0:
-            raise HTTPException(status_code=404, detail="Client not found")
-        
-        # Sync to accounts if accountId exists
-        if current_client.get("accountId"):
-            account_update = {
-                "name": client_data.get("name", current_client.get("name")),
-                "email": client_data.get("email", current_client.get("email")),
-                "phone": client_data.get("contactPerson", current_client.get("contactPerson")),
-                "address": client_data.get("address", current_client.get("address", "")),
-                "status": client_data.get("status", current_client.get("status", "Active")),
-                "updatedAt": datetime.utcnow()
-            }
-            accounts_collection.update_one(
-                {"_id": ObjectId(current_client["accountId"])},
-                {"$set": account_update}
-            )
-            
-            # Sync to customers (finance_db)
-            customer_update = {
-                "name": client_data.get("name", current_client.get("name")),
-                "company_name": client_data.get("name", current_client.get("name")),
-                "email": client_data.get("email", current_client.get("email")),
-                "phone": client_data.get("contactPerson", current_client.get("contactPerson")),
-            }
-            finance_customers_collection.update_one(
-                {"accountId": current_client["accountId"]},
-                {"$set": customer_update}
-            )
-        
-        return {"message": "Client updated successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Client update error: {str(e)}")
-
-# Delete a client
-@app.delete("/clients/{client_id}")
-async def delete_client(client_id: str):
-    try:
-        # Get client to find accountId
-        client = clients_collection.find_one({"_id": ObjectId(client_id)})
-        if not client:
-            raise HTTPException(status_code=404, detail="Client not found")
-        
-        # Delete client
-        result = clients_collection.delete_one({"_id": ObjectId(client_id)})
-        
-        # Delete corresponding account and customer if accountId exists
-        if client.get("accountId"):
-            accounts_collection.delete_one({"_id": ObjectId(client["accountId"])})
-            finance_customers_collection.delete_one({"accountId": client["accountId"]})
-        
-        return {"message": "Client deleted successfully from all collections"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Client delete error: {str(e)}")
-
 # ----------------------------
 # Leads Collection
 # ----------------------------
@@ -908,6 +872,25 @@ async def get_leads():
         return {"leads": leads}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fetch leads error: {str(e)}")
+
+# Get a single lead by ID
+@app.get("/leads/{lead_id}", dependencies=[Depends(verify_session)])
+async def get_lead(lead_id: str):
+    try:
+        lead = leads_collection.find_one({"_id": ObjectId(lead_id)})
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        
+        lead["_id"] = str(lead["_id"])
+        # Convert datetime to string for JSON serialization
+        for date_field in ["createdAt", "updatedAt", "addedOn"]:
+            if date_field in lead:
+                lead[date_field] = lead[date_field].isoformat() if isinstance(lead[date_field], datetime) else str(lead[date_field])
+        return {"lead": lead}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fetch lead error: {str(e)}")
 
 # Update a lead
 @app.put("/leads/{lead_id}")
@@ -972,9 +955,112 @@ async def move_lead_to_contacts(lead_id: str, stage_data: Dict[str, Any] = Body(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Move lead error: {str(e)}")
 
+
+# Import leads from CSV
+@app.post("/leads/import/csv")
+async def import_leads_csv(file: UploadFile = File(...)):
+    """
+    Import leads from a CSV file.
+    Expected columns: name, firstName, lastName, email, title, linkedin, location,
+    companyName, companyDomain, companyWebsite, companyIndustry, companyType, etc.
+    """
+    import csv
+    import io
+    
+    try:
+        content = await file.read()
+        decoded = content.decode("utf-8-sig")  # Handle BOM
+        reader = csv.DictReader(io.StringIO(decoded))
+        
+        imported = 0
+        skipped = 0
+        errors = []
+        
+        for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
+            try:
+                # Skip empty rows
+                if not any(row.values()):
+                    skipped += 1
+                    continue
+                
+                # Email is required
+                email = row.get("email", "").strip()
+                if not email:
+                    skipped += 1
+                    errors.append(f"Row {row_num}: Missing email")
+                    continue
+                
+                # Build lead data from CSV row
+                lead_data = {
+                    "name": row.get("name", "").strip() or f"{row.get('firstName', '')} {row.get('lastName', '')}".strip(),
+                    "firstName": row.get("firstName", "").strip(),
+                    "lastName": row.get("lastName", "").strip(),
+                    "email": email,
+                    "emailStatus": row.get("emailStatus", "Valid").strip() or "Valid",
+                    "title": row.get("title", "").strip(),
+                    "linkedin": row.get("linkedin", "").strip(),
+                    "location": row.get("location", "").strip(),
+                    "companyName": row.get("companyName", "").strip(),
+                    "companyDomain": row.get("companyDomain", "").strip(),
+                    "companyWebsite": row.get("companyWebsite", "").strip(),
+                    "companyEmployeeCount": row.get("companyEmployeeCount", "").strip(),
+                    "companyEmployeeCountRange": row.get("companyEmployeeCountRange", "").strip(),
+                    "companyFounded": row.get("companyFounded", "").strip(),
+                    "companyIndustry": row.get("companyIndustry", "").strip(),
+                    "companyType": row.get("companyType", "").strip(),
+                    "companyHeadquarters": row.get("companyHeadquarters", "").strip(),
+                    "companyRevenueRange": row.get("companyRevenueRange", "").strip(),
+                    "companyLinkedinUrl": row.get("companyLinkedinUrl", "").strip(),
+                    "companyCrunchbaseUrl": row.get("companyCrunchbaseUrl", "").strip(),
+                    "companyFundingRounds": row.get("companyFundingRounds", "").strip(),
+                    "companyLastFundingRoundAmount": row.get("companyLastFundingRoundAmount", "").strip(),
+                    "companyLogoPrimary": row.get("companyLogoPrimary", "").strip(),
+                    "companyLogoSecondary": row.get("companyLogoSecondary", "").strip(),
+                    "addedOn": datetime.utcnow(),
+                    "createdAt": datetime.utcnow(),
+                    "updatedAt": datetime.utcnow(),
+                    "source": "csv_import",
+                }
+                
+                # Check for duplicate email
+                existing = leads_collection.find_one({"email": email})
+                if existing:
+                    # Update existing lead
+                    lead_data.pop("addedOn", None)
+                    lead_data.pop("createdAt", None)
+                    leads_collection.update_one(
+                        {"_id": existing["_id"]},
+                        {"$set": lead_data}
+                    )
+                else:
+                    # Insert new lead
+                    leads_collection.insert_one(lead_data)
+                
+                imported += 1
+                
+            except Exception as e:
+                skipped += 1
+                errors.append(f"Row {row_num}: {str(e)}")
+        
+        return {
+            "message": f"Import completed: {imported} leads imported, {skipped} skipped",
+            "imported": imported,
+            "skipped": skipped,
+            "errors": errors[:20],  # Limit error list
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"CSV import error: {str(e)}")
+
+
 # ----------------------------
 # Contacts Collection (Qualified Leads with Stages)
 # ----------------------------
+
+# Finance DB for customers (canonical entity for accounts/clients/customers)
+finance_db = client["finance_db"]
+finance_customers_collection = finance_db["customers"]
+
 # Create a contact
 @app.post("/contacts/")
 async def create_contact(contact_data: Dict[str, Any] = Body(...)):
@@ -989,53 +1075,26 @@ async def create_contact(contact_data: Dict[str, Any] = Body(...)):
         result = contacts_collection.insert_one(contact_data)
         contact_data["_id"] = str(result.inserted_id)
         
-        # Auto-sync to Accounts: create/update account with company info
+        # Auto-sync to Customers (finance_db): create/update customer with company info
         if contact_data.get("companyName"):
-            # Check if account already exists for this company
-            existing_account = accounts_collection.find_one({"name": contact_data["companyName"]})
+            # Check if customer already exists for this company
+            existing_customer = finance_customers_collection.find_one({"company_name": contact_data["companyName"]})
             
-            if existing_account:
-                # Update existing account with latest company info (only update email if provided)
-                update_fields = {"updatedAt": datetime.utcnow()}
+            if existing_customer:
+                # Update existing customer with latest company info
+                update_fields = {"updated_at": datetime.utcnow()}
                 if contact_data.get("companyEmail"):
                     update_fields["email"] = contact_data["companyEmail"]
+                if contact_data.get("companyHeadquarters"):
+                    update_fields["billing_address.line1"] = contact_data["companyHeadquarters"]
+                    update_fields["shipping_address.line1"] = contact_data["companyHeadquarters"]
                 
-                accounts_collection.update_one(
-                    {"_id": existing_account["_id"]},
+                finance_customers_collection.update_one(
+                    {"_id": existing_customer["_id"]},
                     {"$set": update_fields}
                 )
             else:
-                # Create new account for this company
-                new_account = {
-                    "name": contact_data["companyName"],
-                    "contactPerson": "",
-                    "email": contact_data.get("companyEmail", ""),
-                    "phone": "",
-                    "address": contact_data.get("companyHeadquarters", ""),
-                    "accountValue": "",
-                    "status": "Active",
-                    "createdAt": datetime.utcnow(),
-                    "updatedAt": datetime.utcnow(),
-                }
-                account_result = accounts_collection.insert_one(new_account)
-                account_id = str(account_result.inserted_id)
-                
-                # Create corresponding client
-                client_data = {
-                    "clientNo": generate_client_no(),
-                    "name": contact_data["companyName"],
-                    "contactPerson": "",
-                    "email": contact_data.get("companyEmail", ""),
-                    "address": contact_data.get("companyHeadquarters", ""),
-                    "clientVariable": "",
-                    "currency": "",
-                    "clientType": "Offline",
-                    "status": "Active",
-                    "accountId": account_id
-                }
-                clients_collection.insert_one(client_data)
-                
-                # Create corresponding customer (finance_db)
+                # Create new customer for this company
                 customer_data = {
                     "name": contact_data["companyName"],
                     "customer_type": "business",
@@ -1068,7 +1127,6 @@ async def create_contact(contact_data: Dict[str, Any] = Body(...)):
                     "opening_balance": 0,
                     "notes": "",
                     "status": "active",
-                    "accountId": account_id,
                     "created_at": datetime.utcnow(),
                     "updated_at": datetime.utcnow(),
                 }
@@ -1113,53 +1171,24 @@ async def update_contact(contact_id: str, contact_data: Dict[str, Any] = Body(..
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Contact not found")
         
-        # Auto-sync to Accounts: update account with company info
+        # Auto-sync to Customers (finance_db): update customer with company info
         if contact_data.get("companyName"):
-            # Check if account exists for this company
-            existing_account = accounts_collection.find_one({"name": contact_data["companyName"]})
+            # Check if customer exists for this company
+            existing_customer = finance_customers_collection.find_one({"company_name": contact_data["companyName"]})
             
-            if existing_account:
-                # Update existing account (only update email if provided)
-                update_fields = {"updatedAt": datetime.utcnow()}
+            if existing_customer:
+                # Update existing customer
+                update_fields = {"updated_at": datetime.utcnow()}
                 if contact_data.get("companyEmail"):
                     update_fields["email"] = contact_data["companyEmail"]
                 if contact_data.get("companyHeadquarters"):
-                    update_fields["address"] = contact_data["companyHeadquarters"]
+                    update_fields["billing_address.line1"] = contact_data["companyHeadquarters"]
+                    update_fields["shipping_address.line1"] = contact_data["companyHeadquarters"]
                 
-                accounts_collection.update_one(
-                    {"_id": existing_account["_id"]},
+                finance_customers_collection.update_one(
+                    {"_id": existing_customer["_id"]},
                     {"$set": update_fields}
                 )
-                
-                # Sync to clients and customers as well
-                account_id = str(existing_account["_id"])
-                
-                # Update client
-                client_update = {}
-                if contact_data.get("companyEmail"):
-                    client_update["email"] = contact_data["companyEmail"]
-                if contact_data.get("companyHeadquarters"):
-                    client_update["address"] = contact_data["companyHeadquarters"]
-                
-                if client_update:
-                    clients_collection.update_one(
-                        {"accountId": account_id},
-                        {"$set": client_update}
-                    )
-                
-                # Update customer
-                customer_update = {}
-                if contact_data.get("companyEmail"):
-                    customer_update["email"] = contact_data["companyEmail"]
-                if contact_data.get("companyHeadquarters"):
-                    customer_update["billing_address.line1"] = contact_data["companyHeadquarters"]
-                    customer_update["shipping_address.line1"] = contact_data["companyHeadquarters"]
-                
-                if customer_update:
-                    finance_customers_collection.update_one(
-                        {"accountId": account_id},
-                        {"$set": customer_update}
-                    )
         
         return {"message": "Contact updated successfully"}
     except HTTPException:
@@ -1177,196 +1206,6 @@ async def delete_contact(contact_id: str):
         return {"message": "Contact deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Contact delete error: {str(e)}")
-
-# ----------------------------
-# Accounts Collection (syncs with Clients and Customers)
-# ----------------------------
-accounts_collection = db["accounts"]
-finance_db = client["finance_db"]
-finance_customers_collection = finance_db["customers"]
-
-def generate_client_no_for_account():
-    """Generate a unique 7-digit client number"""
-    while True:
-        client_no = str(datetime.utcnow().microsecond % 10000000).zfill(7)
-        if not clients_collection.find_one({"clientNo": client_no}):
-            return client_no
-
-# Create an account (syncs to clients and customers)
-@app.post("/accounts/")
-async def create_account(account_data: Dict[str, Any] = Body(...)):
-    try:
-        # Validate required fields
-        if not account_data.get("name") or not account_data["name"].strip():
-            raise HTTPException(status_code=400, detail="Account name is required")
-        if not account_data.get("email") or not account_data["email"].strip():
-            raise HTTPException(status_code=400, detail="Email address is required")
-
-        account_data["createdAt"] = datetime.utcnow()
-        account_data["updatedAt"] = datetime.utcnow()
-        
-        # Insert into accounts collection
-        result = accounts_collection.insert_one(account_data.copy())
-        account_data["_id"] = str(result.inserted_id)
-        
-        # Sync to clients collection
-        client_data = {
-            "clientNo": generate_client_no_for_account(),
-            "name": account_data.get("name"),
-            "contactPerson": account_data.get("phone", ""),  # phone maps to contactPerson in clients
-            "email": account_data.get("email"),
-            "address": account_data.get("address", ""),
-            "clientVariable": "",
-            "currency": "USD",
-            "clientType": "Offline",
-            "status": account_data.get("status", "Active"),
-            "accountId": str(result.inserted_id),  # Link to account
-        }
-        clients_collection.insert_one(client_data)
-        
-        # Sync to customers collection (finance module) - using finance_db
-        customer_data = {
-            "name": account_data.get("name"),
-            "customer_type": "business",
-            "company_name": account_data.get("name"),
-            "email": account_data.get("email"),
-            "phone": account_data.get("phone", ""),
-            "gst_treatment": "unregistered",
-            "gstin": "",
-            "pan": "",
-            "billing_address": {
-                "line1": account_data.get("address", ""),
-                "line2": "",
-                "city": "",
-                "state": "",
-                "pincode": "",
-                "country": "India",
-            },
-            "shipping_address": {
-                "line1": account_data.get("address", ""),
-                "line2": "",
-                "city": "",
-                "state": "",
-                "pincode": "",
-                "country": "India",
-            },
-            "same_as_billing": True,
-            "payment_terms": 30,
-            "credit_limit": 0,
-            "currency": "INR",
-            "opening_balance": 0,
-            "notes": "",
-            "status": "active" if account_data.get("status") == "Active" else "inactive",
-            "accountId": str(result.inserted_id),  # Link to account
-            "createdAt": datetime.utcnow(),
-        }
-        finance_customers_collection.insert_one(customer_data)
-        
-        return {"message": "Account created successfully and synced to clients and customers", "account": account_data}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Account creation error: {str(e)}")
-
-# Get all accounts
-@app.get("/accounts/", dependencies=[Depends(verify_session)])
-async def get_accounts():
-    try:
-        accounts = list(accounts_collection.find())
-        for account in accounts:
-            account["_id"] = str(account["_id"])
-            if "createdAt" in account:
-                account["createdAt"] = account["createdAt"].isoformat() if isinstance(account["createdAt"], datetime) else str(account["createdAt"])
-            if "updatedAt" in account:
-                account["updatedAt"] = account["updatedAt"].isoformat() if isinstance(account["updatedAt"], datetime) else str(account["updatedAt"])
-        return {"accounts": accounts}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Fetch accounts error: {str(e)}")
-
-# Update an account (syncs to clients and customers)
-@app.put("/accounts/{account_id}")
-async def update_account(account_id: str, account_data: Dict[str, Any] = Body(...)):
-    try:
-        # Exclude _id from updates
-        account_data = {k: v for k, v in account_data.items() if k not in ["_id", "createdAt"]}
-
-        # Validate required fields if they are being updated
-        if "name" in account_data and (not account_data["name"] or not account_data["name"].strip()):
-            raise HTTPException(status_code=400, detail="Account name cannot be empty")
-        if "email" in account_data and (not account_data["email"] or not account_data["email"].strip()):
-            raise HTTPException(status_code=400, detail="Email address cannot be empty")
-
-        account_data["updatedAt"] = datetime.utcnow()
-        
-        # Update accounts collection
-        result = accounts_collection.update_one(
-            {"_id": ObjectId(account_id)}, {"$set": account_data}
-        )
-        if result.matched_count == 0:
-            raise HTTPException(status_code=404, detail="Account not found")
-        
-        # Sync updates to clients collection
-        client_update = {}
-        if "name" in account_data:
-            client_update["name"] = account_data["name"]
-        if "email" in account_data:
-            client_update["email"] = account_data["email"]
-        if "phone" in account_data:
-            client_update["contactPerson"] = account_data["phone"]  # phone maps to contactPerson in clients
-        if "address" in account_data:
-            client_update["address"] = account_data["address"]
-        if "status" in account_data:
-            client_update["status"] = account_data["status"]
-        
-        if client_update:
-            clients_collection.update_one(
-                {"accountId": account_id}, {"$set": client_update}
-            )
-        
-        # Sync updates to customers collection (finance_db)
-        customer_update = {}
-        if "name" in account_data:
-            customer_update["name"] = account_data["name"]
-            customer_update["company_name"] = account_data["name"]
-        if "email" in account_data:
-            customer_update["email"] = account_data["email"]
-        if "phone" in account_data:
-            customer_update["phone"] = account_data["phone"]
-        if "address" in account_data:
-            customer_update["billing_address.line1"] = account_data["address"]
-            customer_update["shipping_address.line1"] = account_data["address"]
-        if "status" in account_data:
-            customer_update["status"] = "active" if account_data["status"] == "Active" else "inactive"
-        
-        if customer_update:
-            finance_customers_collection.update_one(
-                {"accountId": account_id}, {"$set": customer_update}
-            )
-        
-        return {"message": "Account updated successfully and synced to clients and customers"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Account update error: {str(e)}")
-
-# Delete an account (syncs to clients and customers)
-@app.delete("/accounts/{account_id}")
-async def delete_account(account_id: str):
-    try:
-        # Delete from accounts collection
-        result = accounts_collection.delete_one({"_id": ObjectId(account_id)})
-        if result.deleted_count == 0:
-            raise HTTPException(status_code=404, detail="Account not found")
-        
-        # Delete from clients collection
-        clients_collection.delete_one({"accountId": account_id})
-        
-        # Delete from customers collection (finance_db)
-        finance_customers_collection.delete_one({"accountId": account_id})
-        
-        return {"message": "Account deleted successfully from all collections"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Account delete error: {str(e)}")
 
 vendors_collection = db["vendors"]
 

@@ -38,8 +38,21 @@ function Header() {
         </h1>
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           <span style={{ color: "#64748b", fontSize: "0.875rem" }}>
-            Welcome back, Admin
+            Welcome back, {localStorage.getItem("username") || "Admin"}
           </span>
+          <Link
+            to="/admin/profile"
+            style={{
+              color: "#3b82f6",
+              textDecoration: "none",
+              fontSize: "0.875rem",
+              padding: "0.5rem 1rem",
+              borderRadius: "0.375rem",
+              backgroundColor: "#eff6ff",
+            }}
+          >
+            👤 My Profile
+          </Link>
           <button
             onClick={handleLogout}
             className="btn btn-outline"

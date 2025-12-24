@@ -516,20 +516,12 @@ function EstimatesPage() {
           <p style={styles.subtitle}>Create and manage sales estimates</p>
         </div>
         <div style={{ display: "flex", gap: "0.75rem" }}>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleImportCSV}
-            accept=".csv"
-            style={{ display: "none" }}
-          />
           <button
             style={styles.btnSecondary}
-            onClick={() => fileInputRef.current?.click()}
-            disabled={importing}
+            onClick={() => navigate("/admin/finance/estimates/import")}
           >
             <Upload style={{ width: "16px", height: "16px" }} />
-            {importing ? "Importing..." : "Import CSV"}
+            Import CSV
           </button>
           <button style={styles.btnSecondary} onClick={handleExportCSV} disabled={exporting}>
             <Download style={{ width: "16px", height: "16px" }} />

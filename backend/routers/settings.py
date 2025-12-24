@@ -71,11 +71,10 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
         stored = get_settings_by_key("app_config")
         
         # Define all configurable settings with their defaults from env
+        # Note: SESSION_SECRET is server-side only for signing session tokens.
+        # It is loaded from environment variables and not user-editable.
         settings = {
-            "mailersend_api_key": stored.get("mailersend_api_key", os.getenv("MAILERSEND_API_KEY", "")),
-            "sender_email": stored.get("sender_email", os.getenv("SENDER_EMAIL", "")),
             "mongo_uri": stored.get("mongo_uri", os.getenv("MONGO_URI", "mongodb://localhost:27017/")),
-            "session_secret": stored.get("session_secret", os.getenv("SESSION_SECRET", "")),
             "cpx_app_id": stored.get("cpx_app_id", os.getenv("CPX_APP_ID", "")),
             "cpx_ext_user_id": stored.get("cpx_ext_user_id", os.getenv("CPX_EXT_USER_ID", "")),
             "cpx_secure_hash_key": stored.get("cpx_secure_hash_key", os.getenv("CPX_SECURE_HASH_KEY", "")),
@@ -84,7 +83,7 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
         
         # Mask sensitive fields for display
         masked_settings = {**settings}
-        sensitive_fields = ["mailersend_api_key", "session_secret", "cpx_secure_hash_key"]
+        sensitive_fields = ["cpx_secure_hash_key"]
         for field in sensitive_fields:
             if masked_settings.get(field):
                 value = str(masked_settings[field])
@@ -113,8 +112,7 @@ async def save_app_settings(
     
     Body:
     {
-        "mailersend_api_key": "...",
-        "sender_email": "...",
+        "mongo_uri": "...",
         "cpx_app_id": "...",
         ...
     }
@@ -126,8 +124,9 @@ async def save_app_settings(
             raise HTTPException(status_code=401, detail="Missing session token")
         
         # Validate and sanitize settings
+        # Note: session_secret is intentionally excluded - it's server-side only
         allowed_keys = [
-            "mailersend_api_key", "sender_email", "mongo_uri", "session_secret",
+            "mongo_uri",
             "cpx_app_id", "cpx_ext_user_id", "cpx_secure_hash_key", "cpx_api_timeout"
         ]
         

@@ -54,7 +54,7 @@ class TrafficService:
                 "vendorId": vendor_id,
                 "countryCode": country_code,
                 "respondentId": respondent_id,
-                "status": "NEW",
+                "status": "INCOMPLETE",
                 "createdAt": datetime.utcnow(),
                 "updatedAt": datetime.utcnow(),
                 "url": url,
@@ -86,7 +86,7 @@ class TrafficService:
         """
         try:
             records = list(
-                self.traffic_collection.find({"status": "NEW"})
+                self.traffic_collection.find({"status": "INCOMPLETE"})
                 .limit(batch_size)
             )
             
@@ -233,7 +233,8 @@ class TrafficService:
         survey_id: str,
         cpx_service: Any,
         client_id: str,
-        batch_size: int = 100
+        batch_size: int = 100,
+        live_link: str = ""
     ) -> Dict[str, Any]:
         """
         Assign a survey to a batch of NEW traffic records with dynamically generated entry links.
@@ -244,6 +245,7 @@ class TrafficService:
             cpx_service: CPX service instance for generating entry links
             client_id: Client ID for the survey
             batch_size: Number of records to process (default: 100)
+            live_link: The base live link from CPX API to append parameters to
             
         Returns:
             Dictionary with assignment statistics
@@ -272,10 +274,10 @@ class TrafficService:
                     country_code = traffic.get("countryCode", "")
                     respondent_id = traffic.get("respondentId", "")
                     
-                    # Generate unique entry link with respondent_id as ext_user_id
-                    # This replaces {unique_user_id} with the actual respondent_id
+                    # Generate unique entry link by appending params to live_link
+                    # The respondent_id is used as ext_user_id (unique per user)
                     entry_link = cpx_service.generate_entry_link(
-                        survey_id=survey_id,
+                        live_link=live_link,
                         respondent_id=respondent_id
                     )
                     
@@ -408,3 +410,94 @@ class TrafficService:
         except Exception as e:
             print(f"❌ Error getting traffic stats: {e}")
             return {"total": 0, "by_status": {}}
+    
+    def list_traffic_records(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        status: Optional[str] = None,
+        search: Optional[str] = None,
+        survey_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        List traffic records with pagination and optional filters
+        
+        Args:
+            page: Page number (1-indexed)
+            page_size: Records per page
+            status: Filter by status (NEW, INCOMPLETE, COMPLETE, etc.)
+            search: Search in vendorId, respondentId, or countryCode
+            survey_id: Filter by assigned survey ID
+            
+        Returns:
+            Dictionary with records and pagination info
+        """
+        try:
+            # Build query
+            query = {}
+            
+            if status:
+                query["status"] = status.upper()
+            
+            if survey_id:
+                query["assignedSurveyId"] = survey_id
+            
+            if search:
+                # Search across multiple fields
+                query["$or"] = [
+                    {"vendorId": {"$regex": search, "$options": "i"}},
+                    {"respondentId": {"$regex": search, "$options": "i"}},
+                    {"countryCode": {"$regex": search, "$options": "i"}},
+                    {"assignedSurveyId": {"$regex": search, "$options": "i"}},
+                ]
+            
+            # Get total count
+            total_count = self.traffic_collection.count_documents(query)
+            
+            # Calculate pagination
+            skip = (page - 1) * page_size
+            total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 0
+            
+            # Fetch records
+            records = list(
+                self.traffic_collection.find(query)
+                .sort("createdAt", -1)
+                .skip(skip)
+                .limit(page_size)
+            )
+            
+            # Serialize for JSON response
+            serialized_records = []
+            for record in records:
+                serialized = {
+                    "_id": str(record.get("_id", "")),
+                    "vendorId": record.get("vendorId", ""),
+                    "countryCode": record.get("countryCode", ""),
+                    "respondentId": record.get("respondentId", ""),
+                    "status": record.get("status", ""),
+                    "assignedSurveyId": record.get("assignedSurveyId"),
+                    "redirectUrl": record.get("redirectUrl"),
+                    "createdAt": record.get("createdAt").isoformat() if record.get("createdAt") else None,
+                    "updatedAt": record.get("updatedAt").isoformat() if record.get("updatedAt") else None,
+                    "assignedAt": record.get("assignedAt").isoformat() if record.get("assignedAt") else None,
+                    "completedAt": record.get("completedAt").isoformat() if record.get("completedAt") else None,
+                    "params": record.get("params", {}),
+                }
+                serialized_records.append(serialized)
+            
+            return {
+                "records": serialized_records,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total": total_count,
+                    "total_pages": total_pages,
+                }
+            }
+            
+        except Exception as e:
+            print(f"❌ Error listing traffic records: {e}")
+            return {
+                "records": [],
+                "pagination": {"page": page, "page_size": page_size, "total": 0, "total_pages": 0}
+            }

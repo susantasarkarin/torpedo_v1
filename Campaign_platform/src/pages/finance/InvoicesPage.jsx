@@ -311,20 +311,12 @@ function InvoicesPage() {
           <p style={styles.subtitle}>Manage sales invoices and customer payments</p>
         </div>
         <div style={{ display: "flex", gap: "0.75rem" }}>
-          <input
-            type="file"
-            ref={fileInputRef}
-            accept=".csv"
-            onChange={handleImportCSV}
-            style={{ display: "none" }}
-          />
           <button 
             style={styles.btnSecondary} 
-            onClick={() => fileInputRef.current?.click()}
-            disabled={importing}
+            onClick={() => navigate("/admin/finance/invoices/import")}
           >
             <Upload style={{ width: "16px", height: "16px", marginRight: "0.5rem" }} />
-            {importing ? "Importing..." : "Import CSV"}
+            Import CSV
           </button>
           <button 
             style={styles.btnSecondary} 

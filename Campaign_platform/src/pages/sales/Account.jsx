@@ -3,6 +3,54 @@ import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 
+// Helper functions to map between account UI format and customer API format
+const customerToAccount = (customer) => ({
+  _id: customer._id,
+  name: customer.company_name || customer.name || "",
+  contactPerson: "",  // customers don't have contactPerson, it's derived from contacts
+  email: customer.email || "",
+  phone: customer.phone || "",
+  address: customer.billing_address?.line1 || "",
+  accountValue: customer.credit_limit ? String(customer.credit_limit) : "",
+  status: customer.status === "active" ? "Active" : "Inactive",
+  createdAt: customer.created_at,
+  updatedAt: customer.updated_at,
+});
+
+const accountToCustomer = (accountData) => ({
+  name: accountData.name,
+  customer_type: "business",
+  company_name: accountData.name,
+  email: accountData.email,
+  phone: accountData.phone || "",
+  gst_treatment: "unregistered",
+  gstin: "",
+  pan: "",
+  billing_address: {
+    line1: accountData.address || "",
+    line2: "",
+    city: "",
+    state: "",
+    pincode: "",
+    country: "India",
+  },
+  shipping_address: {
+    line1: accountData.address || "",
+    line2: "",
+    city: "",
+    state: "",
+    pincode: "",
+    country: "India",
+  },
+  same_as_billing: true,
+  payment_terms: 30,
+  credit_limit: accountData.accountValue ? parseFloat(accountData.accountValue) || 0 : 0,
+  currency: "INR",
+  opening_balance: 0,
+  notes: "",
+  status: accountData.status === "Active" ? "active" : "inactive",
+});
+
 function Account() {
   const navigate = useNavigate();
   const [accounts, setAccounts] = useState([])
@@ -25,7 +73,7 @@ function Account() {
   }
   const [formData, setFormData] = useState(emptyForm)
 
-  // Fetch accounts function
+  // Fetch accounts function - now uses finance customers API
   const fetchAccounts = async () => {
     const sessionId = localStorage.getItem("session_id");
     if (!sessionId) {
@@ -34,7 +82,7 @@ function Account() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/accounts/`, {
+      const res = await fetch(`${API_BASE_URL}/finance/finance/customers/`, {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -50,7 +98,9 @@ function Account() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Failed to load accounts");
-      setAccounts(data.accounts || []);
+      // Map customers to account format for UI
+      const mappedAccounts = (Array.isArray(data) ? data : data.customers || []).map(customerToAccount);
+      setAccounts(mappedAccounts);
     } catch (e) {
       setError(e.message || "Failed to load accounts");
     }
@@ -107,7 +157,7 @@ function Account() {
     setShowForm(true)
   }
 
-  // Create or Update account
+  // Create or Update account - now uses finance customers API
   const saveAccount = async () => {
     // Validate required fields
     if (!formData.name || !formData.name.trim()) {
@@ -129,11 +179,12 @@ function Account() {
     }
 
     try {
-      const payload = { ...formData };
+      // Convert account form data to customer API format
+      const payload = accountToCustomer(formData);
 
       const url = editingId
-        ? `${API_BASE_URL}/accounts/${editingId}`
-        : `${API_BASE_URL}/accounts/`;
+        ? `${API_BASE_URL}/finance/finance/customers/${editingId}`
+        : `${API_BASE_URL}/finance/finance/customers/`;
       const method = editingId ? "PUT" : "POST";
 
       const res = await fetch(url, {
@@ -156,13 +207,8 @@ function Account() {
 
       if (!res.ok) throw new Error(data.detail || "Failed to save account");
 
-      if (editingId) {
-        setAccounts((prev) =>
-          prev.map((a) => (a._id === editingId ? { ...a, ...payload } : a))
-        );
-      } else {
-        setAccounts((prev) => [...prev, data.account]);
-      }
+      // Refresh the list to get updated data
+      await fetchAccounts();
 
       setShowForm(false);
       setEditingId(null);
@@ -174,7 +220,7 @@ function Account() {
     }
   };
 
-  // Delete account
+  // Delete account - now uses finance customers API
   const deleteAccount = async (id) => {
     if (!window.confirm("Delete this account?")) return;
 
@@ -185,7 +231,7 @@ function Account() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/accounts/${id}`, {
+      const res = await fetch(`${API_BASE_URL}/finance/finance/customers/${id}`, {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",

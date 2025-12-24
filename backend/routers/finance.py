@@ -32,17 +32,13 @@ finance_db = client["finance_db"]
 customers_collection = finance_db["customers"]
 vendors_collection = finance_db["vendors"]
 items_collection = finance_db["items"]
+estimates_collection = finance_db["estimates"]
 invoices_collection = finance_db["invoices"]
 bills_collection = finance_db["bills"]
 purchase_orders_collection = finance_db["purchase_orders"]
 expenses_collection = finance_db["expenses"]
 payments_received_collection = finance_db["payments_received"]
 payments_made_collection = finance_db["payments_made"]
-
-# Access main DB collections for syncing
-main_db = client["email_automation"]
-accounts_collection = main_db["accounts"]
-clients_collection = main_db["clients"]
 
 print("✅ Finance collections initialized")
 
@@ -67,6 +63,12 @@ def generate_invoice_number() -> str:
     """Generate unique invoice number"""
     count = invoices_collection.count_documents({}) + 1
     return f"INV-{datetime.utcnow().strftime('%Y%m')}-{str(count).zfill(4)}"
+
+
+def generate_estimate_number() -> str:
+    """Generate unique estimate number"""
+    count = estimates_collection.count_documents({}) + 1
+    return f"EST-{datetime.utcnow().strftime('%Y%m')}-{str(count).zfill(4)}"
 
 
 def generate_bill_number() -> str:
@@ -125,11 +127,13 @@ def validate_email(email: str) -> bool:
 
 
 def validate_phone(phone: str) -> bool:
-    """Validate Indian phone number format"""
+    """Validate phone number format - accepts any reasonable phone format"""
     if not phone:
         return True  # Phone is optional
-    phone_clean = phone.replace(" ", "").replace("-", "")
-    phone_regex = r'^(\+91)?[0]?(91)?[6789]\d{9}$'
+    # Remove common separators and whitespace
+    phone_clean = phone.replace(" ", "").replace("-", "").replace("(", "").replace(")", "").replace(".", "")
+    # Accept any phone number with at least 7 digits (allowing country codes like +1, +44, +91, etc.)
+    phone_regex = r'^\+?[0-9]{7,15}$'
     return bool(re.match(phone_regex, phone_clean))
 
 
@@ -268,6 +272,23 @@ INVOICE_COLUMN_MAPPINGS = {
     "notes": ["notes", "remarks", "comments", "description", "memo"],
 }
 
+ESTIMATE_COLUMN_MAPPINGS = {
+    "estimate_number": ["estimate_number", "estimate_no", "estimate no", "estimate#", "est_number", "est_no", "estimate", "quote_number", "quote"],
+    "customer_name": ["customer_name", "customer", "client_name", "client", "company_name", "company", "bill_to"],
+    "estimate_date": ["estimate_date", "date", "est_date", "estimate date", "created_date", "quote_date"],
+    "expiry_date": ["expiry_date", "expiry", "valid_until", "valid_till", "expiry date", "expires"],
+    "reference": ["reference", "ref", "reference_number", "ref_no"],
+    "currency_code": ["currency_code", "currency", "curr"],
+    "subtotal": ["subtotal", "sub_total", "sub total", "amount_before_tax"],
+    "tax_amount": ["tax_amount", "tax", "gst", "tax_total", "total_tax"],
+    "discount_type": ["discount_type", "discount type"],
+    "discount_value": ["discount_value", "discount", "disc"],
+    "total": ["total", "total_amount", "grand_total", "amount", "estimate_amount", "estimate total"],
+    "status": ["status", "estimate_status", "est_status"],
+    "notes": ["notes", "remarks", "comments", "description", "memo"],
+    "terms": ["terms", "terms_and_conditions", "terms and conditions", "conditions"],
+}
+
 BILL_COLUMN_MAPPINGS = {
     "bill_number": ["bill_number", "bill_no", "bill no", "bill#", "vendor_invoice", "vendor_bill", "bill"],
     "vendor_name": ["vendor_name", "vendor", "supplier_name", "supplier", "company_name", "from"],
@@ -358,48 +379,10 @@ async def create_customer(customer_data: Dict[str, Any] = Body(...)):
         if not validate_pan(customer_data.get("pan", "")):
             raise HTTPException(status_code=400, detail="Invalid PAN format (e.g., ABCDE1234F)")
         
-        # First create an account
-        account_data = {
-            "name": customer_data.get("name"),
-            "email": customer_data.get("email"),
-            "phone": customer_data.get("phone", ""),
-            "address": customer_data.get("billing_address", {}).get("line1", ""),
-            "status": "Active" if customer_data.get("status", "active") == "active" else "Inactive",
-            "contactPerson": "",
-            "companyName": customer_data.get("company_name", customer_data.get("name")),
-            "companyEmail": customer_data.get("email"),
-            "createdAt": datetime.utcnow()
-        }
-        account_result = accounts_collection.insert_one(account_data)
-        account_id = str(account_result.inserted_id)
-        
-        # Create client in email_automation.clients
-        def generate_client_no():
-            """Generate a unique 7-digit client number"""
-            while True:
-                client_no = str(datetime.utcnow().microsecond % 10000000).zfill(7)
-                if not clients_collection.find_one({"clientNo": client_no}):
-                    return client_no
-        
-        client_data = {
-            "clientNo": generate_client_no(),
-            "name": customer_data.get("name"),
-            "contactPerson": customer_data.get("phone", ""),
-            "email": customer_data.get("email"),
-            "address": customer_data.get("billing_address", {}).get("line1", ""),
-            "clientVariable": "",
-            "currency": customer_data.get("currency", "INR"),
-            "clientType": "Offline",
-            "status": "Active" if customer_data.get("status", "active") == "active" else "Inactive",
-            "accountId": account_id
-        }
-        clients_collection.insert_one(client_data)
-        
         customer_data["created_at"] = datetime.utcnow()
         customer_data["updated_at"] = datetime.utcnow()
         customer_data["total_receivables"] = 0
         customer_data["total_paid"] = 0
-        customer_data["accountId"] = account_id
         
         # Generate customer number if not provided
         if not customer_data.get("customer_number"):
@@ -418,7 +401,6 @@ async def create_customer(customer_data: Dict[str, Any] = Body(...)):
 async def update_customer(customer_id: str, customer_data: Dict[str, Any] = Body(...)):
     """Update a customer"""
     try:
-        # Get current customer to check for accountId
         current_customer = customers_collection.find_one({"_id": ObjectId(customer_id)})
         if not current_customer:
             raise HTTPException(status_code=404, detail="Customer not found")
@@ -426,39 +408,12 @@ async def update_customer(customer_id: str, customer_data: Dict[str, Any] = Body
         customer_data.pop("_id", None)
         customer_data["updated_at"] = datetime.utcnow()
         
-        # Update customer
         result = customers_collection.update_one(
             {"_id": ObjectId(customer_id)},
             {"$set": customer_data}
         )
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Customer not found")
-        
-        # Sync to accounts if accountId exists
-        if current_customer.get("accountId"):
-            account_update = {
-                "name": customer_data.get("name", current_customer.get("name")),
-                "email": customer_data.get("email", current_customer.get("email")),
-                "phone": customer_data.get("phone", current_customer.get("phone")),
-                "status": customer_data.get("status", current_customer.get("status", "Active")),
-                "updatedAt": datetime.utcnow()
-            }
-            accounts_collection.update_one(
-                {"_id": ObjectId(current_customer["accountId"])},
-                {"$set": account_update}
-            )
-            
-            # Sync to clients (email_automation.clients)
-            client_update = {
-                "name": customer_data.get("name", current_customer.get("name")),
-                "email": customer_data.get("email", current_customer.get("email")),
-                "contactPerson": customer_data.get("phone", current_customer.get("phone")),
-                "status": customer_data.get("status", current_customer.get("status", "Active")),
-            }
-            clients_collection.update_one(
-                {"accountId": current_customer["accountId"]},
-                {"$set": client_update}
-            )
         
         return {"message": "Customer updated successfully"}
     except HTTPException:
@@ -479,20 +434,13 @@ async def delete_customer(customer_id: str):
                 detail=f"Cannot delete customer with {invoice_count} invoices. Delete invoices first."
             )
         
-        # Get customer to find accountId
         customer = customers_collection.find_one({"_id": ObjectId(customer_id)})
         if not customer:
             raise HTTPException(status_code=404, detail="Customer not found")
         
-        # Delete customer
-        result = customers_collection.delete_one({"_id": ObjectId(customer_id)})
+        customers_collection.delete_one({"_id": ObjectId(customer_id)})
         
-        # Delete corresponding account and client if accountId exists
-        if customer.get("accountId"):
-            accounts_collection.delete_one({"_id": ObjectId(customer["accountId"])})
-            clients_collection.delete_one({"accountId": customer["accountId"]})
-        
-        return {"message": "Customer deleted successfully from all collections"}
+        return {"message": "Customer deleted successfully"}
     except HTTPException:
         raise
     except Exception as e:
@@ -1085,6 +1033,298 @@ async def import_items_csv(file: UploadFile = File(...)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error importing items: {str(e)}")
+
+
+# ============================================================
+# ESTIMATES ENDPOINTS
+# ============================================================
+
+@router.get("/finance/estimates/")
+async def get_estimates():
+    """Get all estimates with customer details"""
+    try:
+        pipeline = [
+            {
+                "$lookup": {
+                    "from": "customers",
+                    "let": {"customer_id": {"$toObjectId": "$customer_id"}},
+                    "pipeline": [
+                        {"$match": {"$expr": {"$eq": ["$_id", "$$customer_id"]}}}
+                    ],
+                    "as": "customer"
+                }
+            },
+            {"$unwind": {"path": "$customer", "preserveNullAndEmptyArrays": True}},
+            {"$addFields": {"customer_name": "$customer.name"}},
+            {"$project": {"customer": 0}},
+            {"$sort": {"created_at": -1}}
+        ]
+        estimates = list(estimates_collection.aggregate(pipeline))
+        return serialize_docs(estimates)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching estimates: {str(e)}")
+
+
+@router.get("/finance/estimates/{estimate_id}")
+async def get_estimate(estimate_id: str):
+    """Get a single estimate by ID"""
+    try:
+        estimate = estimates_collection.find_one({"_id": ObjectId(estimate_id)})
+        if not estimate:
+            raise HTTPException(status_code=404, detail="Estimate not found")
+        
+        # Get customer name
+        if estimate.get("customer_id"):
+            customer = customers_collection.find_one({"_id": ObjectId(estimate["customer_id"])})
+            if customer:
+                estimate["customer_name"] = customer.get("name")
+        
+        return serialize_doc(estimate)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching estimate: {str(e)}")
+
+
+@router.post("/finance/estimates/")
+async def create_estimate(estimate_data: Dict[str, Any] = Body(...)):
+    """Create a new estimate"""
+    try:
+        if not estimate_data.get("customer_id"):
+            raise HTTPException(status_code=400, detail="Customer is required")
+        
+        # Generate estimate number
+        estimate_data["estimate_number"] = generate_estimate_number()
+        estimate_data["status"] = estimate_data.get("status", "draft")
+        estimate_data["created_at"] = datetime.utcnow()
+        estimate_data["updated_at"] = datetime.utcnow()
+        
+        # Calculate totals
+        items = estimate_data.get("items", [])
+        subtotal = sum(item.get("quantity", 0) * item.get("rate", 0) for item in items)
+        tax_total = sum(item.get("tax_amount", 0) for item in items)
+        estimate_data["subtotal"] = subtotal
+        estimate_data["tax_total"] = tax_total
+        estimate_data["total_amount"] = subtotal + tax_total
+        
+        result = estimates_collection.insert_one(estimate_data)
+        estimate_data["_id"] = str(result.inserted_id)
+        
+        return estimate_data
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating estimate: {str(e)}")
+
+
+@router.put("/finance/estimates/{estimate_id}")
+async def update_estimate(estimate_id: str, estimate_data: Dict[str, Any] = Body(...)):
+    """Update an estimate"""
+    try:
+        estimate_data.pop("_id", None)
+        estimate_data.pop("estimate_number", None)  # Don't allow changing estimate number
+        estimate_data["updated_at"] = datetime.utcnow()
+        
+        result = estimates_collection.update_one(
+            {"_id": ObjectId(estimate_id)},
+            {"$set": estimate_data}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Estimate not found")
+        return {"message": "Estimate updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating estimate: {str(e)}")
+
+
+@router.delete("/finance/estimates/{estimate_id}")
+async def delete_estimate(estimate_id: str):
+    """Delete an estimate"""
+    try:
+        estimate = estimates_collection.find_one({"_id": ObjectId(estimate_id)})
+        if not estimate:
+            raise HTTPException(status_code=404, detail="Estimate not found")
+        
+        result = estimates_collection.delete_one({"_id": ObjectId(estimate_id)})
+        return {"message": "Estimate deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting estimate: {str(e)}")
+
+
+@router.get("/finance/estimates/export/csv")
+async def export_estimates_csv():
+    """Export all estimates to CSV format"""
+    try:
+        # Get all estimates with customer details
+        pipeline = [
+            {
+                "$lookup": {
+                    "from": "customers",
+                    "let": {"customer_id": {"$toObjectId": "$customer_id"}},
+                    "pipeline": [
+                        {"$match": {"$expr": {"$eq": ["$_id", "$$customer_id"]}}}
+                    ],
+                    "as": "customer"
+                }
+            },
+            {"$unwind": {"path": "$customer", "preserveNullAndEmptyArrays": True}},
+            {"$addFields": {"customer_name": "$customer.name"}},
+            {"$project": {"customer": 0}},
+            {"$sort": {"created_at": -1}}
+        ]
+        estimates = list(estimates_collection.aggregate(pipeline))
+        
+        # Create CSV in memory
+        output = io.StringIO()
+        fieldnames = [
+            "estimate_number", "customer_name", "estimate_date", "expiry_date", 
+            "reference", "currency_code", "subtotal", "tax_amount", "discount_type", "discount_value",
+            "total", "status", "notes", "terms"
+        ]
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        
+        for estimate in estimates:
+            # Calculate totals
+            items = estimate.get("items", [])
+            subtotal = sum(item.get("quantity", 0) * item.get("rate", 0) for item in items)
+            tax_amount = sum(
+                (item.get("quantity", 0) * item.get("rate", 0) * item.get("tax_rate", 0) / 100)
+                for item in items
+            )
+            
+            row = {
+                "estimate_number": estimate.get("estimate_number", ""),
+                "customer_name": estimate.get("customer_name", ""),
+                "estimate_date": str(estimate.get("estimate_date", ""))[:10] if estimate.get("estimate_date") else "",
+                "expiry_date": str(estimate.get("expiry_date", ""))[:10] if estimate.get("expiry_date") else "",
+                "reference": estimate.get("reference", ""),
+                "currency_code": estimate.get("currency_code", "INR"),
+                "subtotal": round(subtotal, 2),
+                "tax_amount": round(tax_amount, 2),
+                "discount_type": estimate.get("discount_type", "flat"),
+                "discount_value": estimate.get("discount_value", 0),
+                "total": estimate.get("total", round(subtotal + tax_amount, 2)),
+                "status": estimate.get("status", "draft"),
+                "notes": estimate.get("notes", ""),
+                "terms": estimate.get("terms", ""),
+            }
+            writer.writerow(row)
+        
+        output.seek(0)
+        
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=estimates_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error exporting estimates: {str(e)}")
+
+
+@router.post("/finance/estimates/import/csv")
+async def import_estimates_csv(file: UploadFile = File(...)):
+    """Import estimates from CSV file with flexible column mapping"""
+    try:
+        if not file.filename.endswith('.csv'):
+            raise HTTPException(status_code=400, detail="File must be a CSV")
+        
+        contents = await file.read()
+        # Try multiple encodings to handle various CSV formats
+        for encoding in ['utf-8-sig', 'utf-8', 'latin-1', 'cp1252']:
+            try:
+                decoded = contents.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            decoded = contents.decode('utf-8', errors='replace')
+        reader = csv.DictReader(io.StringIO(decoded))
+        
+        imported_count = 0
+        errors = []
+        
+        for idx, row in enumerate(reader, start=2):  # Start at 2 for Excel row reference (header is row 1)
+            try:
+                # Map columns using flexible mapping
+                mapped = map_csv_columns(row, ESTIMATE_COLUMN_MAPPINGS)
+                
+                # Find customer by name
+                customer_name = mapped.get("customer_name", "").strip()
+                customer = customers_collection.find_one({"name": customer_name})
+                customer_id = str(customer["_id"]) if customer else None
+                
+                if not customer_id:
+                    errors.append(f"Row {idx}: Customer '{customer_name}' not found")
+                    continue
+                
+                # Check if estimate number already exists
+                estimate_number = mapped.get("estimate_number", "")
+                if estimate_number:
+                    existing = estimates_collection.find_one({"estimate_number": estimate_number})
+                    if existing:
+                        errors.append(f"Row {idx}: Estimate '{estimate_number}' already exists")
+                        continue
+                
+                # Parse dates - support multiple date formats
+                estimate_date = None
+                expiry_date = None
+                
+                date_formats = ["%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"]
+                
+                if mapped.get("estimate_date"):
+                    for fmt in date_formats:
+                        try:
+                            estimate_date = datetime.strptime(mapped["estimate_date"], fmt)
+                            break
+                        except:
+                            continue
+                    if not estimate_date:
+                        estimate_date = datetime.now()
+                
+                if mapped.get("expiry_date"):
+                    for fmt in date_formats:
+                        try:
+                            expiry_date = datetime.strptime(mapped["expiry_date"], fmt)
+                            break
+                        except:
+                            continue
+                
+                # Create estimate data
+                estimate_data = {
+                    "estimate_number": estimate_number or generate_estimate_number(),
+                    "customer_id": customer_id,
+                    "estimate_date": estimate_date or datetime.now(),
+                    "expiry_date": expiry_date,
+                    "reference": mapped.get("reference", ""),
+                    "currency_code": mapped.get("currency_code") or "INR",
+                    "items": [],  # Items need to be added separately
+                    "discount_type": mapped.get("discount_type") or "flat",
+                    "discount_value": float(mapped.get("discount_value") or 0),
+                    "status": mapped.get("status") or "draft",
+                    "notes": mapped.get("notes", ""),
+                    "terms": mapped.get("terms", ""),
+                    "total": float(mapped.get("total") or 0),
+                    "created_at": datetime.now(),
+                    "updated_at": datetime.now(),
+                }
+                
+                estimates_collection.insert_one(estimate_data)
+                imported_count += 1
+                
+            except Exception as row_error:
+                errors.append(f"Row {idx}: {str(row_error)}")
+        
+        return {
+            "message": f"Successfully imported {imported_count} estimates",
+            "imported": imported_count,
+            "errors": errors
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error importing estimates: {str(e)}")
 
 
 # ============================================================

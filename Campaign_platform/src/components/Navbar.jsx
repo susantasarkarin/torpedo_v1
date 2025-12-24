@@ -16,10 +16,12 @@ function Navbar({
 
   const handleLogoDropdownToggle = () => {
     setLogoDropdownOpen((prev) => !prev)
+    setProfileDropdownOpen(false) // Close profile dropdown when logo dropdown is toggled
   }
 
   const handleProfileDropdownToggle = () => {
     setProfileDropdownOpen((prev) => !prev)
+    setLogoDropdownOpen(false) // Close logo dropdown when profile dropdown is toggled
   }
 
   const handleSectionSelect = (section) => {

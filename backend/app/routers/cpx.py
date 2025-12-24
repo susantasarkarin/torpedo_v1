@@ -210,12 +210,16 @@ async def assign_traffic_to_survey(
         
         client_id = os.getenv("CPX_APP_ID", "10754")
         
+        # Get the live_link from survey data
+        live_link = survey.get("live_link", "") or survey.get("raw_data", {}).get("href", "") or survey.get("raw_data", {}).get("href_new", "")
+        
         # Perform batch assignment with CPX service for entry link generation
         result = traffic_service.batch_assign_surveys_with_entry_links(
             survey_id=survey_id,
             cpx_service=service,
             client_id=client_id,
-            batch_size=batch_size
+            batch_size=batch_size,
+            live_link=live_link
         )
         
         return result

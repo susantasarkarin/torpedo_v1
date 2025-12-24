@@ -1,12 +1,13 @@
 "use client"
 
 import { useState, useEffect, useRef, useMemo } from "react"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "../../utils/currency"
 import { FileText, Plus, Search, Eye, Camera, X, Loader2, Trash2, CreditCard, Upload, Download } from "lucide-react"
 
 function BillsPage() {
+  const navigate = useNavigate()
   const [showModal, setShowModal] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -641,20 +642,12 @@ function BillsPage() {
           <p style={styles.subtitle}>Manage vendor bills and payables</p>
         </div>
         <div style={{ display: "flex", gap: "0.75rem" }}>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleImportCSV}
-            accept=".csv"
-            style={{ display: "none" }}
-          />
           <button 
             style={styles.btnSecondary} 
-            onClick={() => fileInputRef.current?.click()}
-            disabled={importing}
+            onClick={() => navigate("/admin/finance/bills/import")}
           >
             <Upload style={{ width: "16px", height: "16px", marginRight: "0.5rem" }} />
-            {importing ? "Importing..." : "Import CSV"}
+            Import CSV
           </button>
           <button 
             style={styles.btnSecondary} 

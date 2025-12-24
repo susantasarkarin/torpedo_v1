@@ -21,6 +21,7 @@ class CPXService:
         fetch_limit: int = 1000,
         surveys_collection: Optional[Any] = None,
         filters_collection: Optional[Any] = None,
+        settings_collection: Optional[Any] = None,
     ):
         """
         Initialize CPX Service
@@ -32,16 +33,18 @@ class CPXService:
             api_timeout: API request timeout in seconds
             fetch_limit: Maximum number of surveys to fetch
             surveys_collection: MongoDB collection for surveys (optional for testing)
-            filters_collection: MongoDB collection for filter settings (optional for testing)
+            filters_collection: MongoDB collection for filter settings (deprecated, use settings_collection)
+            settings_collection: MongoDB collection for app settings (torpedo_settings.app_settings)
         """
         self.app_id = app_id
         self.ext_user_id = ext_user_id
         self.secure_hash_key = secure_hash_key
         self.api_timeout = api_timeout
         self.fetch_limit = fetch_limit
+        self.settings_collection = settings_collection
         
         # If collections are provided, use them; otherwise initialize from env
-        if surveys_collection is not None and filters_collection is not None:
+        if surveys_collection is not None:
             self.cpx_surveys_collection = surveys_collection
             self.cpx_filters_collection = filters_collection
         else:
@@ -52,6 +55,10 @@ class CPXService:
                 db = client["cpx_research"]
                 self.cpx_surveys_collection = db["cpx_surveys"]
                 self.cpx_filters_collection = db["cpx_filters"]
+                # Also connect to settings database
+                if settings_collection is None:
+                    settings_db = client["torpedo_settings"]
+                    self.settings_collection = settings_db["app_settings"]
             else:
                 self.cpx_surveys_collection = None
                 self.cpx_filters_collection = None
@@ -73,34 +80,56 @@ class CPXService:
     
     def generate_entry_link(
         self,
-        survey_id: str,
+        live_link: str,
         respondent_id: str,
     ) -> str:
         """
-        Generate CPX survey entry link with required parameters.
-        Substitutes {unique_user_id} with the actual respondent_id.
+        Generate CPX survey entry link by appending required parameters to live_link.
         
         Args:
-            survey_id: The survey ID
-            respondent_id: The respondent ID to use as ext_user_id
+            live_link: The base live link from CPX API (href or href_new)
+            respondent_id: The respondent ID to use as ext_user_id (unique per user)
             
         Returns:
-            Fully constructed entry URL with ext_user_id, app_id, and secure_hash
+            Fully constructed entry URL with required parameters appended
         """
+        if not live_link:
+            return ""
+            
         # Generate secure hash using respondent_id as ext_user_id
+        # Formula: md5({unique_user_id}-{app_secure_hash})
         secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
         
-        # Build query parameters
-        params = {
-            "app_id": self.app_id,
-            "ext_user_id": respondent_id,  # Replace {unique_user_id} with respondent_id
-            "secure_hash": secure_hash,
-            "survey_id": survey_id,
-        }
+        # Build additional query parameters to append
+        additional_params = (
+            f"&ext_user_id={respondent_id}"
+            f"&app_id={self.app_id}"
+            f"&secure_hash={secure_hash}"
+        )
         
-        base_url = "https://offers.cpx-research.com/index.php"
-        query_string = urlencode(params)
-        return f"{base_url}?{query_string}"
+        return f"{live_link}{additional_params}"
+    
+    def generate_entry_link_template(self, live_link: str) -> str:
+        """
+        Generate a template entry link by appending placeholders to live_link.
+        Used for display purposes - actual values should be substituted at runtime.
+        
+        Args:
+            live_link: The base live link from CPX API (href or href_new)
+            
+        Returns:
+            Entry URL template with placeholders appended to live_link
+        """
+        if not live_link:
+            return ""
+            
+        template = (
+            f"{live_link}"
+            f"&ext_user_id={{ext_user_id}}"
+            f"&app_id={self.app_id}"
+            f"&secure_hash={{secure_hash}}"
+        )
+        return template
     
     @staticmethod
     def _get_client_ip() -> str:
@@ -251,6 +280,12 @@ class CPXService:
             0
         )
         
+        # Get country with default to IN if missing
+        country = survey.get("survey_country") or survey.get("country", "") or "IN"
+        
+        # Get live link from raw survey data if available
+        live_link = survey.get("href") or survey.get("href_new") or survey.get("link") or ""
+        
         # Map CPX field names to internal field names
         normalized = {
             "_id": str(survey_id),  # Map to _id for MongoDB
@@ -260,26 +295,34 @@ class CPXService:
             "payout": float(payout_value),
             "payout_publisher_usd": float(payout_value),
             "conversion_rate": float(survey.get("conversion_rate", 0)),
-            "country": survey.get("survey_country") or survey.get("country", ""),
+            "country": country,
             "category": survey.get("survey_category") or survey.get("category", ""),
             "provider": "CPX",
+            "source": "CPX",
             "last_updated": datetime.utcnow(),
+            "live_link": live_link,  # Store live link from CPX API
             "raw_data": survey,  # Store raw data for reference
         }
         
-        # Generate entry_link if respondent_id is provided
-        if respondent_id:
+        # Generate entry_link by appending parameters to live_link
+        if respondent_id and live_link:
             normalized["entry_link"] = self.generate_entry_link(
-                survey_id=str(survey_id),
+                live_link=live_link,
                 respondent_id=respondent_id
             )
+        elif live_link:
+            # Generate entry_link template with placeholders appended to live_link
+            normalized["entry_link"] = self.generate_entry_link_template(
+                live_link=live_link
+            )
+        else:
+            normalized["entry_link"] = ""
         
         return normalized
     
-    @staticmethod
-    def _apply_filters(survey: Dict[str, Any]) -> bool:
+    def _apply_filters(self, survey: Dict[str, Any]) -> bool:
         """
-        Apply default filters to survey
+        Apply user-configured filters to survey
         
         Args:
             survey: Normalized survey data
@@ -287,12 +330,17 @@ class CPXService:
         Returns:
             True if survey passes filters, False otherwise
         """
-        # Filter: LOI < 20
-        if survey.get("loi", 0) >= 20:
+        # Get user filter settings, with sensible defaults
+        filter_settings = self.get_filter_settings()
+        max_loi = filter_settings.get("max_loi", 20)  # Default: 20 minutes
+        min_cpi = filter_settings.get("min_cpi", 1.0)  # Default: $1
+        
+        # Filter: LOI must be <= max_loi
+        if survey.get("loi", 0) > max_loi:
             return False
         
-        # Filter: payout > $1
-        if survey.get("payout", 0) <= 1:
+        # Filter: payout must be >= min_cpi
+        if survey.get("payout", 0) < min_cpi:
             return False
         
         return True
@@ -313,9 +361,14 @@ class CPXService:
         try:
             upserted_count = 0
             for survey in surveys:
+                # Use $set for all fields except inserted_at
+                # Use $setOnInsert for inserted_at to preserve original insert time
                 result = self.cpx_surveys_collection.update_one(
                     {"_id": survey.get("_id")},
-                    {"$set": survey},
+                    {
+                        "$set": survey,
+                        "$setOnInsert": {"inserted_at": datetime.utcnow()}
+                    },
                     upsert=True
                 )
                 upserted_count += 1
@@ -392,8 +445,12 @@ class CPXService:
             # Clean up and serialize surveys for JSON response
             cleaned_surveys = []
             for survey in surveys:
-                # Remove raw_data to reduce response size
+                # Remove raw_data to reduce response size, but keep live_link and entry_link
                 if "raw_data" in survey:
+                    # Preserve href/link from raw_data if live_link is not set
+                    if not survey.get("live_link"):
+                        raw = survey["raw_data"]
+                        survey["live_link"] = raw.get("href") or raw.get("href_new") or raw.get("link") or ""
                     del survey["raw_data"]
                 
                 # Convert ObjectId to string if present
@@ -403,6 +460,10 @@ class CPXService:
                 # Convert datetime to ISO string
                 if "last_updated" in survey:
                     survey["last_updated"] = survey["last_updated"].isoformat()
+                
+                # Convert inserted_at to ISO string if present
+                if "inserted_at" in survey:
+                    survey["inserted_at"] = survey["inserted_at"].isoformat()
                 
                 cleaned_surveys.append(survey)
             
@@ -451,20 +512,47 @@ class CPXService:
     
     def get_filter_settings(self) -> Dict[str, Any]:
         """
-        Get saved filter settings from MongoDB
+        Get saved filter settings from MongoDB settings database (torpedo_settings.app_settings)
         
         Returns:
-            Dictionary of filter settings or empty dict
+            Dictionary of filter settings with sensible defaults
         """
+        # Default filter settings that are permissive
+        defaults = {
+            "max_loi": 20,  # 20 minutes max LOI
+            "min_cpi": 1.0,  # $1 min payout
+            "deletion_period_days": 7,
+            "auto_refresh_enabled": True,
+            "refresh_interval_seconds": 60,
+        }
+        
+        # First try settings_collection (torpedo_settings.app_settings with key "survey_filters")
+        if self.settings_collection is not None:
+            try:
+                settings = self.settings_collection.find_one({"_id": "survey_filters"})
+                if settings:
+                    return {
+                        "max_loi": settings.get("max_loi", defaults["max_loi"]),
+                        "min_cpi": settings.get("min_cpi", defaults["min_cpi"]),
+                        "deletion_period_days": settings.get("deletion_period_days", defaults["deletion_period_days"]),
+                        "auto_refresh_enabled": settings.get("auto_refresh_enabled", defaults["auto_refresh_enabled"]),
+                        "refresh_interval_seconds": settings.get("refresh_interval_seconds", defaults["refresh_interval_seconds"]),
+                    }
+            except Exception as e:
+                print(f"❌ Error fetching filter settings from settings_collection: {e}")
+        
+        # Fallback to cpx_filters_collection for backward compatibility
         try:
-            settings = self.cpx_filters_collection.find_one({"_id": "default"})
-            if settings:
-                settings.pop("_id", None)
-                settings.pop("last_updated", None)
-            return settings or {}
+            if self.cpx_filters_collection is not None:
+                settings = self.cpx_filters_collection.find_one({"_id": "default"})
+                if settings:
+                    settings.pop("_id", None)
+                    settings.pop("last_updated", None)
+                    return {**defaults, **settings}
         except Exception as e:
-            print(f"❌ Error fetching filter settings: {e}")
-            return {}
+            print(f"❌ Error fetching filter settings from cpx_filters: {e}")
+        
+        return defaults
     
     def cleanup_old_surveys(self, days: int = 3) -> int:
         """

@@ -286,3 +286,93 @@ async def get_new_traffic_batch(
         print(f"Error getting traffic batch: {e}")
         raise HTTPException(status_code=500, detail=f"Batch error: {str(e)}")
 
+
+@router.get("/api/traffic/list")
+async def list_traffic_records(
+    request: Request,
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Records per page"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    search: Optional[str] = Query(None, description="Search term"),
+    survey_id: Optional[str] = Query(None, description="Filter by survey ID"),
+):
+    """
+    List all traffic records with pagination and optional filters
+    Requires authentication
+    """
+    try:
+        # Verify session
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        if traffic_service is None:
+            raise HTTPException(status_code=503, detail="Traffic service not initialized")
+        
+        result = traffic_service.list_traffic_records(
+            page=page,
+            page_size=page_size,
+            status=status,
+            search=search,
+            survey_id=survey_id,
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error listing traffic records: {e}")
+        raise HTTPException(status_code=500, detail=f"List error: {str(e)}")
+
+
+@router.delete("/api/traffic/delete")
+async def delete_traffic_records(
+    request: Request,
+    data: Dict[str, Any] = Body(...)
+):
+    """
+    Delete multiple traffic records by IDs
+    
+    Body:
+    {
+        "ids": ["id1", "id2", "id3"]
+    }
+    """
+    try:
+        # Verify session
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        if traffic_service is None:
+            raise HTTPException(status_code=503, detail="Traffic service not initialized")
+        
+        ids = data.get('ids', [])
+        if not ids:
+            raise HTTPException(status_code=400, detail="No IDs provided")
+        
+        # Convert string IDs to ObjectId and delete
+        object_ids = []
+        for id_str in ids:
+            try:
+                object_ids.append(ObjectId(id_str))
+            except Exception:
+                pass  # Skip invalid IDs
+        
+        if not object_ids:
+            raise HTTPException(status_code=400, detail="No valid IDs provided")
+        
+        result = traffic_service.traffic_collection.delete_many({"_id": {"$in": object_ids}})
+        
+        return {
+            "deleted_count": result.deleted_count,
+            "requested_count": len(ids)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting traffic records: {e}")
+        raise HTTPException(status_code=500, detail=f"Delete error: {str(e)}")
+

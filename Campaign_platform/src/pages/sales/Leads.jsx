@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
+import { getLeadStages, getStageById, getStageStyle as getPipelineStageStyle } from "../../utils/salesPipeline"
 
 function Leads() {
   const navigate = useNavigate();
@@ -13,6 +14,9 @@ function Leads() {
   const [search, setSearch] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [recordsPerPage, setRecordsPerPage] = useState(10)
+
+  // Lead stages (pre-qualification)
+  const leadStages = getLeadStages()
 
   const emptyForm = {
     name: "",
@@ -39,6 +43,7 @@ function Leads() {
     companyLastFundingRoundAmount: "",
     companyLogoPrimary: "",
     companyLogoSecondary: "",
+    stage: "lead_generation",
   }
   const [formData, setFormData] = useState(emptyForm)
 
@@ -116,6 +121,7 @@ function Leads() {
       companyLastFundingRoundAmount: lead.companyLastFundingRoundAmount || "",
       companyLogoPrimary: lead.companyLogoPrimary || "",
       companyLogoSecondary: lead.companyLogoSecondary || "",
+      stage: lead.stage || "lead_generation",
     })
     setShowForm(true)
   }
@@ -218,9 +224,9 @@ function Leads() {
     }
   };
 
-  // Move lead to contacts (RFQ stage)
+  // Move lead to contacts (Discovery Call stage - first contact stage)
   const moveToContacts = async (id) => {
-    if (!window.confirm("Move this lead to Contacts (RFQ stage)?")) return;
+    if (!window.confirm("Move this lead to Contacts (Discovery Call stage)?")) return;
 
     const sessionId = localStorage.getItem("session_id");
     if (!sessionId) {
@@ -235,7 +241,7 @@ function Leads() {
           "Content-Type": "application/json",
           Authorization: sessionId,
         },
-        body: JSON.stringify({ stage: "RFQ" }),
+        body: JSON.stringify({ stage: "discovery_call" }),
       });
 
       if (res.status === 401) {
@@ -288,9 +294,17 @@ function Leads() {
           <h2 style={styles.title}>Leads</h2>
           <p style={styles.subtitle}>Track and manage your sales leads with comprehensive company data</p>
         </div>
-        <button style={styles.btnPrimary} onClick={openCreate}>
-          + Add New Lead
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button 
+            style={{ ...styles.btnPrimary, backgroundColor: '#6b7280' }} 
+            onClick={() => navigate('/admin/sales/leads/import')}
+          >
+            📥 Import CSV
+          </button>
+          <button style={styles.btnPrimary} onClick={openCreate}>
+            + Add New Lead
+          </button>
+        </div>
       </div>
 
       {error && <div style={styles.errorAlert}>{error}</div>}
@@ -317,8 +331,9 @@ function Leads() {
         </select>
         <div style={styles.stats}>
           <span>Total: <strong>{leads.length}</strong></span>
-          <span>Valid Email: <strong>{leads.filter(l => l.emailStatus === "Valid").length}</strong></span>
-          <span>Qualified: <strong>{leads.filter(l => l.status === "Qualified").length}</strong></span>
+          {leadStages.map(stage => (
+            <span key={stage.id}>{stage.icon} {stage.label}: <strong>{leads.filter(l => l.stage === stage.id).length}</strong></span>
+          ))}
         </div>
       </div>
 
@@ -331,14 +346,20 @@ function Leads() {
               <th style={styles.th}>Email</th>
               <th style={styles.th}>Title</th>
               <th style={styles.th}>Company</th>
-              <th style={styles.th}>Industry</th>
-              <th style={styles.th}>Location</th>
+              <th style={styles.th}>Stage</th>
               <th style={styles.th}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {paginatedLeads.map(lead => (
-              <tr key={lead._id} style={styles.tr}>
+            {paginatedLeads.map(lead => {
+              const stageInfo = getStageById(lead.stage)
+              const stageStyle = getPipelineStageStyle(lead.stage)
+              return (
+              <tr 
+                key={lead._id} 
+                style={{ ...styles.tr, cursor: 'pointer' }}
+                onClick={() => navigate(`/admin/sales/leads/${lead._id}`)}
+              >
                 <td style={styles.td}>
                   {lead.name || `${lead.firstName} ${lead.lastName}`.trim() || '-'}
                 </td>
@@ -358,11 +379,18 @@ function Leads() {
                 </td>
                 <td style={styles.td}>{lead.title || '-'}</td>
                 <td style={styles.td}>{lead.companyName || '-'}</td>
-                <td style={styles.td}>{lead.companyIndustry || '-'}</td>
-                <td style={styles.td}>{lead.location || '-'}</td>
                 <td style={styles.td}>
+                  <span style={{
+                    ...styles.statusBadge,
+                    backgroundColor: stageStyle.bg,
+                    color: stageStyle.color
+                  }}>
+                    {stageInfo?.icon} {stageInfo?.label || lead.stage || 'Lead Generation'}
+                  </span>
+                </td>
+                <td style={styles.td} onClick={(e) => e.stopPropagation()}>
                   <div style={styles.actionButtons}>
-                    <button style={styles.btnMoveToRFQ} onClick={() => moveToContacts(lead._id)} title="Move to Contacts (RFQ)">
+                    <button style={styles.btnMoveToRFQ} onClick={() => moveToContacts(lead._id)} title="Move to Contacts">
                       ➡️
                     </button>
                     <button style={styles.btnEdit} onClick={() => openEdit(lead)}>✏️</button>
@@ -370,10 +398,10 @@ function Leads() {
                   </div>
                 </td>
               </tr>
-            ))}
+            )})}
             {paginatedLeads.length === 0 && filtered.length === 0 && (
               <tr>
-                <td colSpan={7} style={styles.emptyState}>
+                <td colSpan={6} style={styles.emptyState}>
                   No leads found.
                 </td>
               </tr>
@@ -511,6 +539,22 @@ function Leads() {
                   value={formData.linkedin}
                   onChange={handleChange}
                 />
+              </div>
+
+              <h4 style={styles.sectionTitle}>Lead Stage</h4>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Stage</label>
+                <select
+                  style={styles.select}
+                  name="stage"
+                  value={formData.stage}
+                  onChange={handleChange}
+                >
+                  {leadStages.map(stage => (
+                    <option key={stage.id} value={stage.id}>{stage.icon} {stage.label}</option>
+                  ))}
+                </select>
               </div>
 
               <h4 style={styles.sectionTitle}>Company Information</h4>

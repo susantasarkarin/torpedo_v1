@@ -1,105 +1,66 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../../hooks/useAuth';
 import { API_BASE_URL } from '../../../config';
-import useSurveyPoolData from './hooks/useSurveyPoolData';
-import useSurveyFilters from './hooks/useSurveyFilters';
-import SurveyFilterPanel from './components/SurveyFilterPanel';
-import SurveyDataTable from './components/SurveyDataTable';
-import SurveyPoolStats from './components/SurveyPoolStats';
-import TrafficAssignmentPanel from './components/TrafficAssignmentPanel';
 import './SurveyPool.css';
 
 export default function SurveyPool() {
   const { user, token } = useAuth();
+  const [surveys, setSurveys] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [recordsPerPage, setRecordsPerPage] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
-  const [loading, setLoading] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState(null);
   const [selectedSurvey, setSelectedSurvey] = useState(null);
-  const [trafficRefreshTrigger, setTrafficRefreshTrigger] = useState(0);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
 
-  // Hooks for data and filters
-  const {
-    surveys,
-    totalSurveys,
-    isLoading: dataLoading,
-    error: dataError,
-    fetchSurveys,
-    refreshSurveys,
-  } = useSurveyPoolData(token);
-
-  const {
-    filters,
-    updateFilters,
-    savedFilters,
-    savingFilters,
-    loadFilterSettings,
-    saveFilterSettings,
-  } = useSurveyFilters(token);
-
-  // Load filter settings on mount
+  // Fetch surveys on mount
   useEffect(() => {
     if (token) {
-      loadFilterSettings();
+      fetchSurveys();
     }
   }, [token]);
 
-  // Fetch ALL surveys without filters (filters applied client-side)
+  // Auto-refresh every 30 seconds
   useEffect(() => {
-    if (token) {
-      setLoading(true);
-      fetchSurveys({
-        page: 1,
-        page_size: 100, // Max allowed by backend API (le=100)
-      }).then((data) => {
-        if (data?.last_updated) {
-          setLastUpdated(data.last_updated);
-        }
-      }).finally(() => setLoading(false));
-    }
+    if (!token) return;
+    const interval = setInterval(() => {
+      fetchSurveys();
+    }, 30000); // 30 seconds
+    return () => clearInterval(interval);
   }, [token]);
 
-  // Client-side filtering of surveys
-  const filteredSurveys = useMemo(() => {
-    let filtered = [...surveys];
+  const fetchSurveys = async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/cpx/surveys?page=1&page_size=100`, {
+        headers: {
+          'Authorization': token,
+          'Content-Type': 'application/json',
+        },
+      });
 
-    // Apply min LOI filter
-    if (filters.min_loi) {
-      filtered = filtered.filter(s => s.loi >= filters.min_loi);
+      if (!response.ok) {
+        throw new Error('Failed to fetch surveys');
+      }
+
+      const data = await response.json();
+      setSurveys(data.surveys || []);
+      if (data.last_updated) {
+        setLastUpdated(data.last_updated);
+      }
+    } catch (err) {
+      console.error('Error fetching surveys:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
-
-    // Apply max LOI filter
-    if (filters.max_loi) {
-      filtered = filtered.filter(s => s.loi <= filters.max_loi);
-    }
-
-    // Apply min payout filter
-    if (filters.min_payout) {
-      filtered = filtered.filter(s => s.payout >= filters.min_payout);
-    }
-
-    // Apply country filter
-    if (filters.country) {
-      filtered = filtered.filter(s => s.country === filters.country);
-    }
-
-    return filtered;
-  }, [surveys, filters]);
-
-  // Client-side pagination
-  const paginatedSurveys = useMemo(() => {
-    const startIndex = (currentPage - 1) * recordsPerPage;
-    const endIndex = startIndex + recordsPerPage;
-    return filteredSurveys.slice(startIndex, endIndex);
-  }, [filteredSurveys, currentPage, recordsPerPage]);
-
-  // Reset to page 1 when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [filters]);
+  };
 
   // Manual refresh handler
-  const handleManualRefresh = useCallback(async () => {
+  const handleRefresh = async () => {
     setLoading(true);
     try {
       const response = await fetch(`${API_BASE_URL}/cpx/refresh`, {
@@ -114,39 +75,73 @@ export default function SurveyPool() {
         throw new Error('Failed to refresh CPX inventory');
       }
 
-      const data = await response.json();
-      console.log('✅ CPX refresh complete:', data);
-
-      // Fetch latest surveys (all surveys, no filters)
-      const surveyData = await fetchSurveys({
-        page: 1,
-        page_size: 1000,
-      });
-      
-      if (surveyData?.last_updated) {
-        setLastUpdated(surveyData.last_updated);
-      }
+      // Fetch latest surveys
+      await fetchSurveys();
       setCurrentPage(1);
     } catch (err) {
       console.error('Error refreshing CPX inventory:', err);
+      setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [token, filters, recordsPerPage]);
+  };
 
-  // Handle filter save
-  const handleSaveFilters = useCallback(async () => {
-    try {
-      await saveFilterSettings(filters);
-      console.log('✅ Filters saved successfully');
-    } catch (err) {
-      console.error('Error saving filters:', err);
+  // Client-side pagination
+  const paginatedSurveys = useMemo(() => {
+    const startIndex = (currentPage - 1) * recordsPerPage;
+    const endIndex = startIndex + recordsPerPage;
+    return surveys.slice(startIndex, endIndex);
+  }, [surveys, currentPage, recordsPerPage]);
+
+  const totalPages = Math.ceil(surveys.length / recordsPerPage);
+
+  // Handle survey click to show details
+  const handleSurveyClick = (survey) => {
+    setSelectedSurvey(survey);
+    setShowDetailsModal(true);
+  };
+
+  // Close details modal
+  const closeDetailsModal = () => {
+    setShowDetailsModal(false);
+    setSelectedSurvey(null);
+  };
+
+  // Format date/time for display
+  const formatDateTime = (dateString) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    return date.toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
+  // Get survey name - for CPX surveys, use survey_id as name
+  const getSurveyName = (survey) => {
+    const source = survey.provider || survey.source || 'CPX';
+    if (source === 'CPX') {
+      return survey.survey_id || survey._id || 'N/A';
     }
-  }, [filters]);
+    return survey.name || survey.survey_name || survey.title || 'N/A';
+  };
 
-  // Calculate pagination based on filtered surveys
-  const totalFilteredSurveys = filteredSurveys.length;
-  const totalPages = Math.ceil(totalFilteredSurveys / recordsPerPage);
+  // Calculate conversion rate properly (stored as decimal, display as percentage)
+  const getConversionRate = (survey) => {
+    const rate = survey.conversion_rate;
+    if (rate === null || rate === undefined) return 'N/A';
+    // If rate is already > 1, it's likely already a percentage
+    if (rate > 1) {
+      return `${rate.toFixed(1)}%`;
+    }
+    // Otherwise multiply by 100 to get percentage
+    return `${(rate * 100).toFixed(1)}%`;
+  };
 
   if (!user) {
     return <div className="survey-pool-container">Please login to access Survey Pool.</div>;
@@ -155,29 +150,28 @@ export default function SurveyPool() {
   return (
     <div className="survey-pool-container">
       <div className="survey-pool-header">
-        <h1>📋 Survey Pool</h1>
-        <p>Manage CPX Research survey inventory and filtering</p>
+        <div>
+          <h1>📋 Survey Pool</h1>
+          <p>CPX Research survey inventory</p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {lastUpdated && (
+            <span style={{ fontSize: '0.85rem', color: '#666' }}>
+              Last updated: {new Date(lastUpdated).toLocaleString()}
+            </span>
+          )}
+          <button
+            onClick={handleRefresh}
+            disabled={loading}
+            className="refresh-btn"
+          >
+            {loading ? '⏳ Refreshing...' : '🔄 Refresh'}
+          </button>
+        </div>
       </div>
 
-      {/* Stats Section */}
-      <SurveyPoolStats
-        totalSurveys={totalSurveys}
-        filteredSurveys={totalFilteredSurveys}
-        lastUpdated={lastUpdated}
-        onManualRefresh={handleManualRefresh}
-        refreshing={loading}
-      />
-
-      {/* Filter Panel */}
-      <SurveyFilterPanel
-        filters={filters}
-        onFilterChange={updateFilters}
-        onSaveFilters={handleSaveFilters}
-        saving={savingFilters}
-      />
-
       {/* Loading State */}
-      {loading && surveys.length === 0 && !dataError && (
+      {loading && surveys.length === 0 && !error && (
         <div className="survey-pool-loading">
           <div className="loading-spinner"></div>
           <p>⏳ Loading surveys...</p>
@@ -185,115 +179,269 @@ export default function SurveyPool() {
       )}
 
       {/* Error State */}
-      {dataError && (
+      {error && (
         <div className="survey-pool-error">
           <p>❌ Failed to fetch surveys</p>
-          <p className="error-detail">{dataError}</p>
-          <button onClick={handleManualRefresh} className="retry-btn">
+          <p className="error-detail">{error}</p>
+          <button onClick={handleRefresh} className="retry-btn">
             🔄 Retry
           </button>
         </div>
       )}
 
-      {/* Survey Data Table */}
+      {/* Survey Table */}
       {paginatedSurveys.length > 0 && (
         <>
-          <SurveyDataTable 
-            surveys={paginatedSurveys}
-            token={token}
-            onSurveySelect={setSelectedSurvey}
-            selectedSurveyId={selectedSurvey?._id}
-          />
-
-          {/* Traffic Assignment Panel */}
-          {selectedSurvey && (
-            <TrafficAssignmentPanel
-              survey={selectedSurvey}
-              token={token}
-              onAssignmentComplete={() => {
-                setTrafficRefreshTrigger(prev => prev + 1);
-                setSelectedSurvey(null);
-              }}
-            />
-          )}
+          <div className="survey-table-container">
+            <table className="survey-table">
+              <thead>
+                <tr>
+                  <th>Survey ID</th>
+                  <th>Name</th>
+                  <th>Source</th>
+                  <th>Country</th>
+                  <th>LOI (min)</th>
+                  <th>Payout</th>
+                  <th>Conversion</th>
+                  <th>Date/Time</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedSurveys.map((survey, index) => (
+                  <tr key={survey._id || survey.survey_id || index}>
+                    <td>
+                      <span 
+                        className="survey-link" 
+                        onClick={() => handleSurveyClick(survey)}
+                        style={{ cursor: 'pointer', color: '#667eea', textDecoration: 'underline' }}
+                      >
+                        {survey.survey_id || survey._id}
+                      </span>
+                    </td>
+                    <td>
+                      <span 
+                        className="survey-link" 
+                        onClick={() => handleSurveyClick(survey)}
+                        style={{ cursor: 'pointer', color: '#667eea', textDecoration: 'underline' }}
+                      >
+                        {getSurveyName(survey)}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="source-badge">
+                        {survey.provider || survey.source || 'CPX'}
+                      </span>
+                    </td>
+                    <td>{survey.country || survey.country_code || 'N/A'}</td>
+                    <td>{survey.loi || 'N/A'}</td>
+                    <td>${survey.payout?.toFixed(2) || survey.cpi?.toFixed(2) || '0.00'}</td>
+                    <td>{getConversionRate(survey)}</td>
+                    <td>{formatDateTime(survey.last_updated || survey.inserted_at)}</td>
+                    <td>
+                      <span className={`status-badge ${survey.status === 'active' ? 'active' : 'inactive'}`}>
+                        {survey.status || 'active'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
           {/* Pagination Controls */}
-          {totalFilteredSurveys > recordsPerPage && (
-          <div className="survey-pool-pagination">
-            <div className="pagination-info">
-              Showing {(currentPage - 1) * recordsPerPage + 1} to{' '}
-              {Math.min(currentPage * recordsPerPage, totalFilteredSurveys)} of {totalFilteredSurveys} surveys
-            </div>
+          {surveys.length > recordsPerPage && (
+            <div className="survey-pool-pagination">
+              <div className="pagination-info">
+                Showing {(currentPage - 1) * recordsPerPage + 1} to{' '}
+                {Math.min(currentPage * recordsPerPage, surveys.length)} of {surveys.length} surveys
+              </div>
 
-            <div className="pagination-controls">
-              <select
-                value={recordsPerPage}
-                onChange={(e) => {
-                  setRecordsPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="records-per-page"
-              >
-                <option value={10}>10 per page</option>
-                <option value={20}>20 per page</option>
-                <option value={50}>50 per page</option>
-                <option value={100}>100 per page</option>
-              </select>
+              <div className="pagination-controls">
+                <select
+                  value={recordsPerPage}
+                  onChange={(e) => {
+                    setRecordsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="records-per-page"
+                >
+                  <option value={10}>10 per page</option>
+                  <option value={20}>20 per page</option>
+                  <option value={50}>50 per page</option>
+                  <option value={100}>100 per page</option>
+                </select>
 
-              <div className="pagination-buttons">
-                <button
-                  onClick={() => setCurrentPage(1)}
-                  disabled={currentPage === 1 || loading}
-                  className="pagination-btn"
-                >
-                  ⬅️ First
-                </button>
-                <button
-                  onClick={() => setCurrentPage(currentPage - 1)}
-                  disabled={currentPage === 1 || loading}
-                  className="pagination-btn"
-                >
-                  ← Previous
-                </button>
+                <div className="pagination-buttons">
+                  <button
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1 || loading}
+                    className="pagination-btn"
+                  >
+                    ⬅️ First
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(currentPage - 1)}
+                    disabled={currentPage === 1 || loading}
+                    className="pagination-btn"
+                  >
+                    ← Previous
+                  </button>
 
-                <span className="pagination-page-info">
-                  Page {currentPage} of {totalPages}
-                </span>
+                  <span className="pagination-page-info">
+                    Page {currentPage} of {totalPages}
+                  </span>
 
-                <button
-                  onClick={() => setCurrentPage(currentPage + 1)}
-                  disabled={currentPage === totalPages || loading}
-                  className="pagination-btn"
-                >
-                  Next →
-                </button>
-                <button
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={currentPage === totalPages || loading}
-                  className="pagination-btn"
-                >
-                  Last ➡️
-                </button>
+                  <button
+                    onClick={() => setCurrentPage(currentPage + 1)}
+                    disabled={currentPage === totalPages || loading}
+                    className="pagination-btn"
+                  >
+                    Next →
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage === totalPages || loading}
+                    className="pagination-btn"
+                  >
+                    Last ➡️
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
           )}
         </>
       )}
 
-      {filteredSurveys.length === 0 && surveys.length > 0 && !dataError && !loading && (
-        <div className="survey-pool-empty">
-          <div className="empty-icon">🔍</div>
-          <p className="empty-title">No surveys match your filters</p>
-          <p className="empty-subtitle">Try adjusting your filter criteria to see more results.</p>
-        </div>
-      )}
-
-      {surveys.length === 0 && !dataError && !loading && (
+      {surveys.length === 0 && !error && !loading && (
         <div className="survey-pool-empty">
           <div className="empty-icon">📭</div>
           <p className="empty-title">No surveys available</p>
           <p className="empty-subtitle">Refresh to check for new surveys from CPX Research.</p>
+        </div>
+      )}
+
+      {/* Survey Details Modal */}
+      {showDetailsModal && selectedSurvey && (
+        <div className="survey-details-modal-overlay" onClick={closeDetailsModal}>
+          <div className="survey-details-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>📋 Survey Details</h2>
+              <button className="modal-close-btn" onClick={closeDetailsModal}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="detail-grid">
+                <div className="detail-item">
+                  <span className="detail-label">Survey ID</span>
+                  <span className="detail-value">{selectedSurvey.survey_id || selectedSurvey._id}</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Name</span>
+                  <span className="detail-value">{getSurveyName(selectedSurvey)}</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Source</span>
+                  <span className="detail-value">{selectedSurvey.provider || selectedSurvey.source || 'CPX'}</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Country</span>
+                  <span className="detail-value">{selectedSurvey.country || selectedSurvey.country_code || 'N/A'}</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Length of Interview</span>
+                  <span className="detail-value">{selectedSurvey.loi || 'N/A'} minutes</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Payout</span>
+                  <span className="detail-value">${selectedSurvey.payout?.toFixed(2) || selectedSurvey.cpi?.toFixed(2) || '0.00'}</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Conversion Rate</span>
+                  <span className="detail-value">{getConversionRate(selectedSurvey)}</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Category</span>
+                  <span className="detail-value">{selectedSurvey.category || 'N/A'}</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Status</span>
+                  <span className="detail-value">{selectedSurvey.status || 'active'}</span>
+                </div>
+                <div className="detail-item">
+                  <span className="detail-label">Date/Time Added</span>
+                  <span className="detail-value">{formatDateTime(selectedSurvey.last_updated || selectedSurvey.inserted_at)}</span>
+                </div>
+              </div>
+              {selectedSurvey.title && selectedSurvey.title !== getSurveyName(selectedSurvey) && (
+                <div className="detail-item full-width">
+                  <span className="detail-label">Title</span>
+                  <span className="detail-value">{selectedSurvey.title}</span>
+                </div>
+              )}
+              
+              {/* Live Link - Direct link from CPX API */}
+              {selectedSurvey.live_link && (
+                <div className="detail-item full-width">
+                  <span className="detail-label">🔗 Live Link</span>
+                  <div className="entry-link-container">
+                    <input 
+                      type="text" 
+                      readOnly 
+                      value={selectedSurvey.live_link} 
+                      className="entry-link-input"
+                      onClick={(e) => e.target.select()}
+                    />
+                    <button 
+                      className="copy-link-btn"
+                      onClick={() => navigator.clipboard.writeText(selectedSurvey.live_link)}
+                      title="Copy to clipboard"
+                    >
+                      📋 Copy
+                    </button>
+                    <a 
+                      href={selectedSurvey.live_link} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="open-link-btn"
+                      title="Open in new tab"
+                    >
+                      🔗 Open
+                    </a>
+                  </div>
+                </div>
+              )}
+              
+              {/* Entry Link - Generated link with placeholder for ext_user_id */}
+              {selectedSurvey.entry_link && (
+                <div className="detail-item full-width">
+                  <span className="detail-label">🎯 Entry Link (Template)</span>
+                  <div className="entry-link-container">
+                    <input 
+                      type="text" 
+                      readOnly 
+                      value={selectedSurvey.entry_link} 
+                      className="entry-link-input"
+                      onClick={(e) => e.target.select()}
+                    />
+                    <button 
+                      className="copy-link-btn"
+                      onClick={() => navigator.clipboard.writeText(selectedSurvey.entry_link)}
+                      title="Copy to clipboard"
+                    >
+                      📋 Copy
+                    </button>
+                  </div>
+                  <div style={{ color: '#888', marginTop: '8px', fontSize: '0.85rem', lineHeight: '1.5' }}>
+                    <strong>Replace placeholders:</strong>
+                    <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                      <li><code>{'{ext_user_id}'}</code> - Unique user ID (mandatory)</li>
+                      <li><code>{'{secure_hash}'}</code> - MD5 hash of (ext_user_id + secure_key)</li>
+                    </ul>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

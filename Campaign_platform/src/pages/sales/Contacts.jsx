@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
+import { SALES_STAGES, getStageStyle as getPipelineStageStyle, getContactStages, getStageById } from "../../utils/salesPipeline"
 
 function Contacts() {
   const navigate = useNavigate();
@@ -13,6 +14,9 @@ function Contacts() {
   const [search, setSearch] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [recordsPerPage, setRecordsPerPage] = useState(10)
+
+  // Contact stages (post-qualification)
+  const contactStages = getContactStages()
 
   const emptyForm = {
     name: "",
@@ -40,7 +44,7 @@ function Contacts() {
     companyLastFundingRoundAmount: "",
     companyLogoPrimary: "",
     companyLogoSecondary: "",
-    stage: "RFQ",
+    stage: "discovery_call",
   }
   const [formData, setFormData] = useState(emptyForm)
 
@@ -118,7 +122,7 @@ function Contacts() {
       companyLastFundingRoundAmount: contact.companyLastFundingRoundAmount || "",
       companyLogoPrimary: contact.companyLogoPrimary || "",
       companyLogoSecondary: contact.companyLogoSecondary || "",
-      stage: contact.stage || "RFQ",
+      stage: contact.stage || "discovery_call",
     })
     setShowForm(true)
   }
@@ -246,16 +250,9 @@ function Contacts() {
     setCurrentPage(1);
   };
 
-  // Stage badge colors
-  const getStageStyle = (stage) => {
-    const stages = {
-      'RFQ': { bg: '#dbeafe', color: '#1e40af' },
-      'Proposal': { bg: '#fef3c7', color: '#92400e' },
-      'Negotiation': { bg: '#e0e7ff', color: '#3730a3' },
-      'Won': { bg: '#d1fae5', color: '#065f46' },
-      'Lost': { bg: '#fee2e2', color: '#991b1b' },
-    }
-    return stages[stage] || { bg: '#f3f4f6', color: '#374151' }
+  // Stage badge colors - use the shared pipeline styles
+  const getStageStyle = (stageId) => {
+    return getPipelineStageStyle(stageId)
   }
 
   return (
@@ -309,8 +306,9 @@ function Contacts() {
         </select>
         <div style={styles.stats}>
           <span>Total: <strong>{contacts.length}</strong></span>
-          <span>RFQ: <strong>{contacts.filter(c => c.stage === "RFQ").length}</strong></span>
-          <span>Won: <strong>{contacts.filter(c => c.stage === "Won").length}</strong></span>
+          {contactStages.map(stage => (
+            <span key={stage.id}>{stage.icon} {stage.label}: <strong>{contacts.filter(c => c.stage === stage.id).length}</strong></span>
+          ))}
         </div>
       </div>
 
@@ -359,7 +357,7 @@ function Contacts() {
                       backgroundColor: stageStyle.bg,
                       color: stageStyle.color
                     }}>
-                      {contact.stage || 'RFQ'}
+                      {getStageById(contact.stage)?.icon} {getStageById(contact.stage)?.label || contact.stage || 'Discovery Call'}
                     </span>
                   </td>
                   <td style={styles.td}>
@@ -523,11 +521,9 @@ function Contacts() {
                   value={formData.stage}
                   onChange={handleChange}
                 >
-                  <option>RFQ</option>
-                  <option>Proposal</option>
-                  <option>Negotiation</option>
-                  <option>Won</option>
-                  <option>Lost</option>
+                  {SALES_STAGES.map(stage => (
+                    <option key={stage.id} value={stage.id}>{stage.icon} {stage.label}</option>
+                  ))}
                 </select>
               </div>
 
