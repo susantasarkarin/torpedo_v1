@@ -325,3 +325,54 @@ async def list_traffic_records(
         print(f"Error listing traffic records: {e}")
         raise HTTPException(status_code=500, detail=f"List error: {str(e)}")
 
+
+@router.delete("/api/traffic/delete")
+async def delete_traffic_records(
+    request: Request,
+    data: Dict[str, Any] = Body(...)
+):
+    """
+    Delete multiple traffic records by IDs
+    
+    Body:
+    {
+        "ids": ["id1", "id2", "id3"]
+    }
+    """
+    try:
+        # Verify session
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        if traffic_service is None:
+            raise HTTPException(status_code=503, detail="Traffic service not initialized")
+        
+        ids = data.get('ids', [])
+        if not ids:
+            raise HTTPException(status_code=400, detail="No IDs provided")
+        
+        # Convert string IDs to ObjectId and delete
+        object_ids = []
+        for id_str in ids:
+            try:
+                object_ids.append(ObjectId(id_str))
+            except Exception:
+                pass  # Skip invalid IDs
+        
+        if not object_ids:
+            raise HTTPException(status_code=400, detail="No valid IDs provided")
+        
+        result = traffic_service.traffic_collection.delete_many({"_id": {"$in": object_ids}})
+        
+        return {
+            "deleted_count": result.deleted_count,
+            "requested_count": len(ids)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting traffic records: {e}")
+        raise HTTPException(status_code=500, detail=f"Delete error: {str(e)}")
+

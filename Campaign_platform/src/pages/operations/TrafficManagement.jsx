@@ -25,6 +25,8 @@ export default function TrafficManagement() {
   const [totalPages, setTotalPages] = useState(0)
   const [stats, setStats] = useState({ total: 0, by_status: {} })
   const [expandedRow, setExpandedRow] = useState(null)
+  const [selectedIds, setSelectedIds] = useState([])
+  const [deleting, setDeleting] = useState(false)
 
   // Fetch traffic records
   const fetchRecords = async () => {
@@ -100,6 +102,15 @@ export default function TrafficManagement() {
     fetchStats()
   }, [currentPage, recordsPerPage, statusFilter])
 
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchRecords()
+      fetchStats()
+    }, 30000) // 30 seconds
+    return () => clearInterval(interval)
+  }, [currentPage, recordsPerPage, statusFilter, search])
+
   // Handle search with debounce
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -121,6 +132,69 @@ export default function TrafficManagement() {
 
   const toggleExpandRow = (id) => {
     setExpandedRow(expandedRow === id ? null : id)
+  }
+
+  // Handle checkbox selection
+  const handleSelectRecord = (id, e) => {
+    e.stopPropagation() // Prevent row expansion when clicking checkbox
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
+  }
+
+  // Handle select all on current page
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      setSelectedIds(records.map((r) => r._id))
+    } else {
+      setSelectedIds([])
+    }
+  }
+
+  // Delete selected records
+  const handleDeleteSelected = async () => {
+    if (selectedIds.length === 0) return
+    
+    if (!window.confirm(`Are you sure you want to delete ${selectedIds.length} record(s)?`)) {
+      return
+    }
+
+    const sessionId = localStorage.getItem("session_id")
+    if (!sessionId) {
+      navigate("/login")
+      return
+    }
+
+    setDeleting(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/traffic/delete`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+        body: JSON.stringify({ ids: selectedIds }),
+      })
+
+      if (res.status === 401) {
+        alert("Session expired. Please login again.")
+        localStorage.removeItem("session_id")
+        navigate("/login")
+        return
+      }
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || "Failed to delete records")
+
+      alert(`Successfully deleted ${data.deleted_count} record(s)`)
+      setSelectedIds([])
+      fetchRecords()
+      fetchStats()
+    } catch (e) {
+      alert("Error deleting records: " + e.message)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   return (
@@ -170,6 +244,15 @@ export default function TrafficManagement() {
           />
         </div>
         <div className="filter-controls">
+          {selectedIds.length > 0 && (
+            <button
+              onClick={handleDeleteSelected}
+              disabled={deleting}
+              className="delete-selected-btn"
+            >
+              {deleting ? "⏳ Deleting..." : `🗑️ Delete (${selectedIds.length})`}
+            </button>
+          )}
           <select
             value={statusFilter}
             onChange={(e) => {
@@ -178,7 +261,6 @@ export default function TrafficManagement() {
             }}
           >
             <option value="">All Statuses</option>
-            <option value="NEW">NEW</option>
             <option value="INCOMPLETE">INCOMPLETE</option>
             <option value="COMPLETE">COMPLETE</option>
             <option value="TERMINATED">TERMINATED</option>
@@ -228,6 +310,13 @@ export default function TrafficManagement() {
             <table className="traffic-table">
               <thead>
                 <tr>
+                  <th className="checkbox-cell">
+                    <input
+                      type="checkbox"
+                      checked={records.length > 0 && selectedIds.length === records.length}
+                      onChange={handleSelectAll}
+                    />
+                  </th>
                   <th></th>
                   <th>Record ID</th>
                   <th>Created At</th>
@@ -243,6 +332,13 @@ export default function TrafficManagement() {
                 {records.map((record) => (
                   <>
                     <tr key={record._id} onClick={() => toggleExpandRow(record._id)} className="clickable-row">
+                      <td className="checkbox-cell" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(record._id)}
+                          onChange={(e) => handleSelectRecord(record._id, e)}
+                        />
+                      </td>
                       <td className="expand-cell">{expandedRow === record._id ? "▼" : "▶"}</td>
                       <td className="record-id" title={record._id}>{record._id?.slice(-8) || "N/A"}</td>
                       <td>{formatDate(record.createdAt)}</td>
@@ -265,7 +361,7 @@ export default function TrafficManagement() {
                     </tr>
                     {expandedRow === record._id && (
                       <tr className="expanded-row">
-                        <td colSpan="9">
+                        <td colSpan="10">
                           <div className="expanded-content">
                             <div className="expanded-section">
                               <h4>📋 Record Details</h4>

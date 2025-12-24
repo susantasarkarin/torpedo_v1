@@ -8,18 +8,29 @@ import FinanceSidebar from "./FinanceSidebar"
 import Footer from "./Footer"
 import { useState, useEffect } from "react"
 
+// Helper to determine section from pathname
+function getSectionFromPath(pathname) {
+  if (pathname.startsWith("/admin/sales")) return "sales"
+  if (pathname.startsWith("/admin/finance")) return "finance"
+  if (pathname.startsWith("/admin/operations") || pathname === "/admin/logs") return "operations"
+  return null
+}
+
 function Layout() {
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false)
   const [mainDropdownOpen, setMainDropdownOpen] = useState(false)
-  const [selectedSection, setSelectedSection] = useState(null)
   const location = useLocation()
+  
+  // Initialize selectedSection based on current URL path
+  const [selectedSection, setSelectedSection] = useState(() => getSectionFromPath(location.pathname))
 
-  // Auto-select operations section when on logs page
+  // Keep selectedSection in sync with route changes
   useEffect(() => {
-    if (location.pathname === "/admin/logs" && selectedSection !== "operations") {
-      setSelectedSection("operations")
+    const section = getSectionFromPath(location.pathname)
+    if (section !== null && section !== selectedSection) {
+      setSelectedSection(section)
     }
-  }, [location.pathname, selectedSection])
+  }, [location.pathname])
 
   console.log("[v0] Selected section:", selectedSection)
 

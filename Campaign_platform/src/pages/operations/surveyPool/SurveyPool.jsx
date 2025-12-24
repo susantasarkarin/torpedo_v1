@@ -21,6 +21,15 @@ export default function SurveyPool() {
     }
   }, [token]);
 
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    if (!token) return;
+    const interval = setInterval(() => {
+      fetchSurveys();
+    }, 30000); // 30 seconds
+    return () => clearInterval(interval);
+  }, [token]);
+
   const fetchSurveys = async () => {
     setLoading(true);
     setError(null);
