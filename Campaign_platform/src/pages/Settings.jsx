@@ -33,6 +33,19 @@ function Settings() {
     cooldown_seconds: 10,
     enabled: true,
   })
+
+  // Survey Allocation Settings state
+  const [allocationSettings, setAllocationSettings] = useState({
+    batch_size: 100,
+    buffer_multiplier: 1.2,
+    max_incomplete_rate: 40.0,
+    min_incidence_rate: 10.0,
+    minimum_entrants_for_evaluation: 50,
+    auto_pause_enabled: true,
+    pause_cooldown_minutes: 30,
+    prefer_high_ir_surveys: true,
+    prefer_high_cpi_surveys: false,
+  })
   const [newAccount, setNewAccount] = useState({ email: "", name: "", is_default: false })
   const [newAlias, setNewAlias] = useState({ email: "", name: "", account_id: "" })
   const [showAddAccount, setShowAddAccount] = useState(false)
@@ -42,7 +55,7 @@ function Settings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: "", text: "" })
-  const [activeTab, setActiveTab] = useState("app") // "app", "filters", or "gmail"
+  const [activeTab, setActiveTab] = useState("app") // "app", "filters", "gmail", or "allocation"
   const [testingMongo, setTestingMongo] = useState(false)
   const [testingCpx, setTestingCpx] = useState(false)
 
@@ -53,6 +66,9 @@ function Settings() {
   useEffect(() => {
     if (activeTab === "gmail") {
       loadGmailSettings()
+    }
+    if (activeTab === "allocation") {
+      loadAllocationSettings()
     }
   }, [activeTab])
 
@@ -83,6 +99,54 @@ function Settings() {
     } finally {
       setGmailLoading(false)
     }
+  }
+
+  const loadAllocationSettings = async () => {
+    try {
+      const token = sessionStorage.getItem("token")
+      const response = await fetch(`${API_BASE_URL}/survey-allocation/settings`, {
+        headers: { Authorization: token }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setAllocationSettings(prev => ({ ...prev, ...data.settings }))
+      }
+    } catch (error) {
+      console.error("Error loading allocation settings:", error)
+    }
+  }
+
+  const saveAllocationSettings = async () => {
+    setSaving(true)
+    setMessage({ type: "", text: "" })
+    
+    try {
+      const token = sessionStorage.getItem("token")
+      const response = await fetch(`${API_BASE_URL}/survey-allocation/settings`, {
+        method: "POST",
+        headers: {
+          Authorization: token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(allocationSettings)
+      })
+      
+      if (response.ok) {
+        setMessage({ type: "success", text: "Allocation settings saved successfully!" })
+      } else {
+        const error = await response.json()
+        setMessage({ type: "error", text: error.detail || "Failed to save allocation settings" })
+      }
+    } catch (error) {
+      console.error("Error saving allocation settings:", error)
+      setMessage({ type: "error", text: "Failed to save allocation settings" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleAllocationSettingChange = (key, value) => {
+    setAllocationSettings(prev => ({ ...prev, [key]: value }))
   }
 
   const loadAllSettings = async () => {
@@ -556,6 +620,13 @@ function Settings() {
           Settings
         </button>
         <button 
+          className={`tab-button ${activeTab === "allocation" ? "active" : ""}`}
+          onClick={() => setActiveTab("allocation")}
+        >
+          <span className="tab-icon">📊</span>
+          Survey Allocation
+        </button>
+        <button 
           className={`tab-button ${activeTab === "gmail" ? "active" : ""}`}
           onClick={() => setActiveTab("gmail")}
         >
@@ -737,6 +808,166 @@ function Settings() {
                 disabled={saving}
               >
                 {saving ? "Saving..." : "Save All Settings"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "allocation" && (
+          <div className="settings-section">
+            <h2>Survey Allocation & Quality Control</h2>
+            <p className="section-description">
+              Configure allocation batch sizes, quality thresholds, and auto-pause rules for survey distribution.
+            </p>
+
+            <div className="settings-group">
+              <h3>📦 Batch Allocation Settings</h3>
+              <p className="group-description">
+                Control how respondents are allocated to surveys in batches.
+              </p>
+              <div className="setting-row">
+                <label>Batch Size</label>
+                <div className="input-with-unit">
+                  <input
+                    type="number"
+                    min="1"
+                    max="1000"
+                    value={allocationSettings.batch_size}
+                    onChange={(e) => handleAllocationSettingChange("batch_size", parseInt(e.target.value))}
+                  />
+                  <span className="unit">allocations</span>
+                </div>
+                <p className="setting-hint">Number of respondents to send per batch before evaluation</p>
+              </div>
+              <div className="setting-row">
+                <label>Buffer Multiplier</label>
+                <div className="input-with-unit">
+                  <input
+                    type="number"
+                    min="1.0"
+                    max="2.0"
+                    step="0.1"
+                    value={allocationSettings.buffer_multiplier}
+                    onChange={(e) => handleAllocationSettingChange("buffer_multiplier", parseFloat(e.target.value))}
+                  />
+                  <span className="unit">x</span>
+                </div>
+                <p className="setting-hint">Extra buffer for allocations (1.2 = send 20% more than batch size)</p>
+              </div>
+            </div>
+
+            <div className="settings-group">
+              <h3>📈 Quality Control Thresholds</h3>
+              <p className="group-description">
+                Set thresholds for automatic survey pausing based on performance metrics.
+              </p>
+              <div className="setting-row">
+                <label>Maximum Incomplete Rate</label>
+                <div className="input-with-unit">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={allocationSettings.max_incomplete_rate}
+                    onChange={(e) => handleAllocationSettingChange("max_incomplete_rate", parseFloat(e.target.value))}
+                  />
+                  <span className="unit">%</span>
+                </div>
+                <p className="setting-hint">Pause survey if incomplete rate exceeds this threshold</p>
+              </div>
+              <div className="setting-row">
+                <label>Minimum Incidence Rate (IR)</label>
+                <div className="input-with-unit">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={allocationSettings.min_incidence_rate}
+                    onChange={(e) => handleAllocationSettingChange("min_incidence_rate", parseFloat(e.target.value))}
+                  />
+                  <span className="unit">%</span>
+                </div>
+                <p className="setting-hint">Pause survey if incidence rate falls below this threshold</p>
+              </div>
+              <div className="setting-row">
+                <label>Minimum Entrants for Evaluation</label>
+                <div className="input-with-unit">
+                  <input
+                    type="number"
+                    min="10"
+                    max="500"
+                    value={allocationSettings.minimum_entrants_for_evaluation}
+                    onChange={(e) => handleAllocationSettingChange("minimum_entrants_for_evaluation", parseInt(e.target.value))}
+                  />
+                  <span className="unit">entrants</span>
+                </div>
+                <p className="setting-hint">Don't evaluate pause rules until this many respondents have started</p>
+              </div>
+            </div>
+
+            <div className="settings-group">
+              <h3>⏸️ Auto-Pause Settings</h3>
+              <div className="setting-row checkbox-row">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={allocationSettings.auto_pause_enabled}
+                    onChange={(e) => handleAllocationSettingChange("auto_pause_enabled", e.target.checked)}
+                  />
+                  <span>Enable automatic survey pausing</span>
+                </label>
+              </div>
+              <div className="setting-row">
+                <label>Pause Cooldown</label>
+                <div className="input-with-unit">
+                  <input
+                    type="number"
+                    min="5"
+                    max="1440"
+                    value={allocationSettings.pause_cooldown_minutes}
+                    onChange={(e) => handleAllocationSettingChange("pause_cooldown_minutes", parseInt(e.target.value))}
+                    disabled={!allocationSettings.auto_pause_enabled}
+                  />
+                  <span className="unit">minutes</span>
+                </div>
+                <p className="setting-hint">Time before paused surveys can be considered for auto-resume</p>
+              </div>
+            </div>
+
+            <div className="settings-group">
+              <h3>🎯 Allocation Preferences</h3>
+              <p className="group-description">
+                Configure how eligible surveys are prioritized for allocation.
+              </p>
+              <div className="setting-row checkbox-row">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={allocationSettings.prefer_high_ir_surveys}
+                    onChange={(e) => handleAllocationSettingChange("prefer_high_ir_surveys", e.target.checked)}
+                  />
+                  <span>Prioritize surveys with higher expected Incidence Rate (IR)</span>
+                </label>
+              </div>
+              <div className="setting-row checkbox-row">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={allocationSettings.prefer_high_cpi_surveys}
+                    onChange={(e) => handleAllocationSettingChange("prefer_high_cpi_surveys", e.target.checked)}
+                  />
+                  <span>Prioritize surveys with higher CPI (Cost Per Interview)</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="settings-actions">
+              <button 
+                className="save-button"
+                onClick={saveAllocationSettings}
+                disabled={saving}
+              >
+                {saving ? "Saving..." : "Save Allocation Settings"}
               </button>
             </div>
           </div>

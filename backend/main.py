@@ -22,6 +22,7 @@ try:
     from .routers import settings as settings_router
     from .routers import gmail as gmail_router
     from .app.services.cpx_service import CPXService
+    from .app.routers import survey_allocation as survey_allocation_router
 except Exception:
     # Fallback to absolute import for other runtimes
     from routers import traffic as traffic_router
@@ -30,6 +31,7 @@ except Exception:
     from routers import settings as settings_router
     from routers import gmail as gmail_router
     from app.services.cpx_service import CPXService
+    from app.routers import survey_allocation as survey_allocation_router
 
 # Ensure stdout/stderr use UTF-8 on Windows consoles to avoid UnicodeEncodeError
 import sys
@@ -298,6 +300,13 @@ try:
     print("✅ Gmail router included")
 except Exception as e:
     print(f"⚠️ Gmail router not included: {e}")
+
+# Survey Allocation & Quality Control Engine router
+try:
+    app.include_router(survey_allocation_router.router)
+    print("✅ Survey Allocation router included")
+except Exception as e:
+    print(f"⚠️ Survey Allocation router not included: {e}")
 
 # ----------------------------
 # APScheduler for CPX refresh job

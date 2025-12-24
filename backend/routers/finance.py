@@ -127,11 +127,13 @@ def validate_email(email: str) -> bool:
 
 
 def validate_phone(phone: str) -> bool:
-    """Validate Indian phone number format"""
+    """Validate phone number format - accepts any reasonable phone format"""
     if not phone:
         return True  # Phone is optional
-    phone_clean = phone.replace(" ", "").replace("-", "")
-    phone_regex = r'^(\+91)?[0]?(91)?[6789]\d{9}$'
+    # Remove common separators and whitespace
+    phone_clean = phone.replace(" ", "").replace("-", "").replace("(", "").replace(")", "").replace(".", "")
+    # Accept any phone number with at least 7 digits (allowing country codes like +1, +44, +91, etc.)
+    phone_regex = r'^\+?[0-9]{7,15}$'
     return bool(re.match(phone_regex, phone_clean))
 
 
