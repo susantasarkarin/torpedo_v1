@@ -62,6 +62,7 @@ class TrafficService:
                 "params": params or {},
                 "assignedSurveyId": None,
                 "redirectUrl": None,
+                "outUrl": None,
             }
             
             result = self.traffic_collection.insert_one(traffic_record)
@@ -327,7 +328,8 @@ class TrafficService:
         self,
         traffic_id: str,
         status: str,
-        redirect_url: str = None
+        redirect_url: str = None,
+        out_url: str = None
     ) -> bool:
         """
         Update traffic record status
@@ -335,7 +337,8 @@ class TrafficService:
         Args:
             traffic_id: Traffic record ObjectId
             status: New status (complete, terminated, quotafull, etc.)
-            redirect_url: Optional redirect URL to store
+            redirect_url: Optional redirect URL to store (callback URL from survey)
+            out_url: Optional out URL (vendor redirect URL where respondent is sent post-survey)
             
         Returns:
             True if successful, False otherwise
@@ -348,6 +351,9 @@ class TrafficService:
             
             if redirect_url:
                 update_data["redirectUrl"] = redirect_url
+            
+            if out_url:
+                update_data["outUrl"] = out_url
             
             if status.upper() == "COMPLETE":
                 update_data["completedAt"] = datetime.utcnow()
@@ -477,6 +483,7 @@ class TrafficService:
                     "status": record.get("status", ""),
                     "assignedSurveyId": record.get("assignedSurveyId"),
                     "redirectUrl": record.get("redirectUrl"),
+                    "outUrl": record.get("outUrl"),
                     "createdAt": record.get("createdAt").isoformat() if record.get("createdAt") else None,
                     "updatedAt": record.get("updatedAt").isoformat() if record.get("updatedAt") else None,
                     "assignedAt": record.get("assignedAt").isoformat() if record.get("assignedAt") else None,

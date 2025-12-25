@@ -383,6 +383,14 @@ export default function TrafficManagement() {
                                 <code className="redirect-url">{record.redirectUrl}</code>
                               </div>
                             )}
+                            <div className="expanded-section">
+                              <h4>🚀 Out URL (Post-Survey Redirect)</h4>
+                              {record.outUrl ? (
+                                <a href={record.outUrl} target="_blank" rel="noopener noreferrer" className="redirect-url">{record.outUrl}</a>
+                              ) : (
+                                <code className="redirect-url">—</code>
+                              )}
+                            </div>
                             {record.params && Object.keys(record.params).length > 0 && (
                               <div className="expanded-section">
                                 <h4>📦 Raw Parameters</h4>

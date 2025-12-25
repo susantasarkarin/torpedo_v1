@@ -142,7 +142,8 @@ async def cpx_callback(
             traffic_service.update_traffic_status(
                 traffic_id=traffic_id,
                 status=new_status,
-                redirect_url=str(request.url)
+                redirect_url=str(request.url),
+                out_url=vendor_redirect_url
             )
         elif url_parameters_collection:
             update_data = {
@@ -150,6 +151,8 @@ async def cpx_callback(
                 "updatedAt": datetime.utcnow(),
                 "cpxCallbackUrl": str(request.url)
             }
+            if vendor_redirect_url:
+                update_data["outUrl"] = vendor_redirect_url
             if new_status == "COMPLETE":
                 update_data["completedAt"] = datetime.utcnow()
             
