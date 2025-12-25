@@ -206,10 +206,11 @@ async def cpx_callback(
             vendor = vendors_collection.find_one({"vid": vendor_id})
             if not vendor and isinstance(vendor_id, str):
                 # Try as integer if it's a numeric string
-                try:
-                    vendor = vendors_collection.find_one({"vid": int(vendor_id)})
-                except ValueError:
-                    pass
+                if vendor_id.isdigit():
+                    try:
+                        vendor = vendors_collection.find_one({"vid": int(vendor_id)})
+                    except ValueError:
+                        pass
             
             if not vendor and isinstance(vendor_id, int):
                 # Try as string
@@ -220,9 +221,10 @@ async def cpx_callback(
             else:
                 print(f"❌ Vendor not found by vid: {vendor_id}")
                 # Enhanced debugging
+                DEBUG_VENDOR_LIMIT = 10
                 all_vendors = list(vendors_collection.find({}, {"vid": 1, "vendorName": 1}))
                 print(f"📋 Available vendors (total {len(all_vendors)}):")
-                for v in all_vendors[:10]:  # Show first 10
+                for v in all_vendors[:DEBUG_VENDOR_LIMIT]:  # Show first few for debugging
                     print(f"  - vid: {v.get('vid')} ({type(v.get('vid')).__name__}), name: {v.get('vendorName')}")
         else:
             print(f"⚠️ vendors_collection is None or vendor_id is empty. vendor_id={vendor_id}")
