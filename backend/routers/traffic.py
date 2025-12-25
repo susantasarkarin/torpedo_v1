@@ -74,10 +74,10 @@ async def cpx_callback(
     or: /cpx-response?message_id={message_id}&rid={sfwid}
     
     - msg/message_id: "complete" or "out"
-    - rid: The SFWID (traffic record _id) used to track back to the original traffic record
+    - rid: The SFWID (traffic record _id) - CPX double base64 encodes this value
     
     Logic:
-    1. Decode rid if it's base64 encoded (SFWID)
+    1. Decode rid (CPX double base64 encodes the ext_user_id)
     2. Find the traffic record by _id (SFWID)
     3. Get the vendorId from the traffic record
     4. Look up vendor's redirect URL (completeRD or terminateRD)
@@ -88,20 +88,45 @@ async def cpx_callback(
         # Support both 'msg' and 'message_id' parameters
         status_code = msg or message_id or "out"
         
-        print(f"📥 CPX Callback received: msg={status_code}, rid(SFWID)={rid}")
+        print(f"📥 CPX Callback received: msg={status_code}, rid={rid}")
+        print(f"📥 Full callback URL: {request.url}")
         
-        # Try to decode the rid (SFWID) if it looks like base64
+        # CPX double base64 encodes the ext_user_id, so we need to decode twice
         decoded_sfwid = rid
-        try:
-            # Check if rid looks like base64 (contains only valid base64 characters and is longer than typical ID)
-            if rid and len(rid) > 20 and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in rid):
-                # Try base64 decoding
-                decoded_bytes = base64.b64decode(rid)
-                decoded_sfwid = decoded_bytes.decode('utf-8')
-                print(f"🔓 Decoded SFWID from base64: {rid} -> {decoded_sfwid}")
-        except Exception as decode_error:
-            print(f"ℹ️ SFWID is not base64 encoded, using as-is: {rid}")
-            decoded_sfwid = rid
+        
+        def try_base64_decode(value: str) -> str:
+            """Try to base64 decode a value, return original if fails"""
+            try:
+                # Add padding if needed
+                padded = value + '=' * (4 - len(value) % 4) if len(value) % 4 else value
+                decoded = base64.b64decode(padded).decode('utf-8')
+                return decoded
+            except Exception:
+                return value
+        
+        # Try double base64 decoding (CPX encodes twice)
+        if rid and len(rid) > 20:
+            first_decode = try_base64_decode(rid)
+            print(f"🔓 First base64 decode: {rid} -> {first_decode}")
+            
+            if first_decode != rid:
+                # Try second decode
+                second_decode = try_base64_decode(first_decode)
+                print(f"🔓 Second base64 decode: {first_decode} -> {second_decode}")
+                
+                # Use the most decoded version that looks like a MongoDB ObjectId (24 hex chars)
+                if len(second_decode) == 24 and all(c in '0123456789abcdef' for c in second_decode.lower()):
+                    decoded_sfwid = second_decode
+                    print(f"✅ Using double-decoded SFWID: {decoded_sfwid}")
+                elif len(first_decode) == 24 and all(c in '0123456789abcdef' for c in first_decode.lower()):
+                    decoded_sfwid = first_decode
+                    print(f"✅ Using single-decoded SFWID: {decoded_sfwid}")
+                else:
+                    # Try the second decode anyway
+                    decoded_sfwid = second_decode if second_decode != first_decode else first_decode
+                    print(f"⚠️ Using decoded value (not ObjectId format): {decoded_sfwid}")
+            else:
+                print(f"ℹ️ rid is not base64 encoded, using as-is: {rid}")
         
         # Determine status based on msg/message_id ("out" treated as terminate)
         if status_code.lower() == "complete":
@@ -113,23 +138,45 @@ async def cpx_callback(
         
         # Step 1: Find the traffic record by _id (SFWID)
         traffic_record = None
+        search_values = [decoded_sfwid]
+        
+        # Also try original rid and first decode if different
+        if rid != decoded_sfwid:
+            search_values.append(rid)
+        first_decode_attempt = try_base64_decode(rid)
+        if first_decode_attempt not in search_values:
+            search_values.append(first_decode_attempt)
+        
+        print(f"🔍 Searching for traffic record with values: {search_values}")
+        
         if url_parameters_collection is not None:
-            # Try to find by ObjectId first (SFWID is the _id)
-            try:
-                traffic_record = url_parameters_collection.find_one({"_id": ObjectId(decoded_sfwid)})
-            except Exception:
-                # If ObjectId conversion fails, try as string
-                traffic_record = url_parameters_collection.find_one({"_id": decoded_sfwid})
-            
-            # If not found with decoded SFWID, try with original rid
-            if not traffic_record and decoded_sfwid != rid:
+            for search_val in search_values:
+                if traffic_record:
+                    break
+                    
+                # Try to find by ObjectId first
                 try:
-                    traffic_record = url_parameters_collection.find_one({"_id": ObjectId(rid)})
-                except Exception:
-                    traffic_record = url_parameters_collection.find_one({"_id": rid})
+                    traffic_record = url_parameters_collection.find_one({"_id": ObjectId(search_val)})
+                    if traffic_record:
+                        print(f"✅ Found traffic record by ObjectId: {search_val}")
+                except Exception as e:
+                    print(f"⚠️ ObjectId search failed for {search_val}: {e}")
+                
+                # Try as string _id
+                if not traffic_record:
+                    traffic_record = url_parameters_collection.find_one({"_id": search_val})
+                    if traffic_record:
+                        print(f"✅ Found traffic record by string _id: {search_val}")
+                
+                # Try by respondentId as fallback
+                if not traffic_record:
+                    traffic_record = url_parameters_collection.find_one({"respondentId": search_val})
+                    if traffic_record:
+                        print(f"✅ Found traffic record by respondentId: {search_val}")
         
         if not traffic_record:
-            print(f"⚠️ No traffic record found for SFWID: {decoded_sfwid} (original: {rid})")
+            print(f"❌ No traffic record found for any search value: {search_values}")
+            print(f"❌ Original rid: {rid}")
             # Redirect to error page
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
@@ -146,17 +193,38 @@ async def cpx_callback(
         if vendors_collection is not None and vendor_id:
             # Find vendor by vendorNo matching the vendorId
             vendor = vendors_collection.find_one({"vendorNo": vendor_id})
+            if not vendor:
+                print(f"⚠️ Vendor not found by vendorNo: {vendor_id}")
+                # Try finding by _id
+                try:
+                    vendor = vendors_collection.find_one({"_id": ObjectId(vendor_id)})
+                    if vendor:
+                        print(f"✅ Found vendor by _id: {vendor_id}")
+                except Exception:
+                    pass
+                # Try finding by vendorName
+                if not vendor:
+                    vendor = vendors_collection.find_one({"vendorName": vendor_id})
+                    if vendor:
+                        print(f"✅ Found vendor by vendorName: {vendor_id}")
+        else:
+            print(f"⚠️ vendors_collection is None or vendor_id is empty. vendor_id={vendor_id}")
         
         if vendor:
-            print(f"📋 Found vendor: {vendor.get('vendorName')}")
+            print(f"📋 Found vendor: {vendor.get('vendorName')}, vendorNo: {vendor.get('vendorNo')}")
+            print(f"📋 Vendor redirect type: {redirect_type}")
+            print(f"📋 Vendor {redirect_type}: {vendor.get(redirect_type, [])}")
             
             # Step 3: Get the appropriate redirect URL array
             redirect_urls = vendor.get(redirect_type, [])
             vendor_variable = vendor.get("vendorVariable", "rid")
             
+            print(f"📋 Vendor variable name: {vendor_variable}")
+            
             if redirect_urls and len(redirect_urls) > 0:
                 # Use the first redirect URL
                 base_url = redirect_urls[0].strip()
+                print(f"📋 Base redirect URL: {base_url}")
                 
                 if base_url:
                     # Step 4: Append respondent ID using vendor's variable name
@@ -169,6 +237,10 @@ async def cpx_callback(
                         separator = "&" if "?" in base_url else "?"
                         vendor_redirect_url = f"{base_url}{separator}{vendor_variable}={original_respondent_id}"
                     print(f"🔗 Constructed vendor redirect URL: {vendor_redirect_url}")
+            else:
+                print(f"⚠️ No redirect URLs configured for {redirect_type}")
+        else:
+            print(f"❌ Vendor not found for vendor_id: {vendor_id}")
         
         # Step 5: Update traffic record status
         if traffic_service:
