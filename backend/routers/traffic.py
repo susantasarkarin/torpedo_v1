@@ -202,20 +202,28 @@ async def cpx_callback(
         if vendors_collection is not None and vendor_id:
             print(f"🔍 Looking up vendor with vid: {vendor_id}")
             
-            # Find vendor by vid matching the vendorId (vid from URL)
+            # Try to find vendor by vid (try both string and original type)
             vendor = vendors_collection.find_one({"vid": vendor_id})
-            if vendor:
-                print(f"✅ Found vendor by vid: {vendor_id}")
-            else:
-                # Try as string in case of type mismatch
+            if not vendor and isinstance(vendor_id, str):
+                # Try as integer if it's a numeric string
+                try:
+                    vendor = vendors_collection.find_one({"vid": int(vendor_id)})
+                except ValueError:
+                    pass
+            
+            if not vendor and isinstance(vendor_id, int):
+                # Try as string
                 vendor = vendors_collection.find_one({"vid": str(vendor_id)})
-                if vendor:
-                    print(f"✅ Found vendor by vid (as string): {vendor_id}")
-                else:
-                    print(f"❌ Vendor not found by vid: {vendor_id}")
-                    # List all vendors for debugging
-                    all_vendors = list(vendors_collection.find({}, {"vid": 1, "vendorName": 1}))
-                    print(f"📋 Available vendors: {[(v.get('vid'), v.get('vendorName')) for v in all_vendors]}")
+            
+            if vendor:
+                print(f"✅ Found vendor by vid: {vendor_id} - {vendor.get('vendorName')}")
+            else:
+                print(f"❌ Vendor not found by vid: {vendor_id}")
+                # Enhanced debugging
+                all_vendors = list(vendors_collection.find({}, {"vid": 1, "vendorName": 1}))
+                print(f"📋 Available vendors (total {len(all_vendors)}):")
+                for v in all_vendors[:10]:  # Show first 10
+                    print(f"  - vid: {v.get('vid')} ({type(v.get('vid')).__name__}), name: {v.get('vendorName')}")
         else:
             print(f"⚠️ vendors_collection is None or vendor_id is empty. vendor_id={vendor_id}")
         
@@ -326,22 +334,25 @@ async def cpx_callback(
         import traceback
         traceback.print_exc()
         
-        # Log the error
+        # Enhanced error logging
         error_log = {
             "timestamp": datetime.utcnow(),
             "callback_url": str(request.url),
-            "rid_received": rid,
-            "status_code": msg or message_id or "unknown",
+            "rid_received": rid if 'rid' in locals() else None,
+            "status_code": msg or message_id or "unknown" if any(x in locals() for x in ['msg', 'message_id']) else "unknown",
             "traffic_found": False,
             "success": False,
-            "error": str(e)
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "traceback": traceback.format_exc()
         }
         
         if cpx_callback_logs_collection is not None:
             try:
                 cpx_callback_logs_collection.insert_one(error_log)
-            except Exception:
-                pass
+                print(f"📝 Logged error to callback logs")
+            except Exception as log_err:
+                print(f"⚠️ Failed to log error: {log_err}")
         
         # Always redirect to error page on error
         return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")

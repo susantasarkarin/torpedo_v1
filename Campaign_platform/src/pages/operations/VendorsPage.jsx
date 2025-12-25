@@ -16,6 +16,7 @@ function VendorsPage() {
   const [recordsPerPage, setRecordsPerPage] = useState(10);
 
   const emptyForm = {
+    vid: "",
     vendorName: "",
     vendorEmail: "",
     vendorVariable: "",
@@ -369,17 +370,16 @@ function VendorsPage() {
               <div style={styles.section}>
                 <h4 style={styles.sectionTitle}>Basic Information</h4>
                 
-                {editingId && formData.vid && (
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>VID</label>
-                    <input
-                      style={{...styles.input, backgroundColor: '#f3f4f6', cursor: 'not-allowed'}}
-                      value={formData.vid}
-                      disabled
-                      readOnly
-                    />
-                  </div>
-                )}
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>VID {!editingId && "(Auto-generated)"}</label>
+                  <input
+                    style={{...styles.input, backgroundColor: editingId ? '#f3f4f6' : '#fff', cursor: editingId ? 'not-allowed' : 'default'}}
+                    value={editingId ? (formData.vid || "") : ""}
+                    disabled={editingId}
+                    readOnly
+                    placeholder={!editingId ? "Will be auto-generated" : ""}
+                  />
+                </div>
 
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Vendor Name <span style={styles.required}>*</span></label>
