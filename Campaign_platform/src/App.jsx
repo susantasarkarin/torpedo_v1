@@ -36,6 +36,7 @@ import ProjectsPage from "./pages/operations/ProjectsPage"
 import ProjectDetail from "./pages/operations/ProjectDetail"
 import SurveyPool from "./pages/operations/surveyPool/SurveyPool"
 import TrafficManagement from "./pages/operations/TrafficManagement"
+import CPXCallbackLogs from "./pages/operations/CPXCallbackLogs"
 
 // Finance Pages
 import FinanceCustomersPage from "./pages/finance/CustomersPage"
@@ -152,6 +153,7 @@ function App() {
         <Route path="operations/projects/:projectId" element={<ProjectDetail />} />
         <Route path="operations/survey-pool" element={<SurveyPool />} />
         <Route path="operations/traffic" element={<TrafficManagement />} />
+        <Route path="operations/reports" element={<CPXCallbackLogs />} />
 
         {/* HR */}
         <Route path="hr" element={<HR />} />

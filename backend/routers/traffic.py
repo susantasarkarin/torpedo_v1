@@ -28,6 +28,7 @@ traffic_service: Optional[Any] = None
 survey_allocation_service: Optional[Any] = None
 cpx_service: Optional[Any] = None
 vendors_collection: Optional[Collection] = None
+cpx_callback_logs_collection: Optional[Collection] = None
 
 
 def set_url_parameters_collection(collection: Collection):
@@ -58,6 +59,12 @@ def set_vendors_collection(collection: Collection):
     """Set the vendors MongoDB collection from main.py"""
     global vendors_collection
     vendors_collection = collection
+
+
+def set_cpx_callback_logs_collection(collection: Collection):
+    """Set the CPX callback logs MongoDB collection from main.py"""
+    global cpx_callback_logs_collection
+    cpx_callback_logs_collection = collection
 
 
 @router.get("/cpx-response")
@@ -187,32 +194,36 @@ async def cpx_callback(
         print(f"📋 Found traffic record: SFWID={traffic_id}, vendorId={vendor_id}, respondentId={original_respondent_id}")
         
         # Step 2: Look up the vendor
+        # The vid parameter from URL is stored as vendorId in traffic record
+        # This should match vid in the vendors collection
         vendor = None
         vendor_redirect_url = None
         
         if vendors_collection is not None and vendor_id:
-            # Find vendor by vendorNo matching the vendorId
-            vendor = vendors_collection.find_one({"vendorNo": vendor_id})
-            if not vendor:
-                print(f"⚠️ Vendor not found by vendorNo: {vendor_id}")
-                # Try finding by _id
-                try:
-                    vendor = vendors_collection.find_one({"_id": ObjectId(vendor_id)})
-                    if vendor:
-                        print(f"✅ Found vendor by _id: {vendor_id}")
-                except Exception:
-                    pass
-                # Try finding by vendorName
-                if not vendor:
-                    vendor = vendors_collection.find_one({"vendorName": vendor_id})
-                    if vendor:
-                        print(f"✅ Found vendor by vendorName: {vendor_id}")
+            print(f"🔍 Looking up vendor with vid: {vendor_id}")
+            
+            # Find vendor by vid matching the vendorId (vid from URL)
+            vendor = vendors_collection.find_one({"vid": vendor_id})
+            if vendor:
+                print(f"✅ Found vendor by vid: {vendor_id}")
+            else:
+                # Try as string in case of type mismatch
+                vendor = vendors_collection.find_one({"vid": str(vendor_id)})
+                if vendor:
+                    print(f"✅ Found vendor by vid (as string): {vendor_id}")
+                else:
+                    print(f"❌ Vendor not found by vid: {vendor_id}")
+                    # List all vendors for debugging
+                    all_vendors = list(vendors_collection.find({}, {"vid": 1, "vendorName": 1}))
+                    print(f"📋 Available vendors: {[(v.get('vid'), v.get('vendorName')) for v in all_vendors]}")
         else:
             print(f"⚠️ vendors_collection is None or vendor_id is empty. vendor_id={vendor_id}")
         
         if vendor:
-            print(f"📋 Found vendor: {vendor.get('vendorName')}, vendorNo: {vendor.get('vendorNo')}")
+            print(f"📋 Found vendor: {vendor.get('vendorName')}, vid: {vendor.get('vid')}")
+            print(f"📋 Vendor _id: {vendor.get('_id')}")
             print(f"📋 Vendor redirect type: {redirect_type}")
+            print(f"📋 Full vendor document: {vendor}")
             print(f"📋 Vendor {redirect_type}: {vendor.get(redirect_type, [])}")
             
             # Step 3: Get the appropriate redirect URL array
@@ -220,18 +231,25 @@ async def cpx_callback(
             vendor_variable = vendor.get("vendorVariable", "rid")
             
             print(f"📋 Vendor variable name: {vendor_variable}")
+            print(f"📋 All redirect URLs in array: {redirect_urls}")
             
             if redirect_urls and len(redirect_urls) > 0:
                 # Use the first redirect URL
                 base_url = redirect_urls[0].strip()
-                print(f"📋 Base redirect URL: {base_url}")
+                print(f"📋 Base redirect URL (first in array): {base_url}")
                 
                 if base_url:
                     # Step 4: Append respondent ID using vendor's variable name
-                    # Check if URL already ends with the variable (e.g., "&RID=" or "?RID=")
+                    # The URL might already have query params, so we need to append properly
+                    # Check if URL already ends with the variable placeholder (e.g., "&RID=" or "?RID=")
                     if base_url.endswith(f"&{vendor_variable}=") or base_url.endswith(f"?{vendor_variable}="):
-                        # URL already has the variable, just append the value
+                        # URL already has the variable with trailing =, just append the value
                         vendor_redirect_url = f"{base_url}{original_respondent_id}"
+                    elif f"&{vendor_variable}=" in base_url or f"?{vendor_variable}=" in base_url:
+                        # URL already has the variable somewhere, don't duplicate it
+                        # Replace any placeholder value or append at the existing position
+                        vendor_redirect_url = base_url
+                        print(f"⚠️ URL already contains {vendor_variable}= parameter, using as-is")
                     else:
                         # Need to add the variable and value
                         separator = "&" if "?" in base_url else "?"
@@ -268,7 +286,33 @@ async def cpx_callback(
         
         print(f"✅ Updated traffic record {traffic_id} status to {new_status}")
         
-        # Step 6: Redirect to vendor or error page
+        # Step 6: Log the callback for monitoring
+        log_entry = {
+            "timestamp": datetime.utcnow(),
+            "callback_url": str(request.url),
+            "rid_received": rid,
+            "decoded_sfwid": decoded_sfwid,
+            "status_code": status_code,
+            "new_status": new_status,
+            "traffic_found": True,
+            "traffic_id": traffic_id,
+            "vendor_id": vendor_id,
+            "respondent_id": original_respondent_id,
+            "vendor_found": vendor is not None,
+            "vendor_name": vendor.get("vendorName") if vendor else None,
+            "redirect_type": redirect_type,
+            "vendor_redirect_url": vendor_redirect_url,
+            "success": vendor_redirect_url is not None
+        }
+        
+        if cpx_callback_logs_collection is not None:
+            try:
+                cpx_callback_logs_collection.insert_one(log_entry)
+                print(f"📝 Logged CPX callback")
+            except Exception as log_error:
+                print(f"⚠️ Failed to log callback: {log_error}")
+        
+        # Step 7: Redirect to vendor or error page
         if vendor_redirect_url:
             print(f"➡️ Redirecting to vendor: {vendor_redirect_url}")
             return RedirectResponse(url=vendor_redirect_url)
@@ -281,8 +325,129 @@ async def cpx_callback(
         print(f"❌ Error in CPX callback: {e}")
         import traceback
         traceback.print_exc()
+        
+        # Log the error
+        error_log = {
+            "timestamp": datetime.utcnow(),
+            "callback_url": str(request.url),
+            "rid_received": rid,
+            "status_code": msg or message_id or "unknown",
+            "traffic_found": False,
+            "success": False,
+            "error": str(e)
+        }
+        
+        if cpx_callback_logs_collection is not None:
+            try:
+                cpx_callback_logs_collection.insert_one(error_log)
+            except Exception:
+                pass
+        
         # Always redirect to error page on error
         return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
+
+
+@router.get("/api/cpx-callback-logs")
+async def get_cpx_callback_logs(
+    request: Request,
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Records per page"),
+    success_filter: Optional[str] = Query(None, description="Filter by success status: true/false/all"),
+):
+    """
+    Get CPX callback logs for monitoring
+    Requires authentication
+    """
+    try:
+        # Verify session
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        if cpx_callback_logs_collection is None:
+            raise HTTPException(status_code=503, detail="Callback logs collection not initialized")
+        
+        # Build query
+        query = {}
+        if success_filter == "true":
+            query["success"] = True
+        elif success_filter == "false":
+            query["success"] = False
+        
+        # Get total count
+        total = cpx_callback_logs_collection.count_documents(query)
+        
+        # Calculate pagination
+        skip = (page - 1) * page_size
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+        
+        # Fetch logs (newest first)
+        logs = list(
+            cpx_callback_logs_collection.find(query)
+            .sort("timestamp", -1)
+            .skip(skip)
+            .limit(page_size)
+        )
+        
+        # Convert ObjectId to string
+        for log in logs:
+            log["_id"] = str(log["_id"])
+            if log.get("timestamp"):
+                log["timestamp"] = log["timestamp"].isoformat()
+        
+        # Get stats
+        success_count = cpx_callback_logs_collection.count_documents({"success": True})
+        failed_count = cpx_callback_logs_collection.count_documents({"success": False})
+        
+        return {
+            "logs": logs,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": total_pages
+            },
+            "stats": {
+                "total": total,
+                "success": success_count,
+                "failed": failed_count
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error fetching CPX callback logs: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@router.delete("/api/cpx-callback-logs")
+async def clear_cpx_callback_logs(request: Request):
+    """
+    Clear all CPX callback logs
+    Requires authentication
+    """
+    try:
+        # Verify session
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        if cpx_callback_logs_collection is None:
+            raise HTTPException(status_code=503, detail="Callback logs collection not initialized")
+        
+        result = cpx_callback_logs_collection.delete_many({})
+        
+        return {
+            "message": "Logs cleared",
+            "deleted_count": result.deleted_count
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error clearing CPX callback logs: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
 @router.post("/api/store")

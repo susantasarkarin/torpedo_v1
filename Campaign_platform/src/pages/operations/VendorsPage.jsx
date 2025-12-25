@@ -98,7 +98,7 @@ function VendorsPage() {
         terminateRD: formData.terminateRD.filter(Boolean),
         quotaFullRD: formData.quotaFullRD.filter(Boolean),
       };
-      delete payload.vendorNo;
+      delete payload.vid;
 
       const url = editingId
         ? `${API_BASE_URL}/vendors/${editingId}`
@@ -185,7 +185,7 @@ function VendorsPage() {
   const openEdit = (v) => {
     setEditingId(v._id);
     setFormData({
-      vendorNo: v.vendorNo || "",
+      vid: v.vid || "",
       vendorName: v.vendorName || "",
       vendorEmail: v.vendorEmail || "",
       vendorVariable: v.vendorVariable || "",
@@ -209,7 +209,7 @@ function VendorsPage() {
     const q = search.trim().toLowerCase();
     if (!q) return vendors;
     return vendors.filter((v) =>
-      ["vendorNo", "vendorName", "vendorEmail", "vendorVariable", "vendorType"].some(
+      ["vid", "vendorName", "vendorEmail", "vendorVariable", "vendorType"].some(
         (field) => String(v[field] || "").toLowerCase().includes(q)
       )
     );
@@ -253,7 +253,7 @@ function VendorsPage() {
           style={styles.searchInput}
           value={search}
           onChange={(e) => handleSearch(e.target.value)}
-          placeholder="Search vendors by number, name, email, variable, type..."
+          placeholder="Search vendors by VID, name, email, variable, type..."
         />
         <select
           style={styles.recordsPerPageSelect}
@@ -277,7 +277,7 @@ function VendorsPage() {
         <table style={styles.table}>
           <thead style={styles.thead}>
             <tr>
-              <th style={styles.th}>Vendor No</th>
+              <th style={styles.th}>VID</th>
               <th style={styles.th}>Vendor Name</th>
               <th style={styles.th}>Email</th>
               <th style={styles.th}>Variable</th>
@@ -290,7 +290,7 @@ function VendorsPage() {
             {paginatedVendors.map(v => (
               <tr key={v._id} style={styles.tr}>
                 <td style={styles.td}>
-                  <span style={styles.vendorNo}>{v.vendorNo || 'N/A'}</span>
+                  <span style={styles.vid}>{v.vid || 'N/A'}</span>
                 </td>
                 <td style={styles.td}>{v.vendorName}</td>
                 <td style={styles.td}>{v.vendorEmail}</td>
@@ -369,12 +369,12 @@ function VendorsPage() {
               <div style={styles.section}>
                 <h4 style={styles.sectionTitle}>Basic Information</h4>
                 
-                {editingId && formData.vendorNo && (
+                {editingId && formData.vid && (
                   <div style={styles.formGroup}>
-                    <label style={styles.label}>Vendor No</label>
+                    <label style={styles.label}>VID</label>
                     <input
                       style={{...styles.input, backgroundColor: '#f3f4f6', cursor: 'not-allowed'}}
-                      value={formData.vendorNo}
+                      value={formData.vid}
                       disabled
                       readOnly
                     />
@@ -596,7 +596,7 @@ const styles = {
     fontSize: '0.9rem',
     color: '#374151',
   },
-  vendorNo: {
+  vid: {
     fontWeight: '600',
     color: '#0d6efd',
     fontFamily: 'monospace',

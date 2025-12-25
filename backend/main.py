@@ -306,6 +306,14 @@ try:
 except Exception as e:
     print(f"⚠️ Vendors collection injection issue: {e}")
 
+# Initialize CPX callback logs collection and inject into traffic router
+try:
+    cpx_callback_logs_collection = traffic_db["cpx_callback_logs"]
+    traffic_router.set_cpx_callback_logs_collection(cpx_callback_logs_collection)
+    print("✅ CPX callback logs collection initialized")
+except Exception as e:
+    print(f"⚠️ CPX callback logs collection issue: {e}")
+
 # Settings router
 try:
     app.include_router(settings_router.router)
@@ -1226,11 +1234,11 @@ async def delete_contact(contact_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Contact delete error: {str(e)}")
 
-def generate_vendor_no():
+def generate_vid():
     while True:
-        vendor_no = str(datetime.utcnow().microsecond % 10000).zfill(4)
-        if not vendors_collection.find_one({"vendorNo": vendor_no}):
-            return vendor_no
+        vid = str(datetime.utcnow().microsecond % 10000).zfill(4)
+        if not vendors_collection.find_one({"vid": vid}):
+            return vid
 
 @app.post("/vendors/")
 async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
@@ -1245,7 +1253,7 @@ async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
         if not vendor_data.get("status") or not vendor_data["status"].strip():
             raise HTTPException(status_code=400, detail="Status is required")
 
-        vendor_data["vendorNo"] = generate_vendor_no()
+        vendor_data["vid"] = generate_vid()
         result = vendors_collection.insert_one(vendor_data)
         vendor_data["_id"] = str(result.inserted_id)
         return {"message": "Vendor created successfully", "vendor": vendor_data}
@@ -1267,7 +1275,7 @@ async def get_vendors():
 @app.put("/vendors/{vendor_id}")
 async def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...)):
     try:
-        vendor_data = {k: v for k, v in vendor_data.items() if k != "_id" and k != "vendorNo"}
+        vendor_data = {k: v for k, v in vendor_data.items() if k != "_id" and k != "vid"}
         result = vendors_collection.update_one({"_id": ObjectId(vendor_id)}, {"$set": vendor_data})
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Vendor not found")
