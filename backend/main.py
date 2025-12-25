@@ -85,6 +85,7 @@ lists_collection = db["lists"]
 templates_collection = db["templates"]
 reports_collection = db["reports"]
 projects_collection = db["projects"]
+vendors_collection = db["vendors"]  # Vendors collection for CPX callback handling
 
 # CPX Research collections
 try:
@@ -1224,8 +1225,6 @@ async def delete_contact(contact_id: str):
         return {"message": "Contact deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Contact delete error: {str(e)}")
-
-vendors_collection = db["vendors"]
 
 def generate_vendor_no():
     while True:

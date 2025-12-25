@@ -65,43 +65,43 @@ async def cpx_callback(
     request: Request,
     msg: str = Query(None, description="Response type: complete or out"),
     message_id: str = Query(None, description="Response type: complete or out (alias)"),
-    rid: str = Query(..., description="Respondent ID (subid_2)")
+    rid: str = Query(..., description="SFWID (traffic record _id)")
 ):
     """
     CPX Survey Callback Handler
     
-    URL format: /cpx-response?msg={msg}&rid={subid_2}
-    or: /cpx-response?message_id={message_id}&rid={subid_2}
+    URL format: /cpx-response?msg={msg}&rid={sfwid}
+    or: /cpx-response?message_id={message_id}&rid={sfwid}
     
     - msg/message_id: "complete" or "out"
-    - rid: The respondent ID used to track back to the original traffic record (may be base64 encoded)
+    - rid: The SFWID (traffic record _id) used to track back to the original traffic record
     
     Logic:
-    1. Decode rid if it's base64 encoded
-    2. Find the traffic record by respondentId
+    1. Decode rid if it's base64 encoded (SFWID)
+    2. Find the traffic record by _id (SFWID)
     3. Get the vendorId from the traffic record
     4. Look up vendor's redirect URL (completeRD or terminateRD)
-    5. Append respondentId using vendor's variable name
+    5. Append the original respondentId from the traffic record to vendor's redirect URL
     6. Update traffic status and redirect to vendor
     """
     try:
         # Support both 'msg' and 'message_id' parameters
         status_code = msg or message_id or "out"
         
-        print(f"📥 CPX Callback received: msg={status_code}, rid={rid}")
+        print(f"📥 CPX Callback received: msg={status_code}, rid(SFWID)={rid}")
         
-        # Try to decode the rid if it looks like base64
-        decoded_rid = rid
+        # Try to decode the rid (SFWID) if it looks like base64
+        decoded_sfwid = rid
         try:
             # Check if rid looks like base64 (contains only valid base64 characters and is longer than typical ID)
             if rid and len(rid) > 20 and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in rid):
                 # Try base64 decoding
                 decoded_bytes = base64.b64decode(rid)
-                decoded_rid = decoded_bytes.decode('utf-8')
-                print(f"🔓 Decoded rid from base64: {rid} -> {decoded_rid}")
+                decoded_sfwid = decoded_bytes.decode('utf-8')
+                print(f"🔓 Decoded SFWID from base64: {rid} -> {decoded_sfwid}")
         except Exception as decode_error:
-            print(f"ℹ️ rid is not base64 encoded, using as-is: {rid}")
-            decoded_rid = rid
+            print(f"ℹ️ SFWID is not base64 encoded, using as-is: {rid}")
+            decoded_sfwid = rid
         
         # Determine status based on msg/message_id ("out" treated as terminate)
         if status_code.lower() == "complete":
@@ -111,29 +111,33 @@ async def cpx_callback(
             new_status = "TERMINATED"
             redirect_type = "terminateRD"
         
-        # Step 1: Find the traffic record by respondentId
-        # Try both the original rid and decoded rid
+        # Step 1: Find the traffic record by _id (SFWID)
         traffic_record = None
         if url_parameters_collection is not None:
-            # Try with decoded rid first
-            traffic_record = url_parameters_collection.find_one({"respondentId": decoded_rid})
+            # Try to find by ObjectId first (SFWID is the _id)
+            try:
+                traffic_record = url_parameters_collection.find_one({"_id": ObjectId(decoded_sfwid)})
+            except Exception:
+                # If ObjectId conversion fails, try as string
+                traffic_record = url_parameters_collection.find_one({"_id": decoded_sfwid})
             
-            # If not found and decoded_rid is different, try original rid
-            if not traffic_record and decoded_rid != rid:
-                traffic_record = url_parameters_collection.find_one({"respondentId": rid})
-                if traffic_record:
-                    print(f"📋 Found traffic record using original (encoded) rid")
+            # If not found with decoded SFWID, try with original rid
+            if not traffic_record and decoded_sfwid != rid:
+                try:
+                    traffic_record = url_parameters_collection.find_one({"_id": ObjectId(rid)})
+                except Exception:
+                    traffic_record = url_parameters_collection.find_one({"_id": rid})
         
         if not traffic_record:
-            print(f"⚠️ No traffic record found for respondentId: {decoded_rid} (original: {rid})")
+            print(f"⚠️ No traffic record found for SFWID: {decoded_sfwid} (original: {rid})")
             # Redirect to error page
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
         traffic_id = str(traffic_record["_id"])
         vendor_id = traffic_record.get("vendorId")
-        original_respondent_id = traffic_record.get("respondentId")
+        original_respondent_id = traffic_record.get("respondentId")  # This is what we send to the vendor
         
-        print(f"📋 Found traffic record: id={traffic_id}, vendorId={vendor_id}, respondentId={original_respondent_id}")
+        print(f"📋 Found traffic record: SFWID={traffic_id}, vendorId={vendor_id}, respondentId={original_respondent_id}")
         
         # Step 2: Look up the vendor
         vendor = None
@@ -269,10 +273,11 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     base_link = selected_survey.get('live_link') or selected_survey.get('href_new') or selected_survey.get('href')
                     
                     if base_link:
-                        # Generate entry link with respondent ID as ext_user_id
+                        # Generate entry link with SFWID (traffic_id) as ext_user_id
+                        # This allows us to look up the traffic record when CPX calls back
                         entry_link = cpx_service.generate_entry_link(
                             live_link=base_link,
-                            respondent_id=respondent_id
+                            respondent_id=traffic_id  # Use SFWID, not respondent_id
                         )
                         allocation_success = True
                         
@@ -284,7 +289,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 redirect_url=entry_link
                             )
                         
-                        print(f"✅ Allocated CPX survey {survey_id} to respondent vid={vendor_id}, rid={respondent_id}")
+                        print(f"✅ Allocated CPX survey {survey_id} to SFWID={traffic_id}, vid={vendor_id}, rid={respondent_id}")
                 else:
                     print(f"⚠️ No CPX surveys available for allocation")
                     
