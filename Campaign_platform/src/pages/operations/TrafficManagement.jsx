@@ -318,7 +318,7 @@ export default function TrafficManagement() {
                     />
                   </th>
                   <th></th>
-                  <th>Record ID</th>
+                  <th>SFWID</th>
                   <th>Created At</th>
                   <th>Vendor ID</th>
                   <th>Country</th>
@@ -340,7 +340,7 @@ export default function TrafficManagement() {
                         />
                       </td>
                       <td className="expand-cell">{expandedRow === record._id ? "▼" : "▶"}</td>
-                      <td className="record-id" title={record._id}>{record._id?.slice(-8) || "N/A"}</td>
+                      <td className="record-id" title={record._id}>{record._id || "N/A"}</td>
                       <td>{formatDate(record.createdAt)}</td>
                       <td>{record.vendorId || "N/A"}</td>
                       <td>{record.countryCode || "N/A"}</td>
@@ -367,7 +367,7 @@ export default function TrafficManagement() {
                               <h4>📋 Record Details</h4>
                               <div className="detail-grid">
                                 <div>
-                                  <strong>Record ID:</strong> {record._id}
+                                  <strong>SFWID:</strong> {record._id}
                                 </div>
                                 <div>
                                   <strong>Assigned At:</strong> {formatDate(record.assignedAt)}

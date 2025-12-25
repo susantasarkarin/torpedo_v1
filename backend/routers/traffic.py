@@ -10,6 +10,8 @@ from bson import ObjectId
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 import os
+import random
+import base64
 
 router = APIRouter(tags=["traffic-flow"])  # No prefix - routes are at root level
 
@@ -61,29 +63,48 @@ def set_vendors_collection(collection: Collection):
 @router.get("/cpx-response")
 async def cpx_callback(
     request: Request,
-    message_id: str = Query(..., description="Response type: complete or out"),
+    msg: str = Query(None, description="Response type: complete or out"),
+    message_id: str = Query(None, description="Response type: complete or out (alias)"),
     rid: str = Query(..., description="Respondent ID (subid_2)")
 ):
     """
     CPX Survey Callback Handler
     
-    URL format: /cpx-response?message_id={message_id}&rid={subid_2}
+    URL format: /cpx-response?msg={msg}&rid={subid_2}
+    or: /cpx-response?message_id={message_id}&rid={subid_2}
     
-    - message_id: "complete" or "out"
-    - rid: The respondent ID used to track back to the original traffic record
+    - msg/message_id: "complete" or "out"
+    - rid: The respondent ID used to track back to the original traffic record (may be base64 encoded)
     
     Logic:
-    1. Find the traffic record by respondentId
-    2. Get the vendorId from the traffic record
-    3. Look up vendor's redirect URL (completeRD or terminateRD)
-    4. Append respondentId using vendor's variable name
-    5. Update traffic status and redirect to vendor
+    1. Decode rid if it's base64 encoded
+    2. Find the traffic record by respondentId
+    3. Get the vendorId from the traffic record
+    4. Look up vendor's redirect URL (completeRD or terminateRD)
+    5. Append respondentId using vendor's variable name
+    6. Update traffic status and redirect to vendor
     """
     try:
-        print(f"📥 CPX Callback received: message_id={message_id}, rid={rid}")
+        # Support both 'msg' and 'message_id' parameters
+        status_code = msg or message_id or "out"
         
-        # Determine status based on message_id ("out" treated as terminate)
-        if message_id.lower() == "complete":
+        print(f"📥 CPX Callback received: msg={status_code}, rid={rid}")
+        
+        # Try to decode the rid if it looks like base64
+        decoded_rid = rid
+        try:
+            # Check if rid looks like base64 (contains only valid base64 characters and is longer than typical ID)
+            if rid and len(rid) > 20 and all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in rid):
+                # Try base64 decoding
+                decoded_bytes = base64.b64decode(rid)
+                decoded_rid = decoded_bytes.decode('utf-8')
+                print(f"🔓 Decoded rid from base64: {rid} -> {decoded_rid}")
+        except Exception as decode_error:
+            print(f"ℹ️ rid is not base64 encoded, using as-is: {rid}")
+            decoded_rid = rid
+        
+        # Determine status based on msg/message_id ("out" treated as terminate)
+        if status_code.lower() == "complete":
             new_status = "COMPLETE"
             redirect_type = "completeRD"
         else:  # "out" = terminate
@@ -91,12 +112,20 @@ async def cpx_callback(
             redirect_type = "terminateRD"
         
         # Step 1: Find the traffic record by respondentId
+        # Try both the original rid and decoded rid
         traffic_record = None
         if url_parameters_collection is not None:
-            traffic_record = url_parameters_collection.find_one({"respondentId": rid})
+            # Try with decoded rid first
+            traffic_record = url_parameters_collection.find_one({"respondentId": decoded_rid})
+            
+            # If not found and decoded_rid is different, try original rid
+            if not traffic_record and decoded_rid != rid:
+                traffic_record = url_parameters_collection.find_one({"respondentId": rid})
+                if traffic_record:
+                    print(f"📋 Found traffic record using original (encoded) rid")
         
         if not traffic_record:
-            print(f"⚠️ No traffic record found for respondentId: {rid}")
+            print(f"⚠️ No traffic record found for respondentId: {decoded_rid} (original: {rid})")
             # Redirect to error page
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
@@ -227,13 +256,13 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # Try to allocate a survey using CPX service directly
         if cpx_service and vendor_id and country_code and respondent_id:
             try:
-                # Get available CPX surveys and pick one for the respondent
-                surveys_result = cpx_service.get_surveys(page=1, page_size=10)
+                # Get available CPX surveys and pick one randomly for the respondent
+                surveys_result = cpx_service.get_surveys(page=1, page_size=50)
                 surveys = surveys_result.get('surveys', [])
                 
                 if surveys:
-                    # Pick the first available survey (you can add filtering logic here)
-                    selected_survey = surveys[0]
+                    # Randomly select a survey from available pool
+                    selected_survey = random.choice(surveys)
                     survey_id = selected_survey.get('survey_id') or selected_survey.get('id')
                     
                     # Get the live_link or href_new link (direct survey link)
