@@ -338,8 +338,8 @@ async def cpx_callback(
         error_log = {
             "timestamp": datetime.utcnow(),
             "callback_url": str(request.url),
-            "rid_received": rid if 'rid' in locals() else None,
-            "status_code": msg or message_id or "unknown" if any(x in locals() for x in ['msg', 'message_id']) else "unknown",
+            "rid_received": rid,
+            "status_code": msg or message_id or "unknown",
             "traffic_found": False,
             "success": False,
             "error": str(e),
