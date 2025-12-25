@@ -25,6 +25,7 @@ url_parameters_collection: Optional[Collection] = None
 traffic_service: Optional[Any] = None
 survey_allocation_service: Optional[Any] = None
 cpx_service: Optional[Any] = None
+vendors_collection: Optional[Collection] = None
 
 
 def set_url_parameters_collection(collection: Collection):
@@ -49,6 +50,131 @@ def set_cpx_service(service: Any):
     """Set the CPX service instance for survey allocation"""
     global cpx_service
     cpx_service = service
+
+
+def set_vendors_collection(collection: Collection):
+    """Set the vendors MongoDB collection from main.py"""
+    global vendors_collection
+    vendors_collection = collection
+
+
+@router.get("/cpx-response")
+async def cpx_callback(
+    request: Request,
+    message_id: str = Query(..., description="Response type: complete or out"),
+    rid: str = Query(..., description="Respondent ID (subid_2)")
+):
+    """
+    CPX Survey Callback Handler
+    
+    URL format: /cpx-response?message_id={message_id}&rid={subid_2}
+    
+    - message_id: "complete" or "out"
+    - rid: The respondent ID used to track back to the original traffic record
+    
+    Logic:
+    1. Find the traffic record by respondentId
+    2. Get the vendorId from the traffic record
+    3. Look up vendor's redirect URL (completeRD or terminateRD)
+    4. Append respondentId using vendor's variable name
+    5. Update traffic status and redirect to vendor
+    """
+    try:
+        print(f"📥 CPX Callback received: message_id={message_id}, rid={rid}")
+        
+        # Determine status based on message_id ("out" treated as terminate)
+        if message_id.lower() == "complete":
+            new_status = "COMPLETE"
+            redirect_type = "completeRD"
+        else:  # "out" = terminate
+            new_status = "TERMINATED"
+            redirect_type = "terminateRD"
+        
+        # Step 1: Find the traffic record by respondentId
+        traffic_record = None
+        if url_parameters_collection is not None:
+            traffic_record = url_parameters_collection.find_one({"respondentId": rid})
+        
+        if not traffic_record:
+            print(f"⚠️ No traffic record found for respondentId: {rid}")
+            # Redirect to error page
+            return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
+        
+        traffic_id = str(traffic_record["_id"])
+        vendor_id = traffic_record.get("vendorId")
+        original_respondent_id = traffic_record.get("respondentId")
+        
+        print(f"📋 Found traffic record: id={traffic_id}, vendorId={vendor_id}, respondentId={original_respondent_id}")
+        
+        # Step 2: Look up the vendor
+        vendor = None
+        vendor_redirect_url = None
+        
+        if vendors_collection is not None and vendor_id:
+            # Find vendor by vendorNo matching the vendorId
+            vendor = vendors_collection.find_one({"vendorNo": vendor_id})
+        
+        if vendor:
+            print(f"📋 Found vendor: {vendor.get('vendorName')}")
+            
+            # Step 3: Get the appropriate redirect URL array
+            redirect_urls = vendor.get(redirect_type, [])
+            vendor_variable = vendor.get("vendorVariable", "rid")
+            
+            if redirect_urls and len(redirect_urls) > 0:
+                # Use the first redirect URL
+                base_url = redirect_urls[0].strip()
+                
+                if base_url:
+                    # Step 4: Append respondent ID using vendor's variable name
+                    # Check if URL already ends with the variable (e.g., "&RID=" or "?RID=")
+                    if base_url.endswith(f"&{vendor_variable}=") or base_url.endswith(f"?{vendor_variable}="):
+                        # URL already has the variable, just append the value
+                        vendor_redirect_url = f"{base_url}{original_respondent_id}"
+                    else:
+                        # Need to add the variable and value
+                        separator = "&" if "?" in base_url else "?"
+                        vendor_redirect_url = f"{base_url}{separator}{vendor_variable}={original_respondent_id}"
+                    print(f"🔗 Constructed vendor redirect URL: {vendor_redirect_url}")
+        
+        # Step 5: Update traffic record status
+        if traffic_service:
+            traffic_service.update_traffic_status(
+                traffic_id=traffic_id,
+                status=new_status,
+                redirect_url=str(request.url)
+            )
+        elif url_parameters_collection:
+            update_data = {
+                "status": new_status,
+                "updatedAt": datetime.utcnow(),
+                "cpxCallbackUrl": str(request.url)
+            }
+            if new_status == "COMPLETE":
+                update_data["completedAt"] = datetime.utcnow()
+            
+            url_parameters_collection.update_one(
+                {"_id": ObjectId(traffic_id)},
+                {"$set": update_data}
+            )
+        
+        print(f"✅ Updated traffic record {traffic_id} status to {new_status}")
+        
+        # Step 6: Redirect to vendor or error page
+        if vendor_redirect_url:
+            print(f"➡️ Redirecting to vendor: {vendor_redirect_url}")
+            return RedirectResponse(url=vendor_redirect_url)
+        else:
+            # Redirect to error page if no vendor URL found
+            print(f"➡️ No vendor redirect URL found, redirecting to error page")
+            return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
+        
+    except Exception as e:
+        print(f"❌ Error in CPX callback: {e}")
+        import traceback
+        traceback.print_exc()
+        # Always redirect to error page on error
+        return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
 
 
 @router.post("/api/store")

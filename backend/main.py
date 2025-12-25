@@ -298,6 +298,13 @@ if cpx_surveys_collection is not None and cpx_filters_collection is not None:
 else:
     print("⚠️ CPX Research router not initialized due to database connection issue")
 
+# Inject vendors collection into traffic router for CPX callback handling
+try:
+    traffic_router.set_vendors_collection(vendors_collection)
+    print("✅ Vendors collection injected into traffic router")
+except Exception as e:
+    print(f"⚠️ Vendors collection injection issue: {e}")
+
 # Settings router
 try:
     app.include_router(settings_router.router)

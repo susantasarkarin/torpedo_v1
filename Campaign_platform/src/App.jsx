@@ -57,6 +57,7 @@ import ReportsPage from "./pages/finance/ReportsPage"
 
 // User Pages
 import TrafficFlowParser from "./pages/user/TrafficFlowParser"
+import SurveyError from "./pages/user/SurveyError"
 
 // Profile Page
 import MyProfile from "./pages/MyProfile"
@@ -73,8 +74,9 @@ function App() {
       {/* Default: when you run app locally, go to admin login */}
       <Route path="/" element={<Navigate to="/admin/login" replace />} />
 
-      {/* Public user page */}
+      {/* Public user pages */}
       <Route path="/takesurvey" element={<TrafficFlowParser />} />
+      <Route path="/survey-error" element={<SurveyError />} />
 
       {/* Admin login page */}
       <Route path="/admin/login" element={<Login />} />
