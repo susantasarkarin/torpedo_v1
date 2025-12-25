@@ -1,6 +1,6 @@
-# Campaign Platform
+# Campaign Platform (Torpedo)
 
-A comprehensive SaaS platform for managing business operations, finance, sales, and marketing campaigns. Built with React (Vite) frontend and FastAPI backend with MongoDB.
+A comprehensive SaaS platform for managing business operations, finance, sales, survey panel management, and marketing campaigns. Built with React (Vite) frontend and FastAPI backend with MongoDB.
 
 ## 🚀 Features
 
@@ -19,8 +19,16 @@ A comprehensive SaaS platform for managing business operations, finance, sales, 
 ### Operations Module
 - **Projects** - Project management with mandatory field validation
 - **Clients** - Client relationship management
-- **Survey Pool** - Survey management with filtering (LOI, Payout, Country)
-- **Traffic Flow** - Traffic assignment and management
+- **Survey Pool** - CPX Research integration with:
+  - Auto-fetching live surveys from CPX API
+  - Filtering by LOI, Payout, Country
+  - Random survey allocation to respondents
+  - Entry link generation with secure hash
+- **Traffic Management** - Traffic flow with SFWID tracking:
+  - Unique SFWID (Survey Field Work ID) for each respondent
+  - Random survey allocation from live pool
+  - Vendor redirect handling with proper respondent ID mapping
+  - Complete/Terminate/QuotaFull callback processing
 
 ### Sales Module
 - **Campaigns** - Email campaign management
@@ -28,6 +36,12 @@ A comprehensive SaaS platform for managing business operations, finance, sales, 
 - **Leads** - Lead tracking and management
 - **RFQ** - Request for quotation handling
 - **Templates** - Email template management
+
+### CPX Research Integration
+- **Survey Fetching** - Automatic periodic fetching of CPX surveys
+- **Survey Allocation** - Random allocation to respondents from survey pool
+- **Callback Handling** - Complete/Terminate redirect processing
+- **Vendor Integration** - Proper redirect URL construction with respondent IDs
 
 ## 🛠️ Tech Stack
 
@@ -41,6 +55,7 @@ A comprehensive SaaS platform for managing business operations, finance, sales, 
 - **FastAPI** (Python)
 - **MongoDB** with PyMongo
 - **Uvicorn** ASGI server
+- **APScheduler** for scheduled tasks (CPX refresh)
 
 ## 📦 Installation
 
@@ -66,14 +81,23 @@ cd backend
 pip install -r requirements.txt
 ```
 
-Create a `.env` file based on `.env.example`:
+Create a `.env` file:
 ```env
 MONGO_URI=mongodb://localhost:27017
+FRONTEND_URL=http://localhost:5173
+API_BASE=http://localhost:8000
+
+# CPX Research Configuration
+CPX_APP_ID=your_cpx_app_id
+CPX_EXT_USER_ID=your_ext_user_id
+CPX_SECURE_HASH_KEY=your_secure_hash_key
+CPX_API_TIMEOUT=30
+CPX_FETCH_LIMIT=1000
 ```
 
 Start the server:
 ```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Backend runs on: `http://localhost:8000`
@@ -88,6 +112,8 @@ campaign_platform/
 │   │   ├── pages/             # Page components
 │   │   │   ├── finance/       # Finance module pages
 │   │   │   ├── operations/    # Operations module pages
+│   │   │   │   ├── surveyPool/    # Survey pool management
+│   │   │   │   └── TrafficManagement.jsx  # Traffic with SFWID
 │   │   │   └── sales/         # Sales module pages
 │   │   ├── hooks/             # Custom React hooks
 │   │   ├── utils/             # Utility functions
@@ -97,10 +123,18 @@ campaign_platform/
 ├── backend/                   # FastAPI Backend
 │   ├── routers/
 │   │   ├── finance.py        # Finance CRUD endpoints
-│   │   └── traffic.py        # Traffic management
+│   │   ├── traffic.py        # Traffic management & CPX callbacks
+│   │   ├── settings.py       # App settings management
+│   │   └── gmail.py          # Gmail integration
 │   ├── app/
-│   │   ├── routers/          # Additional routers
-│   │   └── services/         # Business logic services
+│   │   ├── routers/
+│   │   │   ├── cpx.py        # CPX Research endpoints
+│   │   │   └── survey_allocation.py  # Survey allocation logic
+│   │   ├── services/
+│   │   │   ├── cpx_service.py         # CPX API integration
+│   │   │   ├── traffic_service.py     # Traffic management
+│   │   │   └── survey_allocation_service.py
+│   │   └── models/           # Pydantic models
 │   └── main.py               # FastAPI application entry
 │
 └── README.md
@@ -128,6 +162,70 @@ campaign_platform/
 | GET | `/finance/payments/received/` | List payments received |
 | GET | `/finance/payments/made/` | List payments made |
 | GET | `/finance/dashboard/summary` | Dashboard KPIs |
+
+### Traffic & Survey Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/store` | Store traffic record & allocate survey |
+| GET | `/cpx-response` | CPX callback handler (complete/terminate) |
+| GET | `/api/traffic/list` | List traffic records with SFWID |
+| GET | `/api/traffic/stats` | Traffic statistics by status |
+| DELETE | `/api/traffic/delete` | Delete traffic records |
+
+### CPX Research Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/cpx/surveys` | Get CPX surveys with filters |
+| POST | `/cpx/refresh` | Manual CPX survey refresh |
+| GET | `/cpx/filter-settings` | Get survey filter settings |
+| POST | `/cpx/filter-settings` | Save survey filter settings |
+
+### Vendor Management Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/vendors/` | List all vendors |
+| POST | `/vendors/` | Create vendor with redirect URLs |
+| PUT | `/vendors/{id}` | Update vendor |
+| DELETE | `/vendors/{id}` | Delete vendor |
+
+## 🔄 Survey Flow Architecture
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Vendor    │────▶│  Torpedo    │────▶│    CPX      │
+│   Server    │     │  Platform   │     │  Research   │
+└─────────────┘     └─────────────┘     └─────────────┘
+      │                   │                    │
+      │  1. Send RID      │                    │
+      │  (Respondent ID)  │                    │
+      │──────────────────▶│                    │
+      │                   │                    │
+      │  2. Create SFWID  │                    │
+      │  & Allocate Survey│                    │
+      │                   │  3. Redirect with  │
+      │                   │  SFWID as ext_user │
+      │                   │───────────────────▶│
+      │                   │                    │
+      │                   │  4. Callback with  │
+      │                   │  SFWID (complete/  │
+      │                   │  terminate)        │
+      │                   │◀───────────────────│
+      │                   │                    │
+      │  5. Redirect to   │                    │
+      │  vendor with RID  │                    │
+      │◀──────────────────│                    │
+      │                   │                    │
+```
+
+### Key Concepts
+
+- **SFWID (Survey Field Work ID)**: Unique MongoDB `_id` assigned to each traffic record
+- **RID (Respondent ID)**: Original respondent identifier from the vendor
+- **Random Allocation**: Surveys are randomly selected from the live pool
+- **Vendor Redirect**: On callback, the original RID is appended to vendor's redirect URL
 
 ## 🔐 Validation
 
@@ -172,3 +270,16 @@ This project is proprietary software. All rights reserved.
 ## 👥 Team
 
 Developed by the Torpedo Team.
+
+---
+
+## 📝 Changelog
+
+### v2.0.0 (December 2024)
+- ✨ Added CPX Research integration for survey fetching
+- ✨ Implemented random survey allocation from live pool
+- ✨ Added SFWID tracking in Traffic Management
+- ✨ Fixed CPX callback redirect to properly route respondents back to vendors
+- 🔧 Renamed "Record ID" to "SFWID" in UI
+- 🔧 Display full SFWID instead of truncated version
+- 🔧 Support for base64 encoded callback parameters
