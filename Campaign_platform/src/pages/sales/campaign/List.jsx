@@ -423,7 +423,7 @@ useEffect(() => {
                 <button
                   className="create-contacts-btn"
                   onClick={() =>
-                    navigate("/admin/sales/campaign/list/database-connection", {
+                    navigate("/admin/sales/campaign/ai-leads", {
                       state: { selectedList },
                     })
                   }
@@ -470,7 +470,7 @@ useEffect(() => {
                 <button
                   className="create-contacts-btn"
                   onClick={() =>
-                    navigate("/admin/sales/campaign/list/database-connection", {
+                    navigate("/admin/sales/campaign/ai-leads", {
                       state: { selectedList },
                     })
                   }

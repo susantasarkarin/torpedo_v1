@@ -163,3 +163,19 @@
     transform: translateX(0);
   }
 }
+
+/* AI Leads Link - Special styling */
+.ai-leads-link {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(99, 102, 241, 0.15));
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.ai-leads-link:hover {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(99, 102, 241, 0.25));
+  border-color: rgba(139, 92, 246, 0.5);
+}
+
+.sidebar-item.active .ai-leads-link {
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  border-color: #8b5cf6;
+}

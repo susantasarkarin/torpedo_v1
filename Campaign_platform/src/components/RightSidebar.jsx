@@ -87,6 +87,13 @@ function RightSidebar() {
             </Link>
           </li>
 
+          <li className={`sidebar-item ${isActive("/admin/sales/campaign/ai-leads") ? "active" : ""}`}>
+            <Link to="/admin/sales/campaign/ai-leads" className="sidebar-link ai-leads-link">
+              <span className="sidebar-icon">🤖</span>
+              AI Lead Database
+            </Link>
+          </li>
+
           <li className={`sidebar-item ${isActive("/admin/sales/contacts") ? "active" : ""}`}>
             <Link to="/admin/sales/contacts" className="sidebar-link">
               <span className="sidebar-icon">📞</span>
