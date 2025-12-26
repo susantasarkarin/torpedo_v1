@@ -12,6 +12,10 @@ function Settings() {
     cpx_ext_user_id: "",
     cpx_secure_hash_key: "",
     cpx_api_timeout: 30,
+    openai_api_key: "",
+    google_api_key: "",
+    google_cse_id: "",
+    google_sheets_service_account: "",
   })
   const [maskedSettings, setMaskedSettings] = useState({})
   
@@ -713,6 +717,61 @@ function Settings() {
                   value={appSettings.cpx_api_timeout}
                   onChange={(e) => handleAppSettingChange("cpx_api_timeout", parseInt(e.target.value))}
                 />
+              </div>
+            </div>
+
+            <div className="settings-group">
+              <h3>🤖 AI / OpenAI Settings</h3>
+              <p className="group-description">
+                Configure OpenAI API credentials for AI-powered lead classification and other AI features.
+              </p>
+              <div className="setting-row">
+                <label>OpenAI API Key</label>
+                <input
+                  type="password"
+                  placeholder={maskedSettings.openai_api_key_masked || "sk-..."}
+                  value={appSettings.openai_api_key}
+                  onChange={(e) => handleAppSettingChange("openai_api_key", e.target.value)}
+                />
+                <p className="setting-hint">Used for LinkedIn lead classification. Get your key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI Platform</a></p>
+              </div>
+            </div>
+
+            <div className="settings-group">
+              <h3>🔍 Google API Settings</h3>
+              <p className="group-description">
+                Configure Google API credentials for LinkedIn lead search and Google Sheets import.
+              </p>
+              <div className="setting-row">
+                <label>Google API Key</label>
+                <input
+                  type="password"
+                  placeholder={maskedSettings.google_api_key_masked || "AIza..."}
+                  value={appSettings.google_api_key}
+                  onChange={(e) => handleAppSettingChange("google_api_key", e.target.value)}
+                />
+                <p className="setting-hint">Required for Google Custom Search. Get from <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Google Cloud Console</a></p>
+              </div>
+              <div className="setting-row">
+                <label>Google Custom Search Engine ID</label>
+                <input
+                  type="text"
+                  placeholder={maskedSettings.google_cse_id_masked || "Your CSE ID"}
+                  value={appSettings.google_cse_id}
+                  onChange={(e) => handleAppSettingChange("google_cse_id", e.target.value)}
+                />
+                <p className="setting-hint">Create a search engine at <a href="https://programmablesearchengine.google.com/" target="_blank" rel="noopener noreferrer">Google Programmable Search</a> and restrict to linkedin.com</p>
+              </div>
+              <div className="setting-row">
+                <label>Google Sheets Service Account (JSON)</label>
+                <textarea
+                  placeholder={maskedSettings.google_sheets_service_account_masked || '{"type": "service_account", ...}'}
+                  value={appSettings.google_sheets_service_account}
+                  onChange={(e) => handleAppSettingChange("google_sheets_service_account", e.target.value)}
+                  rows={4}
+                  style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                />
+                <p className="setting-hint">Paste the full JSON key file content for Google Sheets API access. Download from <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener noreferrer">Service Accounts</a></p>
               </div>
             </div>
 

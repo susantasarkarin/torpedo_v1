@@ -28,6 +28,7 @@ import List from "./pages/sales/campaign/List"
 import Templates from "./pages/sales/campaign/Templates"
 import Workflow from "./pages/sales/campaign/Workflow"
 import Reports from "./pages/sales/campaign/Reports"
+import DatabaseConnection from "./pages/sales/campaign/DatabaseConnection"
 
 // Operations Pages
 import ClientsPage from "./pages/operations/ClientsPage"
@@ -106,6 +107,7 @@ function App() {
         <Route path="sales/account/:companyName" element={<CompanyDetail />} />
         <Route path="sales/rfq" element={<RFQ />} />
         <Route path="sales/campaign/list" element={<List />} />
+        <Route path="sales/campaign/list/database-connection" element={<DatabaseConnection />} />
         <Route path="sales/campaign/templates" element={<Templates />} />
         <Route path="sales/campaign/workflow" element={<Workflow />} />
         <Route path="sales/campaign/reports" element={<Reports />} />

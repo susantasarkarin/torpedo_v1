@@ -419,7 +419,22 @@ useEffect(() => {
                   Add More Contacts
                 </button>
 
-                {/* 🚀 Workflow integration button */}
+                {/* � Database Connection - AI Lead Import */}
+                <button
+                  className="create-contacts-btn"
+                  onClick={() =>
+                    navigate("/admin/sales/campaign/list/database-connection", {
+                      state: { selectedList },
+                    })
+                  }
+                  aria-label="Import from LinkedIn Database"
+                  title="Import AI-Classified LinkedIn Leads"
+                  style={{ background: "linear-gradient(135deg, #8b5cf6, #7c3aed)" }}
+                >
+                  🤖 AI Lead Database
+                </button>
+
+                {/* �🚀 Workflow integration button */}
                 <button
                   className="create-contacts-btn"
                   onClick={() =>
@@ -451,6 +466,18 @@ useEffect(() => {
                   aria-label="Add more contacts" style={{margin:"auto"}}
                 >
                   Add Contacts
+                </button>
+                <button
+                  className="create-contacts-btn"
+                  onClick={() =>
+                    navigate("/admin/sales/campaign/list/database-connection", {
+                      state: { selectedList },
+                    })
+                  }
+                  aria-label="Import from LinkedIn Database"
+                  style={{ background: "linear-gradient(135deg, #8b5cf6, #7c3aed)", margin: "auto" }}
+                >
+                  🤖 AI Lead Database
                 </button>
               </div>
             </div>
