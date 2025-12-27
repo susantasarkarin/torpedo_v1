@@ -14,7 +14,8 @@ from dotenv import load_dotenv
 from .models import (
     LeadInput, LeadRaw, LeadEnriched, AIClassificationLog,
     LeadImportResponse, LeadFilterParams, ClassificationStatus,
-    SeniorityLevel, Department, Persona, CompanySize, Region
+    SeniorityLevel, Department, Persona, CompanySize, Region,
+    BuyingRole, Gender, EmailStatus
 )
 from .ai_classifier import classify_lead
 
@@ -82,8 +83,24 @@ def import_leads(leads: List[LeadInput]) -> LeadImportResponse:
                 name=lead_input.name,
                 title=lead_input.title,
                 linkedin_url=lead_input.linkedin_url,
-                snippet=lead_input.snippet,
+                snippet=lead_input.snippet or "",
                 source=lead_input.source,
+                first_name=lead_input.first_name,
+                last_name=lead_input.last_name,
+                email=lead_input.email,
+                email_status=lead_input.email_status,
+                location=lead_input.location,
+                company_name=lead_input.company_name,
+                company_domain=lead_input.company_domain,
+                company_website=lead_input.company_website,
+                company_employee_count=lead_input.company_employee_count,
+                company_employee_count_range=lead_input.company_employee_count_range,
+                company_founded=lead_input.company_founded,
+                company_industry=lead_input.company_industry,
+                company_type=lead_input.company_type,
+                company_headquarters=lead_input.company_headquarters,
+                company_revenue_range=lead_input.company_revenue_range,
+                company_linkedin_url=lead_input.company_linkedin_url,
                 created_at=datetime.utcnow(),
                 classification_status=ClassificationStatus.PENDING
             )
@@ -143,13 +160,22 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
         }
     )
     
-    # Create LeadRaw model
+    # Create LeadRaw model with all available context for AI classification
     lead = LeadRaw(
         name=raw_lead["name"],
         title=raw_lead["title"],
         linkedin_url=raw_lead["linkedin_url"],
-        snippet=raw_lead["snippet"],
-        source=raw_lead.get("source", "linkedin")
+        snippet=raw_lead.get("snippet", ""),
+        source=raw_lead.get("source", "linkedin"),
+        first_name=raw_lead.get("first_name"),
+        last_name=raw_lead.get("last_name"),
+        email=raw_lead.get("email"),
+        email_status=raw_lead.get("email_status"),
+        location=raw_lead.get("location"),
+        company_name=raw_lead.get("company_name"),
+        company_domain=raw_lead.get("company_domain"),
+        company_website=raw_lead.get("company_website"),
+        company_industry=raw_lead.get("company_industry"),
     )
     
     # Classify
@@ -160,21 +186,44 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
     classification_logs_collection.insert_one(log.model_dump())
     
     if result:
-        # Create enriched lead
+        # Create enriched lead with all fields
+        # Use AI-inferred data, fallback to raw data from import
         enriched = LeadEnriched(
             raw_lead_id=raw_lead_id,
+            # Personal Info
             name=lead.name,
+            first_name=result.first_name or raw_lead.get("first_name", ""),
+            last_name=result.last_name or raw_lead.get("last_name", ""),
+            email=raw_lead.get("email"),
+            email_status=EmailStatus(raw_lead.get("email_status", "Unknown")) if raw_lead.get("email_status") else EmailStatus.UNKNOWN,
             title=lead.title,
             linkedin_url=lead.linkedin_url,
-            snippet=lead.snippet,
+            location=result.inferred_location or raw_lead.get("location"),
+            # Metadata
+            added_on=datetime.utcnow(),
             source=lead.source,
+            snippet=lead.snippet,
+            # AI Classification
             seniority_level=result.seniority_level,
+            buying_role=result.buying_role,
             department=result.department,
             persona=result.persona,
+            gender=result.gender,
             company_size=result.company_size,
-            industry=result.industry,
             region=result.region,
             confidence_score=result.confidence_score,
+            # Company Info - prefer AI inferred, fallback to raw import data
+            company_name=result.company_name or raw_lead.get("company_name"),
+            company_domain=result.company_domain or raw_lead.get("company_domain"),
+            company_website=result.company_website or raw_lead.get("company_website"),
+            company_employee_count=result.company_employee_count or raw_lead.get("company_employee_count"),
+            company_employee_count_range=result.company_employee_count_range or raw_lead.get("company_employee_count_range"),
+            company_founded=result.company_founded or raw_lead.get("company_founded"),
+            company_industry=result.company_industry or raw_lead.get("company_industry"),
+            company_type=result.company_type or raw_lead.get("company_type"),
+            company_headquarters=result.company_headquarters or raw_lead.get("company_headquarters"),
+            company_revenue_range=result.company_revenue_range or raw_lead.get("company_revenue_range"),
+            company_linkedin_url=result.company_linkedin_url or raw_lead.get("company_linkedin_url"),
             classified_at=datetime.utcnow()
         )
         

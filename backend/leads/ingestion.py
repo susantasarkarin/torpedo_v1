@@ -176,12 +176,7 @@ def extract_name_and_title(search_title: str) -> Tuple[str, str]:
 def parse_csv_leads(csv_content: str, delimiter: str = ",") -> List[dict]:
     """
     Parse CSV content into lead format.
-    
-    Expected columns (flexible matching):
-    - name, full_name, Name, Full Name
-    - title, job_title, position, Title, Job Title
-    - linkedin_url, linkedin, url, LinkedIn URL
-    - snippet, bio, description, about
+    Supports all lead fields including company data.
     
     Returns:
         List of parsed leads
@@ -189,42 +184,64 @@ def parse_csv_leads(csv_content: str, delimiter: str = ",") -> List[dict]:
     leads = []
     reader = csv.DictReader(io.StringIO(csv_content), delimiter=delimiter)
     
-    # Normalize column names
+    # Full column mapping for all supported fields
     column_mapping = {
         "name": ["name", "full_name", "fullname", "full name", "contact_name", "contact name"],
-        "title": ["title", "job_title", "jobtitle", "job title", "position", "role"],
+        "first_name": ["first_name", "firstname", "first", "given_name"],
+        "last_name": ["last_name", "lastname", "last", "surname"],
+        "email": ["email", "email_address", "e-mail", "mail", "work_email"],
+        "email_status": ["email_status", "emailstatus", "email status", "status", "valid"],
+        "title": ["title", "job_title", "jobtitle", "job title", "position", "role", "designation"],
         "linkedin_url": ["linkedin_url", "linkedin", "linkedinurl", "linkedin url", "profile_url", "url"],
+        "location": ["location", "city", "country", "region", "geo"],
+        "company_name": ["company_name", "companyname", "company", "organization", "employer", "company name"],
+        "company_domain": ["company_domain", "companydomain", "domain", "website_domain"],
+        "company_website": ["company_website", "companywebsite", "website", "company_url", "company website"],
+        "company_employee_count": ["company_employee_count", "employees", "employee_count", "headcount", "size"],
+        "company_employee_count_range": ["company_employee_count_range", "employee_range", "size_range", "company_size"],
+        "company_founded": ["company_founded", "founded", "year_founded", "founded_year", "established"],
+        "company_industry": ["company_industry", "industry", "sector", "vertical"],
+        "company_type": ["company_type", "type", "business_type"],
+        "company_headquarters": ["company_headquarters", "headquarters", "hq", "hq_location", "main_office"],
+        "company_revenue_range": ["company_revenue_range", "revenue_range", "revenue", "annual_revenue"],
+        "company_linkedin_url": ["company_linkedin_url", "company_linkedin", "company linkedin"],
         "snippet": ["snippet", "bio", "description", "about", "summary", "headline"]
     }
     
     for row in reader:
         lead = parse_csv_row(row, column_mapping)
-        if lead and lead.get("name"):
+        if lead and (lead.get("name") or lead.get("linkedin_url")):
             leads.append(lead)
     
     return leads
 
 
 def parse_csv_row(row: dict, column_mapping: dict) -> Optional[dict]:
-    """Parse a single CSV row into lead format."""
+    """Parse a single CSV row into lead format with all fields."""
     # Normalize row keys to lowercase
-    normalized_row = {k.lower().strip(): v for k, v in row.items()}
+    normalized_row = {k.lower().strip().replace(" ", "_"): v for k, v in row.items()}
     
     lead = {"source": "csv_import"}
     
     for target_field, possible_columns in column_mapping.items():
         for col in possible_columns:
-            if col in normalized_row and normalized_row[col]:
-                lead[target_field] = normalized_row[col].strip()
+            normalized_col = col.lower().replace(" ", "_")
+            if normalized_col in normalized_row and normalized_row[normalized_col]:
+                lead[target_field] = str(normalized_row[normalized_col]).strip()
                 break
         
-        # Set default empty string if not found
+        # Set default empty string if not found (only for required fields)
         if target_field not in lead:
-            lead[target_field] = ""
+            if target_field in ["name", "title", "linkedin_url", "snippet"]:
+                lead[target_field] = ""
     
-    # Require at least name to be valid
-    if not lead.get("name"):
+    # Require at least name or linkedin_url to be valid
+    if not lead.get("name") and not lead.get("linkedin_url"):
         return None
+    
+    # If name is missing, try to construct from first/last name
+    if not lead.get("name") and (lead.get("first_name") or lead.get("last_name")):
+        lead["name"] = f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip()
     
     return lead
 

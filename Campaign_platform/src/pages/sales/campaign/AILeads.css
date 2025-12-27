@@ -398,6 +398,108 @@
   text-decoration: underline;
 }
 
+/* ============== CLASSIFIED TABLE (Full columns) ============== */
+.classified-table-container {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.classified-table {
+  min-width: 2400px; /* Ensure table is wide enough for all columns */
+}
+
+.classified-table th,
+.classified-table td {
+  padding: 12px 14px;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+/* Sticky first columns */
+.classified-table .sticky-col {
+  position: sticky;
+  left: 0;
+  background: var(--card);
+  z-index: 2;
+}
+
+.classified-table .sticky-col-2 {
+  position: sticky;
+  left: 40px;
+  background: var(--card);
+  z-index: 2;
+}
+
+.classified-table thead .sticky-col,
+.classified-table thead .sticky-col-2 {
+  background: #f9fafb;
+  z-index: 3;
+}
+
+.classified-table tbody tr:hover .sticky-col,
+.classified-table tbody tr:hover .sticky-col-2 {
+  background: #f9fafb;
+}
+
+.classified-table tbody tr.selected .sticky-col,
+.classified-table tbody tr.selected .sticky-col-2 {
+  background: #eff6ff;
+}
+
+/* Email cell styling */
+.email-cell {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* LinkedIn link styling */
+.linkedin-link {
+  color: var(--primary);
+  text-decoration: none;
+  font-size: 0.8rem;
+}
+
+.linkedin-link:hover {
+  text-decoration: underline;
+}
+
+/* Status badge for email status */
+.status-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.status-badge.valid {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.status-badge.invalid {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.status-badge.catch-all {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.status-badge.unknown,
+.status-badge.not-found {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+/* Orange badge for buying role */
+.badge-orange {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
 /* ============== EMPTY STATE ============== */
 .empty-state {
   text-align: center;
@@ -628,6 +730,236 @@
   font-size: 0.9rem;
 }
 
+/* ============== LARGE MODAL ============== */
+.modal-large {
+  width: 90%;
+  max-width: 800px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* ============== FORM GRID ============== */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group label {
+  font-weight: 500;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.form-select {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  outline: none;
+  background: white;
+  cursor: pointer;
+}
+
+.form-select:focus {
+  border-color: var(--primary);
+}
+
+/* ============== SOURCE BADGES ============== */
+.source-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.source-badge.web-search, .source-badge.web_search {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.source-badge.google-search, .source-badge.google_search {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.source-badge.csv, .source-badge.csv_import, .source-badge.csv-import {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.source-badge.linkedin {
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.source-badge.json-import, .source-badge.json_import {
+  background: #f3e8ff;
+  color: #6b21a8;
+}
+
+.source-badge.unknown {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
+/* ============== BUYING ROLE BADGE ============== */
+.badge-orange {
+  background: #fed7aa;
+  color: #c2410c;
+}
+
+/* ============== FILE UPLOAD DROPZONE ============== */
+.file-upload-dropzone {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 40px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.file-upload-dropzone:hover {
+  border-color: var(--primary);
+  background: #f9fafb;
+}
+
+.dropzone-icon {
+  font-size: 3rem;
+  margin-bottom: 12px;
+}
+
+.dropzone-hint {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* ============== CSV FILE INFO ============== */
+.csv-file-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #f0fdf4;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.csv-stats {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* ============== COLUMN MAPPING ============== */
+.column-mapping-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.mapping-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.mapping-row:last-child {
+  border-bottom: none;
+}
+
+.mapping-label {
+  width: 150px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.mapping-label .required {
+  color: #dc2626;
+  margin-left: 4px;
+}
+
+.mapping-select {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font-size: 0.875rem;
+  background: white;
+}
+
+.mapping-select.mapped {
+  border-color: var(--success);
+  background: #f0fdf4;
+}
+
+/* ============== CSV PREVIEW ============== */
+.csv-preview-actions {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.preview-table-wrapper {
+  max-height: 250px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.preview-table th {
+  text-align: left;
+  padding: 10px;
+  background: #f9fafb;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.preview-table td {
+  padding: 10px;
+  border-bottom: 1px solid #f3f4f6;
+  color: var(--text-muted);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============== PROGRESS BAR ============== */
+.progress-bar-container {
+  background: #f3f4f6;
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+}
+
+.progress-text {
+  color: var(--text);
+  font-weight: 500;
+}
+
 /* ============== RESPONSIVE ============== */
 @media (max-width: 768px) {
   .ai-leads-page {
@@ -658,5 +990,14 @@
   .data-table {
     display: block;
     overflow-x: auto;
+  }
+  
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .modal-large {
+    width: 95%;
+    max-height: 95vh;
   }
 }

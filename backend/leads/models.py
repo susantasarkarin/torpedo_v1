@@ -38,6 +38,32 @@ class Persona(str, Enum):
     PRACTITIONER = "Practitioner"
 
 
+class BuyingRole(str, Enum):
+    """Buying role in B2B decision making"""
+    ECONOMIC_BUYER = "Economic Buyer"
+    TECHNICAL_BUYER = "Technical Buyer"
+    USER_BUYER = "User Buyer"
+    CHAMPION = "Champion"
+    INFLUENCER = "Influencer"
+    UNKNOWN = "Unknown"
+
+
+class Gender(str, Enum):
+    """Gender inference from name/profile"""
+    MALE = "Male"
+    FEMALE = "Female"
+    UNKNOWN = "Unknown"
+
+
+class EmailStatus(str, Enum):
+    """Email verification status"""
+    VALID = "Valid"
+    INVALID = "Invalid"
+    CATCH_ALL = "Catch-All"
+    UNKNOWN = "Unknown"
+    NOT_FOUND = "Not Found"
+
+
 class CompanySize(str, Enum):
     STARTUP = "Startup"
     SMB = "SMB"
@@ -64,6 +90,7 @@ class ClassificationStatus(str, Enum):
 
 class LeadSource(str, Enum):
     """Supported lead data sources"""
+    WEB_SEARCH = "web_search"
     LINKEDIN = "linkedin"
     GOOGLE_SEARCH = "google_search"
     CSV = "csv"
@@ -78,8 +105,26 @@ class LeadInput(BaseModel):
     name: str
     title: str
     linkedin_url: str
-    snippet: str
+    snippet: str = ""
     source: str = "linkedin"  # Flexible source field
+    # Personal fields
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    email_status: Optional[str] = None
+    location: Optional[str] = None
+    # Company fields
+    company_name: Optional[str] = None
+    company_domain: Optional[str] = None
+    company_website: Optional[str] = None
+    company_employee_count: Optional[str] = None
+    company_employee_count_range: Optional[str] = None
+    company_founded: Optional[str] = None
+    company_industry: Optional[str] = None
+    company_type: Optional[str] = None
+    company_headquarters: Optional[str] = None
+    company_revenue_range: Optional[str] = None
+    company_linkedin_url: Optional[str] = None
 
 
 # ============== RAW LEAD (leads_raw collection) ==============
@@ -96,8 +141,27 @@ class LeadRaw(BaseModel):
     name: str
     title: str
     linkedin_url: str = Field(..., description="Unique identifier")
-    snippet: str
+    snippet: str = ""
     source: str = "linkedin"
+    # Personal fields
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    email_status: Optional[str] = None
+    location: Optional[str] = None
+    # Company fields from import
+    company_name: Optional[str] = None
+    company_domain: Optional[str] = None
+    company_website: Optional[str] = None
+    company_employee_count: Optional[str] = None
+    company_employee_count_range: Optional[str] = None
+    company_founded: Optional[str] = None
+    company_industry: Optional[str] = None
+    company_type: Optional[str] = None
+    company_headquarters: Optional[str] = None
+    company_revenue_range: Optional[str] = None
+    company_linkedin_url: Optional[str] = None
+    # System fields
     created_at: datetime = Field(default_factory=datetime.utcnow)
     classification_status: ClassificationStatus = ClassificationStatus.PENDING
     classification_attempts: int = 0
@@ -108,13 +172,33 @@ class LeadRaw(BaseModel):
 # ============== AI CLASSIFICATION OUTPUT ==============
 
 class AIClassificationOutput(BaseModel):
-    """Strict JSON schema for ChatGPT output"""
+    """Strict JSON schema for ChatGPT output - expanded fields"""
+    # Name parsing
+    first_name: str
+    last_name: str
+    # Classification
     seniority_level: SeniorityLevel
     department: Department
     persona: Persona
+    buying_role: BuyingRole
+    gender: Gender
     company_size: CompanySize
-    industry: str
     region: Region
+    # Company data (AI inferred)
+    company_name: Optional[str] = None
+    company_domain: Optional[str] = None
+    company_website: Optional[str] = None
+    company_employee_count: Optional[str] = None
+    company_employee_count_range: Optional[str] = None
+    company_founded: Optional[str] = None
+    company_industry: Optional[str] = None
+    company_type: Optional[str] = None
+    company_headquarters: Optional[str] = None
+    company_revenue_range: Optional[str] = None
+    company_linkedin_url: Optional[str] = None
+    # Inferred data
+    inferred_location: Optional[str] = None
+    # Confidence
     confidence_score: float = Field(..., ge=0.0, le=1.0)
 
 
@@ -129,26 +213,48 @@ class LeadEnriched(BaseModel):
         - seniority_level
         - department
         - persona
-        - industry
-        - region
         - confidence_score
         - campaign_ids
     """
     raw_lead_id: str
+    
+    # Personal Information
     name: str
+    first_name: str
+    last_name: str
+    email: Optional[str] = None
+    email_status: EmailStatus = EmailStatus.UNKNOWN
     title: str
     linkedin_url: str
-    snippet: str
-    source: str
+    location: Optional[str] = None
+    
+    # Metadata
+    added_on: datetime = Field(default_factory=datetime.utcnow)
+    source: str = "linkedin"
+    snippet: str = ""
     
     # AI Classification fields
     seniority_level: SeniorityLevel
+    buying_role: BuyingRole
     department: Department
     persona: Persona
+    gender: Gender
     company_size: CompanySize
-    industry: str
     region: Region
     confidence_score: float
+    
+    # Company Information
+    company_name: Optional[str] = None
+    company_domain: Optional[str] = None
+    company_website: Optional[str] = None
+    company_employee_count: Optional[str] = None
+    company_employee_count_range: Optional[str] = None
+    company_founded: Optional[str] = None
+    company_industry: Optional[str] = None
+    company_type: Optional[str] = None
+    company_headquarters: Optional[str] = None
+    company_revenue_range: Optional[str] = None
+    company_linkedin_url: Optional[str] = None
     
     # Versioning
     classification_version: int = 1
@@ -157,6 +263,7 @@ class LeadEnriched(BaseModel):
     # Campaign association
     campaign_ids: List[str] = []
     
+    # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
