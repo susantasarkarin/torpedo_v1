@@ -113,6 +113,11 @@ class LeadInput(BaseModel):
     email: Optional[str] = None
     email_status: Optional[str] = None
     location: Optional[str] = None
+    added_on: Optional[str] = None
+    profile_picture: Optional[str] = None
+    seniority_level: Optional[str] = None
+    buying_role: Optional[str] = None
+    gender: Optional[str] = None
     # Company fields
     company_name: Optional[str] = None
     company_domain: Optional[str] = None
@@ -125,6 +130,12 @@ class LeadInput(BaseModel):
     company_headquarters: Optional[str] = None
     company_revenue_range: Optional[str] = None
     company_linkedin_url: Optional[str] = None
+    # New fields per Issue 6
+    company_crunchbase_url: Optional[str] = None
+    company_funding_rounds: Optional[str] = None
+    company_last_funding_round_amount: Optional[str] = None
+    company_logo_url_primary: Optional[str] = None
+    company_logo_url_secondary: Optional[str] = None
 
 
 # ============== RAW LEAD (leads_raw collection) ==============
@@ -149,6 +160,11 @@ class LeadRaw(BaseModel):
     email: Optional[str] = None
     email_status: Optional[str] = None
     location: Optional[str] = None
+    added_on: Optional[str] = None
+    profile_picture: Optional[str] = None
+    seniority_level: Optional[str] = None
+    buying_role: Optional[str] = None
+    gender: Optional[str] = None
     # Company fields from import
     company_name: Optional[str] = None
     company_domain: Optional[str] = None
@@ -161,6 +177,12 @@ class LeadRaw(BaseModel):
     company_headquarters: Optional[str] = None
     company_revenue_range: Optional[str] = None
     company_linkedin_url: Optional[str] = None
+    # New fields per Issue 6
+    company_crunchbase_url: Optional[str] = None
+    company_funding_rounds: Optional[str] = None
+    company_last_funding_round_amount: Optional[str] = None
+    company_logo_url_primary: Optional[str] = None
+    company_logo_url_secondary: Optional[str] = None
     # System fields
     created_at: datetime = Field(default_factory=datetime.utcnow)
     classification_status: ClassificationStatus = ClassificationStatus.PENDING

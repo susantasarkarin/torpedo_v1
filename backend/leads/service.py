@@ -407,3 +407,74 @@ def get_lead_statistics() -> dict:
         "by_department": {d["_id"]: d["count"] for d in departments},
         "by_seniority": {s["_id"]: s["count"] for s in seniorities}
     }
+
+
+# ============== DELETE LEADS ==============
+
+def delete_leads_by_source(source: str) -> dict:
+    """
+    Delete all leads imported from a specific source.
+    Returns count of deleted leads from raw and enriched collections.
+    """
+    # Get IDs of raw leads to delete
+    raw_leads_to_delete = list(leads_raw_collection.find(
+        {"source": {"$in": [source, "google_search", "web_search"]} if source == "web_search" else {"source": source}},
+        {"_id": 1, "enriched_lead_id": 1}
+    ))
+    
+    raw_ids = [str(lead["_id"]) for lead in raw_leads_to_delete]
+    enriched_ids = [lead.get("enriched_lead_id") for lead in raw_leads_to_delete if lead.get("enriched_lead_id")]
+    
+    # Delete from enriched collection
+    enriched_deleted = 0
+    if enriched_ids:
+        enriched_result = leads_enriched_collection.delete_many({
+            "$or": [
+                {"raw_lead_id": {"$in": raw_ids}},
+                {"_id": {"$in": [ObjectId(eid) for eid in enriched_ids if eid]}}
+            ]
+        })
+        enriched_deleted = enriched_result.deleted_count
+    
+    # Delete from raw collection - include both web_search and google_search sources
+    if source == "web_search":
+        raw_result = leads_raw_collection.delete_many({
+            "source": {"$in": ["web_search", "google_search"]}
+        })
+    else:
+        raw_result = leads_raw_collection.delete_many({"source": source})
+    
+    raw_deleted = raw_result.deleted_count
+    
+    # Also delete any classification logs
+    if raw_ids:
+        classification_logs_collection.delete_many({"raw_lead_id": {"$in": raw_ids}})
+    
+    return {
+        "raw_deleted": raw_deleted,
+        "enriched_deleted": enriched_deleted,
+        "total_deleted": raw_deleted + enriched_deleted
+    }
+
+
+def delete_all_leads() -> dict:
+    """
+    Delete ALL leads from both raw and enriched collections.
+    Returns count of deleted leads.
+    """
+    # Delete all from enriched collection
+    enriched_result = leads_enriched_collection.delete_many({})
+    enriched_deleted = enriched_result.deleted_count
+    
+    # Delete all from raw collection
+    raw_result = leads_raw_collection.delete_many({})
+    raw_deleted = raw_result.deleted_count
+    
+    # Delete all classification logs
+    classification_logs_collection.delete_many({})
+    
+    return {
+        "raw_deleted": raw_deleted,
+        "enriched_deleted": enriched_deleted,
+        "total_deleted": raw_deleted + enriched_deleted
+    }

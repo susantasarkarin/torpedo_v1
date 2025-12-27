@@ -4,7 +4,7 @@ FastAPI Router for Lead Management
 """
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, UploadFile, File, Form
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from pydantic import BaseModel
 
@@ -17,11 +17,16 @@ from .models import (
 from .service import (
     import_leads, classify_pending_leads, classify_single_lead,
     get_leads, get_raw_leads_with_status, attach_leads_to_campaign,
-    get_lead_statistics
+    get_lead_statistics, delete_leads_by_source, delete_all_leads
 )
 from .ingestion import (
     search_linkedin_leads, parse_csv_leads, import_from_google_sheet,
     import_leads_from_source
+)
+from .imap_leads_service import (
+    import_leads_from_emails, get_email_leads, get_segment_statistics,
+    get_imap_accounts, add_imap_account, remove_imap_account,
+    test_imap_connection, EmailSegment
 )
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
@@ -35,12 +40,15 @@ class GoogleSearchRequest(BaseModel):
 
 
 class WebSearchRequest(BaseModel):
-    """Enhanced web search with filters"""
-    designation: str = ""  # e.g., "CEO", "VP Sales"
-    country: str = ""  # e.g., "India", "USA"
-    seniority: str = ""  # e.g., "C-Level", "VP"
+    """Enhanced web search with filters - supports multi-select"""
+    designation: str = ""  # e.g., "CEO", "VP Sales" - comma separated for multiple
+    countries: List[str] = []  # Multiple countries supported
+    seniorities: List[str] = []  # Multiple seniority levels supported
     custom_query: str = ""  # Additional search terms
-    target_count: int = 100  # Target number of leads (up to 5000)
+    target_count: int = 10000  # Target number of leads (now 10000)
+    # Legacy single-value fields for backward compatibility
+    country: str = ""
+    seniority: str = ""
 
 
 class GoogleSheetRequest(BaseModel):
@@ -59,64 +67,112 @@ async def import_from_web_search(
     """
     POST /leads/import/web-search
     Enhanced LinkedIn search with designation, country, and seniority filters.
-    Continues searching until target_count is reached (max 5000).
+    Supports multiple countries and seniority levels.
+    Continues searching until target_count is reached (default 10000).
+    Uses multiple query variations to maximize results.
     """
     try:
-        # Build search query from filters
-        query_parts = []
+        # Handle both new multi-select and legacy single-select
+        countries = request.countries if request.countries else ([request.country] if request.country else [])
+        seniorities = request.seniorities if request.seniorities else ([request.seniority] if request.seniority else [])
+        designations = [d.strip() for d in request.designation.split(",")] if request.designation else []
         
-        if request.designation:
-            query_parts.append(f'"{request.designation}"')
-        
-        if request.seniority:
-            seniority_keywords = {
-                "C-Level": "CEO OR CTO OR CFO OR COO OR CMO OR CRO OR Chief",
-                "VP": "VP OR Vice President OR SVP OR EVP",
-                "Director": "Director OR Head of",
-                "Manager": "Manager OR Team Lead",
-                "IC": "Analyst OR Specialist OR Engineer OR Developer"
-            }
-            if request.seniority in seniority_keywords:
-                query_parts.append(f"({seniority_keywords[request.seniority]})")
-            else:
-                query_parts.append(request.seniority)
-        
-        if request.country:
-            query_parts.append(request.country)
-        
-        if request.custom_query:
-            query_parts.append(request.custom_query)
-        
-        if not query_parts:
+        if not designations and not countries and not seniorities and not request.custom_query:
             raise ValueError("At least one search filter (designation, country, seniority, or custom_query) is required")
         
-        final_query = " ".join(query_parts)
-        target_count = min(request.target_count, 5000)  # Cap at 5000
+        target_count = min(request.target_count, 10000)  # Cap at 10000
+        
+        # Build all query combinations for multi-select
+        query_combinations = []
+        
+        # Generate query variations for each combination
+        for designation in (designations if designations else [""]):
+            for country in (countries if countries else [""]):
+                for seniority in (seniorities if seniorities else [""]):
+                    query_parts = []
+                    
+                    if designation:
+                        query_parts.append(f'"{designation}"')
+                    
+                    if seniority:
+                        # LinkedIn Seniority Levels mapping to search keywords
+                        seniority_keywords = {
+                            "Owner": "Owner OR Business Owner OR Proprietor",
+                            "Founder": "Founder OR Co-Founder OR Cofounder",
+                            "CXO": "CEO OR CTO OR CFO OR COO OR CMO OR CRO OR CIO OR CHRO OR CPO OR Chief",
+                            "Partner": "Partner OR Managing Partner OR General Partner",
+                            "VP": "VP OR Vice President OR SVP OR EVP OR AVP",
+                            "Director": "Director OR Head of OR Group Director",
+                            "Manager": "Manager OR Team Lead OR Supervisor",
+                            "Senior": "Senior OR Sr. OR Lead OR Principal",
+                            "Entry": "Associate OR Junior OR Entry OR Analyst",
+                            "Training": "Intern OR Trainee OR Apprentice",
+                            "Unpaid": "Volunteer OR Board Member"
+                        }
+                        if seniority in seniority_keywords:
+                            query_parts.append(f"({seniority_keywords[seniority]})")
+                        else:
+                            query_parts.append(seniority)
+                    
+                    if country:
+                        query_parts.append(country)
+                    
+                    if request.custom_query:
+                        query_parts.append(request.custom_query)
+                    
+                    if query_parts:
+                        query_combinations.append(" ".join(query_parts))
+        
+        # Remove duplicates
+        query_combinations = list(set(query_combinations)) if query_combinations else [request.custom_query]
         
         all_leads = []
-        start_index = 1
+        seen_urls = set()
         batch_size = 10  # Google CSE returns max 10 per request
         
-        # Keep searching until we reach target or no more results
-        while len(all_leads) < target_count:
-            remaining = target_count - len(all_leads)
-            num_to_fetch = min(batch_size, remaining)
-            
-            leads = await search_linkedin_leads(
-                query=final_query,
-                num_results=num_to_fetch,
-                start=start_index
-            )
-            
-            if not leads:
-                break  # No more results
-            
-            all_leads.extend(leads)
-            start_index += len(leads)
-            
-            # Safety check - Google CSE has limits
-            if start_index > 100:  # Google CSE max is 100 results per query
+        # Loop through all query combinations
+        for query in query_combinations:
+            if len(all_leads) >= target_count:
                 break
+                
+            start_index = 1
+            consecutive_empty = 0
+            
+            # Keep searching with this query until we get no more results or hit Google CSE limit
+            while len(all_leads) < target_count and consecutive_empty < 3:
+                remaining = target_count - len(all_leads)
+                num_to_fetch = min(batch_size, remaining)
+                
+                try:
+                    leads = await search_linkedin_leads(
+                        query=query,
+                        num_results=num_to_fetch,
+                        start=start_index
+                    )
+                    
+                    if not leads:
+                        consecutive_empty += 1
+                        start_index += batch_size
+                        continue
+                    
+                    consecutive_empty = 0
+                    
+                    # Deduplicate by linkedin_url
+                    for lead in leads:
+                        url = lead.get("linkedin_url", "")
+                        if url and url not in seen_urls:
+                            seen_urls.add(url)
+                            all_leads.append(lead)
+                    
+                    start_index += len(leads)
+                    
+                    # Google CSE has a limit of 100 results per query
+                    if start_index > 100:
+                        break
+                        
+                except Exception as e:
+                    print(f"Error searching with query '{query}': {e}")
+                    break
         
         if not all_leads:
             return {"imported": 0, "message": "No LinkedIn profiles found for this query"}
@@ -129,8 +185,8 @@ async def import_from_web_search(
             "found": len(all_leads),
             "imported": result.imported,
             "duplicates": result.duplicates,
-            "query_used": final_query,
-            "message": f"Found {len(all_leads)} leads, imported {result.imported}"
+            "queries_used": len(query_combinations),
+            "message": f"Found {len(all_leads)} leads across {len(query_combinations)} search(es), imported {result.imported}"
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -380,6 +436,205 @@ async def attach_leads_to_campaign_endpoint(
     """
     count, message = attach_leads_to_campaign(campaign_id, request.lead_ids)
     return {"attached": count, "message": message}
+
+
+# ============== DELETE LEADS BY SOURCE ==============
+
+@router.delete("/by-source/{source}")
+async def delete_leads_by_source_endpoint(source: str):
+    """
+    DELETE /leads/by-source/{source}
+    Delete all leads from a specific source (e.g., 'web_search', 'csv', 'google_search').
+    """
+    valid_sources = ["web_search", "google_search", "csv", "csv_import", "google_sheets", "json_import", "linkedin", "email_import"]
+    
+    if source not in valid_sources:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid source. Valid sources are: {', '.join(valid_sources)}"
+        )
+    
+    try:
+        result = delete_leads_by_source(source)
+        return {
+            "success": True,
+            "source": source,
+            "raw_deleted": result["raw_deleted"],
+            "enriched_deleted": result["enriched_deleted"],
+            "total_deleted": result["total_deleted"],
+            "message": f"Deleted {result['total_deleted']} leads from source '{source}'"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/all")
+async def delete_all_leads_endpoint():
+    """
+    DELETE /leads/all
+    Delete ALL leads from both raw and enriched collections.
+    Use with caution!
+    """
+    try:
+        result = delete_all_leads()
+        return {
+            "success": True,
+            "raw_deleted": result["raw_deleted"],
+            "enriched_deleted": result["enriched_deleted"],
+            "total_deleted": result["total_deleted"],
+            "message": f"Deleted all {result['total_deleted']} leads"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== EMAIL/IMAP LEADS ENDPOINTS (Issue 7 - IMAP/SMTP) ==============
+
+class EmailImportRequest(BaseModel):
+    """Request model for email leads import via IMAP"""
+    account_emails: Optional[List[str]] = None  # None = all accounts
+    max_emails: int = 500
+    since_days: int = 30
+    segments: Optional[List[str]] = None  # Filter by segment
+
+
+class IMAPAccountCreate(BaseModel):
+    """Request model for adding IMAP account"""
+    email: str
+    password: str  # App password for Gmail
+    display_name: str = ""
+    imap_server: str = None  # Auto-detected from email domain
+    imap_port: int = 993
+    smtp_server: str = None  # Auto-detected from email domain
+    smtp_port: int = 587
+    use_ssl: bool = True
+    is_default: bool = False
+
+
+@router.get("/gmail/accounts")
+async def get_email_accounts_endpoint():
+    """
+    GET /leads/gmail/accounts
+    Get all configured IMAP email accounts.
+    """
+    accounts = get_imap_accounts()
+    return {"accounts": accounts, "total": len(accounts)}
+
+
+@router.post("/gmail/accounts")
+async def add_email_account_endpoint(request: IMAPAccountCreate):
+    """
+    POST /leads/gmail/accounts
+    Add a new IMAP email account.
+    For Gmail, use an App Password (not your regular password).
+    """
+    result = add_imap_account(
+        email_address=request.email,
+        password=request.password,
+        display_name=request.display_name,
+        imap_server=request.imap_server,
+        imap_port=request.imap_port,
+        smtp_server=request.smtp_server,
+        smtp_port=request.smtp_port,
+        use_ssl=request.use_ssl,
+        is_default=request.is_default
+    )
+    
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    
+    return result
+
+
+@router.delete("/gmail/accounts/{email}")
+async def remove_email_account_endpoint(email: str):
+    """
+    DELETE /leads/gmail/accounts/{email}
+    Remove an IMAP email account.
+    """
+    result = remove_imap_account(email)
+    if not result["success"]:
+        raise HTTPException(status_code=404, detail=result["message"])
+    return result
+
+
+@router.post("/gmail/accounts/{email}/test")
+async def test_email_account_endpoint(email: str):
+    """
+    POST /leads/gmail/accounts/{email}/test
+    Test IMAP connection for an account.
+    """
+    result = test_imap_connection(email)
+    return result
+
+
+@router.post("/gmail/import")
+async def import_email_leads_endpoint(
+    request: EmailImportRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    POST /leads/gmail/import
+    Import leads from email accounts via IMAP.
+    Extracts contacts from emails and categorizes by segment.
+    """
+    try:
+        result = import_leads_from_emails(
+            account_emails=request.account_emails,
+            max_emails=request.max_emails,
+            since_days=request.since_days,
+            segments=request.segments
+        )
+        
+        return {
+            "success": result.get("success", True),
+            "emails_processed": result.get("emails_processed", 0),
+            "leads_imported": result.get("leads_imported", 0),
+            "duplicates": result.get("duplicates", 0),
+            "errors": result.get("errors"),
+            "message": result.get("message", "Import completed")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/gmail/leads")
+async def get_email_leads_endpoint(
+    segment: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200)
+):
+    """
+    GET /leads/gmail/leads
+    Get leads extracted from emails with filtering.
+    """
+    skip = (page - 1) * limit
+    leads = get_email_leads(
+        segment=segment,
+        limit=limit,
+        skip=skip
+    )
+    
+    return {
+        "leads": leads,
+        "total": len(leads),
+        "page": page,
+        "limit": limit
+    }
+
+
+@router.get("/gmail/segments")
+async def get_email_segments_endpoint():
+    """
+    GET /leads/gmail/segments
+    Get available segments and their lead counts.
+    """
+    stats = get_segment_statistics()
+    segments = [
+        {"id": s.value, "name": s.value.replace("_", " ").title(), "count": stats.get(s.value, 0)}
+        for s in EmailSegment
+    ]
+    return {"segments": segments}
 
 
 # ============== HEALTH CHECK ==============

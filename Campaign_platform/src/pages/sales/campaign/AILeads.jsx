@@ -12,7 +12,20 @@ import "./AILeads.css";
 
 // ============== FILTER OPTIONS ==============
 
-const SENIORITY_OPTIONS = ["C-Level", "VP", "Director", "Manager", "IC", "Unknown"];
+// LinkedIn Seniority Levels (matches LinkedIn Sales Navigator)
+const SENIORITY_OPTIONS = [
+  "Owner",
+  "Founder",
+  "CXO",
+  "Partner",
+  "VP",
+  "Director",
+  "Manager",
+  "Senior",
+  "Entry",
+  "Training",
+  "Unpaid"
+];
 const DEPARTMENT_OPTIONS = ["Sales", "Marketing", "Engineering", "Operations", "Finance", "HR", "Product", "Other"];
 const PERSONA_OPTIONS = ["Decision Maker", "Influencer", "Gatekeeper", "Practitioner"];
 const COMPANY_SIZE_OPTIONS = ["Startup", "SMB", "Mid-Market", "Enterprise"];
@@ -21,39 +34,55 @@ const COMPANY_SIZE_OPTIONS = ["Startup", "SMB", "Mid-Market", "Enterprise"];
 const COUNTRY_OPTIONS = [
   "United States", "United Kingdom", "Canada", "Australia", "Germany", 
   "France", "India", "Singapore", "UAE", "Netherlands", "Sweden", 
-  "Switzerland", "Japan", "South Korea", "Brazil", "Mexico", "Other"
+  "Switzerland", "Japan", "South Korea", "Brazil", "Mexico", "Spain",
+  "Italy", "China", "Hong Kong", "Indonesia", "Philippines", "Thailand",
+  "Vietnam", "Malaysia", "New Zealand", "Ireland", "Belgium", "Austria",
+  "Denmark", "Norway", "Finland", "Poland", "Portugal", "South Africa",
+  "Israel", "Saudi Arabia", "Turkey", "Russia", "Argentina", "Chile",
+  "Colombia", "Peru", "Egypt", "Nigeria", "Kenya", "Other"
 ];
 
-// Designation presets for web search
+// Designation presets for web search (can also type custom)
 const DESIGNATION_PRESETS = [
-  "CEO", "CTO", "CFO", "COO", "CMO", "CRO",
-  "VP Sales", "VP Marketing", "VP Engineering", "VP Product",
+  "CEO", "CTO", "CFO", "COO", "CMO", "CRO", "CHRO", "CIO", "CPO",
+  "VP Sales", "VP Marketing", "VP Engineering", "VP Product", "VP Operations",
   "Director of Sales", "Director of Marketing", "Director of Engineering",
-  "Sales Manager", "Marketing Manager", "Product Manager",
-  "Head of Sales", "Head of Marketing", "Head of Growth"
+  "Sales Manager", "Marketing Manager", "Product Manager", "Engineering Manager",
+  "Head of Sales", "Head of Marketing", "Head of Growth", "Head of Product",
+  "Founder", "Co-Founder", "Owner", "Partner", "Managing Director"
 ];
 
-// CSV Import fields - Full schema matching all lead fields
+// CSV Import fields - Full schema matching all lead fields (Issue 6 - all fields)
 const DB_FIELDS = [
   { key: "name", label: "Full Name", required: false },
   { key: "first_name", label: "First Name", required: false },
   { key: "last_name", label: "Last Name", required: false },
-  { key: "email", label: "Email", required: false },
+  { key: "email", label: "Email", required: true },  // Made mandatory per Issue 6
   { key: "email_status", label: "Email Status", required: false },
   { key: "title", label: "Job Title", required: false },
-  { key: "linkedin_url", label: "LinkedIn URL", required: true },
+  { key: "linkedin_url", label: "LinkedIn URL", required: false },
   { key: "location", label: "Location", required: false },
+  { key: "added_on", label: "Added On", required: false },
+  { key: "profile_picture", label: "Profile Picture", required: false },
+  { key: "seniority_level", label: "Seniority Level", required: false },
+  { key: "buying_role", label: "Buying Role", required: false },
+  { key: "gender", label: "Gender", required: false },
   { key: "company_name", label: "Company Name", required: false },
   { key: "company_domain", label: "Company Domain", required: false },
   { key: "company_website", label: "Company Website", required: false },
-  { key: "company_employee_count", label: "Employee Count", required: false },
-  { key: "company_employee_count_range", label: "Employee Count Range", required: false },
+  { key: "company_employee_count", label: "Company Employee Count", required: false },
+  { key: "company_employee_count_range", label: "Company Employee Count Range", required: false },
   { key: "company_founded", label: "Company Founded", required: false },
   { key: "company_industry", label: "Company Industry", required: false },
   { key: "company_type", label: "Company Type", required: false },
   { key: "company_headquarters", label: "Company Headquarters", required: false },
-  { key: "company_revenue_range", label: "Revenue Range", required: false },
+  { key: "company_revenue_range", label: "Company Revenue Range", required: false },
   { key: "company_linkedin_url", label: "Company LinkedIn URL", required: false },
+  { key: "company_crunchbase_url", label: "Company Crunchbase URL", required: false },
+  { key: "company_funding_rounds", label: "Company Funding Rounds", required: false },
+  { key: "company_last_funding_round_amount", label: "Company Last Funding Round Amount", required: false },
+  { key: "company_logo_url_primary", label: "Company Logo URL Primary", required: false },
+  { key: "company_logo_url_secondary", label: "Company Logo URL Secondary", required: false },
   { key: "snippet", label: "Bio/Description", required: false },
 ];
 
@@ -62,10 +91,15 @@ const COLUMN_ALIASES = {
   first_name: ["firstname", "first_name", "first", "given_name"],
   last_name: ["lastname", "last_name", "last", "surname"],
   email: ["email", "email_address", "e-mail", "mail", "work_email"],
-  email_status: ["email_status", "emailstatus", "email status", "status", "valid"],
+  email_status: ["email_status", "emailstatus", "email status", "status", "valid", "email_valid"],
   title: ["title", "job_title", "jobtitle", "position", "role", "designation"],
   linkedin_url: ["linkedin", "linkedin_url", "linkedinurl", "linkedin_profile", "profile_url", "linkedin url"],
-  location: ["location", "city", "country", "region", "geo"],
+  location: ["location", "city", "country", "region", "geo", "address"],
+  added_on: ["added_on", "addedon", "added", "created", "created_at", "date_added", "import_date"],
+  profile_picture: ["profile_picture", "profilepicture", "photo", "avatar", "image", "picture", "photo_url"],
+  seniority_level: ["seniority_level", "senioritylevel", "seniority", "level", "job_level"],
+  buying_role: ["buying_role", "buyingrole", "buyer_role", "role_type"],
+  gender: ["gender", "sex"],
   company_name: ["company", "company_name", "companyname", "organization", "employer", "company name"],
   company_domain: ["company_domain", "companydomain", "domain", "website_domain"],
   company_website: ["company_website", "companywebsite", "website", "company_url", "company website"],
@@ -77,6 +111,11 @@ const COLUMN_ALIASES = {
   company_headquarters: ["company_headquarters", "headquarters", "hq", "hq_location", "main_office"],
   company_revenue_range: ["company_revenue_range", "revenue_range", "revenue", "annual_revenue"],
   company_linkedin_url: ["company_linkedin_url", "company_linkedin", "company linkedin"],
+  company_crunchbase_url: ["company_crunchbase_url", "crunchbase", "crunchbase_url", "cb_url"],
+  company_funding_rounds: ["company_funding_rounds", "funding_rounds", "rounds", "funding"],
+  company_last_funding_round_amount: ["company_last_funding_round_amount", "last_funding", "funding_amount", "last_round"],
+  company_logo_url_primary: ["company_logo_url_primary", "logo", "logo_url", "company_logo", "primary_logo"],
+  company_logo_url_secondary: ["company_logo_url_secondary", "secondary_logo", "alt_logo"],
   snippet: ["snippet", "bio", "description", "about", "summary", "headline"],
 };
 
@@ -117,12 +156,17 @@ function AILeads() {
   const [classifying, setClassifying] = useState(false);
   const [importError, setImportError] = useState("");
 
-  // Web Search Filters (new)
+  // Web Search Filters (enhanced with multi-select)
   const [webSearchDesignation, setWebSearchDesignation] = useState("");
+  const [webSearchCountries, setWebSearchCountries] = useState([]); // Multi-select
+  const [webSearchSeniorities, setWebSearchSeniorities] = useState([]); // Multi-select
+  const [webSearchTargetCount, setWebSearchTargetCount] = useState(10000); // Default to 10000
+  const [webSearchProgress, setWebSearchProgress] = useState(null);
+  const [deletingAllLeads, setDeletingAllLeads] = useState(false);
+  
+  // Legacy single-select for backward compatibility
   const [webSearchCountry, setWebSearchCountry] = useState("");
   const [webSearchSeniority, setWebSearchSeniority] = useState("");
-  const [webSearchTargetCount, setWebSearchTargetCount] = useState(100);
-  const [webSearchProgress, setWebSearchProgress] = useState(null);
 
   // CSV Import State (from LeadsImport.jsx)
   const [csvData, setCsvData] = useState([]);
@@ -130,6 +174,27 @@ function AILeads() {
   const [columnMapping, setColumnMapping] = useState({});
   const [csvImportStep, setCsvImportStep] = useState(1); // 1=upload, 2=map, 3=preview
   const fileInputRef = useRef(null);
+
+  // Gmail Import State (Issue 7)
+  const [gmailAccounts, setGmailAccounts] = useState([]);
+  const [selectedGmailAccounts, setSelectedGmailAccounts] = useState([]);
+  const [gmailMaxEmails, setGmailMaxEmails] = useState(100);
+  const [gmailSegments, setGmailSegments] = useState([]);
+  const [selectedGmailSegments, setSelectedGmailSegments] = useState([]);
+  const [gmailImporting, setGmailImporting] = useState(false);
+
+  // Gmail segment options
+  const GMAIL_SEGMENT_OPTIONS = [
+    { id: "promotional", name: "Promotional" },
+    { id: "outreach", name: "Outreach" },
+    { id: "discovery", name: "Discovery" },
+    { id: "presentation", name: "Presentation" },
+    { id: "rfq_pricing", name: "RFQ & Pricing" },
+    { id: "negotiation", name: "Negotiation" },
+    { id: "invoice", name: "Invoice" },
+    { id: "banking", name: "Banking" },
+    { id: "others", name: "Others" },
+  ];
 
   // ============== FETCH DATA ==============
 
@@ -184,14 +249,42 @@ function AILeads() {
     }
   }, [sessionId]);
 
+  // Fetch Gmail accounts
+  const fetchGmailAccounts = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads/gmail/accounts`, {
+        headers: { Authorization: sessionId },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setGmailAccounts(data.accounts || []);
+    } catch (err) {
+      console.error("Error fetching Gmail accounts:", err);
+    }
+  }, [sessionId]);
+
+  // Fetch Gmail segments with counts
+  const fetchGmailSegments = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads/gmail/segments`, {
+        headers: { Authorization: sessionId },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setGmailSegments(data.segments || []);
+    } catch (err) {
+      console.error("Error fetching Gmail segments:", err);
+    }
+  }, [sessionId]);
+
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchLeads(), fetchRawLeads(), fetchStatistics()]);
+      await Promise.all([fetchLeads(), fetchRawLeads(), fetchStatistics(), fetchGmailAccounts()]);
       setLoading(false);
     };
     loadData();
-  }, [fetchLeads, fetchRawLeads, fetchStatistics]);
+  }, [fetchLeads, fetchRawLeads, fetchStatistics, fetchGmailAccounts]);
 
   useEffect(() => {
     if (!loading) fetchLeads();
@@ -202,10 +295,16 @@ function AILeads() {
   // Helper: Auto-match CSV columns
   const autoMatchColumns = (columns) => {
     const mapping = {};
+    
+    // Helper to normalize strings for comparison
+    const normalize = (str) => str.toLowerCase().replace(/[\s\-\.]/g, "_").replace(/[^a-z0-9_]/g, "");
+    
     columns.forEach((csvCol) => {
-      const normalizedCsv = csvCol.toLowerCase().replace(/[\s\-\.]/g, "_").replace(/[^a-z0-9_]/g, "");
+      const normalizedCsv = normalize(csvCol);
       for (const [dbField, aliases] of Object.entries(COLUMN_ALIASES)) {
-        if (aliases.some((alias) => normalizedCsv === alias || normalizedCsv.includes(alias))) {
+        // Normalize aliases too for comparison
+        const normalizedAliases = aliases.map(a => normalize(a));
+        if (normalizedAliases.some((alias) => normalizedCsv === alias || normalizedCsv.includes(alias) || alias.includes(normalizedCsv))) {
           if (!mapping[dbField]) {
             mapping[dbField] = csvCol;
           }
@@ -286,8 +385,8 @@ function AILeads() {
           setImporting(false);
           return;
         }
-        if (!columnMapping.linkedin_url) {
-          setImportError("LinkedIn URL mapping is required");
+        if (!columnMapping.email) {
+          setImportError("Email field mapping is required");
           setImporting(false);
           return;
         }
@@ -316,22 +415,26 @@ function AILeads() {
           body: formData,
         });
       } else if (importMethod === "web-search") {
-        // New enhanced web search
-        if (!webSearchDesignation && !webSearchCountry && !webSearchSeniority) {
+        // New enhanced web search with multi-select
+        const hasDesignation = webSearchDesignation.trim();
+        const hasCountries = webSearchCountries.length > 0;
+        const hasSeniorities = webSearchSeniorities.length > 0;
+        
+        if (!hasDesignation && !hasCountries && !hasSeniorities) {
           setImportError("Please select at least one filter (Designation, Country, or Seniority)");
           setImporting(false);
           return;
         }
         
-        setWebSearchProgress({ status: "Searching...", found: 0 });
+        setWebSearchProgress({ status: "Searching for leads...", found: 0 });
         
         res = await fetch(`${API_BASE_URL}/leads/import/web-search`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: sessionId },
           body: JSON.stringify({
             designation: webSearchDesignation,
-            country: webSearchCountry,
-            seniority: webSearchSeniority,
+            countries: webSearchCountries,
+            seniorities: webSearchSeniorities,
             target_count: webSearchTargetCount
           }),
         });
@@ -367,10 +470,89 @@ function AILeads() {
     setColumnMapping({});
     setCsvImportStep(1);
     setWebSearchDesignation("");
-    setWebSearchCountry("");
-    setWebSearchSeniority("");
-    setWebSearchTargetCount(100);
+    setWebSearchCountries([]);
+    setWebSearchSeniorities([]);
+    setWebSearchTargetCount(10000);
     setImportError("");
+    // Reset Gmail state
+    setSelectedGmailAccounts([]);
+    setSelectedGmailSegments(GMAIL_SEGMENT_OPTIONS.map(s => s.value));
+    setGmailMaxEmails(500);
+    setGmailImporting(false);
+  };
+
+  // Delete all leads
+  const handleDeleteAllLeads = async () => {
+    if (!window.confirm("⚠️ WARNING: This will delete ALL leads from the database!\n\nAre you absolutely sure you want to delete ALL leads? This action cannot be undone.")) {
+      return;
+    }
+    
+    // Double confirmation for safety
+    if (!window.confirm("🚨 FINAL CONFIRMATION 🚨\n\nYou are about to delete ALL leads including:\n• Web Search leads\n• CSV imports\n• Email imports\n• All classified leads\n\nClick OK to proceed with deletion.")) {
+      return;
+    }
+    
+    setDeletingAllLeads(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads/all`, {
+        method: "DELETE",
+        headers: { Authorization: sessionId },
+      });
+      
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || "Delete failed");
+      }
+      
+      const result = await res.json();
+      alert(`✅ ${result.message}`);
+      fetchRawLeads();
+      fetchLeads();
+      fetchStatistics();
+    } catch (err) {
+      alert("Error: " + err.message);
+    } finally {
+      setDeletingAllLeads(false);
+    }
+  };
+
+  // Email IMAP import handler
+  const handleGmailImport = async () => {
+    setGmailImporting(true);
+    setImportError("");
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads/gmail/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: sessionId },
+        body: JSON.stringify({
+          account_emails: selectedGmailAccounts.length > 0 ? selectedGmailAccounts : null,
+          max_emails: gmailMaxEmails,
+          since_days: 30,
+          segments: selectedGmailSegments.length > 0 ? selectedGmailSegments : null
+        }),
+      });
+      
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || "Email import failed");
+      }
+      
+      const result = await res.json();
+      let alertMsg = `✅ ${result.message}\n\nEmails processed: ${result.emails_processed}\nLeads imported: ${result.leads_imported}\nDuplicates: ${result.duplicates}`;
+      if (result.errors && result.errors.length > 0) {
+        alertMsg += `\n\n⚠️ Errors:\n${result.errors.join("\n")}`;
+      }
+      alert(alertMsg);
+      resetImportModal();
+      fetchRawLeads();
+      fetchLeads();
+      fetchStatistics();
+    } catch (err) {
+      setImportError(err.message);
+    } finally {
+      setGmailImporting(false);
+    }
   };
 
   // ============== CLASSIFY HANDLER ==============
@@ -584,6 +766,16 @@ function AILeads() {
         </select>
         <button className="btn btn-outline btn-sm" onClick={clearFilters}>
           Clear
+        </button>
+        
+        {/* Delete All Leads Button */}
+        <button 
+          className="btn btn-danger btn-sm"
+          onClick={handleDeleteAllLeads}
+          disabled={deletingAllLeads}
+          style={{ marginLeft: "auto", backgroundColor: "#dc2626", color: "white" }}
+        >
+          {deletingAllLeads ? "⏳ Deleting..." : "🗑️ Delete All Leads"}
         </button>
       </div>
 
@@ -845,6 +1037,12 @@ function AILeads() {
                   📄 CSV Upload
                 </button>
                 <button 
+                  className={`method-tab ${importMethod === "gmail" ? "active" : ""}`}
+                  onClick={() => { setImportMethod("gmail"); setCsvImportStep(1); fetchGmailAccounts(); fetchGmailSegments(); }}
+                >
+                  📧 Gmail
+                </button>
+                <button 
                   className={`method-tab ${importMethod === "json" ? "active" : ""}`}
                   onClick={() => { setImportMethod("json"); setCsvImportStep(1); }}
                 >
@@ -857,63 +1055,92 @@ function AILeads() {
                 <div className="error-alert">{importError}</div>
               )}
 
-              {/* Web Search (Enhanced with Filters) */}
+              {/* Web Search (Enhanced with Multi-Select Filters) */}
               {importMethod === "web-search" && (
                 <div className="import-form">
                   <h3>🔍 Search LinkedIn Profiles</h3>
                   <p className="form-hint">
-                    Select filters to search for LinkedIn profiles. The system will continue searching until reaching the target count.
+                    Configure filters to search for LinkedIn profiles. The system will search up to 10,000 leads using multiple query combinations.
                   </p>
                   
                   <div className="form-grid">
-                    <div className="form-group">
-                      <label>Designation / Title</label>
-                      <select
-                        className="form-select"
-                        value={webSearchDesignation}
-                        onChange={(e) => setWebSearchDesignation(e.target.value)}
-                      >
-                        <option value="">Select designation...</option>
-                        {DESIGNATION_PRESETS.map(d => (
-                          <option key={d} value={d}>{d}</option>
-                        ))}
-                      </select>
+                    {/* Designation - Open-ended text input with suggestions */}
+                    <div className="form-group" style={{ gridColumn: "1 / -1" }}>
+                      <label>Designation / Title (multiple, comma-separated)</label>
                       <input
                         type="text"
                         className="form-input"
-                        placeholder="Or type custom designation..."
+                        placeholder="e.g., CEO, VP Sales, Director of Marketing"
                         value={webSearchDesignation}
                         onChange={(e) => setWebSearchDesignation(e.target.value)}
-                        style={{ marginTop: "0.5rem" }}
                       />
+                      <small className="form-hint-small">Enter job titles separated by commas</small>
                     </div>
                     
+                    {/* Country / Region - Multi-select checkboxes */}
                     <div className="form-group">
-                      <label>Country / Region</label>
-                      <select
-                        className="form-select"
-                        value={webSearchCountry}
-                        onChange={(e) => setWebSearchCountry(e.target.value)}
-                      >
-                        <option value="">Select country...</option>
-                        {COUNTRY_OPTIONS.map(c => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
-                      </select>
+                      <label>Countries / Regions (select multiple)</label>
+                      <div className="multi-select-container">
+                        <div className="multi-select-header">
+                          <span>{webSearchCountries.length} selected</span>
+                          {webSearchCountries.length > 0 && (
+                            <button type="button" className="clear-btn" onClick={() => setWebSearchCountries([])}>
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                        <div className="multi-select-options">
+                          {COUNTRY_OPTIONS.map(country => (
+                            <label key={country} className="checkbox-option">
+                              <input
+                                type="checkbox"
+                                checked={webSearchCountries.includes(country)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setWebSearchCountries([...webSearchCountries, country]);
+                                  } else {
+                                    setWebSearchCountries(webSearchCountries.filter(c => c !== country));
+                                  }
+                                }}
+                              />
+                              <span>{country}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                     
+                    {/* Seniority Level - Multi-select checkboxes */}
                     <div className="form-group">
-                      <label>Seniority Level</label>
-                      <select
-                        className="form-select"
-                        value={webSearchSeniority}
-                        onChange={(e) => setWebSearchSeniority(e.target.value)}
-                      >
-                        <option value="">Select seniority...</option>
-                        {SENIORITY_OPTIONS.map(s => (
-                          <option key={s} value={s}>{s}</option>
-                        ))}
-                      </select>
+                      <label>Seniority Levels (select multiple)</label>
+                      <div className="multi-select-container">
+                        <div className="multi-select-header">
+                          <span>{webSearchSeniorities.length} selected</span>
+                          {webSearchSeniorities.length > 0 && (
+                            <button type="button" className="clear-btn" onClick={() => setWebSearchSeniorities([])}>
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                        <div className="multi-select-options seniority-options">
+                          {SENIORITY_OPTIONS.map(seniority => (
+                            <label key={seniority} className="checkbox-option">
+                              <input
+                                type="checkbox"
+                                checked={webSearchSeniorities.includes(seniority)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setWebSearchSeniorities([...webSearchSeniorities, seniority]);
+                                  } else {
+                                    setWebSearchSeniorities(webSearchSeniorities.filter(s => s !== seniority));
+                                  }
+                                }}
+                              />
+                              <span>{seniority}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                     
                     <div className="form-group">
@@ -922,12 +1149,12 @@ function AILeads() {
                         type="number"
                         className="form-input"
                         min="10"
-                        max="5000"
-                        step="10"
+                        max="10000"
+                        step="100"
                         value={webSearchTargetCount}
-                        onChange={(e) => setWebSearchTargetCount(parseInt(e.target.value) || 100)}
+                        onChange={(e) => setWebSearchTargetCount(parseInt(e.target.value) || 10000)}
                       />
-                      <span className="form-hint">Max: 5000 leads</span>
+                      <span className="form-hint">Default: 10,000 leads (max)</span>
                     </div>
                   </div>
                   
@@ -937,9 +1164,12 @@ function AILeads() {
                     </div>
                   )}
                   
-                  <p className="form-hint" style={{ marginTop: "1rem" }}>
-                    💡 Configure your Google API key in Settings → Google API Settings.
-                  </p>
+                  <div className="web-search-info" style={{ marginTop: "1rem", padding: "1rem", backgroundColor: "#f0f9ff", borderRadius: "8px" }}>
+                    <p style={{ margin: 0, fontSize: "0.875rem", color: "#0369a1" }}>
+                      💡 <strong>Tip:</strong> Configure your Google API key in Settings → Google API Settings.
+                      The system will run multiple search queries combining your selections.
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -1022,7 +1252,7 @@ function AILeads() {
                         <button 
                           className="btn btn-primary"
                           onClick={() => setCsvImportStep(3)}
-                          disabled={!columnMapping.linkedin_url}
+                          disabled={!columnMapping.email}
                         >
                           Preview ▶
                         </button>
@@ -1083,15 +1313,126 @@ function AILeads() {
                   />
                 </div>
               )}
+
+              {/* Gmail Import */}
+              {importMethod === "gmail" && (
+                <div className="import-form">
+                  {/* Gmail Account Selection */}
+                  <div className="form-group">
+                    <label>Select Gmail Accounts</label>
+                    <div className="multi-select-container">
+                      <div className="multi-select-options" style={{ maxHeight: "150px", overflowY: "auto" }}>
+                        {gmailAccounts.length === 0 ? (
+                          <div style={{ padding: "10px", color: "#888" }}>
+                            No Gmail accounts connected. Add accounts in Settings.
+                          </div>
+                        ) : (
+                          gmailAccounts.map(account => (
+                            <label key={account.email} className="checkbox-option">
+                              <input
+                                type="checkbox"
+                                checked={selectedGmailAccounts.includes(account.email)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedGmailAccounts([...selectedGmailAccounts, account.email]);
+                                  } else {
+                                    setSelectedGmailAccounts(selectedGmailAccounts.filter(a => a !== account.email));
+                                  }
+                                }}
+                              />
+                              <span>{account.email}</span>
+                            </label>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Segment Filter */}
+                  <div className="form-group">
+                    <label>Filter by Email Segments</label>
+                    <div className="multi-select-container">
+                      <div className="multi-select-header" style={{ marginBottom: "8px" }}>
+                        <button 
+                          type="button" 
+                          className="btn btn-sm"
+                          onClick={() => setSelectedGmailSegments(GMAIL_SEGMENT_OPTIONS.map(s => s.value))}
+                        >
+                          Select All
+                        </button>
+                        <button 
+                          type="button" 
+                          className="btn btn-sm"
+                          onClick={() => setSelectedGmailSegments([])}
+                          style={{ marginLeft: "8px" }}
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                      <div className="multi-select-options" style={{ maxHeight: "200px", overflowY: "auto" }}>
+                        {GMAIL_SEGMENT_OPTIONS.map(segment => (
+                          <label key={segment.value} className="checkbox-option">
+                            <input
+                              type="checkbox"
+                              checked={selectedGmailSegments.includes(segment.value)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedGmailSegments([...selectedGmailSegments, segment.value]);
+                                } else {
+                                  setSelectedGmailSegments(selectedGmailSegments.filter(s => s !== segment.value));
+                                }
+                              }}
+                            />
+                            <span>{segment.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Max Emails */}
+                  <div className="form-group">
+                    <label>Max Emails to Process</label>
+                    <input
+                      type="number"
+                      className="form-input"
+                      value={gmailMaxEmails}
+                      onChange={(e) => setGmailMaxEmails(parseInt(e.target.value) || 100)}
+                      min={1}
+                      max={10000}
+                    />
+                    <small style={{ color: "#888" }}>Maximum number of emails to scan for leads per account</small>
+                  </div>
+
+                  {/* Gmail-specific import button */}
+                  <div className="form-group" style={{ marginTop: "20px" }}>
+                    <button 
+                      className="btn btn-primary" 
+                      onClick={handleGmailImport} 
+                      disabled={gmailImporting || selectedGmailAccounts.length === 0}
+                      style={{ width: "100%" }}
+                    >
+                      {gmailImporting ? "⏳ Extracting Leads from Gmail..." : "📧 Extract Leads from Gmail"}
+                    </button>
+                    {selectedGmailAccounts.length === 0 && (
+                      <small style={{ color: "#ff6b6b", display: "block", marginTop: "5px" }}>
+                        Please select at least one Gmail account
+                      </small>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="modal-footer">
               <button className="btn btn-outline" onClick={() => resetImportModal()}>
                 Cancel
               </button>
-              <button className="btn btn-primary" onClick={handleImport} disabled={importing}>
-                {importing ? "⏳ Importing..." : "📥 Import Leads"}
-              </button>
+              {importMethod !== "gmail" && (
+                <button className="btn btn-primary" onClick={handleImport} disabled={importing}>
+                  {importing ? "⏳ Importing..." : "📥 Import Leads"}
+                </button>
+              )}
             </div>
           </div>
         </div>

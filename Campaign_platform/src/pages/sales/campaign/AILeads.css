@@ -960,6 +960,112 @@
   font-weight: 500;
 }
 
+/* ============== MULTI-SELECT COMPONENTS ============== */
+.multi-select-container {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: white;
+}
+
+.multi-select-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f9fafb;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.multi-select-header .clear-btn {
+  background: none;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 2px 6px;
+}
+
+.multi-select-header .clear-btn:hover {
+  text-decoration: underline;
+}
+
+.multi-select-options {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.multi-select-options.seniority-options {
+  grid-template-columns: 1fr;
+}
+
+.checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.15s;
+}
+
+.checkbox-option:hover {
+  background: #f3f4f6;
+}
+
+.checkbox-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
+/* ============== PRESET CHIPS ============== */
+.preset-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.preset-chip {
+  padding: 4px 10px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: white;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  color: var(--text);
+}
+
+.preset-chip:hover {
+  border-color: var(--primary);
+  background: #eff6ff;
+}
+
+.preset-chip.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+/* ============== DANGER BUTTON ============== */
+.btn-danger {
+  background: var(--danger);
+  color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
 /* ============== RESPONSIVE ============== */
 @media (max-width: 768px) {
   .ai-leads-page {
@@ -999,5 +1105,9 @@
   .modal-large {
     width: 95%;
     max-height: 95vh;
+  }
+  
+  .multi-select-options {
+    grid-template-columns: 1fr;
   }
 }
