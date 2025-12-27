@@ -560,10 +560,11 @@ function AILeads() {
   const handleClassify = async (leadIds = null) => {
     setClassifying(true);
     try {
+      // When leadIds is null, classify ALL pending leads (no batch_size limit)
       const res = await fetch(`${API_BASE_URL}/leads/classify`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: sessionId },
-        body: JSON.stringify({ lead_ids: leadIds, batch_size: 10 }),
+        body: JSON.stringify({ lead_ids: leadIds }),
       });
 
       if (!res.ok) throw new Error("Classification failed");
@@ -659,7 +660,7 @@ function AILeads() {
       {/* Page Header */}
       <div className="page-header">
         <div className="header-left">
-          <h1>🤖 AI Lead Database</h1>
+          <h1>🤖 AI Database</h1>
           <p className="subtitle">Import, classify, and manage LinkedIn leads with AI</p>
         </div>
         <div className="header-actions">
@@ -683,11 +684,11 @@ function AILeads() {
       <div className="stats-row">
         <div className="stat-card">
           <div className="stat-value">{statistics?.raw?.total || 0}</div>
-          <div className="stat-label">Total Leads</div>
+          <div className="stat-label">Total Raw Leads</div>
         </div>
         <div className="stat-card warning">
           <div className="stat-value">{statistics?.raw?.pending || 0}</div>
-          <div className="stat-label">Pending</div>
+          <div className="stat-label">Pending Classification</div>
         </div>
         <div className="stat-card info">
           <div className="stat-value">{statistics?.raw?.processing || 0}</div>
@@ -697,9 +698,13 @@ function AILeads() {
           <div className="stat-value">{statistics?.raw?.classified || 0}</div>
           <div className="stat-label">Classified</div>
         </div>
+        <div className="stat-card danger">
+          <div className="stat-value">{statistics?.raw?.failed || 0}</div>
+          <div className="stat-label">Failed</div>
+        </div>
         <div className="stat-card primary">
-          <div className="stat-value">{statistics?.enriched?.high_confidence || 0}</div>
-          <div className="stat-label">High Confidence</div>
+          <div className="stat-value">{statistics?.enriched?.total || 0}</div>
+          <div className="stat-label">Enriched Leads</div>
         </div>
       </div>
 

@@ -80,51 +80,70 @@ async def import_from_web_search(
         if not designations and not countries and not seniorities and not request.custom_query:
             raise ValueError("At least one search filter (designation, country, seniority, or custom_query) is required")
         
-        target_count = min(request.target_count, 10000)  # Cap at 10000
+        target_count = min(request.target_count, 50000)  # Increased cap to 50000
         
         # Build all query combinations for multi-select
         query_combinations = []
+        
+        # LinkedIn Seniority Levels mapping to search keywords (each variation is a separate query)
+        seniority_variations = {
+            "Owner": ["Owner", "Business Owner", "Proprietor", "Entrepreneur"],
+            "Founder": ["Founder", "Co-Founder", "Cofounder", "Founding Partner"],
+            "CXO": ["CEO", "CTO", "CFO", "COO", "CMO", "CRO", "CIO", "CHRO", "CPO", "Chief Executive", "Chief Technology", "Chief Financial", "Chief Operating", "Chief Marketing"],
+            "Partner": ["Partner", "Managing Partner", "General Partner", "Senior Partner"],
+            "VP": ["VP", "Vice President", "SVP", "EVP", "AVP", "Senior Vice President", "Executive Vice President"],
+            "Director": ["Director", "Head of", "Group Director", "Regional Director", "Managing Director", "Associate Director"],
+            "Manager": ["Manager", "Team Lead", "Supervisor", "Project Manager", "Program Manager", "General Manager"],
+            "Senior": ["Senior", "Sr.", "Lead", "Principal", "Staff", "Senior Associate"],
+            "Entry": ["Associate", "Junior", "Entry Level", "Analyst", "Specialist", "Coordinator"],
+            "Training": ["Intern", "Trainee", "Apprentice", "Graduate"],
+            "Unpaid": ["Volunteer", "Board Member", "Advisory Board"]
+        }
+        
+        # Industry modifiers to create more unique queries
+        industry_modifiers = [
+            "", "Technology", "Software", "IT", "Finance", "Banking", "Healthcare",
+            "Manufacturing", "Retail", "E-commerce", "Marketing", "Consulting",
+            "Telecommunications", "Insurance", "Real Estate", "Pharmaceuticals",
+            "Automotive", "Energy", "Education", "Media", "Entertainment",
+            "Logistics", "Supply Chain", "FMCG", "Consumer Goods", "B2B", "SaaS"
+        ]
         
         # Generate query variations for each combination
         for designation in (designations if designations else [""]):
             for country in (countries if countries else [""]):
                 for seniority in (seniorities if seniorities else [""]):
-                    query_parts = []
+                    # Get seniority variations (creates multiple queries per seniority)
+                    sen_variations = seniority_variations.get(seniority, [seniority]) if seniority else [""]
                     
-                    if designation:
-                        query_parts.append(f'"{designation}"')
-                    
-                    if seniority:
-                        # LinkedIn Seniority Levels mapping to search keywords
-                        seniority_keywords = {
-                            "Owner": "Owner OR Business Owner OR Proprietor",
-                            "Founder": "Founder OR Co-Founder OR Cofounder",
-                            "CXO": "CEO OR CTO OR CFO OR COO OR CMO OR CRO OR CIO OR CHRO OR CPO OR Chief",
-                            "Partner": "Partner OR Managing Partner OR General Partner",
-                            "VP": "VP OR Vice President OR SVP OR EVP OR AVP",
-                            "Director": "Director OR Head of OR Group Director",
-                            "Manager": "Manager OR Team Lead OR Supervisor",
-                            "Senior": "Senior OR Sr. OR Lead OR Principal",
-                            "Entry": "Associate OR Junior OR Entry OR Analyst",
-                            "Training": "Intern OR Trainee OR Apprentice",
-                            "Unpaid": "Volunteer OR Board Member"
-                        }
-                        if seniority in seniority_keywords:
-                            query_parts.append(f"({seniority_keywords[seniority]})")
-                        else:
-                            query_parts.append(seniority)
-                    
-                    if country:
-                        query_parts.append(country)
-                    
-                    if request.custom_query:
-                        query_parts.append(request.custom_query)
-                    
-                    if query_parts:
-                        query_combinations.append(" ".join(query_parts))
+                    for sen_var in sen_variations:
+                        for industry in industry_modifiers:
+                            query_parts = []
+                            
+                            if designation:
+                                query_parts.append(f'"{designation}"')
+                            
+                            if sen_var:
+                                query_parts.append(f'"{sen_var}"')
+                            
+                            if industry:
+                                query_parts.append(industry)
+                            
+                            if country:
+                                query_parts.append(country)
+                            
+                            if request.custom_query:
+                                query_parts.append(request.custom_query)
+                            
+                            if query_parts:
+                                query_combinations.append(" ".join(query_parts))
         
-        # Remove duplicates
+        # Remove duplicates and shuffle for variety
+        import random
         query_combinations = list(set(query_combinations)) if query_combinations else [request.custom_query]
+        random.shuffle(query_combinations)
+        
+        print(f"Generated {len(query_combinations)} unique query combinations for target of {target_count} leads")
         
         all_leads = []
         seen_urls = set()
@@ -330,6 +349,7 @@ async def classify_leads_endpoint(
     POST /leads/classify
     Queue leads for AI classification (async).
     If lead_ids not provided, classifies all pending leads.
+    If batch_size is None, classifies ALL pending leads.
     """
     if request.lead_ids:
         # Classify specific leads in background
@@ -340,12 +360,18 @@ async def classify_leads_endpoint(
             message=f"Queued {len(request.lead_ids)} leads for classification"
         )
     else:
-        # Classify all pending leads in background
+        # Classify all pending leads in background (None means ALL)
         background_tasks.add_task(classify_pending_leads, request.batch_size)
-        return LeadClassifyResponse(
-            queued=request.batch_size,
-            message=f"Queued up to {request.batch_size} pending leads for classification"
-        )
+        if request.batch_size:
+            return LeadClassifyResponse(
+                queued=request.batch_size,
+                message=f"Queued up to {request.batch_size} pending leads for classification"
+            )
+        else:
+            return LeadClassifyResponse(
+                queued=0,  # Unknown count, will process all
+                message="Queued ALL pending leads for classification"
+            )
 
 
 @router.post("/classify/{lead_id}")

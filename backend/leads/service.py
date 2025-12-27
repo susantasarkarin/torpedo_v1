@@ -130,12 +130,15 @@ def import_leads(leads: List[LeadInput]) -> LeadImportResponse:
 
 # ============== CLASSIFICATION SERVICE ==============
 
-def get_pending_leads(limit: int = 10) -> List[dict]:
-    """Get leads pending classification with retry limit"""
-    return list(leads_raw_collection.find({
+def get_pending_leads(limit: Optional[int] = None) -> List[dict]:
+    """Get leads pending classification with retry limit. If limit is None, get ALL pending."""
+    query = {
         "classification_status": {"$in": [ClassificationStatus.PENDING.value, ClassificationStatus.FAILED.value]},
         "classification_attempts": {"$lt": 3}  # Max 3 retries
-    }).limit(limit))
+    }
+    if limit:
+        return list(leads_raw_collection.find(query).limit(limit))
+    return list(leads_raw_collection.find(query))
 
 
 def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
@@ -188,14 +191,28 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
     if result:
         # Create enriched lead with all fields
         # Use AI-inferred data, fallback to raw data from import
+        
+        # Determine email and status - prefer raw email, fallback to AI predicted
+        raw_email = raw_lead.get("email")
+        predicted_email = getattr(result, 'predicted_email', None)
+        final_email = raw_email or predicted_email
+        
+        # Set email status based on source
+        if raw_email:
+            email_status = EmailStatus(raw_lead.get("email_status", "Unknown")) if raw_lead.get("email_status") else EmailStatus.UNKNOWN
+        elif predicted_email:
+            email_status = EmailStatus.PREDICTED
+        else:
+            email_status = EmailStatus.UNKNOWN
+        
         enriched = LeadEnriched(
             raw_lead_id=raw_lead_id,
             # Personal Info
             name=lead.name,
             first_name=result.first_name or raw_lead.get("first_name", ""),
             last_name=result.last_name or raw_lead.get("last_name", ""),
-            email=raw_lead.get("email"),
-            email_status=EmailStatus(raw_lead.get("email_status", "Unknown")) if raw_lead.get("email_status") else EmailStatus.UNKNOWN,
+            email=final_email,
+            email_status=email_status,
             title=lead.title,
             linkedin_url=lead.linkedin_url,
             location=result.inferred_location or raw_lead.get("location"),
@@ -257,9 +274,10 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
         return False, log.error_message
 
 
-def classify_pending_leads(batch_size: int = 10) -> Tuple[int, int]:
+def classify_pending_leads(batch_size: Optional[int] = None) -> Tuple[int, int]:
     """
     Process pending leads in batch.
+    If batch_size is None, process ALL pending leads.
     Returns: (success_count, failure_count)
     """
     pending = get_pending_leads(batch_size)

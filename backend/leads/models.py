@@ -62,6 +62,7 @@ class EmailStatus(str, Enum):
     CATCH_ALL = "Catch-All"
     UNKNOWN = "Unknown"
     NOT_FOUND = "Not Found"
+    PREDICTED = "Predicted"  # AI-predicted email based on name pattern
 
 
 class CompanySize(str, Enum):
@@ -341,7 +342,7 @@ class LeadImportResponse(BaseModel):
 
 class LeadClassifyRequest(BaseModel):
     lead_ids: Optional[List[str]] = None  # If None, classify all pending
-    batch_size: int = 10
+    batch_size: Optional[int] = None  # If None, classify ALL pending leads
 
 
 class LeadClassifyResponse(BaseModel):

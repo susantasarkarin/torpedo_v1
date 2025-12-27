@@ -151,6 +151,7 @@
 .stat-card.info { border-left: 4px solid var(--info); }
 .stat-card.success { border-left: 4px solid var(--success); }
 .stat-card.primary { border-left: 4px solid var(--primary); }
+.stat-card.danger { border-left: 4px solid #dc2626; }
 
 .stat-value {
   font-size: 2rem;
@@ -492,6 +493,11 @@
 .status-badge.not-found {
   background: #f3f4f6;
   color: #6b7280;
+}
+
+.status-badge.predicted {
+  background: #dbeafe;
+  color: #1d4ed8;
 }
 
 /* Orange badge for buying role */

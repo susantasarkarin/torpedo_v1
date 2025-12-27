@@ -66,6 +66,7 @@ Output Schema (STRICT - follow exactly):
 {
   "first_name": "<string - extract first name from full name>",
   "last_name": "<string - extract last name from full name>",
+  "predicted_email": "<string - generate most likely email using firstname.lastname@domain.com pattern, or firstname@domain.com for smaller companies>",
   "seniority_level": "C-Level" | "VP" | "Director" | "Manager" | "IC" | "Unknown",
   "department": "Sales" | "Marketing" | "Engineering" | "Operations" | "Finance" | "HR" | "Product" | "Other",
   "persona": "Decision Maker" | "Influencer" | "Gatekeeper" | "Practitioner",
@@ -95,7 +96,14 @@ DEEP RESEARCH INSTRUCTIONS:
    - Handle prefixes (Dr., Mr., Mrs.) and suffixes (Jr., III, PhD)
    - For names like "John Smith, MBA" -> first: "John", last: "Smith"
 
-2. GENDER INFERENCE:
+2. EMAIL PREDICTION:
+   - Generate a predicted email address using the person's name and company domain
+   - Common patterns: firstname.lastname@domain.com, firstname@domain.com, flastname@domain.com
+   - Use firstname.lastname@domain.com as the default pattern
+   - Ensure email is lowercase and properly formatted
+   - If company domain is unknown, try to infer it from company name (e.g., "Google" -> "google.com")
+
+3. GENDER INFERENCE:
    - Use your knowledge of names worldwide to infer gender
    - Consider cultural context (Indian, Chinese, Western names, etc.)
    - Common names: John/Michael/David = Male, Sarah/Emily/Jennifer = Female
