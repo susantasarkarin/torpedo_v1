@@ -199,6 +199,8 @@ class AIClassificationOutput(BaseModel):
     # Name parsing
     first_name: str
     last_name: str
+    # Email prediction
+    predicted_email: Optional[str] = None
     # Classification
     seniority_level: SeniorityLevel
     department: Department

@@ -5,8 +5,14 @@ FastAPI Router for Lead Management
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, UploadFile, File, Form
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 from pydantic import BaseModel
+import asyncio
+import random
+import os
+import uuid
+from pymongo import MongoClient
+from dotenv import load_dotenv
 
 from .models import (
     LeadInput, LeadImportRequest, LeadImportResponse,
@@ -28,8 +34,50 @@ from .imap_leads_service import (
     get_imap_accounts, add_imap_account, remove_imap_account,
     test_imap_connection, EmailSegment
 )
+from .scheduler import (
+    start_scheduler, stop_scheduler, get_scheduler_status,
+    get_scheduler_logs, update_scheduler_config
+)
+
+load_dotenv()
 
 router = APIRouter(prefix="/leads", tags=["Leads"])
+
+
+# ============== MONGODB CONNECTION FOR JOBS ==============
+
+MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
+_mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+_jobs_db = _mongo_client['email_automation']
+web_search_jobs_collection = _jobs_db['web_search_jobs']
+
+# Create indexes for jobs
+try:
+    web_search_jobs_collection.create_index("job_id", unique=True)
+    web_search_jobs_collection.create_index("status")
+    web_search_jobs_collection.create_index("created_at")
+except Exception as e:
+    print(f"Warning: Could not create job indexes: {e}")
+
+
+# ============== JOB STATUS CONSTANTS ==============
+
+class JobStatus:
+    PENDING = "pending"
+    RUNNING = "running"
+    PAUSED = "paused"
+    QUOTA_EXCEEDED = "quota_exceeded"
+    COMPLETED = "completed"
+    STOPPED = "stopped"
+    FAILED = "failed"
+
+
+# ============== RATE LIMITING CONSTANTS ==============
+
+# Target: 10,000 leads/day = ~7 leads/minute
+DAILY_LIMIT = 10000
+LEADS_PER_MINUTE = 7  # ~7 leads per minute = 420/hour = 10,080/day
+DELAY_BETWEEN_BATCHES = 60 / LEADS_PER_MINUTE  # ~8.5 seconds between batches
 
 
 # ============== IMPORT MODELS ==============
@@ -57,7 +105,375 @@ class GoogleSheetRequest(BaseModel):
     range_notation: str = "A:Z"
 
 
-# ============== WEB SEARCH ENDPOINT (ENHANCED) ==============
+# ============== JOB HELPER FUNCTIONS ==============
+
+def create_job(config: dict, target_count: int) -> str:
+    """Create a new web search job in MongoDB"""
+    job_id = str(uuid.uuid4())[:8]
+    job = {
+        "job_id": job_id,
+        "status": JobStatus.PENDING,
+        "config": config,
+        "target_count": target_count,
+        "total_found": 0,
+        "total_imported": 0,
+        "total_duplicates": 0,
+        "total_classified": 0,
+        "emails_found": 0,
+        "leads_today": 0,
+        "queries_used": 0,
+        "current_query": "",
+        "query_combinations": [],
+        "seen_urls": [],
+        "errors": [],
+        "created_at": datetime.utcnow(),
+        "started_at": None,
+        "last_update": None,
+        "completed_at": None,
+        "day_started": datetime.utcnow().date().isoformat()
+    }
+    web_search_jobs_collection.insert_one(job)
+    return job_id
+
+
+def get_job(job_id: str) -> Optional[dict]:
+    """Get job by ID"""
+    return web_search_jobs_collection.find_one({"job_id": job_id})
+
+
+def update_job(job_id: str, updates: dict):
+    """Update job fields"""
+    updates["last_update"] = datetime.utcnow()
+    web_search_jobs_collection.update_one(
+        {"job_id": job_id},
+        {"$set": updates}
+    )
+
+
+def add_job_error(job_id: str, error: str):
+    """Add error to job's error list"""
+    web_search_jobs_collection.update_one(
+        {"job_id": job_id},
+        {
+            "$push": {"errors": {"$each": [f"[{datetime.utcnow().isoformat()}] {error}"], "$slice": -50}},
+            "$set": {"last_update": datetime.utcnow()}
+        }
+    )
+
+
+def increment_job_counters(job_id: str, found: int = 0, imported: int = 0, 
+                           duplicates: int = 0, classified: int = 0, emails: int = 0):
+    """Increment job counters atomically"""
+    web_search_jobs_collection.update_one(
+        {"job_id": job_id},
+        {
+            "$inc": {
+                "total_found": found,
+                "total_imported": imported,
+                "total_duplicates": duplicates,
+                "total_classified": classified,
+                "emails_found": emails,
+                "leads_today": imported,
+                "queries_used": 1 if found > 0 else 0
+            },
+            "$set": {"last_update": datetime.utcnow()}
+        }
+    )
+
+
+def get_incomplete_jobs() -> List[dict]:
+    """Get jobs that need to be resumed"""
+    return list(web_search_jobs_collection.find({
+        "status": {"$in": [JobStatus.RUNNING, JobStatus.PENDING, JobStatus.PAUSED, JobStatus.QUOTA_EXCEEDED]}
+    }))
+
+
+def check_and_reset_daily_limit(job_id: str) -> bool:
+    """Check if daily limit should be reset (new day). Returns True if reset happened."""
+    job = get_job(job_id)
+    if not job:
+        return False
+    
+    current_day = datetime.utcnow().date().isoformat()
+    if job.get("day_started") != current_day:
+        update_job(job_id, {
+            "leads_today": 0,
+            "day_started": current_day
+        })
+        return True
+    return False
+
+
+# ============== QUERY GENERATOR ==============
+
+def generate_query_combinations(designations: List[str], countries: List[str], 
+                                 seniorities: List[str], custom_query: str) -> List[str]:
+    """Generate diverse search query combinations"""
+    
+    seniority_variations = {
+        "Owner": ["Owner", "Business Owner", "Proprietor", "Entrepreneur"],
+        "Founder": ["Founder", "Co-Founder", "Cofounder", "Founding Partner"],
+        "CXO": ["CEO", "CTO", "CFO", "COO", "CMO", "CRO", "CIO", "CHRO", "CPO", "Chief Executive", "Chief Technology", "Chief Financial", "Chief Operating", "Chief Marketing"],
+        "Partner": ["Partner", "Managing Partner", "General Partner", "Senior Partner"],
+        "VP": ["VP", "Vice President", "SVP", "EVP", "AVP", "Senior Vice President", "Executive Vice President"],
+        "Director": ["Director", "Head of", "Group Director", "Regional Director", "Managing Director", "Associate Director"],
+        "Manager": ["Manager", "Team Lead", "Supervisor", "Project Manager", "Program Manager", "General Manager"],
+        "Senior": ["Senior", "Sr.", "Lead", "Principal", "Staff", "Senior Associate"],
+        "Entry": ["Associate", "Junior", "Entry Level", "Analyst", "Specialist", "Coordinator"],
+        "Training": ["Intern", "Trainee", "Apprentice", "Graduate"],
+        "Unpaid": ["Volunteer", "Board Member", "Advisory Board"]
+    }
+    
+    industry_modifiers = [
+        "", "Technology", "Software", "IT", "Finance", "Banking", "Healthcare",
+        "Manufacturing", "Retail", "E-commerce", "Marketing", "Consulting",
+        "Telecommunications", "Insurance", "Real Estate", "Pharmaceuticals",
+        "Automotive", "Energy", "Education", "Media", "Entertainment",
+        "Logistics", "Supply Chain", "FMCG", "Consumer Goods", "B2B", "SaaS"
+    ]
+    
+    query_combinations = []
+    
+    for designation in (designations if designations else [""]):
+        for country in (countries if countries else [""]):
+            for seniority in (seniorities if seniorities else [""]):
+                sen_variations = seniority_variations.get(seniority, [seniority]) if seniority else [""]
+                
+                for sen_var in sen_variations:
+                    for industry in industry_modifiers:
+                        query_parts = []
+                        
+                        if designation:
+                            query_parts.append(f'"{designation}"')
+                        if sen_var:
+                            query_parts.append(f'"{sen_var}"')
+                        if industry:
+                            query_parts.append(industry)
+                        if country:
+                            query_parts.append(country)
+                        if custom_query:
+                            query_parts.append(custom_query)
+                        
+                        if query_parts:
+                            query_combinations.append(" ".join(query_parts))
+    
+    query_combinations = list(set(query_combinations)) if query_combinations else [custom_query]
+    random.shuffle(query_combinations)
+    
+    return query_combinations
+
+
+# ============== BACKGROUND SEARCH LOOP ==============
+
+async def run_web_search_job(job_id: str):
+    """
+    Background task that continuously searches until target_count is reached.
+    - Rate limits to ~7 leads/min (10,000/day)
+    - Auto-classifies after each batch with email prediction
+    - Persists state to MongoDB for resume
+    - Pauses on quota exceeded, resumes at midnight UTC
+    """
+    job = get_job(job_id)
+    if not job:
+        print(f"[WebSearch:{job_id}] Job not found")
+        return
+    
+    update_job(job_id, {
+        "status": JobStatus.RUNNING,
+        "started_at": datetime.utcnow()
+    })
+    
+    config = job["config"]
+    target_count = job["target_count"]
+    
+    # Generate queries if not already stored
+    query_combinations = job.get("query_combinations", [])
+    if not query_combinations:
+        query_combinations = generate_query_combinations(
+            config.get("designations", []),
+            config.get("countries", []),
+            config.get("seniorities", []),
+            config.get("custom_query", "")
+        )
+        update_job(job_id, {"query_combinations": query_combinations})
+    
+    seen_urls = set(job.get("seen_urls", []))
+    batch_size = 10
+    query_index = 0
+    
+    print(f"[WebSearch:{job_id}] Starting job - Target: {target_count}, Queries: {len(query_combinations)}")
+    
+    while True:
+        # Refresh job state
+        job = get_job(job_id)
+        if not job:
+            break
+        
+        # Check if stopped
+        if job["status"] == JobStatus.STOPPED:
+            print(f"[WebSearch:{job_id}] Job stopped by user")
+            break
+        
+        # Check if target reached
+        if job["total_imported"] >= target_count:
+            update_job(job_id, {
+                "status": JobStatus.COMPLETED,
+                "completed_at": datetime.utcnow()
+            })
+            print(f"[WebSearch:{job_id}] Target reached! Imported {job['total_imported']} leads")
+            break
+        
+        # Check and reset daily limit if new day
+        check_and_reset_daily_limit(job_id)
+        job = get_job(job_id)  # Refresh after potential reset
+        
+        # Check daily limit
+        if job["leads_today"] >= DAILY_LIMIT:
+            # Calculate time until midnight UTC
+            now = datetime.utcnow()
+            tomorrow = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+            wait_seconds = (tomorrow - now).total_seconds()
+            
+            update_job(job_id, {"status": JobStatus.QUOTA_EXCEEDED})
+            print(f"[WebSearch:{job_id}] Daily limit reached ({DAILY_LIMIT}). Waiting until midnight UTC ({int(wait_seconds)}s)")
+            
+            # Wait in chunks to allow stopping
+            while wait_seconds > 0:
+                job = get_job(job_id)
+                if not job or job["status"] == JobStatus.STOPPED:
+                    return
+                await asyncio.sleep(min(60, wait_seconds))
+                wait_seconds -= 60
+            
+            # Reset for new day
+            update_job(job_id, {
+                "status": JobStatus.RUNNING,
+                "leads_today": 0,
+                "day_started": datetime.utcnow().date().isoformat()
+            })
+            continue
+        
+        # Get next query
+        if query_index >= len(query_combinations):
+            query_index = 0
+            random.shuffle(query_combinations)
+        
+        query = query_combinations[query_index]
+        query_index += 1
+        
+        update_job(job_id, {"current_query": query[:100]})
+        
+        # Search with pagination
+        start_index = 1
+        consecutive_empty = 0
+        batch_leads = []
+        
+        while consecutive_empty < 3 and start_index <= 100:
+            job = get_job(job_id)
+            if not job or job["status"] == JobStatus.STOPPED:
+                return
+            
+            try:
+                results = await search_linkedin_leads(
+                    query=query,
+                    num_results=batch_size,
+                    start=start_index
+                )
+                
+                if not results:
+                    consecutive_empty += 1
+                    start_index += batch_size
+                    continue
+                
+                consecutive_empty = 0
+                
+                # Deduplicate
+                for lead in results:
+                    url = lead.get("linkedin_url", "")
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        batch_leads.append(lead)
+                
+                start_index += len(results)
+                await asyncio.sleep(1)  # Small delay between pagination
+                
+            except Exception as e:
+                error_msg = str(e)
+                add_job_error(job_id, f"Search error: {error_msg}")
+                print(f"[WebSearch:{job_id}] Error: {error_msg}")
+                
+                if "quota" in error_msg.lower() or "limit" in error_msg.lower():
+                    update_job(job_id, {"status": JobStatus.QUOTA_EXCEEDED})
+                    print(f"[WebSearch:{job_id}] API quota exceeded, waiting until midnight...")
+                    
+                    # Wait until midnight UTC
+                    now = datetime.utcnow()
+                    tomorrow = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+                    wait_seconds = (tomorrow - now).total_seconds()
+                    
+                    while wait_seconds > 0:
+                        job = get_job(job_id)
+                        if not job or job["status"] == JobStatus.STOPPED:
+                            return
+                        await asyncio.sleep(min(60, wait_seconds))
+                        wait_seconds -= 60
+                    
+                    update_job(job_id, {"status": JobStatus.RUNNING})
+                break
+        
+        # Import batch leads
+        if batch_leads:
+            try:
+                lead_inputs = [LeadInput(**lead) for lead in batch_leads]
+                result = import_leads(lead_inputs)
+                
+                increment_job_counters(
+                    job_id,
+                    found=len(batch_leads),
+                    imported=result.imported,
+                    duplicates=result.duplicates
+                )
+                
+                print(f"[WebSearch:{job_id}] Query: '{query[:40]}...' - Found: {len(batch_leads)}, Imported: {result.imported}")
+                
+                # Save seen URLs periodically (every 100 new ones)
+                if len(seen_urls) % 100 < batch_size:
+                    update_job(job_id, {"seen_urls": list(seen_urls)})
+                
+            except Exception as e:
+                add_job_error(job_id, f"Import error: {str(e)}")
+        
+        # Auto-classify after each batch
+        try:
+            success, failure = classify_pending_leads(50)
+            if success > 0:
+                # Count emails found (leads with predicted_email)
+                from .service import leads_enriched_collection
+                emails_count = leads_enriched_collection.count_documents({
+                    "email": {"$ne": None, "$ne": ""},
+                    "classified_at": {"$gte": datetime.utcnow() - timedelta(minutes=5)}
+                })
+                
+                increment_job_counters(job_id, classified=success, emails=emails_count)
+                print(f"[WebSearch:{job_id}] Classified: {success}, Emails found: {emails_count}")
+        except Exception as e:
+            add_job_error(job_id, f"Classification error: {str(e)}")
+        
+        # Rate limiting delay
+        await asyncio.sleep(DELAY_BETWEEN_BATCHES)
+    
+    # Final cleanup
+    job = get_job(job_id)
+    if job and job["status"] == JobStatus.RUNNING:
+        update_job(job_id, {
+            "status": JobStatus.COMPLETED,
+            "completed_at": datetime.utcnow()
+        })
+    
+    print(f"[WebSearch:{job_id}] Job finished")
+
+
+# ============== WEB SEARCH ENDPOINT (BACKGROUND) ==============
 
 @router.post("/import/web-search")
 async def import_from_web_search(
@@ -66,13 +482,32 @@ async def import_from_web_search(
 ):
     """
     POST /leads/import/web-search
-    Enhanced LinkedIn search with designation, country, and seniority filters.
-    Supports multiple countries and seniority levels.
-    Continues searching until target_count is reached (default 10000).
-    Uses multiple query variations to maximize results.
+    Start background web search job that runs until target_count is reached.
+    
+    Features:
+    - Runs in background, returns job_id immediately
+    - Rate limits to ~7 leads/min (10,000/day max)
+    - Auto-classifies leads with email prediction
+    - Pauses on quota exceeded, auto-resumes at midnight UTC
+    - Persists to MongoDB for resume on restart
+    
+    Use GET /leads/import/web-search/status/{job_id} to check progress.
+    Use POST /leads/import/web-search/stop/{job_id} to stop.
     """
     try:
-        # Handle both new multi-select and legacy single-select
+        # Check for already running job
+        running_jobs = list(web_search_jobs_collection.find({
+            "status": {"$in": [JobStatus.RUNNING, JobStatus.PENDING]}
+        }))
+        if running_jobs:
+            return {
+                "success": False,
+                "message": "A search job is already running",
+                "job_id": running_jobs[0]["job_id"],
+                "status": running_jobs[0]["status"]
+            }
+        
+        # Parse inputs
         countries = request.countries if request.countries else ([request.country] if request.country else [])
         seniorities = request.seniorities if request.seniorities else ([request.seniority] if request.seniority else [])
         designations = [d.strip() for d in request.designation.split(",")] if request.designation else []
@@ -80,137 +515,174 @@ async def import_from_web_search(
         if not designations and not countries and not seniorities and not request.custom_query:
             raise ValueError("At least one search filter (designation, country, seniority, or custom_query) is required")
         
-        target_count = min(request.target_count, 50000)  # Increased cap to 50000
+        target_count = min(request.target_count, 50000)
         
-        # Build all query combinations for multi-select
-        query_combinations = []
-        
-        # LinkedIn Seniority Levels mapping to search keywords (each variation is a separate query)
-        seniority_variations = {
-            "Owner": ["Owner", "Business Owner", "Proprietor", "Entrepreneur"],
-            "Founder": ["Founder", "Co-Founder", "Cofounder", "Founding Partner"],
-            "CXO": ["CEO", "CTO", "CFO", "COO", "CMO", "CRO", "CIO", "CHRO", "CPO", "Chief Executive", "Chief Technology", "Chief Financial", "Chief Operating", "Chief Marketing"],
-            "Partner": ["Partner", "Managing Partner", "General Partner", "Senior Partner"],
-            "VP": ["VP", "Vice President", "SVP", "EVP", "AVP", "Senior Vice President", "Executive Vice President"],
-            "Director": ["Director", "Head of", "Group Director", "Regional Director", "Managing Director", "Associate Director"],
-            "Manager": ["Manager", "Team Lead", "Supervisor", "Project Manager", "Program Manager", "General Manager"],
-            "Senior": ["Senior", "Sr.", "Lead", "Principal", "Staff", "Senior Associate"],
-            "Entry": ["Associate", "Junior", "Entry Level", "Analyst", "Specialist", "Coordinator"],
-            "Training": ["Intern", "Trainee", "Apprentice", "Graduate"],
-            "Unpaid": ["Volunteer", "Board Member", "Advisory Board"]
+        # Create job config
+        config = {
+            "designations": designations,
+            "countries": countries,
+            "seniorities": seniorities,
+            "custom_query": request.custom_query
         }
         
-        # Industry modifiers to create more unique queries
-        industry_modifiers = [
-            "", "Technology", "Software", "IT", "Finance", "Banking", "Healthcare",
-            "Manufacturing", "Retail", "E-commerce", "Marketing", "Consulting",
-            "Telecommunications", "Insurance", "Real Estate", "Pharmaceuticals",
-            "Automotive", "Energy", "Education", "Media", "Entertainment",
-            "Logistics", "Supply Chain", "FMCG", "Consumer Goods", "B2B", "SaaS"
-        ]
+        # Create job in MongoDB
+        job_id = create_job(config, target_count)
         
-        # Generate query variations for each combination
-        for designation in (designations if designations else [""]):
-            for country in (countries if countries else [""]):
-                for seniority in (seniorities if seniorities else [""]):
-                    # Get seniority variations (creates multiple queries per seniority)
-                    sen_variations = seniority_variations.get(seniority, [seniority]) if seniority else [""]
-                    
-                    for sen_var in sen_variations:
-                        for industry in industry_modifiers:
-                            query_parts = []
-                            
-                            if designation:
-                                query_parts.append(f'"{designation}"')
-                            
-                            if sen_var:
-                                query_parts.append(f'"{sen_var}"')
-                            
-                            if industry:
-                                query_parts.append(industry)
-                            
-                            if country:
-                                query_parts.append(country)
-                            
-                            if request.custom_query:
-                                query_parts.append(request.custom_query)
-                            
-                            if query_parts:
-                                query_combinations.append(" ".join(query_parts))
-        
-        # Remove duplicates and shuffle for variety
-        import random
-        query_combinations = list(set(query_combinations)) if query_combinations else [request.custom_query]
-        random.shuffle(query_combinations)
-        
-        print(f"Generated {len(query_combinations)} unique query combinations for target of {target_count} leads")
-        
-        all_leads = []
-        seen_urls = set()
-        batch_size = 10  # Google CSE returns max 10 per request
-        
-        # Loop through all query combinations
-        for query in query_combinations:
-            if len(all_leads) >= target_count:
-                break
-                
-            start_index = 1
-            consecutive_empty = 0
-            
-            # Keep searching with this query until we get no more results or hit Google CSE limit
-            while len(all_leads) < target_count and consecutive_empty < 3:
-                remaining = target_count - len(all_leads)
-                num_to_fetch = min(batch_size, remaining)
-                
-                try:
-                    leads = await search_linkedin_leads(
-                        query=query,
-                        num_results=num_to_fetch,
-                        start=start_index
-                    )
-                    
-                    if not leads:
-                        consecutive_empty += 1
-                        start_index += batch_size
-                        continue
-                    
-                    consecutive_empty = 0
-                    
-                    # Deduplicate by linkedin_url
-                    for lead in leads:
-                        url = lead.get("linkedin_url", "")
-                        if url and url not in seen_urls:
-                            seen_urls.add(url)
-                            all_leads.append(lead)
-                    
-                    start_index += len(leads)
-                    
-                    # Google CSE has a limit of 100 results per query
-                    if start_index > 100:
-                        break
-                        
-                except Exception as e:
-                    print(f"Error searching with query '{query}': {e}")
-                    break
-        
-        if not all_leads:
-            return {"imported": 0, "message": "No LinkedIn profiles found for this query"}
-        
-        # Convert to LeadInput format and import
-        lead_inputs = [LeadInput(**lead) for lead in all_leads]
-        result = import_leads(lead_inputs)
+        # Start background task
+        background_tasks.add_task(run_web_search_job, job_id)
         
         return {
-            "found": len(all_leads),
-            "imported": result.imported,
-            "duplicates": result.duplicates,
-            "queries_used": len(query_combinations),
-            "message": f"Found {len(all_leads)} leads across {len(query_combinations)} search(es), imported {result.imported}"
+            "success": True,
+            "job_id": job_id,
+            "message": f"Search job started. Target: {target_count} leads",
+            "status_url": f"/leads/import/web-search/status/{job_id}",
+            "stop_url": f"/leads/import/web-search/stop/{job_id}"
         }
+        
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/import/web-search/status/{job_id}")
+async def get_web_search_status(job_id: str):
+    """
+    GET /leads/import/web-search/status/{job_id}
+    Get real-time status of a web search job.
+    """
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Calculate progress
+    progress_percent = 0
+    if job["target_count"] > 0:
+        progress_percent = round((job["total_imported"] / job["target_count"]) * 100, 1)
+    
+    # Calculate ETA
+    eta_minutes = None
+    if job["status"] == JobStatus.RUNNING and job["total_imported"] > 0:
+        remaining = job["target_count"] - job["total_imported"]
+        eta_minutes = int(remaining / LEADS_PER_MINUTE)
+    
+    return {
+        "job_id": job["job_id"],
+        "status": job["status"],
+        "target_count": job["target_count"],
+        "total_found": job["total_found"],
+        "total_imported": job["total_imported"],
+        "total_duplicates": job["total_duplicates"],
+        "total_classified": job["total_classified"],
+        "emails_found": job["emails_found"],
+        "leads_today": job["leads_today"],
+        "daily_limit": DAILY_LIMIT,
+        "queries_used": job["queries_used"],
+        "current_query": job.get("current_query", ""),
+        "progress_percent": progress_percent,
+        "eta_minutes": eta_minutes,
+        "errors": job.get("errors", [])[-5:],
+        "created_at": job["created_at"].isoformat() if job.get("created_at") else None,
+        "started_at": job["started_at"].isoformat() if job.get("started_at") else None,
+        "last_update": job["last_update"].isoformat() if job.get("last_update") else None,
+        "completed_at": job["completed_at"].isoformat() if job.get("completed_at") else None,
+        "config": job.get("config", {})
+    }
+
+
+@router.post("/import/web-search/stop/{job_id}")
+async def stop_web_search(job_id: str):
+    """
+    POST /leads/import/web-search/stop/{job_id}
+    Stop a running web search job.
+    """
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if job["status"] not in [JobStatus.RUNNING, JobStatus.PENDING, JobStatus.PAUSED, JobStatus.QUOTA_EXCEEDED]:
+        return {
+            "success": False,
+            "message": f"Job is not running (status: {job['status']})"
+        }
+    
+    update_job(job_id, {"status": JobStatus.STOPPED})
+    
+    return {
+        "success": True,
+        "message": "Stop signal sent. Job will stop after current operation.",
+        "job_id": job_id,
+        "total_imported": job["total_imported"]
+    }
+
+
+@router.get("/import/web-search/jobs")
+async def list_web_search_jobs(
+    status: Optional[str] = None,
+    limit: int = Query(20, ge=1, le=100)
+):
+    """
+    GET /leads/import/web-search/jobs
+    List all web search jobs, optionally filtered by status.
+    """
+    query = {}
+    if status:
+        query["status"] = status
+    
+    jobs = list(web_search_jobs_collection.find(query)
+                .sort("created_at", -1)
+                .limit(limit))
+    
+    result = []
+    for job in jobs:
+        progress_percent = 0
+        if job["target_count"] > 0:
+            progress_percent = round((job["total_imported"] / job["target_count"]) * 100, 1)
+        
+        result.append({
+            "job_id": job["job_id"],
+            "status": job["status"],
+            "target_count": job["target_count"],
+            "total_imported": job["total_imported"],
+            "progress_percent": progress_percent,
+            "created_at": job["created_at"].isoformat() if job.get("created_at") else None,
+            "config": job.get("config", {})
+        })
+    
+    return {"jobs": result, "count": len(result)}
+
+
+@router.post("/import/web-search/resume/{job_id}")
+async def resume_web_search(job_id: str, background_tasks: BackgroundTasks):
+    """
+    POST /leads/import/web-search/resume/{job_id}
+    Resume a paused or stopped job.
+    """
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if job["status"] in [JobStatus.RUNNING, JobStatus.PENDING]:
+        return {
+            "success": False,
+            "message": "Job is already running"
+        }
+    
+    if job["status"] == JobStatus.COMPLETED:
+        return {
+            "success": False,
+            "message": "Job is already completed"
+        }
+    
+    # Reset status and start
+    update_job(job_id, {"status": JobStatus.PENDING})
+    background_tasks.add_task(run_web_search_job, job_id)
+    
+    return {
+        "success": True,
+        "message": "Job resumed",
+        "job_id": job_id
+    }
 
 
 # ============== GOOGLE SEARCH ENDPOINT (LEGACY) ==============
@@ -661,6 +1133,94 @@ async def get_email_segments_endpoint():
         for s in EmailSegment
     ]
     return {"segments": segments}
+
+
+# ============== LEAD SCHEDULER ENDPOINTS ==============
+
+class SchedulerConfigRequest(BaseModel):
+    """Request model for scheduler configuration"""
+    designations: Optional[List[str]] = None
+    countries: Optional[List[str]] = None
+    seniorities: Optional[List[str]] = None
+    custom_query: Optional[str] = None
+
+
+@router.post("/scheduler/start")
+async def start_scheduler_endpoint(config: Optional[SchedulerConfigRequest] = None):
+    """
+    POST /leads/scheduler/start
+    Start the lead ingestion scheduler.
+    
+    Optional body:
+    {
+        "designations": ["CEO", "CTO"],
+        "countries": ["United States", "Canada"],
+        "seniorities": ["CXO", "VP"],
+        "custom_query": "technology startup"
+    }
+    """
+    try:
+        config_dict = config.model_dump() if config else None
+        result = start_scheduler(config_dict)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/scheduler/stop")
+async def stop_scheduler_endpoint():
+    """
+    POST /leads/scheduler/stop
+    Stop the lead ingestion scheduler.
+    """
+    try:
+        result = stop_scheduler()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/scheduler/status")
+async def get_scheduler_status_endpoint():
+    """
+    GET /leads/scheduler/status
+    Get current scheduler status including:
+    - Running state
+    - Leads today/this hour
+    - Progress percentages
+    - Error count
+    """
+    try:
+        status = get_scheduler_status()
+        return status
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/scheduler/logs")
+async def get_scheduler_logs_endpoint(limit: int = Query(100, ge=1, le=500)):
+    """
+    GET /leads/scheduler/logs
+    Get recent scheduler activity logs.
+    """
+    try:
+        logs = get_scheduler_logs(limit)
+        return {"logs": logs, "count": len(logs)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/scheduler/config")
+async def update_scheduler_config_endpoint(config: SchedulerConfigRequest):
+    """
+    PUT /leads/scheduler/config
+    Update scheduler search configuration.
+    """
+    try:
+        result = update_scheduler_config(config.model_dump())
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============== HEALTH CHECK ==============

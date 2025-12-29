@@ -229,7 +229,14 @@ def verify_session(request: Request):
 # ----------------------------
 # FastAPI app
 # ----------------------------
-app = FastAPI()
+APP_VERSION = "1.0.0"
+APP_NAME = "Campaign Platform API"
+
+app = FastAPI(
+    title=APP_NAME,
+    version=APP_VERSION,
+    description="Campaign Platform Backend API - Leads, Traffic, Finance, CPX Integration"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -238,6 +245,31 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ----------------------------
+# Root Health Check
+# ----------------------------
+@app.get("/", tags=["health"])
+async def root():
+    """Root endpoint - API info and health check"""
+    return {
+        "name": APP_NAME,
+        "version": APP_VERSION,
+        "status": "running",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@app.get("/health", tags=["health"])
+async def health_check():
+    """Health check endpoint for load balancers and monitoring"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "version": APP_VERSION
+    }
+
 
 # ----------------------------
 # Include Routers
@@ -379,6 +411,23 @@ async def startup_event():
     """Initialize scheduler and start background jobs"""
     global cpx_refresh_job
     
+    # Resume incomplete web search jobs
+    try:
+        from leads.router import get_incomplete_jobs, run_web_search_job, update_job, JobStatus
+        import asyncio
+        
+        incomplete_jobs = get_incomplete_jobs()
+        if incomplete_jobs:
+            print(f"🔄 Found {len(incomplete_jobs)} incomplete web search jobs to resume...")
+            for job in incomplete_jobs:
+                job_id = job["job_id"]
+                print(f"   Resuming job {job_id} (status: {job['status']}, imported: {job['total_imported']}/{job['target_count']})")
+                # Schedule the job to run
+                asyncio.create_task(run_web_search_job(job_id))
+            print(f"✅ Resumed {len(incomplete_jobs)} web search jobs")
+    except Exception as e:
+        print(f"⚠️ Could not resume web search jobs: {e}")
+    
     if cpx_service is not None:
         try:
             # Perform immediate initial fetch
@@ -406,6 +455,31 @@ async def startup_event():
         except Exception as e:
             print(f"❌ Failed to schedule CPX refresh job: {str(e)}")
             traceback.print_exc()
+    
+    # ============== STARTUP SUMMARY BANNER ==============
+    print("\n" + "=" * 60)
+    print(f"🚀 {APP_NAME} v{APP_VERSION} STARTED SUCCESSFULLY")
+    print("=" * 60)
+    print("📋 REGISTERED ROUTERS:")
+    print("   • /leads         - Lead management & AI classification")
+    print("   • /finance       - Finance module (invoices, vendors)")
+    print("   • /settings      - Application settings")
+    print("   • /gmail         - Gmail API integration")
+    print("   • /cpx           - CPX Research surveys")
+    print("   • /survey-allocation - Survey allocation engine")
+    print("   • /              - Traffic flow (root level)")
+    print("")
+    print("🔄 BACKGROUND JOBS:")
+    if scheduler.running:
+        print(f"   • CPX Survey Refresh: Active (every {filter_settings.get('refresh_interval_seconds', 60)}s)")
+    else:
+        print("   • CPX Survey Refresh: Inactive")
+    print("")
+    print("🌐 ENDPOINTS:")
+    print("   • Health: GET /health")
+    print("   • API Docs: GET /docs")
+    print("   • OpenAPI: GET /openapi.json")
+    print("=" * 60 + "\n")
 
 @app.on_event("shutdown")
 async def shutdown_event():

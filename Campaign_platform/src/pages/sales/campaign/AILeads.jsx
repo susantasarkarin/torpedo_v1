@@ -162,6 +162,7 @@ function AILeads() {
   const [webSearchSeniorities, setWebSearchSeniorities] = useState([]); // Multi-select
   const [webSearchTargetCount, setWebSearchTargetCount] = useState(10000); // Default to 10000
   const [webSearchProgress, setWebSearchProgress] = useState(null);
+  const [webSearchJobId, setWebSearchJobId] = useState(null); // Background job ID
   const [deletingAllLeads, setDeletingAllLeads] = useState(false);
   
   // Legacy single-select for backward compatibility
@@ -415,7 +416,7 @@ function AILeads() {
           body: formData,
         });
       } else if (importMethod === "web-search") {
-        // New enhanced web search with multi-select
+        // New enhanced web search with multi-select - runs as background job
         const hasDesignation = webSearchDesignation.trim();
         const hasCountries = webSearchCountries.length > 0;
         const hasSeniorities = webSearchSeniorities.length > 0;
@@ -426,7 +427,7 @@ function AILeads() {
           return;
         }
         
-        setWebSearchProgress({ status: "Searching for leads...", found: 0 });
+        setWebSearchProgress({ status: "Starting background search...", found: 0, imported: 0 });
         
         res = await fetch(`${API_BASE_URL}/leads/import/web-search`, {
           method: "POST",
@@ -439,7 +440,87 @@ function AILeads() {
           }),
         });
         
-        setWebSearchProgress(null);
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.detail || "Failed to start search job");
+        }
+        
+        const jobResult = await res.json();
+        
+        if (jobResult.success && jobResult.job_id) {
+          // Store job ID and start polling for status
+          setWebSearchJobId(jobResult.job_id);
+          setWebSearchProgress({ 
+            status: "running", 
+            job_id: jobResult.job_id,
+            found: 0, 
+            imported: 0,
+            classified: 0,
+            emails_found: 0,
+            progress_percent: 0,
+            target_count: webSearchTargetCount
+          });
+          
+          // Start polling interval for status updates
+          const pollInterval = setInterval(async () => {
+            try {
+              const statusRes = await fetch(
+                `${API_BASE_URL}/leads/import/web-search/status/${jobResult.job_id}`,
+                { headers: { Authorization: sessionId } }
+              );
+              
+              if (statusRes.ok) {
+                const status = await statusRes.json();
+                setWebSearchProgress({
+                  status: status.status,
+                  job_id: status.job_id,
+                  found: status.total_found,
+                  imported: status.total_imported,
+                  duplicates: status.total_duplicates,
+                  classified: status.total_classified,
+                  emails_found: status.emails_found,
+                  progress_percent: status.progress_percent,
+                  target_count: status.target_count,
+                  current_query: status.current_query,
+                  eta_minutes: status.eta_minutes,
+                  leads_today: status.leads_today,
+                  daily_limit: status.daily_limit,
+                  errors: status.errors
+                });
+                
+                // Refresh leads list periodically
+                if (status.total_imported > 0 && status.total_imported % 50 === 0) {
+                  fetchRawLeads();
+                  fetchStatistics();
+                }
+                
+                // Stop polling if job is done
+                if (["completed", "stopped", "failed"].includes(status.status)) {
+                  clearInterval(pollInterval);
+                  setImporting(false);
+                  fetchRawLeads();
+                  fetchStatistics();
+                  
+                  if (status.status === "completed") {
+                    alert(`✅ Search completed! Imported ${status.total_imported} leads, found ${status.emails_found} emails.`);
+                  } else if (status.status === "stopped") {
+                    alert(`⏹️ Search stopped. Imported ${status.total_imported} leads so far.`);
+                  }
+                }
+              }
+            } catch (pollError) {
+              console.error("Error polling status:", pollError);
+            }
+          }, 2000); // Poll every 2 seconds
+          
+          // Store interval ID for cleanup
+          window.webSearchPollInterval = pollInterval;
+          
+          // Don't close modal - keep it open to show progress
+          return;
+        } else {
+          throw new Error(jobResult.message || "Failed to start search job");
+        }
       }
 
       if (!res.ok) {
@@ -462,6 +543,11 @@ function AILeads() {
 
   // Reset import modal state
   const resetImportModal = () => {
+    // Clean up polling interval if exists
+    if (window.webSearchPollInterval) {
+      clearInterval(window.webSearchPollInterval);
+      window.webSearchPollInterval = null;
+    }
     setShowImportModal(false);
     setImportData("");
     setCsvFile(null);
@@ -473,6 +559,8 @@ function AILeads() {
     setWebSearchCountries([]);
     setWebSearchSeniorities([]);
     setWebSearchTargetCount(10000);
+    setWebSearchProgress(null);
+    setWebSearchJobId(null);
     setImportError("");
     // Reset Gmail state
     setSelectedGmailAccounts([]);
@@ -1164,8 +1252,125 @@ function AILeads() {
                   </div>
                   
                   {webSearchProgress && (
-                    <div className="progress-bar-container">
-                      <div className="progress-text">{webSearchProgress.status}</div>
+                    <div className="progress-bar-container" style={{ 
+                      marginTop: "1rem", 
+                      padding: "1rem", 
+                      backgroundColor: webSearchProgress.status === "running" ? "#f0fdf4" : 
+                                       webSearchProgress.status === "quota_exceeded" ? "#fef3c7" :
+                                       webSearchProgress.status === "completed" ? "#ecfdf5" : "#f9fafb",
+                      borderRadius: "8px",
+                      border: "1px solid #e5e7eb"
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
+                        <div className="progress-text" style={{ fontWeight: "600", color: "#374151" }}>
+                          {webSearchProgress.status === "running" && "🔄 "}
+                          {webSearchProgress.status === "quota_exceeded" && "⏸️ "}
+                          {webSearchProgress.status === "completed" && "✅ "}
+                          {webSearchProgress.status === "stopped" && "⏹️ "}
+                          {webSearchProgress.status?.charAt(0).toUpperCase() + webSearchProgress.status?.slice(1) || "Processing..."}
+                        </div>
+                        {webSearchProgress.job_id && webSearchProgress.status === "running" && (
+                          <button
+                            className="btn btn-sm"
+                            style={{ backgroundColor: "#ef4444", color: "white", padding: "0.25rem 0.75rem" }}
+                            onClick={async () => {
+                              try {
+                                const res = await fetch(
+                                  `${API_BASE_URL}/leads/import/web-search/stop/${webSearchProgress.job_id}`,
+                                  { method: "POST", headers: { Authorization: sessionId } }
+                                );
+                                if (res.ok) {
+                                  if (window.webSearchPollInterval) {
+                                    clearInterval(window.webSearchPollInterval);
+                                  }
+                                }
+                              } catch (e) {
+                                console.error("Failed to stop job:", e);
+                              }
+                            }}
+                          >
+                            ⏹️ Stop
+                          </button>
+                        )}
+                      </div>
+                      
+                      {/* Progress Bar */}
+                      <div style={{ 
+                        width: "100%", 
+                        height: "8px", 
+                        backgroundColor: "#e5e7eb", 
+                        borderRadius: "4px", 
+                        overflow: "hidden",
+                        marginBottom: "0.75rem"
+                      }}>
+                        <div style={{ 
+                          width: `${webSearchProgress.progress_percent || 0}%`, 
+                          height: "100%", 
+                          backgroundColor: webSearchProgress.status === "running" ? "#22c55e" : 
+                                          webSearchProgress.status === "quota_exceeded" ? "#f59e0b" : "#3b82f6",
+                          transition: "width 0.3s ease"
+                        }} />
+                      </div>
+                      
+                      {/* Stats Grid */}
+                      <div style={{ 
+                        display: "grid", 
+                        gridTemplateColumns: "repeat(4, 1fr)", 
+                        gap: "0.75rem",
+                        fontSize: "0.875rem"
+                      }}>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: "1.25rem", fontWeight: "700", color: "#059669" }}>
+                            {webSearchProgress.imported || 0}
+                          </div>
+                          <div style={{ color: "#6b7280" }}>Imported</div>
+                        </div>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: "1.25rem", fontWeight: "700", color: "#3b82f6" }}>
+                            {webSearchProgress.classified || 0}
+                          </div>
+                          <div style={{ color: "#6b7280" }}>Classified</div>
+                        </div>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: "1.25rem", fontWeight: "700", color: "#8b5cf6" }}>
+                            {webSearchProgress.emails_found || 0}
+                          </div>
+                          <div style={{ color: "#6b7280" }}>Emails</div>
+                        </div>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontSize: "1.25rem", fontWeight: "700", color: "#6b7280" }}>
+                            {webSearchProgress.progress_percent || 0}%
+                          </div>
+                          <div style={{ color: "#6b7280" }}>Progress</div>
+                        </div>
+                      </div>
+                      
+                      {/* Additional Info */}
+                      <div style={{ 
+                        marginTop: "0.75rem", 
+                        paddingTop: "0.75rem", 
+                        borderTop: "1px solid #e5e7eb",
+                        fontSize: "0.75rem",
+                        color: "#6b7280"
+                      }}>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                          <span>Target: {webSearchProgress.target_count?.toLocaleString()} leads</span>
+                          <span>Today: {webSearchProgress.leads_today || 0} / {webSearchProgress.daily_limit?.toLocaleString()}</span>
+                          {webSearchProgress.eta_minutes && (
+                            <span>ETA: ~{webSearchProgress.eta_minutes} min</span>
+                          )}
+                        </div>
+                        {webSearchProgress.current_query && (
+                          <div style={{ marginTop: "0.25rem", fontStyle: "italic" }}>
+                            Current: {webSearchProgress.current_query}
+                          </div>
+                        )}
+                        {webSearchProgress.status === "quota_exceeded" && (
+                          <div style={{ marginTop: "0.5rem", color: "#d97706", fontWeight: "500" }}>
+                            ⚠️ Daily API limit reached. Will auto-resume at midnight UTC.
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                   

@@ -321,6 +321,7 @@ def classify_lead(lead: LeadRaw) -> Tuple[Optional[AIClassificationOutput], AICl
         result = AIClassificationOutput(
             first_name=parsed.get("first_name", ""),
             last_name=parsed.get("last_name", ""),
+            predicted_email=parsed.get("predicted_email"),
             seniority_level=SeniorityLevel(parsed.get("seniority_level", "Unknown")),
             department=Department(parsed.get("department", "Other")),
             persona=Persona(parsed.get("persona", "Practitioner")),
