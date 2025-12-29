@@ -21,6 +21,7 @@ try:
     from .routers import finance as finance_router
     from .routers import settings as settings_router
     from .routers import gmail as gmail_router
+    from .routers import rfq as rfq_router
     from .app.services.cpx_service import CPXService
     from .app.routers import survey_allocation as survey_allocation_router
     from .leads import router as leads_router
@@ -31,6 +32,7 @@ except Exception:
     from routers import finance as finance_router
     from routers import settings as settings_router
     from routers import gmail as gmail_router
+    from routers import rfq as rfq_router
     from app.services.cpx_service import CPXService
     from app.routers import survey_allocation as survey_allocation_router
     from leads import router as leads_router
@@ -152,7 +154,7 @@ def get_survey_filter_settings() -> Dict[str, Any]:
         "min_cpi": 1.0,
         "deletion_period_days": 7,
         "auto_refresh_enabled": True,
-        "refresh_interval_seconds": 60,
+        "refresh_interval_seconds": 60,  # 1 minute
     }
     
     if app_settings_collection is not None:
@@ -375,6 +377,13 @@ try:
     print("✅ Leads AI Classification router included")
 except Exception as e:
     print(f"⚠️ Leads router not included: {e}")
+
+# RFQ (Request for Quote) router
+try:
+    app.include_router(rfq_router.router)
+    print("✅ RFQ router included")
+except Exception as e:
+    print(f"⚠️ RFQ router not included: {e}")
 
 # ----------------------------
 # APScheduler for CPX refresh job

@@ -11,6 +11,9 @@ function Login() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    console.log("🔐 Attempting login with:", credentials.username)
+    console.log("🔗 API URL:", API_BASE_URL)
+    
     try {
       const response = await fetch(`${API_BASE_URL}/login/`, {
         method: "POST",
@@ -18,21 +21,31 @@ function Login() {
         body: JSON.stringify(credentials),
       })
 
-      const data = await response.json().catch(() => ({}))
+      console.log("📥 Response status:", response.status)
+      
+      const data = await response.json().catch((err) => {
+        console.error("❌ JSON parse error:", err)
+        return {}
+      })
+      
+      console.log("📦 Response data:", data)
 
       if (!response.ok) {
         alert("❌ " + (data.detail || "Login failed"))
         return
       }
 
+      // Store all session data
       localStorage.setItem("session_id", data.session_id)
       localStorage.setItem("username", data.username)
+      localStorage.setItem("role", data.role || "admin")
       localStorage.setItem("auth", "true")
-
+      
+      console.log("✅ Login successful, redirecting...")
       navigate("/admin/dashboard", { replace: true })
     } catch (error) {
-      console.error("Login error:", error)
-      alert("❌ Login failed. Please try again.")
+      console.error("❌ Login error:", error)
+      alert("❌ Login failed: " + error.message)
     }
   }
 

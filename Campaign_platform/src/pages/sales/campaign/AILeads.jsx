@@ -279,14 +279,21 @@ function AILeads() {
   }, [sessionId]);
 
   useEffect(() => {
+    // Load data progressively - don't wait for all calls to complete
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchLeads(), fetchRawLeads(), fetchStatistics(), fetchGmailAccounts()]);
+      // Fetch leads first (most important for UI)
+      await fetchLeads();
       setLoading(false);
+      // Fetch other data in background
+      fetchRawLeads();
+      fetchStatistics();
+      fetchGmailAccounts();
     };
     loadData();
-  }, [fetchLeads, fetchRawLeads, fetchStatistics, fetchGmailAccounts]);
+  }, []);
 
+  // Refetch leads when filters change
   useEffect(() => {
     if (!loading) fetchLeads();
   }, [filters, currentPage, searchQuery]);

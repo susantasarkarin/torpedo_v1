@@ -120,15 +120,19 @@ function DatabaseConnection() {
     }
   }, [sessionId]);
 
-  // Initial load
+  // Initial load - progressive loading
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([fetchLeads(), fetchRawLeads(), fetchStatistics()]);
+      // Fetch leads first (most important for UI)
+      await fetchLeads();
       setLoading(false);
+      // Fetch other data in background
+      fetchRawLeads();
+      fetchStatistics();
     };
     loadData();
-  }, [fetchLeads, fetchRawLeads, fetchStatistics]);
+  }, []);
 
   // Refetch on filter change
   useEffect(() => {

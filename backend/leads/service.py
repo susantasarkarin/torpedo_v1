@@ -346,9 +346,9 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
     return leads, total
 
 
-def get_raw_leads_with_status() -> List[dict]:
-    """Get all raw leads with their status for UI display"""
-    leads = list(leads_raw_collection.find().sort("created_at", DESCENDING))
+def get_raw_leads_with_status(limit: int = 100, skip: int = 0) -> List[dict]:
+    """Get raw leads with their status for UI display (paginated for performance)"""
+    leads = list(leads_raw_collection.find().sort("created_at", DESCENDING).skip(skip).limit(limit))
     for lead in leads:
         lead["_id"] = str(lead["_id"])
     return leads

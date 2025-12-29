@@ -903,12 +903,15 @@ async def get_leads_endpoint(
 
 
 @router.get("/raw")
-async def get_raw_leads_endpoint():
+async def get_raw_leads_endpoint(
+    limit: int = Query(100, ge=1, le=500, description="Max leads to return"),
+    skip: int = Query(0, ge=0, description="Number of leads to skip")
+):
     """
     GET /leads/raw
-    Get all raw leads with their classification status.
+    Get raw leads with their classification status (paginated for performance).
     """
-    leads = get_raw_leads_with_status()
+    leads = get_raw_leads_with_status(limit=limit, skip=skip)
     return {"leads": leads, "total": len(leads)}
 
 

@@ -702,3 +702,225 @@
     text-align: center;
   }
 }
+
+/* Import Section Styles */
+.import-section {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px dashed #e5e7eb;
+}
+
+.import-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.import-label {
+  font-size: 0.875rem;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.import-days-select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  background-color: white;
+  cursor: pointer;
+}
+
+.import-button {
+  padding: 0.5rem 1rem;
+  background-color: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.import-button:hover:not(:disabled) {
+  background-color: #2563eb;
+}
+
+.import-button:disabled {
+  background-color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.import-progress {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background-color: #f9fafb;
+  border-radius: 6px;
+}
+
+.progress-status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.progress-badge {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.progress-badge.in_progress {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
+.progress-badge.completed {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.progress-badge.error {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.progress-count {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.progress-bar-container {
+  height: 8px;
+  background-color: #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.progress-bar {
+  height: 100%;
+  background-color: #3b82f6;
+  transition: width 0.3s ease;
+}
+
+.progress-stats {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+/* IDLE Status Section Styles */
+.idle-status-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1rem;
+  background-color: #f9fafb;
+  border-radius: 8px;
+}
+
+.idle-status-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.idle-status-badge {
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.idle-status-badge.running {
+  background-color: #d1fae5;
+  color: #065f46;
+}
+
+.idle-status-badge.stopped {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.idle-status-badge.unavailable {
+  background-color: #f3f4f6;
+  color: #6b7280;
+}
+
+.watcher-count {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.idle-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.idle-button {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.idle-button.start {
+  background-color: #10b981;
+  color: white;
+}
+
+.idle-button.start:hover:not(:disabled) {
+  background-color: #059669;
+}
+
+.idle-button.stop {
+  background-color: #ef4444;
+  color: white;
+}
+
+.idle-button.stop:hover:not(:disabled) {
+  background-color: #dc2626;
+}
+
+.idle-button:disabled {
+  background-color: #e5e7eb;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .import-controls {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .import-days-select,
+  .import-button {
+    width: 100%;
+  }
+  
+  .idle-status-section {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .idle-actions {
+    width: 100%;
+  }
+  
+  .idle-button {
+    flex: 1;
+  }
+}

@@ -4,10 +4,12 @@ Issue 7: Pull leads from email accounts via IMAP, categorize, and extract contac
 
 This module uses IMAP/SMTP instead of Gmail API:
 1. Connects to email accounts via IMAP
-2. Fetches emails from inbox/folders
+2. Fetches emails from inbox/folders (INBOX + Sent Items)
 3. Categorizes emails into segments (promotional, outreach, discovery, etc.)
 4. Uses AI to produce summaries of email conversations
 5. Extracts and enriches contact information from emails
+6. Auto-creates RFQs when rfq_pricing segment detected
+7. Cross-inbox deduplication for 8 organizational inboxes
 """
 
 import os
@@ -24,7 +26,7 @@ from enum import Enum
 from email.header import decode_header
 from email.utils import parseaddr, parsedate_to_datetime
 
-from pymongo import MongoClient
+from pymongo import MongoClient, ASCENDING
 from bson import ObjectId
 from dotenv import load_dotenv
 
@@ -43,7 +45,20 @@ gmail_db = client['torpedo_gmail']
 # Collections
 email_leads_collection = db['email_leads']
 email_conversations_collection = db['email_conversations']
+leads_enriched_collection = db['leads_enriched']
+rfqs_collection = db['rfqs']
 imap_accounts_collection = gmail_db['imap_accounts']
+email_sync_log_collection = gmail_db['email_sync_log']
+import_progress_collection = gmail_db['import_progress']
+
+# Create indexes for deduplication
+try:
+    email_leads_collection.create_index("email", unique=True)
+    email_sync_log_collection.create_index([("message_id", ASCENDING), ("inbox", ASCENDING)], unique=True)
+    rfqs_collection.create_index("contact_email")
+    rfqs_collection.create_index("rfq_id", unique=True)
+except Exception as e:
+    logger.warning(f"Index creation warning: {e}")
 
 
 # ============== EMAIL SEGMENT CATEGORIES ==============
@@ -78,10 +93,25 @@ class IMAPAccount:
     is_default: bool = False
     created_at: datetime = None
     last_sync: datetime = None
+    # Historical import settings
+    historical_import_days: int = 30  # Options: 30, 90, 180, 365, 0 (all)
+    initial_sync_completed: bool = False
     
     def __post_init__(self):
         if self.created_at is None:
             self.created_at = datetime.utcnow()
+
+
+# ============== SENT FOLDER NAMES ==============
+
+SENT_FOLDER_NAMES = [
+    "Sent",
+    "Sent Items", 
+    "Sent Mail",
+    "[Gmail]/Sent Mail",
+    "INBOX.Sent",
+    "Sent Messages"
+]
 
 
 # ============== EMAIL LEAD CONTACT ==============
@@ -452,6 +482,361 @@ def fetch_emails_imap(
     return emails
 
 
+# ============== MULTI-FOLDER SYNC WITH DEDUPLICATION ==============
+
+def fetch_emails_multi_folder(
+    account: IMAPAccount,
+    folders: List[str] = None,
+    max_emails_per_folder: int = 100,
+    since_days: int = 30,
+    segments: List[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Fetch emails from multiple folders (INBOX + Sent) with direction tracking.
+    
+    Args:
+        account: IMAP account configuration
+        folders: List of folders to fetch from (None = INBOX + Sent)
+        max_emails_per_folder: Maximum emails per folder
+        since_days: Only fetch emails from last N days
+        segments: List of segments to filter (None = all)
+        
+    Returns:
+        List of email data dictionaries with direction field
+    """
+    if folders is None:
+        folders = ["INBOX"] + SENT_FOLDER_NAMES[:1]
+    
+    all_emails = []
+    
+    try:
+        imap = connect_imap(account)
+        
+        # List available folders to find the correct sent folder
+        status, folder_list = imap.list()
+        available_folders = []
+        if status == "OK":
+            for folder_data in folder_list:
+                if isinstance(folder_data, bytes):
+                    # Parse folder name from response
+                    folder_str = folder_data.decode('utf-8', errors='ignore')
+                    # Extract folder name (last part after delimiter)
+                    parts = folder_str.split('"')
+                    if len(parts) >= 2:
+                        available_folders.append(parts[-2])
+        
+        # Find the actual sent folder
+        sent_folder = None
+        for sf in SENT_FOLDER_NAMES:
+            if sf in available_folders or sf.lower() in [f.lower() for f in available_folders]:
+                sent_folder = sf
+                break
+        
+        folders_to_fetch = ["INBOX"]
+        if sent_folder:
+            folders_to_fetch.append(sent_folder)
+        
+        since_date = (datetime.now() - timedelta(days=since_days)).strftime("%d-%b-%Y")
+        
+        for folder in folders_to_fetch:
+            try:
+                # Determine direction based on folder
+                is_sent = folder.upper() != "INBOX"
+                direction = "sent" if is_sent else "received"
+                
+                # Select folder
+                status, _ = imap.select(folder)
+                if status != "OK":
+                    logger.warning(f"Could not select folder {folder}")
+                    continue
+                
+                # Search for emails
+                status, message_numbers = imap.search(None, f'(SINCE "{since_date}")')
+                if status != "OK":
+                    continue
+                
+                message_ids = message_numbers[0].split()
+                message_ids = message_ids[-max_emails_per_folder:] if len(message_ids) > max_emails_per_folder else message_ids
+                
+                for msg_id in message_ids:
+                    try:
+                        status, msg_data = imap.fetch(msg_id, "(RFC822)")
+                        if status != "OK":
+                            continue
+                        
+                        raw_email = msg_data[0][1]
+                        msg = email.message_from_bytes(raw_email)
+                        
+                        # Parse email
+                        message_id = msg.get("Message-ID", f"{account.email}_{folder}_{msg_id}")
+                        subject = decode_email_header(msg.get("Subject", ""))
+                        from_header = decode_email_header(msg.get("From", ""))
+                        to_header = decode_email_header(msg.get("To", ""))
+                        cc_header = decode_email_header(msg.get("Cc", ""))
+                        date_str = msg.get("Date", "")
+                        body = get_email_body(msg)
+                        
+                        # Parse addresses
+                        _, from_email = parseaddr(from_header)
+                        from_name, first_name, last_name = extract_name_from_email(from_header)
+                        to_emails = [parseaddr(addr.strip())[1] for addr in to_header.split(",") if addr.strip()]
+                        cc_emails = [parseaddr(addr.strip())[1] for addr in cc_header.split(",") if addr.strip()] if cc_header else []
+                        
+                        # Classify segment
+                        segment = classify_email_segment(subject, body, from_email)
+                        
+                        # Filter by segments if specified
+                        if segments and segment.value not in segments:
+                            continue
+                        
+                        # Parse date
+                        try:
+                            email_date = parsedate_to_datetime(date_str)
+                        except:
+                            email_date = datetime.utcnow()
+                        
+                        # Extract signature info
+                        sig_info = parse_email_signature(body)
+                        
+                        # Get attachments
+                        attachments = []
+                        if msg.is_multipart():
+                            for part in msg.walk():
+                                if part.get_content_disposition() == "attachment":
+                                    filename = part.get_filename()
+                                    if filename:
+                                        attachments.append(decode_email_header(filename))
+                        
+                        # Determine the contact email (who we're communicating with)
+                        if is_sent:
+                            # For sent emails, the contact is the recipient
+                            contact_email = to_emails[0] if to_emails else ""
+                            contact_name = ""  # We may not have the recipient's name
+                        else:
+                            # For received emails, the contact is the sender
+                            contact_email = from_email
+                            contact_name = from_name
+                        
+                        email_data = {
+                            "message_id": message_id,
+                            "subject": subject,
+                            "from_email": from_email,
+                            "from_name": from_name,
+                            "first_name": first_name,
+                            "last_name": last_name,
+                            "to_emails": to_emails,
+                            "cc_emails": cc_emails,
+                            "date": email_date,
+                            "body": body[:5000],
+                            "body_preview": body[:200],
+                            "segment": segment.value,
+                            "direction": direction,
+                            "folder": folder,
+                            "title": sig_info.get("title", ""),
+                            "linkedin_url": sig_info.get("linkedin", ""),
+                            "phone": sig_info.get("phone", ""),
+                            "contact_email": contact_email,
+                            "contact_name": contact_name,
+                            "domain": extract_domain_from_email(contact_email),
+                            "inbox_used": account.email,
+                            "attachments": attachments
+                        }
+                        
+                        all_emails.append(email_data)
+                        
+                    except Exception as e:
+                        logger.warning(f"Error parsing email {msg_id} in {folder}: {e}")
+                        continue
+                        
+            except Exception as e:
+                logger.warning(f"Error processing folder {folder}: {e}")
+                continue
+        
+        imap.logout()
+        
+    except Exception as e:
+        logger.error(f"Error fetching emails from {account.email}: {e}")
+        raise
+    
+    return all_emails
+
+
+def is_email_already_processed(message_id: str, inbox: str) -> bool:
+    """Check if an email has already been processed (for cross-inbox dedup)"""
+    existing = email_sync_log_collection.find_one({
+        "message_id": message_id,
+        "inbox": inbox
+    })
+    return existing is not None
+
+
+def mark_email_processed(message_id: str, inbox: str, contact_email: str):
+    """Mark an email as processed in the sync log"""
+    try:
+        email_sync_log_collection.insert_one({
+            "message_id": message_id,
+            "inbox": inbox,
+            "contact_email": contact_email,
+            "processed_at": datetime.utcnow()
+        })
+    except Exception as e:
+        # Duplicate key error is expected for already processed emails
+        pass
+
+
+def generate_rfq_id() -> str:
+    """Generate a unique RFQ ID in format RFQ-YYYY-NNNN"""
+    year = datetime.utcnow().year
+    
+    # Find the highest RFQ number for this year
+    latest = rfqs_collection.find_one(
+        {"rfq_id": {"$regex": f"^RFQ-{year}-"}},
+        sort=[("rfq_id", -1)]
+    )
+    
+    if latest:
+        # Extract the number and increment
+        try:
+            last_num = int(latest["rfq_id"].split("-")[-1])
+            new_num = last_num + 1
+        except:
+            new_num = 1
+    else:
+        new_num = 1
+    
+    return f"RFQ-{year}-{new_num:04d}"
+
+
+def extract_rfq_value(body: str, subject: str = "") -> Tuple[Optional[float], str]:
+    """
+    Extract monetary value from email body using regex and patterns.
+    Returns (value, currency)
+    """
+    text = f"{subject} {body}".lower()
+    
+    # Currency patterns
+    patterns = [
+        # USD patterns
+        (r'\$\s*([\d,]+(?:\.\d{2})?)\s*(?:usd|dollars?)?', 'USD'),
+        (r'([\d,]+(?:\.\d{2})?)\s*(?:usd|dollars?)', 'USD'),
+        # INR patterns
+        (r'₹\s*([\d,]+(?:\.\d{2})?)', 'INR'),
+        (r'([\d,]+(?:\.\d{2})?)\s*(?:inr|rupees?)', 'INR'),
+        # EUR patterns
+        (r'€\s*([\d,]+(?:\.\d{2})?)', 'EUR'),
+        (r'([\d,]+(?:\.\d{2})?)\s*(?:eur|euros?)', 'EUR'),
+        # GBP patterns
+        (r'£\s*([\d,]+(?:\.\d{2})?)', 'GBP'),
+        # Generic with k/m suffixes
+        (r'\$\s*([\d.]+)\s*k\b', 'USD'),  # $50k
+        (r'\$\s*([\d.]+)\s*m\b', 'USD'),  # $5m
+    ]
+    
+    max_value = None
+    detected_currency = 'USD'
+    
+    for pattern, currency in patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        for match in matches:
+            try:
+                # Clean the number
+                num_str = match.replace(',', '').strip()
+                value = float(num_str)
+                
+                # Handle k/m suffixes
+                if 'k' in pattern:
+                    value *= 1000
+                elif 'm' in pattern:
+                    value *= 1000000
+                
+                # Keep the largest value found
+                if max_value is None or value > max_value:
+                    max_value = value
+                    detected_currency = currency
+                    
+            except ValueError:
+                continue
+    
+    return max_value, detected_currency
+
+
+def create_or_update_rfq(email_data: Dict[str, Any], lead_id: str = None) -> Optional[str]:
+    """
+    Create or update an RFQ from email data.
+    Returns the RFQ ID if created/updated, None otherwise.
+    """
+    contact_email = email_data.get("contact_email", "")
+    if not contact_email:
+        return None
+    
+    # Extract value from email
+    extracted_value, currency = extract_rfq_value(
+        email_data.get("body", ""),
+        email_data.get("subject", "")
+    )
+    
+    # Check if RFQ already exists for this contact
+    existing_rfq = rfqs_collection.find_one({"contact_email": contact_email})
+    
+    source_email = {
+        "message_id": email_data.get("message_id", ""),
+        "subject": email_data.get("subject", ""),
+        "inbox": email_data.get("inbox_used", ""),
+        "date": email_data.get("date", datetime.utcnow()),
+        "extracted_amount": extracted_value
+    }
+    
+    if existing_rfq:
+        # Update existing RFQ
+        update_data = {
+            "$push": {"source_emails": source_email},
+            "$set": {"updated_at": datetime.utcnow()}
+        }
+        
+        # Update extracted value if new value is higher
+        if extracted_value and (not existing_rfq.get("extracted_value") or extracted_value > existing_rfq.get("extracted_value", 0)):
+            update_data["$set"]["extracted_value"] = extracted_value
+            update_data["$set"]["extracted_currency"] = currency
+        
+        rfqs_collection.update_one(
+            {"_id": existing_rfq["_id"]},
+            update_data
+        )
+        
+        return existing_rfq["rfq_id"]
+    else:
+        # Create new RFQ
+        rfq_id = generate_rfq_id()
+        
+        rfq_doc = {
+            "rfq_id": rfq_id,
+            "contact_email": contact_email,
+            "lead_id": lead_id,
+            "title": email_data.get("subject", "RFQ Request"),
+            "description": email_data.get("body_preview", ""),
+            "extracted_value": extracted_value,
+            "extracted_currency": currency,
+            "manual_value": None,
+            "manual_currency": None,
+            "source_emails": [source_email],
+            "status": "pending",
+            "priority": "medium",
+            "received_date": email_data.get("date", datetime.utcnow()),
+            "due_date": None,
+            "quoted_date": None,
+            "closed_date": None,
+            "summary": "",
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+            "created_by": "auto"
+        }
+        
+        rfqs_collection.insert_one(rfq_doc)
+        logger.info(f"Created RFQ {rfq_id} for {contact_email}")
+        
+        return rfq_id
+
+
 # ============== LEAD IMPORT ==============
 
 def import_leads_from_emails(
@@ -573,6 +958,340 @@ def import_leads_from_emails(
         "duplicates": total_duplicates,
         "errors": errors if errors else None
     }
+
+
+# ============== ENHANCED LEAD IMPORT WITH EMAIL THREADS ==============
+
+def process_email_for_lead(email_data: Dict[str, Any], inbox: str) -> Dict[str, Any]:
+    """
+    Process a single email and create/update lead with email thread.
+    Handles cross-inbox deduplication and auto-RFQ creation.
+    
+    Returns statistics about the operation.
+    """
+    stats = {
+        "new_lead": False,
+        "updated_lead": False,
+        "rfq_created": False,
+        "skipped": False,
+        "error": None
+    }
+    
+    contact_email = email_data.get("contact_email", "")
+    message_id = email_data.get("message_id", "")
+    
+    # Skip if no valid contact email
+    if not contact_email:
+        stats["skipped"] = True
+        return stats
+    
+    # Skip common no-reply addresses
+    skip_patterns = ["noreply", "no-reply", "mailer-daemon", "postmaster", "bounce", "notifications"]
+    if any(x in contact_email.lower() for x in skip_patterns):
+        stats["skipped"] = True
+        return stats
+    
+    # Check if this specific email has been processed (cross-inbox dedup)
+    if is_email_already_processed(message_id, inbox):
+        stats["skipped"] = True
+        return stats
+    
+    try:
+        # Create email thread entry
+        email_thread = {
+            "message_id": message_id,
+            "thread_id": None,  # Could be extracted from email headers
+            "subject": email_data.get("subject", ""),
+            "body_preview": email_data.get("body_preview", ""),
+            "body_full": email_data.get("body", ""),
+            "direction": email_data.get("direction", "received"),
+            "inbox_used": inbox,
+            "from_email": email_data.get("from_email", ""),
+            "to_emails": email_data.get("to_emails", []),
+            "cc_emails": email_data.get("cc_emails", []),
+            "date": email_data.get("date", datetime.utcnow()),
+            "attachments": email_data.get("attachments", []),
+            "segment": email_data.get("segment", "others")
+        }
+        
+        # Check if lead exists by email
+        existing_lead = email_leads_collection.find_one({"email": contact_email})
+        
+        if existing_lead:
+            # Update existing lead with new email thread
+            update_result = email_leads_collection.update_one(
+                {"email": contact_email},
+                {
+                    "$push": {"email_threads": email_thread},
+                    "$addToSet": {
+                        "seen_in_inboxes": inbox,
+                        "email_message_ids": message_id
+                    },
+                    "$set": {
+                        "last_email_date": email_data.get("date", datetime.utcnow()),
+                        "updated_at": datetime.utcnow()
+                    }
+                }
+            )
+            stats["updated_lead"] = True
+            lead_id = str(existing_lead["_id"])
+        else:
+            # Create new lead
+            lead_doc = {
+                "email": contact_email,
+                "name": email_data.get("contact_name", "") or email_data.get("from_name", ""),
+                "first_name": email_data.get("first_name", ""),
+                "last_name": email_data.get("last_name", ""),
+                "title": email_data.get("title", ""),
+                "linkedin_url": email_data.get("linkedin_url", ""),
+                "phone": email_data.get("phone", ""),
+                "location": "",
+                "company_name": "",
+                "company_domain": email_data.get("domain", ""),
+                "company_website": f"https://{email_data.get('domain', '')}" if email_data.get("domain") else "",
+                "email_segment": email_data.get("segment", ""),
+                "source": "email_import",
+                "email_threads": [email_thread],
+                "seen_in_inboxes": [inbox],
+                "email_message_ids": [message_id],
+                "last_email_date": email_data.get("date", datetime.utcnow()),
+                "conversation_summary": "",
+                "rfq_ids": [],
+                "added_on": datetime.utcnow(),
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+                # Enrichment fields (to be filled by AI)
+                "enriched_at": None,
+                "enrichment_source": None
+            }
+            
+            result = email_leads_collection.insert_one(lead_doc)
+            lead_id = str(result.inserted_id)
+            stats["new_lead"] = True
+        
+        # Mark email as processed
+        mark_email_processed(message_id, inbox, contact_email)
+        
+        # Auto-create RFQ if segment is rfq_pricing
+        if email_data.get("segment") == "rfq_pricing":
+            rfq_id = create_or_update_rfq(email_data, lead_id)
+            if rfq_id:
+                # Link RFQ to lead
+                email_leads_collection.update_one(
+                    {"email": contact_email},
+                    {"$addToSet": {"rfq_ids": rfq_id}}
+                )
+                stats["rfq_created"] = True
+        
+    except Exception as e:
+        stats["error"] = str(e)
+        logger.error(f"Error processing email for {contact_email}: {e}")
+    
+    return stats
+
+
+def import_emails_enhanced(
+    account_emails: List[str] = None,
+    max_emails_per_folder: int = 250,
+    since_days: int = 30,
+    segments: List[str] = None,
+    trigger_enrichment: bool = True
+) -> Dict[str, Any]:
+    """
+    Enhanced email import with:
+    - Multi-folder sync (INBOX + Sent Items)
+    - Cross-inbox deduplication
+    - Email thread tracking per lead
+    - Auto-RFQ creation for rfq_pricing segment
+    - AI enrichment trigger (optional)
+    
+    Args:
+        account_emails: List of account emails to fetch from (None = all active)
+        max_emails_per_folder: Maximum emails per folder per account
+        since_days: Only fetch emails from last N days
+        segments: List of segments to filter (None = all)
+        trigger_enrichment: Whether to trigger AI enrichment for new leads
+        
+    Returns:
+        Dict with detailed import statistics
+    """
+    # Get accounts
+    query = {"is_active": True}
+    if account_emails:
+        query["email"] = {"$in": account_emails}
+    
+    accounts = list(imap_accounts_collection.find(query))
+    
+    if not accounts:
+        return {
+            "success": False,
+            "message": "No active IMAP accounts found",
+            "stats": {}
+        }
+    
+    total_stats = {
+        "emails_processed": 0,
+        "new_leads": 0,
+        "updated_leads": 0,
+        "rfqs_created": 0,
+        "skipped": 0,
+        "errors": []
+    }
+    
+    for account_doc in accounts:
+        try:
+            account = IMAPAccount(
+                email=account_doc["email"],
+                display_name=account_doc.get("display_name", ""),
+                imap_server=account_doc.get("imap_server", "imap.gmail.com"),
+                imap_port=account_doc.get("imap_port", 993),
+                password=account_doc.get("password", ""),
+                use_ssl=account_doc.get("use_ssl", True),
+                historical_import_days=account_doc.get("historical_import_days", 30)
+            )
+            
+            if not account.password:
+                total_stats["errors"].append(f"No password for {account.email}")
+                continue
+            
+            # Use account's historical import setting if this is initial sync
+            effective_days = since_days
+            if not account_doc.get("initial_sync_completed", False):
+                effective_days = account.historical_import_days if account.historical_import_days > 0 else 365 * 5  # 5 years for "all"
+            
+            # Fetch emails from multiple folders
+            emails = fetch_emails_multi_folder(
+                account=account,
+                max_emails_per_folder=max_emails_per_folder,
+                since_days=effective_days,
+                segments=segments
+            )
+            
+            total_stats["emails_processed"] += len(emails)
+            
+            # Process each email
+            for email_data in emails:
+                result = process_email_for_lead(email_data, account.email)
+                
+                if result["new_lead"]:
+                    total_stats["new_leads"] += 1
+                if result["updated_lead"]:
+                    total_stats["updated_leads"] += 1
+                if result["rfq_created"]:
+                    total_stats["rfqs_created"] += 1
+                if result["skipped"]:
+                    total_stats["skipped"] += 1
+                if result["error"]:
+                    total_stats["errors"].append(result["error"])
+            
+            # Update sync status
+            imap_accounts_collection.update_one(
+                {"email": account.email},
+                {
+                    "$set": {
+                        "last_sync": datetime.utcnow(),
+                        "initial_sync_completed": True
+                    }
+                }
+            )
+            
+            logger.info(f"Processed {len(emails)} emails from {account.email}")
+            
+        except Exception as e:
+            total_stats["errors"].append(f"{account_doc['email']}: {str(e)}")
+            logger.error(f"Error processing account {account_doc['email']}: {e}")
+    
+    return {
+        "success": True,
+        "message": f"Processed {total_stats['emails_processed']} emails, created {total_stats['new_leads']} leads, updated {total_stats['updated_leads']} leads, created {total_stats['rfqs_created']} RFQs",
+        "stats": total_stats
+    }
+
+
+def run_historical_import(
+    account_email: str,
+    days: int = 30
+) -> Dict[str, Any]:
+    """
+    Run historical import for a specific account.
+    Updates progress in import_progress_collection for UI tracking.
+    
+    Args:
+        account_email: Email address of the account to import from
+        days: Number of days to import (0 = all available)
+        
+    Returns:
+        Import statistics
+    """
+    # Initialize progress tracking
+    import_progress_collection.update_one(
+        {"email": account_email},
+        {
+            "$set": {
+                "status": "running",
+                "started_at": datetime.utcnow(),
+                "days_requested": days,
+                "emails_processed": 0,
+                "leads_created": 0,
+                "error": None
+            }
+        },
+        upsert=True
+    )
+    
+    try:
+        # Update account's historical import setting
+        imap_accounts_collection.update_one(
+            {"email": account_email},
+            {"$set": {"historical_import_days": days}}
+        )
+        
+        # Run import
+        result = import_emails_enhanced(
+            account_emails=[account_email],
+            max_emails_per_folder=1000,  # Higher limit for historical import
+            since_days=days if days > 0 else 365 * 10,  # 10 years for "all"
+            trigger_enrichment=True
+        )
+        
+        # Update progress with completion
+        import_progress_collection.update_one(
+            {"email": account_email},
+            {
+                "$set": {
+                    "status": "completed",
+                    "completed_at": datetime.utcnow(),
+                    "emails_processed": result.get("stats", {}).get("emails_processed", 0),
+                    "leads_created": result.get("stats", {}).get("new_leads", 0),
+                    "leads_updated": result.get("stats", {}).get("updated_leads", 0),
+                    "rfqs_created": result.get("stats", {}).get("rfqs_created", 0)
+                }
+            }
+        )
+        
+        return result
+        
+    except Exception as e:
+        # Update progress with error
+        import_progress_collection.update_one(
+            {"email": account_email},
+            {
+                "$set": {
+                    "status": "error",
+                    "error": str(e),
+                    "completed_at": datetime.utcnow()
+                }
+            }
+        )
+        raise
+
+
+def get_import_progress(account_email: str) -> Optional[Dict[str, Any]]:
+    """Get the import progress for a specific account"""
+    progress = import_progress_collection.find_one({"email": account_email})
+    if progress:
+        progress["_id"] = str(progress["_id"])
+    return progress
 
 
 # ============== ACCOUNT MANAGEMENT ==============

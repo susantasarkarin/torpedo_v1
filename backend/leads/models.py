@@ -9,6 +9,131 @@ from pydantic import BaseModel, Field
 from enum import Enum
 
 
+# ============== EMAIL THREAD MODEL ==============
+
+class EmailThreadMessage(BaseModel):
+    """Individual email message in a thread"""
+    message_id: str = Field(..., description="RFC Message-ID for deduplication")
+    thread_id: Optional[str] = Field(None, description="Thread grouping ID")
+    subject: str = ""
+    body_preview: str = Field("", description="First 200 chars of body")
+    body_full: str = Field("", description="Full email body")
+    direction: Literal["sent", "received"] = "received"
+    inbox_used: str = Field("", description="Which of the 8 inboxes this came from")
+    from_email: str = ""
+    to_emails: List[str] = []
+    cc_emails: List[str] = []
+    date: datetime = Field(default_factory=datetime.utcnow)
+    attachments: List[str] = Field([], description="Attachment filenames")
+    segment: str = "others"
+
+
+# ============== RFQ MODELS ==============
+
+class RFQStatus(str, Enum):
+    """RFQ status workflow"""
+    PENDING = "pending"
+    QUOTED = "quoted"
+    NEGOTIATING = "negotiating"
+    WON = "won"
+    LOST = "lost"
+
+
+class RFQPriority(str, Enum):
+    """RFQ priority levels"""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class RFQSourceEmail(BaseModel):
+    """Email source for RFQ"""
+    message_id: str
+    subject: str
+    inbox: str
+    date: datetime
+    extracted_amount: Optional[float] = None
+
+
+class RFQ(BaseModel):
+    """
+    Request for Quotation record.
+    Collection: rfqs
+    Indexes:
+        - contact_email
+        - lead_id
+        - status
+        - created_at
+    """
+    rfq_id: str = Field(..., description="Auto-generated RFQ-YYYY-NNNN")
+    
+    # Links
+    contact_email: str = Field(..., description="Lead's email (foreign key)")
+    lead_id: Optional[str] = Field(None, description="ObjectId reference to lead")
+    
+    # RFQ Details
+    title: str = ""
+    description: str = ""
+    
+    # Value (with override)
+    extracted_value: Optional[float] = Field(None, description="AI/regex extracted from email")
+    extracted_currency: str = "USD"
+    manual_value: Optional[float] = Field(None, description="User override")
+    manual_currency: Optional[str] = None
+    
+    @property
+    def final_value(self) -> Optional[float]:
+        return self.manual_value if self.manual_value is not None else self.extracted_value
+    
+    @property
+    def final_currency(self) -> str:
+        return self.manual_currency if self.manual_currency else self.extracted_currency
+    
+    # Source Emails
+    source_emails: List[RFQSourceEmail] = []
+    
+    # Status
+    status: RFQStatus = RFQStatus.PENDING
+    priority: RFQPriority = RFQPriority.MEDIUM
+    
+    # Dates
+    received_date: datetime = Field(default_factory=datetime.utcnow)
+    due_date: Optional[datetime] = None
+    quoted_date: Optional[datetime] = None
+    closed_date: Optional[datetime] = None
+    
+    # AI Summary
+    summary: str = ""
+    
+    # Metadata
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_by: str = "auto"
+
+
+class RFQCreate(BaseModel):
+    """Request model for creating RFQ manually"""
+    contact_email: str
+    lead_id: Optional[str] = None
+    title: str
+    description: str = ""
+    manual_value: Optional[float] = None
+    manual_currency: str = "USD"
+    priority: RFQPriority = RFQPriority.MEDIUM
+    due_date: Optional[datetime] = None
+
+
+class RFQUpdate(BaseModel):
+    """Request model for updating RFQ"""
+    title: Optional[str] = None
+    description: Optional[str] = None
+    manual_value: Optional[float] = None
+    manual_currency: Optional[str] = None
+    status: Optional[RFQStatus] = None
+    priority: Optional[RFQPriority] = None
+    due_date: Optional[datetime] = None
+
+
 # ============== ENUMS ==============
 
 class SeniorityLevel(str, Enum):
@@ -240,6 +365,7 @@ class LeadEnriched(BaseModel):
         - persona
         - confidence_score
         - campaign_ids
+        - email (unique for deduplication)
     """
     raw_lead_id: str
     
@@ -252,6 +378,7 @@ class LeadEnriched(BaseModel):
     title: str
     linkedin_url: str
     location: Optional[str] = None
+    phone: Optional[str] = None
     
     # Metadata
     added_on: datetime = Field(default_factory=datetime.utcnow)
@@ -280,6 +407,20 @@ class LeadEnriched(BaseModel):
     company_headquarters: Optional[str] = None
     company_revenue_range: Optional[str] = None
     company_linkedin_url: Optional[str] = None
+    company_crunchbase_url: Optional[str] = None
+    company_funding_rounds: Optional[str] = None
+    company_last_funding_round_amount: Optional[str] = None
+    company_logo_url: Optional[str] = None
+    
+    # Email Correspondence (NEW)
+    email_threads: List[EmailThreadMessage] = Field([], description="All emails to/from this lead")
+    seen_in_inboxes: List[str] = Field([], description="List of org inboxes that have correspondence")
+    email_message_ids: List[str] = Field([], description="All message IDs for deduplication")
+    last_email_date: Optional[datetime] = None
+    conversation_summary: str = Field("", description="AI-generated conversation summary")
+    
+    # RFQ Links (NEW)
+    rfq_ids: List[str] = Field([], description="Links to rfqs collection")
     
     # Versioning
     classification_version: int = 1
@@ -287,6 +428,10 @@ class LeadEnriched(BaseModel):
     
     # Campaign association
     campaign_ids: List[str] = []
+    
+    # Enrichment tracking
+    enriched_at: Optional[datetime] = None
+    enrichment_source: Optional[str] = None  # "openai_websearch", "clearbit", "manual"
     
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)

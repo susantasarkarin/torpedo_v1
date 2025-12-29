@@ -4,6 +4,9 @@ import { useState, useEffect } from "react"
 import { API_BASE_URL } from "../config"
 import "./Settings.css"
 
+// Helper to get auth token - handles both storage methods
+const getAuthToken = () => localStorage.getItem("session_id") || getAuthToken()
+
 function Settings() {
   // App Settings state
   const [appSettings, setAppSettings] = useState({
@@ -66,6 +69,11 @@ function Settings() {
   const [showAddAlias, setShowAddAlias] = useState(null) // account_id when open
   const [gmailLoading, setGmailLoading] = useState(false)
   
+  // Historical import state
+  const [importProgress, setImportProgress] = useState({}) // { email: { status, progress, ... } }
+  const [idleStatus, setIdleStatus] = useState({ available: false, accounts: {} })
+  const [importDays, setImportDays] = useState({}) // { email: days }
+  
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: "", text: "" })
@@ -89,7 +97,7 @@ function Settings() {
   const loadGmailSettings = async () => {
     setGmailLoading(true)
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       
       // Load Email/IMAP accounts from leads endpoint
       const accountsRes = await fetch(`${API_BASE_URL}/leads/gmail/accounts`, {
@@ -105,10 +113,21 @@ function Settings() {
           is_default: acc.is_default,
           is_authenticated: acc.is_active,  // IMAP accounts are "authenticated" if active
           imap_server: acc.imap_server,
-          last_sync: acc.last_sync
+          last_sync: acc.last_sync,
+          historical_import_days: acc.historical_import_days || 30
         }))
         setGmailAccounts(accounts)
+        
+        // Initialize import days from accounts
+        const daysMap = {}
+        accounts.forEach(acc => {
+          daysMap[acc.email] = acc.historical_import_days || 30
+        })
+        setImportDays(daysMap)
       }
+      
+      // Load IDLE status
+      await loadIdleStatus()
     } catch (error) {
       console.error("Error loading email settings:", error)
     } finally {
@@ -116,9 +135,124 @@ function Settings() {
     }
   }
 
+  // Load IDLE watcher status
+  const loadIdleStatus = async () => {
+    try {
+      const token = getAuthToken()
+      const response = await fetch(`${API_BASE_URL}/gmail/idle/status`, {
+        headers: { Authorization: token }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setIdleStatus(data)
+      }
+    } catch (error) {
+      console.error("Error loading IDLE status:", error)
+    }
+  }
+
+  // Start/stop IDLE watchers for all accounts
+  const toggleIdleWatchers = async (start) => {
+    try {
+      const token = getAuthToken()
+      const endpoint = start ? "/gmail/idle/start" : "/gmail/idle/stop"
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        method: "POST",
+        headers: { Authorization: token }
+      })
+      if (response.ok) {
+        setMessage({ 
+          type: "success", 
+          text: start ? "Real-time email monitoring started" : "Real-time email monitoring stopped" 
+        })
+        await loadIdleStatus()
+      } else {
+        const error = await response.json()
+        setMessage({ type: "error", text: error.detail || "Failed to toggle IDLE watchers" })
+      }
+    } catch (error) {
+      console.error("Error toggling IDLE:", error)
+      setMessage({ type: "error", text: "Failed to toggle real-time monitoring" })
+    }
+  }
+
+  // Start historical import for an account
+  const startHistoricalImport = async (email) => {
+    try {
+      const token = getAuthToken()
+      const days = importDays[email] || 30
+      
+      const response = await fetch(`${API_BASE_URL}/gmail/import/historical/${encodeURIComponent(email)}`, {
+        method: "POST",
+        headers: { 
+          Authorization: token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ days })
+      })
+      
+      if (response.ok) {
+        setMessage({ type: "success", text: `Import started for ${email}` })
+        // Start polling for progress
+        pollImportProgress(email)
+      } else {
+        const error = await response.json()
+        setMessage({ type: "error", text: error.detail || "Failed to start import" })
+      }
+    } catch (error) {
+      console.error("Error starting import:", error)
+      setMessage({ type: "error", text: "Failed to start import" })
+    }
+  }
+
+  // Poll import progress for an account
+  const pollImportProgress = async (email) => {
+    const checkProgress = async () => {
+      try {
+        const token = getAuthToken()
+        const response = await fetch(`${API_BASE_URL}/gmail/import/progress/${encodeURIComponent(email)}`, {
+          headers: { Authorization: token }
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          setImportProgress(prev => ({ ...prev, [email]: data }))
+          
+          // Continue polling if still in progress
+          if (data.status === "in_progress" || data.status === "started") {
+            setTimeout(checkProgress, 2000)
+          }
+        }
+      } catch (error) {
+        console.error("Error polling progress:", error)
+      }
+    }
+    
+    checkProgress()
+  }
+
+  // Update import days setting for an account
+  const updateImportDaysSetting = async (email, days) => {
+    setImportDays(prev => ({ ...prev, [email]: days }))
+    
+    try {
+      const token = getAuthToken()
+      await fetch(`${API_BASE_URL}/gmail/imap-accounts/${encodeURIComponent(email)}/settings`, {
+        method: "PUT",
+        headers: { 
+          Authorization: token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ historical_import_days: days })
+      })
+    } catch (error) {
+      console.error("Error updating import days:", error)
+    }
+  }
+
   const loadAllocationSettings = async () => {
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/survey-allocation/settings`, {
         headers: { Authorization: token }
       })
@@ -136,7 +270,7 @@ function Settings() {
     setMessage({ type: "", text: "" })
     
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/survey-allocation/settings`, {
         method: "POST",
         headers: {
@@ -167,22 +301,24 @@ function Settings() {
   const loadAllSettings = async () => {
     setLoading(true)
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       
-      // Load app settings
-      const appRes = await fetch(`${API_BASE_URL}/settings/app`, {
-        headers: { Authorization: token }
-      })
+      // Load app settings and survey filters in parallel
+      const [appRes, filterRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/settings/app`, {
+          headers: { Authorization: token }
+        }),
+        fetch(`${API_BASE_URL}/settings/survey-filters`, {
+          headers: { Authorization: token }
+        })
+      ])
+      
       if (appRes.ok) {
         const data = await appRes.json()
         setAppSettings(prev => ({ ...prev, ...data.settings }))
         setMaskedSettings(data.settings)
       }
       
-      // Load survey filters
-      const filterRes = await fetch(`${API_BASE_URL}/settings/survey-filters`, {
-        headers: { Authorization: token }
-      })
       if (filterRes.ok) {
         const data = await filterRes.json()
         setSurveyFilters(prev => ({ ...prev, ...data.filters }))
@@ -200,7 +336,7 @@ function Settings() {
     setMessage({ type: "", text: "" })
     
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       
       // Only send non-empty values
       const settingsToSave = {}
@@ -239,7 +375,7 @@ function Settings() {
     setMessage({ type: "", text: "" })
     
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       
       const response = await fetch(`${API_BASE_URL}/settings/survey-filters`, {
         method: "POST",
@@ -270,7 +406,7 @@ function Settings() {
     setMessage({ type: "", text: "" })
     
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       
       // Save app settings
       const appResponse = await fetch(`${API_BASE_URL}/settings/app`, {
@@ -319,7 +455,7 @@ function Settings() {
     setMessage({ type: "", text: "" })
     
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/settings/test-mongo`, {
         method: "POST",
         headers: {
@@ -346,7 +482,7 @@ function Settings() {
     setMessage({ type: "", text: "" })
     
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/settings/test-cpx`, {
         method: "POST",
         headers: {
@@ -387,7 +523,7 @@ function Settings() {
   // Gmail account management functions
   const initiateGmailAuth = async () => {
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/gmail/auth/url`, {
         headers: { Authorization: token }
       })
@@ -405,7 +541,7 @@ function Settings() {
 
   const authenticateAccount = async (accountId) => {
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/gmail/auth/url?account_id=${accountId}`, {
         headers: { Authorization: token }
       })
@@ -434,7 +570,7 @@ function Settings() {
     
     setSaving(true)
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/leads/gmail/accounts`, {
         method: "POST",
         headers: {
@@ -486,7 +622,7 @@ function Settings() {
     }
     
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/leads/gmail/accounts/${encodeURIComponent(accountEmail)}`, {
         method: "DELETE",
         headers: { Authorization: token }
@@ -505,7 +641,7 @@ function Settings() {
 
   const testEmailAccount = async (accountEmail) => {
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/leads/gmail/accounts/${encodeURIComponent(accountEmail)}/test`, {
         method: "POST",
         headers: { Authorization: token }
@@ -530,7 +666,7 @@ function Settings() {
     
     setSaving(true)
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/gmail/accounts/${accountId}/aliases`, {
         method: "POST",
         headers: {
@@ -558,7 +694,7 @@ function Settings() {
 
   const removeAlias = async (accountId, aliasEmail) => {
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(
         `${API_BASE_URL}/gmail/accounts/${accountId}/aliases/${encodeURIComponent(aliasEmail)}`,
         {
@@ -581,7 +717,7 @@ function Settings() {
   const syncAliases = async (accountId) => {
     setGmailLoading(true)
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/gmail/accounts/${accountId}/aliases/sync`, {
         method: "POST",
         headers: { Authorization: token }
@@ -605,7 +741,7 @@ function Settings() {
     setMessage({ type: "", text: "" })
     
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/gmail/rate-limits`, {
         method: "POST",
         headers: {
@@ -630,7 +766,7 @@ function Settings() {
 
   const setDefaultAccount = async (accountId) => {
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/gmail/accounts/${accountId}/set-default`, {
         method: "POST",
         headers: { Authorization: token }
@@ -1256,10 +1392,109 @@ function Settings() {
                               <span className="last-sync">Last sync: {new Date(account.last_sync).toLocaleString()}</span>
                             </div>
                           )}
+                          
+                          {/* Historical Import Section */}
+                          <div className="import-section">
+                            <div className="import-controls">
+                              <label className="import-label">Import History:</label>
+                              <select
+                                className="import-days-select"
+                                value={importDays[account.email] || 30}
+                                onChange={(e) => updateImportDaysSetting(account.email, parseInt(e.target.value))}
+                              >
+                                <option value={7}>Last 7 days</option>
+                                <option value={30}>Last 30 days</option>
+                                <option value={90}>Last 90 days</option>
+                                <option value={180}>Last 6 months</option>
+                                <option value={365}>Last 1 year</option>
+                                <option value={730}>Last 2 years</option>
+                                <option value={0}>All emails</option>
+                              </select>
+                              <button
+                                className="import-button"
+                                onClick={() => startHistoricalImport(account.email)}
+                                disabled={importProgress[account.email]?.status === "in_progress"}
+                              >
+                                {importProgress[account.email]?.status === "in_progress" ? "Importing..." : "📥 Import"}
+                              </button>
+                            </div>
+                            
+                            {/* Import Progress */}
+                            {importProgress[account.email] && importProgress[account.email].status !== "not_started" && (
+                              <div className="import-progress">
+                                <div className="progress-status">
+                                  <span className={`progress-badge ${importProgress[account.email].status}`}>
+                                    {importProgress[account.email].status === "in_progress" && "⏳ "}
+                                    {importProgress[account.email].status === "completed" && "✅ "}
+                                    {importProgress[account.email].status === "error" && "❌ "}
+                                    {importProgress[account.email].status}
+                                  </span>
+                                  {importProgress[account.email].processed_count !== undefined && (
+                                    <span className="progress-count">
+                                      {importProgress[account.email].processed_count} / {importProgress[account.email].total_count || "?"} emails
+                                    </span>
+                                  )}
+                                </div>
+                                {importProgress[account.email].status === "in_progress" && (
+                                  <div className="progress-bar-container">
+                                    <div 
+                                      className="progress-bar"
+                                      style={{ 
+                                        width: `${importProgress[account.email].total_count 
+                                          ? (importProgress[account.email].processed_count / importProgress[account.email].total_count) * 100 
+                                          : 0}%` 
+                                      }}
+                                    ></div>
+                                  </div>
+                                )}
+                                {importProgress[account.email].leads_created !== undefined && (
+                                  <div className="progress-stats">
+                                    <span>Leads created: {importProgress[account.email].leads_created}</span>
+                                    <span>RFQs detected: {importProgress[account.email].rfqs_created || 0}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
                   )}
+                </div>
+
+                {/* Real-time Monitoring Section */}
+                <div className="settings-group">
+                  <h3>🔄 Real-time Email Monitoring (IMAP IDLE)</h3>
+                  <p className="group-description">
+                    Enable real-time monitoring to automatically create leads when new emails arrive.
+                  </p>
+                  
+                  <div className="idle-status-section">
+                    <div className="idle-status-info">
+                      <span className={`idle-status-badge ${idleStatus.available ? (idleStatus.running ? "running" : "stopped") : "unavailable"}`}>
+                        {!idleStatus.available ? "⚠ Not Available" : (idleStatus.running ? "🟢 Running" : "🔴 Stopped")}
+                      </span>
+                      {idleStatus.running && idleStatus.active_watchers && (
+                        <span className="watcher-count">{idleStatus.active_watchers} account(s) monitored</span>
+                      )}
+                    </div>
+                    <div className="idle-actions">
+                      <button
+                        className="idle-button start"
+                        onClick={() => toggleIdleWatchers(true)}
+                        disabled={!idleStatus.available || idleStatus.running}
+                      >
+                        ▶ Start Monitoring
+                      </button>
+                      <button
+                        className="idle-button stop"
+                        onClick={() => toggleIdleWatchers(false)}
+                        disabled={!idleStatus.available || !idleStatus.running}
+                      >
+                        ⏹ Stop Monitoring
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Rate Limits Section */}

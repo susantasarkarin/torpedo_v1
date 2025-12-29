@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams, Link } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { getStageById, getStageStyle as getPipelineStageStyle } from "../../utils/salesPipeline"
 
@@ -157,6 +157,135 @@ const styles = {
     color: "#0d6efd",
     textDecoration: "none",
   },
+  // Email Thread Styles
+  summaryCard: {
+    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+    color: "#fff",
+    borderRadius: "12px",
+    padding: "1.5rem",
+    marginBottom: "1.5rem",
+  },
+  summaryTitle: {
+    fontSize: "1rem",
+    fontWeight: "600",
+    marginBottom: "0.75rem",
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+  },
+  summaryText: {
+    fontSize: "0.9rem",
+    lineHeight: "1.6",
+    opacity: 0.95,
+  },
+  inboxTabs: {
+    display: "flex",
+    gap: "0.5rem",
+    marginBottom: "1rem",
+    flexWrap: "wrap",
+  },
+  inboxTab: {
+    padding: "0.5rem 1rem",
+    borderRadius: "20px",
+    border: "1px solid #d1d5db",
+    background: "#fff",
+    cursor: "pointer",
+    fontSize: "0.8rem",
+    fontWeight: "500",
+    transition: "all 0.2s",
+  },
+  inboxTabActive: {
+    background: "#3b82f6",
+    color: "#fff",
+    borderColor: "#3b82f6",
+  },
+  emailThread: {
+    maxHeight: "500px",
+    overflowY: "auto",
+  },
+  emailMessage: {
+    padding: "1rem",
+    borderRadius: "8px",
+    marginBottom: "0.75rem",
+    border: "1px solid #e5e7eb",
+  },
+  emailSent: {
+    background: "#eff6ff",
+    borderColor: "#bfdbfe",
+    marginLeft: "2rem",
+  },
+  emailReceived: {
+    background: "#fff",
+    marginRight: "2rem",
+  },
+  emailHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: "0.5rem",
+    fontSize: "0.8rem",
+  },
+  emailDirection: {
+    fontWeight: "600",
+    fontSize: "0.7rem",
+    padding: "0.125rem 0.5rem",
+    borderRadius: "4px",
+  },
+  emailSubject: {
+    fontWeight: "600",
+    color: "#111827",
+    marginBottom: "0.25rem",
+  },
+  emailBody: {
+    fontSize: "0.85rem",
+    color: "#374151",
+    lineHeight: "1.5",
+    whiteSpace: "pre-wrap",
+  },
+  emailDate: {
+    color: "#6b7280",
+    fontSize: "0.75rem",
+  },
+  rfqList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.75rem",
+  },
+  rfqItem: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "1rem",
+    background: "#f9fafb",
+    borderRadius: "8px",
+    border: "1px solid #e5e7eb",
+  },
+  rfqInfo: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "0.25rem",
+  },
+  rfqTitle: {
+    fontWeight: "600",
+    color: "#111827",
+  },
+  rfqValue: {
+    fontSize: "1.25rem",
+    fontWeight: "700",
+    color: "#10b981",
+  },
+  rfqStatus: {
+    fontSize: "0.75rem",
+    padding: "0.25rem 0.75rem",
+    borderRadius: "12px",
+    fontWeight: "500",
+  },
+  emptyState: {
+    textAlign: "center",
+    padding: "2rem",
+    color: "#6b7280",
+    fontSize: "0.9rem",
+  },
 }
 
 function LeadDetail() {
@@ -165,9 +294,12 @@ function LeadDetail() {
   const [lead, setLead] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [rfqs, setRfqs] = useState([])
+  const [selectedInbox, setSelectedInbox] = useState("all")
 
   useEffect(() => {
     fetchLead()
+    fetchRFQs()
   }, [leadId])
 
   const fetchLead = async () => {
@@ -208,6 +340,23 @@ function LeadDetail() {
       setError(e.message || "Failed to load lead")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchRFQs = async () => {
+    const sessionId = localStorage.getItem("session_id")
+    try {
+      const res = await fetch(`${API_BASE_URL}/rfq/by-lead/${leadId}`, {
+        headers: {
+          Authorization: sessionId,
+        },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setRfqs(data.rfqs || [])
+      }
+    } catch (e) {
+      console.error("Failed to fetch RFQs:", e)
     }
   }
 
@@ -402,8 +551,147 @@ function LeadDetail() {
           {renderInfoItem("Added On", formatDate(lead.addedOn))}
           {renderInfoItem("Created At", formatDate(lead.createdAt))}
           {renderInfoItem("Updated At", formatDate(lead.updatedAt))}
+          {lead.seen_in_inboxes && lead.seen_in_inboxes.length > 0 && renderInfoItem("Seen in Inboxes", lead.seen_in_inboxes.join(", "))}
         </div>
       </div>
+
+      {/* Conversation Summary */}
+      {lead.conversation_summary && (
+        <div style={styles.summaryCard}>
+          <h3 style={styles.summaryTitle}>💬 Conversation Summary</h3>
+          <p style={styles.summaryText}>{lead.conversation_summary}</p>
+        </div>
+      )}
+
+      {/* RFQs Section */}
+      {rfqs.length > 0 && (
+        <div style={styles.card}>
+          <h3 style={styles.cardTitle}>💰 Request for Quotations ({rfqs.length})</h3>
+          <div style={styles.rfqList}>
+            {rfqs.map(rfq => (
+              <div key={rfq.rfq_id} style={styles.rfqItem}>
+                <div style={styles.rfqInfo}>
+                  <span style={styles.rfqTitle}>{rfq.title || "RFQ from email"}</span>
+                  <span style={{ fontSize: "0.75rem", color: "#6b7280" }}>
+                    Detected: {formatDate(rfq.detected_at)}
+                  </span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                  <span style={styles.rfqValue}>
+                    {rfq.currency === "INR" ? "₹" : rfq.currency === "EUR" ? "€" : "$"}
+                    {(rfq.extracted_value || 0).toLocaleString()}
+                  </span>
+                  <span 
+                    style={{
+                      ...styles.rfqStatus,
+                      backgroundColor: rfq.status === "won" ? "#dcfce7" : rfq.status === "lost" ? "#fee2e2" : "#dbeafe",
+                      color: rfq.status === "won" ? "#166534" : rfq.status === "lost" ? "#991b1b" : "#1e40af",
+                    }}
+                  >
+                    {rfq.status}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: "1rem" }}>
+            <Link 
+              to="/admin/sales/rfq" 
+              style={{ color: "#3b82f6", textDecoration: "none", fontSize: "0.875rem" }}
+            >
+              View all RFQs →
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Email History */}
+      {lead.email_threads && lead.email_threads.length > 0 && (
+        <div style={styles.card}>
+          <h3 style={styles.cardTitle}>📧 Email History ({lead.email_threads.length})</h3>
+          
+          {/* Inbox Tabs */}
+          {lead.seen_in_inboxes && lead.seen_in_inboxes.length > 1 && (
+            <div style={styles.inboxTabs}>
+              <button 
+                style={{
+                  ...styles.inboxTab,
+                  ...(selectedInbox === "all" ? styles.inboxTabActive : {}),
+                }}
+                onClick={() => setSelectedInbox("all")}
+              >
+                All Inboxes ({lead.email_threads.length})
+              </button>
+              {lead.seen_in_inboxes.map(inbox => {
+                const count = lead.email_threads.filter(e => e.inbox === inbox).length
+                return (
+                  <button 
+                    key={inbox}
+                    style={{
+                      ...styles.inboxTab,
+                      ...(selectedInbox === inbox ? styles.inboxTabActive : {}),
+                    }}
+                    onClick={() => setSelectedInbox(inbox)}
+                  >
+                    {inbox} ({count})
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          
+          {/* Email Thread */}
+          <div style={styles.emailThread}>
+            {lead.email_threads
+              .filter(email => selectedInbox === "all" || email.inbox === selectedInbox)
+              .sort((a, b) => new Date(b.date) - new Date(a.date))
+              .map((email, idx) => (
+                <div 
+                  key={email.message_id || idx}
+                  style={{
+                    ...styles.emailMessage,
+                    ...(email.direction === "sent" ? styles.emailSent : styles.emailReceived),
+                  }}
+                >
+                  <div style={styles.emailHeader}>
+                    <div>
+                      <span 
+                        style={{
+                          ...styles.emailDirection,
+                          backgroundColor: email.direction === "sent" ? "#dbeafe" : "#dcfce7",
+                          color: email.direction === "sent" ? "#1e40af" : "#166534",
+                        }}
+                      >
+                        {email.direction === "sent" ? "↑ Sent" : "↓ Received"}
+                      </span>
+                      {email.inbox && (
+                        <span style={{ marginLeft: "0.5rem", fontSize: "0.7rem", color: "#9ca3af" }}>
+                          via {email.inbox}
+                        </span>
+                      )}
+                    </div>
+                    <span style={styles.emailDate}>{formatDate(email.date)}</span>
+                  </div>
+                  <div style={styles.emailSubject}>{email.subject}</div>
+                  <div style={styles.emailBody}>
+                    {email.body_preview || email.body?.substring(0, 300) || "No preview available"}
+                    {email.body && email.body.length > 300 && "..."}
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {/* Empty state for no emails */}
+      {(!lead.email_threads || lead.email_threads.length === 0) && lead.source === "email" && (
+        <div style={styles.card}>
+          <h3 style={styles.cardTitle}>📧 Email History</h3>
+          <div style={styles.emptyState}>
+            No email history available yet. Emails will appear here after import.
+          </div>
+        </div>
+      )}
     </div>
   )
 }
