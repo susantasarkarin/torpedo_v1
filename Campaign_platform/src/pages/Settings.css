@@ -793,27 +793,52 @@
 .progress-count {
   font-size: 0.875rem;
   color: #6b7280;
+  font-weight: 500;
 }
 
 .progress-bar-container {
-  height: 8px;
+  height: 12px;
   background-color: #e5e7eb;
-  border-radius: 4px;
+  border-radius: 6px;
   overflow: hidden;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .progress-bar {
   height: 100%;
-  background-color: #3b82f6;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa, #3b82f6);
+  background-size: 200% 100%;
+  animation: progressShine 2s ease-in-out infinite;
   transition: width 0.3s ease;
+  border-radius: 6px;
+}
+
+@keyframes progressShine {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 .progress-stats {
   display: flex;
   gap: 1rem;
-  font-size: 0.75rem;
-  color: #6b7280;
+  font-size: 0.8rem;
+  color: #374151;
+  font-weight: 500;
+}
+
+.progress-stats span {
+  background: #f3f4f6;
+  padding: 4px 10px;
+  border-radius: 4px;
+}
+
+.import-progress {
+  margin-top: 12px;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
 }
 
 /* IDLE Status Section Styles */

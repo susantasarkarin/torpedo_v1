@@ -62,6 +62,29 @@ class CPXService:
             else:
                 self.cpx_surveys_collection = None
                 self.cpx_filters_collection = None
+        
+        # Create indexes for faster queries
+        self._ensure_indexes()
+    
+    def _ensure_indexes(self):
+        """Create database indexes for faster query performance"""
+        if self.cpx_surveys_collection is None:
+            return
+        try:
+            # Index for sorting by last_updated (most common query)
+            self.cpx_surveys_collection.create_index("last_updated", background=True)
+            # Index for filtering
+            self.cpx_surveys_collection.create_index("loi", background=True)
+            self.cpx_surveys_collection.create_index("payout", background=True)
+            self.cpx_surveys_collection.create_index("country", background=True)
+            self.cpx_surveys_collection.create_index("category", background=True)
+            # Compound index for common filter + sort combo
+            self.cpx_surveys_collection.create_index(
+                [("country", 1), ("last_updated", -1)], 
+                background=True
+            )
+        except Exception as e:
+            print(f"Warning: Could not create CPX indexes: {e}")
     
     @staticmethod
     def _generate_secure_hash(ext_user_id: str, secure_hash_key: str) -> str:

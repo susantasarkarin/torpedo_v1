@@ -63,7 +63,7 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # CORS Origins - comma-separated list
 CORS_ORIGINS = os.getenv(
     "CORS_ORIGINS", 
-    "http://localhost:5173,http://localhost:3000,http://localhost:9945,http://34.14.202.129,https://www.surveyieldwork.com,https://surveyieldwork.com"
+    "http://localhost:5173,http://localhost:5174,http://localhost:3000,http://localhost:9945,http://34.14.202.129,https://www.surveyieldwork.com,https://surveyieldwork.com"
 ).split(",")
 
 # ----------------------------
@@ -385,6 +385,17 @@ try:
 except Exception as e:
     print(f"⚠️ RFQ router not included: {e}")
 
+# Sales Dashboard router
+try:
+    try:
+        from .routers import sales_dashboard as sales_dashboard_router
+    except ImportError:
+        from routers import sales_dashboard as sales_dashboard_router
+    app.include_router(sales_dashboard_router.router)
+    print("✅ Sales Dashboard router included")
+except Exception as e:
+    print(f"⚠️ Sales Dashboard router not included: {e}")
+
 # ----------------------------
 # APScheduler for CPX refresh job
 # ----------------------------
@@ -439,10 +450,6 @@ async def startup_event():
     
     if cpx_service is not None:
         try:
-            # Perform immediate initial fetch
-            print("🚀 Performing initial CPX survey fetch...")
-            refresh_cpx_inventory()
-            
             # Get refresh settings from database
             filter_settings = get_survey_filter_settings()
             auto_refresh = filter_settings.get("auto_refresh_enabled", True)
@@ -459,6 +466,10 @@ async def startup_event():
                     replace_existing=True
                 )
                 print(f"✅ CPX refresh job scheduled (every {refresh_interval} seconds)")
+                # Schedule initial fetch as background task (non-blocking)
+                import asyncio
+                asyncio.create_task(asyncio.to_thread(refresh_cpx_inventory))
+                print("🚀 Initial CPX survey fetch scheduled (running in background)")
             else:
                 print("⚠️ CPX auto-refresh is disabled in settings")
         except Exception as e:
@@ -504,6 +515,9 @@ async def shutdown_event():
 # Users (Hardcoded for now)
 # ----------------------------
 users_collection = db["users"]
+
+# Create index for faster login queries
+users_collection.create_index("username", unique=True, background=True)
 
 # Insert one default user if not exists
 if not users_collection.find_one({"username": "admin"}):
@@ -958,6 +972,13 @@ async def delete_template(template_id: str = Path(...)):
 # ----------------------------
 leads_collection = db["leads"]
 
+# Create indexes for faster queries
+try:
+    leads_collection.create_index("createdAt", background=True)
+    leads_collection.create_index("email", unique=True, sparse=True, background=True)
+except Exception as e:
+    print(f"Warning: Could not create leads indexes: {e}")
+
 # Create a lead
 @app.post("/leads/")
 async def create_lead(lead_data: Dict[str, Any] = Body(...)):
@@ -979,16 +1000,34 @@ async def create_lead(lead_data: Dict[str, Any] = Body(...)):
 
 # Get all leads
 @app.get("/leads/", dependencies=[Depends(verify_session)])
-async def get_leads():
+async def get_leads(
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(50, ge=1, le=200, description="Items per page")
+):
     try:
-        leads = list(leads_collection.find())
+        # Calculate skip for pagination
+        skip = (page - 1) * limit
+        
+        # Get total count (use estimated count for large collections - faster)
+        total = leads_collection.estimated_document_count()
+        
+        # Fetch only the requested page
+        leads = list(leads_collection.find().sort("createdAt", -1).skip(skip).limit(limit))
+        
         for lead in leads:
             lead["_id"] = str(lead["_id"])
             # Convert datetime to string for JSON serialization
             for date_field in ["createdAt", "updatedAt", "addedOn"]:
                 if date_field in lead:
                     lead[date_field] = lead[date_field].isoformat() if isinstance(lead[date_field], datetime) else str(lead[date_field])
-        return {"leads": leads}
+        
+        return {
+            "leads": leads,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "pages": (total + limit - 1) // limit if total > 0 else 1
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fetch leads error: {str(e)}")
 

@@ -1004,12 +1004,13 @@ class IMAPAccountCreate(BaseModel):
     email: str
     password: str  # App password for Gmail
     display_name: str = ""
-    imap_server: str = None  # Auto-detected from email domain
-    imap_port: int = 993
-    smtp_server: str = None  # Auto-detected from email domain
-    smtp_port: int = 587
+    imap_server: Optional[str] = None  # Auto-detected from email domain
+    imap_port: Optional[int] = None  # Default 993 if not specified
+    smtp_server: Optional[str] = None  # Auto-detected from email domain
+    smtp_port: Optional[int] = None  # Default 587 if not specified
     use_ssl: bool = True
     is_default: bool = False
+    skip_validation: bool = False  # Skip IMAP connection test if True
 
 
 @router.get("/gmail/accounts")
@@ -1038,7 +1039,8 @@ async def add_email_account_endpoint(request: IMAPAccountCreate):
         smtp_server=request.smtp_server,
         smtp_port=request.smtp_port,
         use_ssl=request.use_ssl,
-        is_default=request.is_default
+        is_default=request.is_default,
+        skip_validation=request.skip_validation
     )
     
     if not result["success"]:

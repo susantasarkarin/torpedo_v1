@@ -7,6 +7,32 @@ import "./Settings.css"
 // Helper to get auth token - handles both storage methods
 const getAuthToken = () => localStorage.getItem("session_id") || getAuthToken()
 
+// Helper to extract error message from various error response formats
+const getErrorMessage = (error, fallback = "An error occurred") => {
+  if (!error) return fallback
+  
+  // If it's a string, return it directly
+  if (typeof error === "string") return error
+  
+  // FastAPI validation error format: { detail: [{ type, loc, msg, input }, ...] }
+  if (error.detail) {
+    if (typeof error.detail === "string") return error.detail
+    if (Array.isArray(error.detail)) {
+      // Extract messages from validation errors
+      return error.detail.map(e => e.msg || e.message || JSON.stringify(e)).join(", ")
+    }
+    if (typeof error.detail === "object") {
+      return error.detail.msg || error.detail.message || JSON.stringify(error.detail)
+    }
+  }
+  
+  // Standard error format
+  if (error.message) return error.message
+  if (error.msg) return error.msg
+  
+  return fallback
+}
+
 function Settings() {
   // App Settings state
   const [appSettings, setAppSettings] = useState({
@@ -62,7 +88,8 @@ function Settings() {
     smtp_server: "",
     smtp_port: 587,
     use_ssl: true,
-    is_default: false 
+    is_default: false,
+    skip_validation: false  // Skip IMAP connection test
   })
   const [newAlias, setNewAlias] = useState({ email: "", name: "", account_id: "" })
   const [showAddAccount, setShowAddAccount] = useState(false)
@@ -168,7 +195,7 @@ function Settings() {
         await loadIdleStatus()
       } else {
         const error = await response.json()
-        setMessage({ type: "error", text: error.detail || "Failed to toggle IDLE watchers" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to toggle IDLE watchers") })
       }
     } catch (error) {
       console.error("Error toggling IDLE:", error)
@@ -197,7 +224,7 @@ function Settings() {
         pollImportProgress(email)
       } else {
         const error = await response.json()
-        setMessage({ type: "error", text: error.detail || "Failed to start import" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to start import") })
       }
     } catch (error) {
       console.error("Error starting import:", error)
@@ -218,9 +245,9 @@ function Settings() {
           const data = await response.json()
           setImportProgress(prev => ({ ...prev, [email]: data }))
           
-          // Continue polling if still in progress
-          if (data.status === "in_progress" || data.status === "started") {
-            setTimeout(checkProgress, 2000)
+          // Continue polling if still in progress (check all running statuses)
+          if (data.status === "in_progress" || data.status === "started" || data.status === "running") {
+            setTimeout(checkProgress, 1500) // Poll slightly faster for better UX
           }
         }
       } catch (error) {
@@ -284,7 +311,7 @@ function Settings() {
         setMessage({ type: "success", text: "Allocation settings saved successfully!" })
       } else {
         const error = await response.json()
-        setMessage({ type: "error", text: error.detail || "Failed to save allocation settings" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to save allocation settings") })
       }
     } catch (error) {
       console.error("Error saving allocation settings:", error)
@@ -360,7 +387,7 @@ function Settings() {
         loadAllSettings() // Reload to get updated masked values
       } else {
         const error = await response.json()
-        setMessage({ type: "error", text: error.detail || "Failed to save settings" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to save settings") })
       }
     } catch (error) {
       console.error("Error saving settings:", error)
@@ -390,7 +417,7 @@ function Settings() {
         setMessage({ type: "success", text: "Survey filter settings saved successfully!" })
       } else {
         const error = await response.json()
-        setMessage({ type: "error", text: error.detail || "Failed to save filters" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to save filters") })
       }
     } catch (error) {
       console.error("Error saving filters:", error)
@@ -420,7 +447,7 @@ function Settings() {
       
       if (!appResponse.ok) {
         const error = await appResponse.json()
-        setMessage({ type: "error", text: error.detail || "Failed to save application settings" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to save application settings") })
         return
       }
       
@@ -436,7 +463,7 @@ function Settings() {
       
       if (!filterResponse.ok) {
         const error = await filterResponse.json()
-        setMessage({ type: "error", text: error.detail || "Failed to save filter settings" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to save filter settings") })
         return
       }
       
@@ -586,12 +613,13 @@ function Settings() {
           smtp_server: newAccount.smtp_server || null,
           smtp_port: newAccount.smtp_port,
           use_ssl: newAccount.use_ssl,
-          is_default: newAccount.is_default
+          is_default: newAccount.is_default,
+          skip_validation: newAccount.skip_validation
         })
       })
       
       if (response.ok) {
-        setMessage({ type: "success", text: "Email account added and verified successfully" })
+        setMessage({ type: "success", text: newAccount.skip_validation ? "Email account saved (validation skipped)" : "Email account added and verified successfully" })
         setNewAccount({ 
           email: "", 
           password: "",
@@ -601,13 +629,14 @@ function Settings() {
           smtp_server: "",
           smtp_port: 587,
           use_ssl: true,
-          is_default: false 
+          is_default: false,
+          skip_validation: false
         })
         setShowAddAccount(false)
         loadGmailSettings()
       } else {
         const error = await response.json()
-        setMessage({ type: "error", text: error.detail || "Failed to add account. Check your credentials." })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to add account. Check your credentials.") })
       }
     } catch (error) {
       setMessage({ type: "error", text: "Failed to add Gmail account" })
@@ -683,7 +712,7 @@ function Settings() {
         loadGmailSettings()
       } else {
         const error = await response.json()
-        setMessage({ type: "error", text: error.detail || "Failed to add alias" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to add alias") })
       }
     } catch (error) {
       setMessage({ type: "error", text: "Failed to add alias" })
@@ -755,7 +784,7 @@ function Settings() {
         setMessage({ type: "success", text: "Rate limits saved successfully!" })
       } else {
         const error = await response.json()
-        setMessage({ type: "error", text: error.detail || "Failed to save rate limits" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to save rate limits") })
       }
     } catch (error) {
       setMessage({ type: "error", text: "Failed to save rate limits" })
@@ -1341,6 +1370,19 @@ function Settings() {
                           <span>Set as default account</span>
                         </label>
                       </div>
+                      <div className="setting-row checkbox-row" style={{ backgroundColor: '#fef3c7', padding: '12px', borderRadius: '8px', border: '1px solid #f59e0b' }}>
+                        <label className="checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={newAccount.skip_validation}
+                            onChange={(e) => setNewAccount(prev => ({ ...prev, skip_validation: e.target.checked }))}
+                          />
+                          <span style={{ fontWeight: '500' }}>Skip connection test (save credentials without validating)</span>
+                        </label>
+                        <p style={{ fontSize: '12px', color: '#92400e', marginTop: '6px', marginLeft: '24px' }}>
+                          ⚠️ Use this if IMAP is blocked by firewall/VPN. Credentials will be saved and you can test later.
+                        </p>
+                      </div>
                       <div className="form-actions">
                         <button 
                           className="save-button-small"
@@ -1413,9 +1455,9 @@ function Settings() {
                               <button
                                 className="import-button"
                                 onClick={() => startHistoricalImport(account.email)}
-                                disabled={importProgress[account.email]?.status === "in_progress"}
+                                disabled={importProgress[account.email]?.status === "in_progress" || importProgress[account.email]?.status === "running"}
                               >
-                                {importProgress[account.email]?.status === "in_progress" ? "Importing..." : "📥 Import"}
+                                {(importProgress[account.email]?.status === "in_progress" || importProgress[account.email]?.status === "running") ? "⏳ Importing..." : "📥 Import"}
                               </button>
                             </div>
                             
@@ -1424,33 +1466,42 @@ function Settings() {
                               <div className="import-progress">
                                 <div className="progress-status">
                                   <span className={`progress-badge ${importProgress[account.email].status}`}>
-                                    {importProgress[account.email].status === "in_progress" && "⏳ "}
-                                    {importProgress[account.email].status === "completed" && "✅ "}
-                                    {importProgress[account.email].status === "error" && "❌ "}
-                                    {importProgress[account.email].status}
+                                    {importProgress[account.email].status === "in_progress" && "⏳ Importing..."}
+                                    {importProgress[account.email].status === "completed" && "✅ Completed"}
+                                    {importProgress[account.email].status === "error" && "❌ Error"}
+                                    {importProgress[account.email].status === "running" && "⏳ Importing..."}
                                   </span>
-                                  {importProgress[account.email].processed_count !== undefined && (
+                                  {importProgress[account.email].processed_count !== undefined && importProgress[account.email].total_count > 0 && (
                                     <span className="progress-count">
-                                      {importProgress[account.email].processed_count} / {importProgress[account.email].total_count || "?"} emails
+                                      {importProgress[account.email].phase === "classifying" ? "🔄 Classifying: " : ""}
+                                      {importProgress[account.email].processed_count} / {importProgress[account.email].total_count} emails 
+                                      ({Math.round((importProgress[account.email].processed_count / importProgress[account.email].total_count) * 100)}%)
+                                    </span>
+                                  )}
+                                  {importProgress[account.email].processed_count !== undefined && !importProgress[account.email].total_count && (
+                                    <span className="progress-count">
+                                      {importProgress[account.email].phase === "connecting" && "🔌 Connecting to IMAP..."}
+                                      {importProgress[account.email].phase === "fetching" && "📥 Downloading emails via IMAP..."}
+                                      {!importProgress[account.email].phase && "📥 Fetching emails..."}
                                     </span>
                                   )}
                                 </div>
-                                {importProgress[account.email].status === "in_progress" && (
+                                {(importProgress[account.email].status === "in_progress" || importProgress[account.email].status === "running") && (
                                   <div className="progress-bar-container">
                                     <div 
                                       className="progress-bar"
                                       style={{ 
                                         width: `${importProgress[account.email].total_count 
                                           ? (importProgress[account.email].processed_count / importProgress[account.email].total_count) * 100 
-                                          : 0}%` 
+                                          : 5}%` 
                                       }}
                                     ></div>
                                   </div>
                                 )}
                                 {importProgress[account.email].leads_created !== undefined && (
                                   <div className="progress-stats">
-                                    <span>Leads created: {importProgress[account.email].leads_created}</span>
-                                    <span>RFQs detected: {importProgress[account.email].rfqs_created || 0}</span>
+                                    <span>📧 Leads created: {importProgress[account.email].leads_created}</span>
+                                    <span>📋 RFQs detected: {importProgress[account.email].rfqs_created || 0}</span>
                                   </div>
                                 )}
                               </div>

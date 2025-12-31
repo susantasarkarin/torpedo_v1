@@ -279,18 +279,32 @@ function AILeads() {
   }, [sessionId]);
 
   useEffect(() => {
-    // Load data progressively - don't wait for all calls to complete
-    const loadData = async () => {
+    // PHASED LOADING: Load data progressively for faster perceived performance
+    // Phase 1: Load leads table immediately (most important for user)
+    const loadPhase1 = async () => {
       setLoading(true);
-      // Fetch leads first (most important for UI)
       await fetchLeads();
       setLoading(false);
-      // Fetch other data in background
-      fetchRawLeads();
-      fetchStatistics();
-      fetchGmailAccounts();
     };
-    loadData();
+    
+    // Phase 2: Load secondary data after a small delay (non-blocking)
+    const loadPhase2 = () => {
+      // Use setTimeout to yield to the main thread and let UI render first
+      setTimeout(() => {
+        fetchRawLeads();
+      }, 100);
+      
+      setTimeout(() => {
+        fetchStatistics();
+      }, 200);
+      
+      setTimeout(() => {
+        fetchGmailAccounts();
+      }, 300);
+    };
+    
+    loadPhase1();
+    loadPhase2();
   }, []);
 
   // Refetch leads when filters change

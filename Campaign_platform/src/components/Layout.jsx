@@ -32,8 +32,6 @@ function Layout() {
     }
   }, [location.pathname])
 
-  console.log("[v0] Selected section:", selectedSection)
-
   return (
     <div className="app-container">
       <Navbar

@@ -30,6 +30,21 @@ from pymongo import MongoClient, ASCENDING
 from bson import ObjectId
 from dotenv import load_dotenv
 
+# AI classifier for conversation summaries (lazy import to avoid circular imports)
+_ai_classifier_module = None
+
+def get_ai_classifier():
+    """Lazy import of AI classifier to avoid circular imports"""
+    global _ai_classifier_module
+    if _ai_classifier_module is None:
+        try:
+            from . import ai_classifier as ai_module
+            _ai_classifier_module = ai_module
+        except ImportError as e:
+            logger.warning(f"Could not import AI classifier: {e}")
+            _ai_classifier_module = False  # Mark as unavailable
+    return _ai_classifier_module if _ai_classifier_module else None
+
 load_dotenv()
 
 # Configure logging
@@ -363,12 +378,14 @@ def parse_email_signature(body: str) -> Dict[str, str]:
 def connect_imap(account: IMAPAccount) -> imaplib.IMAP4_SSL:
     """Connect to IMAP server"""
     try:
+        logger.info(f"📧 [IMAP] Connecting to {account.imap_server}:{account.imap_port} for {account.email}...")
         if account.use_ssl:
             imap = imaplib.IMAP4_SSL(account.imap_server, account.imap_port)
         else:
             imap = imaplib.IMAP4(account.imap_server, account.imap_port)
         
         imap.login(account.email, account.password)
+        logger.info(f"✅ [IMAP] Successfully logged in to {account.email}")
         return imap
     except imaplib.IMAP4.error as e:
         logger.error(f"IMAP login failed for {account.email}: {e}")
@@ -509,6 +526,8 @@ def fetch_emails_multi_folder(
     
     all_emails = []
     
+    logger.info(f"📬 [IMAP] Starting email fetch for {account.email} (last {since_days} days, max {max_emails_per_folder}/folder)")
+    
     try:
         imap = connect_imap(account)
         
@@ -544,6 +563,8 @@ def fetch_emails_multi_folder(
                 is_sent = folder.upper() != "INBOX"
                 direction = "sent" if is_sent else "received"
                 
+                logger.info(f"📂 [IMAP] Fetching from folder: {folder} ({direction})")
+                
                 # Select folder
                 status, _ = imap.select(folder)
                 if status != "OK":
@@ -556,7 +577,9 @@ def fetch_emails_multi_folder(
                     continue
                 
                 message_ids = message_numbers[0].split()
+                total_in_folder = len(message_ids)
                 message_ids = message_ids[-max_emails_per_folder:] if len(message_ids) > max_emails_per_folder else message_ids
+                logger.info(f"📊 [IMAP] Found {total_in_folder} emails in {folder}, processing {len(message_ids)}")
                 
                 for msg_id in message_ids:
                     try:
@@ -653,9 +676,10 @@ def fetch_emails_multi_folder(
                 continue
         
         imap.logout()
+        logger.info(f"✅ [IMAP] Completed fetch for {account.email}: {len(all_emails)} emails retrieved")
         
     except Exception as e:
-        logger.error(f"Error fetching emails from {account.email}: {e}")
+        logger.error(f"❌ [IMAP] Error fetching emails from {account.email}: {e}")
         raise
     
     return all_emails
@@ -1083,6 +1107,17 @@ def process_email_for_lead(email_data: Dict[str, Any], inbox: str) -> Dict[str, 
                 )
                 stats["rfq_created"] = True
         
+        # Trigger AI conversation summary update (async)
+        try:
+            ai_classifier = get_ai_classifier()
+            if ai_classifier and hasattr(ai_classifier, 'update_lead_conversation_summary'):
+                # Only update summary for leads with multiple emails (for efficiency)
+                lead = email_leads_collection.find_one({"email": contact_email})
+                if lead and len(lead.get("email_threads", [])) > 0:
+                    ai_classifier.update_lead_conversation_summary(contact_email)
+        except Exception as ai_error:
+            logger.warning(f"AI summary update skipped for {contact_email}: {ai_error}")
+        
     except Exception as e:
         stats["error"] = str(e)
         logger.error(f"Error processing email for {contact_email}: {e}")
@@ -1095,7 +1130,8 @@ def import_emails_enhanced(
     max_emails_per_folder: int = 250,
     since_days: int = 30,
     segments: List[str] = None,
-    trigger_enrichment: bool = True
+    trigger_enrichment: bool = True,
+    progress_callback: callable = None
 ) -> Dict[str, Any]:
     """
     Enhanced email import with:
@@ -1111,6 +1147,7 @@ def import_emails_enhanced(
         since_days: Only fetch emails from last N days
         segments: List of segments to filter (None = all)
         trigger_enrichment: Whether to trigger AI enrichment for new leads
+        progress_callback: Optional callback function(processed, total, leads, rfqs) for progress updates
         
     Returns:
         Dict with detailed import statistics
@@ -1152,7 +1189,10 @@ def import_emails_enhanced(
             
             if not account.password:
                 total_stats["errors"].append(f"No password for {account.email}")
+                logger.warning(f"⚠️ [Email Import] No password configured for {account.email}, skipping")
                 continue
+            
+            logger.info(f"📥 [Email Import] Fetching emails from {account.email}...")
             
             # Use account's historical import setting if this is initial sync
             effective_days = since_days
@@ -1167,11 +1207,17 @@ def import_emails_enhanced(
                 segments=segments
             )
             
-            total_stats["emails_processed"] += len(emails)
+            total_emails = len(emails)
+            processed_count = 0
+            
+            logger.info(f"📧 [Email Import] Downloaded {total_emails} emails from {account.email}, now processing and classifying...")
             
             # Process each email
             for email_data in emails:
                 result = process_email_for_lead(email_data, account.email)
+                
+                processed_count += 1
+                total_stats["emails_processed"] += 1
                 
                 if result["new_lead"]:
                     total_stats["new_leads"] += 1
@@ -1183,6 +1229,15 @@ def import_emails_enhanced(
                     total_stats["skipped"] += 1
                 if result["error"]:
                     total_stats["errors"].append(result["error"])
+                
+                # Call progress callback every 5 emails or at the end
+                if progress_callback and (processed_count % 5 == 0 or processed_count == total_emails):
+                    progress_callback(
+                        processed_count, 
+                        total_emails, 
+                        total_stats["new_leads"],
+                        total_stats["rfqs_created"]
+                    )
             
             # Update sync status
             imap_accounts_collection.update_one(
@@ -1195,11 +1250,13 @@ def import_emails_enhanced(
                 }
             )
             
-            logger.info(f"Processed {len(emails)} emails from {account.email}")
+            logger.info(f"✅ [Email Import] Completed {account.email}: {len(emails)} emails, {total_stats['new_leads']} new leads, {total_stats['updated_leads']} updated")
             
         except Exception as e:
             total_stats["errors"].append(f"{account_doc['email']}: {str(e)}")
-            logger.error(f"Error processing account {account_doc['email']}: {e}")
+            logger.error(f"❌ [Email Import] Error processing account {account_doc['email']}: {e}")
+    
+    logger.info(f"🏁 [Email Import] All accounts complete: {total_stats['emails_processed']} emails, {total_stats['new_leads']} leads, {total_stats['rfqs_created']} RFQs")
     
     return {
         "success": True,
@@ -1223,35 +1280,62 @@ def run_historical_import(
     Returns:
         Import statistics
     """
+    logger.info(f"🚀 [Historical Import] Starting import for {account_email}, last {days} days")
+    
     # Initialize progress tracking
     import_progress_collection.update_one(
         {"email": account_email},
         {
             "$set": {
-                "status": "running",
+                "status": "in_progress",
                 "started_at": datetime.utcnow(),
                 "days_requested": days,
-                "emails_processed": 0,
+                "processed_count": 0,
+                "total_count": 0,
                 "leads_created": 0,
-                "error": None
+                "rfqs_created": 0,
+                "error": None,
+                "phase": "connecting"
             }
         },
         upsert=True
     )
     
+    # Progress callback to update database
+    def update_progress(processed, total, leads_created, rfqs_created):
+        import_progress_collection.update_one(
+            {"email": account_email},
+            {
+                "$set": {
+                    "processed_count": processed,
+                    "total_count": total,
+                    "leads_created": leads_created,
+                    "rfqs_created": rfqs_created,
+                    "phase": "classifying" if processed > 0 else "fetching"
+                }
+            }
+        )
+    
     try:
+        # Update phase to "fetching"
+        import_progress_collection.update_one(
+            {"email": account_email},
+            {"$set": {"phase": "fetching"}}
+        )
+        
         # Update account's historical import setting
         imap_accounts_collection.update_one(
             {"email": account_email},
             {"$set": {"historical_import_days": days}}
         )
         
-        # Run import
+        # Run import with progress callback
         result = import_emails_enhanced(
             account_emails=[account_email],
             max_emails_per_folder=1000,  # Higher limit for historical import
             since_days=days if days > 0 else 365 * 10,  # 10 years for "all"
-            trigger_enrichment=True
+            trigger_enrichment=True,
+            progress_callback=update_progress
         )
         
         # Update progress with completion
@@ -1269,10 +1353,14 @@ def run_historical_import(
             }
         )
         
+        stats = result.get("stats", {})
+        logger.info(f"✅ [Historical Import] Completed for {account_email}: {stats.get('emails_processed', 0)} emails, {stats.get('new_leads', 0)} new leads")
+        
         return result
         
     except Exception as e:
         # Update progress with error
+        logger.error(f"❌ [Historical Import] Failed for {account_email}: {e}")
         import_progress_collection.update_one(
             {"email": account_email},
             {
@@ -1305,34 +1393,61 @@ def add_imap_account(
     smtp_server: str = None,
     smtp_port: int = None,
     use_ssl: bool = True,
-    is_default: bool = False
+    is_default: bool = False,
+    skip_validation: bool = False
 ) -> Dict[str, Any]:
-    """Add a new IMAP email account"""
+    """Add a new IMAP email account
     
-    # Get provider settings if not specified
-    if not imap_server or not smtp_server:
-        provider = get_provider_settings(email_address)
-        imap_server = imap_server or provider["imap"]
-        imap_port = imap_port or provider["imap_port"]
-        smtp_server = smtp_server or provider["smtp"]
-        smtp_port = smtp_port or provider["smtp_port"]
+    Args:
+        skip_validation: If True, save credentials without testing connection first.
+                        Useful when IMAP connection is blocked but you want to store credentials.
+    """
     
-    # Test connection
-    try:
-        test_account = IMAPAccount(
-            email=email_address,
-            password=password,
-            imap_server=imap_server,
-            imap_port=imap_port,
-            use_ssl=use_ssl
-        )
-        imap = connect_imap(test_account)
-        imap.logout()
-    except Exception as e:
-        return {
-            "success": False,
-            "message": f"Connection test failed: {str(e)}"
-        }
+    # Normalize empty strings to None for proper auto-detection
+    imap_server = imap_server.strip() if imap_server else None
+    smtp_server = smtp_server.strip() if smtp_server else None
+    
+    # Get provider settings for auto-detection
+    provider = get_provider_settings(email_address)
+    logger.info(f"Adding IMAP account for {email_address}, provider detected: {provider}")
+    
+    # Use provider defaults if not specified
+    if not imap_server:
+        imap_server = provider["imap"]
+    if not smtp_server:
+        smtp_server = provider["smtp"]
+    if imap_port is None:
+        imap_port = provider["imap_port"]
+    if smtp_port is None:
+        smtp_port = provider["smtp_port"]
+    
+    # Ensure ports have default values as fallback
+    imap_port = imap_port or 993
+    smtp_port = smtp_port or 587
+    
+    logger.info(f"Final IMAP settings: server={imap_server}, port={imap_port}")
+    
+    # Test connection (unless skipped)
+    connection_verified = False
+    if not skip_validation:
+        try:
+            test_account = IMAPAccount(
+                email=email_address,
+                password=password,
+                imap_server=imap_server,
+                imap_port=imap_port,
+                use_ssl=use_ssl
+            )
+            imap = connect_imap(test_account)
+            imap.logout()
+            connection_verified = True
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Connection test failed: {str(e)}. Use 'skip_validation=true' to save anyway."
+            }
+    else:
+        logger.info(f"Skipping IMAP validation for {email_address} - credentials will be saved without testing")
     
     # Check if account exists
     existing = imap_accounts_collection.find_one({"email": email_address})
