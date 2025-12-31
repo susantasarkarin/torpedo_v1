@@ -124,9 +124,9 @@ function Navbar({
               <span className="profile-menu-icon">⚙️</span>
               Settings
             </Link>
-            <Link to="/admin/notifications" className="profile-menu-item">
-              <span className="profile-menu-icon">🔔</span>
-              Notifications
+            <Link to="/admin/mail-pool" className="profile-menu-item">
+              <span className="profile-menu-icon">📬</span>
+              Mail Pool
             </Link>
             <hr className="profile-menu-divider" />
             <button onClick={handleLogout} className="profile-menu-item logout">

@@ -536,7 +536,8 @@ async def import_from_web_search(
         if not designations and not countries and not seniorities and not request.custom_query:
             raise ValueError("At least one search filter (designation, country, seniority, or custom_query) is required")
         
-        target_count = min(request.target_count, 50000)
+        # No target limit - job runs continuously until stopped (controlled by rate limits)
+        target_count = 999999999  # Effectively unlimited
         
         # Create job config
         config = {
@@ -555,7 +556,7 @@ async def import_from_web_search(
         return {
             "success": True,
             "job_id": job_id,
-            "message": f"Search job started. Target: {target_count} leads",
+            "message": "Search job started in continuous mode. Stop manually when done.",
             "status_url": f"/leads/import/web-search/status/{job_id}",
             "stop_url": f"/leads/import/web-search/stop/{job_id}"
         }

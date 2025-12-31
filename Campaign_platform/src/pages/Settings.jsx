@@ -874,299 +874,274 @@ function Settings() {
             <h2>Application Configuration</h2>
             <p className="section-description">
               Configure API keys, database connections, and service credentials.
-              Leave fields empty to keep existing values.
             </p>
 
-            <div className="settings-group">
-              <h3>️ Database Settings</h3>
-              <div className="setting-row">
-                <label>MongoDB URI</label>
-                <div className="input-with-button">
+            <div className="settings-grid">
+              <div className="settings-group">
+                <h3>🗄️ Database Settings</h3>
+                <div className="setting-row">
+                  <label>MongoDB URI</label>
+                  <div className="input-with-button">
+                    <input
+                      type="text"
+                      placeholder={maskedSettings.mongo_uri || "mongodb://localhost:27017/"}
+                      value={appSettings.mongo_uri}
+                      onChange={(e) => handleAppSettingChange("mongo_uri", e.target.value)}
+                    />
+                    <button 
+                      className="test-button"
+                      onClick={testMongoConnection}
+                      disabled={testingMongo}
+                    >
+                      {testingMongo ? "Testing..." : "Test"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settings-group">
+                <h3>📊 CPX Research Settings</h3>
+                <div className="setting-row">
+                  <label>App ID</label>
                   <input
                     type="text"
-                    placeholder={maskedSettings.mongo_uri || "mongodb://localhost:27017/"}
-                    value={appSettings.mongo_uri}
-                    onChange={(e) => handleAppSettingChange("mongo_uri", e.target.value)}
+                    placeholder={maskedSettings.cpx_app_id || "10754"}
+                    value={appSettings.cpx_app_id}
+                    onChange={(e) => handleAppSettingChange("cpx_app_id", e.target.value)}
                   />
-                  <button 
-                    className="test-button"
-                    onClick={testMongoConnection}
-                    disabled={testingMongo}
-                  >
-                    {testingMongo ? "Testing..." : "Test Connection"}
-                  </button>
+                </div>
+                <div className="setting-row">
+                  <label>External User ID</label>
+                  <input
+                    type="text"
+                    placeholder={maskedSettings.cpx_ext_user_id || "user_id"}
+                    value={appSettings.cpx_ext_user_id}
+                    onChange={(e) => handleAppSettingChange("cpx_ext_user_id", e.target.value)}
+                  />
+                </div>
+                <div className="setting-row">
+                  <label>Secure Hash Key</label>
+                  <div className="input-with-button">
+                    <input
+                      type="password"
+                      placeholder={maskedSettings.cpx_secure_hash_key_masked || "Enter secure hash key"}
+                      value={appSettings.cpx_secure_hash_key}
+                      onChange={(e) => handleAppSettingChange("cpx_secure_hash_key", e.target.value)}
+                    />
+                    <button 
+                      className="test-button"
+                      onClick={testCpxCredentials}
+                      disabled={testingCpx}
+                    >
+                      {testingCpx ? "Testing..." : "Test"}
+                    </button>
+                  </div>
+                </div>
+                <div className="setting-row">
+                  <label>API Timeout</label>
+                  <div className="input-with-unit">
+                    <input
+                      type="number"
+                      min="5"
+                      max="120"
+                      value={appSettings.cpx_api_timeout}
+                      onChange={(e) => handleAppSettingChange("cpx_api_timeout", parseInt(e.target.value))}
+                    />
+                    <span className="unit">seconds</span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="settings-group">
-              <h3> CPX Research Settings</h3>
-              <div className="setting-row">
-                <label>App ID</label>
-                <input
-                  type="text"
-                  placeholder={maskedSettings.cpx_app_id || "10754"}
-                  value={appSettings.cpx_app_id}
-                  onChange={(e) => handleAppSettingChange("cpx_app_id", e.target.value)}
-                />
-              </div>
-              <div className="setting-row">
-                <label>External User ID</label>
-                <input
-                  type="text"
-                  placeholder={maskedSettings.cpx_ext_user_id || "user_id"}
-                  value={appSettings.cpx_ext_user_id}
-                  onChange={(e) => handleAppSettingChange("cpx_ext_user_id", e.target.value)}
-                />
-              </div>
-              <div className="setting-row">
-                <label>Secure Hash Key</label>
-                <div className="input-with-button">
+              <div className="settings-group">
+                <h3>🤖 AI / OpenAI Settings</h3>
+                <div className="setting-row">
+                  <label>OpenAI API Key</label>
                   <input
                     type="password"
-                    placeholder={maskedSettings.cpx_secure_hash_key_masked || "Enter secure hash key"}
-                    value={appSettings.cpx_secure_hash_key}
-                    onChange={(e) => handleAppSettingChange("cpx_secure_hash_key", e.target.value)}
+                    placeholder={maskedSettings.openai_api_key_masked || "sk-..."}
+                    value={appSettings.openai_api_key}
+                    onChange={(e) => handleAppSettingChange("openai_api_key", e.target.value)}
                   />
-                  <button 
-                    className="test-button"
-                    onClick={testCpxCredentials}
-                    disabled={testingCpx}
-                  >
-                    {testingCpx ? "Testing..." : "Test Credentials"}
-                  </button>
+                  <p className="setting-hint">Used for AI features. Get from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a></p>
                 </div>
               </div>
-              <div className="setting-row">
-                <label>API Timeout (seconds)</label>
-                <input
-                  type="number"
-                  min="5"
-                  max="120"
-                  value={appSettings.cpx_api_timeout}
-                  onChange={(e) => handleAppSettingChange("cpx_api_timeout", parseInt(e.target.value))}
-                />
-              </div>
-            </div>
 
-            <div className="settings-group">
-              <h3>🤖 AI / OpenAI Settings</h3>
-              <p className="group-description">
-                Configure OpenAI API credentials for AI-powered lead classification and other AI features.
-              </p>
-              <div className="setting-row">
-                <label>OpenAI API Key</label>
-                <input
-                  type="password"
-                  placeholder={maskedSettings.openai_api_key_masked || "sk-..."}
-                  value={appSettings.openai_api_key}
-                  onChange={(e) => handleAppSettingChange("openai_api_key", e.target.value)}
-                />
-                <p className="setting-hint">Used for LinkedIn lead classification. Get your key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI Platform</a></p>
+              <div className="settings-group">
+                <h3>🔍 Google API Settings</h3>
+                <div className="setting-row">
+                  <label>Google API Key</label>
+                  <input
+                    type="password"
+                    placeholder={maskedSettings.google_api_key_masked || "AIza..."}
+                    value={appSettings.google_api_key}
+                    onChange={(e) => handleAppSettingChange("google_api_key", e.target.value)}
+                  />
+                  <p className="setting-hint">From <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Google Cloud Console</a></p>
+                </div>
+                <div className="setting-row">
+                  <label>Custom Search Engine ID</label>
+                  <input
+                    type="text"
+                    placeholder={maskedSettings.google_cse_id_masked || "Your CSE ID"}
+                    value={appSettings.google_cse_id}
+                    onChange={(e) => handleAppSettingChange("google_cse_id", e.target.value)}
+                  />
+                  <p className="setting-hint">From <a href="https://programmablesearchengine.google.com/" target="_blank" rel="noopener noreferrer">Google Programmable Search</a></p>
+                </div>
               </div>
-            </div>
 
-            <div className="settings-group">
-              <h3>🔍 Google API Settings</h3>
-              <p className="group-description">
-                Configure Google API credentials for LinkedIn lead search and Google Sheets import.
-              </p>
-              <div className="setting-row">
-                <label>Google API Key</label>
-                <input
-                  type="password"
-                  placeholder={maskedSettings.google_api_key_masked || "AIza..."}
-                  value={appSettings.google_api_key}
-                  onChange={(e) => handleAppSettingChange("google_api_key", e.target.value)}
-                />
-                <p className="setting-hint">Required for Google Custom Search. Get from <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Google Cloud Console</a></p>
+              <div className="settings-group settings-grid-full">
+                <h3>📄 Google Sheets Service Account</h3>
+                <div className="setting-row">
+                  <label>Service Account JSON</label>
+                  <textarea
+                    placeholder={maskedSettings.google_sheets_service_account_masked || '{"type": "service_account", ...}'}
+                    value={appSettings.google_sheets_service_account}
+                    onChange={(e) => handleAppSettingChange("google_sheets_service_account", e.target.value)}
+                    rows={3}
+                    style={{ fontFamily: 'monospace', fontSize: '11px', width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  />
+                  <p className="setting-hint">Full JSON key for Sheets API. Download from <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener noreferrer">Service Accounts</a></p>
+                </div>
               </div>
-              <div className="setting-row">
-                <label>Google Custom Search Engine ID</label>
-                <input
-                  type="text"
-                  placeholder={maskedSettings.google_cse_id_masked || "Your CSE ID"}
-                  value={appSettings.google_cse_id}
-                  onChange={(e) => handleAppSettingChange("google_cse_id", e.target.value)}
-                />
-                <p className="setting-hint">Create a search engine at <a href="https://programmablesearchengine.google.com/" target="_blank" rel="noopener noreferrer">Google Programmable Search</a> and restrict to linkedin.com</p>
-              </div>
-              <div className="setting-row">
-                <label>Google Sheets Service Account (JSON)</label>
-                <textarea
-                  placeholder={maskedSettings.google_sheets_service_account_masked || '{"type": "service_account", ...}'}
-                  value={appSettings.google_sheets_service_account}
-                  onChange={(e) => handleAppSettingChange("google_sheets_service_account", e.target.value)}
-                  rows={4}
-                  style={{ fontFamily: 'monospace', fontSize: '12px' }}
-                />
-                <p className="setting-hint">Paste the full JSON key file content for Google Sheets API access. Download from <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener noreferrer">Service Accounts</a></p>
-              </div>
-            </div>
 
             {/* Google CSE Rate Limiting for Cost Control */}
             <div className="settings-group">
               <h3>💰 Google Search Rate Limiting</h3>
-              <p className="group-description">
-                Control Google Custom Search API costs. Pricing: $5 per 1,000 queries after 100 free/day.
-                Current budget target: <strong>${appSettings.google_cse_monthly_budget || 50}/month</strong>
-              </p>
-              <div className="setting-row">
-                <label>Enable Rate Limiting</label>
+              <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <input
                   type="checkbox"
                   checked={appSettings.google_cse_rate_limit_enabled !== false}
                   onChange={(e) => handleAppSettingChange("google_cse_rate_limit_enabled", e.target.checked)}
-                  style={{ width: 'auto', marginRight: '10px' }}
+                  style={{ width: '18px', height: '18px' }}
                 />
-                <span style={{ color: appSettings.google_cse_rate_limit_enabled !== false ? '#4caf50' : '#f44336' }}>
-                  {appSettings.google_cse_rate_limit_enabled !== false ? '✓ Enabled' : '✗ Disabled'}
+                <label style={{ margin: 0 }}>Enable Rate Limiting</label>
+                <span style={{ color: appSettings.google_cse_rate_limit_enabled !== false ? '#10b981' : '#ef4444', fontSize: '0.8rem', fontWeight: 500 }}>
+                  {appSettings.google_cse_rate_limit_enabled !== false ? '✓ Active' : '✗ Off'}
                 </span>
-                <p className="setting-hint">When disabled, searches run without limits (may incur high costs!)</p>
               </div>
               <div className="setting-row">
-                <label>Daily Query Limit</label>
-                <div className="input-with-unit">
-                  <input
-                    type="number"
-                    min="10"
-                    max="10000"
-                    value={appSettings.google_cse_daily_limit || 400}
-                    onChange={(e) => handleAppSettingChange("google_cse_daily_limit", parseInt(e.target.value))}
-                  />
-                  <span className="unit">queries/day</span>
+                <label>Daily / Hourly Limits</label>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <div className="input-with-unit">
+                    <input
+                      type="number"
+                      min="10"
+                      max="10000"
+                      value={appSettings.google_cse_daily_limit || 400}
+                      onChange={(e) => handleAppSettingChange("google_cse_daily_limit", parseInt(e.target.value))}
+                    />
+                    <span className="unit">/day</span>
+                  </div>
+                  <div className="input-with-unit">
+                    <input
+                      type="number"
+                      min="5"
+                      max="500"
+                      value={appSettings.google_cse_hourly_limit || 50}
+                      onChange={(e) => handleAppSettingChange("google_cse_hourly_limit", parseInt(e.target.value))}
+                    />
+                    <span className="unit">/hour</span>
+                  </div>
                 </div>
-                <p className="setting-hint">Recommended: 400/day (~$50/month). Cost: ${(((appSettings.google_cse_daily_limit || 400) - 100) * 30 * 5 / 1000).toFixed(0)}/month est.</p>
+                <p className="setting-hint">Est. cost: ${(((appSettings.google_cse_daily_limit || 400) - 100) * 30 * 5 / 1000).toFixed(0)}/mo</p>
               </div>
               <div className="setting-row">
-                <label>Hourly Query Limit</label>
-                <div className="input-with-unit">
-                  <input
-                    type="number"
-                    min="5"
-                    max="500"
-                    value={appSettings.google_cse_hourly_limit || 50}
-                    onChange={(e) => handleAppSettingChange("google_cse_hourly_limit", parseInt(e.target.value))}
-                  />
-                  <span className="unit">queries/hour</span>
+                <label>Query Delay / Budget</label>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  <div className="input-with-unit">
+                    <input
+                      type="number"
+                      min="1"
+                      max="60"
+                      value={appSettings.google_cse_query_delay || 3}
+                      onChange={(e) => handleAppSettingChange("google_cse_query_delay", parseInt(e.target.value))}
+                    />
+                    <span className="unit">sec</span>
+                  </div>
+                  <div className="input-with-unit">
+                    <input
+                      type="number"
+                      min="0"
+                      max="500"
+                      step="5"
+                      value={appSettings.google_cse_monthly_budget || 50}
+                      onChange={(e) => handleAppSettingChange("google_cse_monthly_budget", parseFloat(e.target.value))}
+                    />
+                    <span className="unit">$/mo</span>
+                  </div>
                 </div>
-                <p className="setting-hint">Spreads queries evenly throughout the day</p>
-              </div>
-              <div className="setting-row">
-                <label>Delay Between Queries</label>
-                <div className="input-with-unit">
-                  <input
-                    type="number"
-                    min="1"
-                    max="60"
-                    value={appSettings.google_cse_query_delay || 3}
-                    onChange={(e) => handleAppSettingChange("google_cse_query_delay", parseInt(e.target.value))}
-                  />
-                  <span className="unit">seconds</span>
-                </div>
-                <p className="setting-hint">Minimum delay between API calls</p>
-              </div>
-              <div className="setting-row">
-                <label>Monthly Budget</label>
-                <div className="input-with-unit">
-                  <input
-                    type="number"
-                    min="0"
-                    max="500"
-                    step="5"
-                    value={appSettings.google_cse_monthly_budget || 50}
-                    onChange={(e) => handleAppSettingChange("google_cse_monthly_budget", parseFloat(e.target.value))}
-                  />
-                  <span className="unit">$ USD</span>
-                </div>
-                <p className="setting-hint">Target monthly spend on Google Custom Search API</p>
               </div>
             </div>
 
-            {/* Survey Filter Settings - integrated into main settings */}
-            <div className="settings-group">
-              <h3>📋 Survey Filter Settings</h3>
-              <p className="group-description">
-                Configure filters for the Survey Pool. Surveys not meeting these criteria
-                will be filtered out.
-              </p>
-              <div className="setting-row">
-                <label>Max LOI (Length of Interview)</label>
-                <div className="input-with-unit">
-                  <input
-                    type="number"
-                    min="1"
-                    max="120"
-                    value={surveyFilters.max_loi}
-                    onChange={(e) => handleFilterChange("max_loi", parseInt(e.target.value))}
-                  />
-                  <span className="unit">minutes</span>
+              {/* Survey Filter Settings */}
+              <div className="settings-group">
+                <h3>📋 Survey Filters</h3>
+                <div className="setting-row">
+                  <label>Max LOI / Min CPI</label>
+                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    <div className="input-with-unit">
+                      <input
+                        type="number"
+                        min="1"
+                        max="120"
+                        value={surveyFilters.max_loi}
+                        onChange={(e) => handleFilterChange("max_loi", parseInt(e.target.value))}
+                      />
+                      <span className="unit">min</span>
+                    </div>
+                    <div className="input-with-unit">
+                      <input
+                        type="number"
+                        min="0.01"
+                        max="100"
+                        step="0.01"
+                        value={surveyFilters.min_cpi}
+                        onChange={(e) => handleFilterChange("min_cpi", parseFloat(e.target.value))}
+                      />
+                      <span className="unit">$ CPI</span>
+                    </div>
+                  </div>
+                  <p className="setting-hint">Filter out surveys exceeding LOI or below CPI</p>
                 </div>
-                <p className="setting-hint">Surveys with LOI greater than this will be excluded</p>
-              </div>
-              <div className="setting-row">
-                <label>Min CPI (Cost Per Interview)</label>
-                <div className="input-with-unit">
-                  <input
-                    type="number"
-                    min="0.01"
-                    max="100"
-                    step="0.01"
-                    value={surveyFilters.min_cpi}
-                    onChange={(e) => handleFilterChange("min_cpi", parseFloat(e.target.value))}
-                  />
-                  <span className="unit">$ USD</span>
+                <div className="setting-row">
+                  <label>Deletion Period</label>
+                  <div className="input-with-unit">
+                    <input
+                      type="number"
+                      min="1"
+                      max="30"
+                      value={surveyFilters.deletion_period_days}
+                      onChange={(e) => handleFilterChange("deletion_period_days", parseInt(e.target.value))}
+                    />
+                    <span className="unit">days</span>
+                  </div>
+                  <p className="setting-hint">Auto-delete old surveys</p>
                 </div>
-                <p className="setting-hint">Surveys with payout less than this will be excluded</p>
-              </div>
-            </div>
-
-            <div className="settings-group">
-              <h3>🗑️ Cleanup Settings</h3>
-              <div className="setting-row">
-                <label>Deletion Period</label>
-                <div className="input-with-unit">
-                  <input
-                    type="number"
-                    min="1"
-                    max="30"
-                    value={surveyFilters.deletion_period_days}
-                    onChange={(e) => handleFilterChange("deletion_period_days", parseInt(e.target.value))}
-                  />
-                  <span className="unit">days</span>
-                </div>
-                <p className="setting-hint">Surveys older than this will be automatically deleted</p>
-              </div>
-            </div>
-
-            <div className="settings-group">
-              <h3>🔄 Auto Refresh Settings</h3>
-              <div className="setting-row checkbox-row">
-                <label className="checkbox-label">
+                <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <input
                     type="checkbox"
                     checked={surveyFilters.auto_refresh_enabled}
                     onChange={(e) => handleFilterChange("auto_refresh_enabled", e.target.checked)}
+                    style={{ width: '18px', height: '18px' }}
                   />
-                  <span>Enable automatic survey refresh</span>
-                </label>
-              </div>
-              <div className="setting-row">
-                <label>Refresh Interval</label>
-                <div className="input-with-unit">
-                  <input
-                    type="number"
-                    min="30"
-                    max="3600"
-                    value={surveyFilters.refresh_interval_seconds}
-                    onChange={(e) => handleFilterChange("refresh_interval_seconds", parseInt(e.target.value))}
-                    disabled={!surveyFilters.auto_refresh_enabled}
-                  />
-                  <span className="unit">seconds</span>
+                  <label style={{ margin: 0 }}>Auto Refresh</label>
+                  <div className="input-with-unit">
+                    <input
+                      type="number"
+                      min="30"
+                      max="3600"
+                      value={surveyFilters.refresh_interval_seconds}
+                      onChange={(e) => handleFilterChange("refresh_interval_seconds", parseInt(e.target.value))}
+                      disabled={!surveyFilters.auto_refresh_enabled}
+                      style={{ width: '80px' }}
+                    />
+                    <span className="unit">sec</span>
+                  </div>
                 </div>
-                <p className="setting-hint">How often to fetch new surveys from CPX API</p>
               </div>
-            </div>
+
+            </div>{/* End settings-grid */}
 
             <div className="settings-actions">
               <button 
@@ -1184,27 +1159,24 @@ function Settings() {
           <div className="settings-section">
             <h2>Survey Allocation & Quality Control</h2>
             <p className="section-description">
-              Configure allocation batch sizes, quality thresholds, and auto-pause rules for survey distribution.
+              Configure allocation batch sizes, quality thresholds, and auto-pause rules.
             </p>
 
-            <div className="settings-group">
-              <h3>📦 Batch Allocation Settings</h3>
-              <p className="group-description">
-                Control how respondents are allocated to surveys in batches.
-              </p>
-              <div className="setting-row">
-                <label>Batch Size</label>
-                <div className="input-with-unit">
-                  <input
-                    type="number"
-                    min="1"
-                    max="1000"
-                    value={allocationSettings.batch_size}
-                    onChange={(e) => handleAllocationSettingChange("batch_size", parseInt(e.target.value))}
+            <div className="settings-grid">
+              <div className="settings-group">
+                <h3>📦 Batch Settings</h3>
+                <div className="setting-row">
+                  <label>Batch Size</label>
+                  <div className="input-with-unit">
+                    <input
+                      type="number"
+                      min="1"
+                      max="1000"
+                      value={allocationSettings.batch_size}
+                      onChange={(e) => handleAllocationSettingChange("batch_size", parseInt(e.target.value))}
                   />
-                  <span className="unit">allocations</span>
+                  <span className="unit">allocs</span>
                 </div>
-                <p className="setting-hint">Number of respondents to send per batch before evaluation</p>
               </div>
               <div className="setting-row">
                 <label>Buffer Multiplier</label>
@@ -1219,114 +1191,103 @@ function Settings() {
                   />
                   <span className="unit">x</span>
                 </div>
-                <p className="setting-hint">Extra buffer for allocations (1.2 = send 20% more than batch size)</p>
+                <p className="setting-hint">Extra buffer (1.2 = 20% more)</p>
               </div>
             </div>
 
-            <div className="settings-group">
-              <h3>📈 Quality Control Thresholds</h3>
-              <p className="group-description">
-                Set thresholds for automatic survey pausing based on performance metrics.
-              </p>
-              <div className="setting-row">
-                <label>Maximum Incomplete Rate</label>
-                <div className="input-with-unit">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={allocationSettings.max_incomplete_rate}
-                    onChange={(e) => handleAllocationSettingChange("max_incomplete_rate", parseFloat(e.target.value))}
-                  />
-                  <span className="unit">%</span>
+              <div className="settings-group">
+                <h3>📈 Quality Thresholds</h3>
+                <div className="setting-row">
+                  <label>Max Incomplete Rate</label>
+                  <div className="input-with-unit">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={allocationSettings.max_incomplete_rate}
+                      onChange={(e) => handleAllocationSettingChange("max_incomplete_rate", parseFloat(e.target.value))}
+                    />
+                    <span className="unit">%</span>
+                  </div>
                 </div>
-                <p className="setting-hint">Pause survey if incomplete rate exceeds this threshold</p>
-              </div>
-              <div className="setting-row">
-                <label>Minimum Incidence Rate (IR)</label>
-                <div className="input-with-unit">
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={allocationSettings.min_incidence_rate}
-                    onChange={(e) => handleAllocationSettingChange("min_incidence_rate", parseFloat(e.target.value))}
-                  />
-                  <span className="unit">%</span>
+                <div className="setting-row">
+                  <label>Min Incidence Rate</label>
+                  <div className="input-with-unit">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={allocationSettings.min_incidence_rate}
+                      onChange={(e) => handleAllocationSettingChange("min_incidence_rate", parseFloat(e.target.value))}
+                    />
+                    <span className="unit">%</span>
+                  </div>
                 </div>
-                <p className="setting-hint">Pause survey if incidence rate falls below this threshold</p>
-              </div>
-              <div className="setting-row">
-                <label>Minimum Entrants for Evaluation</label>
-                <div className="input-with-unit">
-                  <input
-                    type="number"
-                    min="10"
-                    max="500"
-                    value={allocationSettings.minimum_entrants_for_evaluation}
-                    onChange={(e) => handleAllocationSettingChange("minimum_entrants_for_evaluation", parseInt(e.target.value))}
-                  />
-                  <span className="unit">entrants</span>
+                <div className="setting-row">
+                  <label>Min Entrants for Eval</label>
+                  <div className="input-with-unit">
+                    <input
+                      type="number"
+                      min="10"
+                      max="500"
+                      value={allocationSettings.minimum_entrants_for_evaluation}
+                      onChange={(e) => handleAllocationSettingChange("minimum_entrants_for_evaluation", parseInt(e.target.value))}
+                    />
+                    <span className="unit">users</span>
+                  </div>
                 </div>
-                <p className="setting-hint">Don't evaluate pause rules until this many respondents have started</p>
               </div>
-            </div>
 
-            <div className="settings-group">
-              <h3>⏸️ Auto-Pause Settings</h3>
-              <div className="setting-row checkbox-row">
-                <label className="checkbox-label">
+              <div className="settings-group">
+                <h3>⏸️ Auto-Pause</h3>
+                <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <input
                     type="checkbox"
                     checked={allocationSettings.auto_pause_enabled}
                     onChange={(e) => handleAllocationSettingChange("auto_pause_enabled", e.target.checked)}
+                    style={{ width: '18px', height: '18px' }}
                   />
-                  <span>Enable automatic survey pausing</span>
-                </label>
-              </div>
-              <div className="setting-row">
-                <label>Pause Cooldown</label>
-                <div className="input-with-unit">
-                  <input
-                    type="number"
-                    min="5"
-                    max="1440"
-                    value={allocationSettings.pause_cooldown_minutes}
-                    onChange={(e) => handleAllocationSettingChange("pause_cooldown_minutes", parseInt(e.target.value))}
-                    disabled={!allocationSettings.auto_pause_enabled}
-                  />
-                  <span className="unit">minutes</span>
+                  <label style={{ margin: 0 }}>Enable Auto-Pause</label>
                 </div>
-                <p className="setting-hint">Time before paused surveys can be considered for auto-resume</p>
+                <div className="setting-row">
+                  <label>Cooldown Period</label>
+                  <div className="input-with-unit">
+                    <input
+                      type="number"
+                      min="5"
+                      max="1440"
+                      value={allocationSettings.pause_cooldown_minutes}
+                      onChange={(e) => handleAllocationSettingChange("pause_cooldown_minutes", parseInt(e.target.value))}
+                      disabled={!allocationSettings.auto_pause_enabled}
+                    />
+                    <span className="unit">min</span>
+                  </div>
+                  <p className="setting-hint">Time before auto-resume</p>
+                </div>
               </div>
-            </div>
 
-            <div className="settings-group">
-              <h3>🎯 Allocation Preferences</h3>
-              <p className="group-description">
-                Configure how eligible surveys are prioritized for allocation.
-              </p>
-              <div className="setting-row checkbox-row">
-                <label className="checkbox-label">
+              <div className="settings-group">
+                <h3>🎯 Allocation Preferences</h3>
+                <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <input
                     type="checkbox"
                     checked={allocationSettings.prefer_high_ir_surveys}
                     onChange={(e) => handleAllocationSettingChange("prefer_high_ir_surveys", e.target.checked)}
+                    style={{ width: '18px', height: '18px' }}
                   />
-                  <span>Prioritize surveys with higher expected Incidence Rate (IR)</span>
-                </label>
-              </div>
-              <div className="setting-row checkbox-row">
-                <label className="checkbox-label">
+                  <label style={{ margin: 0 }}>Prefer High IR Surveys</label>
+                </div>
+                <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <input
                     type="checkbox"
                     checked={allocationSettings.prefer_high_cpi_surveys}
                     onChange={(e) => handleAllocationSettingChange("prefer_high_cpi_surveys", e.target.checked)}
+                    style={{ width: '18px', height: '18px' }}
                   />
-                  <span>Prioritize surveys with higher CPI (Cost Per Interview)</span>
-                </label>
+                  <label style={{ margin: 0 }}>Prefer High CPI Surveys</label>
+                </div>
               </div>
-            </div>
+            </div>{/* End settings-grid */}
 
             <div className="settings-actions">
               <button 
@@ -1344,7 +1305,7 @@ function Settings() {
           <div className="settings-section">
             <h2>Email Account Settings (IMAP/SMTP)</h2>
             <p className="section-description">
-              Manage email accounts for lead extraction. For Gmail, use an App Password instead of your regular password.
+              Manage email accounts for lead extraction. For Gmail, use an App Password.
             </p>
 
             {gmailLoading ? (
@@ -1354,8 +1315,9 @@ function Settings() {
               </div>
             ) : (
               <>
+                <div className="settings-grid">
                 {/* Gmail Accounts Section */}
-                <div className="settings-group">
+                <div className="settings-group settings-grid-full">
                   <div className="group-header">
                     <h3>📧 Email Accounts</h3>
                     <button 
@@ -1687,10 +1649,7 @@ function Settings() {
 
                 {/* Real-time Monitoring Section */}
                 <div className="settings-group">
-                  <h3>🔄 Real-time Email Monitoring (IMAP IDLE)</h3>
-                  <p className="group-description">
-                    Enable real-time monitoring to automatically create leads when new emails arrive.
-                  </p>
+                  <h3>🔄 Real-time Monitoring (IMAP IDLE)</h3>
                   
                   <div className="idle-status-section">
                     <div className="idle-status-info">
@@ -1698,7 +1657,7 @@ function Settings() {
                         {!idleStatus.available ? "⚠ Not Available" : (idleStatus.running ? "🟢 Running" : "🔴 Stopped")}
                       </span>
                       {idleStatus.running && idleStatus.active_watchers && (
-                        <span className="watcher-count">{idleStatus.active_watchers} account(s) monitored</span>
+                        <span className="watcher-count">{idleStatus.active_watchers} account(s)</span>
                       )}
                     </div>
                     <div className="idle-actions">
@@ -1707,14 +1666,14 @@ function Settings() {
                         onClick={() => toggleIdleWatchers(true)}
                         disabled={!idleStatus.available || idleStatus.running}
                       >
-                        ▶ Start Monitoring
+                        ▶ Start
                       </button>
                       <button
                         className="idle-button stop"
                         onClick={() => toggleIdleWatchers(false)}
                         disabled={!idleStatus.available || !idleStatus.running}
                       >
-                        ⏹ Stop Monitoring
+                        ⏹ Stop
                       </button>
                     </div>
                   </div>
@@ -1723,71 +1682,61 @@ function Settings() {
                 {/* Rate Limits Section */}
                 <div className="settings-group">
                   <h3>⏱️ Email Rate Limits</h3>
-                  <p className="group-description">
-                    Control how many emails can be sent to prevent hitting Gmail's sending limits and improve deliverability.
-                  </p>
                   
-                  <div className="setting-row checkbox-row">
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={rateLimits.enabled}
-                        onChange={(e) => handleRateLimitChange("enabled", e.target.checked)}
-                      />
-                      <span>Enable rate limiting</span>
-                    </label>
+                  <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={rateLimits.enabled}
+                      onChange={(e) => handleRateLimitChange("enabled", e.target.checked)}
+                      style={{ width: '18px', height: '18px' }}
+                    />
+                    <label style={{ margin: 0 }}>Enable Rate Limiting</label>
                   </div>
                   
                   <div className="setting-row">
-                    <label>Max Emails Per Day</label>
-                    <div className="input-with-unit">
-                      <input
-                        type="number"
-                        min="1"
-                        max="2000"
-                        value={rateLimits.max_per_day}
-                        onChange={(e) => handleRateLimitChange("max_per_day", parseInt(e.target.value))}
-                        disabled={!rateLimits.enabled}
-                      />
-                      <span className="unit">emails</span>
+                    <label>Daily / Hourly / Per Minute</label>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <div className="input-with-unit">
+                        <input
+                          type="number"
+                          min="1"
+                          max="2000"
+                          value={rateLimits.max_per_day}
+                          onChange={(e) => handleRateLimitChange("max_per_day", parseInt(e.target.value))}
+                          disabled={!rateLimits.enabled}
+                          style={{ width: '80px' }}
+                        />
+                        <span className="unit">/day</span>
+                      </div>
+                      <div className="input-with-unit">
+                        <input
+                          type="number"
+                          min="1"
+                          max="500"
+                          value={rateLimits.max_per_hour}
+                          onChange={(e) => handleRateLimitChange("max_per_hour", parseInt(e.target.value))}
+                          disabled={!rateLimits.enabled}
+                          style={{ width: '70px' }}
+                        />
+                        <span className="unit">/hr</span>
+                      </div>
+                      <div className="input-with-unit">
+                        <input
+                          type="number"
+                          min="1"
+                          max="30"
+                          value={rateLimits.max_per_minute}
+                          onChange={(e) => handleRateLimitChange("max_per_minute", parseInt(e.target.value))}
+                          disabled={!rateLimits.enabled}
+                          style={{ width: '60px' }}
+                        />
+                        <span className="unit">/min</span>
+                      </div>
                     </div>
-                    <p className="setting-hint">Gmail daily sending limit is 500 for regular accounts, 2000 for Workspace</p>
                   </div>
                   
                   <div className="setting-row">
-                    <label>Max Emails Per Hour</label>
-                    <div className="input-with-unit">
-                      <input
-                        type="number"
-                        min="1"
-                        max="500"
-                        value={rateLimits.max_per_hour}
-                        onChange={(e) => handleRateLimitChange("max_per_hour", parseInt(e.target.value))}
-                        disabled={!rateLimits.enabled}
-                      />
-                      <span className="unit">emails</span>
-                    </div>
-                    <p className="setting-hint">Spread emails throughout the day for better deliverability</p>
-                  </div>
-                  
-                  <div className="setting-row">
-                    <label>Max Emails Per Minute</label>
-                    <div className="input-with-unit">
-                      <input
-                        type="number"
-                        min="1"
-                        max="30"
-                        value={rateLimits.max_per_minute}
-                        onChange={(e) => handleRateLimitChange("max_per_minute", parseInt(e.target.value))}
-                        disabled={!rateLimits.enabled}
-                      />
-                      <span className="unit">emails</span>
-                    </div>
-                    <p className="setting-hint">Prevents bursting too many emails at once</p>
-                  </div>
-                  
-                  <div className="setting-row">
-                    <label>Cooldown Between Emails</label>
+                    <label>Cooldown</label>
                     <div className="input-with-unit">
                       <input
                         type="number"
@@ -1796,12 +1745,14 @@ function Settings() {
                         value={rateLimits.cooldown_seconds}
                         onChange={(e) => handleRateLimitChange("cooldown_seconds", parseInt(e.target.value))}
                         disabled={!rateLimits.enabled}
+                        style={{ width: '70px' }}
                       />
-                      <span className="unit">seconds</span>
+                      <span className="unit">sec</span>
                     </div>
-                    <p className="setting-hint">Minimum delay between sending each email</p>
+                    <p className="setting-hint">Delay between sending emails</p>
                   </div>
                 </div>
+                </div>{/* End settings-grid */}
 
                 <div className="settings-actions">
                   <button 

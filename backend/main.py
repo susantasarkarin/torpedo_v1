@@ -590,6 +590,7 @@ async def get_profile(request: Request):
         return {
             "username": user.get("username", ""),
             "email": user.get("email", ""),
+            "displayName": user.get("displayName", user.get("username", "")),
             "role": user.get("role", "admin"),
             "createdAt": user.get("createdAt", "").isoformat() if user.get("createdAt") else "",
         }
@@ -607,7 +608,7 @@ async def update_profile(request: Request, profile_data: Dict[str, Any] = Body(.
         username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
         
         # Only allow updating audit-safe fields
-        allowed_fields = ["email"]
+        allowed_fields = ["email", "displayName"]
         update_data = {k: v for k, v in profile_data.items() if k in allowed_fields}
         
         if not update_data:

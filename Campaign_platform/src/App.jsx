@@ -64,6 +64,9 @@ import SurveyError from "./pages/user/SurveyError"
 // Profile Page
 import MyProfile from "./pages/MyProfile"
 
+// Mail Pool (consolidated email activity)
+import MailPool from "./pages/MailPool"
+
 // Settings Page
 import Settings from "./pages/Settings"
 
@@ -143,6 +146,9 @@ function App() {
 
         {/* Profile */}
         <Route path="profile" element={<MyProfile />} />
+
+        {/* Mail Pool - Consolidated Email Activity */}
+        <Route path="mail-pool" element={<MailPool />} />
 
         {/* Logs */}
         <Route path="logs" element={<LogsPage />} />

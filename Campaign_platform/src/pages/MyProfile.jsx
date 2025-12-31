@@ -15,6 +15,7 @@ function MyProfile() {
   // User profile data
   const [profile, setProfile] = useState({
     username: "",
+    displayName: "",
     email: "",
     role: "",
     createdAt: "",
@@ -59,6 +60,7 @@ function MyProfile() {
 
       setProfile({
         username: data.username || "",
+        displayName: data.displayName || data.username || "",
         email: data.email || "",
         role: data.role || "admin",
         createdAt: data.createdAt || "",
@@ -104,6 +106,7 @@ function MyProfile() {
         },
         body: JSON.stringify({
           email: profile.email,
+          display_name: profile.displayName,
         }),
       })
 
@@ -231,6 +234,19 @@ function MyProfile() {
 
           <div className="settings-group">
             <h3>📋 User Details</h3>
+            
+            <div className="setting-row">
+              <label>Display Name</label>
+              <input
+                type="text"
+                value={profile.displayName}
+                onChange={(e) => handleProfileChange("displayName", e.target.value)}
+                placeholder="Enter your display name"
+              />
+              <small style={{ color: "#666", marginTop: "4px" }}>
+                This name will be shown across the application
+              </small>
+            </div>
             
             <div className="setting-row">
               <label>Username</label>

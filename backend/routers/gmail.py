@@ -1705,3 +1705,309 @@ async def update_imap_account_settings(
         logger.error(f"Error updating account settings: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ============================================
+# MAIL POOL - Consolidated Email Activity Tracking
+# ============================================
+
+# Email leads collection (from email_automation db)
+email_automation_db = mongo_client["email_automation"]
+mail_pool_email_leads = email_automation_db["email_leads"]
+mail_pool_conversations = email_automation_db["email_conversations"]
+mail_pool_sync_log = gmail_db["email_sync_log"]
+
+
+@router.get("/mail-pool/stats")
+async def get_mail_pool_stats(
+    request: Request
+):
+    """
+    Get consolidated statistics for the Mail Pool - overview of all email activity
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        # Get all IMAP accounts
+        accounts = list(imap_accounts_collection.find({"is_active": True}))
+        
+        # Get today's date range
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = today_start - timedelta(days=7)
+        
+        # Aggregate stats
+        total_emails_synced = mail_pool_sync_log.count_documents({})
+        emails_today = mail_pool_sync_log.count_documents({
+            "processed_at": {"$gte": today_start}
+        })
+        emails_this_week = mail_pool_sync_log.count_documents({
+            "processed_at": {"$gte": week_start}
+        })
+        
+        # Get segment breakdown
+        segment_pipeline = [
+            {"$group": {"_id": "$email_segment", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+        segment_stats = list(mail_pool_email_leads.aggregate(segment_pipeline))
+        
+        # Get emails by account
+        account_stats = []
+        for acc in accounts:
+            count = mail_pool_sync_log.count_documents({"inbox": acc["email"]})
+            today_count = mail_pool_sync_log.count_documents({
+                "inbox": acc["email"],
+                "processed_at": {"$gte": today_start}
+            })
+            account_stats.append({
+                "email": acc["email"],
+                "display_name": acc.get("display_name", acc["email"].split("@")[0]),
+                "total_emails": count,
+                "today": today_count,
+                "last_sync": acc.get("last_sync")
+            })
+        
+        return {
+            "success": True,
+            "stats": {
+                "total_emails": total_emails_synced,
+                "emails_today": emails_today,
+                "emails_this_week": emails_this_week,
+                "total_accounts": len(accounts),
+                "segments": {s["_id"]: s["count"] for s in segment_stats if s["_id"]},
+                "accounts": account_stats
+            }
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching mail pool stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/mail-pool/emails")
+async def get_mail_pool_emails(
+    request: Request,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    segment: Optional[str] = Query(None, description="Filter by segment"),
+    account: Optional[str] = Query(None, description="Filter by inbox account"),
+    search: Optional[str] = Query(None, description="Search in subject/sender"),
+    date_from: Optional[str] = Query(None, description="Filter from date (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="Filter to date (YYYY-MM-DD)")
+):
+    """
+    Get paginated list of all emails in the Mail Pool with filtering options
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        # Build query filter
+        query = {}
+        
+        if segment:
+            query["email_segment"] = segment
+        
+        if search:
+            query["$or"] = [
+                {"email": {"$regex": search, "$options": "i"}},
+                {"name": {"$regex": search, "$options": "i"}},
+                {"company_name": {"$regex": search, "$options": "i"}},
+                {"snippet": {"$regex": search, "$options": "i"}}
+            ]
+        
+        if date_from:
+            try:
+                from_date = datetime.strptime(date_from, "%Y-%m-%d")
+                query["added_on"] = {"$gte": from_date.isoformat()}
+            except ValueError:
+                pass
+        
+        if date_to:
+            try:
+                to_date = datetime.strptime(date_to, "%Y-%m-%d")
+                if "added_on" in query:
+                    query["added_on"]["$lte"] = to_date.isoformat()
+                else:
+                    query["added_on"] = {"$lte": to_date.isoformat()}
+            except ValueError:
+                pass
+        
+        # Calculate skip
+        skip = (page - 1) * limit
+        
+        # Get total count
+        total = mail_pool_email_leads.count_documents(query)
+        
+        # Fetch emails with pagination
+        emails = list(mail_pool_email_leads.find(query)
+            .sort("added_on", -1)
+            .skip(skip)
+            .limit(limit))
+        
+        # Format for response
+        formatted_emails = []
+        for email_doc in emails:
+            formatted_emails.append({
+                "id": str(email_doc["_id"]),
+                "email": email_doc.get("email", ""),
+                "name": email_doc.get("name", ""),
+                "first_name": email_doc.get("first_name", ""),
+                "last_name": email_doc.get("last_name", ""),
+                "company": email_doc.get("company_name", ""),
+                "title": email_doc.get("title", ""),
+                "segment": email_doc.get("email_segment", "others"),
+                "snippet": email_doc.get("snippet", "")[:200],
+                "added_on": email_doc.get("added_on", ""),
+                "source": email_doc.get("source", "email_import"),
+                "has_rfq": email_doc.get("has_rfq", False)
+            })
+        
+        return {
+            "success": True,
+            "emails": formatted_emails,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "total_pages": (total + limit - 1) // limit
+            }
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching mail pool emails: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/mail-pool/activity")
+async def get_mail_pool_activity(
+    request: Request,
+    days: int = Query(7, ge=1, le=30, description="Number of days to look back")
+):
+    """
+    Get email activity timeline for the Mail Pool - shows daily email volume
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        # Calculate date range
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=days)
+        
+        # Aggregate by day
+        pipeline = [
+            {
+                "$match": {
+                    "processed_at": {"$gte": start_date, "$lte": end_date}
+                }
+            },
+            {
+                "$group": {
+                    "_id": {
+                        "year": {"$year": "$processed_at"},
+                        "month": {"$month": "$processed_at"},
+                        "day": {"$dayOfMonth": "$processed_at"}
+                    },
+                    "count": {"$sum": 1},
+                    "inboxes": {"$addToSet": "$inbox"}
+                }
+            },
+            {"$sort": {"_id.year": 1, "_id.month": 1, "_id.day": 1}}
+        ]
+        
+        daily_stats = list(mail_pool_sync_log.aggregate(pipeline))
+        
+        # Format for chart
+        activity = []
+        for stat in daily_stats:
+            date_str = f"{stat['_id']['year']}-{stat['_id']['month']:02d}-{stat['_id']['day']:02d}"
+            activity.append({
+                "date": date_str,
+                "count": stat["count"],
+                "inboxes": len(stat["inboxes"])
+            })
+        
+        return {
+            "success": True,
+            "activity": activity,
+            "period": {
+                "start": start_date.isoformat(),
+                "end": end_date.isoformat(),
+                "days": days
+            }
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching mail pool activity: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/mail-pool/conversations")
+async def get_mail_pool_conversations(
+    request: Request,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    contact_email: Optional[str] = Query(None, description="Filter by contact email")
+):
+    """
+    Get email conversation threads with AI summaries
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        query = {}
+        if contact_email:
+            query["contact_email"] = contact_email
+        
+        skip = (page - 1) * limit
+        total = mail_pool_conversations.count_documents(query)
+        
+        conversations = list(mail_pool_conversations.find(query)
+            .sort("last_updated", -1)
+            .skip(skip)
+            .limit(limit))
+        
+        formatted = []
+        for conv in conversations:
+            formatted.append({
+                "id": str(conv["_id"]),
+                "contact_email": conv.get("contact_email", ""),
+                "contact_name": conv.get("contact_name", ""),
+                "subject": conv.get("subject", ""),
+                "message_count": conv.get("message_count", 0),
+                "ai_summary": conv.get("ai_summary", ""),
+                "last_updated": conv.get("last_updated", ""),
+                "segment": conv.get("segment", "others"),
+                "inboxes": conv.get("inboxes", [])
+            })
+        
+        return {
+            "success": True,
+            "conversations": formatted,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "total_pages": (total + limit - 1) // limit
+            }
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching conversations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
