@@ -73,12 +73,34 @@ class JobStatus:
     FAILED = "failed"
 
 
-# ============== RATE LIMITING CONSTANTS ==============
+# ============== RATE LIMITING (DYNAMIC FROM SETTINGS) ==============
 
-# Target: 10,000 leads/day = ~7 leads/minute
-DAILY_LIMIT = 10000
-LEADS_PER_MINUTE = 7  # ~7 leads per minute = 420/hour = 10,080/day
-DELAY_BETWEEN_BATCHES = 60 / LEADS_PER_MINUTE  # ~8.5 seconds between batches
+# MongoDB connection for settings
+_settings_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+_settings_db = _settings_client['torpedo_settings']
+_app_settings_collection = _settings_db['app_settings']
+
+def get_rate_limit_settings() -> dict:
+    """Get rate limiting settings from MongoDB (for $50/month budget control)"""
+    try:
+        settings = _app_settings_collection.find_one({"_id": "app_config"})
+        if settings:
+            return {
+                "daily_limit": settings.get("google_cse_daily_limit", 400),
+                "hourly_limit": settings.get("google_cse_hourly_limit", 50),
+                "query_delay": settings.get("google_cse_query_delay", 3),
+                "monthly_budget": settings.get("google_cse_monthly_budget", 50.0),
+                "enabled": settings.get("google_cse_rate_limit_enabled", True),
+            }
+    except Exception as e:
+        print(f"Error loading rate limits: {e}")
+    # Default conservative limits for $50/month budget
+    return {"daily_limit": 400, "hourly_limit": 50, "query_delay": 3, "monthly_budget": 50.0, "enabled": True}
+
+# Legacy constants (used as fallback only)
+DAILY_LIMIT = 400  # Conservative default for $50/month
+LEADS_PER_MINUTE = 3  # Reduced rate
+DELAY_BETWEEN_BATCHES = 20  # Increased delay
 
 
 # ============== IMPORT MODELS ==============
@@ -94,7 +116,7 @@ class WebSearchRequest(BaseModel):
     countries: List[str] = []  # Multiple countries supported
     seniorities: List[str] = []  # Multiple seniority levels supported
     custom_query: str = ""  # Additional search terms
-    target_count: int = 10000  # Target number of leads (now 10000)
+    # Note: No target_count - job runs indefinitely until stopped, controlled by rate limits
     # Legacy single-value fields for backward compatibility
     country: str = ""
     seniority: str = ""
@@ -315,28 +337,25 @@ async def run_web_search_job(job_id: str):
             print(f"[WebSearch:{job_id}] Job stopped by user")
             break
         
-        # Check if target reached
-        if job["total_imported"] >= target_count:
-            update_job(job_id, {
-                "status": JobStatus.COMPLETED,
-                "completed_at": datetime.utcnow()
-            })
-            print(f"[WebSearch:{job_id}] Target reached! Imported {job['total_imported']} leads")
-            break
+        # Note: No target limit - job runs indefinitely until manually stopped
+        # Rate limiting controls daily usage within budget
         
         # Check and reset daily limit if new day
         check_and_reset_daily_limit(job_id)
         job = get_job(job_id)  # Refresh after potential reset
         
-        # Check daily limit
-        if job["leads_today"] >= DAILY_LIMIT:
+        # Check daily limit (dynamic from settings)
+        rate_limits = get_rate_limit_settings()
+        daily_limit = rate_limits["daily_limit"] if rate_limits["enabled"] else 100000
+        
+        if job["leads_today"] >= daily_limit:
             # Calculate time until midnight UTC
             now = datetime.utcnow()
             tomorrow = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
             wait_seconds = (tomorrow - now).total_seconds()
             
             update_job(job_id, {"status": JobStatus.QUOTA_EXCEEDED})
-            print(f"[WebSearch:{job_id}] Daily limit reached ({DAILY_LIMIT}). Waiting until midnight UTC ({int(wait_seconds)}s)")
+            print(f"[WebSearch:{job_id}] Daily limit reached ({daily_limit}). Waiting until midnight UTC ({int(wait_seconds)}s)")
             
             # Wait in chunks to allow stopping
             while wait_seconds > 0:
@@ -460,8 +479,9 @@ async def run_web_search_job(job_id: str):
         except Exception as e:
             add_job_error(job_id, f"Classification error: {str(e)}")
         
-        # Rate limiting delay
-        await asyncio.sleep(DELAY_BETWEEN_BATCHES)
+        # Rate limiting delay (dynamic from settings)
+        delay = get_rate_limit_settings()["query_delay"]
+        await asyncio.sleep(max(delay, DELAY_BETWEEN_BATCHES))
     
     # Final cleanup
     job = get_job(job_id)
@@ -567,6 +587,9 @@ async def get_web_search_status(job_id: str):
         remaining = job["target_count"] - job["total_imported"]
         eta_minutes = int(remaining / LEADS_PER_MINUTE)
     
+    # Get dynamic rate limits for response
+    rate_limits = get_rate_limit_settings()
+    
     return {
         "job_id": job["job_id"],
         "status": job["status"],
@@ -577,7 +600,8 @@ async def get_web_search_status(job_id: str):
         "total_classified": job["total_classified"],
         "emails_found": job["emails_found"],
         "leads_today": job["leads_today"],
-        "daily_limit": DAILY_LIMIT,
+        "daily_limit": rate_limits["daily_limit"],
+        "rate_limit_enabled": rate_limits["enabled"],
         "queries_used": job["queries_used"],
         "current_query": job.get("current_query", ""),
         "progress_percent": progress_percent,

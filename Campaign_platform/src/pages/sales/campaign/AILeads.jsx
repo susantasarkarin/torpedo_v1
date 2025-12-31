@@ -160,7 +160,7 @@ function AILeads() {
   const [webSearchDesignation, setWebSearchDesignation] = useState("");
   const [webSearchCountries, setWebSearchCountries] = useState([]); // Multi-select
   const [webSearchSeniorities, setWebSearchSeniorities] = useState([]); // Multi-select
-  const [webSearchTargetCount, setWebSearchTargetCount] = useState(10000); // Default to 10000
+  // Note: No target count - job runs continuously until stopped
   const [webSearchProgress, setWebSearchProgress] = useState(null);
   const [webSearchJobId, setWebSearchJobId] = useState(null); // Background job ID
   const [deletingAllLeads, setDeletingAllLeads] = useState(false);
@@ -456,8 +456,7 @@ function AILeads() {
           body: JSON.stringify({
             designation: webSearchDesignation,
             countries: webSearchCountries,
-            seniorities: webSearchSeniorities,
-            target_count: webSearchTargetCount
+            seniorities: webSearchSeniorities
           }),
         });
         
@@ -478,8 +477,7 @@ function AILeads() {
             imported: 0,
             classified: 0,
             emails_found: 0,
-            progress_percent: 0,
-            target_count: webSearchTargetCount
+            progress_percent: 0
           });
           
           // Start polling interval for status updates
@@ -501,9 +499,7 @@ function AILeads() {
                   classified: status.total_classified,
                   emails_found: status.emails_found,
                   progress_percent: status.progress_percent,
-                  target_count: status.target_count,
                   current_query: status.current_query,
-                  eta_minutes: status.eta_minutes,
                   leads_today: status.leads_today,
                   daily_limit: status.daily_limit,
                   errors: status.errors
@@ -579,7 +575,6 @@ function AILeads() {
     setWebSearchDesignation("");
     setWebSearchCountries([]);
     setWebSearchSeniorities([]);
-    setWebSearchTargetCount(10000);
     setWebSearchProgress(null);
     setWebSearchJobId(null);
     setImportError("");
@@ -1257,19 +1252,7 @@ function AILeads() {
                       </div>
                     </div>
                     
-                    <div className="form-group">
-                      <label>Target Lead Count</label>
-                      <input
-                        type="number"
-                        className="form-input"
-                        min="10"
-                        max="10000"
-                        step="100"
-                        value={webSearchTargetCount}
-                        onChange={(e) => setWebSearchTargetCount(parseInt(e.target.value) || 10000)}
-                      />
-                      <span className="form-hint">Default: 10,000 leads (max)</span>
-                    </div>
+                    {/* Target count removed - job runs continuously until stopped, controlled by rate limits */}
                   </div>
                   
                   {webSearchProgress && (
@@ -1375,11 +1358,8 @@ function AILeads() {
                         color: "#6b7280"
                       }}>
                         <div style={{ display: "flex", justifyContent: "space-between" }}>
-                          <span>Target: {webSearchProgress.target_count?.toLocaleString()} leads</span>
+                          <span>Mode: Continuous (stop manually)</span>
                           <span>Today: {webSearchProgress.leads_today || 0} / {webSearchProgress.daily_limit?.toLocaleString()}</span>
-                          {webSearchProgress.eta_minutes && (
-                            <span>ETA: ~{webSearchProgress.eta_minutes} min</span>
-                          )}
                         </div>
                         {webSearchProgress.current_query && (
                           <div style={{ marginTop: "0.25rem", fontStyle: "italic" }}>

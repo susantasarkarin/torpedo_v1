@@ -27,16 +27,36 @@ scheduler_logs_collection = db['scheduler_logs']
 
 # ============== SCHEDULER CONSTANTS ==============
 
-# Target: 500 leads per hour = ~8.33 leads per minute
-HOURLY_TARGET = 500
-DAILY_TARGET = 10000
+# MongoDB connection for dynamic rate limits
+_settings_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+_settings_db = _settings_client['torpedo_settings']
+_app_settings = _settings_db['app_settings']
 
-# Google CSE limits: 100 queries/day free, 10 results per query
-# With paid plan: 10,000 queries/day at $5 per 1000 queries
-QUERIES_PER_BATCH = 10  # Number of queries before pause
+def get_rate_limits():
+    """Get rate limits from settings (budget: $50/month)"""
+    try:
+        cfg = _app_settings.find_one({"_id": "app_config"})
+        if cfg:
+            return {
+                "hourly": cfg.get("google_cse_hourly_limit", 50),
+                "daily": cfg.get("google_cse_daily_limit", 400),
+                "query_delay": cfg.get("google_cse_query_delay", 3),
+                "enabled": cfg.get("google_cse_rate_limit_enabled", True),
+            }
+    except Exception:
+        pass
+    return {"hourly": 50, "daily": 400, "query_delay": 3, "enabled": True}
+
+# Conservative defaults for $50/month budget (400 queries/day)
+HOURLY_TARGET = 50  # Reduced from 500
+DAILY_TARGET = 400  # Reduced from 10000 for cost control
+
+# Google CSE limits: 100 queries/day free, then $5 per 1000 queries
+# Budget: $50/month = ~10,000 paid queries + 3,000 free = 13,000/month = ~430/day
+QUERIES_PER_BATCH = 5  # Reduced from 10
 RESULTS_PER_QUERY = 10  # Max results per Google CSE query
-BATCH_DELAY_SECONDS = 60  # Pause between batches (1 minute)
-QUERY_DELAY_SECONDS = 2  # Delay between individual queries
+BATCH_DELAY_SECONDS = 120  # Increased pause between batches (2 minutes)
+QUERY_DELAY_SECONDS = 3  # Increased delay between queries
 
 # Classification rate limiting
 CLASSIFICATION_BATCH_SIZE = 50  # Leads to classify per batch

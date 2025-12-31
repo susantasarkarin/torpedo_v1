@@ -1004,6 +1004,85 @@ function Settings() {
               </div>
             </div>
 
+            {/* Google CSE Rate Limiting for Cost Control */}
+            <div className="settings-group">
+              <h3>💰 Google Search Rate Limiting</h3>
+              <p className="group-description">
+                Control Google Custom Search API costs. Pricing: $5 per 1,000 queries after 100 free/day.
+                Current budget target: <strong>${appSettings.google_cse_monthly_budget || 50}/month</strong>
+              </p>
+              <div className="setting-row">
+                <label>Enable Rate Limiting</label>
+                <input
+                  type="checkbox"
+                  checked={appSettings.google_cse_rate_limit_enabled !== false}
+                  onChange={(e) => handleAppSettingChange("google_cse_rate_limit_enabled", e.target.checked)}
+                  style={{ width: 'auto', marginRight: '10px' }}
+                />
+                <span style={{ color: appSettings.google_cse_rate_limit_enabled !== false ? '#4caf50' : '#f44336' }}>
+                  {appSettings.google_cse_rate_limit_enabled !== false ? '✓ Enabled' : '✗ Disabled'}
+                </span>
+                <p className="setting-hint">When disabled, searches run without limits (may incur high costs!)</p>
+              </div>
+              <div className="setting-row">
+                <label>Daily Query Limit</label>
+                <div className="input-with-unit">
+                  <input
+                    type="number"
+                    min="10"
+                    max="10000"
+                    value={appSettings.google_cse_daily_limit || 400}
+                    onChange={(e) => handleAppSettingChange("google_cse_daily_limit", parseInt(e.target.value))}
+                  />
+                  <span className="unit">queries/day</span>
+                </div>
+                <p className="setting-hint">Recommended: 400/day (~$50/month). Cost: ${(((appSettings.google_cse_daily_limit || 400) - 100) * 30 * 5 / 1000).toFixed(0)}/month est.</p>
+              </div>
+              <div className="setting-row">
+                <label>Hourly Query Limit</label>
+                <div className="input-with-unit">
+                  <input
+                    type="number"
+                    min="5"
+                    max="500"
+                    value={appSettings.google_cse_hourly_limit || 50}
+                    onChange={(e) => handleAppSettingChange("google_cse_hourly_limit", parseInt(e.target.value))}
+                  />
+                  <span className="unit">queries/hour</span>
+                </div>
+                <p className="setting-hint">Spreads queries evenly throughout the day</p>
+              </div>
+              <div className="setting-row">
+                <label>Delay Between Queries</label>
+                <div className="input-with-unit">
+                  <input
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={appSettings.google_cse_query_delay || 3}
+                    onChange={(e) => handleAppSettingChange("google_cse_query_delay", parseInt(e.target.value))}
+                  />
+                  <span className="unit">seconds</span>
+                </div>
+                <p className="setting-hint">Minimum delay between API calls</p>
+              </div>
+              <div className="setting-row">
+                <label>Monthly Budget</label>
+                <div className="input-with-unit">
+                  <input
+                    type="number"
+                    min="0"
+                    max="500"
+                    step="5"
+                    value={appSettings.google_cse_monthly_budget || 50}
+                    onChange={(e) => handleAppSettingChange("google_cse_monthly_budget", parseFloat(e.target.value))}
+                  />
+                  <span className="unit">$ USD</span>
+                </div>
+                <p className="setting-hint">Target monthly spend on Google Custom Search API</p>
+              </div>
+            </div>
+
             {/* Survey Filter Settings - integrated into main settings */}
             <div className="settings-group">
               <h3>📋 Survey Filter Settings</h3>
