@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from "react"
 import { API_BASE_URL } from "../config"
 import "./LogsPage.css"
 
+// Helper to get auth token - handles both storage methods
+const getAuthToken = () => localStorage.getItem("session_id") || sessionStorage.getItem("token")
+
 function LogsPage() {
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
@@ -31,7 +34,7 @@ function LogsPage() {
     try {
       setLoading(true)
       setError(null)
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       
       const response = await fetch(`${API_BASE_URL}/settings/logs?lines=${lines}`, {
         headers: { Authorization: token }

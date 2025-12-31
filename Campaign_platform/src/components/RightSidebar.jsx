@@ -52,10 +52,10 @@ function RightSidebar() {
             
             {campaignDropdownOpen && (
               <ul className="campaign-submenu">
-                <li className={`sidebar-item ${isActive("/admin/sales/campaign/list") ? "active" : ""}`}>
-                  <Link to="/admin/sales/campaign/list" className="sidebar-link submenu-link">
-                    <span className="sidebar-icon">📋</span>
-                    List
+                <li className={`sidebar-item ${isActive("/admin/sales/campaign/ai-leads") ? "active" : ""}`}>
+                  <Link to="/admin/sales/campaign/ai-leads" className="sidebar-link submenu-link">
+                    <span className="sidebar-icon">🤖</span>
+                    AI Database
                   </Link>
                 </li>
                 <li className={`sidebar-item ${isActive("/admin/sales/campaign/templates") ? "active" : ""}`}>

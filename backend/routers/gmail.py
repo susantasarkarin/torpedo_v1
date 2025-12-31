@@ -1394,3 +1394,314 @@ async def get_gmail_stats(request: Request):
     except Exception as e:
         logger.error(f"Error getting stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# IMAP IDLE Control Endpoints
+# ============================================
+
+# Import IDLE services
+try:
+    from leads.imap_idle_service import get_idle_manager, set_email_processor
+    from leads.imap_leads_service import (
+        process_email_for_lead, 
+        import_emails_enhanced,
+        run_historical_import,
+        get_import_progress,
+        imap_accounts_collection
+    )
+    from leads.ai_classifier import update_lead_conversation_summary
+    IDLE_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"IDLE service import error: {e}")
+    IDLE_AVAILABLE = False
+
+
+def process_new_email_callback(inbox: str, email_data: Dict[str, Any]):
+    """
+    Callback function for IDLE manager when new email arrives.
+    Processes the email and updates the lead.
+    """
+    try:
+        logger.info(f"Processing new email from {inbox}: {email_data.get('subject', 'No subject')}")
+        
+        # Process email for lead
+        result = process_email_for_lead(email_data, inbox)
+        
+        if result.get("new_lead") or result.get("updated_lead"):
+            # Trigger conversation summary update
+            contact_email = email_data.get("contact_email")
+            if contact_email:
+                update_lead_conversation_summary(contact_email)
+        
+        logger.info(f"Email processed: new_lead={result.get('new_lead')}, updated={result.get('updated_lead')}, rfq={result.get('rfq_created')}")
+        
+    except Exception as e:
+        logger.error(f"Error in email callback: {e}")
+
+
+# Initialize IDLE manager with callback
+if IDLE_AVAILABLE:
+    set_email_processor(process_new_email_callback)
+
+
+@router.post("/idle/start")
+async def start_idle_watchers(background_tasks: BackgroundTasks):
+    """
+    Start IMAP IDLE watchers for all active accounts.
+    This enables real-time email notifications.
+    """
+    if not IDLE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="IDLE service not available")
+    
+    try:
+        idle_manager = get_idle_manager()
+        result = idle_manager.start_all()
+        
+        return {
+            "success": result.get("success", False),
+            "message": f"Started {len(result.get('started', []))} IDLE watchers",
+            "started": result.get("started", []),
+            "errors": result.get("errors", [])
+        }
+    
+    except Exception as e:
+        logger.error(f"Error starting IDLE watchers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/idle/stop")
+async def stop_idle_watchers():
+    """
+    Stop all IMAP IDLE watchers.
+    """
+    if not IDLE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="IDLE service not available")
+    
+    try:
+        idle_manager = get_idle_manager()
+        result = idle_manager.stop_all()
+        
+        return {
+            "success": True,
+            "message": f"Stopped {len(result.get('stopped', []))} IDLE watchers",
+            "stopped": result.get("stopped", [])
+        }
+    
+    except Exception as e:
+        logger.error(f"Error stopping IDLE watchers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/idle/status")
+async def get_idle_status():
+    """
+    Get status of all IMAP IDLE watchers.
+    """
+    if not IDLE_AVAILABLE:
+        return {
+            "available": False,
+            "message": "IDLE service not available"
+        }
+    
+    try:
+        idle_manager = get_idle_manager()
+        status = idle_manager.get_status()
+        
+        return {
+            "available": True,
+            **status
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting IDLE status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/idle/start/{account_email}")
+async def start_idle_for_account(account_email: str):
+    """
+    Start IMAP IDLE watcher for a specific account.
+    """
+    if not IDLE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="IDLE service not available")
+    
+    try:
+        idle_manager = get_idle_manager()
+        result = idle_manager.start_account(account_email)
+        
+        return result
+    
+    except Exception as e:
+        logger.error(f"Error starting IDLE for {account_email}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/idle/stop/{account_email}")
+async def stop_idle_for_account(account_email: str):
+    """
+    Stop IMAP IDLE watcher for a specific account.
+    """
+    if not IDLE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="IDLE service not available")
+    
+    try:
+        idle_manager = get_idle_manager()
+        result = idle_manager.stop_account(account_email)
+        
+        return result
+    
+    except Exception as e:
+        logger.error(f"Error stopping IDLE for {account_email}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# Historical Import Endpoints
+# ============================================
+
+class HistoricalImportRequest(BaseModel):
+    """Request model for historical import"""
+    days: int = Field(30, ge=0, le=3650, description="Number of days to import (0 = all)")
+
+
+@router.post("/import/start")
+async def start_email_import(
+    background_tasks: BackgroundTasks,
+    account_emails: Optional[List[str]] = None,
+    days: int = Query(30, ge=0, le=3650),
+    max_emails: int = Query(500, ge=1, le=5000)
+):
+    """
+    Start email import for specified accounts (or all active accounts).
+    This runs in the background.
+    """
+    if not IDLE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Import service not available")
+    
+    try:
+        # Run import in background
+        background_tasks.add_task(
+            import_emails_enhanced,
+            account_emails=account_emails,
+            max_emails_per_folder=max_emails,
+            since_days=days if days > 0 else 3650,
+            trigger_enrichment=True
+        )
+        
+        return {
+            "success": True,
+            "message": f"Email import started for {len(account_emails) if account_emails else 'all'} accounts",
+            "days": days,
+            "max_emails_per_folder": max_emails
+        }
+    
+    except Exception as e:
+        logger.error(f"Error starting import: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/import/historical/{account_email}")
+async def start_historical_import(
+    account_email: str,
+    background_tasks: BackgroundTasks,
+    import_request: HistoricalImportRequest = None
+):
+    """
+    Start historical import for a specific account.
+    Updates progress in database for UI tracking.
+    """
+    if not IDLE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Import service not available")
+    
+    days = import_request.days if import_request else 30
+    
+    try:
+        # Verify account exists
+        account = imap_accounts_collection.find_one({"email": account_email})
+        if not account:
+            raise HTTPException(status_code=404, detail="Account not found")
+        
+        # Run import in background
+        background_tasks.add_task(run_historical_import, account_email, days)
+        
+        return {
+            "success": True,
+            "message": f"Historical import started for {account_email}",
+            "days": days
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting historical import for {account_email}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/import/progress/{account_email}")
+async def get_historical_import_progress(account_email: str):
+    """
+    Get the progress of historical import for a specific account.
+    """
+    if not IDLE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Import service not available")
+    
+    try:
+        progress = get_import_progress(account_email)
+        
+        if not progress:
+            return {
+                "success": True,
+                "status": "not_started",
+                "message": "No import has been started for this account"
+            }
+        
+        return {
+            "success": True,
+            **progress
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting import progress: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/imap-accounts/{account_email}/settings")
+async def update_imap_account_settings(
+    account_email: str,
+    historical_import_days: Optional[int] = Body(None, embed=True)
+):
+    """
+    Update IMAP account settings (e.g., historical import days).
+    """
+    if not IDLE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Service not available")
+    
+    try:
+        # Find account
+        account = imap_accounts_collection.find_one({"email": account_email})
+        if not account:
+            raise HTTPException(status_code=404, detail="Account not found")
+        
+        # Build update
+        update_doc = {"updated_at": datetime.utcnow()}
+        
+        if historical_import_days is not None:
+            update_doc["historical_import_days"] = historical_import_days
+        
+        imap_accounts_collection.update_one(
+            {"email": account_email},
+            {"$set": update_doc}
+        )
+        
+        return {
+            "success": True,
+            "message": "Account settings updated"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating account settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+

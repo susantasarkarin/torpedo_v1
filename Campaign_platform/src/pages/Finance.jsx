@@ -6,6 +6,9 @@ import { Link, Outlet, useLocation } from "react-router-dom"
 import { API_BASE_URL } from "../config"
 import "./Finance.css"
 
+// Helper to get auth token - handles both storage methods
+const getAuthToken = () => localStorage.getItem("session_id") || sessionStorage.getItem("token")
+
 function Finance() {
   const location = useLocation()
   const isFinanceHome = location.pathname === "/admin/finance"
@@ -25,7 +28,7 @@ function Finance() {
 
   const fetchDashboardData = async () => {
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
 
       const response = await fetch(`${API_BASE_URL}/finance/dashboard/summary`, {
         headers: {

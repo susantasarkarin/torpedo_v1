@@ -278,6 +278,7 @@ function VendorsPage() {
         <table style={styles.table}>
           <thead style={styles.thead}>
             <tr>
+              <th style={styles.th}>Vendor No</th>
               <th style={styles.th}>VID</th>
               <th style={styles.th}>Vendor Name</th>
               <th style={styles.th}>Email</th>
@@ -290,6 +291,9 @@ function VendorsPage() {
           <tbody>
             {paginatedVendors.map(v => (
               <tr key={v._id} style={styles.tr}>
+                <td style={styles.td}>
+                  <span style={styles.vid}>{v.vendorNo || 'N/A'}</span>
+                </td>
                 <td style={styles.td}>
                   <span style={styles.vid}>{v.vid || 'N/A'}</span>
                 </td>

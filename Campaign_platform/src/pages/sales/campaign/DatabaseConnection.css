@@ -1,0 +1,729 @@
+/* 
+AGENT 5 — FRONTEND ADMIN UI ENGINEER
+Lead Management Styles
+Path: /admin/sales/campaign/list/Add Contacts/Database Connection
+*/
+
+.leads-container {
+  padding: 24px;
+  background: #0a0a0a;
+  min-height: 100vh;
+  color: #e5e5e5;
+}
+
+/* ============== HEADER ============== */
+
+.leads-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.leads-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0 0 4px 0;
+}
+
+.leads-subtitle {
+  color: #a3a3a3;
+  font-size: 14px;
+  margin: 0;
+}
+
+.leads-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background: #262626;
+  color: #e5e5e5;
+  border: 1px solid #404040;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  background: #303030;
+  border-color: #525252;
+}
+
+.btn-success {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-success:hover {
+  background: linear-gradient(135deg, #16a34a, #15803d);
+}
+
+/* ============== STATISTICS CARDS ============== */
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stat-card {
+  background: #171717;
+  border: 1px solid #262626;
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 4px;
+}
+
+.stat-label {
+  font-size: 13px;
+  color: #a3a3a3;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stat-card.pending .stat-value { color: #fbbf24; }
+.stat-card.processing .stat-value { color: #3b82f6; }
+.stat-card.classified .stat-value { color: #22c55e; }
+.stat-card.failed .stat-value { color: #ef4444; }
+
+/* ============== FILTERS PANEL ============== */
+
+.filters-section {
+  background: #171717;
+  border: 1px solid #262626;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.filters-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.filters-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0;
+}
+
+.clear-filters-btn {
+  background: transparent;
+  border: none;
+  color: #3b82f6;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.clear-filters-btn:hover {
+  text-decoration: underline;
+}
+
+.filters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.filter-label {
+  font-size: 12px;
+  color: #a3a3a3;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.filter-select,
+.filter-input {
+  background: #262626;
+  border: 1px solid #404040;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #e5e5e5;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.filter-select:focus,
+.filter-input:focus {
+  border-color: #3b82f6;
+}
+
+.filter-select option {
+  background: #262626;
+  color: #e5e5e5;
+}
+
+/* ============== LEADS TABLE ============== */
+
+.leads-table-container {
+  background: #171717;
+  border: 1px solid #262626;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.leads-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.leads-table thead {
+  background: #1f1f1f;
+}
+
+.leads-table th {
+  padding: 14px 16px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: #a3a3a3;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #262626;
+}
+
+.leads-table th.checkbox-col {
+  width: 40px;
+}
+
+.leads-table tbody tr {
+  border-bottom: 1px solid #262626;
+  transition: background 0.15s;
+}
+
+.leads-table tbody tr:hover {
+  background: #1f1f1f;
+}
+
+.leads-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.leads-table td {
+  padding: 14px 16px;
+  font-size: 14px;
+  color: #e5e5e5;
+  vertical-align: middle;
+}
+
+.leads-table td.name-cell {
+  font-weight: 500;
+}
+
+.leads-table td.title-cell {
+  color: #a3a3a3;
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============== STATUS BADGES ============== */
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status-badge.pending {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+}
+
+.status-badge.processing {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.status-badge.classified {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.status-badge.failed {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-badge.processing .status-dot {
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ============== CLASSIFICATION BADGES ============== */
+
+.classification-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: #262626;
+  color: #e5e5e5;
+  margin-right: 4px;
+  margin-bottom: 4px;
+}
+
+.classification-badge.seniority {
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+}
+
+.classification-badge.department {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+
+.classification-badge.persona {
+  background: rgba(236, 72, 153, 0.15);
+  color: #f472b6;
+}
+
+.classification-badge.industry {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.classification-badge.region {
+  background: rgba(251, 146, 60, 0.15);
+  color: #fb923c;
+}
+
+/* ============== CONFIDENCE SCORE ============== */
+
+.confidence-score {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.confidence-bar {
+  width: 60px;
+  height: 6px;
+  background: #262626;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.confidence-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+.confidence-fill.high { background: #22c55e; }
+.confidence-fill.medium { background: #fbbf24; }
+.confidence-fill.low { background: #ef4444; }
+
+.confidence-value {
+  font-size: 12px;
+  color: #a3a3a3;
+  min-width: 35px;
+}
+
+/* ============== CHECKBOX ============== */
+
+.lead-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
+/* ============== LINKEDIN LINK ============== */
+
+.linkedin-link {
+  color: #3b82f6;
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.linkedin-link:hover {
+  text-decoration: underline;
+}
+
+/* ============== EMPTY STATE ============== */
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.empty-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.empty-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0 0 8px 0;
+}
+
+.empty-description {
+  color: #a3a3a3;
+  font-size: 14px;
+  margin: 0 0 24px 0;
+}
+
+/* ============== IMPORT MODAL ============== */
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-content {
+  background: #171717;
+  border: 1px solid #262626;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid #262626;
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0;
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  color: #a3a3a3;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+}
+
+.modal-close:hover {
+  color: #ffffff;
+}
+
+.modal-body {
+  padding: 24px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 20px 24px;
+  border-top: 1px solid #262626;
+}
+
+/* ============== IMPORT FORM ============== */
+
+.import-textarea {
+  width: 100%;
+  min-height: 200px;
+  background: #262626;
+  border: 1px solid #404040;
+  border-radius: 8px;
+  padding: 12px;
+  color: #e5e5e5;
+  font-family: monospace;
+  font-size: 13px;
+  resize: vertical;
+  outline: none;
+}
+
+.import-textarea:focus {
+  border-color: #3b82f6;
+}
+
+.import-help {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #a3a3a3;
+}
+
+.import-help code {
+  background: #262626;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+/* ============== PAGINATION ============== */
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  padding: 20px;
+  border-top: 1px solid #262626;
+}
+
+.pagination-btn {
+  background: #262626;
+  border: 1px solid #404040;
+  color: #e5e5e5;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: #303030;
+  border-color: #525252;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pagination-info {
+  color: #a3a3a3;
+  font-size: 13px;
+}
+
+/* ============== SELECTED COUNT BAR ============== */
+
+.selected-bar {
+  background: #1e3a5f;
+  border: 1px solid #3b82f6;
+  border-radius: 8px;
+  padding: 12px 20px;
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.selected-count {
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.selected-actions {
+  display: flex;
+  gap: 12px;
+}
+
+/* ============== LOADING STATE ============== */
+
+.loading-spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #404040;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px;
+  color: #a3a3a3;
+}
+
+/* ============== IMPORT MODAL - ENHANCED ============== */
+
+.import-modal-wide {
+  max-width: 700px;
+}
+
+.import-method-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #262626;
+  padding-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.import-tab {
+  background: #262626;
+  border: 1px solid #404040;
+  border-radius: 6px;
+  padding: 10px 16px;
+  color: #a3a3a3;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.import-tab:hover {
+  background: #303030;
+  border-color: #525252;
+  color: #e5e5e5;
+}
+
+.import-tab.active {
+  background: #1e3a5f;
+  border-color: #3b82f6;
+  color: #ffffff;
+}
+
+/* CSV Upload */
+.csv-upload-section {
+  text-align: center;
+}
+
+.file-upload-area {
+  margin-bottom: 16px;
+}
+
+.file-upload-label {
+  display: block;
+  background: #262626;
+  border: 2px dashed #404040;
+  border-radius: 12px;
+  padding: 40px 20px;
+  color: #a3a3a3;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 15px;
+}
+
+.file-upload-label:hover {
+  background: #303030;
+  border-color: #525252;
+  color: #e5e5e5;
+}
+
+/* Google Search Section */
+.google-search-section,
+.google-sheets-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e5e5e5;
+}
+
+.form-group .filter-input {
+  padding: 10px 12px;
+  background: #262626;
+  border: 1px solid #404040;
+  border-radius: 8px;
+  color: #e5e5e5;
+  font-size: 14px;
+}
+
+.form-group .filter-input:focus {
+  border-color: #3b82f6;
+  outline: none;
+}
+
+.form-group .hint {
+  font-size: 12px;
+  color: #737373;
+}

@@ -4,6 +4,35 @@ import { useState, useEffect } from "react"
 import { API_BASE_URL } from "../config"
 import "./Settings.css"
 
+// Helper to get auth token - handles both storage methods
+const getAuthToken = () => localStorage.getItem("session_id") || getAuthToken()
+
+// Helper to extract error message from various error response formats
+const getErrorMessage = (error, fallback = "An error occurred") => {
+  if (!error) return fallback
+  
+  // If it's a string, return it directly
+  if (typeof error === "string") return error
+  
+  // FastAPI validation error format: { detail: [{ type, loc, msg, input }, ...] }
+  if (error.detail) {
+    if (typeof error.detail === "string") return error.detail
+    if (Array.isArray(error.detail)) {
+      // Extract messages from validation errors
+      return error.detail.map(e => e.msg || e.message || JSON.stringify(e)).join(", ")
+    }
+    if (typeof error.detail === "object") {
+      return error.detail.msg || error.detail.message || JSON.stringify(error.detail)
+    }
+  }
+  
+  // Standard error format
+  if (error.message) return error.message
+  if (error.msg) return error.msg
+  
+  return fallback
+}
+
 function Settings() {
   // App Settings state
   const [appSettings, setAppSettings] = useState({
@@ -12,6 +41,10 @@ function Settings() {
     cpx_ext_user_id: "",
     cpx_secure_hash_key: "",
     cpx_api_timeout: 30,
+    openai_api_key: "",
+    google_api_key: "",
+    google_cse_id: "",
+    google_sheets_service_account: "",
   })
   const [maskedSettings, setMaskedSettings] = useState({})
   
@@ -46,11 +79,27 @@ function Settings() {
     prefer_high_ir_surveys: true,
     prefer_high_cpi_surveys: false,
   })
-  const [newAccount, setNewAccount] = useState({ email: "", name: "", is_default: false })
+  const [newAccount, setNewAccount] = useState({ 
+    email: "", 
+    password: "",  // App password for IMAP
+    display_name: "", 
+    imap_server: "",  // Auto-detected if empty
+    imap_port: 993,
+    smtp_server: "",
+    smtp_port: 587,
+    use_ssl: true,
+    is_default: false,
+    skip_validation: false  // Skip IMAP connection test
+  })
   const [newAlias, setNewAlias] = useState({ email: "", name: "", account_id: "" })
   const [showAddAccount, setShowAddAccount] = useState(false)
   const [showAddAlias, setShowAddAlias] = useState(null) // account_id when open
   const [gmailLoading, setGmailLoading] = useState(false)
+  
+  // Historical import state
+  const [importProgress, setImportProgress] = useState({}) // { email: { status, progress, ... } }
+  const [idleStatus, setIdleStatus] = useState({ available: false, accounts: {} })
+  const [importDays, setImportDays] = useState({}) // { email: days }
   
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -75,35 +124,162 @@ function Settings() {
   const loadGmailSettings = async () => {
     setGmailLoading(true)
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       
-      // Load Gmail accounts
-      const accountsRes = await fetch(`${API_BASE_URL}/gmail/accounts`, {
+      // Load Email/IMAP accounts from leads endpoint
+      const accountsRes = await fetch(`${API_BASE_URL}/leads/gmail/accounts`, {
         headers: { Authorization: token }
       })
       if (accountsRes.ok) {
         const data = await accountsRes.json()
-        setGmailAccounts(data.accounts || [])
+        // Map IMAP accounts to expected format
+        const accounts = (data.accounts || []).map(acc => ({
+          id: acc._id || acc.email,
+          email: acc.email,
+          name: acc.display_name,
+          is_default: acc.is_default,
+          is_authenticated: acc.is_active,  // IMAP accounts are "authenticated" if active
+          imap_server: acc.imap_server,
+          last_sync: acc.last_sync,
+          historical_import_days: acc.historical_import_days || 30
+        }))
+        setGmailAccounts(accounts)
+        
+        // Initialize import days from accounts
+        const daysMap = {}
+        accounts.forEach(acc => {
+          daysMap[acc.email] = acc.historical_import_days || 30
+        })
+        setImportDays(daysMap)
       }
       
-      // Load rate limits
-      const rateLimitsRes = await fetch(`${API_BASE_URL}/gmail/rate-limits`, {
-        headers: { Authorization: token }
-      })
-      if (rateLimitsRes.ok) {
-        const data = await rateLimitsRes.json()
-        setRateLimits(prev => ({ ...prev, ...data.rate_limits }))
-      }
+      // Load IDLE status
+      await loadIdleStatus()
     } catch (error) {
-      console.error("Error loading Gmail settings:", error)
+      console.error("Error loading email settings:", error)
     } finally {
       setGmailLoading(false)
     }
   }
 
+  // Load IDLE watcher status
+  const loadIdleStatus = async () => {
+    try {
+      const token = getAuthToken()
+      const response = await fetch(`${API_BASE_URL}/gmail/idle/status`, {
+        headers: { Authorization: token }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setIdleStatus(data)
+      }
+    } catch (error) {
+      console.error("Error loading IDLE status:", error)
+    }
+  }
+
+  // Start/stop IDLE watchers for all accounts
+  const toggleIdleWatchers = async (start) => {
+    try {
+      const token = getAuthToken()
+      const endpoint = start ? "/gmail/idle/start" : "/gmail/idle/stop"
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        method: "POST",
+        headers: { Authorization: token }
+      })
+      if (response.ok) {
+        setMessage({ 
+          type: "success", 
+          text: start ? "Real-time email monitoring started" : "Real-time email monitoring stopped" 
+        })
+        await loadIdleStatus()
+      } else {
+        const error = await response.json()
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to toggle IDLE watchers") })
+      }
+    } catch (error) {
+      console.error("Error toggling IDLE:", error)
+      setMessage({ type: "error", text: "Failed to toggle real-time monitoring" })
+    }
+  }
+
+  // Start historical import for an account
+  const startHistoricalImport = async (email) => {
+    try {
+      const token = getAuthToken()
+      const days = importDays[email] || 30
+      
+      const response = await fetch(`${API_BASE_URL}/gmail/import/historical/${encodeURIComponent(email)}`, {
+        method: "POST",
+        headers: { 
+          Authorization: token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ days })
+      })
+      
+      if (response.ok) {
+        setMessage({ type: "success", text: `Import started for ${email}` })
+        // Start polling for progress
+        pollImportProgress(email)
+      } else {
+        const error = await response.json()
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to start import") })
+      }
+    } catch (error) {
+      console.error("Error starting import:", error)
+      setMessage({ type: "error", text: "Failed to start import" })
+    }
+  }
+
+  // Poll import progress for an account
+  const pollImportProgress = async (email) => {
+    const checkProgress = async () => {
+      try {
+        const token = getAuthToken()
+        const response = await fetch(`${API_BASE_URL}/gmail/import/progress/${encodeURIComponent(email)}`, {
+          headers: { Authorization: token }
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          setImportProgress(prev => ({ ...prev, [email]: data }))
+          
+          // Continue polling if still in progress (check all running statuses)
+          if (data.status === "in_progress" || data.status === "started" || data.status === "running") {
+            setTimeout(checkProgress, 1500) // Poll slightly faster for better UX
+          }
+        }
+      } catch (error) {
+        console.error("Error polling progress:", error)
+      }
+    }
+    
+    checkProgress()
+  }
+
+  // Update import days setting for an account
+  const updateImportDaysSetting = async (email, days) => {
+    setImportDays(prev => ({ ...prev, [email]: days }))
+    
+    try {
+      const token = getAuthToken()
+      await fetch(`${API_BASE_URL}/gmail/imap-accounts/${encodeURIComponent(email)}/settings`, {
+        method: "PUT",
+        headers: { 
+          Authorization: token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ historical_import_days: days })
+      })
+    } catch (error) {
+      console.error("Error updating import days:", error)
+    }
+  }
+
   const loadAllocationSettings = async () => {
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/survey-allocation/settings`, {
         headers: { Authorization: token }
       })
@@ -121,7 +297,7 @@ function Settings() {
     setMessage({ type: "", text: "" })
     
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/survey-allocation/settings`, {
         method: "POST",
         headers: {
@@ -135,7 +311,7 @@ function Settings() {
         setMessage({ type: "success", text: "Allocation settings saved successfully!" })
       } else {
         const error = await response.json()
-        setMessage({ type: "error", text: error.detail || "Failed to save allocation settings" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to save allocation settings") })
       }
     } catch (error) {
       console.error("Error saving allocation settings:", error)
@@ -152,22 +328,24 @@ function Settings() {
   const loadAllSettings = async () => {
     setLoading(true)
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       
-      // Load app settings
-      const appRes = await fetch(`${API_BASE_URL}/settings/app`, {
-        headers: { Authorization: token }
-      })
+      // Load app settings and survey filters in parallel
+      const [appRes, filterRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/settings/app`, {
+          headers: { Authorization: token }
+        }),
+        fetch(`${API_BASE_URL}/settings/survey-filters`, {
+          headers: { Authorization: token }
+        })
+      ])
+      
       if (appRes.ok) {
         const data = await appRes.json()
         setAppSettings(prev => ({ ...prev, ...data.settings }))
         setMaskedSettings(data.settings)
       }
       
-      // Load survey filters
-      const filterRes = await fetch(`${API_BASE_URL}/settings/survey-filters`, {
-        headers: { Authorization: token }
-      })
       if (filterRes.ok) {
         const data = await filterRes.json()
         setSurveyFilters(prev => ({ ...prev, ...data.filters }))
@@ -185,7 +363,7 @@ function Settings() {
     setMessage({ type: "", text: "" })
     
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       
       // Only send non-empty values
       const settingsToSave = {}
@@ -209,7 +387,7 @@ function Settings() {
         loadAllSettings() // Reload to get updated masked values
       } else {
         const error = await response.json()
-        setMessage({ type: "error", text: error.detail || "Failed to save settings" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to save settings") })
       }
     } catch (error) {
       console.error("Error saving settings:", error)
@@ -224,7 +402,7 @@ function Settings() {
     setMessage({ type: "", text: "" })
     
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       
       const response = await fetch(`${API_BASE_URL}/settings/survey-filters`, {
         method: "POST",
@@ -239,7 +417,7 @@ function Settings() {
         setMessage({ type: "success", text: "Survey filter settings saved successfully!" })
       } else {
         const error = await response.json()
-        setMessage({ type: "error", text: error.detail || "Failed to save filters" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to save filters") })
       }
     } catch (error) {
       console.error("Error saving filters:", error)
@@ -255,7 +433,7 @@ function Settings() {
     setMessage({ type: "", text: "" })
     
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       
       // Save app settings
       const appResponse = await fetch(`${API_BASE_URL}/settings/app`, {
@@ -269,7 +447,7 @@ function Settings() {
       
       if (!appResponse.ok) {
         const error = await appResponse.json()
-        setMessage({ type: "error", text: error.detail || "Failed to save application settings" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to save application settings") })
         return
       }
       
@@ -285,7 +463,7 @@ function Settings() {
       
       if (!filterResponse.ok) {
         const error = await filterResponse.json()
-        setMessage({ type: "error", text: error.detail || "Failed to save filter settings" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to save filter settings") })
         return
       }
       
@@ -304,7 +482,7 @@ function Settings() {
     setMessage({ type: "", text: "" })
     
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/settings/test-mongo`, {
         method: "POST",
         headers: {
@@ -331,7 +509,7 @@ function Settings() {
     setMessage({ type: "", text: "" })
     
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/settings/test-cpx`, {
         method: "POST",
         headers: {
@@ -372,7 +550,7 @@ function Settings() {
   // Gmail account management functions
   const initiateGmailAuth = async () => {
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/gmail/auth/url`, {
         headers: { Authorization: token }
       })
@@ -390,7 +568,7 @@ function Settings() {
 
   const authenticateAccount = async (accountId) => {
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/gmail/auth/url?account_id=${accountId}`, {
         headers: { Authorization: token }
       })
@@ -412,27 +590,53 @@ function Settings() {
       setMessage({ type: "error", text: "Email is required" })
       return
     }
+    if (!newAccount.password) {
+      setMessage({ type: "error", text: "App password is required" })
+      return
+    }
     
     setSaving(true)
     try {
-      const token = sessionStorage.getItem("token")
-      const response = await fetch(`${API_BASE_URL}/gmail/accounts`, {
+      const token = getAuthToken()
+      const response = await fetch(`${API_BASE_URL}/leads/gmail/accounts`, {
         method: "POST",
         headers: {
           Authorization: token,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(newAccount)
+        body: JSON.stringify({
+          email: newAccount.email,
+          password: newAccount.password,
+          display_name: newAccount.display_name || newAccount.email.split("@")[0],
+          imap_server: newAccount.imap_server || null,
+          imap_port: newAccount.imap_port,
+          smtp_server: newAccount.smtp_server || null,
+          smtp_port: newAccount.smtp_port,
+          use_ssl: newAccount.use_ssl,
+          is_default: newAccount.is_default,
+          skip_validation: newAccount.skip_validation
+        })
       })
       
       if (response.ok) {
-        setMessage({ type: "success", text: "Gmail account added successfully" })
-        setNewAccount({ email: "", name: "", is_default: false })
+        setMessage({ type: "success", text: newAccount.skip_validation ? "Email account saved (validation skipped)" : "Email account added and verified successfully" })
+        setNewAccount({ 
+          email: "", 
+          password: "",
+          display_name: "", 
+          imap_server: "",
+          imap_port: 993,
+          smtp_server: "",
+          smtp_port: 587,
+          use_ssl: true,
+          is_default: false,
+          skip_validation: false
+        })
         setShowAddAccount(false)
         loadGmailSettings()
       } else {
         const error = await response.json()
-        setMessage({ type: "error", text: error.detail || "Failed to add account" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to add account. Check your credentials.") })
       }
     } catch (error) {
       setMessage({ type: "error", text: "Failed to add Gmail account" })
@@ -441,26 +645,45 @@ function Settings() {
     }
   }
 
-  const removeGmailAccount = async (accountId) => {
-    if (!window.confirm("Are you sure you want to remove this Gmail account?")) {
+  const removeGmailAccount = async (accountEmail) => {
+    if (!window.confirm("Are you sure you want to remove this email account?")) {
       return
     }
     
     try {
-      const token = sessionStorage.getItem("token")
-      const response = await fetch(`${API_BASE_URL}/gmail/accounts/${accountId}`, {
+      const token = getAuthToken()
+      const response = await fetch(`${API_BASE_URL}/leads/gmail/accounts/${encodeURIComponent(accountEmail)}`, {
         method: "DELETE",
         headers: { Authorization: token }
       })
       
       if (response.ok) {
-        setMessage({ type: "success", text: "Gmail account removed" })
+        setMessage({ type: "success", text: "Email account removed" })
         loadGmailSettings()
       } else {
         setMessage({ type: "error", text: "Failed to remove account" })
       }
     } catch (error) {
       setMessage({ type: "error", text: "Failed to remove account" })
+    }
+  }
+
+  const testEmailAccount = async (accountEmail) => {
+    try {
+      const token = getAuthToken()
+      const response = await fetch(`${API_BASE_URL}/leads/gmail/accounts/${encodeURIComponent(accountEmail)}/test`, {
+        method: "POST",
+        headers: { Authorization: token }
+      })
+      
+      const data = await response.json()
+      if (data.success) {
+        setMessage({ type: "success", text: `Connection test successful for ${accountEmail}` })
+      } else {
+        setMessage({ type: "error", text: data.message || "Connection test failed" })
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: "Failed to test connection" })
     }
   }
 
@@ -472,7 +695,7 @@ function Settings() {
     
     setSaving(true)
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/gmail/accounts/${accountId}/aliases`, {
         method: "POST",
         headers: {
@@ -489,7 +712,7 @@ function Settings() {
         loadGmailSettings()
       } else {
         const error = await response.json()
-        setMessage({ type: "error", text: error.detail || "Failed to add alias" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to add alias") })
       }
     } catch (error) {
       setMessage({ type: "error", text: "Failed to add alias" })
@@ -500,7 +723,7 @@ function Settings() {
 
   const removeAlias = async (accountId, aliasEmail) => {
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(
         `${API_BASE_URL}/gmail/accounts/${accountId}/aliases/${encodeURIComponent(aliasEmail)}`,
         {
@@ -523,7 +746,7 @@ function Settings() {
   const syncAliases = async (accountId) => {
     setGmailLoading(true)
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/gmail/accounts/${accountId}/aliases/sync`, {
         method: "POST",
         headers: { Authorization: token }
@@ -547,7 +770,7 @@ function Settings() {
     setMessage({ type: "", text: "" })
     
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/gmail/rate-limits`, {
         method: "POST",
         headers: {
@@ -561,7 +784,7 @@ function Settings() {
         setMessage({ type: "success", text: "Rate limits saved successfully!" })
       } else {
         const error = await response.json()
-        setMessage({ type: "error", text: error.detail || "Failed to save rate limits" })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to save rate limits") })
       }
     } catch (error) {
       setMessage({ type: "error", text: "Failed to save rate limits" })
@@ -572,7 +795,7 @@ function Settings() {
 
   const setDefaultAccount = async (accountId) => {
     try {
-      const token = sessionStorage.getItem("token")
+      const token = getAuthToken()
       const response = await fetch(`${API_BASE_URL}/gmail/accounts/${accountId}/set-default`, {
         method: "POST",
         headers: { Authorization: token }
@@ -713,6 +936,61 @@ function Settings() {
                   value={appSettings.cpx_api_timeout}
                   onChange={(e) => handleAppSettingChange("cpx_api_timeout", parseInt(e.target.value))}
                 />
+              </div>
+            </div>
+
+            <div className="settings-group">
+              <h3>🤖 AI / OpenAI Settings</h3>
+              <p className="group-description">
+                Configure OpenAI API credentials for AI-powered lead classification and other AI features.
+              </p>
+              <div className="setting-row">
+                <label>OpenAI API Key</label>
+                <input
+                  type="password"
+                  placeholder={maskedSettings.openai_api_key_masked || "sk-..."}
+                  value={appSettings.openai_api_key}
+                  onChange={(e) => handleAppSettingChange("openai_api_key", e.target.value)}
+                />
+                <p className="setting-hint">Used for LinkedIn lead classification. Get your key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI Platform</a></p>
+              </div>
+            </div>
+
+            <div className="settings-group">
+              <h3>🔍 Google API Settings</h3>
+              <p className="group-description">
+                Configure Google API credentials for LinkedIn lead search and Google Sheets import.
+              </p>
+              <div className="setting-row">
+                <label>Google API Key</label>
+                <input
+                  type="password"
+                  placeholder={maskedSettings.google_api_key_masked || "AIza..."}
+                  value={appSettings.google_api_key}
+                  onChange={(e) => handleAppSettingChange("google_api_key", e.target.value)}
+                />
+                <p className="setting-hint">Required for Google Custom Search. Get from <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Google Cloud Console</a></p>
+              </div>
+              <div className="setting-row">
+                <label>Google Custom Search Engine ID</label>
+                <input
+                  type="text"
+                  placeholder={maskedSettings.google_cse_id_masked || "Your CSE ID"}
+                  value={appSettings.google_cse_id}
+                  onChange={(e) => handleAppSettingChange("google_cse_id", e.target.value)}
+                />
+                <p className="setting-hint">Create a search engine at <a href="https://programmablesearchengine.google.com/" target="_blank" rel="noopener noreferrer">Google Programmable Search</a> and restrict to linkedin.com</p>
+              </div>
+              <div className="setting-row">
+                <label>Google Sheets Service Account (JSON)</label>
+                <textarea
+                  placeholder={maskedSettings.google_sheets_service_account_masked || '{"type": "service_account", ...}'}
+                  value={appSettings.google_sheets_service_account}
+                  onChange={(e) => handleAppSettingChange("google_sheets_service_account", e.target.value)}
+                  rows={4}
+                  style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                />
+                <p className="setting-hint">Paste the full JSON key file content for Google Sheets API access. Download from <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener noreferrer">Service Accounts</a></p>
               </div>
             </div>
 
@@ -975,9 +1253,9 @@ function Settings() {
 
         {activeTab === "gmail" && (
           <div className="settings-section">
-            <h2>Gmail Account & Rate Limit Settings</h2>
+            <h2>Email Account Settings (IMAP/SMTP)</h2>
             <p className="section-description">
-              Manage Gmail accounts, aliases, and email sending rate limits.
+              Manage email accounts for lead extraction. For Gmail, use an App Password instead of your regular password.
             </p>
 
             {gmailLoading ? (
@@ -990,7 +1268,7 @@ function Settings() {
                 {/* Gmail Accounts Section */}
                 <div className="settings-group">
                   <div className="group-header">
-                    <h3>📧 Gmail Accounts</h3>
+                    <h3>📧 Email Accounts</h3>
                     <button 
                       className="add-button"
                       onClick={() => setShowAddAccount(!showAddAccount)}
@@ -1011,14 +1289,77 @@ function Settings() {
                         />
                       </div>
                       <div className="setting-row">
+                        <label>App Password *</label>
+                        <input
+                          type="password"
+                          placeholder="App password (not your regular password)"
+                          value={newAccount.password}
+                          onChange={(e) => setNewAccount(prev => ({ ...prev, password: e.target.value }))}
+                        />
+                        <small className="field-hint">
+                          For Gmail: Create an App Password at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">Google Account Settings</a>
+                        </small>
+                      </div>
+                      <div className="setting-row">
                         <label>Display Name</label>
                         <input
                           type="text"
                           placeholder="John Doe"
-                          value={newAccount.name}
-                          onChange={(e) => setNewAccount(prev => ({ ...prev, name: e.target.value }))}
+                          value={newAccount.display_name}
+                          onChange={(e) => setNewAccount(prev => ({ ...prev, display_name: e.target.value }))}
                         />
                       </div>
+                      
+                      <details className="advanced-settings">
+                        <summary>Advanced IMAP/SMTP Settings</summary>
+                        <div className="advanced-content">
+                          <div className="setting-row">
+                            <label>IMAP Server</label>
+                            <input
+                              type="text"
+                              placeholder="Auto-detected (e.g., imap.gmail.com)"
+                              value={newAccount.imap_server}
+                              onChange={(e) => setNewAccount(prev => ({ ...prev, imap_server: e.target.value }))}
+                            />
+                          </div>
+                          <div className="setting-row">
+                            <label>IMAP Port</label>
+                            <input
+                              type="number"
+                              value={newAccount.imap_port}
+                              onChange={(e) => setNewAccount(prev => ({ ...prev, imap_port: parseInt(e.target.value) || 993 }))}
+                            />
+                          </div>
+                          <div className="setting-row">
+                            <label>SMTP Server</label>
+                            <input
+                              type="text"
+                              placeholder="Auto-detected (e.g., smtp.gmail.com)"
+                              value={newAccount.smtp_server}
+                              onChange={(e) => setNewAccount(prev => ({ ...prev, smtp_server: e.target.value }))}
+                            />
+                          </div>
+                          <div className="setting-row">
+                            <label>SMTP Port</label>
+                            <input
+                              type="number"
+                              value={newAccount.smtp_port}
+                              onChange={(e) => setNewAccount(prev => ({ ...prev, smtp_port: parseInt(e.target.value) || 587 }))}
+                            />
+                          </div>
+                          <div className="setting-row checkbox-row">
+                            <label className="checkbox-label">
+                              <input
+                                type="checkbox"
+                                checked={newAccount.use_ssl}
+                                onChange={(e) => setNewAccount(prev => ({ ...prev, use_ssl: e.target.checked }))}
+                              />
+                              <span>Use SSL/TLS</span>
+                            </label>
+                          </div>
+                        </div>
+                      </details>
+                      
                       <div className="setting-row checkbox-row">
                         <label className="checkbox-label">
                           <input
@@ -1029,17 +1370,24 @@ function Settings() {
                           <span>Set as default account</span>
                         </label>
                       </div>
+                      <div className="setting-row checkbox-row" style={{ backgroundColor: '#fef3c7', padding: '12px', borderRadius: '8px', border: '1px solid #f59e0b' }}>
+                        <label className="checkbox-label">
+                          <input
+                            type="checkbox"
+                            checked={newAccount.skip_validation}
+                            onChange={(e) => setNewAccount(prev => ({ ...prev, skip_validation: e.target.checked }))}
+                          />
+                          <span style={{ fontWeight: '500' }}>Skip connection test (save credentials without validating)</span>
+                        </label>
+                        <p style={{ fontSize: '12px', color: '#92400e', marginTop: '6px', marginLeft: '24px' }}>
+                          ⚠️ Use this if IMAP is blocked by firewall/VPN. Credentials will be saved and you can test later.
+                        </p>
+                      </div>
                       <div className="form-actions">
-                        <button 
-                          className="auth-button"
-                          onClick={initiateGmailAuth}
-                        >
-                          🔐 Authenticate with Google
-                        </button>
                         <button 
                           className="save-button-small"
                           onClick={addGmailAccount}
-                          disabled={saving}
+                          disabled={saving || !newAccount.email || !newAccount.password}
                         >
                           {saving ? "Adding..." : "Add Account"}
                         </button>
@@ -1048,7 +1396,7 @@ function Settings() {
                   )}
 
                   {gmailAccounts.length === 0 ? (
-                    <p className="empty-message">No Gmail accounts configured. Add one to get started.</p>
+                    <p className="empty-message">No email accounts configured. Add one to get started.</p>
                   ) : (
                     <div className="accounts-list">
                       {gmailAccounts.map((account) => (
@@ -1059,38 +1407,21 @@ function Settings() {
                               {account.name && <span className="account-name">({account.name})</span>}
                               {account.is_default && <span className="default-badge">Default</span>}
                               <span className={`status-badge ${account.is_authenticated ? "authenticated" : "not-authenticated"}`}>
-                                {account.is_authenticated ? "✓ Connected" : "⚠ Not Authenticated"}
+                                {account.is_authenticated ? "✓ Active" : "⚠ Inactive"}
                               </span>
+                              {account.imap_server && <span className="server-info">({account.imap_server})</span>}
                             </div>
                             <div className="account-actions">
-                              {!account.is_authenticated && (
-                                <button 
-                                  className="action-button auth"
-                                  onClick={() => authenticateAccount(account.id)}
-                                  title="Authenticate with Google"
-                                >
-                                  🔐
-                                </button>
-                              )}
-                              {!account.is_default && (
-                                <button 
-                                  className="action-button"
-                                  onClick={() => setDefaultAccount(account.id)}
-                                  title="Set as default"
-                                >
-                                  ⭐
-                                </button>
-                              )}
                               <button 
-                                className="action-button sync"
-                                onClick={() => syncAliases(account.id)}
-                                title="Sync aliases from Gmail"
+                                className="action-button"
+                                onClick={() => testEmailAccount(account.email)}
+                                title="Test IMAP connection"
                               >
-                                🔄
+                                🔌
                               </button>
                               <button 
                                 className="action-button delete"
-                                onClick={() => removeGmailAccount(account.id)}
+                                onClick={() => removeGmailAccount(account.email)}
                                 title="Remove account"
                               >
                                 🗑️
@@ -1098,67 +1429,123 @@ function Settings() {
                             </div>
                           </div>
                           
-                          {/* Aliases Section */}
-                          <div className="aliases-section">
-                            <div className="aliases-header">
-                              <span className="aliases-title">Aliases ({account.aliases?.length || 0})</span>
-                              <button 
-                                className="add-alias-button"
-                                onClick={() => setShowAddAlias(showAddAlias === account.id ? null : account.id)}
+                          {account.last_sync && (
+                            <div className="account-meta">
+                              <span className="last-sync">Last sync: {new Date(account.last_sync).toLocaleString()}</span>
+                            </div>
+                          )}
+                          
+                          {/* Historical Import Section */}
+                          <div className="import-section">
+                            <div className="import-controls">
+                              <label className="import-label">Import History:</label>
+                              <select
+                                className="import-days-select"
+                                value={importDays[account.email] || 30}
+                                onChange={(e) => updateImportDaysSetting(account.email, parseInt(e.target.value))}
                               >
-                                {showAddAlias === account.id ? "Cancel" : "+ Add Alias"}
+                                <option value={7}>Last 7 days</option>
+                                <option value={30}>Last 30 days</option>
+                                <option value={90}>Last 90 days</option>
+                                <option value={180}>Last 6 months</option>
+                                <option value={365}>Last 1 year</option>
+                                <option value={730}>Last 2 years</option>
+                                <option value={0}>All emails</option>
+                              </select>
+                              <button
+                                className="import-button"
+                                onClick={() => startHistoricalImport(account.email)}
+                                disabled={importProgress[account.email]?.status === "in_progress" || importProgress[account.email]?.status === "running"}
+                              >
+                                {(importProgress[account.email]?.status === "in_progress" || importProgress[account.email]?.status === "running") ? "⏳ Importing..." : "📥 Import"}
                               </button>
                             </div>
                             
-                            {showAddAlias === account.id && (
-                              <div className="add-alias-form">
-                                <input
-                                  type="email"
-                                  placeholder="alias@example.com"
-                                  value={newAlias.email}
-                                  onChange={(e) => setNewAlias(prev => ({ ...prev, email: e.target.value }))}
-                                />
-                                <input
-                                  type="text"
-                                  placeholder="Display Name"
-                                  value={newAlias.name}
-                                  onChange={(e) => setNewAlias(prev => ({ ...prev, name: e.target.value }))}
-                                />
-                                <button 
-                                  className="save-alias-button"
-                                  onClick={() => addAlias(account.id)}
-                                  disabled={saving}
-                                >
-                                  Add
-                                </button>
-                              </div>
-                            )}
-                            
-                            {account.aliases && account.aliases.length > 0 ? (
-                              <div className="aliases-list">
-                                {account.aliases.map((alias, idx) => (
-                                  <div key={idx} className="alias-item">
-                                    <span className="alias-email">{alias.email}</span>
-                                    {alias.name && <span className="alias-name">({alias.name})</span>}
-                                    {alias.is_primary && <span className="primary-badge">Primary</span>}
-                                    <button 
-                                      className="remove-alias-button"
-                                      onClick={() => removeAlias(account.id, alias.email)}
-                                      title="Remove alias"
-                                    >
-                                      ×
-                                    </button>
+                            {/* Import Progress */}
+                            {importProgress[account.email] && importProgress[account.email].status !== "not_started" && (
+                              <div className="import-progress">
+                                <div className="progress-status">
+                                  <span className={`progress-badge ${importProgress[account.email].status}`}>
+                                    {importProgress[account.email].status === "in_progress" && "⏳ Importing..."}
+                                    {importProgress[account.email].status === "completed" && "✅ Completed"}
+                                    {importProgress[account.email].status === "error" && "❌ Error"}
+                                    {importProgress[account.email].status === "running" && "⏳ Importing..."}
+                                  </span>
+                                  {importProgress[account.email].processed_count !== undefined && importProgress[account.email].total_count > 0 && (
+                                    <span className="progress-count">
+                                      {importProgress[account.email].phase === "classifying" ? "🔄 Classifying: " : ""}
+                                      {importProgress[account.email].processed_count} / {importProgress[account.email].total_count} emails 
+                                      ({Math.round((importProgress[account.email].processed_count / importProgress[account.email].total_count) * 100)}%)
+                                    </span>
+                                  )}
+                                  {importProgress[account.email].processed_count !== undefined && !importProgress[account.email].total_count && (
+                                    <span className="progress-count">
+                                      {importProgress[account.email].phase === "connecting" && "🔌 Connecting to IMAP..."}
+                                      {importProgress[account.email].phase === "fetching" && "📥 Downloading emails via IMAP..."}
+                                      {!importProgress[account.email].phase && "📥 Fetching emails..."}
+                                    </span>
+                                  )}
+                                </div>
+                                {(importProgress[account.email].status === "in_progress" || importProgress[account.email].status === "running") && (
+                                  <div className="progress-bar-container">
+                                    <div 
+                                      className="progress-bar"
+                                      style={{ 
+                                        width: `${importProgress[account.email].total_count 
+                                          ? (importProgress[account.email].processed_count / importProgress[account.email].total_count) * 100 
+                                          : 5}%` 
+                                      }}
+                                    ></div>
                                   </div>
-                                ))}
+                                )}
+                                {importProgress[account.email].leads_created !== undefined && (
+                                  <div className="progress-stats">
+                                    <span>📧 Leads created: {importProgress[account.email].leads_created}</span>
+                                    <span>📋 RFQs detected: {importProgress[account.email].rfqs_created || 0}</span>
+                                  </div>
+                                )}
                               </div>
-                            ) : (
-                              <p className="no-aliases">No aliases configured</p>
                             )}
                           </div>
                         </div>
                       ))}
                     </div>
                   )}
+                </div>
+
+                {/* Real-time Monitoring Section */}
+                <div className="settings-group">
+                  <h3>🔄 Real-time Email Monitoring (IMAP IDLE)</h3>
+                  <p className="group-description">
+                    Enable real-time monitoring to automatically create leads when new emails arrive.
+                  </p>
+                  
+                  <div className="idle-status-section">
+                    <div className="idle-status-info">
+                      <span className={`idle-status-badge ${idleStatus.available ? (idleStatus.running ? "running" : "stopped") : "unavailable"}`}>
+                        {!idleStatus.available ? "⚠ Not Available" : (idleStatus.running ? "🟢 Running" : "🔴 Stopped")}
+                      </span>
+                      {idleStatus.running && idleStatus.active_watchers && (
+                        <span className="watcher-count">{idleStatus.active_watchers} account(s) monitored</span>
+                      )}
+                    </div>
+                    <div className="idle-actions">
+                      <button
+                        className="idle-button start"
+                        onClick={() => toggleIdleWatchers(true)}
+                        disabled={!idleStatus.available || idleStatus.running}
+                      >
+                        ▶ Start Monitoring
+                      </button>
+                      <button
+                        className="idle-button stop"
+                        onClick={() => toggleIdleWatchers(false)}
+                        disabled={!idleStatus.available || !idleStatus.running}
+                      >
+                        ⏹ Stop Monitoring
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Rate Limits Section */}

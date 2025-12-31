@@ -30,12 +30,13 @@ export default function SurveyPool() {
     return () => clearInterval(interval);
   }, [token]);
 
-  const fetchSurveys = async () => {
+  const fetchSurveys = async (pageSize = 20) => {
     setLoading(true);
     setError(null);
     
     try {
-      const response = await fetch(`${API_BASE_URL}/cpx/surveys?page=1&page_size=100`, {
+      // Fetch only the current page initially for faster load
+      const response = await fetch(`${API_BASE_URL}/cpx/surveys?page=${currentPage}&page_size=${pageSize}`, {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
