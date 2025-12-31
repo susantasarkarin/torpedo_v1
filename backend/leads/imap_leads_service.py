@@ -1572,3 +1572,208 @@ def get_segment_statistics() -> Dict[str, int]:
             stats[result["_id"]] = result["count"]
     
     return stats
+
+
+def detect_aliases_from_sent(email_address: str, max_emails: int = 500) -> Dict[str, Any]:
+    """
+    Detect aliases by scanning sent emails and finding unique 'From' addresses.
+    This helps find send-as aliases configured in the mailbox.
+    
+    Args:
+        email_address: The primary email address
+        max_emails: Maximum number of sent emails to scan
+        
+    Returns:
+        Dict with detected aliases and status
+    """
+    logger.info(f"🔍 [Alias Detection] Scanning sent emails for {email_address}...")
+    
+    account_doc = imap_accounts_collection.find_one({"email": email_address})
+    if not account_doc:
+        return {"success": False, "message": "Account not found", "aliases": []}
+    
+    try:
+        account = IMAPAccount(
+            email=account_doc["email"],
+            password=account_doc.get("password", ""),
+            imap_server=account_doc.get("imap_server", "imap.gmail.com"),
+            imap_port=account_doc.get("imap_port", 993),
+            use_ssl=account_doc.get("use_ssl", True)
+        )
+        
+        imap = connect_imap(account)
+        
+        # Find the Sent folder
+        sent_folder = None
+        for folder_name in SENT_FOLDER_NAMES:
+            status, _ = imap.select(folder_name)
+            if status == "OK":
+                sent_folder = folder_name
+                break
+        
+        if not sent_folder:
+            imap.logout()
+            return {
+                "success": False,
+                "message": "Could not find Sent folder",
+                "aliases": []
+            }
+        
+        # Search for recent sent emails
+        since_days = 180  # Look at last 6 months of sent emails
+        since_date = (datetime.now() - timedelta(days=since_days)).strftime("%d-%b-%Y")
+        status, message_numbers = imap.search(None, f'(SINCE "{since_date}")')
+        
+        if status != "OK":
+            imap.logout()
+            return {
+                "success": False,
+                "message": "Failed to search sent folder",
+                "aliases": []
+            }
+        
+        message_ids = message_numbers[0].split()
+        # Get most recent emails
+        message_ids = message_ids[-max_emails:] if len(message_ids) > max_emails else message_ids
+        
+        logger.info(f"📧 [Alias Detection] Scanning {len(message_ids)} sent emails...")
+        
+        # Collect unique From addresses
+        from_addresses = {}  # email -> {name, count}
+        
+        for msg_id in message_ids:
+            try:
+                # Fetch just the From header
+                status, msg_data = imap.fetch(msg_id, "(BODY.PEEK[HEADER.FIELDS (FROM)])")
+                if status != "OK":
+                    continue
+                
+                header_data = msg_data[0][1]
+                if isinstance(header_data, bytes):
+                    header_data = header_data.decode('utf-8', errors='ignore')
+                
+                # Parse From header
+                from_match = re.search(r'From:\s*(.+)', header_data, re.IGNORECASE)
+                if from_match:
+                    from_str = from_match.group(1).strip()
+                    name, email_addr = parseaddr(from_str)
+                    
+                    if email_addr:
+                        email_lower = email_addr.lower()
+                        if email_lower not in from_addresses:
+                            from_addresses[email_lower] = {
+                                "email": email_addr,
+                                "name": name or "",
+                                "count": 0
+                            }
+                        from_addresses[email_lower]["count"] += 1
+                        
+            except Exception as e:
+                continue
+        
+        imap.logout()
+        
+        # Process detected addresses
+        primary_email = email_address.lower()
+        detected_aliases = []
+        
+        for email_lower, info in from_addresses.items():
+            if email_lower != primary_email:
+                detected_aliases.append({
+                    "email": info["email"],
+                    "name": info["name"],
+                    "is_primary": False,
+                    "emails_sent": info["count"],
+                    "detected_from": "sent_folder"
+                })
+        
+        # Sort by usage count
+        detected_aliases.sort(key=lambda x: x["emails_sent"], reverse=True)
+        
+        logger.info(f"✅ [Alias Detection] Found {len(detected_aliases)} aliases for {email_address}")
+        
+        # Get existing aliases
+        existing_aliases = account_doc.get("aliases", [])
+        existing_emails = {a["email"].lower() for a in existing_aliases}
+        
+        # Find new aliases (not already added)
+        new_aliases = [a for a in detected_aliases if a["email"].lower() not in existing_emails]
+        
+        return {
+            "success": True,
+            "message": f"Found {len(detected_aliases)} aliases ({len(new_aliases)} new)",
+            "aliases": detected_aliases,
+            "new_aliases": new_aliases,
+            "existing_aliases": existing_aliases,
+            "total_scanned": len(message_ids)
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ [Alias Detection] Error for {email_address}: {e}")
+        return {
+            "success": False,
+            "message": f"Error detecting aliases: {str(e)}",
+            "aliases": []
+        }
+
+
+def add_detected_aliases(email_address: str, aliases_to_add: List[Dict] = None) -> Dict[str, Any]:
+    """
+    Add detected aliases to an account.
+    If aliases_to_add is None, auto-detect and add all.
+    
+    Args:
+        email_address: The primary email address
+        aliases_to_add: Optional list of aliases to add. If None, auto-detect.
+        
+    Returns:
+        Result with added aliases
+    """
+    account_doc = imap_accounts_collection.find_one({"email": email_address})
+    if not account_doc:
+        return {"success": False, "message": "Account not found"}
+    
+    # If no aliases provided, detect them
+    if aliases_to_add is None:
+        detection_result = detect_aliases_from_sent(email_address)
+        if not detection_result["success"]:
+            return detection_result
+        aliases_to_add = detection_result.get("new_aliases", [])
+    
+    if not aliases_to_add:
+        return {"success": True, "message": "No new aliases to add", "added": 0}
+    
+    # Get existing aliases
+    existing_aliases = account_doc.get("aliases", [])
+    existing_emails = {a["email"].lower() for a in existing_aliases}
+    
+    # Add new aliases
+    added_count = 0
+    for alias in aliases_to_add:
+        if alias["email"].lower() not in existing_emails:
+            new_alias = {
+                "email": alias["email"],
+                "name": alias.get("name", ""),
+                "is_primary": False,
+                "added_at": datetime.utcnow().isoformat(),
+                "source": "auto_detected"
+            }
+            existing_aliases.append(new_alias)
+            existing_emails.add(alias["email"].lower())
+            added_count += 1
+    
+    # Update in database
+    imap_accounts_collection.update_one(
+        {"email": email_address},
+        {"$set": {"aliases": existing_aliases}}
+    )
+    
+    logger.info(f"✅ [Alias] Added {added_count} aliases to {email_address}")
+    
+    return {
+        "success": True,
+        "message": f"Added {added_count} aliases",
+        "added": added_count,
+        "total_aliases": len(existing_aliases)
+    }
+

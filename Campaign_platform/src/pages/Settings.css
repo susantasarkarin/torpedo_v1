@@ -949,3 +949,152 @@
     flex: 1;
   }
 }
+
+/* ============== Email Aliases Section ============== */
+
+.aliases-section {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background-color: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.aliases-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.aliases-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #374151;
+}
+
+.aliases-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.aliases-actions .action-button {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.aliases-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.alias-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: white;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.alias-email {
+  font-size: 13px;
+  color: #1f2937;
+  font-family: monospace;
+}
+
+.alias-name {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.primary-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  background-color: #dbeafe;
+  color: #1d4ed8;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.detected-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  background-color: #dcfce7;
+  color: #15803d;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.alias-item .action-button.delete.small {
+  margin-left: auto;
+  padding: 2px 6px;
+  font-size: 10px;
+  background-color: #fee2e2;
+  color: #dc2626;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.alias-item .action-button.delete.small:hover {
+  background-color: #fecaca;
+}
+
+.no-aliases {
+  font-size: 12px;
+  color: #6b7280;
+  font-style: italic;
+  margin: 0;
+}
+
+.add-alias-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+  flex-wrap: wrap;
+}
+
+.alias-input {
+  flex: 1;
+  min-width: 150px;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.alias-input:focus {
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.1);
+}
+
+.cancel-button-small {
+  padding: 8px 16px;
+  background-color: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cancel-button-small:hover {
+  background-color: #e5e7eb;
+}
+
+@media (max-width: 768px) {
+  .add-alias-form {
+    flex-direction: column;
+  }
+  
+  .alias-input {
+    width: 100%;
+  }
+}

@@ -431,6 +431,44 @@ async def delete_rfq(rfq_id: str) -> Dict[str, Any]:
     }
 
 
+@router.post("/bulk-delete")
+async def bulk_delete_rfqs(data: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    """
+    Delete multiple RFQs by their IDs.
+    """
+    ids = data.get("ids", [])
+    if not ids:
+        raise HTTPException(status_code=400, detail="No IDs provided")
+    
+    deleted_count = 0
+    for rfq_id in ids:
+        # Find the RFQ
+        rfq = rfqs_collection.find_one({"rfq_id": rfq_id})
+        if not rfq:
+            try:
+                rfq = rfqs_collection.find_one({"_id": ObjectId(rfq_id)})
+            except:
+                continue
+        
+        if rfq:
+            # Remove RFQ ID from lead
+            if rfq.get("contact_email"):
+                email_leads_collection.update_one(
+                    {"email": rfq["contact_email"]},
+                    {"$pull": {"rfq_ids": rfq.get("rfq_id")}}
+                )
+            
+            # Delete RFQ
+            rfqs_collection.delete_one({"_id": rfq["_id"]})
+            deleted_count += 1
+    
+    return {
+        "success": True,
+        "message": f"Successfully deleted {deleted_count} RFQs",
+        "deleted_count": deleted_count
+    }
+
+
 @router.get("/by-lead/{lead_id}")
 async def get_rfqs_by_lead(lead_id: str) -> Dict[str, Any]:
     """

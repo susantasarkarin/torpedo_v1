@@ -14,6 +14,7 @@ function Contacts() {
   const [search, setSearch] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [recordsPerPage, setRecordsPerPage] = useState(10)
+  const [selectedIds, setSelectedIds] = useState([])
 
   // Contact stages (post-qualification)
   const contactStages = getContactStages()
@@ -225,6 +226,63 @@ function Contacts() {
     }
   };
 
+  // Bulk delete contacts
+  const bulkDeleteContacts = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Delete ${selectedIds.length} selected contacts?`)) return;
+
+    const sessionId = localStorage.getItem("session_id");
+    if (!sessionId) {
+      navigate("/login");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/contacts/bulk-delete`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+        body: JSON.stringify({ ids: selectedIds }),
+      });
+
+      if (res.status === 401) {
+        alert("Session expired. Please login again.");
+        localStorage.removeItem("session_id");
+        navigate("/login");
+        return;
+      }
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Failed to delete contacts");
+
+      setContacts((prev) => prev.filter((c) => !selectedIds.includes(c._id)));
+      setSelectedIds([]);
+      alert(`✅ ${data.deleted_count} contacts deleted successfully!`);
+    } catch (e) {
+      setError(e.message || "Bulk delete failed");
+    }
+  };
+
+  // Toggle selection
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  // Toggle select all (current page)
+  const toggleSelectAll = () => {
+    const currentPageIds = paginatedContacts.map((c) => c._id);
+    const allSelected = currentPageIds.every((id) => selectedIds.includes(id));
+    if (allSelected) {
+      setSelectedIds((prev) => prev.filter((id) => !currentPageIds.includes(id)));
+    } else {
+      setSelectedIds((prev) => [...new Set([...prev, ...currentPageIds])]);
+    }
+  };
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return contacts;
@@ -262,7 +320,15 @@ function Contacts() {
           <h2 style={styles.title}>Contacts</h2>
           <p style={styles.subtitle}>Manage qualified leads through the sales pipeline stages</p>
         </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          {selectedIds.length > 0 && (
+            <button 
+              style={{...styles.btnPrimary, backgroundColor: '#dc2626'}} 
+              onClick={bulkDeleteContacts}
+            >
+              🗑️ Delete ({selectedIds.length})
+            </button>
+          )}
           {contacts.length > 0 && contacts.some(c => !c.name && !c.firstName && !c.companyName) && (
             <button 
               style={{...styles.btnPrimary, backgroundColor: '#dc3545'}} 
@@ -317,6 +383,14 @@ function Contacts() {
         <table style={styles.table}>
           <thead style={styles.thead}>
             <tr>
+              <th style={{...styles.th, width: '40px'}}>
+                <input 
+                  type="checkbox" 
+                  checked={paginatedContacts.length > 0 && paginatedContacts.every(c => selectedIds.includes(c._id))}
+                  onChange={toggleSelectAll}
+                  style={{ cursor: 'pointer' }}
+                />
+              </th>
               <th style={styles.th}>Name</th>
               <th style={styles.th}>Email</th>
               <th style={styles.th}>Title</th>
@@ -330,7 +404,15 @@ function Contacts() {
             {paginatedContacts.map(contact => {
               const stageStyle = getStageStyle(contact.stage)
               return (
-                <tr key={contact._id} style={styles.tr}>
+                <tr key={contact._id} style={{...styles.tr, backgroundColor: selectedIds.includes(contact._id) ? '#eff6ff' : 'transparent'}}>
+                  <td style={styles.td}>
+                    <input 
+                      type="checkbox" 
+                      checked={selectedIds.includes(contact._id)}
+                      onChange={() => toggleSelect(contact._id)}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </td>
                   <td style={styles.td}>
                     {contact.name || `${contact.firstName} ${contact.lastName}`.trim() || '-'}
                   </td>
@@ -371,7 +453,7 @@ function Contacts() {
             })}
             {paginatedContacts.length === 0 && filtered.length === 0 && (
               <tr>
-                <td colSpan={7} style={styles.emptyState}>
+                <td colSpan={8} style={styles.emptyState}>
                   No contacts found. Move leads from the Leads page to get started!
                 </td>
               </tr>

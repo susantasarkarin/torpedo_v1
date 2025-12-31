@@ -14,6 +14,7 @@ function Leads() {
   const [search, setSearch] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [recordsPerPage, setRecordsPerPage] = useState(10)
+  const [selectedIds, setSelectedIds] = useState([])
 
   // Lead stages (pre-qualification)
   const leadStages = getLeadStages()
@@ -262,6 +263,63 @@ function Leads() {
     }
   };
 
+  // Bulk delete leads
+  const bulkDeleteLeads = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Delete ${selectedIds.length} selected leads?`)) return;
+
+    const sessionId = localStorage.getItem("session_id");
+    if (!sessionId) {
+      navigate("/login");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads/bulk-delete`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+        body: JSON.stringify({ ids: selectedIds }),
+      });
+
+      if (res.status === 401) {
+        alert("Session expired. Please login again.");
+        localStorage.removeItem("session_id");
+        navigate("/login");
+        return;
+      }
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Failed to delete leads");
+
+      setLeads((prev) => prev.filter((l) => !selectedIds.includes(l._id)));
+      setSelectedIds([]);
+      alert(`✅ ${data.deleted_count} leads deleted successfully!`);
+    } catch (e) {
+      setError(e.message || "Bulk delete failed");
+    }
+  };
+
+  // Toggle selection
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  // Toggle select all (current page)
+  const toggleSelectAll = () => {
+    const currentPageIds = paginatedLeads.map((l) => l._id);
+    const allSelected = currentPageIds.every((id) => selectedIds.includes(id));
+    if (allSelected) {
+      setSelectedIds((prev) => prev.filter((id) => !currentPageIds.includes(id)));
+    } else {
+      setSelectedIds((prev) => [...new Set([...prev, ...currentPageIds])]);
+    }
+  };
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return leads;
@@ -294,7 +352,15 @@ function Leads() {
           <h2 style={styles.title}>Leads</h2>
           <p style={styles.subtitle}>Track and manage your sales leads with comprehensive company data</p>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          {selectedIds.length > 0 && (
+            <button 
+              style={{ ...styles.btnPrimary, backgroundColor: '#dc2626' }} 
+              onClick={bulkDeleteLeads}
+            >
+              🗑️ Delete ({selectedIds.length})
+            </button>
+          )}
           <button 
             style={{ ...styles.btnPrimary, backgroundColor: '#6b7280' }} 
             onClick={() => navigate('/admin/sales/leads/import')}
@@ -342,6 +408,14 @@ function Leads() {
         <table style={styles.table}>
           <thead style={styles.thead}>
             <tr>
+              <th style={{...styles.th, width: '40px'}}>
+                <input 
+                  type="checkbox" 
+                  checked={paginatedLeads.length > 0 && paginatedLeads.every(l => selectedIds.includes(l._id))}
+                  onChange={toggleSelectAll}
+                  style={{ cursor: 'pointer' }}
+                />
+              </th>
               <th style={styles.th}>Name</th>
               <th style={styles.th}>Email</th>
               <th style={styles.th}>Title</th>
@@ -357,9 +431,17 @@ function Leads() {
               return (
               <tr 
                 key={lead._id} 
-                style={{ ...styles.tr, cursor: 'pointer' }}
+                style={{ ...styles.tr, cursor: 'pointer', backgroundColor: selectedIds.includes(lead._id) ? '#eff6ff' : 'transparent' }}
                 onClick={() => navigate(`/admin/sales/leads/${lead._id}`)}
               >
+                <td style={styles.td} onClick={(e) => e.stopPropagation()}>
+                  <input 
+                    type="checkbox" 
+                    checked={selectedIds.includes(lead._id)}
+                    onChange={() => toggleSelect(lead._id)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                </td>
                 <td style={styles.td}>
                   {lead.name || `${lead.firstName} ${lead.lastName}`.trim() || '-'}
                 </td>
@@ -401,7 +483,7 @@ function Leads() {
             )})}
             {paginatedLeads.length === 0 && filtered.length === 0 && (
               <tr>
-                <td colSpan={6} style={styles.emptyState}>
+                <td colSpan={7} style={styles.emptyState}>
                   No leads found.
                 </td>
               </tr>

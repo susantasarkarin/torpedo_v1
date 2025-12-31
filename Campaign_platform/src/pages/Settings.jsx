@@ -141,7 +141,8 @@ function Settings() {
           is_authenticated: acc.is_active,  // IMAP accounts are "authenticated" if active
           imap_server: acc.imap_server,
           last_sync: acc.last_sync,
-          historical_import_days: acc.historical_import_days || 30
+          historical_import_days: acc.historical_import_days || 30,
+          aliases: acc.aliases || []  // Include aliases
         }))
         setGmailAccounts(accounts)
         
@@ -687,7 +688,7 @@ function Settings() {
     }
   }
 
-  const addAlias = async (accountId) => {
+  const addAlias = async (accountEmail) => {
     if (!newAlias.email) {
       setMessage({ type: "error", text: "Alias email is required" })
       return
@@ -696,7 +697,7 @@ function Settings() {
     setSaving(true)
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/gmail/accounts/${accountId}/aliases`, {
+      const response = await fetch(`${API_BASE_URL}/leads/gmail/accounts/${encodeURIComponent(accountEmail)}/aliases`, {
         method: "POST",
         headers: {
           Authorization: token,
@@ -721,11 +722,11 @@ function Settings() {
     }
   }
 
-  const removeAlias = async (accountId, aliasEmail) => {
+  const removeAlias = async (accountEmail, aliasEmail) => {
     try {
       const token = getAuthToken()
       const response = await fetch(
-        `${API_BASE_URL}/gmail/accounts/${accountId}/aliases/${encodeURIComponent(aliasEmail)}`,
+        `${API_BASE_URL}/leads/gmail/accounts/${encodeURIComponent(accountEmail)}/aliases/${encodeURIComponent(aliasEmail)}`,
         {
           method: "DELETE",
           headers: { Authorization: token }
@@ -743,23 +744,32 @@ function Settings() {
     }
   }
 
-  const syncAliases = async (accountId) => {
+  const syncAliases = async (accountEmail) => {
     setGmailLoading(true)
+    setMessage({ type: "info", text: "Scanning sent emails to detect aliases... This may take a moment." })
+    
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/gmail/accounts/${accountId}/aliases/sync`, {
+      const response = await fetch(`${API_BASE_URL}/leads/gmail/accounts/${encodeURIComponent(accountEmail)}/aliases/sync`, {
         method: "POST",
         headers: { Authorization: token }
       })
       
       if (response.ok) {
-        setMessage({ type: "success", text: "Aliases synced from Gmail" })
+        const data = await response.json()
+        if (data.added > 0) {
+          setMessage({ type: "success", text: `✅ Found and added ${data.added} aliases! Total: ${data.total_aliases}` })
+        } else {
+          setMessage({ type: "info", text: "No new aliases found. All detected aliases are already added." })
+        }
         loadGmailSettings()
       } else {
-        setMessage({ type: "error", text: "Failed to sync aliases" })
+        const error = await response.json()
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to sync aliases") })
       }
     } catch (error) {
-      setMessage({ type: "error", text: "Failed to sync aliases" })
+      console.error("Error syncing aliases:", error)
+      setMessage({ type: "error", text: "Failed to sync aliases. Check console for details." })
     } finally {
       setGmailLoading(false)
     }
@@ -1504,6 +1514,89 @@ function Settings() {
                                     <span>📋 RFQs detected: {importProgress[account.email].rfqs_created || 0}</span>
                                   </div>
                                 )}
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Email Aliases Section */}
+                          <div className="aliases-section">
+                            <div className="aliases-header">
+                              <span className="aliases-title">📧 Email Aliases</span>
+                              <div className="aliases-actions">
+                                <button
+                                  className="action-button"
+                                  onClick={() => syncAliases(account.email)}
+                                  title="Auto-detect aliases from sent emails"
+                                  disabled={gmailLoading}
+                                >
+                                  {gmailLoading ? "⏳" : "🔍"}
+                                </button>
+                                <button
+                                  className="action-button"
+                                  onClick={() => setShowAddAlias(showAddAlias === account.email ? null : account.email)}
+                                  title="Add alias manually"
+                                >
+                                  ➕
+                                </button>
+                              </div>
+                            </div>
+                            
+                            {/* Alias List */}
+                            {account.aliases && account.aliases.length > 0 ? (
+                              <div className="aliases-list">
+                                {account.aliases.map((alias, idx) => (
+                                  <div key={idx} className="alias-item">
+                                    <span className="alias-email">{alias.email}</span>
+                                    {alias.name && <span className="alias-name">({alias.name})</span>}
+                                    {alias.is_primary && <span className="primary-badge">Primary</span>}
+                                    {alias.source === "auto_detected" && <span className="detected-badge">Auto</span>}
+                                    <button
+                                      className="action-button delete small"
+                                      onClick={() => removeAlias(account.email, alias.email)}
+                                      title="Remove alias"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="no-aliases">No aliases configured. Click 🔍 to auto-detect from sent emails or ➕ to add manually.</p>
+                            )}
+                            
+                            {/* Add Alias Form */}
+                            {showAddAlias === account.email && (
+                              <div className="add-alias-form">
+                                <input
+                                  type="email"
+                                  placeholder="alias@example.com"
+                                  value={newAlias.email}
+                                  onChange={(e) => setNewAlias(prev => ({ ...prev, email: e.target.value }))}
+                                  className="alias-input"
+                                />
+                                <input
+                                  type="text"
+                                  placeholder="Display Name (optional)"
+                                  value={newAlias.name}
+                                  onChange={(e) => setNewAlias(prev => ({ ...prev, name: e.target.value }))}
+                                  className="alias-input"
+                                />
+                                <button
+                                  className="save-button-small"
+                                  onClick={() => addAlias(account.email)}
+                                  disabled={saving || !newAlias.email}
+                                >
+                                  {saving ? "Adding..." : "Add"}
+                                </button>
+                                <button
+                                  className="cancel-button-small"
+                                  onClick={() => {
+                                    setShowAddAlias(null)
+                                    setNewAlias({ email: "", name: "", account_id: "" })
+                                  }}
+                                >
+                                  Cancel
+                                </button>
                               </div>
                             )}
                           </div>

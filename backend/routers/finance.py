@@ -447,6 +447,42 @@ async def delete_customer(customer_id: str):
         raise HTTPException(status_code=500, detail=f"Error deleting customer: {str(e)}")
 
 
+@router.post("/finance/customers/bulk-delete")
+async def bulk_delete_customers(data: Dict[str, Any] = Body(...)):
+    """Delete multiple customers by their IDs"""
+    try:
+        ids = data.get("ids", [])
+        if not ids:
+            raise HTTPException(status_code=400, detail="No IDs provided")
+        
+        # Check for customers with invoices
+        object_ids = [ObjectId(id) for id in ids]
+        customers_with_invoices = []
+        for oid in object_ids:
+            invoice_count = invoices_collection.count_documents({"customer_id": str(oid)})
+            if invoice_count > 0:
+                customer = customers_collection.find_one({"_id": oid})
+                if customer:
+                    customers_with_invoices.append(customer.get("name", str(oid)))
+        
+        if customers_with_invoices:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete customers with invoices: {', '.join(customers_with_invoices[:5])}"
+            )
+        
+        result = customers_collection.delete_many({"_id": {"$in": object_ids}})
+        
+        return {
+            "message": f"Successfully deleted {result.deleted_count} customers",
+            "deleted_count": result.deleted_count
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Bulk delete error: {str(e)}")
+
+
 @router.get("/finance/customers/export/csv")
 async def export_customers_csv():
     """Export all customers to CSV format"""

@@ -20,6 +20,7 @@ function RFQ() {
   const [editingValue, setEditingValue] = useState(null) // { rfq_id, value }
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: "", text: "" })
+  const [selectedIds, setSelectedIds] = useState([])
 
   useEffect(() => {
     loadRFQs()
@@ -164,6 +165,56 @@ function RFQ() {
     }
   }
 
+  // Bulk delete RFQs
+  const bulkDeleteRFQs = async () => {
+    if (selectedIds.length === 0) return
+    if (!window.confirm(`Delete ${selectedIds.length} selected RFQs?`)) return
+    
+    try {
+      const token = localStorage.getItem("session_id")
+      const response = await fetch(`${API_BASE_URL}/rfq/bulk-delete`, {
+        method: "POST",
+        headers: { 
+          Authorization: token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ ids: selectedIds })
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setMessage({ type: "success", text: `${data.deleted_count} RFQs deleted` })
+        setSelectedIds([])
+        loadRFQs()
+        loadStats()
+      } else {
+        const error = await response.json()
+        setMessage({ type: "error", text: error.detail || "Failed to delete RFQs" })
+      }
+    } catch (error) {
+      console.error("Error bulk deleting RFQs:", error)
+      setMessage({ type: "error", text: "Failed to delete RFQs" })
+    }
+  }
+
+  // Toggle selection
+  const toggleSelect = (rfqId) => {
+    setSelectedIds((prev) =>
+      prev.includes(rfqId) ? prev.filter((x) => x !== rfqId) : [...prev, rfqId]
+    )
+  }
+
+  // Toggle select all
+  const toggleSelectAll = () => {
+    const allIds = rfqs.map((r) => r.rfq_id)
+    const allSelected = allIds.every((id) => selectedIds.includes(id))
+    if (allSelected) {
+      setSelectedIds([])
+    } else {
+      setSelectedIds(allIds)
+    }
+  }
+
   const formatCurrency = (value, currency = "USD") => {
     if (!value && value !== 0) return "—"
     const symbols = { USD: "$", INR: "₹", EUR: "€", GBP: "£" }
@@ -279,6 +330,15 @@ function RFQ() {
           >
             Clear Filters
           </button>
+          {selectedIds.length > 0 && (
+            <button 
+              className="btn btn-danger"
+              onClick={bulkDeleteRFQs}
+              style={{ backgroundColor: '#dc2626', color: 'white' }}
+            >
+              🗑️ Delete ({selectedIds.length})
+            </button>
+          )}
         </div>
 
         {/* RFQ Table */}
@@ -296,6 +356,14 @@ function RFQ() {
             <table className="rfq-table">
               <thead>
                 <tr>
+                  <th style={{ width: '40px' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={rfqs.length > 0 && rfqs.every(r => selectedIds.includes(r.rfq_id))}
+                      onChange={toggleSelectAll}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </th>
                   <th>Title / Subject</th>
                   <th>Lead</th>
                   <th>Value</th>
@@ -307,7 +375,15 @@ function RFQ() {
               </thead>
               <tbody>
                 {rfqs.map((rfq) => (
-                  <tr key={rfq.rfq_id}>
+                  <tr key={rfq.rfq_id} style={{ backgroundColor: selectedIds.includes(rfq.rfq_id) ? '#eff6ff' : 'transparent' }}>
+                    <td>
+                      <input 
+                        type="checkbox" 
+                        checked={selectedIds.includes(rfq.rfq_id)}
+                        onChange={() => toggleSelect(rfq.rfq_id)}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    </td>
                     <td className="rfq-title-cell">
                       <div className="rfq-title">{rfq.title || "Untitled RFQ"}</div>
                       {rfq.source_email?.subject && (

@@ -8,7 +8,6 @@ import Login from "./pages/Login"
 
 // Main Pages
 import Dashboard from "./pages/Dashboard"
-import Sales from "./pages/Sales"
 import Marketing from "./pages/Marketing"
 import Finance from "./pages/Finance"
 import Operations from "./pages/Operations"
@@ -97,8 +96,7 @@ function App() {
         <Route path="dashboard" element={<Dashboard />} />
 
         {/* Sales Routes */}
-        <Route path="sales" element={<Sales />} />
-        <Route path="sales/dashboard" element={<SalesDashboard />} />
+        <Route path="sales" element={<SalesDashboard />} />
         <Route path="sales/campaign" element={<Campaign />} />
         <Route path="sales/leads" element={<Leads />} />
         <Route path="sales/leads/import" element={<LeadsImport />} />

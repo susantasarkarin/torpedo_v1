@@ -1084,6 +1084,25 @@ async def delete_lead(lead_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lead delete error: {str(e)}")
 
+# Bulk delete leads
+@app.post("/leads/bulk-delete")
+async def bulk_delete_leads(data: Dict[str, Any] = Body(...)):
+    """Delete multiple leads by their IDs"""
+    try:
+        ids = data.get("ids", [])
+        if not ids:
+            raise HTTPException(status_code=400, detail="No IDs provided")
+        
+        object_ids = [ObjectId(id) for id in ids]
+        result = leads_collection.delete_many({"_id": {"$in": object_ids}})
+        
+        return {
+            "message": f"Successfully deleted {result.deleted_count} leads",
+            "deleted_count": result.deleted_count
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Bulk delete error: {str(e)}")
+
 # Move lead to contacts (RFQ stage)
 @app.post("/leads/{lead_id}/move-to-contacts")
 async def move_lead_to_contacts(lead_id: str, stage_data: Dict[str, Any] = Body(...)):
@@ -1364,6 +1383,25 @@ async def delete_contact(contact_id: str):
         return {"message": "Contact deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Contact delete error: {str(e)}")
+
+# Bulk delete contacts
+@app.post("/contacts/bulk-delete")
+async def bulk_delete_contacts(data: Dict[str, Any] = Body(...)):
+    """Delete multiple contacts by their IDs"""
+    try:
+        ids = data.get("ids", [])
+        if not ids:
+            raise HTTPException(status_code=400, detail="No IDs provided")
+        
+        object_ids = [ObjectId(id) for id in ids]
+        result = contacts_collection.delete_many({"_id": {"$in": object_ids}})
+        
+        return {
+            "message": f"Successfully deleted {result.deleted_count} contacts",
+            "deleted_count": result.deleted_count
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Bulk delete error: {str(e)}")
 
 def generate_vid():
     while True:

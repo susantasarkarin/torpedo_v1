@@ -61,6 +61,7 @@ function Account() {
   const [search, setSearch] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [recordsPerPage, setRecordsPerPage] = useState(10)
+  const [selectedIds, setSelectedIds] = useState([])
 
   const emptyForm = {
     name: "",
@@ -255,6 +256,63 @@ function Account() {
     }
   };
 
+  // Bulk delete accounts
+  const bulkDeleteAccounts = async () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Delete ${selectedIds.length} selected accounts?`)) return;
+
+    const sessionId = localStorage.getItem("session_id");
+    if (!sessionId) {
+      navigate("/login");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/finance/finance/customers/bulk-delete`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+        body: JSON.stringify({ ids: selectedIds }),
+      });
+
+      if (res.status === 401) {
+        alert("Session expired. Please login again.");
+        localStorage.removeItem("session_id");
+        navigate("/login");
+        return;
+      }
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Failed to delete accounts");
+
+      setAccounts((prev) => prev.filter((a) => !selectedIds.includes(a._id)));
+      setSelectedIds([]);
+      alert(`✅ ${data.deleted_count} accounts deleted successfully!`);
+    } catch (e) {
+      setError(e.message || "Bulk delete failed");
+    }
+  };
+
+  // Toggle selection
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  // Toggle select all (current page)
+  const toggleSelectAll = () => {
+    const currentPageIds = paginatedAccounts.map((a) => a._id);
+    const allSelected = currentPageIds.every((id) => selectedIds.includes(id));
+    if (allSelected) {
+      setSelectedIds((prev) => prev.filter((id) => !currentPageIds.includes(id)));
+    } else {
+      setSelectedIds((prev) => [...new Set([...prev, ...currentPageIds])]);
+    }
+  };
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return accounts;
@@ -287,7 +345,15 @@ function Account() {
           <h2 style={styles.title}>Accounts</h2>
           <p style={styles.subtitle}>Manage customer accounts and relationship data</p>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          {selectedIds.length > 0 && (
+            <button 
+              style={{ ...styles.btnPrimary, backgroundColor: '#dc2626' }} 
+              onClick={bulkDeleteAccounts}
+            >
+              🗑️ Delete ({selectedIds.length})
+            </button>
+          )}
           <button 
             style={{ ...styles.btnSecondary, padding: '8px 16px' }} 
             onClick={fetchAccounts}
@@ -335,6 +401,14 @@ function Account() {
         <table style={styles.table}>
           <thead style={styles.thead}>
             <tr>
+              <th style={{...styles.th, width: '40px'}}>
+                <input 
+                  type="checkbox" 
+                  checked={paginatedAccounts.length > 0 && paginatedAccounts.every(a => selectedIds.includes(a._id))}
+                  onChange={toggleSelectAll}
+                  style={{ cursor: 'pointer' }}
+                />
+              </th>
               <th style={styles.th}>Account Name</th>
               <th style={styles.th}>Primary Contact</th>
               <th style={styles.th}>Email</th>
@@ -350,13 +424,22 @@ function Account() {
                 style={{
                   ...styles.tr, 
                   cursor: 'pointer',
-                  transition: 'background-color 0.15s'
+                  transition: 'background-color 0.15s',
+                  backgroundColor: selectedIds.includes(account._id) ? '#eff6ff' : 'transparent'
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f9fafb'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                onMouseEnter={(e) => { if (!selectedIds.includes(account._id)) e.currentTarget.style.backgroundColor = '#f9fafb' }}
+                onMouseLeave={(e) => { if (!selectedIds.includes(account._id)) e.currentTarget.style.backgroundColor = 'transparent' }}
                 onClick={() => navigate(`/admin/sales/account/${encodeURIComponent(account.name)}`)}
                 title="Click to view all contacts from this company"
               >
+                <td style={styles.td} onClick={(e) => e.stopPropagation()}>
+                  <input 
+                    type="checkbox" 
+                    checked={selectedIds.includes(account._id)}
+                    onChange={() => toggleSelect(account._id)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                </td>
                 <td style={styles.td}>
                   <strong>{account.name}</strong>
                 </td>
@@ -381,7 +464,7 @@ function Account() {
             ))}
             {paginatedAccounts.length === 0 && filtered.length === 0 && (
               <tr>
-                <td colSpan={6} style={styles.emptyState}>
+                <td colSpan={7} style={styles.emptyState}>
                   No accounts found.
                 </td>
               </tr>
