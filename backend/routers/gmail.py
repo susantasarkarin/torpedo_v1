@@ -1710,11 +1710,93 @@ async def update_imap_account_settings(
 # MAIL POOL - Consolidated Email Activity Tracking
 # ============================================
 
-# Email leads collection (from email_automation db)
+# Email archive collection (from gmail_archive db)
+gmail_archive_db = mongo_client["gmail_archive"]
+mail_pool_emails = gmail_archive_db["emails"]
+
+# Also check email_automation for leads data
 email_automation_db = mongo_client["email_automation"]
 mail_pool_email_leads = email_automation_db["email_leads"]
 mail_pool_conversations = email_automation_db["email_conversations"]
 mail_pool_sync_log = gmail_db["email_sync_log"]
+
+
+# Helper function to parse email address from "Name <email@domain.com>" format
+def parse_email_address(from_string):
+    """Extract email and name from 'Name <email>' format"""
+    import re
+    if not from_string:
+        return "", ""
+    
+    # Decode MIME encoded strings
+    from email.header import decode_header
+    try:
+        decoded_parts = decode_header(from_string)
+        decoded_str = ""
+        for part, encoding in decoded_parts:
+            if isinstance(part, bytes):
+                decoded_str += part.decode(encoding or 'utf-8', errors='ignore')
+            else:
+                decoded_str += part
+        from_string = decoded_str
+    except:
+        pass
+    
+    # Match "Name <email>" pattern
+    match = re.match(r'^([^<]*)<([^>]+)>$', from_string.strip())
+    if match:
+        name = match.group(1).strip().strip('"').strip("'")
+        email = match.group(2).strip()
+        return email, name
+    
+    # Just email address
+    if '@' in from_string:
+        return from_string.strip(), ""
+    
+    return from_string, ""
+
+
+# Helper to determine direction from label
+def get_direction_from_label(label):
+    """Determine if email is inbox or outbox based on Gmail label"""
+    if not label:
+        return "inbox"
+    label_lower = label.lower()
+    if "sent" in label_lower:
+        return "outbox"
+    return "inbox"
+
+
+# Helper to clean email body (remove headers that appear at start)
+def clean_email_body(body):
+    """Remove email headers from body content if they appear at the start"""
+    if not body:
+        return ""
+    
+    import re
+    
+    # Pattern to match email headers at the start of body
+    # Matches lines like "From: xxx", "Subject: xxx", "To: xxx", "Date: xxx"
+    header_pattern = r'^(From:|Subject:|To:|Date:|Cc:|Reply-To:|Content-Type:|MIME-Version:)[^\n]*\n'
+    
+    cleaned = body
+    
+    # Remove header lines from the beginning
+    while True:
+        match = re.match(header_pattern, cleaned, re.IGNORECASE | re.MULTILINE)
+        if match:
+            cleaned = cleaned[match.end():]
+        else:
+            break
+    
+    # Also try to remove the pattern: From: "Name" [email]\nSubject: xxx\n\n
+    cleaned = re.sub(r'^From:\s*"[^"]*"\s*\[[^\]]*\]\s*\n', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'^Subject:\s*[^\n]*\n', '', cleaned, flags=re.IGNORECASE)
+    
+    # Strip leading/trailing whitespace
+    cleaned = cleaned.strip()
+    
+    return cleaned
 
 
 @router.get("/mail-pool/stats")
@@ -1732,50 +1814,58 @@ async def get_mail_pool_stats(
         # Get all IMAP accounts
         accounts = list(imap_accounts_collection.find({"is_active": True}))
         
-        # Get today's date range
-        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        week_start = today_start - timedelta(days=7)
+        # Total emails from gmail_archive
+        total_emails = mail_pool_emails.count_documents({})
         
-        # Aggregate stats
-        total_emails_synced = mail_pool_sync_log.count_documents({})
-        emails_today = mail_pool_sync_log.count_documents({
-            "processed_at": {"$gte": today_start}
-        })
-        emails_this_week = mail_pool_sync_log.count_documents({
-            "processed_at": {"$gte": week_start}
-        })
+        # Count by label for inbox/sent breakdown
+        inbox_count = mail_pool_emails.count_documents({"label": {"$regex": "INBOX", "$options": "i"}})
+        sent_count = mail_pool_emails.count_documents({"label": {"$regex": "SENT", "$options": "i"}})
         
-        # Get segment breakdown
-        segment_pipeline = [
-            {"$group": {"_id": "$email_segment", "count": {"$sum": 1}}},
+        # Get label breakdown (acts as segments)
+        label_pipeline = [
+            {"$group": {"_id": "$label", "count": {"$sum": 1}}},
             {"$sort": {"count": -1}}
         ]
-        segment_stats = list(mail_pool_email_leads.aggregate(segment_pipeline))
+        label_stats = list(mail_pool_emails.aggregate(label_pipeline))
         
-        # Get emails by account
+        # Get emails by account with aliases
         account_stats = []
         for acc in accounts:
-            count = mail_pool_sync_log.count_documents({"inbox": acc["email"]})
-            today_count = mail_pool_sync_log.count_documents({
-                "inbox": acc["email"],
-                "processed_at": {"$gte": today_start}
+            # Count emails to/from this account
+            acc_email = acc["email"]
+            count = mail_pool_emails.count_documents({
+                "$or": [
+                    {"to": {"$regex": acc_email, "$options": "i"}},
+                    {"from": {"$regex": acc_email, "$options": "i"}}
+                ]
             })
+            
+            # Get aliases for this account
+            aliases = acc.get("aliases", [])
+            if not aliases and acc.get("alias_emails"):
+                aliases = acc.get("alias_emails", [])
+            
             account_stats.append({
                 "email": acc["email"],
                 "display_name": acc.get("display_name", acc["email"].split("@")[0]),
                 "total_emails": count,
-                "today": today_count,
-                "last_sync": acc.get("last_sync")
+                "today": 0,  # Would need date parsing
+                "last_sync": acc.get("last_sync"),
+                "aliases": aliases,
+                "signature": acc.get("signature", ""),
+                "is_default": acc.get("is_default", False)
             })
         
         return {
             "success": True,
             "stats": {
-                "total_emails": total_emails_synced,
-                "emails_today": emails_today,
-                "emails_this_week": emails_this_week,
+                "total_emails": total_emails,
+                "emails_today": inbox_count,  # Using inbox count as "today" indicator
+                "emails_this_week": total_emails,
                 "total_accounts": len(accounts),
-                "segments": {s["_id"]: s["count"] for s in segment_stats if s["_id"]},
+                "inbox_count": inbox_count,
+                "sent_count": sent_count,
+                "segments": {s["_id"]: s["count"] for s in label_stats if s["_id"]},
                 "accounts": account_stats
             }
         }
@@ -1792,79 +1882,111 @@ async def get_mail_pool_emails(
     request: Request,
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
-    segment: Optional[str] = Query(None, description="Filter by segment"),
+    segment: Optional[str] = Query(None, description="Filter by segment/label"),
     account: Optional[str] = Query(None, description="Filter by inbox account"),
+    direction: Optional[str] = Query(None, description="Filter by direction (inbox/outbox)"),
+    is_draft: Optional[bool] = Query(None, description="Filter by draft status"),
+    is_starred: Optional[bool] = Query(None, description="Filter by starred status"),
     search: Optional[str] = Query(None, description="Search in subject/sender"),
     date_from: Optional[str] = Query(None, description="Filter from date (YYYY-MM-DD)"),
     date_to: Optional[str] = Query(None, description="Filter to date (YYYY-MM-DD)")
 ):
     """
     Get paginated list of all emails in the Mail Pool with filtering options
+    Uses gmail_archive.emails collection
     """
     try:
         session_id = request.headers.get("Authorization")
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
         
-        # Build query filter
+        # Build query filter for gmail_archive.emails
         query = {}
         
-        if segment:
-            query["email_segment"] = segment
+        # Direction filter based on label
+        if direction == "inbox":
+            query["label"] = {"$regex": "INBOX", "$options": "i"}
+        elif direction == "outbox":
+            query["label"] = {"$regex": "SENT", "$options": "i"}
         
-        if search:
+        # Segment filter (using label field)
+        if segment:
+            query["label"] = {"$regex": segment, "$options": "i"}
+        
+        # Account filter (check to/from fields)
+        if account:
             query["$or"] = [
-                {"email": {"$regex": search, "$options": "i"}},
-                {"name": {"$regex": search, "$options": "i"}},
-                {"company_name": {"$regex": search, "$options": "i"}},
-                {"snippet": {"$regex": search, "$options": "i"}}
+                {"to": {"$regex": account, "$options": "i"}},
+                {"from": {"$regex": account, "$options": "i"}}
             ]
         
-        if date_from:
-            try:
-                from_date = datetime.strptime(date_from, "%Y-%m-%d")
-                query["added_on"] = {"$gte": from_date.isoformat()}
-            except ValueError:
-                pass
-        
-        if date_to:
-            try:
-                to_date = datetime.strptime(date_to, "%Y-%m-%d")
-                if "added_on" in query:
-                    query["added_on"]["$lte"] = to_date.isoformat()
-                else:
-                    query["added_on"] = {"$lte": to_date.isoformat()}
-            except ValueError:
-                pass
+        # Search in subject, from, to, body
+        if search:
+            search_query = [
+                {"from": {"$regex": search, "$options": "i"}},
+                {"to": {"$regex": search, "$options": "i"}},
+                {"subject": {"$regex": search, "$options": "i"}},
+                {"body": {"$regex": search, "$options": "i"}}
+            ]
+            if "$or" in query:
+                query["$and"] = [{"$or": query["$or"]}, {"$or": search_query}]
+                del query["$or"]
+            else:
+                query["$or"] = search_query
         
         # Calculate skip
         skip = (page - 1) * limit
         
         # Get total count
-        total = mail_pool_email_leads.count_documents(query)
+        total = mail_pool_emails.count_documents(query)
         
-        # Fetch emails with pagination
-        emails = list(mail_pool_email_leads.find(query)
-            .sort("added_on", -1)
+        # Fetch emails with pagination - sort by date descending
+        emails = list(mail_pool_emails.find(query)
+            .sort("date", -1)
             .skip(skip)
             .limit(limit))
         
         # Format for response
         formatted_emails = []
         for email_doc in emails:
+            # Parse from field to get email and name
+            from_email, from_name = parse_email_address(email_doc.get("from", ""))
+            
+            # Determine direction from label
+            label = email_doc.get("label", "")
+            email_direction = get_direction_from_label(label)
+            
+            # Get body preview (snippet) - cleaned
+            body = email_doc.get("body", "")
+            cleaned_body = clean_email_body(body)
+            snippet = cleaned_body[:200] if cleaned_body else ""
+            
             formatted_emails.append({
                 "id": str(email_doc["_id"]),
-                "email": email_doc.get("email", ""),
-                "name": email_doc.get("name", ""),
-                "first_name": email_doc.get("first_name", ""),
-                "last_name": email_doc.get("last_name", ""),
-                "company": email_doc.get("company_name", ""),
-                "title": email_doc.get("title", ""),
-                "segment": email_doc.get("email_segment", "others"),
-                "snippet": email_doc.get("snippet", "")[:200],
-                "added_on": email_doc.get("added_on", ""),
-                "source": email_doc.get("source", "email_import"),
-                "has_rfq": email_doc.get("has_rfq", False)
+                "email": from_email,
+                "name": from_name,
+                "first_name": from_name.split()[0] if from_name else "",
+                "last_name": from_name.split()[-1] if from_name and " " in from_name else "",
+                "company": "",
+                "title": "",
+                "segment": label,
+                "snippet": snippet,
+                "subject": email_doc.get("subject", "(no subject)"),
+                "added_on": email_doc.get("date", ""),
+                "date": email_doc.get("date", ""),
+                "source": "gmail_archive",
+                "has_rfq": False,
+                "has_attachments": False,
+                "direction": email_direction,
+                "is_internal": False,
+                "is_starred": "STARRED" in label.upper() if label else False,
+                "is_draft": "DRAFT" in label.upper() if label else False,
+                "is_read": True,
+                "account_email": email_doc.get("to", ""),
+                "to_email": email_doc.get("to", ""),
+                "thread_id": email_doc.get("thread_id", ""),
+                "thread_count": 1,
+                "message_id": email_doc.get("message_id", "")
             })
         
         return {
@@ -1882,6 +2004,164 @@ async def get_mail_pool_emails(
         raise
     except Exception as e:
         logger.error(f"Error fetching mail pool emails: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/mail-pool/emails/{email_id}")
+async def get_mail_pool_email_detail(
+    request: Request,
+    email_id: str
+):
+    """
+    Get detailed information about a specific email in the Mail Pool
+    Uses gmail_archive.emails collection
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        from bson import ObjectId
+        
+        try:
+            email_doc = mail_pool_emails.find_one({"_id": ObjectId(email_id)})
+        except Exception:
+            email_doc = None
+        
+        if not email_doc:
+            raise HTTPException(status_code=404, detail="Email not found")
+        
+        # Parse from field to get email and name
+        from_email, from_name = parse_email_address(email_doc.get("from", ""))
+        
+        # Determine direction from label
+        label = email_doc.get("label", "")
+        email_direction = get_direction_from_label(label)
+        
+        # Clean the email body
+        raw_body = email_doc.get("body", "")
+        cleaned_body = clean_email_body(raw_body)
+        
+        return {
+            "success": True,
+            "email": {
+                "id": str(email_doc["_id"]),
+                "email": from_email,
+                "name": from_name,
+                "first_name": from_name.split()[0] if from_name else "",
+                "last_name": from_name.split()[-1] if from_name and " " in from_name else "",
+                "company": "",
+                "title": "",
+                "segment": label,
+                "snippet": cleaned_body[:200] if cleaned_body else "",
+                "subject": email_doc.get("subject", "(no subject)"),
+                "body": cleaned_body,
+                "ai_summary": "",
+                "added_on": email_doc.get("date", ""),
+                "date": email_doc.get("date", ""),
+                "source": "gmail_archive",
+                "has_rfq": False,
+                "has_attachments": False,
+                "attachments": [],
+                "direction": email_direction,
+                "is_internal": False,
+                "account_email": email_doc.get("to", ""),
+                "to_email": email_doc.get("to", ""),
+                "cc": email_doc.get("cc", ""),
+                "message_id": email_doc.get("message_id", ""),
+                "thread_id": email_doc.get("thread_id", ""),
+                "is_starred": "STARRED" in label.upper() if label else False,
+                "is_draft": "DRAFT" in label.upper() if label else False
+            }
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching email detail: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/mail-pool/contact")
+async def get_mail_pool_contact(
+    request: Request,
+    email: str = Query(..., description="Contact email address")
+):
+    """
+    Get contact information for a specific email address from Mail Pool
+    Uses gmail_archive.emails collection to find emails from this contact
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        # Find the most recent email from this contact in gmail_archive
+        contact_doc = mail_pool_emails.find_one(
+            {"from": {"$regex": email, "$options": "i"}},
+            sort=[("date", -1)]
+        )
+        
+        if not contact_doc:
+            # Try to find in to field
+            contact_doc = mail_pool_emails.find_one(
+                {"to": {"$regex": email, "$options": "i"}},
+                sort=[("date", -1)]
+            )
+        
+        if not contact_doc:
+            # Return basic info if no email found
+            return {
+                "success": True,
+                "contact": {
+                    "email": email,
+                    "name": email.split("@")[0] if "@" in email else email,
+                    "first_name": "",
+                    "last_name": "",
+                    "title": "",
+                    "company": "",
+                    "company_website": "",
+                    "linkedin": "",
+                    "location": "",
+                    "phone": "",
+                    "added_on": "",
+                    "last_contacted": "",
+                    "email_count": 0,
+                    "source": "gmail_archive"
+                }
+            }
+        
+        # Parse from field to get name
+        from_field = contact_doc.get("from", "")
+        parsed_email, parsed_name = parse_email_address(from_field)
+        
+        # Count emails from this contact
+        email_count = mail_pool_emails.count_documents({"from": {"$regex": email, "$options": "i"}})
+        
+        return {
+            "success": True,
+            "contact": {
+                "email": parsed_email or email,
+                "name": parsed_name or (email.split("@")[0] if "@" in email else email),
+                "first_name": parsed_name.split()[0] if parsed_name else "",
+                "last_name": parsed_name.split()[-1] if parsed_name and " " in parsed_name else "",
+                "title": "",
+                "company": "",
+                "company_website": "",
+                "linkedin": "",
+                "location": "",
+                "phone": "",
+                "added_on": contact_doc.get("date", ""),
+                "last_contacted": contact_doc.get("date", ""),
+                "email_count": email_count,
+                "source": "gmail_archive"
+            }
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching contact: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

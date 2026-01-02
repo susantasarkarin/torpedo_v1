@@ -48,9 +48,15 @@ class RFQCreate(BaseModel):
     title: str = Field(..., description="RFQ title")
     description: str = Field("", description="RFQ description")
     manual_value: Optional[float] = Field(None, description="Manual value override")
-    manual_currency: str = Field("USD", description="Currency code")
+    manual_currency: str = Field("USD", description="Currency code (USD, INR, EUR, GBP)")
     priority: str = Field("medium", description="Priority: low, medium, high")
     due_date: Optional[str] = Field(None, description="Due date ISO string")
+    # New fields for enhanced RFQ
+    methodology: Optional[str] = Field(None, description="Research methodology (CATI, CAWI, F2F, etc.)")
+    loi: Optional[int] = Field(None, description="Length of Interview in minutes")
+    ir: Optional[float] = Field(None, description="Incidence Rate percentage")
+    country: Optional[str] = Field(None, description="Target country for the study")
+    sample_size: Optional[int] = Field(None, description="Required sample size")
 
 
 class RFQUpdate(BaseModel):
@@ -62,6 +68,12 @@ class RFQUpdate(BaseModel):
     status: Optional[str] = None
     priority: Optional[str] = None
     due_date: Optional[str] = None
+    # New fields for enhanced RFQ
+    methodology: Optional[str] = None
+    loi: Optional[int] = None
+    ir: Optional[float] = None
+    country: Optional[str] = None
+    sample_size: Optional[int] = None
 
 
 class RFQResponse(BaseModel):
@@ -86,6 +98,18 @@ class RFQResponse(BaseModel):
     summary: str = ""
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    # New fields for enhanced RFQ
+    methodology: Optional[str] = None
+    loi: Optional[int] = None
+    ir: Optional[float] = None
+    country: Optional[str] = None
+    sample_size: Optional[int] = None
+    # Email body and sender details
+    email_body: Optional[str] = None
+    sender_name: Optional[str] = None
+    sender_email: Optional[str] = None
+    sender_company: Optional[str] = None
+    sender_title: Optional[str] = None
 
 
 # ============== HELPER FUNCTIONS ==============
@@ -156,7 +180,19 @@ def rfq_to_response(rfq: Dict[str, Any]) -> Dict[str, Any]:
         "summary": rfq.get("summary", ""),
         "created_at": rfq.get("created_at").isoformat() if rfq.get("created_at") else None,
         "updated_at": rfq.get("updated_at").isoformat() if rfq.get("updated_at") else None,
-        "created_by": rfq.get("created_by", "auto")
+        "created_by": rfq.get("created_by", "auto"),
+        # New enhanced RFQ fields
+        "methodology": rfq.get("methodology"),
+        "loi": rfq.get("loi"),
+        "ir": rfq.get("ir"),
+        "country": rfq.get("country"),
+        "sample_size": rfq.get("sample_size"),
+        # Email body and sender details (for RFQ detail view)
+        "email_body": rfq.get("email_body"),
+        "sender_name": rfq.get("sender_name"),
+        "sender_email": rfq.get("sender_email") or rfq.get("contact_email"),
+        "sender_company": rfq.get("sender_company"),
+        "sender_title": rfq.get("sender_title")
     }
 
 
@@ -319,7 +355,13 @@ async def create_rfq(rfq_data: RFQCreate) -> Dict[str, Any]:
         "summary": "",
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow(),
-        "created_by": "manual"
+        "created_by": "manual",
+        # New enhanced RFQ fields
+        "methodology": rfq_data.methodology,
+        "loi": rfq_data.loi,
+        "ir": rfq_data.ir,
+        "country": rfq_data.country,
+        "sample_size": rfq_data.sample_size
     }
     
     result = rfqs_collection.insert_one(rfq_doc)
@@ -369,6 +411,17 @@ async def update_rfq(rfq_id: str, rfq_data: RFQUpdate) -> Dict[str, Any]:
         update_doc["manual_currency"] = rfq_data.manual_currency
     if rfq_data.priority is not None:
         update_doc["priority"] = rfq_data.priority
+    # New enhanced RFQ fields
+    if rfq_data.methodology is not None:
+        update_doc["methodology"] = rfq_data.methodology
+    if rfq_data.loi is not None:
+        update_doc["loi"] = rfq_data.loi
+    if rfq_data.ir is not None:
+        update_doc["ir"] = rfq_data.ir
+    if rfq_data.country is not None:
+        update_doc["country"] = rfq_data.country
+    if rfq_data.sample_size is not None:
+        update_doc["sample_size"] = rfq_data.sample_size
     
     if rfq_data.status is not None:
         update_doc["status"] = rfq_data.status
