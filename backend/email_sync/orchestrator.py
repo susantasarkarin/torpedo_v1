@@ -439,14 +439,18 @@ class EmailSyncOrchestrator:
         # Get email count
         email_count = self.emails.count_documents({"mailbox_id": mailbox_id})
         
-        # Get aliases
-        aliases = list(self.aliases.find(
+        # Get aliases (convert ObjectId to string)
+        raw_aliases = list(self.aliases.find(
             {"mailbox_id": mailbox_id},
             {"alias_email": 1, "is_primary": 1}
         ))
+        aliases = [
+            {"alias_email": a.get("alias_email"), "is_primary": a.get("is_primary", False)}
+            for a in raw_aliases
+        ]
         
-        # Get rate limit status
-        rate_status = self.rate_limiter.check_limit(mailbox_id)
+        # Get rate limit status (returns tuple: (allowed, wait_seconds))
+        rate_allowed, rate_wait = self.rate_limiter.check_rate_limit(mailbox_id)
         
         return {
             "mailbox_id": mailbox_id,
@@ -460,14 +464,15 @@ class EmailSyncOrchestrator:
             "backfill_progress": {
                 "started_at": state.backfill_started_at if state else None,
                 "completed_at": state.backfill_completed_at if state else None,
-                "messages_synced": state.backfill_progress.get("messages_synced", 0) if state and state.backfill_progress else 0,
-                "total_messages": state.backfill_progress.get("total_messages", 0) if state and state.backfill_progress else 0,
+                "messages_synced": state.backfill_messages_synced if state else 0,
+                "total_messages": state.backfill_messages_total if state else 0,
+                "progress_percent": state.backfill_progress_percent if state else 0.0,
             },
             "email_count": email_count,
             "aliases": aliases,
             "rate_limit": {
-                "allowed": rate_status.get("allowed", True),
-                "remaining": rate_status.get("remaining", {})
+                "allowed": rate_allowed,
+                "wait_seconds": rate_wait
             },
             "error": state.last_error if state else None
         }
@@ -599,3 +604,84 @@ class EmailSyncOrchestrator:
         ).sort("last_error_at", DESCENDING).limit(limit))
         
         return errors
+
+    # =========================================================================
+    # IMAP ACCOUNTS SYNC (Bridge with existing system)
+    # =========================================================================
+    
+    def sync_from_imap_accounts(self) -> Dict[str, Any]:
+        """
+        Sync mailboxes from the existing imap_accounts collection in torpedo_gmail DB.
+        
+        This bridges the existing email accounts with the new Email Sync system.
+        
+        Returns:
+            Dict with sync results
+        """
+        # Get the torpedo_gmail database (same client)
+        client = self.db.client
+        torpedo_db = client["torpedo_gmail"]
+        imap_accounts = torpedo_db["imap_accounts"]
+        
+        # Get all active IMAP accounts
+        accounts = list(imap_accounts.find({"is_active": True}))
+        
+        results = {
+            "synced": 0,
+            "existing": 0,
+            "errors": 0,
+            "details": []
+        }
+        
+        for account in accounts:
+            email = account.get("email")
+            if not email:
+                continue
+            
+            try:
+                # Always use IMAP provider for App Password accounts
+                # ProviderType.GMAIL is only for OAuth2-based Gmail API access
+                provider = ProviderType.IMAP
+                
+                # Prepare credentials
+                credentials = {
+                    "imap_server": account.get("imap_server"),
+                    "imap_port": account.get("imap_port", 993),
+                    "smtp_server": account.get("smtp_server"),
+                    "smtp_port": account.get("smtp_port", 587),
+                    "imap_password": account.get("password"),  # App password
+                    "use_ssl": account.get("use_ssl", True)
+                }
+                
+                # Register mailbox (will skip if exists)
+                result = self.register_mailbox(
+                    email=email,
+                    provider=provider,
+                    display_name=account.get("display_name", email),
+                    credentials=credentials,
+                    auto_start_backfill=False  # Don't auto-start, let user trigger
+                )
+                
+                if result["status"] == "created":
+                    results["synced"] += 1
+                else:
+                    results["existing"] += 1
+                
+                results["details"].append({
+                    "email": email,
+                    "status": result["status"],
+                    "mailbox_id": result["mailbox_id"]
+                })
+                
+            except Exception as e:
+                results["errors"] += 1
+                results["details"].append({
+                    "email": email,
+                    "status": "error",
+                    "error": str(e)
+                })
+                logger.error(f"Error syncing account {email}: {e}")
+        
+        logger.info(f"IMAP accounts sync complete: {results['synced']} synced, {results['existing']} existing, {results['errors']} errors")
+        
+        return results

@@ -524,12 +524,37 @@ async def update_email_category(
 # SYSTEM ENDPOINTS
 # =========================================================================
 
+@router.post("/sync-imap-accounts")
+async def sync_imap_accounts(
+    orch: EmailSyncOrchestrator = Depends(get_orchestrator)
+):
+    """
+    Sync mailboxes from existing IMAP accounts in torpedo_gmail database.
+    
+    This bridges the existing email accounts (from Gmail & Rate Limits tab)
+    with the Email Sync system.
+    """
+    result = orch.sync_from_imap_accounts()
+    return result
+
+
 @router.get("/health", response_model=HealthResponse)
 async def get_health(
+    auto_sync: bool = Query(True, description="Auto-sync from IMAP accounts if no mailboxes"),
     orch: EmailSyncOrchestrator = Depends(get_orchestrator)
 ):
     """Get system health and metrics"""
-    return orch.get_system_health()
+    health = orch.get_system_health()
+    
+    # Auto-sync from IMAP accounts if no mailboxes registered
+    if auto_sync and health["mailboxes"]["total"] == 0:
+        sync_result = orch.sync_from_imap_accounts()
+        if sync_result["synced"] > 0:
+            # Refresh health after sync
+            health = orch.get_system_health()
+            health["auto_synced"] = sync_result
+    
+    return health
 
 
 @router.get("/errors")

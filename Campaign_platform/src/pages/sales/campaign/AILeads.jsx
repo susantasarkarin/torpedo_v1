@@ -729,6 +729,15 @@ function AILeads() {
   const getDisplayLeads = () => {
     if (activeTab === "pending") {
       return rawLeads.filter(l => l.classification_status === "Pending");
+    } else if (activeTab === "classified-websearch") {
+      // Matches backend valid_sources for web search
+      return leads.filter(l => l.source === "web_search" || l.source === "google_search" || l.source === "linkedin");
+    } else if (activeTab === "classified-csv") {
+      // Matches backend valid_sources for CSV/file imports
+      return leads.filter(l => l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import");
+    } else if (activeTab === "classified-gmail") {
+      // Matches backend source for email imports (IMAP)
+      return leads.filter(l => l.source === "email_import" || l.source === "gmail" || l.source === "imap");
     } else if (activeTab === "classified") {
       return leads;
     }
@@ -827,10 +836,22 @@ function AILeads() {
           Pending ({rawLeads.filter(l => l.classification_status === "Pending").length})
         </button>
         <button 
-          className={`tab-btn ${activeTab === "classified" ? "active" : ""}`}
-          onClick={() => setActiveTab("classified")}
+          className={`tab-btn ${activeTab === "classified-websearch" ? "active" : ""}`}
+          onClick={() => setActiveTab("classified-websearch")}
         >
-          Classified ({leads.length})
+          Classified (Web Search) ({leads.filter(l => l.source === "web_search" || l.source === "google_search" || l.source === "linkedin").length})
+        </button>
+        <button 
+          className={`tab-btn ${activeTab === "classified-csv" ? "active" : ""}`}
+          onClick={() => setActiveTab("classified-csv")}
+        >
+          Classified (CSV Upload) ({leads.filter(l => l.source === "csv" || l.source === "csv_import" || l.source === "import").length})
+        </button>
+        <button 
+          className={`tab-btn ${activeTab === "classified-gmail" ? "active" : ""}`}
+          onClick={() => setActiveTab("classified-gmail")}
+        >
+          Classified (Gmail) ({leads.filter(l => l.source === "gmail" || l.source === "gmail_archive" || l.source === "email" || l.source === "imap").length})
         </button>
       </div>
 
@@ -912,7 +933,7 @@ function AILeads() {
               📥 Import Leads
             </button>
           </div>
-        ) : activeTab === "classified" ? (
+        ) : activeTab.startsWith("classified") ? (
           /* Classified Leads Table - Full columns */
           <div className="classified-table-container">
             <table className="data-table classified-table">
@@ -1101,7 +1122,7 @@ function AILeads() {
       </div>
 
       {/* Pagination */}
-      {totalPages > 1 && activeTab === "classified" && (
+      {totalPages > 1 && activeTab.startsWith("classified") && (
         <div className="pagination-bar">
           <button 
             className="btn btn-outline btn-sm"

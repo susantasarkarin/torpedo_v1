@@ -47,22 +47,35 @@ const formatEmailBody = (body) => {
   
   // Check if it's already HTML
   if (isHtmlContent(body)) {
-    // It's HTML, just sanitize scripts and return
-    return body
+    // It's HTML, sanitize scripts/styles and improve styling
+    let cleaned = body
       .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
       .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    
+    // Add some base styles for better readability
+    return `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${cleaned}</div>`
   }
   
-  // It's plain text, convert to HTML
+  // It's plain text - need to format properly
+  // First, detect if this is an email thread with embedded headers
+  const isEmailThread = /From:.*Sent:.*To:.*Subject:/s.test(body) || 
+                        /From:.*Date:.*To:.*Subject:/s.test(body) ||
+                        /-{3,}Original Message-{3,}/i.test(body)
+  
+  if (isEmailThread) {
+    // Parse email thread and format each message separately
+    return formatEmailThread(body)
+  }
+  
+  // Simple plain text formatting
   let lines = body.split(/\r?\n/)
   let formatted = []
   let inQuote = false
-  let quoteLevel = 0
   let quoteBuffer = []
   
   const flushQuote = () => {
     if (quoteBuffer.length > 0) {
-      formatted.push(`<div style="border-left: 2px solid #ccc; padding-left: 12px; margin: 8px 0; color: #5f6368;">${quoteBuffer.join('<br>')}</div>`)
+      formatted.push(`<div style="border-left: 3px solid #dadce0; padding-left: 12px; margin: 12px 0; color: #5f6368; font-size: 0.9em;">${quoteBuffer.join('<br>')}</div>`)
       quoteBuffer = []
     }
     inQuote = false
@@ -76,36 +89,27 @@ const formatEmailBody = (body) => {
       if (!inQuote) {
         inQuote = true
       }
-      // Remove > prefix and add to quote buffer
       quoteBuffer.push(quoteMatch[2])
     } else {
-      // Not a quoted line
       if (inQuote) {
         flushQuote()
       }
       
       // Process regular line
       let processedLine = line
-        // Escape HTML
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        // Convert **bold** or *bold* (markdown)
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*([^*]+)\*/g, '<strong>$1</strong>')
-        // Detect email headers in thread
-        .replace(/^(From:|To:|Cc:|Sent:|Subject:|Date:)\s*/i, '<span style="color: #5f6368; font-size: 0.85em;">$1</span> ')
-        // Convert URLs to links
+        .replace(/^(From:|To:|Cc:|Sent:|Subject:|Date:)\s*/i, '<span style="color: #5f6368; font-size: 0.85em; font-weight: 600;">$1</span> ')
         .replace(/(https?:\/\/[^\s<>]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" style="color: #1a73e8;">$1</a>')
-        // Convert email addresses to mailto links
         .replace(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '<a href="mailto:$1" style="color: #1a73e8;">$1</a>')
       
-      // Check if this is a signature line (name followed by title)
-      if (processedLine.match(/^(Director|Manager|CEO|MD|Managing Director|President)/i)) {
+      if (processedLine.match(/^(Director|Manager|CEO|MD|Managing Director|President|Regards|Best|Thanks|Sincerely)/i)) {
         processedLine = `<span style="color: #5f6368;">${processedLine}</span>`
       }
       
-      // Check if empty line
       if (processedLine.trim() === '') {
         formatted.push('<br>')
       } else {
@@ -114,12 +118,73 @@ const formatEmailBody = (body) => {
     }
   }
   
-  // Flush any remaining quotes
   if (inQuote) {
     flushQuote()
   }
   
-  return formatted.join('')
+  return `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${formatted.join('')}</div>`
+}
+
+// Format email thread with multiple messages
+const formatEmailThread = (body) => {
+  // Split by common email separators
+  const separators = [
+    /-{3,}\s*Original Message\s*-{3,}/gi,
+    /_{3,}\s*From:/gi,
+    /On\s+\w+,\s+\w+\s+\d+,\s+\d+.*wrote:/gi,
+    /From:.*Sent:.*To:.*Subject:/gs
+  ]
+  
+  let html = []
+  let remaining = body
+  let messageIndex = 0
+  
+  // Find From: ... Subject: blocks and format them as separate messages
+  const messagePattern = /(From:\s*[^\n]+(?:\n(?!From:)[^\n]*)*)/gi
+  const messages = body.split(/(?=From:\s*[^\n]+.*?(?:Sent|Date):\s*[^\n]+.*?(?:To):\s*[^\n]+.*?Subject:\s*)/si)
+  
+  if (messages.length > 1) {
+    for (let msg of messages) {
+      if (msg.trim()) {
+        const isQuoted = messageIndex > 0
+        const bgColor = isQuoted ? '#f8f9fa' : 'white'
+        const borderColor = isQuoted ? '#e8eaed' : '#dadce0'
+        
+        // Extract header info
+        const headerMatch = msg.match(/From:\s*([^\n]+)/i)
+        const dateMatch = msg.match(/(?:Sent|Date):\s*([^\n]+)/i)
+        const subjectMatch = msg.match(/Subject:\s*([^\n]+)/i)
+        
+        let formattedMsg = msg
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/\n/g, '<br>')
+          .replace(/^(From:|To:|Cc:|Sent:|Subject:|Date:)\s*/gim, '<span style="color: #5f6368; font-size: 0.85em; font-weight: 600;">$1</span> ')
+          .replace(/(https?:\/\/[^\s<>]+)/g, '<a href="$1" target="_blank" style="color: #1a73e8;">$1</a>')
+          .replace(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '<a href="mailto:$1" style="color: #1a73e8;">$1</a>')
+        
+        html.push(`
+          <div style="margin: ${messageIndex > 0 ? '16px 0' : '0'}; padding: 16px; background: ${bgColor}; border: 1px solid ${borderColor}; border-radius: 8px;">
+            <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6; color: ${isQuoted ? '#5f6368' : '#202124'};">
+              ${formattedMsg}
+            </div>
+          </div>
+        `)
+        messageIndex++
+      }
+    }
+    return html.join('')
+  }
+  
+  // Fallback: simple formatting
+  return body
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '<br>')
+    .replace(/(https?:\/\/[^\s<>]+)/g, '<a href="$1" target="_blank" style="color: #1a73e8;">$1</a>')
+    .replace(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g, '<a href="mailto:$1" style="color: #1a73e8;">$1</a>')
 }
 
 // Get initials from name/email
@@ -594,7 +659,9 @@ function MailPool() {
                     )}
                     
                     <span style={styles.emailSubject}>
-                      {stripHtml(email.subject) || "(no subject)"}
+                      {(stripHtml(email.subject) || "(no subject)").length > 60 
+                        ? (stripHtml(email.subject) || "(no subject)").substring(0, 60) + "..." 
+                        : (stripHtml(email.subject) || "(no subject)")}
                     </span>
                     <span style={styles.emailSnippetSeparator}> - </span>
                     <span style={styles.emailSnippet}>
@@ -1159,7 +1226,11 @@ const styles = {
   emailSubject: {
     fontWeight: "400",
     color: "#202124",
-    whiteSpace: "nowrap"
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    maxWidth: "400px",
+    flexShrink: 0
   },
   emailSnippetSeparator: {
     color: "#5f6368",

@@ -634,7 +634,7 @@ def _extract_signature_regex(body: str) -> Dict[str, str]:
 
 # ============== SINGLE EMAIL SUMMARY GENERATION ==============
 
-SINGLE_EMAIL_SUMMARY_PROMPT = """Analyze this email and provide a brief, actionable summary.
+SINGLE_EMAIL_SUMMARY_PROMPT = """Analyze this email and provide a comprehensive summary.
 
 Subject: {subject}
 From: {from_email}
@@ -643,12 +643,14 @@ Date: {date}
 Email Body:
 {body}
 
-Generate a 2-3 sentence summary that captures:
+Generate a detailed summary (approximately 200-300 words) that captures:
 - The main purpose/request of this email
-- Any key details (amounts, dates, product names, action items)
-- The tone/urgency level
+- Key details (amounts, dates, product names, specifications, timelines)
+- Action items or requests made
+- Context from any quoted previous emails in the thread
+- The tone/urgency level and any deadlines mentioned
 
-Keep the summary under 50 words. Be specific and concise."""
+Be thorough and capture all important business context. Include specific names, companies, and figures mentioned."""
 
 
 def generate_single_email_summary(subject: str, body: str, from_email: str = "", date: str = "") -> str:
@@ -678,7 +680,7 @@ def generate_single_email_summary(subject: str, body: str, from_email: str = "",
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an email assistant that creates brief, actionable summaries. Be concise and focus on what matters for business decisions."
+                    "content": "You are an email assistant that creates comprehensive business summaries. Include all important details, context, and action items from the email thread."
                 },
                 {
                     "role": "user",
@@ -691,7 +693,7 @@ def generate_single_email_summary(subject: str, body: str, from_email: str = "",
                 }
             ],
             temperature=0.2,
-            max_tokens=100
+            max_tokens=500
         )
         
         summary = response.choices[0].message.content.strip()
