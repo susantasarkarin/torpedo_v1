@@ -4,7 +4,7 @@
  * Light theme matching app styling
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../../../config";
 import Papa from "papaparse";
@@ -155,6 +155,10 @@ function AILeads() {
   const [importing, setImporting] = useState(false);
   const [classifying, setClassifying] = useState(false);
   const [importError, setImportError] = useState("");
+
+  // View Mode State - compact vs full table
+  const [viewMode, setViewMode] = useState("compact"); // "compact" or "full"
+  const [expandedLeadId, setExpandedLeadId] = useState(null); // For viewing lead details
 
   // Web Search Filters (enhanced with multi-select)
   const [webSearchDesignation, setWebSearchDesignation] = useState("");
@@ -898,6 +902,26 @@ function AILeads() {
           Clear
         </button>
         
+        {/* View Mode Toggle */}
+        {activeTab.startsWith("classified") && (
+          <div className="view-toggle">
+            <button 
+              className={`view-btn ${viewMode === "compact" ? "active" : ""}`}
+              onClick={() => setViewMode("compact")}
+              title="Compact View"
+            >
+              ▤
+            </button>
+            <button 
+              className={`view-btn ${viewMode === "full" ? "active" : ""}`}
+              onClick={() => setViewMode("full")}
+              title="Full Table View"
+            >
+              ▦
+            </button>
+          </div>
+        )}
+        
         {/* Delete All Leads Button */}
         <button 
           className="btn btn-danger btn-sm"
@@ -934,9 +958,9 @@ function AILeads() {
             </button>
           </div>
         ) : activeTab.startsWith("classified") ? (
-          /* Classified Leads Table - Full columns */
+          /* Classified Leads Table - Compact or Full view */
           <div className="classified-table-container">
-            <table className="data-table classified-table">
+            <table className={`data-table classified-table ${viewMode === "compact" ? "compact-view" : "full-view"}`}>
               <thead>
                 <tr>
                   <th className="checkbox-col sticky-col">
@@ -947,108 +971,162 @@ function AILeads() {
                     />
                   </th>
                   <th className="sticky-col-2">Name</th>
-                  <th>First Name</th>
-                  <th>Last Name</th>
                   <th>Email</th>
-                  <th>Email Status</th>
                   <th>Title</th>
-                  <th>LinkedIn</th>
-                  <th>Location</th>
-                  <th>Added On</th>
-                  <th>Seniority Level</th>
-                  <th>Buying Role</th>
-                  <th>Company Name</th>
-                  <th>Company Domain</th>
-                  <th>Company Website</th>
-                  <th>Employee Count</th>
-                  <th>Employee Range</th>
-                  <th>Founded</th>
+                  <th>Company</th>
+                  <th>Seniority</th>
                   <th>Industry</th>
-                  <th>Company Type</th>
-                  <th>Headquarters</th>
-                  <th>Revenue Range</th>
-                  <th>Company LinkedIn</th>
                   <th>Source</th>
                   <th>Confidence</th>
+                  {viewMode === "full" && (
+                    <>
+                      <th>First Name</th>
+                      <th>Last Name</th>
+                      <th>Email Status</th>
+                      <th>LinkedIn</th>
+                      <th>Location</th>
+                      <th>Added On</th>
+                      <th>Buying Role</th>
+                      <th>Company Domain</th>
+                      <th>Company Website</th>
+                      <th>Employee Count</th>
+                      <th>Employee Range</th>
+                      <th>Founded</th>
+                      <th>Company Type</th>
+                      <th>Headquarters</th>
+                      <th>Revenue Range</th>
+                      <th>Company LinkedIn</th>
+                    </>
+                  )}
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {displayLeads.map((lead) => (
-                  <tr key={lead._id} className={selectedIds.has(lead._id) ? "selected" : ""}>
-                    <td className="checkbox-col sticky-col">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(lead._id)}
-                        onChange={() => toggleSelect(lead._id)}
-                      />
-                    </td>
-                    <td className="name-cell sticky-col-2">
-                      <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer">
-                        {lead.name}
-                      </a>
-                    </td>
-                    <td>{lead.first_name || "-"}</td>
-                    <td>{lead.last_name || "-"}</td>
-                    <td className="email-cell">{lead.email || "-"}</td>
-                    <td>
-                      <span className={`status-badge ${(lead.email_status || "unknown").toLowerCase().replace(" ", "-")}`}>
-                        {lead.email_status || "Unknown"}
-                      </span>
-                    </td>
-                    <td>{lead.title || "-"}</td>
-                    <td>
-                      <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer" className="linkedin-link">
-                        View ↗
-                      </a>
-                    </td>
-                    <td>{lead.location || "-"}</td>
-                    <td>{lead.added_on ? new Date(lead.added_on).toLocaleDateString() : "-"}</td>
-                    <td><span className="badge badge-blue">{lead.seniority_level || "Unknown"}</span></td>
-                    <td><span className="badge badge-orange">{lead.buying_role || "Unknown"}</span></td>
-                    <td>{lead.company_name || "-"}</td>
-                    <td>{lead.company_domain || "-"}</td>
-                    <td>
-                      {lead.company_website ? (
-                        <a href={lead.company_website.startsWith("http") ? lead.company_website : `https://${lead.company_website}`} target="_blank" rel="noopener noreferrer">
-                          {lead.company_website}
+                  <React.Fragment key={lead._id}>
+                    <tr className={`${selectedIds.has(lead._id) ? "selected" : ""} ${expandedLeadId === lead._id ? "expanded" : ""}`}>
+                      <td className="checkbox-col sticky-col">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(lead._id)}
+                          onChange={() => toggleSelect(lead._id)}
+                        />
+                      </td>
+                      <td className="name-cell sticky-col-2">
+                        <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer">
+                          {lead.name}
                         </a>
-                      ) : "-"}
-                    </td>
-                    <td>{lead.company_employee_count || "-"}</td>
-                    <td>{lead.company_employee_count_range || "-"}</td>
-                    <td>{lead.company_founded || "-"}</td>
-                    <td>{lead.company_industry || "-"}</td>
-                    <td>{lead.company_type || "-"}</td>
-                    <td>{lead.company_headquarters || "-"}</td>
-                    <td>{lead.company_revenue_range || "-"}</td>
-                    <td>
-                      {lead.company_linkedin_url ? (
-                        <a href={lead.company_linkedin_url} target="_blank" rel="noopener noreferrer">
-                          View ↗
-                        </a>
-                      ) : "-"}
-                    </td>
-                    <td>
-                      <span className={`source-badge ${lead.source?.replace("_", "-") || "unknown"}`}>
-                        {lead.source === "web_search" ? "🌐 Web" : 
-                         lead.source === "google_search" ? "🔍 Google" :
-                         lead.source === "csv" || lead.source === "csv_import" ? "📄 CSV" :
-                         lead.source === "linkedin" ? "💼 LinkedIn" :
-                         lead.source || "Unknown"}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`confidence-pill ${getConfidenceClass(lead.confidence_score)}`}>
-                        {Math.round((lead.confidence_score || 0) * 100)}%
-                      </span>
-                    </td>
-                    <td className="actions-cell">
-                      <button className="action-btn" onClick={() => handleClassify([lead._id])}>
-                        Re-classify
-                      </button>
-                    </td>
-                  </tr>
+                      </td>
+                      <td className="email-cell">{lead.email || "-"}</td>
+                      <td>{lead.title || "-"}</td>
+                      <td>{lead.company_name || "-"}</td>
+                      <td><span className="badge badge-blue">{lead.seniority_level || "Unknown"}</span></td>
+                      <td>{lead.company_industry || "-"}</td>
+                      <td>
+                        <span className={`source-badge ${lead.source?.replace("_", "-") || "unknown"}`}>
+                          {lead.source === "web_search" ? "🌐 Web" : 
+                           lead.source === "google_search" ? "🔍 Google" :
+                           lead.source === "csv" || lead.source === "csv_import" ? "📄 CSV" :
+                           lead.source === "linkedin" ? "💼 LinkedIn" :
+                           lead.source || "Unknown"}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`confidence-pill ${getConfidenceClass(lead.confidence_score)}`}>
+                          {Math.round((lead.confidence_score || 0) * 100)}%
+                        </span>
+                      </td>
+                      {viewMode === "full" && (
+                        <>
+                          <td>{lead.first_name || "-"}</td>
+                          <td>{lead.last_name || "-"}</td>
+                          <td>
+                            <span className={`status-badge ${(lead.email_status || "unknown").toLowerCase().replace(" ", "-")}`}>
+                              {lead.email_status || "Unknown"}
+                            </span>
+                          </td>
+                          <td>
+                            <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer" className="linkedin-link">
+                              View ↗
+                            </a>
+                          </td>
+                          <td>{lead.location || "-"}</td>
+                          <td>{lead.added_on ? new Date(lead.added_on).toLocaleDateString() : "-"}</td>
+                          <td><span className="badge badge-orange">{lead.buying_role || "Unknown"}</span></td>
+                          <td>{lead.company_domain || "-"}</td>
+                          <td>
+                            {lead.company_website ? (
+                              <a href={lead.company_website.startsWith("http") ? lead.company_website : `https://${lead.company_website}`} target="_blank" rel="noopener noreferrer">
+                                {lead.company_website}
+                              </a>
+                            ) : "-"}
+                          </td>
+                          <td>{lead.company_employee_count || "-"}</td>
+                          <td>{lead.company_employee_count_range || "-"}</td>
+                          <td>{lead.company_founded || "-"}</td>
+                          <td>{lead.company_type || "-"}</td>
+                          <td>{lead.company_headquarters || "-"}</td>
+                          <td>{lead.company_revenue_range || "-"}</td>
+                          <td>
+                            {lead.company_linkedin_url ? (
+                              <a href={lead.company_linkedin_url} target="_blank" rel="noopener noreferrer">
+                                View ↗
+                              </a>
+                            ) : "-"}
+                          </td>
+                        </>
+                      )}
+                      <td className="actions-cell">
+                        {viewMode === "compact" && (
+                          <button 
+                            className="action-btn expand-btn" 
+                            onClick={() => setExpandedLeadId(expandedLeadId === lead._id ? null : lead._id)}
+                            title="View Details"
+                          >
+                            {expandedLeadId === lead._id ? "▲" : "▼"}
+                          </button>
+                        )}
+                        <button className="action-btn" onClick={() => handleClassify([lead._id])}>
+                          Re-classify
+                        </button>
+                      </td>
+                    </tr>
+                    {/* Expandable Details Row in Compact Mode */}
+                    {viewMode === "compact" && expandedLeadId === lead._id && (
+                      <tr className="expanded-details-row">
+                        <td colSpan={10}>
+                          <div className="lead-details-panel">
+                            <div className="details-grid">
+                              <div className="detail-group">
+                                <h4>Contact Info</h4>
+                                <p><strong>First Name:</strong> {lead.first_name || "-"}</p>
+                                <p><strong>Last Name:</strong> {lead.last_name || "-"}</p>
+                                <p><strong>Email Status:</strong> <span className={`status-badge ${(lead.email_status || "unknown").toLowerCase().replace(" ", "-")}`}>{lead.email_status || "Unknown"}</span></p>
+                                <p><strong>Location:</strong> {lead.location || "-"}</p>
+                                <p><strong>LinkedIn:</strong> {lead.linkedin_url ? <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer">View Profile ↗</a> : "-"}</p>
+                              </div>
+                              <div className="detail-group">
+                                <h4>Role Details</h4>
+                                <p><strong>Buying Role:</strong> <span className="badge badge-orange">{lead.buying_role || "Unknown"}</span></p>
+                                <p><strong>Added On:</strong> {lead.added_on ? new Date(lead.added_on).toLocaleDateString() : "-"}</p>
+                              </div>
+                              <div className="detail-group">
+                                <h4>Company Info</h4>
+                                <p><strong>Domain:</strong> {lead.company_domain || "-"}</p>
+                                <p><strong>Website:</strong> {lead.company_website ? <a href={lead.company_website.startsWith("http") ? lead.company_website : `https://${lead.company_website}`} target="_blank" rel="noopener noreferrer">{lead.company_website}</a> : "-"}</p>
+                                <p><strong>Employees:</strong> {lead.company_employee_count || lead.company_employee_count_range || "-"}</p>
+                                <p><strong>Founded:</strong> {lead.company_founded || "-"}</p>
+                                <p><strong>Type:</strong> {lead.company_type || "-"}</p>
+                                <p><strong>Headquarters:</strong> {lead.company_headquarters || "-"}</p>
+                                <p><strong>Revenue:</strong> {lead.company_revenue_range || "-"}</p>
+                                <p><strong>LinkedIn:</strong> {lead.company_linkedin_url ? <a href={lead.company_linkedin_url} target="_blank" rel="noopener noreferrer">View ↗</a> : "-"}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

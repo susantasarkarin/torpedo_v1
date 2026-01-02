@@ -23,6 +23,8 @@
   padding: 24px;
   background: var(--bg);
   min-height: 100vh;
+  max-width: 100%;
+  overflow-x: hidden; /* Prevent page-level horizontal scroll */
 }
 
 /* ============== LOADING ============== */
@@ -259,6 +261,8 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
+  max-width: 100%;
+  position: relative;
 }
 
 .data-table {
@@ -403,18 +407,50 @@
 .classified-table-container {
   overflow-x: auto;
   max-width: 100%;
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.classified-table-container::-webkit-scrollbar {
+  height: 8px;
+}
+
+.classified-table-container::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.classified-table-container::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.classified-table-container::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 .classified-table {
-  min-width: 2400px; /* Ensure table is wide enough for all columns */
+  min-width: 1800px; /* Reduced width - hide less important columns by default */
+  table-layout: fixed; /* Fixed layout for consistent column widths */
 }
 
 .classified-table th,
 .classified-table td {
-  padding: 12px 14px;
+  padding: 10px 12px;
   white-space: nowrap;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px; /* Default max width for columns */
 }
+
+/* Specific column widths */
+.classified-table .checkbox-col { width: 40px; max-width: 40px; }
+.classified-table .name-cell { max-width: 160px; }
+.classified-table .email-cell { max-width: 180px; }
+.classified-table td:nth-child(7) { max-width: 200px; } /* Title */
+.classified-table td:nth-child(13) { max-width: 140px; } /* Company Name */
 
 /* Sticky first columns */
 .classified-table .sticky-col {
@@ -504,6 +540,132 @@
 .badge-orange {
   background: #ffedd5;
   color: #c2410c;
+}
+
+/* ============== VIEW TOGGLE ============== */
+.view-toggle {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--border);
+  border-radius: 6px;
+  padding: 2px;
+  margin-left: 12px;
+}
+
+.view-btn {
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 1rem;
+  border-radius: 4px;
+  transition: all 0.2s;
+  color: var(--text-muted);
+}
+
+.view-btn:hover {
+  background: rgba(255,255,255,0.5);
+}
+
+.view-btn.active {
+  background: white;
+  color: var(--primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* ============== COMPACT VIEW TABLE ============== */
+.classified-table.compact-view {
+  min-width: 900px; /* Much smaller width for compact view */
+}
+
+.classified-table.compact-view th,
+.classified-table.compact-view td {
+  padding: 8px 10px;
+}
+
+/* ============== EXPANDED DETAILS ROW ============== */
+.expanded-details-row {
+  background: #f8fafc;
+}
+
+.expanded-details-row > td {
+  padding: 0 !important;
+  border-top: 1px solid var(--border);
+}
+
+.lead-details-panel {
+  padding: 20px;
+  background: linear-gradient(to bottom, #f8fafc, #ffffff);
+  border-bottom: 2px solid var(--primary);
+}
+
+.details-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.detail-group {
+  background: white;
+  padding: 16px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  border: 1px solid var(--border);
+}
+
+.detail-group h4 {
+  margin: 0 0 12px 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 2px solid var(--primary);
+  padding-bottom: 8px;
+}
+
+.detail-group p {
+  margin: 6px 0;
+  font-size: 0.85rem;
+  color: var(--text);
+  display: flex;
+  gap: 8px;
+}
+
+.detail-group p strong {
+  min-width: 100px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.detail-group a {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.detail-group a:hover {
+  text-decoration: underline;
+}
+
+/* Expand button styling */
+.expand-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-right: 6px;
+  font-size: 0.7rem;
+  transition: all 0.2s;
+}
+
+.expand-btn:hover {
+  background: var(--border);
+}
+
+/* Row expansion indicator */
+.classified-table tbody tr.expanded {
+  background: #eff6ff;
 }
 
 /* ============== EMPTY STATE ============== */
@@ -1115,5 +1277,15 @@
   
   .multi-select-options {
     grid-template-columns: 1fr;
+  }
+  
+  /* Responsive details grid */
+  .details-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .view-toggle {
+    margin-left: 0;
+    margin-top: 8px;
   }
 }
