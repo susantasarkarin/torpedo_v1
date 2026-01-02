@@ -648,6 +648,19 @@ function MailPool() {
               </div>
             </div>
 
+            {/* AI Summary Section */}
+            {selectedEmail.ai_summary && (
+              <div style={styles.aiSummaryContainer}>
+                <div style={styles.aiSummaryHeader}>
+                  <span style={styles.aiSummaryIcon}>✨</span>
+                  <span style={styles.aiSummaryTitle}>AI Summary</span>
+                </div>
+                <div style={styles.aiSummaryContent}>
+                  {selectedEmail.ai_summary}
+                </div>
+              </div>
+            )}
+
             {/* Email Thread */}
             <div style={styles.threadContainer}>
               {emailThread.map((email, idx) => (
@@ -1237,6 +1250,34 @@ const styles = {
     padding: "2px 8px",
     borderRadius: "4px",
     fontSize: "0.75rem"
+  },
+  aiSummaryContainer: {
+    margin: "0 1rem 1rem",
+    padding: "1rem",
+    backgroundColor: "#f0f7ff",
+    borderRadius: "8px",
+    border: "1px solid #d0e3ff"
+  },
+  aiSummaryHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.5rem",
+    marginBottom: "0.5rem"
+  },
+  aiSummaryIcon: {
+    fontSize: "1rem"
+  },
+  aiSummaryTitle: {
+    fontSize: "0.8rem",
+    fontWeight: "600",
+    color: "#1a73e8",
+    textTransform: "uppercase",
+    letterSpacing: "0.5px"
+  },
+  aiSummaryContent: {
+    fontSize: "0.875rem",
+    color: "#3c4043",
+    lineHeight: "1.5"
   },
   threadContainer: {
     flex: 1,

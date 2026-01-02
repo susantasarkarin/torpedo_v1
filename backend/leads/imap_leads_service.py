@@ -1461,7 +1461,7 @@ def add_imap_account(
     if is_default:
         imap_accounts_collection.update_many({}, {"$set": {"is_default": False}})
     
-    # Create account
+    # Create account with initial_sync_completed = False to trigger full sync
     account_doc = {
         "email": email_address,
         "display_name": display_name or email_address.split("@")[0],
@@ -1474,14 +1474,29 @@ def add_imap_account(
         "is_active": True,
         "is_default": is_default,
         "created_at": datetime.utcnow(),
-        "last_sync": None
+        "last_sync": None,
+        "initial_sync_completed": False,  # Flag for full sync on first run
+        "historical_import_days": 0  # 0 = all available emails
     }
     
     imap_accounts_collection.insert_one(account_doc)
     
+    # Automatically trigger full historical import in background
+    import threading
+    def run_initial_sync():
+        try:
+            logger.info(f"🚀 [Auto-Sync] Starting automatic full sync for new account {email_address}")
+            run_historical_import(email_address, days=0)  # 0 = all emails
+            logger.info(f"✅ [Auto-Sync] Completed automatic full sync for {email_address}")
+        except Exception as e:
+            logger.error(f"❌ [Auto-Sync] Failed automatic sync for {email_address}: {e}")
+    
+    sync_thread = threading.Thread(target=run_initial_sync, daemon=True)
+    sync_thread.start()
+    
     return {
         "success": True,
-        "message": f"Account {email_address} added successfully"
+        "message": f"Account {email_address} added successfully. Full mailbox sync started in background."
     }
 
 

@@ -2042,6 +2042,33 @@ async def get_mail_pool_email_detail(
         raw_body = email_doc.get("body", "")
         cleaned_body = clean_email_body(raw_body)
         
+        # Get or generate AI summary
+        ai_summary = email_doc.get("ai_summary", "")
+        if not ai_summary and cleaned_body and len(cleaned_body.strip()) > 50:
+            try:
+                # Import the AI summary function
+                from leads.ai_classifier import generate_single_email_summary
+                
+                # Generate summary
+                subject = email_doc.get("subject", "")
+                date_str = str(email_doc.get("date", ""))
+                ai_summary = generate_single_email_summary(
+                    subject=subject,
+                    body=cleaned_body,
+                    from_email=from_email,
+                    date=date_str
+                )
+                
+                # Cache the summary in the database for future requests
+                if ai_summary:
+                    mail_pool_emails.update_one(
+                        {"_id": email_doc["_id"]},
+                        {"$set": {"ai_summary": ai_summary}}
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to generate AI summary: {e}")
+                ai_summary = ""
+        
         return {
             "success": True,
             "email": {
@@ -2056,7 +2083,7 @@ async def get_mail_pool_email_detail(
                 "snippet": cleaned_body[:200] if cleaned_body else "",
                 "subject": email_doc.get("subject", "(no subject)"),
                 "body": cleaned_body,
-                "ai_summary": "",
+                "ai_summary": ai_summary,
                 "added_on": email_doc.get("date", ""),
                 "date": email_doc.get("date", ""),
                 "source": "gmail_archive",
