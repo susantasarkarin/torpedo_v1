@@ -6,6 +6,12 @@ Extended with:
 - OpenAI web search for company enrichment
 - Email signature parsing for contact extraction
 - Conversation summary generation
+
+COST OPTIMIZATION: Uses centralized openai_wrapper.py for all API calls.
+- Strict max_output_tokens enforcement
+- Token usage logging to MongoDB
+- Rate limiting per source (cron/api/user)
+- Global kill switch via DISABLE_OPENAI_CALLS env var
 """
 
 import os
@@ -15,7 +21,6 @@ import time
 import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, List, Dict, Any
-from openai import OpenAI
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
@@ -24,188 +29,49 @@ from .models import (
     SeniorityLevel, Department, Persona, CompanySize, Region,
     BuyingRole, Gender, EmailThreadMessage
 )
+# COST CONTROL: Import centralized wrapper instead of direct OpenAI client
+from .openai_wrapper import (
+    chat_completion, get_openai_client, get_openai_api_key,
+    DEFAULT_MODEL, BACKGROUND_MAX_OUTPUT_TOKENS,
+    build_system_prompt, JSON_ONLY_INSTRUCTION
+)
 
 load_dotenv()
 
 
 # ============== CONFIGURATION ==============
+# COST CONTROL: Model config now in openai_wrapper.py for centralized management
 
-MODEL = "gpt-4o-mini"
+MODEL = DEFAULT_MODEL  # gpt-4o-mini - cost-effective default
 TEMPERATURE = 0.1  # Low temperature for deterministic output
-MAX_RETRIES = 3
-RETRY_DELAY = 1.0
 
-# Cost per 1K tokens (approximate for gpt-4o-mini)
-INPUT_COST_PER_1K = 0.00015
-OUTPUT_COST_PER_1K = 0.0006
+# Cost tracking moved to openai_wrapper.py TokenUsageLogger
 
 
-def get_openai_api_key() -> Optional[str]:
+def _legacy_get_openai_api_key() -> Optional[str]:
     """
-    Get OpenAI API key from database settings first, fallback to env var.
+    DEPRECATED: Use openai_wrapper.get_openai_api_key() instead.
+    Kept for backward compatibility.
     """
-    try:
-        MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
-        settings_db = client["torpedo_settings"]
-        app_settings = settings_db["app_settings"]
-        
-        stored = app_settings.find_one({"_id": "app_config"})
-        if stored and stored.get("openai_api_key"):
-            return stored["openai_api_key"]
-    except Exception as e:
-        print(f"Warning: Could not fetch OpenAI key from DB: {e}")
-    
-    # Fallback to environment variable
-    return os.getenv("OPENAI_API_KEY")
+    return get_openai_api_key()
 
 
-# ============== PROMPT TEMPLATE ==============
+# ============== OPTIMIZED PROMPT TEMPLATES ==============
+# COST CONTROL: Reduced from ~1500 tokens to ~400 tokens (73% reduction)
+# Verbose instructions removed; model already knows classification rules
 
-SYSTEM_PROMPT = """You are a B2B lead enrichment and research expert with extensive knowledge of companies worldwide. Your task is to analyze LinkedIn profile information and DEEPLY RESEARCH to provide comprehensive lead data.
+SYSTEM_PROMPT = """B2B lead enrichment expert. Respond with JSON only.
 
-IMPORTANT: Use your extensive knowledge base to fill in as much information as possible. For well-known companies, you have accurate data - USE IT. Do NOT leave fields as null if you can reasonably infer or know the information.
+Output Schema:
+{"first_name":"str","last_name":"str","predicted_email":"firstname.lastname@domain.com","seniority_level":"C-Level|VP|Director|Manager|IC|Unknown","department":"Sales|Marketing|Engineering|Operations|Finance|HR|Product|Other","persona":"Decision Maker|Influencer|Gatekeeper|Practitioner","buying_role":"Economic Buyer|Technical Buyer|User Buyer|Champion|Influencer|Unknown","gender":"Male|Female|Unknown","company_size":"Startup|SMB|Mid-Market|Enterprise","region":"US|EU|APAC|LATAM|Other","inferred_location":"str","company_name":"str","company_domain":"str","company_website":"str","company_employee_count":"str","company_employee_count_range":"1-10|11-50|51-200|201-500|501-1000|1001-5000|5001-10000|10000+","company_founded":"str","company_industry":"str","company_type":"Public|Private|Startup|Non-Profit|Government","company_headquarters":"str","company_revenue_range":"$1M-$10M|$10M-$50M|$50M-$100M|$100M-$500M|$500M-$1B|$1B+","company_linkedin_url":"str","confidence_score":0.0-1.0}
 
-You MUST respond with valid JSON only. No explanations, no markdown, just pure JSON.
-
-Output Schema (STRICT - follow exactly):
-{
-  "first_name": "<string - extract first name from full name>",
-  "last_name": "<string - extract last name from full name>",
-  "predicted_email": "<string - generate most likely email using firstname.lastname@domain.com pattern, or firstname@domain.com for smaller companies>",
-  "seniority_level": "C-Level" | "VP" | "Director" | "Manager" | "IC" | "Unknown",
-  "department": "Sales" | "Marketing" | "Engineering" | "Operations" | "Finance" | "HR" | "Product" | "Other",
-  "persona": "Decision Maker" | "Influencer" | "Gatekeeper" | "Practitioner",
-  "buying_role": "Economic Buyer" | "Technical Buyer" | "User Buyer" | "Champion" | "Influencer" | "Unknown",
-  "gender": "Male" | "Female" | "Unknown",
-  "company_size": "Startup" | "SMB" | "Mid-Market" | "Enterprise",
-  "region": "US" | "EU" | "APAC" | "LATAM" | "Other",
-  "inferred_location": "<string - city/country - INFER from company HQ, title hints, or common locations for the role>",
-  "company_name": "<string - current company name>",
-  "company_domain": "<string - company domain e.g. 'company.com'>",
-  "company_website": "<string - full company website URL with https://>",
-  "company_employee_count": "<string - estimated employee count as number>",
-  "company_employee_count_range": "<string - e.g. '1-10', '11-50', '51-200', '201-500', '501-1000', '1001-5000', '5001-10000', '10000+'>",
-  "company_founded": "<string - year founded e.g. '2015'>",
-  "company_industry": "<string - specific industry name>",
-  "company_type": "<string - 'Public' | 'Private' | 'Startup' | 'Non-Profit' | 'Government'>",
-  "company_headquarters": "<string - HQ city, state/country>",
-  "company_revenue_range": "<string - e.g. '$1M-$10M', '$10M-$50M', '$50M-$100M', '$100M-$500M', '$500M-$1B', '$1B+'>",
-  "company_linkedin_url": "<string - company LinkedIn URL in format https://linkedin.com/company/companyname>",
-  "confidence_score": <float between 0.0 and 1.0>
-}
-
-DEEP RESEARCH INSTRUCTIONS:
-
-1. NAME PARSING:
-   - Split full name into first and last name
-   - Handle prefixes (Dr., Mr., Mrs.) and suffixes (Jr., III, PhD)
-   - For names like "John Smith, MBA" -> first: "John", last: "Smith"
-
-2. EMAIL PREDICTION:
-   - Generate a predicted email address using the person's name and company domain
-   - Common patterns: firstname.lastname@domain.com, firstname@domain.com, flastname@domain.com
-   - Use firstname.lastname@domain.com as the default pattern
-   - Ensure email is lowercase and properly formatted
-   - If company domain is unknown, try to infer it from company name (e.g., "Google" -> "google.com")
-
-3. GENDER INFERENCE:
-   - Use your knowledge of names worldwide to infer gender
-   - Consider cultural context (Indian, Chinese, Western names, etc.)
-   - Common names: John/Michael/David = Male, Sarah/Emily/Jennifer = Female
-   - Only use "Unknown" if truly ambiguous
-
-3. COMPANY RESEARCH (USE YOUR KNOWLEDGE):
-   For well-known companies (Google, Microsoft, Salesforce, HubSpot, etc.), you KNOW:
-   - Exact employee count ranges
-   - Founding year
-   - Headquarters location
-   - Revenue ranges
-   - Industry
-   - Company type (Public/Private)
-   - Website and domain
-   
-   For less known companies:
-   - Infer domain from company name (e.g., "Acme Corp" -> "acmecorp.com")
-   - Estimate size from context clues in title/snippet
-   - Use industry keywords in title to determine industry
-   - Infer headquarters from any location mentions
-
-4. LOCATION INFERENCE:
-   - Look for location clues in the snippet
-   - If company HQ is known, use that as default
-   - Look for country/city mentions in title
-   - Use regional keywords (e.g., "APAC Sales" = Asia Pacific)
-
-5. LINKEDIN URL CONSTRUCTION:
-   - Company LinkedIn: https://linkedin.com/company/{company-slug}
-   - Convert company name to slug (lowercase, hyphens for spaces)
-   - Example: "Acme Corporation" -> "https://linkedin.com/company/acme-corporation"
-
-Classification Rules:
-
-SENIORITY:
-- C-Level: CEO, CTO, CFO, COO, CMO, CRO, Chief, Founder, Co-Founder, President
-- VP: Vice President, SVP, EVP, VP of, Head of (at large companies)
-- Director: Director, Head of (at smaller companies), Principal
-- Manager: Manager, Team Lead, Lead, Senior (in some contexts)
-- IC: Individual Contributor, Analyst, Specialist, Engineer, Associate, Coordinator
-
-PERSONA:
-- Decision Maker: C-Level, VP with budget authority, Founders
-- Influencer: Directors, Senior Managers, Principals
-- Gatekeeper: Managers, Coordinators, Executive Assistants
-- Practitioner: ICs, hands-on workers, engineers, analysts
-
-BUYING ROLE:
-- Economic Buyer: CFO, CEO, VP Finance, anyone controlling budget
-- Technical Buyer: CTO, VP Engineering, IT Director, Technical Leads
-- User Buyer: Department heads who will use the product
-- Champion: Anyone who actively advocates (infer from enthusiastic language)
-- Influencer: Has influence but no direct authority
-
-COMPANY SIZE (by employee count):
-- Startup: 1-50 employees
-- SMB: 51-200 employees
-- Mid-Market: 201-1000 employees
-- Enterprise: 1000+ employees
-
-REGION (infer from location/company HQ):
-- US: United States, USA
-- EU: Europe, UK, Germany, France, etc.
-- APAC: Asia Pacific, India, China, Japan, Singapore, Australia
-- LATAM: Latin America, Brazil, Mexico, Argentina
-- Other: Middle East, Africa, etc.
-
-Confidence score: How certain you are (0.0-1.0)
-  - 0.9+: Well-known company with clear data
-  - 0.7-0.9: Clear title, reasonable inferences
-  - 0.5-0.7: Moderate inference required
-  - <0.5: Significant guessing involved
-
-REMEMBER: Your job is to FILL IN as much data as possible. Use your knowledge. Don't leave fields null unless truly impossible to determine."""
+Rules: C-Level=CEO/CTO/CFO/Founder. Startup=1-50,SMB=51-200,Mid-Market=201-1000,Enterprise=1000+. Use knowledge for known companies. Minimize nulls."""
 
 
-USER_PROMPT_TEMPLATE = """Analyze and deeply research this LinkedIn lead. Fill in ALL possible fields using your knowledge:
-
-Name: {name}
-Title: {title}
-LinkedIn URL: {linkedin_url}
-Additional Context: {snippet}
-Known Location: {location}
-Known Company: {company_name}
-Known Email: {email}
-
-INSTRUCTIONS:
-1. Extract the company name from the title (e.g., "VP Sales at Google" -> Google)
-2. Use your knowledge to fill in ALL company details for known companies
-3. Infer the domain, website, LinkedIn URL from the company name
-4. Determine employee count, revenue, founding year from your knowledge
-5. Infer location from company HQ if not provided
-6. Parse first/last name and infer gender
-7. Fill in EVERY field possible - minimize null values
-
-Respond with JSON only."""
+USER_PROMPT_TEMPLATE = """Enrich lead:
+Name:{name} Title:{title} URL:{linkedin_url}
+Context:{snippet} Location:{location} Company:{company_name} Email:{email}
+Return JSON."""
 
 
 # ============== CLASSIFICATION CACHE ==============
@@ -236,24 +102,25 @@ def cache_classification(lead: LeadRaw, result: AIClassificationOutput):
 
 
 # ============== OPENAI CLIENT ==============
-
-def get_openai_client() -> OpenAI:
-    api_key = get_openai_api_key()
-    if not api_key:
-        raise ValueError("OPENAI_API_KEY not set in settings or environment")
-    return OpenAI(api_key=api_key)
+# COST CONTROL: Now uses centralized wrapper from openai_wrapper.py
 
 
 # ============== CLASSIFICATION FUNCTION ==============
 
-def classify_lead(lead: LeadRaw) -> Tuple[Optional[AIClassificationOutput], AIClassificationLog]:
+def classify_lead(lead: LeadRaw, source: str = "api") -> Tuple[Optional[AIClassificationOutput], AIClassificationLog]:
     """
     Classify a single lead using ChatGPT.
+    COST CONTROL: Uses centralized wrapper with strict token limits.
+    
+    Args:
+        lead: LeadRaw object to classify
+        source: Request source for rate limiting ("api", "cron", "background", "user")
+    
     Returns: (classification_result, classification_log)
     """
     start_time = time.time()
     
-    # Check cache first
+    # Check cache first - COST CONTROL: Avoid duplicate API calls
     cached = get_cached_classification(lead)
     if cached:
         log = AIClassificationLog(
@@ -271,15 +138,15 @@ def classify_lead(lead: LeadRaw) -> Tuple[Optional[AIClassificationOutput], AICl
         )
         return cached, log
     
-    # Build prompt with all available context
+    # Build compact prompt - COST CONTROL: Reduced token usage
     user_prompt = USER_PROMPT_TEMPLATE.format(
         name=lead.name,
         title=lead.title,
         linkedin_url=lead.linkedin_url,
-        snippet=lead.snippet or "Not provided",
-        location=lead.location or "Not provided",
-        company_name=lead.company_name or "Not provided",
-        email=lead.email or "Not provided"
+        snippet=lead.snippet or "-",
+        location=lead.location or "-",
+        company_name=lead.company_name or "-",
+        email=lead.email or "-"
     )
     
     # Initialize log
@@ -293,32 +160,36 @@ def classify_lead(lead: LeadRaw) -> Tuple[Optional[AIClassificationOutput], AICl
     )
     
     try:
-        client = get_openai_client()
-        
-        response = client.chat.completions.create(
-            model=MODEL,
+        # COST CONTROL: Use centralized wrapper with enforced max_output_tokens
+        result = chat_completion(
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt}
             ],
+            source=source,
+            endpoint="classify_lead",
+            model=MODEL,
+            max_output_tokens=300,  # COST CONTROL: Strict limit (was 1000)
             temperature=TEMPERATURE,
-            response_format={"type": "json_object"},
-            max_tokens=1000  # Increased for comprehensive responses
+            response_format={"type": "json_object"}
         )
         
-        # Calculate metrics
+        if not result["success"]:
+            log.error_message = result["error"]
+            log.latency_ms = int((time.time() - start_time) * 1000)
+            return None, log
+        
+        # Calculate metrics from wrapper response
         latency_ms = int((time.time() - start_time) * 1000)
-        tokens_used = response.usage.total_tokens if response.usage else 0
-        input_tokens = response.usage.prompt_tokens if response.usage else 0
-        output_tokens = response.usage.completion_tokens if response.usage else 0
-        cost_usd = (input_tokens / 1000 * INPUT_COST_PER_1K) + (output_tokens / 1000 * OUTPUT_COST_PER_1K)
+        usage = result["usage"]
+        tokens_used = usage["total_tokens"]
         
         # Parse response
-        raw_content = response.choices[0].message.content
+        raw_content = result["content"]
         log.raw_response = raw_content
         log.tokens_used = tokens_used
         log.latency_ms = latency_ms
-        log.cost_usd = cost_usd
+        log.cost_usd = 0  # Tracked in openai_wrapper.py TokenUsageLogger
         
         # Parse and validate JSON
         parsed = json.loads(raw_content)
@@ -407,39 +278,22 @@ except:
 
 
 # ============== OPENAI WEB SEARCH ENRICHMENT ==============
+# COST CONTROL: Optimized prompt reduced from ~350 tokens to ~150 tokens
 
-COMPANY_ENRICHMENT_PROMPT = """Search the web for company information about the domain: {domain}
+COMPANY_ENRICHMENT_PROMPT = """Research domain: {domain}
 
-Research and provide comprehensive company data. Return a JSON object with these fields (use null if information is not found):
-
-{{
-    "company_name": "Official company name",
-    "company_website": "Full website URL with https://",
-    "company_employee_count": "Estimated employee count as number",
-    "company_employee_range": "Range like '50-200', '201-500', '501-1000', '1001-5000', '5001-10000', '10000+'",
-    "company_industry": "Primary industry",
-    "company_type": "Private, Public, Startup, Non-Profit, or Government",
-    "company_founded_year": "Year founded as number",
-    "company_headquarters": "City, State/Country",
-    "company_revenue_range": "Revenue range like '$1M-$10M', '$10M-$50M', '$50M-$100M', '$100M-$500M', '$500M-$1B', '$1B+'",
-    "company_linkedin_url": "Company LinkedIn URL",
-    "company_crunchbase_url": "Crunchbase profile URL if exists",
-    "company_funding_rounds": "Funding stages like 'Seed, Series A, Series B'",
-    "company_last_funding_amount": "Last funding amount like '$5M', '$50M'",
-    "company_logo_url": "Company logo URL",
-    "company_description": "Brief company description (1-2 sentences)"
-}}
-
-Be thorough in your web search. For well-known companies, provide accurate data. For lesser-known companies, search their website, LinkedIn, and Crunchbase for information."""
+Return JSON with company data (null if unknown):
+{{"company_name":"str","company_website":"str","company_employee_count":"num","company_employee_range":"50-200|201-500|501-1000|1001-5000|5001-10000|10000+","company_industry":"str","company_type":"Private|Public|Startup|Non-Profit|Government","company_founded_year":"num","company_headquarters":"City,Country","company_revenue_range":"$1M-$10M|$10M-$50M|$50M-$100M|$100M-$500M|$500M-$1B|$1B+","company_linkedin_url":"str","company_crunchbase_url":"str","company_funding_rounds":"str","company_last_funding_amount":"str","company_logo_url":"str","company_description":"1-2 sentences"}}"""
 
 
-def enrich_company_via_websearch(domain: str) -> Dict[str, Any]:
+def enrich_company_via_websearch(domain: str, source: str = "background") -> Dict[str, Any]:
     """
-    Use OpenAI with web search to enrich company data based on domain.
-    Results are cached for 30 days.
+    Use OpenAI to enrich company data based on domain.
+    COST CONTROL: Uses gpt-4o-mini by default, caches for 30 days.
     
     Args:
         domain: Company domain (e.g., 'example.com')
+        source: Request source for rate limiting
         
     Returns:
         Dictionary with company enrichment data
@@ -447,7 +301,7 @@ def enrich_company_via_websearch(domain: str) -> Dict[str, Any]:
     if not domain:
         return {}
     
-    # Check cache first
+    # Check cache first - COST CONTROL: Avoid redundant API calls
     cached = _company_cache.find_one({"domain": domain})
     if cached and cached.get("fetched_at"):
         cache_age = datetime.utcnow() - cached["fetched_at"]
@@ -455,29 +309,27 @@ def enrich_company_via_websearch(domain: str) -> Dict[str, Any]:
             return cached.get("data", {})
     
     try:
-        client = get_openai_client()
-        
-        # Use GPT-4o with web search capability
-        response = client.chat.completions.create(
-            model="gpt-4o",
+        # COST CONTROL: Use centralized wrapper with gpt-4o-mini (not gpt-4o)
+        result = chat_completion(
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are a business research assistant. Search the web thoroughly to find company information. Return only valid JSON."
-                },
-                {
-                    "role": "user",
-                    "content": COMPANY_ENRICHMENT_PROMPT.format(domain=domain)
-                }
+                {"role": "system", "content": "Business research assistant. JSON only."},
+                {"role": "user", "content": COMPANY_ENRICHMENT_PROMPT.format(domain=domain)}
             ],
+            source=source,
+            endpoint="enrich_company",
+            model=DEFAULT_MODEL,  # COST CONTROL: gpt-4o-mini instead of gpt-4o
+            max_output_tokens=300,  # COST CONTROL: Reduced from 1500
             temperature=0.1,
             response_format={"type": "json_object"},
-            max_tokens=1500
+            allow_premium_model=False  # COST CONTROL: Prevent accidental gpt-4o usage
         )
         
+        if not result["success"]:
+            print(f"Error enriching company {domain}: {result['error']}")
+            return {}
+        
         # Parse response
-        raw_content = response.choices[0].message.content
-        data = json.loads(raw_content)
+        data = json.loads(result["content"])
         
         # Cache the result
         _company_cache.update_one(
@@ -501,40 +353,22 @@ def enrich_company_via_websearch(domain: str) -> Dict[str, Any]:
 
 
 # ============== EMAIL SIGNATURE PARSING ==============
+# COST CONTROL: Optimized prompt reduced from ~200 tokens to ~80 tokens
 
-SIGNATURE_EXTRACTION_PROMPT = """Extract contact information from this email signature/body. Look for patterns typically found in email signatures.
-
-Email content:
+SIGNATURE_EXTRACTION_PROMPT = """Extract contact from signature:
 {email_body}
 
-Return a JSON object with these fields (use null if not found):
-{{
-    "full_name": "Person's full name",
-    "first_name": "First name",
-    "last_name": "Last name",
-    "title": "Job title/position",
-    "phone": "Phone number (any format)",
-    "mobile": "Mobile number if different from phone",
-    "linkedin_url": "LinkedIn profile URL",
-    "location": "City, State/Country",
-    "company_name": "Company name from signature"
-}}
-
-Focus on the signature block, usually at the end of the email. Common patterns:
-- Name on first line of signature
-- Title below name
-- Phone numbers with various formats
-- LinkedIn URLs
-- Location in signature"""
+Return JSON: {{"full_name":"str","first_name":"str","last_name":"str","title":"str","phone":"str","mobile":"str","linkedin_url":"str","location":"str","company_name":"str"}}"""
 
 
-def extract_contact_from_signature(email_body: str) -> Dict[str, Any]:
+def extract_contact_from_signature(email_body: str, source: str = "background") -> Dict[str, Any]:
     """
-    Use AI to extract contact information from email signature.
-    Falls back to regex patterns if AI unavailable.
+    Extract contact from email signature.
+    COST CONTROL: Regex-first approach, AI only when needed.
     
     Args:
         email_body: Full email body text
+        source: Request source for rate limiting
         
     Returns:
         Dictionary with extracted contact information
@@ -542,38 +376,36 @@ def extract_contact_from_signature(email_body: str) -> Dict[str, Any]:
     if not email_body:
         return {}
     
-    # First try regex extraction (faster, no API cost)
+    # COST CONTROL: Regex first - faster and free
     regex_result = _extract_signature_regex(email_body)
     
-    # If we got good results from regex, return them
+    # COST CONTROL: Skip AI if regex got good results
     if regex_result.get("linkedin_url") or regex_result.get("phone"):
         return regex_result
     
-    # Use AI for better extraction
+    # Use AI for better extraction - COST CONTROL: Only when regex fails
     try:
-        client = get_openai_client()
+        # Only send last 500 chars (signature is at end) - COST CONTROL: Reduce input tokens
+        signature_text = email_body[-500:] if len(email_body) > 500 else email_body
         
-        # Only send last 1000 chars (signature is usually at the end)
-        signature_text = email_body[-1000:] if len(email_body) > 1000 else email_body
-        
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
+        # COST CONTROL: Use centralized wrapper
+        result = chat_completion(
             messages=[
-                {
-                    "role": "system",
-                    "content": "You extract contact information from email signatures. Return only valid JSON."
-                },
-                {
-                    "role": "user",
-                    "content": SIGNATURE_EXTRACTION_PROMPT.format(email_body=signature_text)
-                }
+                {"role": "system", "content": "Extract contact from signature. JSON only."},
+                {"role": "user", "content": SIGNATURE_EXTRACTION_PROMPT.format(email_body=signature_text)}
             ],
+            source=source,
+            endpoint="extract_signature",
+            model=DEFAULT_MODEL,
+            max_output_tokens=150,  # COST CONTROL: Reduced from 500
             temperature=0.1,
-            response_format={"type": "json_object"},
-            max_tokens=500
+            response_format={"type": "json_object"}
         )
         
-        data = json.loads(response.choices[0].message.content)
+        if not result["success"]:
+            return regex_result
+        
+        data = json.loads(result["content"])
         
         # Merge with regex results (prefer AI but keep regex fallbacks)
         merged = {**regex_result, **{k: v for k, v in data.items() if v}}
@@ -633,71 +465,50 @@ def _extract_signature_regex(body: str) -> Dict[str, str]:
 
 
 # ============== SINGLE EMAIL SUMMARY GENERATION ==============
+# COST CONTROL: Optimized prompt from ~150 tokens to ~50 tokens
 
-SINGLE_EMAIL_SUMMARY_PROMPT = """Analyze this email and provide a comprehensive summary.
+SINGLE_EMAIL_SUMMARY_PROMPT = """Summarize email:
+Subject:{subject} From:{from_email} Date:{date}
+Body:{body}
 
-Subject: {subject}
-From: {from_email}
-Date: {date}
-
-Email Body:
-{body}
-
-Generate a detailed summary (approximately 200-300 words) that captures:
-- The main purpose/request of this email
-- Key details (amounts, dates, product names, specifications, timelines)
-- Action items or requests made
-- Context from any quoted previous emails in the thread
-- The tone/urgency level and any deadlines mentioned
-
-Be thorough and capture all important business context. Include specific names, companies, and figures mentioned."""
+Include: purpose, key details (amounts/dates/specs), action items, urgency. Max 100 words."""
 
 
-def generate_single_email_summary(subject: str, body: str, from_email: str = "", date: str = "") -> str:
+def generate_single_email_summary(
+    subject: str, body: str, from_email: str = "", date: str = "", source: str = "background"
+) -> str:
     """
-    Generate an AI summary for a single email.
-    
-    Args:
-        subject: Email subject line
-        body: Email body text
-        from_email: Sender email address
-        date: Email date
-        
-    Returns:
-        Summary string (or empty string on error)
+    Generate AI summary for single email.
+    COST CONTROL: Reduced max_output_tokens and optimized prompt.
     """
     if not body or len(body.strip()) < 10:
         return ""
     
     try:
-        client = get_openai_client()
+        # COST CONTROL: Truncate to 1500 chars (was 3000)
+        truncated_body = body[:1500] if len(body) > 1500 else body
         
-        # Truncate body if too long
-        truncated_body = body[:3000] if len(body) > 3000 else body
-        
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
+        result = chat_completion(
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are an email assistant that creates comprehensive business summaries. Include all important details, context, and action items from the email thread."
-                },
-                {
-                    "role": "user",
-                    "content": SINGLE_EMAIL_SUMMARY_PROMPT.format(
-                        subject=subject or "(no subject)",
-                        from_email=from_email or "Unknown",
-                        date=date or "Unknown",
-                        body=truncated_body
-                    )
-                }
+                {"role": "system", "content": "Email summarizer. Be concise."},
+                {"role": "user", "content": SINGLE_EMAIL_SUMMARY_PROMPT.format(
+                    subject=subject or "-",
+                    from_email=from_email or "-",
+                    date=date or "-",
+                    body=truncated_body
+                )}
             ],
-            temperature=0.2,
-            max_tokens=500
+            source=source,
+            endpoint="email_summary",
+            model=DEFAULT_MODEL,
+            max_output_tokens=150,  # COST CONTROL: Reduced from 500
+            temperature=0.2
         )
         
-        summary = response.choices[0].message.content.strip()
-        return summary
+        if not result["success"]:
+            return ""
+        
+        return result["content"].strip()
         
     except Exception as e:
         print(f"Error generating email summary: {e}")
@@ -705,27 +516,18 @@ def generate_single_email_summary(subject: str, body: str, from_email: str = "",
 
 
 # ============== CONVERSATION SUMMARY GENERATION ==============
+# COST CONTROL: Optimized prompt from ~120 tokens to ~60 tokens
 
-CONVERSATION_SUMMARY_PROMPT = """Analyze this email thread and provide a concise business summary.
-
-Emails (in chronological order):
+CONVERSATION_SUMMARY_PROMPT = """Summarize email thread:
 {emails}
 
-Generate a summary that covers:
-1. **Current Status**: What is the current state of this conversation?
-2. **Client Needs**: What does the client/prospect want or need?
-3. **Key Points**: Important details discussed (pricing, timelines, requirements)
-4. **Next Steps**: What action is needed next?
-5. **Blockers**: Any obstacles or concerns mentioned?
-
-Keep the summary under 150 words. Be specific and actionable. Use bullet points for clarity.
-
-Return as plain text, not JSON."""
+Cover: status, client needs, key points (pricing/timelines), next steps, blockers. Max 100 words. Bullet points."""
 
 
-def generate_conversation_summary(email_threads: List[Dict[str, Any]]) -> str:
+def generate_conversation_summary(email_threads: List[Dict[str, Any]], source: str = "background") -> str:
     """
-    Generate an AI summary of email conversation threads.
+    Generate AI summary of email thread.
+    COST CONTROL: Batches emails, limits output tokens.
     Called automatically after every new email.
     
     Args:
@@ -738,42 +540,35 @@ def generate_conversation_summary(email_threads: List[Dict[str, Any]]) -> str:
         return ""
     
     try:
-        client = get_openai_client()
-        
-        # Format emails for the prompt
+        # COST CONTROL: Compact email formatting to reduce input tokens
         emails_text = ""
         for i, email in enumerate(sorted(email_threads, key=lambda x: x.get("date", datetime.min)), 1):
-            direction = "↗️ SENT" if email.get("direction") == "sent" else "↙️ RECEIVED"
-            date_str = email.get("date", "Unknown date")
+            direction = "OUT" if email.get("direction") == "sent" else "IN"
+            date_str = email.get("date", "")
             if isinstance(date_str, datetime):
-                date_str = date_str.strftime("%Y-%m-%d %H:%M")
+                date_str = date_str.strftime("%m/%d")
             
-            emails_text += f"""
---- Email {i} ({direction}) - {date_str} ---
-Subject: {email.get("subject", "No subject")}
-From: {email.get("from_email", "Unknown")}
-Preview: {email.get("body_preview", email.get("body_full", "")[:300])}
-
-"""
+            # COST CONTROL: Shorter preview (150 chars vs 300)
+            preview = email.get("body_preview", email.get("body_full", "")[:150])
+            emails_text += f"{i}.{direction} {date_str}: {email.get('subject', '')} | {preview}\n"
         
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
+        # COST CONTROL: Use centralized wrapper
+        result = chat_completion(
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are a sales assistant that summarizes email conversations. Be concise, specific, and focus on actionable insights."
-                },
-                {
-                    "role": "user",
-                    "content": CONVERSATION_SUMMARY_PROMPT.format(emails=emails_text)
-                }
+                {"role": "system", "content": "Sales email summarizer. Be concise."},
+                {"role": "user", "content": CONVERSATION_SUMMARY_PROMPT.format(emails=emails_text)}
             ],
-            temperature=0.3,
-            max_tokens=300
+            source=source,
+            endpoint="conversation_summary",
+            model=DEFAULT_MODEL,
+            max_output_tokens=150,  # COST CONTROL: Reduced from 300
+            temperature=0.3
         )
         
-        summary = response.choices[0].message.content.strip()
-        return summary
+        if not result["success"]:
+            return f"Summary unavailable: {result['error']}"
+        
+        return result["content"].strip()
         
     except Exception as e:
         print(f"Error generating conversation summary: {e}")

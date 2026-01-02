@@ -577,38 +577,40 @@ Best regards,
         sentiment: Optional[SentimentResult],
         tone: Tone
     ) -> str:
-        """Generate response content using AI."""
+        """
+        Generate response content using AI.
+        COST CONTROL: Optimized prompt and strict token limits.
+        """
         if not self._openai_client:
             return ""
         
+        # COST CONTROL: Check kill switch
+        if os.getenv("DISABLE_OPENAI_CALLS", "").lower() in ("true", "1", "yes"):
+            logger.info("OpenAI calls disabled via DISABLE_OPENAI_CALLS")
+            return ""
+        
+        # COST CONTROL: Compact sentiment info
         sentiment_info = ""
         if sentiment:
-            sentiment_info = f"""
-The email has a {sentiment.sentiment.value} sentiment with {sentiment.urgency.value} urgency.
-The sender's intent appears to be: {sentiment.intent.value}
-Key points from the email: {sentiment.summary}
-"""
+            sentiment_info = f"Sentiment:{sentiment.sentiment.value} Urgency:{sentiment.urgency.value} Intent:{sentiment.intent.value}"
         
-        prompt = f"""Generate a professional email response body.
-
-Original email subject: {email.subject}
-Original email content: {email.get_plain_body()[:1000]}
+        # COST CONTROL: Optimized prompt from ~120 tokens to ~50 tokens
+        prompt = f"""Write email response body only (no greeting/signoff).
+Subject:{email.subject}
+Content:{email.get_plain_body()[:500]}
 {sentiment_info}
-
-Desired tone: {tone.value}
-
-Generate only the body paragraph(s) of the response. Do not include greetings or sign-offs.
-Keep it concise, professional, and helpful."""
+Tone:{tone.value}
+Concise, professional."""
 
         try:
             response = self._openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o-mini",  # COST CONTROL: Changed from gpt-3.5-turbo to gpt-4o-mini
                 messages=[
-                    {"role": "system", "content": "You are a professional email writer."},
+                    {"role": "system", "content": "Email writer. Concise."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,
-                max_tokens=300
+                max_tokens=150  # COST CONTROL: Reduced from 300
             )
             return response.choices[0].message.content.strip()
         except Exception as e:

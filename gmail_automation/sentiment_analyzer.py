@@ -189,21 +189,29 @@ class TextBlobAnalyzer:
 class OpenAIAnalyzer:
     """
     Advanced sentiment analyzer using OpenAI GPT.
+    COST CONTROL: Uses gpt-4o-mini by default with strict token limits.
     Requires OPENAI_API_KEY environment variable.
     """
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-3.5-turbo"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o-mini"):
         """
         Initialize OpenAI analyzer.
+        COST CONTROL: Changed default model from gpt-3.5-turbo to gpt-4o-mini (cheaper).
         
         Args:
             api_key: OpenAI API key (uses env var if not provided)
-            model: OpenAI model to use
+            model: OpenAI model to use (default: gpt-4o-mini for cost control)
         """
         self.api_key = api_key or os.getenv('OPENAI_API_KEY')
         self.model = model
         self.available = bool(self.api_key)
         self._client = None
+        
+        # COST CONTROL: Check kill switch
+        if os.getenv("DISABLE_OPENAI_CALLS", "").lower() in ("true", "1", "yes"):
+            self.available = False
+            logger.info("OpenAI calls disabled via DISABLE_OPENAI_CALLS")
+            return
         
         if self.available:
             try:
@@ -215,7 +223,8 @@ class OpenAIAnalyzer:
     
     def analyze(self, text: str) -> Dict[str, Any]:
         """
-        Perform comprehensive sentiment analysis using GPT.
+        Perform sentiment analysis using GPT.
+        COST CONTROL: Optimized prompt and reduced max_tokens.
         
         Args:
             text: Text to analyze
@@ -226,31 +235,22 @@ class OpenAIAnalyzer:
         if not self.available or not self._client:
             return {}
         
-        prompt = f"""Analyze the following email text and provide a JSON response with:
-1. sentiment: "very_positive", "positive", "neutral", "negative", or "very_negative"
-2. sentiment_score: float from -1 (very negative) to 1 (very positive)
-3. tone: "professional", "casual", "formal", "friendly", "urgent", "frustrated", "apologetic", "appreciative", or "neutral"
-4. urgency: "critical", "high", "medium", "low", or "none"
-5. intent: "request", "inquiry", "complaint", "feedback", "appreciation", "information", "follow_up", "introduction", "negotiation", "confirmation", or "unknown"
-6. emotions: dictionary of detected emotions with confidence scores (0-1)
-7. key_phrases: list of 3-5 important phrases
-8. action_items: list of any action items or requests
-9. summary: 1-2 sentence summary
+        # COST CONTROL: Optimized prompt from ~200 tokens to ~80 tokens
+        prompt = f"""Analyze email sentiment. Return JSON:
+{{"sentiment":"very_positive|positive|neutral|negative|very_negative","sentiment_score":-1.0 to 1.0,"tone":"professional|casual|formal|friendly|urgent|frustrated|apologetic|appreciative|neutral","urgency":"critical|high|medium|low|none","intent":"request|inquiry|complaint|feedback|appreciation|information|follow_up|introduction|negotiation|confirmation|unknown","key_phrases":["phrase1","phrase2"],"summary":"1-2 sentences"}}
 
-Email text:
-{text[:2000]}
-
-Respond with valid JSON only."""
+Email:
+{text[:1000]}"""  # COST CONTROL: Reduced from 2000 to 1000 chars
 
         try:
             response = self._client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are an expert email sentiment analyzer. Respond only with valid JSON."},
+                    {"role": "system", "content": "Email sentiment analyzer. JSON only."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
-                max_tokens=500
+                max_tokens=200  # COST CONTROL: Reduced from 500
             )
             
             import json

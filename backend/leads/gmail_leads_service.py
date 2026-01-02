@@ -448,63 +448,54 @@ def _generate_basic_summary(emails: List[Dict[str, Any]]) -> Tuple[str, List[str
     return summary, key_points, action_items
 
 
-def _generate_ai_summary(emails: List[Dict[str, Any]]) -> Tuple[str, List[str], List[str]]:
-    """Generate AI-powered summary using OpenAI."""
-    import openai
+def _generate_ai_summary(emails: List[Dict[str, Any]], source: str = "background") -> Tuple[str, List[str], List[str]]:
+    """
+    Generate AI-powered summary using OpenAI.
+    COST CONTROL: Uses centralized wrapper with strict token limits.
+    """
+    # COST CONTROL: Import centralized wrapper instead of direct OpenAI
+    from .openai_wrapper import chat_completion, DEFAULT_MODEL
     
-    openai_api_key = os.getenv('OPENAI_API_KEY')
-    if not openai_api_key:
-        raise ValueError("OpenAI API key not configured")
-    
-    client = openai.OpenAI(api_key=openai_api_key)
-    
-    # Prepare conversation text
+    # COST CONTROL: Compact email formatting to reduce input tokens
     conversation_text = ""
     for email in emails:
-        date = email.get('date', 'Unknown date')
-        sender = email.get('sender_name', email.get('sender', 'Unknown'))
-        subject = email.get('subject', 'No Subject')
-        body = email.get('body_text', '')[:500]  # Limit body length
-        
-        conversation_text += f"\n--- Email from {sender} on {date} ---\n"
-        conversation_text += f"Subject: {subject}\n"
-        conversation_text += f"{body}\n"
+        date = email.get('date', '')
+        sender = email.get('sender_name', email.get('sender', ''))
+        subject = email.get('subject', '')
+        body = email.get('body_text', '')[:300]  # COST CONTROL: Reduced from 500
+        conversation_text += f"{sender}|{date}|{subject}|{body}\n"
     
-    prompt = f"""Analyze this email conversation and provide:
-1. A brief summary (2-3 sentences)
-2. Key points (3-5 bullet points)
-3. Action items if any (list any follow-up needed)
+    # COST CONTROL: Optimized prompt from ~100 tokens to ~50 tokens
+    prompt = f"""Analyze emails, return JSON:
+{{"summary":"2-3 sentences","key_points":["point1","point2"],"action_items":["action1"]}}
 
-Email Conversation:
-{conversation_text}
+Emails:
+{conversation_text}"""
 
-Respond in JSON format:
-{{
-    "summary": "...",
-    "key_points": ["point 1", "point 2", ...],
-    "action_items": ["action 1", "action 2", ...]
-}}"""
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
+    # COST CONTROL: Use centralized wrapper
+    result = chat_completion(
         messages=[{"role": "user", "content": prompt}],
+        source=source,
+        endpoint="gmail_ai_summary",
+        model=DEFAULT_MODEL,
+        max_output_tokens=200,  # COST CONTROL: Reduced from 500
         temperature=0.3,
-        max_tokens=500
+        response_format={"type": "json_object"}
     )
     
-    result = response.choices[0].message.content
+    if not result["success"]:
+        return "", [], []
     
     # Parse JSON response
     try:
-        data = json.loads(result)
+        data = json.loads(result["content"])
         return (
             data.get('summary', ''),
             data.get('key_points', []),
             data.get('action_items', [])
         )
     except json.JSONDecodeError:
-        # Try to extract from text
-        return result, [], []
+        return result["content"], [], []
 
 
 # ============== MAIN SERVICE FUNCTIONS ==============

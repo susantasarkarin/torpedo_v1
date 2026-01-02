@@ -411,3 +411,128 @@ async def get_deployment_logs(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching logs: {str(e)}")
+
+
+# ============================================
+# OpenAI Usage Monitoring - COST CONTROL
+# ============================================
+
+@router.get("/openai/usage")
+async def get_openai_usage(request: Request = None, hours: int = 24) -> Dict[str, Any]:
+    """
+    Get OpenAI API usage statistics for cost monitoring.
+    COST CONTROL: Provides visibility into token usage and costs.
+    
+    Args:
+        hours: Number of hours to look back (default 24)
+    
+    Returns:
+        Usage breakdown by model and source with total costs
+    """
+    try:
+        # Verify session
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        # Import usage logger from wrapper
+        from leads.openai_wrapper import token_logger
+        
+        summary = token_logger.get_usage_summary(hours=hours)
+        
+        # Calculate totals
+        total_cost = 0.0
+        total_input_tokens = 0
+        total_output_tokens = 0
+        total_requests = 0
+        
+        breakdown = summary.get("breakdown", [])
+        for item in breakdown:
+            total_cost += item.get("total_cost", 0)
+            total_input_tokens += item.get("total_input_tokens", 0)
+            total_output_tokens += item.get("total_output_tokens", 0)
+            total_requests += item.get("total_requests", 0)
+        
+        return {
+            "success": True,
+            "period_hours": hours,
+            "totals": {
+                "total_requests": total_requests,
+                "total_input_tokens": total_input_tokens,
+                "total_output_tokens": total_output_tokens,
+                "total_cost_usd": round(total_cost, 4),
+                "avg_cost_per_request": round(total_cost / max(total_requests, 1), 6)
+            },
+            "by_model_and_source": breakdown,
+            "cost_control_settings": {
+                "kill_switch": os.getenv("DISABLE_OPENAI_CALLS", "false"),
+                "default_model": "gpt-4o-mini",
+                "max_output_tokens_default": 300,
+                "max_output_tokens_background": 150
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching OpenAI usage: {str(e)}")
+
+
+@router.get("/openai/usage/daily")
+async def get_openai_daily_usage(request: Request = None) -> Dict[str, Any]:
+    """Get daily OpenAI usage for the past 7 days."""
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        from leads.openai_wrapper import token_logger
+        
+        # Get usage for last 7 days
+        usage_db = mongo_client['email_automation']
+        usage_collection = usage_db['openai_usage_logs']
+        
+        from datetime import timedelta
+        
+        daily_usage = []
+        for days_ago in range(7):
+            day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days_ago)
+            day_end = day_start + timedelta(days=1)
+            
+            pipeline = [
+                {"$match": {"timestamp": {"$gte": day_start, "$lt": day_end}}},
+                {"$group": {
+                    "_id": None,
+                    "requests": {"$sum": 1},
+                    "input_tokens": {"$sum": "$input_tokens"},
+                    "output_tokens": {"$sum": "$output_tokens"},
+                    "cost": {"$sum": "$cost_usd"}
+                }}
+            ]
+            
+            result = list(usage_collection.aggregate(pipeline))
+            if result:
+                daily_usage.append({
+                    "date": day_start.strftime("%Y-%m-%d"),
+                    "requests": result[0]["requests"],
+                    "input_tokens": result[0]["input_tokens"],
+                    "output_tokens": result[0]["output_tokens"],
+                    "cost_usd": round(result[0]["cost"], 4)
+                })
+            else:
+                daily_usage.append({
+                    "date": day_start.strftime("%Y-%m-%d"),
+                    "requests": 0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "cost_usd": 0
+                })
+        
+        return {
+            "success": True,
+            "daily_usage": daily_usage
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching daily usage: {str(e)}")
+

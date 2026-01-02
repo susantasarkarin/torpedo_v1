@@ -442,6 +442,20 @@ async def startup_event():
     """Initialize scheduler and start background jobs"""
     global cpx_refresh_job
     
+    # Start Email Sync workers (runs in background even when user navigates away)
+    try:
+        try:
+            from .email_sync.router import get_orchestrator
+        except ImportError:
+            from email_sync.router import get_orchestrator
+        
+        orchestrator = get_orchestrator()
+        if orchestrator and not orchestrator._started:
+            orchestrator.start()
+            print("✅ Email Sync workers started (background sync enabled)")
+    except Exception as e:
+        print(f"⚠️ Could not start Email Sync workers: {e}")
+    
     # Resume incomplete web search jobs
     try:
         from leads.router import get_incomplete_jobs, run_web_search_job, update_job, JobStatus
@@ -499,12 +513,26 @@ async def startup_event():
     print("   • /cpx           - CPX Research surveys")
     print("   • /survey-allocation - Survey allocation engine")
     print("   • /              - Traffic flow (root level)")
+    print("   • /api/v1/email-sync - Email sync (background workers)")
     print("")
     print("🔄 BACKGROUND JOBS:")
     if scheduler.running:
         print(f"   • CPX Survey Refresh: Active (every {filter_settings.get('refresh_interval_seconds', 60)}s)")
     else:
         print("   • CPX Survey Refresh: Inactive")
+    # Check email sync workers status
+    try:
+        try:
+            from .email_sync.router import get_orchestrator
+        except ImportError:
+            from email_sync.router import get_orchestrator
+        orchestrator = get_orchestrator()
+        if orchestrator and orchestrator._started:
+            print("   • Email Sync Workers: Active (runs in background)")
+        else:
+            print("   • Email Sync Workers: Inactive")
+    except:
+        print("   • Email Sync Workers: Not available")
     print("")
     print("🌐 ENDPOINTS:")
     print("   • Health: GET /health")
@@ -514,10 +542,24 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Shutdown scheduler"""
+    """Shutdown scheduler and email sync workers"""
     if scheduler.running:
         scheduler.shutdown()
         print("✅ Scheduler shutdown complete")
+    
+    # Stop Email Sync workers
+    try:
+        try:
+            from .email_sync.router import get_orchestrator
+        except ImportError:
+            from email_sync.router import get_orchestrator
+        
+        orchestrator = get_orchestrator()
+        if orchestrator and orchestrator._started:
+            orchestrator.stop()
+            print("✅ Email Sync workers shutdown complete")
+    except Exception as e:
+        print(f"⚠️ Could not stop Email Sync workers: {e}")
 
 
 
