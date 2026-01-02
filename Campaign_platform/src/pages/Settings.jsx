@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { API_BASE_URL } from "../config"
+import EmailSyncProgress from "../components/EmailSyncProgress"
 import "./Settings.css"
 
 // Helper to get auth token - handles both storage methods
@@ -865,6 +866,13 @@ function Settings() {
         >
           <span className="tab-icon">📬</span>
           Gmail & Rate Limits
+        </button>
+        <button 
+          className={`tab-button ${activeTab === "emailsync" ? "active" : ""}`}
+          onClick={() => setActiveTab("emailsync")}
+        >
+          <span className="tab-icon">🔄</span>
+          Email Sync
         </button>
       </div>
 
@@ -1765,6 +1773,17 @@ function Settings() {
                 </div>
               </>
             )}
+          </div>
+        )}
+
+        {/* Email Sync Tab */}
+        {activeTab === "emailsync" && (
+          <div className="settings-section">
+            <h2>Email Sync Progress</h2>
+            <p className="section-description">
+              Monitor email synchronization status, view backfill progress, and manage sync workers.
+            </p>
+            <EmailSyncProgress refreshInterval={2000} />
           </div>
         )}
       </div>

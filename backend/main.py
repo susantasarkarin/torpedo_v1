@@ -396,6 +396,17 @@ try:
 except Exception as e:
     print(f"⚠️ Sales Dashboard router not included: {e}")
 
+# Email Sync router
+try:
+    try:
+        from .email_sync.router import router as email_sync_router
+    except ImportError:
+        from email_sync.router import router as email_sync_router
+    app.include_router(email_sync_router, prefix="/api/v1")
+    print("✅ Email Sync router included")
+except Exception as e:
+    print(f"⚠️ Email Sync router not included: {e}")
+
 # ----------------------------
 # APScheduler for CPX refresh job
 # ----------------------------
