@@ -777,7 +777,7 @@ async def change_password(request: Request, password_data: Dict[str, str] = Body
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Password change error: {str(e)}"}
+        raise HTTPException(status_code=500, detail=f"Password change error: {str(e)}")
 
 
 
