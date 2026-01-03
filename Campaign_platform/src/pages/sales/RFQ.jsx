@@ -41,10 +41,25 @@ function RFQ() {
   const [selectedIds, setSelectedIds] = useState([])
   const [selectedRfq, setSelectedRfq] = useState(null) // For detail modal
   const [showDetailModal, setShowDetailModal] = useState(false)
+  
+  // Conversion modal state
+  const [showConvertModal, setShowConvertModal] = useState(false)
+  const [convertType, setConvertType] = useState("") // "estimate" or "invoice"
+  const [converting, setConverting] = useState(false)
+  const [conversionForm, setConversionForm] = useState({
+    customer_id: "",
+    unit_price: "",
+    discount_percent: 0,
+    tax_percent: 18,
+    due_days: 30,
+    notes: ""
+  })
+  const [customers, setCustomers] = useState([])
 
   useEffect(() => {
     loadRFQs()
     loadStats()
+    loadCustomers()
   }, [])
 
   useEffect(() => {
@@ -105,6 +120,84 @@ function RFQ() {
       }
     } catch (error) {
       console.error("Error loading stats:", error)
+    }
+  }
+
+  const loadCustomers = async () => {
+    try {
+      const token = localStorage.getItem("session_id")
+      const response = await fetch(`${API_BASE_URL}/finance/customers/`, {
+        headers: { Authorization: token }
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setCustomers(data || [])
+      }
+    } catch (error) {
+      console.error("Error loading customers:", error)
+    }
+  }
+
+  // Open conversion modal
+  const openConvertModal = (type) => {
+    setConvertType(type)
+    setConversionForm({
+      customer_id: "",
+      unit_price: "",
+      discount_percent: 0,
+      tax_percent: 18,
+      due_days: type === "estimate" ? 15 : 30,
+      notes: ""
+    })
+    setShowConvertModal(true)
+  }
+
+  // Convert RFQ to Estimate or Invoice
+  const handleConversion = async () => {
+    if (!selectedRfq) return
+    
+    setConverting(true)
+    try {
+      const token = localStorage.getItem("session_id")
+      const endpoint = convertType === "estimate" 
+        ? `${API_BASE_URL}/rfq/${selectedRfq.rfq_id}/convert-to-estimate`
+        : `${API_BASE_URL}/rfq/${selectedRfq.rfq_id}/convert-to-invoice`
+      
+      const body = {
+        ...conversionForm,
+        unit_price: conversionForm.unit_price ? parseFloat(conversionForm.unit_price) : null,
+        customer_id: conversionForm.customer_id || null
+      }
+      
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { 
+          Authorization: token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setMessage({ 
+          type: "success", 
+          text: `RFQ converted to ${convertType} successfully! ${data.document_number}` 
+        })
+        setShowConvertModal(false)
+        setShowDetailModal(false)
+        loadRFQs()
+        loadStats()
+      } else {
+        const error = await response.json()
+        setMessage({ type: "error", text: error.detail || `Failed to convert to ${convertType}` })
+      }
+    } catch (error) {
+      console.error("Error converting RFQ:", error)
+      setMessage({ type: "error", text: `Failed to convert RFQ to ${convertType}` })
+    } finally {
+      setConverting(false)
     }
   }
 
@@ -436,6 +529,7 @@ function RFQ() {
                   <th>Country</th>
                   <th>Priority</th>
                   <th>Status</th>
+                  <th>Documents</th>
                   <th>Detected</th>
                   <th>Actions</th>
                 </tr>
@@ -545,6 +639,43 @@ function RFQ() {
                         <option value="lost">Lost</option>
                         <option value="cancelled">Cancelled</option>
                       </select>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                        {rfq.estimate_number && (
+                          <span 
+                            style={{ 
+                              backgroundColor: '#dbeafe', 
+                              color: '#1d4ed8', 
+                              padding: '2px 6px', 
+                              borderRadius: '4px', 
+                              fontSize: '0.7rem',
+                              fontWeight: '500'
+                            }}
+                            title={`Estimate: ${rfq.estimate_number}`}
+                          >
+                            📋 EST
+                          </span>
+                        )}
+                        {rfq.invoice_number && (
+                          <span 
+                            style={{ 
+                              backgroundColor: '#dcfce7', 
+                              color: '#166534', 
+                              padding: '2px 6px', 
+                              borderRadius: '4px', 
+                              fontSize: '0.7rem',
+                              fontWeight: '500'
+                            }}
+                            title={`Invoice: ${rfq.invoice_number}`}
+                          >
+                            💰 INV
+                          </span>
+                        )}
+                        {!rfq.estimate_number && !rfq.invoice_number && (
+                          <span style={{ color: '#9ca3af', fontSize: '0.8rem' }}>—</span>
+                        )}
+                      </div>
                     </td>
                     <td className="rfq-date">{formatDate(rfq.received_date || rfq.created_at)}</td>
                     <td onClick={(e) => e.stopPropagation()}>
@@ -778,9 +909,69 @@ function RFQ() {
                   </div>
                 </div>
               )}
+
+              {/* Conversion Status */}
+              {(selectedRfq.estimate_number || selectedRfq.invoice_number) && (
+                <div className="detail-section">
+                  <h3>📄 Conversion Status</h3>
+                  <div className="detail-grid">
+                    {selectedRfq.estimate_number && (
+                      <div className="detail-item">
+                        <label>Estimate</label>
+                        <span style={{ color: '#3b82f6', fontWeight: 'bold' }}>
+                          {selectedRfq.estimate_number}
+                        </span>
+                      </div>
+                    )}
+                    {selectedRfq.invoice_number && (
+                      <div className="detail-item">
+                        <label>Invoice</label>
+                        <span style={{ color: '#10b981', fontWeight: 'bold' }}>
+                          {selectedRfq.invoice_number}
+                        </span>
+                      </div>
+                    )}
+                    {selectedRfq.quoted_value && (
+                      <div className="detail-item">
+                        <label>Quoted Value</label>
+                        <span>{formatCurrency(selectedRfq.quoted_value, selectedRfq.manual_currency || 'USD')}</span>
+                      </div>
+                    )}
+                    {selectedRfq.invoiced_value && (
+                      <div className="detail-item">
+                        <label>Invoiced Value</label>
+                        <span>{formatCurrency(selectedRfq.invoiced_value, selectedRfq.manual_currency || 'USD')}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="modal-footer">
+              {/* Conversion Buttons - Only show if not already converted */}
+              {!selectedRfq.invoice_number && (
+                <>
+                  {!selectedRfq.estimate_number && selectedRfq.status !== 'won' && (
+                    <button 
+                      className="btn"
+                      style={{ backgroundColor: '#3b82f6', color: 'white' }}
+                      onClick={() => openConvertModal("estimate")}
+                    >
+                      📋 Create Estimate
+                    </button>
+                  )}
+                  {selectedRfq.status !== 'won' && (
+                    <button 
+                      className="btn"
+                      style={{ backgroundColor: '#10b981', color: 'white' }}
+                      onClick={() => openConvertModal("invoice")}
+                    >
+                      💰 Create Invoice
+                    </button>
+                  )}
+                </>
+              )}
               <Link 
                 to={`/admin/sales/leads/${selectedRfq.lead_id}`}
                 className="btn btn-primary"
@@ -792,6 +983,181 @@ function RFQ() {
                 onClick={() => setShowDetailModal(false)}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Conversion Modal */}
+      {showConvertModal && selectedRfq && (
+        <div className="modal-overlay" onClick={() => setShowConvertModal(false)}>
+          <div className="modal-content" style={{ maxWidth: '500px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>
+                {convertType === "estimate" ? "📋 Create Estimate" : "💰 Create Invoice"}
+              </h2>
+              <button className="modal-close" onClick={() => setShowConvertModal(false)}>×</button>
+            </div>
+            
+            <div className="modal-body">
+              {/* RFQ Summary */}
+              <div style={{ 
+                backgroundColor: '#f0fdf4', 
+                padding: '12px', 
+                borderRadius: '8px', 
+                marginBottom: '16px',
+                border: '1px solid #bbf7d0'
+              }}>
+                <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                  {selectedRfq.title || selectedRfq.project_name || 'Untitled RFQ'}
+                </div>
+                <div style={{ fontSize: '0.9rem', color: '#666' }}>
+                  Value: {formatCurrency(selectedRfq.manual_value || selectedRfq.extracted_value, selectedRfq.manual_currency || 'USD')}
+                  {selectedRfq.sample_size && ` • ${selectedRfq.sample_size} completes`}
+                  {selectedRfq.methodology && ` • ${selectedRfq.methodology}`}
+                </div>
+              </div>
+
+              {/* Customer Selection */}
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>
+                  Customer *
+                </label>
+                <select
+                  value={conversionForm.customer_id}
+                  onChange={(e) => setConversionForm(prev => ({ ...prev, customer_id: e.target.value }))}
+                  style={{ 
+                    width: '100%', 
+                    padding: '8px 12px', 
+                    borderRadius: '6px', 
+                    border: '1px solid #d1d5db'
+                  }}
+                >
+                  <option value="">Select customer...</option>
+                  {customers.map(c => (
+                    <option key={c._id} value={c._id}>
+                      {c.name} {c.email ? `(${c.email})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <small style={{ color: '#666' }}>
+                  Will auto-match from RFQ if left empty
+                </small>
+              </div>
+
+              {/* Unit Price */}
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>
+                  Unit Price (per complete)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={conversionForm.unit_price}
+                  onChange={(e) => setConversionForm(prev => ({ ...prev, unit_price: e.target.value }))}
+                  placeholder="Auto-calculated from RFQ value"
+                  style={{ 
+                    width: '100%', 
+                    padding: '8px 12px', 
+                    borderRadius: '6px', 
+                    border: '1px solid #d1d5db'
+                  }}
+                />
+              </div>
+
+              {/* Tax & Discount Row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>
+                    Tax %
+                  </label>
+                  <input
+                    type="number"
+                    value={conversionForm.tax_percent}
+                    onChange={(e) => setConversionForm(prev => ({ ...prev, tax_percent: parseFloat(e.target.value) || 0 }))}
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px 12px', 
+                      borderRadius: '6px', 
+                      border: '1px solid #d1d5db'
+                    }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>
+                    Discount %
+                  </label>
+                  <input
+                    type="number"
+                    value={conversionForm.discount_percent}
+                    onChange={(e) => setConversionForm(prev => ({ ...prev, discount_percent: parseFloat(e.target.value) || 0 }))}
+                    style={{ 
+                      width: '100%', 
+                      padding: '8px 12px', 
+                      borderRadius: '6px', 
+                      border: '1px solid #d1d5db'
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Due Days */}
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>
+                  {convertType === "estimate" ? "Valid for (days)" : "Payment Due (days)"}
+                </label>
+                <input
+                  type="number"
+                  value={conversionForm.due_days}
+                  onChange={(e) => setConversionForm(prev => ({ ...prev, due_days: parseInt(e.target.value) || 30 }))}
+                  style={{ 
+                    width: '100%', 
+                    padding: '8px 12px', 
+                    borderRadius: '6px', 
+                    border: '1px solid #d1d5db'
+                  }}
+                />
+              </div>
+
+              {/* Notes */}
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>
+                  Notes
+                </label>
+                <textarea
+                  value={conversionForm.notes}
+                  onChange={(e) => setConversionForm(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder={`Additional notes for the ${convertType}...`}
+                  rows={3}
+                  style={{ 
+                    width: '100%', 
+                    padding: '8px 12px', 
+                    borderRadius: '6px', 
+                    border: '1px solid #d1d5db'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button 
+                className="btn btn-secondary"
+                onClick={() => setShowConvertModal(false)}
+                disabled={converting}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn"
+                style={{ 
+                  backgroundColor: convertType === "estimate" ? '#3b82f6' : '#10b981', 
+                  color: 'white' 
+                }}
+                onClick={handleConversion}
+                disabled={converting}
+              >
+                {converting ? 'Creating...' : `Create ${convertType === "estimate" ? "Estimate" : "Invoice"}`}
               </button>
             </div>
           </div>

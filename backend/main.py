@@ -22,6 +22,7 @@ try:
     from .routers import settings as settings_router
     from .routers import gmail as gmail_router
     from .routers import rfq as rfq_router
+    from .routers import operations as operations_router
     from .app.services.cpx_service import CPXService
     from .app.routers import survey_allocation as survey_allocation_router
     from .leads import router as leads_router
@@ -33,6 +34,7 @@ except Exception:
     from routers import settings as settings_router
     from routers import gmail as gmail_router
     from routers import rfq as rfq_router
+    from routers import operations as operations_router
     from app.services.cpx_service import CPXService
     from app.routers import survey_allocation as survey_allocation_router
     from leads import router as leads_router
@@ -385,6 +387,13 @@ try:
 except Exception as e:
     print(f"⚠️ RFQ router not included: {e}")
 
+# Operations router (Operations-Finance integration)
+try:
+    app.include_router(operations_router.router)
+    print("✅ Operations router included")
+except Exception as e:
+    print(f"⚠️ Operations router not included: {e}")
+
 # Sales Dashboard router
 try:
     try:
@@ -395,6 +404,28 @@ try:
     print("✅ Sales Dashboard router included")
 except Exception as e:
     print(f"⚠️ Sales Dashboard router not included: {e}")
+
+# Sales Accounts router
+try:
+    try:
+        from .routers import sales_accounts as sales_accounts_router
+    except ImportError:
+        from routers import sales_accounts as sales_accounts_router
+    app.include_router(sales_accounts_router.router)
+    print("✅ Sales Accounts router included")
+except Exception as e:
+    print(f"⚠️ Sales Accounts router not included: {e}")
+
+# Unified Vendors router
+try:
+    try:
+        from .routers import unified_vendors as unified_vendors_router
+    except ImportError:
+        from routers import unified_vendors as unified_vendors_router
+    app.include_router(unified_vendors_router.router)
+    print("✅ Unified Vendors router included")
+except Exception as e:
+    print(f"⚠️ Unified Vendors router not included: {e}")
 
 # Email Sync router
 try:

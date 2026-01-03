@@ -61,6 +61,10 @@ function ClientsPage() {
   const [search, setSearch] = useState("")
   const [currentPage, setCurrentPage] = useState(1)
   const [recordsPerPage, setRecordsPerPage] = useState(10)
+  
+  // Sales accounts for linking
+  const [salesAccounts, setSalesAccounts] = useState([])
+  const [clientAccountLinks, setClientAccountLinks] = useState({}) // Maps client_id -> sales_account_id
 
   const emptyForm = {
     name: "",
@@ -110,7 +114,70 @@ function ClientsPage() {
   // Fetch on mount
   useEffect(() => {
     fetchClients();
+    fetchSalesAccounts();
   }, []);
+
+  // Fetch sales accounts for linking dropdown
+  const fetchSalesAccounts = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/sales/accounts`);
+      if (res.ok) {
+        const data = await res.json();
+        setSalesAccounts(data || []);
+        
+        // Build a map of client links from sales accounts
+        const links = {};
+        (data || []).forEach(acc => {
+          if (acc.linked_operations_client_id) {
+            links[acc.linked_operations_client_id] = acc._id;
+          }
+        });
+        setClientAccountLinks(links);
+      }
+    } catch (e) {
+      console.error("Failed to fetch sales accounts:", e);
+    }
+  };
+
+  // Handle linking a client to a sales account
+  const handleLinkSalesAccount = async (clientId, salesAccountId) => {
+    try {
+      if (!salesAccountId) {
+        // Unlink: find the current sales account and remove the link
+        const currentAccountId = clientAccountLinks[clientId];
+        if (currentAccountId) {
+          await fetch(`${API_BASE_URL}/sales/accounts/${currentAccountId}/unlink-operations-client`, {
+            method: "DELETE"
+          });
+          setClientAccountLinks(prev => {
+            const updated = {...prev};
+            delete updated[clientId];
+            return updated;
+          });
+        }
+      } else {
+        // First unlink from any previous account
+        const currentAccountId = clientAccountLinks[clientId];
+        if (currentAccountId && currentAccountId !== salesAccountId) {
+          await fetch(`${API_BASE_URL}/sales/accounts/${currentAccountId}/unlink-operations-client`, {
+            method: "DELETE"
+          });
+        }
+        
+        // Link to new account
+        await fetch(`${API_BASE_URL}/sales/accounts/${salesAccountId}/link-operations-client`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client_id: clientId })
+        });
+        
+        setClientAccountLinks(prev => ({...prev, [clientId]: salesAccountId}));
+      }
+    } catch (e) {
+      console.error("Failed to link sales account:", e);
+      setError("Failed to update sales account link");
+    }
+  };
 
   // Auto-refresh when window regains focus or tab becomes visible
   useEffect(() => {
@@ -351,6 +418,7 @@ function ClientsPage() {
               <th style={styles.th}>Name</th>
               <th style={styles.th}>Email</th>
               <th style={styles.th}>Phone</th>
+              <th style={styles.th}>Sales Account</th>
               <th style={styles.th}>Status</th>
               <th style={styles.th}>Actions</th>
             </tr>
@@ -364,6 +432,21 @@ function ClientsPage() {
                 <td style={styles.td}>{c.name}</td>
                 <td style={styles.td}>{c.email}</td>
                 <td style={styles.td}>{c.contactPerson}</td>
+                <td style={styles.td}>
+                  <select
+                    style={styles.linkSelect}
+                    value={clientAccountLinks[c._id] || ""}
+                    onChange={(e) => handleLinkSalesAccount(c._id, e.target.value)}
+                    title="Link to Sales Account"
+                  >
+                    <option value="">-- Select Sales Account --</option>
+                    {salesAccounts.map(acc => (
+                      <option key={acc._id} value={acc._id}>
+                        {acc.account_name || acc.company_name || 'Unnamed'}
+                      </option>
+                    ))}
+                  </select>
+                </td>
                 <td style={styles.td}>
                   <span style={{
                     ...styles.statusBadge,
@@ -382,7 +465,7 @@ function ClientsPage() {
             ))}
             {paginatedClients.length === 0 && filtered.length === 0 && (
               <tr>
-                <td colSpan={6} style={styles.emptyState}>
+                <td colSpan={7} style={styles.emptyState}>
                   No clients found.
                 </td>
               </tr>
@@ -679,6 +762,16 @@ const styles = {
   statusInactive: {
     backgroundColor: '#e5e7eb',
     color: '#6b7280',
+  },
+  linkSelect: {
+    padding: '0.4rem 0.6rem',
+    border: '1px solid #d1d5db',
+    borderRadius: '0.375rem',
+    fontSize: '0.85rem',
+    backgroundColor: 'white',
+    cursor: 'pointer',
+    minWidth: '160px',
+    color: '#374151',
   },
   actionButtons: {
     display: 'flex',

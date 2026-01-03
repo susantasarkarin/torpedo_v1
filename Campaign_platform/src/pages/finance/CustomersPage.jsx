@@ -44,6 +44,10 @@ function CustomersPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [recordsPerPage, setRecordsPerPage] = useState(10)
   
+  // Operations clients for linking
+  const [operationsClients, setOperationsClients] = useState([])
+  const [customerClientLinks, setCustomerClientLinks] = useState({}) // Maps customer_id -> operations_client_id
+  
   const initialFormData = {
     name: "",
     customer_type: "business",
@@ -83,7 +87,67 @@ function CustomersPage() {
   // Fetch on mount
   useEffect(() => {
     fetchCustomers()
+    fetchOperationsClients()
   }, [])
+
+  // Fetch operations clients for linking dropdown
+  const fetchOperationsClients = async () => {
+    const sessionId = localStorage.getItem("session_id")
+    try {
+      const res = await fetch(`${API_BASE_URL}/finance/finance/customers/`, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setOperationsClients(data || [])
+        
+        // Build a map of customer->client links from linked_operations_client_id field
+        const links = {}
+        ;(data || []).forEach(c => {
+          if (c.linked_operations_client_id) {
+            links[c._id] = c.linked_operations_client_id
+          }
+        })
+        setCustomerClientLinks(links)
+      }
+    } catch (e) {
+      console.error("Failed to fetch operations clients:", e)
+    }
+  }
+
+  // Handle linking a customer to an operations client
+  const handleLinkOperationsClient = async (customerId, clientId) => {
+    const sessionId = localStorage.getItem("session_id")
+    try {
+      // Update the customer with the linked operations client ID
+      const res = await fetch(`${API_BASE_URL}/finance/finance/customers/${customerId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+        body: JSON.stringify({ linked_operations_client_id: clientId || null })
+      })
+      
+      if (res.ok) {
+        if (clientId) {
+          setCustomerClientLinks(prev => ({...prev, [customerId]: clientId}))
+        } else {
+          setCustomerClientLinks(prev => {
+            const updated = {...prev}
+            delete updated[customerId]
+            return updated
+          })
+        }
+      }
+    } catch (e) {
+      console.error("Failed to link operations client:", e)
+      setError("Failed to update operations client link")
+    }
+  }
 
   // Auto-refresh when window regains focus or tab becomes visible
   useEffect(() => {
@@ -542,6 +606,7 @@ function CustomersPage() {
                 <th style={styles.th}>Email</th>
                 <th style={styles.th}>Phone</th>
                 <th style={styles.th}>GSTIN</th>
+                <th style={styles.th}>Ops Client</th>
                 <th style={styles.th}>Status</th>
                 <th style={styles.th}>Outstanding</th>
                 <th style={styles.th}>Actions</th>
@@ -587,6 +652,21 @@ function CustomersPage() {
                     </code>
                   </td>
                   <td style={styles.td}>
+                    <select
+                      style={styles.linkSelect}
+                      value={customerClientLinks[customer._id] || customer.linked_operations_client_id || ""}
+                      onChange={(e) => handleLinkOperationsClient(customer._id, e.target.value)}
+                      title="Link to Operations Client"
+                    >
+                      <option value="">-- Select Client --</option>
+                      {operationsClients.map(client => (
+                        <option key={client._id} value={client._id}>
+                          {client.company_name || client.name || 'Unnamed'}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td style={styles.td}>
                     <span style={{
                       ...styles.statusBadge,
                       ...(customer.status === 'active' ? styles.statusActive : styles.statusInactive)
@@ -612,7 +692,7 @@ function CustomersPage() {
               ))}
               {paginatedCustomers.length === 0 && filteredCustomers.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={styles.emptyState}>
+                  <td colSpan={9} style={styles.emptyState}>
                     <Users style={{ width: "48px", height: "48px", margin: "0 auto 1rem", opacity: 0.5 }} />
                     <p>No customers found. Click "Add Customer" to create one.</p>
                   </td>
@@ -1233,6 +1313,16 @@ const styles = {
   statusInactive: {
     backgroundColor: "#e5e7eb",
     color: "#6b7280",
+  },
+  linkSelect: {
+    padding: "0.4rem 0.6rem",
+    border: "1px solid #d1d5db",
+    borderRadius: "0.375rem",
+    fontSize: "0.85rem",
+    backgroundColor: "white",
+    cursor: "pointer",
+    minWidth: "140px",
+    color: "#374151",
   },
   actionButtons: {
     display: "flex",

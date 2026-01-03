@@ -3,51 +3,29 @@ import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 
-// Helper functions to map between account UI format and customer API format
-const customerToAccount = (customer) => ({
-  _id: customer._id,
-  name: customer.company_name || customer.name || "",
-  contactPerson: "",  // customers don't have contactPerson, it's derived from contacts
-  email: customer.email || "",
-  phone: customer.phone || "",
-  address: customer.billing_address?.line1 || "",
-  accountValue: customer.credit_limit ? String(customer.credit_limit) : "",
-  status: customer.status === "active" ? "Active" : "Inactive",
-  createdAt: customer.created_at,
-  updatedAt: customer.updated_at,
+// Helper functions to map between account UI format and sales accounts API format
+const apiAccountToUIAccount = (account) => ({
+  _id: account._id,
+  name: account.account_name || account.company_name || "",
+  contactPerson: account.phone || "",
+  email: account.email || "",
+  phone: account.phone || "",
+  address: account.address || "",
+  accountValue: account.notes || "",
+  status: account.status === "active" ? "Active" : "Inactive",
+  createdAt: account.created_at,
+  updatedAt: account.updated_at,
+  linked_operations_client_id: account.linked_operations_client_id || null,
+  linked_finance_customer_id: account.linked_finance_customer_id || null,
 });
 
-const accountToCustomer = (accountData) => ({
-  name: accountData.name,
-  customer_type: "business",
+const uiAccountToAPIAccount = (accountData) => ({
+  account_name: accountData.name,
   company_name: accountData.name,
   email: accountData.email,
-  phone: accountData.phone || "",
-  gst_treatment: "unregistered",
-  gstin: "",
-  pan: "",
-  billing_address: {
-    line1: accountData.address || "",
-    line2: "",
-    city: "",
-    state: "",
-    pincode: "",
-    country: "India",
-  },
-  shipping_address: {
-    line1: accountData.address || "",
-    line2: "",
-    city: "",
-    state: "",
-    pincode: "",
-    country: "India",
-  },
-  same_as_billing: true,
-  payment_terms: 30,
-  credit_limit: accountData.accountValue ? parseFloat(accountData.accountValue) || 0 : 0,
-  currency: "INR",
-  opening_balance: 0,
-  notes: "",
+  phone: accountData.phone || accountData.contactPerson || "",
+  address: accountData.address || "",
+  notes: accountData.accountValue || "",
   status: accountData.status === "Active" ? "active" : "inactive",
 });
 
@@ -74,7 +52,7 @@ function Account() {
   }
   const [formData, setFormData] = useState(emptyForm)
 
-  // Fetch accounts function - now uses finance customers API
+  // Fetch accounts function - uses Sales Accounts API
   const fetchAccounts = async () => {
     const sessionId = localStorage.getItem("session_id");
     if (!sessionId) {
@@ -83,7 +61,7 @@ function Account() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/finance/finance/customers/`, {
+      const res = await fetch(`${API_BASE_URL}/sales/accounts`, {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -99,8 +77,8 @@ function Account() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Failed to load accounts");
-      // Map customers to account format for UI
-      const mappedAccounts = (Array.isArray(data) ? data : data.customers || []).map(customerToAccount);
+      // Map sales accounts to UI format
+      const mappedAccounts = (Array.isArray(data) ? data : []).map(apiAccountToUIAccount);
       setAccounts(mappedAccounts);
     } catch (e) {
       setError(e.message || "Failed to load accounts");
@@ -180,12 +158,12 @@ function Account() {
     }
 
     try {
-      // Convert account form data to customer API format
-      const payload = accountToCustomer(formData);
+      // Convert account form data to Sales Accounts API format
+      const payload = uiAccountToAPIAccount(formData);
 
       const url = editingId
-        ? `${API_BASE_URL}/finance/finance/customers/${editingId}`
-        : `${API_BASE_URL}/finance/finance/customers/`;
+        ? `${API_BASE_URL}/sales/accounts/${editingId}`
+        : `${API_BASE_URL}/sales/accounts`;
       const method = editingId ? "PUT" : "POST";
 
       const res = await fetch(url, {
@@ -221,7 +199,7 @@ function Account() {
     }
   };
 
-  // Delete account - now uses finance customers API
+  // Delete account - uses Sales Accounts API
   const deleteAccount = async (id) => {
     if (!window.confirm("Delete this account?")) return;
 
@@ -232,7 +210,7 @@ function Account() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/finance/finance/customers/${id}`, {
+      const res = await fetch(`${API_BASE_URL}/sales/accounts/${id}`, {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -268,28 +246,24 @@ function Account() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/finance/finance/customers/bulk-delete`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: sessionId,
-        },
-        body: JSON.stringify({ ids: selectedIds }),
-      });
-
-      if (res.status === 401) {
-        alert("Session expired. Please login again.");
-        localStorage.removeItem("session_id");
-        navigate("/login");
-        return;
+      // Delete accounts one by one
+      let deletedCount = 0;
+      for (const id of selectedIds) {
+        const res = await fetch(`${API_BASE_URL}/sales/accounts/${id}`, {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: sessionId,
+          },
+        });
+        if (res.ok) {
+          deletedCount++;
+        }
       }
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to delete accounts");
 
       setAccounts((prev) => prev.filter((a) => !selectedIds.includes(a._id)));
       setSelectedIds([]);
-      alert(`✅ ${data.deleted_count} accounts deleted successfully!`);
+      alert(`✅ ${deletedCount} accounts deleted successfully!`);
     } catch (e) {
       setError(e.message || "Bulk delete failed");
     }

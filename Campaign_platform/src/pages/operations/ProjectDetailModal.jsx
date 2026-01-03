@@ -1,8 +1,72 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { API_BASE_URL as API_URL } from "../../config";
 import "./ProjectDetailModal.css";
 
 function ProjectDetailModal({ project, onClose }) {
   const [activeTab, setActiveTab] = useState("study");
+  const [financials, setFinancials] = useState(null);
+  const [loadingFinancials, setLoadingFinancials] = useState(false);
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
+  const [invoiceError, setInvoiceError] = useState(null);
+  const [invoiceSuccess, setInvoiceSuccess] = useState(null);
+
+  const token = sessionStorage.getItem("session_token");
+
+  useEffect(() => {
+    if (activeTab === "financials" && project?._id) {
+      fetchFinancials();
+    }
+  }, [activeTab, project?._id]);
+
+  const fetchFinancials = async () => {
+    setLoadingFinancials(true);
+    try {
+      const res = await fetch(`${API_URL}/operations/projects/${project._id}/financials`, {
+        headers: { Authorization: token },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFinancials(data);
+      }
+    } catch (err) {
+      console.error("Error fetching financials:", err);
+    } finally {
+      setLoadingFinancials(false);
+    }
+  };
+
+  const handleCreateInvoice = async () => {
+    setCreatingInvoice(true);
+    setInvoiceError(null);
+    setInvoiceSuccess(null);
+    
+    try {
+      const res = await fetch(`${API_URL}/operations/projects/${project._id}/invoice`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token,
+        },
+        body: JSON.stringify({
+          tax_rate: 18,
+          notes: `Invoice for project: ${project.projectName}`,
+        }),
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok) {
+        setInvoiceSuccess(`Invoice ${data.invoice?.invoice_number} created successfully!`);
+        fetchFinancials(); // Refresh financials
+      } else {
+        setInvoiceError(data.detail || "Failed to create invoice");
+      }
+    } catch (err) {
+      setInvoiceError("Error creating invoice: " + err.message);
+    } finally {
+      setCreatingInvoice(false);
+    }
+  };
 
   if (!project) return null;
 
@@ -170,6 +234,100 @@ function ProjectDetailModal({ project, onClose }) {
     </div>
   );
 
+  const renderFinancials = () => (
+    <div className="modal-section">
+      <div className="financials-header">
+        <h3>Project Financials</h3>
+        <button 
+          className="create-invoice-btn"
+          onClick={handleCreateInvoice}
+          disabled={creatingInvoice}
+        >
+          {creatingInvoice ? "Creating..." : "+ Create Invoice"}
+        </button>
+      </div>
+      
+      {invoiceSuccess && (
+        <div className="alert alert-success">{invoiceSuccess}</div>
+      )}
+      {invoiceError && (
+        <div className="alert alert-error">{invoiceError}</div>
+      )}
+      
+      {loadingFinancials ? (
+        <p>Loading financials...</p>
+      ) : financials ? (
+        <>
+          <div className="financials-grid">
+            {/* Revenue Section */}
+            <div className="financial-card revenue">
+              <h4>Revenue</h4>
+              <div className="financial-item">
+                <span>Project Value:</span>
+                <span className="value">₹{(financials.project_value || 0).toLocaleString()}</span>
+              </div>
+              <div className="financial-item">
+                <span>Invoiced:</span>
+                <span className="value">₹{(financials.invoiced_amount || 0).toLocaleString()}</span>
+              </div>
+              <div className="financial-item">
+                <span>Received:</span>
+                <span className="value positive">₹{(financials.received_amount || 0).toLocaleString()}</span>
+              </div>
+              <div className="financial-item">
+                <span>Outstanding:</span>
+                <span className="value warning">₹{(financials.outstanding_amount || 0).toLocaleString()}</span>
+              </div>
+            </div>
+            
+            {/* Costs Section */}
+            <div className="financial-card costs">
+              <h4>Costs</h4>
+              <div className="financial-item">
+                <span>Vendor Costs:</span>
+                <span className="value">₹{(financials.vendor_costs || 0).toLocaleString()}</span>
+              </div>
+              <div className="financial-item">
+                <span>Other Expenses:</span>
+                <span className="value">₹{(financials.other_expenses || 0).toLocaleString()}</span>
+              </div>
+              <div className="financial-item total">
+                <span>Total Costs:</span>
+                <span className="value negative">₹{(financials.total_costs || 0).toLocaleString()}</span>
+              </div>
+            </div>
+            
+            {/* Profitability Section */}
+            <div className="financial-card profit">
+              <h4>Profitability</h4>
+              <div className="financial-item">
+                <span>Gross Profit:</span>
+                <span className={`value ${financials.gross_profit >= 0 ? 'positive' : 'negative'}`}>
+                  ₹{(financials.gross_profit || 0).toLocaleString()}
+                </span>
+              </div>
+              <div className="financial-item">
+                <span>Profit Margin:</span>
+                <span className={`value ${financials.profit_margin >= 0 ? 'positive' : 'negative'}`}>
+                  {(financials.profit_margin || 0).toFixed(1)}%
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          {/* Document Counts */}
+          <div className="documents-summary">
+            <span className="doc-count">📄 {financials.invoice_count || 0} Invoices</span>
+            <span className="doc-count">📋 {financials.bill_count || 0} Bills</span>
+            <span className="doc-count">💰 {financials.expense_count || 0} Expenses</span>
+          </div>
+        </>
+      ) : (
+        <p>No financial data available</p>
+      )}
+    </div>
+  );
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -199,12 +357,19 @@ function ProjectDetailModal({ project, onClose }) {
           >
             Project Statistics
           </button>
+          <button
+            className={`tab-button ${activeTab === "financials" ? "active" : ""}`}
+            onClick={() => setActiveTab("financials")}
+          >
+            💰 Financials
+          </button>
         </div>
 
         <div className="modal-body">
           {activeTab === "study" && renderStudySpecification()}
           {activeTab === "traffic" && renderTrafficDetails()}
           {activeTab === "stats" && renderProjectStatistics()}
+          {activeTab === "financials" && renderFinancials()}
         </div>
       </div>
     </div>

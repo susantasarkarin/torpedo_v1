@@ -5,6 +5,7 @@ import Navbar from "./Navbar"
 import RightSidebar from "./RightSidebar"
 import OperationsSidebar from "./OperationsSidebar"
 import FinanceSidebar from "./FinanceSidebar"
+import VendorSidebar from "./VendorSidebar"
 import Footer from "./Footer"
 import { useState, useEffect } from "react"
 
@@ -13,6 +14,7 @@ function getSectionFromPath(pathname) {
   if (pathname.startsWith("/admin/sales")) return "sales"
   if (pathname.startsWith("/admin/finance")) return "finance"
   if (pathname.startsWith("/admin/operations") || pathname === "/admin/logs") return "operations"
+  if (pathname.startsWith("/admin/vendor")) return "vendor"
   return null
 }
 
@@ -50,6 +52,9 @@ function Layout() {
         {/* ✅ Finance sidebar (left) */}
         {selectedSection === "finance" && <FinanceSidebar />}
 
+        {/* ✅ Vendor sidebar (left) */}
+        {selectedSection === "vendor" && <VendorSidebar />}
+
         {/* ✅ Sales sidebar (right) */}
         {selectedSection === "sales" && <RightSidebar />}
 
@@ -61,6 +66,8 @@ function Layout() {
               : selectedSection === "sales"
               ? "with-right-sidebar"
               : selectedSection === "finance"
+              ? "with-left-sidebar"
+              : selectedSection === "vendor"
               ? "with-left-sidebar"
               : ""
           }`}

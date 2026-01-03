@@ -38,6 +38,7 @@ import ProjectDetail from "./pages/operations/ProjectDetail"
 import SurveyPool from "./pages/operations/surveyPool/SurveyPool"
 import TrafficManagement from "./pages/operations/TrafficManagement"
 import CPXCallbackLogs from "./pages/operations/CPXCallbackLogs"
+import AccountsPage from "./pages/operations/AccountsPage"
 
 // Finance Pages
 import FinanceCustomersPage from "./pages/finance/CustomersPage"
@@ -60,6 +61,10 @@ import ReportsPage from "./pages/finance/ReportsPage"
 // User Pages
 import TrafficFlowParser from "./pages/user/TrafficFlowParser"
 import SurveyError from "./pages/user/SurveyError"
+
+// Vendor Pages
+import VendorDashboard from "./pages/vendor/VendorDashboard"
+import UnifiedVendorsPage from "./pages/vendor/UnifiedVendorsPage"
 
 // Profile Page
 import MyProfile from "./pages/MyProfile"
@@ -155,6 +160,7 @@ function App() {
 
         {/* Operations Routes */}
         <Route path="operations" element={<Operations />} />
+        <Route path="operations/accounts" element={<AccountsPage />} />
         <Route path="operations/clients" element={<ClientsPage />} />
         <Route path="operations/vendors" element={<VendorsPage />} />
         <Route path="operations/projects" element={<ProjectsPage />} />
@@ -162,6 +168,14 @@ function App() {
         <Route path="operations/survey-pool" element={<SurveyPool />} />
         <Route path="operations/traffic" element={<TrafficManagement />} />
         <Route path="operations/reports" element={<CPXCallbackLogs />} />
+
+        {/* Vendor Routes */}
+        <Route path="vendor" element={<VendorDashboard />} />
+        <Route path="vendor/all" element={<UnifiedVendorsPage />} />
+        <Route path="vendor/panel" element={<UnifiedVendorsPage />} />
+        <Route path="vendor/billing" element={<UnifiedVendorsPage />} />
+        <Route path="vendor/payments" element={<div style={{ padding: "2rem" }}>Vendor Payments (Coming Soon)</div>} />
+        <Route path="vendor/reports" element={<div style={{ padding: "2rem" }}>Vendor Reports (Coming Soon)</div>} />
 
         {/* HR */}
         <Route path="hr" element={<HR />} />

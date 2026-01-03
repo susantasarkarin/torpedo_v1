@@ -95,6 +95,14 @@ function Navbar({
               Operations
             </button>
 
+            <button
+              className="logo-dropdown-item"
+              onClick={() => handleSectionSelect("vendor")}
+            >
+              <span className="dropdown-icon">🏢</span>
+              Vendors
+            </button>
+
             <Link
               to="/admin/hr"
               className="logo-dropdown-item"

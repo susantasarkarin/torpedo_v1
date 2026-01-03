@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react"
 import { API_BASE_URL } from "../../config"
-import { Building2, Search, Pencil, Trash2, Loader2, Upload, Download } from "lucide-react"
+import { Building2, Search, Pencil, Trash2, Loader2, Upload, Download, Link2, Unlink } from "lucide-react"
 
 // GST Treatment options
 const GST_TREATMENT_OPTIONS = [
@@ -73,6 +73,13 @@ function VendorsPage() {
   }
   
   const [formData, setFormData] = useState(initialFormData)
+  
+  // Panel Vendor Linking State
+  const [showLinkModal, setShowLinkModal] = useState(false)
+  const [panelVendors, setPanelVendors] = useState([])
+  const [selectedVendorForLink, setSelectedVendorForLink] = useState(null)
+  const [selectedPanelVendor, setSelectedPanelVendor] = useState("")
+  const [linking, setLinking] = useState(false)
 
   useEffect(() => {
     fetchVendors()
@@ -89,6 +96,80 @@ function VendorsPage() {
       console.error("Error fetching vendors:", error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Fetch available panel vendors for linking
+  const fetchPanelVendors = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/finance/finance/vendors/panel-vendors`)
+      if (response.ok) {
+        const data = await response.json()
+        setPanelVendors(data)
+      }
+    } catch (error) {
+      console.error("Error fetching panel vendors:", error)
+    }
+  }
+
+  // Open link modal for a vendor
+  const openLinkModal = (vendor) => {
+    setSelectedVendorForLink(vendor)
+    setSelectedPanelVendor("")
+    fetchPanelVendors()
+    setShowLinkModal(true)
+  }
+
+  // Link vendor to panel vendor
+  const handleLinkVendor = async () => {
+    if (!selectedVendorForLink || !selectedPanelVendor) return
+    
+    setLinking(true)
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/finance/finance/vendors/${selectedVendorForLink._id}/link-panel-vendor`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ panel_vendor_id: selectedPanelVendor }),
+        }
+      )
+      
+      if (response.ok) {
+        fetchVendors()
+        setShowLinkModal(false)
+        alert("Vendor linked successfully!")
+      } else {
+        const error = await response.json()
+        alert(error.detail || "Failed to link vendor")
+      }
+    } catch (error) {
+      console.error("Error linking vendor:", error)
+      alert("Failed to link vendor")
+    } finally {
+      setLinking(false)
+    }
+  }
+
+  // Unlink vendor from panel vendor
+  const handleUnlinkVendor = async (vendorId) => {
+    if (!window.confirm("Are you sure you want to unlink this vendor from the panel vendor?")) return
+    
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/finance/finance/vendors/${vendorId}/unlink-panel-vendor`,
+        { method: "DELETE" }
+      )
+      
+      if (response.ok) {
+        fetchVendors()
+        alert("Vendor unlinked successfully!")
+      } else {
+        const error = await response.json()
+        alert(error.detail || "Failed to unlink vendor")
+      }
+    } catch (error) {
+      console.error("Error unlinking vendor:", error)
     }
   }
 
@@ -438,6 +519,7 @@ function VendorsPage() {
                 <th style={styles.th}>GSTIN</th>
                 <th style={styles.th}>Status</th>
                 <th style={styles.th}>Outstanding</th>
+                <th style={styles.th}>Panel Link</th>
                 <th style={styles.th}>Actions</th>
               </tr>
             </thead>
@@ -487,10 +569,47 @@ function VendorsPage() {
                   </td>
                   <td style={{ ...styles.td, fontWeight: "600" }}>{formatCurrency(vendor.outstanding_amount)}</td>
                   <td style={styles.td}>
+                    {/* Panel Vendor Link Status */}
+                    {vendor.is_panel_vendor ? (
+                      <span 
+                        style={{
+                          backgroundColor: "#dbeafe",
+                          color: "#1e40af",
+                          padding: "2px 8px",
+                          borderRadius: "4px",
+                          fontSize: "0.75rem",
+                          fontWeight: "500"
+                        }}
+                        title={`Linked to: ${vendor.panel_vendor_name || vendor.panel_vendor_vid}`}
+                      >
+                        🔗 {vendor.panel_vendor_name || vendor.panel_vendor_vid || "Linked"}
+                      </span>
+                    ) : (
+                      <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>Not linked</span>
+                    )}
+                  </td>
+                  <td style={styles.td}>
                     <div style={styles.actionButtons}>
                       <button style={styles.btnEdit} onClick={() => handleEdit(vendor)}>
                         <Pencil style={{ width: "16px", height: "16px" }} />
                       </button>
+                      {vendor.is_panel_vendor ? (
+                        <button 
+                          style={{ ...styles.btnDelete, backgroundColor: "#fef3c7" }}
+                          onClick={() => handleUnlinkVendor(vendor._id)}
+                          title="Unlink from Panel Vendor"
+                        >
+                          <Unlink style={{ width: "16px", height: "16px", color: "#92400e" }} />
+                        </button>
+                      ) : (
+                        <button 
+                          style={{ ...styles.btnEdit, backgroundColor: "#dbeafe" }}
+                          onClick={() => openLinkModal(vendor)}
+                          title="Link to Panel Vendor"
+                        >
+                          <Link2 style={{ width: "16px", height: "16px", color: "#1e40af" }} />
+                        </button>
+                      )}
                       <button style={styles.btnDelete} onClick={() => handleDelete(vendor._id)}>
                         <Trash2 style={{ width: "16px", height: "16px" }} />
                       </button>
@@ -500,7 +619,7 @@ function VendorsPage() {
               ))}
               {paginatedVendors.length === 0 && filteredVendors.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={styles.emptyState}>
+                  <td colSpan={8} style={styles.emptyState}>
                     <Building2 style={{ width: "48px", height: "48px", margin: "0 auto 1rem", opacity: 0.5 }} />
                     <p>No vendors found. Click "Add Vendor" to create one.</p>
                   </td>
@@ -870,6 +989,69 @@ function VendorsPage() {
               </button>
               <button style={styles.btnSave} onClick={handleSubmit}>
                 {editingVendor ? "Update Vendor" : "Create Vendor"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Panel Vendor Link Modal */}
+      {showLinkModal && selectedVendorForLink && (
+        <div style={styles.modal} onClick={() => setShowLinkModal(false)}>
+          <div 
+            style={{ ...styles.modalContent, maxWidth: "500px", maxHeight: "400px" }} 
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={styles.modalHeader}>
+              <h3 style={styles.modalTitle}>Link to Panel Vendor</h3>
+              <button style={styles.closeBtn} onClick={() => setShowLinkModal(false)}>
+                ×
+              </button>
+            </div>
+
+            <div style={{ padding: "1.5rem" }}>
+              <p style={{ marginBottom: "1rem", color: "#374151" }}>
+                Link <strong>{selectedVendorForLink.name}</strong> to an Operations panel vendor.
+                This allows tracking both billing and survey routing information.
+              </p>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Select Panel Vendor</label>
+                <select
+                  style={styles.select}
+                  value={selectedPanelVendor}
+                  onChange={(e) => setSelectedPanelVendor(e.target.value)}
+                >
+                  <option value="">Select a panel vendor...</option>
+                  {panelVendors.map((pv) => (
+                    <option key={pv._id} value={pv._id}>
+                      {pv.name || pv.vid} {pv.email ? `(${pv.email})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {panelVendors.length === 0 && (
+                <p style={{ color: "#6b7280", fontSize: "0.875rem", marginTop: "0.5rem" }}>
+                  No unlinked panel vendors available. All panel vendors may already be linked.
+                </p>
+              )}
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button 
+                style={styles.btnCancel} 
+                type="button" 
+                onClick={() => setShowLinkModal(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                style={{ ...styles.btnSave, opacity: !selectedPanelVendor || linking ? 0.5 : 1 }}
+                onClick={handleLinkVendor}
+                disabled={!selectedPanelVendor || linking}
+              >
+                {linking ? "Linking..." : "Link Vendor"}
               </button>
             </div>
           </div>

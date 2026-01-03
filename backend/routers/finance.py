@@ -631,6 +631,37 @@ async def get_vendors():
         raise HTTPException(status_code=500, detail=f"Error fetching vendors: {str(e)}")
 
 
+# NOTE: This endpoint must be before {vendor_id} to avoid route conflicts
+@router.get("/finance/vendors/panel-vendors")
+async def get_panel_vendors_for_linking():
+    """
+    Get all Operations panel vendors available for linking.
+    Returns only vendors not yet linked to a finance vendor.
+    """
+    try:
+        ops_db = client["email_automation"]
+        ops_vendors = ops_db["vendors"]
+        
+        # Get panel vendors without finance link
+        panel_vendors = list(ops_vendors.find(
+            {"finance_vendor_id": {"$exists": False}},
+            {"vendorName": 1, "vendorEmail": 1, "vid": 1, "vendorType": 1}
+        ).sort("vendorName", 1))
+        
+        return [
+            {
+                "_id": str(v["_id"]),
+                "vid": v.get("vid"),
+                "name": v.get("vendorName"),
+                "email": v.get("vendorEmail"),
+                "type": v.get("vendorType", "Panel")
+            }
+            for v in panel_vendors
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching panel vendors: {str(e)}")
+
+
 @router.get("/finance/vendors/{vendor_id}")
 async def get_vendor(vendor_id: str):
     """Get a single vendor by ID"""
@@ -734,6 +765,132 @@ async def delete_vendor(vendor_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting vendor: {str(e)}")
+
+
+# =============================================================================
+# Vendor Integration - Link Panel Vendors from Operations
+# =============================================================================
+
+@router.post("/finance/vendors/{vendor_id}/link-panel-vendor")
+async def link_panel_vendor(
+    vendor_id: str,
+    panel_vendor_id: str = Body(..., embed=True, description="The Operations panel vendor ID to link")
+):
+    """
+    Link a finance vendor to an Operations panel vendor.
+    This allows tracking both billing info and survey routing info for the same vendor.
+    """
+    try:
+        # Verify finance vendor exists
+        vendor = vendors_collection.find_one({"_id": ObjectId(vendor_id)})
+        if not vendor:
+            raise HTTPException(status_code=404, detail="Finance vendor not found")
+        
+        # Verify panel vendor exists in operations
+        ops_db = client["email_automation"]
+        ops_vendors = ops_db["vendors"]
+        
+        panel_vendor = None
+        try:
+            panel_vendor = ops_vendors.find_one({"_id": ObjectId(panel_vendor_id)})
+        except:
+            pass
+        
+        if not panel_vendor:
+            # Try by vid
+            panel_vendor = ops_vendors.find_one({"vid": panel_vendor_id})
+        
+        if not panel_vendor:
+            raise HTTPException(status_code=404, detail="Operations panel vendor not found")
+        
+        # Update finance vendor with panel vendor link
+        vendors_collection.update_one(
+            {"_id": ObjectId(vendor_id)},
+            {
+                "$set": {
+                    "panel_vendor_id": str(panel_vendor["_id"]),
+                    "panel_vendor_vid": panel_vendor.get("vid"),
+                    "panel_vendor_name": panel_vendor.get("vendorName"),
+                    "is_panel_vendor": True,
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+        
+        # Update panel vendor with finance vendor link
+        ops_vendors.update_one(
+            {"_id": panel_vendor["_id"]},
+            {
+                "$set": {
+                    "finance_vendor_id": vendor_id,
+                    "finance_vendor_name": vendor.get("name"),
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+        
+        return {
+            "success": True,
+            "message": "Vendors linked successfully",
+            "finance_vendor_id": vendor_id,
+            "panel_vendor_id": str(panel_vendor["_id"]),
+            "panel_vendor_vid": panel_vendor.get("vid")
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error linking vendors: {str(e)}")
+
+
+@router.delete("/finance/vendors/{vendor_id}/unlink-panel-vendor")
+async def unlink_panel_vendor(vendor_id: str):
+    """Unlink a finance vendor from its Operations panel vendor."""
+    try:
+        vendor = vendors_collection.find_one({"_id": ObjectId(vendor_id)})
+        if not vendor:
+            raise HTTPException(status_code=404, detail="Finance vendor not found")
+        
+        panel_vendor_id = vendor.get("panel_vendor_id")
+        
+        # Update finance vendor
+        vendors_collection.update_one(
+            {"_id": ObjectId(vendor_id)},
+            {
+                "$unset": {
+                    "panel_vendor_id": "",
+                    "panel_vendor_vid": "",
+                    "panel_vendor_name": ""
+                },
+                "$set": {
+                    "is_panel_vendor": False,
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+        
+        # Update panel vendor if exists
+        if panel_vendor_id:
+            try:
+                ops_db = client["email_automation"]
+                ops_vendors = ops_db["vendors"]
+                ops_vendors.update_one(
+                    {"_id": ObjectId(panel_vendor_id)},
+                    {
+                        "$unset": {
+                            "finance_vendor_id": "",
+                            "finance_vendor_name": ""
+                        },
+                        "$set": {"updated_at": datetime.utcnow()}
+                    }
+                )
+            except:
+                pass
+        
+        return {"success": True, "message": "Vendors unlinked successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error unlinking vendors: {str(e)}")
 
 
 @router.get("/finance/vendors/export/csv")
@@ -1368,10 +1525,24 @@ async def import_estimates_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/finance/invoices/")
-async def get_invoices():
-    """Get all invoices with customer details"""
+async def get_invoices(
+    project_id: Optional[str] = Query(None, description="Filter by project ID"),
+    customer_id: Optional[str] = Query(None, description="Filter by customer ID"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+):
+    """Get all invoices with customer details, with optional filters"""
     try:
+        # Build match stage for filters
+        match_stage = {}
+        if project_id:
+            match_stage["project_id"] = project_id
+        if customer_id:
+            match_stage["customer_id"] = customer_id
+        if status:
+            match_stage["status"] = status
+        
         pipeline = [
+            {"$match": match_stage} if match_stage else {"$match": {}},
             {
                 "$lookup": {
                     "from": "customers",
@@ -1692,10 +1863,24 @@ async def import_invoices_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/finance/bills/")
-async def get_bills():
-    """Get all bills with vendor details"""
+async def get_bills(
+    project_id: Optional[str] = Query(None, description="Filter by project ID"),
+    vendor_id: Optional[str] = Query(None, description="Filter by vendor ID"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+):
+    """Get all bills with vendor details, with optional filters"""
     try:
+        # Build match stage for filters
+        match_stage = {}
+        if project_id:
+            match_stage["project_id"] = project_id
+        if vendor_id:
+            match_stage["vendor_id"] = vendor_id
+        if status:
+            match_stage["status"] = status
+        
         pipeline = [
+            {"$match": match_stage} if match_stage else {"$match": {}},
             {
                 "$lookup": {
                     "from": "vendors",
@@ -2226,10 +2411,22 @@ async def import_purchase_orders_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/expenses/")
-async def get_expenses():
-    """Get all expenses"""
+async def get_expenses(
+    project_id: Optional[str] = Query(None, description="Filter by project ID"),
+    category: Optional[str] = Query(None, description="Filter by category"),
+    approval_status: Optional[str] = Query(None, description="Filter by approval status"),
+):
+    """Get all expenses with optional filters"""
     try:
-        expenses = list(expenses_collection.find().sort("expense_date", -1))
+        query = {}
+        if project_id:
+            query["project_id"] = project_id
+        if category:
+            query["category"] = category
+        if approval_status:
+            query["approval_status"] = approval_status
+        
+        expenses = list(expenses_collection.find(query).sort("expense_date", -1))
         return serialize_docs(expenses)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching expenses: {str(e)}")

@@ -7,11 +7,12 @@ Provides endpoints for:
 - Value override/update
 - Link to leads
 - Email thread association
+- Convert to Estimate/Invoice
 """
 
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Body
@@ -37,6 +38,12 @@ mongo_client = MongoClient(MONGO_URI)
 db = mongo_client["email_automation"]
 rfqs_collection = db["rfqs"]
 email_leads_collection = db["email_leads"]
+
+# Finance database for estimates and invoices
+finance_db = mongo_client["finance_db"]
+customers_collection = finance_db["customers"]
+estimates_collection = finance_db["estimates"]
+invoices_collection = finance_db["invoices"]
 
 
 # ============== PYDANTIC MODELS ==============
@@ -593,3 +600,473 @@ async def link_email_to_rfq(
         "success": True,
         "message": "Email linked to RFQ successfully"
     }
+
+
+# =============================================================================
+# RFQ Conversion Endpoints - Convert RFQ to Estimate or Invoice
+# =============================================================================
+
+class RFQConversionRequest(BaseModel):
+    """Request model for RFQ conversion."""
+    customer_id: Optional[str] = Field(None, description="Customer ID to bill. If not provided, will try to match from RFQ client info")
+    unit_price: Optional[float] = Field(None, description="Price per complete. If not provided, calculated from RFQ value / sample_size")
+    discount_percent: float = Field(0, description="Discount percentage to apply")
+    tax_percent: float = Field(18, description="Tax/GST percentage")
+    notes: Optional[str] = Field(None, description="Additional notes for estimate/invoice")
+    due_days: int = Field(30, description="Payment due in days")
+    line_items: Optional[List[Dict[str, Any]]] = Field(None, description="Custom line items. If not provided, auto-generated from RFQ")
+
+
+class ConversionResponse(BaseModel):
+    """Response model for RFQ conversion."""
+    success: bool
+    message: str
+    document_type: str
+    document_id: str
+    document_number: str
+    rfq_id: str
+    total_amount: float
+
+
+def _generate_line_items_from_rfq(rfq: Dict[str, Any], unit_price: Optional[float] = None) -> List[Dict[str, Any]]:
+    """Generate invoice line items from RFQ data."""
+    sample_size = rfq.get("sample_size", 0) or 0
+    rfq_value = rfq.get("manual_value") or rfq.get("extracted_value") or 0
+    
+    # Calculate unit price if not provided
+    if unit_price is None and sample_size > 0:
+        unit_price = rfq_value / sample_size
+    elif unit_price is None:
+        unit_price = rfq_value
+    
+    items = []
+    
+    # Main survey line item
+    methodology = rfq.get("methodology", "Online Survey")
+    country = rfq.get("country", "")
+    loi = rfq.get("loi", 0)
+    ir = rfq.get("ir", 0)
+    
+    description = f"{methodology}"
+    if country:
+        description += f" - {country}"
+    if loi:
+        description += f" | LOI: {loi} mins"
+    if ir:
+        description += f" | IR: {ir}%"
+    
+    items.append({
+        "description": description,
+        "quantity": sample_size if sample_size > 0 else 1,
+        "unit": "completes" if sample_size > 0 else "project",
+        "unit_price": round(unit_price, 2),
+        "amount": round(unit_price * (sample_size if sample_size > 0 else 1), 2)
+    })
+    
+    return items
+
+
+def _find_or_create_customer(rfq: Dict[str, Any]) -> Optional[str]:
+    """Find existing customer or return None."""
+    client_name = rfq.get("client_name", "").strip()
+    client_email = rfq.get("client_email", "").strip()
+    
+    if not client_name and not client_email:
+        return None
+    
+    # Try to find by email first
+    if client_email:
+        customer = customers_collection.find_one({"email": {"$regex": client_email, "$options": "i"}})
+        if customer:
+            return str(customer["_id"])
+    
+    # Try to find by name
+    if client_name:
+        customer = customers_collection.find_one({"name": {"$regex": f"^{client_name}$", "$options": "i"}})
+        if customer:
+            return str(customer["_id"])
+    
+    return None
+
+
+def _get_next_document_number(collection, prefix: str) -> str:
+    """Generate next document number."""
+    today = datetime.utcnow()
+    year_month = today.strftime("%Y%m")
+    
+    # Find the highest number for this month
+    pattern = f"^{prefix}-{year_month}-"
+    last_doc = collection.find_one(
+        {"document_number": {"$regex": pattern}},
+        sort=[("document_number", DESCENDING)]
+    )
+    
+    if last_doc:
+        try:
+            last_num = int(last_doc["document_number"].split("-")[-1])
+            next_num = last_num + 1
+        except:
+            next_num = 1
+    else:
+        next_num = 1
+    
+    return f"{prefix}-{year_month}-{next_num:04d}"
+
+
+@router.post("/{rfq_id}/convert-to-estimate", response_model=ConversionResponse)
+async def convert_rfq_to_estimate(
+    rfq_id: str,
+    request: RFQConversionRequest
+) -> ConversionResponse:
+    """
+    Convert an RFQ to an Estimate.
+    
+    This creates an estimate document in the finance system based on the RFQ details.
+    The RFQ status is updated to 'quoted'.
+    """
+    # Find the RFQ
+    rfq = rfqs_collection.find_one({"rfq_id": rfq_id})
+    if not rfq:
+        try:
+            rfq = rfqs_collection.find_one({"_id": ObjectId(rfq_id)})
+        except:
+            pass
+    
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+    
+    # Determine customer
+    customer_id = request.customer_id
+    if not customer_id:
+        customer_id = _find_or_create_customer(rfq)
+    
+    if not customer_id:
+        raise HTTPException(
+            status_code=400, 
+            detail="Customer not found. Please provide customer_id or ensure RFQ has valid client information."
+        )
+    
+    # Verify customer exists
+    try:
+        customer = customers_collection.find_one({"_id": ObjectId(customer_id)})
+        if not customer:
+            raise HTTPException(status_code=404, detail="Customer not found")
+    except:
+        raise HTTPException(status_code=400, detail="Invalid customer_id format")
+    
+    # Generate line items
+    if request.line_items:
+        line_items = request.line_items
+    else:
+        line_items = _generate_line_items_from_rfq(rfq, request.unit_price)
+    
+    # Calculate totals
+    subtotal = sum(item.get("amount", 0) for item in line_items)
+    discount_amount = subtotal * (request.discount_percent / 100)
+    taxable_amount = subtotal - discount_amount
+    tax_amount = taxable_amount * (request.tax_percent / 100)
+    total = taxable_amount + tax_amount
+    
+    # Generate estimate number
+    estimate_number = _get_next_document_number(estimates_collection, "EST")
+    
+    # Create estimate document
+    now = datetime.utcnow()
+    estimate = {
+        "document_number": estimate_number,
+        "estimate_number": estimate_number,
+        "customer_id": customer_id,
+        "customer_name": customer.get("name", ""),
+        "rfq_id": rfq.get("rfq_id") or str(rfq["_id"]),
+        "rfq_object_id": str(rfq["_id"]),
+        "project_name": rfq.get("project_name", ""),
+        "status": "draft",
+        "date": now,
+        "expiry_date": now + timedelta(days=request.due_days),
+        "line_items": line_items,
+        "subtotal": round(subtotal, 2),
+        "discount_percent": request.discount_percent,
+        "discount_amount": round(discount_amount, 2),
+        "tax_percent": request.tax_percent,
+        "tax_amount": round(tax_amount, 2),
+        "total": round(total, 2),
+        "notes": request.notes or f"Estimate generated from RFQ: {rfq.get('project_name', rfq_id)}",
+        "terms": f"Valid for {request.due_days} days from date of issue.",
+        "created_at": now,
+        "updated_at": now
+    }
+    
+    result = estimates_collection.insert_one(estimate)
+    estimate_id = str(result.inserted_id)
+    
+    # Update RFQ status and link
+    rfqs_collection.update_one(
+        {"_id": rfq["_id"]},
+        {
+            "$set": {
+                "status": "quoted",
+                "estimate_id": estimate_id,
+                "estimate_number": estimate_number,
+                "quoted_at": now,
+                "quoted_value": total,
+                "updated_at": now
+            }
+        }
+    )
+    
+    logger.info(f"Converted RFQ {rfq_id} to Estimate {estimate_number}")
+    
+    return ConversionResponse(
+        success=True,
+        message=f"RFQ converted to estimate successfully",
+        document_type="estimate",
+        document_id=estimate_id,
+        document_number=estimate_number,
+        rfq_id=rfq.get("rfq_id") or str(rfq["_id"]),
+        total_amount=round(total, 2)
+    )
+
+
+@router.post("/{rfq_id}/convert-to-invoice", response_model=ConversionResponse)
+async def convert_rfq_to_invoice(
+    rfq_id: str,
+    request: RFQConversionRequest
+) -> ConversionResponse:
+    """
+    Convert an RFQ directly to an Invoice.
+    
+    This creates an invoice document in the finance system based on the RFQ details.
+    The RFQ status is updated to 'won'.
+    Use this when a deal is confirmed and you want to skip the estimate stage.
+    """
+    # Find the RFQ
+    rfq = rfqs_collection.find_one({"rfq_id": rfq_id})
+    if not rfq:
+        try:
+            rfq = rfqs_collection.find_one({"_id": ObjectId(rfq_id)})
+        except:
+            pass
+    
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+    
+    # Determine customer
+    customer_id = request.customer_id
+    if not customer_id:
+        customer_id = _find_or_create_customer(rfq)
+    
+    if not customer_id:
+        raise HTTPException(
+            status_code=400, 
+            detail="Customer not found. Please provide customer_id or ensure RFQ has valid client information."
+        )
+    
+    # Verify customer exists
+    try:
+        customer = customers_collection.find_one({"_id": ObjectId(customer_id)})
+        if not customer:
+            raise HTTPException(status_code=404, detail="Customer not found")
+    except:
+        raise HTTPException(status_code=400, detail="Invalid customer_id format")
+    
+    # Generate line items
+    if request.line_items:
+        line_items = request.line_items
+    else:
+        line_items = _generate_line_items_from_rfq(rfq, request.unit_price)
+    
+    # Calculate totals
+    subtotal = sum(item.get("amount", 0) for item in line_items)
+    discount_amount = subtotal * (request.discount_percent / 100)
+    taxable_amount = subtotal - discount_amount
+    tax_amount = taxable_amount * (request.tax_percent / 100)
+    total = taxable_amount + tax_amount
+    
+    # Generate invoice number
+    invoice_number = _get_next_document_number(invoices_collection, "INV")
+    
+    # Create invoice document
+    now = datetime.utcnow()
+    invoice = {
+        "invoice_number": invoice_number,
+        "customer_id": customer_id,
+        "customer_name": customer.get("name", ""),
+        "rfq_id": rfq.get("rfq_id") or str(rfq["_id"]),
+        "rfq_object_id": str(rfq["_id"]),
+        "project_name": rfq.get("project_name", ""),
+        "project_id": rfq.get("project_id"),  # Link to project if exists
+        "status": "pending",
+        "date": now,
+        "due_date": now + timedelta(days=request.due_days),
+        "line_items": line_items,
+        "subtotal": round(subtotal, 2),
+        "discount_percent": request.discount_percent,
+        "discount_amount": round(discount_amount, 2),
+        "tax_percent": request.tax_percent,
+        "tax_amount": round(tax_amount, 2),
+        "total": round(total, 2),
+        "amount_paid": 0,
+        "balance_due": round(total, 2),
+        "notes": request.notes or f"Invoice generated from RFQ: {rfq.get('project_name', rfq_id)}",
+        "terms": f"Payment due within {request.due_days} days.",
+        "created_at": now,
+        "updated_at": now
+    }
+    
+    result = invoices_collection.insert_one(invoice)
+    invoice_id = str(result.inserted_id)
+    
+    # Update customer receivables
+    customers_collection.update_one(
+        {"_id": ObjectId(customer_id)},
+        {
+            "$inc": {"total_receivables": round(total, 2)},
+            "$set": {"updated_at": now}
+        }
+    )
+    
+    # Update RFQ status and link
+    rfqs_collection.update_one(
+        {"_id": rfq["_id"]},
+        {
+            "$set": {
+                "status": "won",
+                "invoice_id": invoice_id,
+                "invoice_number": invoice_number,
+                "invoiced_at": now,
+                "invoiced_value": total,
+                "won_at": now,
+                "updated_at": now
+            }
+        }
+    )
+    
+    logger.info(f"Converted RFQ {rfq_id} to Invoice {invoice_number}")
+    
+    return ConversionResponse(
+        success=True,
+        message=f"RFQ converted to invoice successfully",
+        document_type="invoice",
+        document_id=invoice_id,
+        document_number=invoice_number,
+        rfq_id=rfq.get("rfq_id") or str(rfq["_id"]),
+        total_amount=round(total, 2)
+    )
+
+
+@router.post("/estimate/{estimate_id}/convert-to-invoice", response_model=ConversionResponse)
+async def convert_estimate_to_invoice(
+    estimate_id: str,
+    due_days: int = Query(30, description="Payment due in days")
+) -> ConversionResponse:
+    """
+    Convert an Estimate to an Invoice.
+    
+    This creates an invoice from an existing estimate and updates the linked RFQ status to 'won'.
+    """
+    # Find the estimate
+    try:
+        estimate = estimates_collection.find_one({"_id": ObjectId(estimate_id)})
+    except:
+        raise HTTPException(status_code=400, detail="Invalid estimate_id format")
+    
+    if not estimate:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    
+    # Generate invoice number
+    invoice_number = _get_next_document_number(invoices_collection, "INV")
+    
+    now = datetime.utcnow()
+    
+    # Create invoice from estimate
+    invoice = {
+        "invoice_number": invoice_number,
+        "customer_id": estimate.get("customer_id"),
+        "customer_name": estimate.get("customer_name", ""),
+        "rfq_id": estimate.get("rfq_id"),
+        "rfq_object_id": estimate.get("rfq_object_id"),
+        "estimate_id": estimate_id,
+        "estimate_number": estimate.get("estimate_number"),
+        "project_name": estimate.get("project_name", ""),
+        "status": "pending",
+        "date": now,
+        "due_date": now + timedelta(days=due_days),
+        "line_items": estimate.get("line_items", []),
+        "subtotal": estimate.get("subtotal", 0),
+        "discount_percent": estimate.get("discount_percent", 0),
+        "discount_amount": estimate.get("discount_amount", 0),
+        "tax_percent": estimate.get("tax_percent", 18),
+        "tax_amount": estimate.get("tax_amount", 0),
+        "total": estimate.get("total", 0),
+        "amount_paid": 0,
+        "balance_due": estimate.get("total", 0),
+        "notes": estimate.get("notes", ""),
+        "terms": f"Payment due within {due_days} days.",
+        "created_at": now,
+        "updated_at": now
+    }
+    
+    result = invoices_collection.insert_one(invoice)
+    invoice_id = str(result.inserted_id)
+    total = estimate.get("total", 0)
+    
+    # Update estimate status
+    estimates_collection.update_one(
+        {"_id": ObjectId(estimate_id)},
+        {
+            "$set": {
+                "status": "accepted",
+                "invoice_id": invoice_id,
+                "invoice_number": invoice_number,
+                "converted_at": now,
+                "updated_at": now
+            }
+        }
+    )
+    
+    # Update customer receivables
+    customer_id = estimate.get("customer_id")
+    if customer_id:
+        try:
+            customers_collection.update_one(
+                {"_id": ObjectId(customer_id)},
+                {
+                    "$inc": {"total_receivables": round(total, 2)},
+                    "$set": {"updated_at": now}
+                }
+            )
+        except:
+            pass
+    
+    # Update linked RFQ if exists
+    rfq_object_id = estimate.get("rfq_object_id")
+    if rfq_object_id:
+        try:
+            rfqs_collection.update_one(
+                {"_id": ObjectId(rfq_object_id)},
+                {
+                    "$set": {
+                        "status": "won",
+                        "invoice_id": invoice_id,
+                        "invoice_number": invoice_number,
+                        "invoiced_at": now,
+                        "invoiced_value": total,
+                        "won_at": now,
+                        "updated_at": now
+                    }
+                }
+            )
+        except:
+            pass
+    
+    logger.info(f"Converted Estimate {estimate_id} to Invoice {invoice_number}")
+    
+    return ConversionResponse(
+        success=True,
+        message=f"Estimate converted to invoice successfully",
+        document_type="invoice",
+        document_id=invoice_id,
+        document_number=invoice_number,
+        rfq_id=estimate.get("rfq_id", ""),
+        total_amount=round(total, 2)
+    )
