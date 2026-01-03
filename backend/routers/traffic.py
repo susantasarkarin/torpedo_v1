@@ -72,7 +72,8 @@ async def cpx_callback(
     request: Request,
     msg: str = Query(None, description="Response type: complete or out"),
     message_id: str = Query(None, description="Response type: complete or out (alias)"),
-    rid: str = Query(..., description="SFWID (traffic record _id)")
+    rid: str = Query(..., description="CPX message_id (encrypted)"),
+    sfwid: str = Query(None, description="SFWID passed via subid_1 from CPX")
 ):
     """
     CPX Survey Callback Handler
@@ -95,11 +96,16 @@ async def cpx_callback(
         # Support both 'msg' and 'message_id' parameters
         status_code = msg or message_id or "out"
         
-        print(f"📥 CPX Callback received: msg={status_code}, rid={rid}")
+        print(f"📥 CPX Callback received: msg={status_code}, rid={rid}, sfwid={sfwid}")
         print(f"📥 Full callback URL: {request.url}")
         
-        # CPX double base64 encodes the ext_user_id, so we need to decode twice
-        decoded_sfwid = rid
+        # Prioritize sfwid from subid_1 if provided (CPX passes it unchanged)
+        if sfwid:
+            decoded_sfwid = sfwid
+            print(f"✅ Using sfwid from subid_1: {sfwid}")
+        else:
+            # Fallback: CPX double base64 encodes the ext_user_id, so we need to decode twice
+            decoded_sfwid = rid
         
         def try_base64_decode(value: str) -> str:
             """Try to base64 decode a value, return original if fails"""
@@ -146,6 +152,10 @@ async def cpx_callback(
         # Step 1: Find the traffic record by _id (SFWID)
         traffic_record = None
         search_values = [decoded_sfwid]
+        
+        # If sfwid was provided, ensure it's in search list with highest priority
+        if sfwid and sfwid not in search_values:
+            search_values.insert(0, sfwid)
         
         # Also try original rid and first decode if different
         if rid != decoded_sfwid:

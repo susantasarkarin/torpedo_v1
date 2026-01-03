@@ -124,10 +124,12 @@ class CPXService:
         secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
         
         # Build additional query parameters to append
+        # subid_1 passes SFWID which CPX returns unchanged in redirect URL
         additional_params = (
             f"&ext_user_id={respondent_id}"
             f"&app_id={self.app_id}"
             f"&secure_hash={secure_hash}"
+            f"&subid_1={respondent_id}"
         )
         
         return f"{live_link}{additional_params}"
