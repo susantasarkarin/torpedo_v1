@@ -1,0 +1,56 @@
+# Apache VirtualHost configuration for Campaign Platform
+# Place this in /etc/apache2/sites-available/campaign_platform.conf
+# Then enable: sudo a2ensite campaign_platform.conf
+# Required modules: sudo a2enmod proxy proxy_http rewrite
+
+<VirtualHost *:80>
+    ServerName torpedo.cogentixresearch.com
+    
+    DocumentRoot /var/www/html
+    
+    # Enable rewrite module
+    <Directory /var/www/html>
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+    
+    # Proxy settings
+    ProxyPreserveHost On
+    ProxyRequests Off
+    
+    # CPX callback endpoint - proxy to backend
+    ProxyPass /cpx-response http://localhost:8000/cpx-response
+    ProxyPassReverse /cpx-response http://localhost:8000/cpx-response
+    
+    # Survey allocation endpoints - proxy to backend
+    ProxyPass /survey-allocation http://localhost:8000/survey-allocation
+    ProxyPassReverse /survey-allocation http://localhost:8000/survey-allocation
+    
+    # Takesurvey endpoint - proxy to backend  
+    ProxyPass /takesurvey http://localhost:8000/takesurvey
+    ProxyPassReverse /takesurvey http://localhost:8000/takesurvey
+    
+    # Health check endpoint - proxy to backend
+    ProxyPass /health http://localhost:8000/health
+    ProxyPassReverse /health http://localhost:8000/health
+    
+    # Error and access logs
+    ErrorLog ${APACHE_LOG_DIR}/campaign_error.log
+    CustomLog ${APACHE_LOG_DIR}/campaign_access.log combined
+</VirtualHost>
+
+# HTTPS VirtualHost (if using SSL with Let's Encrypt)
+# Uncomment and configure if using HTTPS
+# <VirtualHost *:443>
+#     ServerName torpedo.cogentixresearch.com
+#     
+#     DocumentRoot /var/www/html
+#     
+#     SSLEngine on
+#     SSLCertificateFile /etc/letsencrypt/live/torpedo.cogentixresearch.com/fullchain.pem
+#     SSLCertificateKeyFile /etc/letsencrypt/live/torpedo.cogentixresearch.com/privkey.pem
+#     
+#     # Include the same proxy and directory settings as above
+#     # ...
+# </VirtualHost>
