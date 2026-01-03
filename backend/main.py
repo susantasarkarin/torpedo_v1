@@ -14,6 +14,12 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from fastapi import Request, Depends, APIRouter
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+
+# Auth utilities for password hashing
+try:
+    from .auth import hash_password, verify_password, needs_rehash, migrate_user_password
+except ImportError:
+    from auth import hash_password, verify_password, needs_rehash, migrate_user_password
 try:
     # Prefer relative import when running as a package (python -m uvicorn backend.main)
     from .routers import traffic as traffic_router
@@ -603,13 +609,14 @@ users_collection = db["users"]
 # Create index for faster login queries
 users_collection.create_index("username", unique=True, background=True)
 
-# Insert one default user if not exists
+# Insert one default user if not exists (with hashed password)
 if not users_collection.find_one({"username": "admin"}):
     users_collection.insert_one({
         "username": "admin",
-        "password": "password123",  # ⚠️ For demo only, store hashed later
+        "password": hash_password("password123"),  # ✅ Securely hashed
         "createdAt": datetime.utcnow()
     })
+    print("✅ Default admin user created with hashed password")
 
 
 @app.post("/login/")
@@ -621,9 +628,19 @@ async def login(credentials: Dict[str, str] = Body(...)):
         if not username or not password:
             raise HTTPException(status_code=400, detail="Missing username or password")
 
-        user = users_collection.find_one({"username": username, "password": password})
+        # Find user by username only
+        user = users_collection.find_one({"username": username})
         if not user:
             raise HTTPException(status_code=401, detail="Invalid username or password")
+        
+        # Verify password using secure comparison
+        stored_password = user.get("password", "")
+        if not verify_password(password, stored_password):
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        
+        # Migrate plaintext password to hash if needed (one-time migration)
+        if needs_rehash(stored_password):
+            migrate_user_password(users_collection, username, password)
 
         # ✅ If user has no role field, assume admin
         role = user.get("role", "admin")
@@ -642,6 +659,8 @@ async def login(credentials: Dict[str, str] = Body(...)):
             "role": role  # ✅ return role to frontend
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
 
@@ -728,18 +747,27 @@ async def change_password(request: Request, password_data: Dict[str, str] = Body
         if not current_password or not new_password:
             raise HTTPException(status_code=400, detail="Current and new password are required")
         
-        if len(new_password) < 6:
-            raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+        if len(new_password) < 8:
+            raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
         
-        # Verify current password
-        user = users_collection.find_one({"username": username, "password": current_password})
+        # Verify current password using secure comparison
+        user = users_collection.find_one({"username": username})
         if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        stored_password = user.get("password", "")
+        if not verify_password(current_password, stored_password):
             raise HTTPException(status_code=401, detail="Current password is incorrect")
         
-        # Update password
+        # Update password with secure hash
+        hashed_password = hash_password(new_password)
         result = users_collection.update_one(
             {"username": username},
-            {"$set": {"password": new_password, "updatedAt": datetime.utcnow()}}
+            {"$set": {
+                "password": hashed_password,
+                "password_updated_at": datetime.utcnow(),
+                "updatedAt": datetime.utcnow()
+            }}
         )
         
         if result.matched_count == 0:
@@ -749,7 +777,8 @@ async def change_password(request: Request, password_data: Dict[str, str] = Body
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Password change error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Password change error: {str(e)}"}
+
 
 
 # ----------------------------
@@ -794,12 +823,26 @@ async def create_list(list_data: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=500, detail=f"List creation error: {str(e)}")
 
 @app.get("/lists/",dependencies=[Depends(verify_session)])
-async def get_lists():
+async def get_lists(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(50, ge=1, le=1000, description="Maximum records to return")
+):
     try:
-        lists = list(lists_collection.find())
+        # Get total count
+        total = lists_collection.count_documents({})
+        
+        # Get paginated lists
+        lists = list(lists_collection.find().skip(skip).limit(limit))
         for list_item in lists:
             list_item["_id"] = str(list_item["_id"])
-        return {"lists": lists}
+        
+        return {
+            "lists": lists,
+            "total": total,
+            "skip": skip,
+            "limit": limit,
+            "has_more": (skip + len(lists)) < total
+        }
     except Exception as e:
         print(f"❌ Failed to fetch lists: {e}")
         raise HTTPException(status_code=500, detail=f"Fetch lists error: {str(e)}")
@@ -871,15 +914,32 @@ async def upload_csv(data: Dict[str, List[Dict[str, Any]]] = Body(...)):
 # Fetch Contacts
 # ----------------------------
 @app.get("/contacts/{list_identifier}")
-async def get_contacts(list_identifier: str = Path(...)):
+async def get_contacts(
+    list_identifier: str = Path(...),
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(50, ge=1, le=1000, description="Maximum records to return")
+):
     try:
         or_clauses = [
             {"listId": list_identifier},
             {"listName": list_identifier},
             {"listName": {"$regex": f"^{re.escape(list_identifier)}$", "$options": "i"}}
         ]
-        contacts = list(contacts_collection.find({"$or": or_clauses}, {"_id": 0}))
-        return {"contacts": contacts}
+        query = {"$or": or_clauses}
+        
+        # Get total count
+        total = contacts_collection.count_documents(query)
+        
+        # Get paginated contacts
+        contacts = list(contacts_collection.find(query, {"_id": 0}).skip(skip).limit(limit))
+        
+        return {
+            "contacts": contacts,
+            "total": total,
+            "skip": skip,
+            "limit": limit,
+            "has_more": (skip + len(contacts)) < total
+        }
     except Exception as e:
         print(f"❌ Failed to fetch contacts: {e}")
         raise HTTPException(status_code=500, detail=f"Fetch contacts error: {str(e)}")
@@ -904,12 +964,26 @@ async def save_template(template: Dict[str, Any] = Body(...)):
 
 
 @app.get("/templates/",dependencies=[Depends(verify_session)])
-async def get_templates():
+async def get_templates(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(50, ge=1, le=1000, description="Maximum records to return")
+):
     try:
-        templates = list(templates_collection.find())
+        # Get total count
+        total = templates_collection.count_documents({})
+        
+        # Get paginated templates
+        templates = list(templates_collection.find().skip(skip).limit(limit))
         for t in templates:
             t["_id"] = str(t["_id"])
-        return {"templates": templates}
+        
+        return {
+            "templates": templates,
+            "total": total,
+            "skip": skip,
+            "limit": limit,
+            "has_more": (skip + len(templates)) < total
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Template fetch error: {str(e)}")
 
