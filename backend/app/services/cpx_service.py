@@ -157,17 +157,20 @@ class CPXService:
     @staticmethod
     def _get_client_ip() -> str:
         """
-        Get public IP address of the client
+        Get IP address for CPX API requests.
+        
+        Uses a hardcoded Indian IP to ensure CPX API works regardless of
+        server location (e.g., when deployed on US-based VMs).
         
         Returns:
-            Public IP address or "0.0.0.0" if unable to fetch
+            Indian IP address for geo-targeting
         """
-        try:
-            response = requests.get("https://api.ipify.org?format=json", timeout=5)
-            return response.json().get("ip", "0.0.0.0")
-        except Exception as e:
-            print(f"⚠️  Failed to get public IP: {e}")
-            return "0.0.0.0"
+        # Hardcoded Indian IP address for CPX API geo-targeting
+        # This ensures CPX API returns India-relevant surveys regardless of server location
+        # Using a Mumbai (Maharashtra) IP address
+        INDIAN_IP = "103.21.124.1"  # Indian IP (Mumbai region)
+        
+        return INDIAN_IP
     
     @staticmethod
     def _get_user_agent() -> str:
