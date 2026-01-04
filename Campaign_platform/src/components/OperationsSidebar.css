@@ -70,3 +70,80 @@
   font-weight: 600;
   color: #ffffff;
 }
+
+/* Collapsible Group Styles */
+.sidebar-group {
+  margin-bottom: 8px;
+}
+
+.sidebar-group-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 14px;
+  color: #f3f3f3;
+  font-size: 15px;
+  font-weight: 500;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.sidebar-group-header:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.sidebar-group-title {
+  flex: 1;
+}
+
+.sidebar-chevron {
+  font-size: 12px;
+  transition: transform 0.3s ease;
+}
+
+.sidebar-chevron.open {
+  transform: rotate(180deg);
+}
+
+/* Submenu Styles */
+.sidebar-submenu {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 0.3s ease;
+}
+
+.sidebar-submenu.open {
+  max-height: 200px;
+}
+
+.sidebar-subitem {
+  margin-bottom: 4px;
+}
+
+.sidebar-sublink {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px 10px 32px;
+  color: #d1d5db;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 400;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.sidebar-sublink:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  transform: translateX(5px);
+}
+
+.sidebar-subitem.active .sidebar-sublink {
+  background: rgba(244, 124, 32, 0.2);
+  font-weight: 600;
+  color: #ffffff;
+}

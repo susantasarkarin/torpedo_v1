@@ -1,10 +1,12 @@
 "use client"
 
+import { useState } from "react"
 import { Link, useLocation } from "react-router-dom"
 import "./OperationsSidebar.css"
 
 function OperationsSidebar() {
   const location = useLocation()
+  const [trafficOpen, setTrafficOpen] = useState(true)
 
   const isActive = (path) => location.pathname.startsWith(path)
 
@@ -35,15 +37,30 @@ function OperationsSidebar() {
               <span className="sidebar-icon">📋</span> Survey Pool
             </Link>
           </li>
-          <li className={`sidebar-item ${isActive("/admin/operations/traffic") ? "active" : ""}`}>
-            <Link to="/admin/operations/traffic" className="sidebar-link">
-              <span className="sidebar-icon">🚦</span> Traffic Management
-            </Link>
-          </li>
-          <li className={`sidebar-item ${isActive("/admin/operations/reports") ? "active" : ""}`}>
-            <Link to="/admin/operations/reports" className="sidebar-link">
-              <span className="sidebar-icon">📑</span> Reports
-            </Link>
+          
+          {/* Traffic Group */}
+          <li className="sidebar-group">
+            <div 
+              className="sidebar-group-header" 
+              onClick={() => setTrafficOpen(!trafficOpen)}
+              role="button"
+            >
+              <span className="sidebar-icon">🚦</span>
+              <span className="sidebar-group-title">Traffic</span>
+              <span className={`sidebar-chevron ${trafficOpen ? 'open' : ''}`}>▾</span>
+            </div>
+            <ul className={`sidebar-submenu ${trafficOpen ? 'open' : ''}`}>
+              <li className={`sidebar-subitem ${isActive("/admin/operations/traffic") ? "active" : ""}`}>
+                <Link to="/admin/operations/traffic" className="sidebar-sublink">
+                  <span className="sidebar-icon">📥</span> Inbound Traffic
+                </Link>
+              </li>
+              <li className={`sidebar-subitem ${isActive("/admin/operations/reports") ? "active" : ""}`}>
+                <Link to="/admin/operations/reports" className="sidebar-sublink">
+                  <span className="sidebar-icon">📤</span> Outbound Traffic
+                </Link>
+              </li>
+            </ul>
           </li>
         </ul>
       </nav>
