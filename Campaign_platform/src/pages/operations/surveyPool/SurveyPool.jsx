@@ -116,21 +116,45 @@ export default function SurveyPool() {
     return client;
   };
 
-  // Get client name - first try by client_id, then by provider/source name
+  // Get client by name (for projects that store client name directly)
+  const getClientByName = (clientName) => {
+    if (!clientName) return null;
+    const lowerName = clientName.toLowerCase();
+    return clients.find(c => {
+      const name = (c.company_name || c.name || '').toLowerCase();
+      return name === lowerName || name.includes(lowerName) || lowerName.includes(name);
+    });
+  };
+
+  // Get client name - handles both CPX surveys and Projects
   const getClientName = (survey) => {
+    // For projects, client_name is stored directly
+    if (survey.client_name) {
+      return survey.client_name;
+    }
+    
     // If survey has a direct client_id, use that
     if (survey.client_id) {
       const client = clients.find(c => c._id === survey.client_id);
       if (client) return client.company_name || client.name || 'N/A';
     }
     
-    // Otherwise, look up by provider/source name
+    // Otherwise, look up by provider/source name (for CPX surveys)
     const client = getClientByProvider(survey);
     return client?.company_name || client?.name || 'N/A';
   };
 
   // Get client type from the Clients module
   const getClientType = (survey) => {
+    // For projects, look up client by client_name
+    if (survey.client_name) {
+      const client = getClientByName(survey.client_name);
+      if (client) {
+        return client.customer_type === 'business' ? 'Offline' : 'Online';
+      }
+      return 'Offline'; // Default for projects
+    }
+    
     // If survey has a direct client_id, use that client's type
     if (survey.client_id) {
       const client = clients.find(c => c._id === survey.client_id);

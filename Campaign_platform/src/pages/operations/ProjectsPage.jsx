@@ -8,6 +8,7 @@ function ProjectsPage() {
   const navigate = useNavigate(); // ✅ define at top
   const [projects, setProjects] = useState([]);
   const [vendors, setVendors] = useState([]);
+  const [clients, setClients] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -104,8 +105,37 @@ function ProjectsPage() {
       }
     };
 
+    const fetchClients = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/finance/finance/customers/`, {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: sessionId,
+          },
+        });
+
+        if (res.status === 401) {
+          alert("Session expired. Please login again.");
+          localStorage.removeItem("session_id");
+          navigate("/login");
+          return;
+        }
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Failed to load clients");
+        // Filter for Online AND Active clients only
+        const onlineActiveClients = (data.customers || []).filter(
+          (c) => c.customer_type !== "business" && c.status === "active"
+        );
+        setClients(onlineActiveClients);
+      } catch (err) {
+        console.error("❌ Clients fetch failed:", err.message);
+      }
+    };
+
     fetchProjects();
     fetchVendors();
+    fetchClients();
   }, [navigate]);
 
   const handleChange = (e) =>
@@ -463,7 +493,14 @@ function ProjectsPage() {
                 <div style={styles.formRow}>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Client <span style={styles.required}>*</span></label>
-                    <input style={styles.input} name="client" value={formData.client} onChange={handleChange} placeholder="Client name" />
+                    <select style={styles.select} name="client" value={formData.client} onChange={handleChange} required>
+                      <option value="">-- Select Client (Required) --</option>
+                      {clients.map((c) => (
+                        <option key={c._id} value={c.company_name || c.name}>
+                          {c.company_name || c.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Industry</label>
