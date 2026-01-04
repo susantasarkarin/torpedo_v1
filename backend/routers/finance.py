@@ -102,13 +102,39 @@ def generate_sku() -> str:
 
 
 def generate_customer_number() -> str:
-    """Generate unique customer number"""
+    """Generate unique customer number based on highest existing number"""
+    # Find the highest existing customer number
+    last_customer = customers_collection.find_one(
+        {"customer_number": {"$regex": r"^CUST-\d+$"}},
+        sort=[("customer_number", -1)]
+    )
+    if last_customer and last_customer.get("customer_number"):
+        # Extract the number part and increment
+        try:
+            last_num = int(last_customer["customer_number"].replace("CUST-", ""))
+            return f"CUST-{str(last_num + 1).zfill(5)}"
+        except ValueError:
+            pass
+    # Fallback: count + 1
     count = customers_collection.count_documents({}) + 1
     return f"CUST-{str(count).zfill(5)}"
 
 
 def generate_vendor_number() -> str:
-    """Generate unique vendor number"""
+    """Generate unique vendor number based on highest existing number"""
+    # Find the highest existing vendor number
+    last_vendor = vendors_collection.find_one(
+        {"vendor_number": {"$regex": r"^VEND-\d+$"}},
+        sort=[("vendor_number", -1)]
+    )
+    if last_vendor and last_vendor.get("vendor_number"):
+        # Extract the number part and increment
+        try:
+            last_num = int(last_vendor["vendor_number"].replace("VEND-", ""))
+            return f"VEND-{str(last_num + 1).zfill(5)}"
+        except ValueError:
+            pass
+    # Fallback: count + 1
     count = vendors_collection.count_documents({}) + 1
     return f"VEND-{str(count).zfill(5)}"
 

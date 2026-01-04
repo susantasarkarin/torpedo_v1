@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import os
 from dotenv import load_dotenv
+from routers.finance import generate_customer_number
 
 load_dotenv()
 
@@ -246,10 +247,9 @@ async def link_account_to_customer(
                 raise HTTPException(status_code=404, detail="Customer not found")
         else:
             # Create new customer from account data
-            customer_count = customers_collection.count_documents({}) + 1
             customer_data = {
                 "name": account.get("name"),
-                "customer_number": f"CUST-{str(customer_count).zfill(5)}",
+                "customer_number": generate_customer_number(),
                 "customer_type": "business",
                 "company_name": account.get("name"),
                 "email": account.get("email", ""),

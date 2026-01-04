@@ -144,13 +144,25 @@ export default function SurveyPool() {
     return client?.company_name || client?.name || 'N/A';
   };
 
+  // Map customer_type to display type
+  const mapCustomerType = (customerType) => {
+    if (customerType === 'business') return 'Offline';
+    if (customerType === 'api') return 'API';
+    return 'Online';
+  };
+
   // Get client type from the Clients module
   const getClientType = (survey) => {
+    // For CPX/API surveys, return "API" (they come from API)
+    if (survey.provider === 'CPX' || survey.source === 'CPX') {
+      return 'API';
+    }
+    
     // For projects, look up client by client_name
     if (survey.client_name) {
       const client = getClientByName(survey.client_name);
       if (client) {
-        return client.customer_type === 'business' ? 'Offline' : 'Online';
+        return mapCustomerType(client.customer_type);
       }
       return 'Offline'; // Default for projects
     }
@@ -159,15 +171,14 @@ export default function SurveyPool() {
     if (survey.client_id) {
       const client = clients.find(c => c._id === survey.client_id);
       if (client) {
-        // customer_type: "business" = "Offline", "individual" = "Online"
-        return client.customer_type === 'business' ? 'Offline' : 'Online';
+        return mapCustomerType(client.customer_type);
       }
     }
     
     // Otherwise, look up by provider/source name
     const client = getClientByProvider(survey);
     if (client) {
-      return client.customer_type === 'business' ? 'Offline' : 'Online';
+      return mapCustomerType(client.customer_type);
     }
     
     // Default fallback

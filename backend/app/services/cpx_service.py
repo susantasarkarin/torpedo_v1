@@ -22,7 +22,6 @@ class CPXService:
         surveys_collection: Optional[Any] = None,
         filters_collection: Optional[Any] = None,
         settings_collection: Optional[Any] = None,
-        projects_collection: Optional[Any] = None,
     ):
         """
         Initialize CPX Service
@@ -36,7 +35,6 @@ class CPXService:
             surveys_collection: MongoDB collection for surveys (optional for testing)
             filters_collection: MongoDB collection for filter settings (deprecated, use settings_collection)
             settings_collection: MongoDB collection for app settings (torpedo_settings.app_settings)
-            projects_collection: MongoDB collection for projects (to include in survey pool)
         """
         self.app_id = app_id
         self.ext_user_id = ext_user_id
@@ -44,7 +42,6 @@ class CPXService:
         self.api_timeout = api_timeout
         self.fetch_limit = fetch_limit
         self.settings_collection = settings_collection
-        self.projects_collection = projects_collection
         
         # If collections are provided, use them; otherwise initialize from env
         if surveys_collection is not None:
@@ -62,10 +59,6 @@ class CPXService:
                 if settings_collection is None:
                     settings_db = client["torpedo_settings"]
                     self.settings_collection = settings_db["app_settings"]
-                # Connect to projects if not provided
-                if projects_collection is None:
-                    torpedo_db = client["torpedo"]
-                    self.projects_collection = torpedo_db["projects"]
             else:
                 self.cpx_surveys_collection = None
                 self.cpx_filters_collection = None
@@ -334,7 +327,6 @@ class CPXService:
             "category": survey.get("survey_category") or survey.get("category", ""),
             "provider": "CPX",
             "source": "CPX",
-            "client_type": "Online",  # CPX surveys are Online - LOI/IR/CPI filters apply
             "last_updated": datetime.utcnow(),
             "live_link": live_link,  # Store live link from CPX API
             "raw_data": survey,  # Store raw data for reference
@@ -366,11 +358,6 @@ class CPXService:
         Returns:
             True if survey passes filters, False otherwise
         """
-        # Skip filters for Offline client type (Projects) - only apply to Online (CPX/API)
-        client_type = survey.get("client_type", "Online")
-        if client_type == "Offline":
-            return True  # No LOI, IR, CPI filters for Offline surveys
-        
         # Get user filter settings, with sensible defaults
         filter_settings = self.get_filter_settings()
         max_loi = filter_settings.get("max_loi", 20)  # Default: 20 minutes
@@ -420,62 +407,6 @@ class CPXService:
         except Exception as e:
             print(f"❌ MongoDB upsert error: {e}")
             return 0
-    
-    def _normalize_project_to_survey(self, project: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Normalize a project record to survey format for display in Survey Pool
-        
-        Args:
-            project: Project document from projects collection
-            
-        Returns:
-            Normalized survey-like dictionary
-        """
-        project_id = str(project.get("_id", ""))
-        
-        # Get client_id by looking up the client name
-        client_name = project.get("client", "")
-        
-        return {
-            "_id": f"project_{project_id}",
-            "survey_id": project.get("surveyNo", project_id),
-            "title": project.get("projectName", ""),
-            "name": project.get("projectName", ""),
-            "loi": float(project.get("loi", 0) or 0),
-            "payout": float(project.get("cpi", 0) or 0),
-            "payout_publisher_usd": float(project.get("cpi", 0) or 0),
-            "conversion_rate": float(project.get("clientIR", 0) or 0),
-            "country": "",  # Projects may not have country
-            "category": project.get("industry", ""),
-            "provider": "Project",
-            "source": "Project",
-            "client_type": "Offline",  # Projects are Offline - no LOI/IR/CPI filters
-            "client_id": None,  # Will be looked up by client name in frontend
-            "client_name": client_name,  # Store client name directly for lookup
-            "project_id": project_id,  # Reference to original project
-            "status": project.get("projectStatus", "live"),
-            "last_updated": project.get("createdAt") or datetime.utcnow(),
-            "live_link": project.get("liveLink", ""),
-            "test_link": project.get("testLink", ""),
-            "entry_link": project.get("liveLink", ""),
-        }
-    
-    def _get_projects_as_surveys(self) -> List[Dict[str, Any]]:
-        """
-        Fetch all projects and convert them to survey format
-        
-        Returns:
-            List of project-based surveys (no filters applied)
-        """
-        if self.projects_collection is None:
-            return []
-        
-        try:
-            projects = list(self.projects_collection.find())
-            return [self._normalize_project_to_survey(p) for p in projects]
-        except Exception as e:
-            print(f"❌ Error fetching projects for survey pool: {e}")
-            return []
     
     def get_surveys(
         self,
@@ -564,23 +495,6 @@ class CPXService:
                 
                 cleaned_surveys.append(survey)
             
-            # Fetch projects and add them to the survey pool (no filters applied to projects)
-            project_surveys = self._get_projects_as_surveys()
-            for proj in project_surveys:
-                # Convert datetime to ISO string
-                if isinstance(proj.get("last_updated"), datetime):
-                    proj["last_updated"] = proj["last_updated"].isoformat()
-                cleaned_surveys.append(proj)
-            
-            # Sort combined list by last_updated descending
-            cleaned_surveys.sort(
-                key=lambda x: x.get("last_updated", ""),
-                reverse=True
-            )
-            
-            # Update total count to include projects
-            total_count += len(project_surveys)
-            
             # Get the most recent last_updated timestamp
             last_updated = None
             if cleaned_surveys:
@@ -594,7 +508,7 @@ class CPXService:
                     "page": page,
                     "page_size": page_size,
                     "total": total_count,
-                    "total_pages": (total_count + page_size - 1) // page_size,
+                    "total_pages": total_pages,
                 },
             }
             

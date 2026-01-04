@@ -123,9 +123,9 @@ function ProjectsPage() {
 
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Failed to load clients");
-        // Filter for Online AND Active clients only
+        // Filter for Online AND Active clients only (case-insensitive status check)
         const onlineActiveClients = (data.customers || []).filter(
-          (c) => c.customer_type !== "business" && c.status === "active"
+          (c) => c.customer_type !== "business" && c.status?.toLowerCase() === "active"
         );
         setClients(onlineActiveClients);
       } catch (err) {

@@ -13,13 +13,13 @@ const customerToClient = (customer) => ({
   address: customer.billing_address?.line1 || "",
   clientVariable: customer.notes || "",
   currency: customer.currency || "INR",
-  clientType: customer.customer_type === "business" ? "Offline" : "Online",
+  clientType: customer.customer_type === "business" ? "Offline" : customer.customer_type === "api" ? "API" : "Online",
   status: customer.status === "active" ? "Active" : "Inactive",
 });
 
 const clientToCustomer = (clientData) => ({
   name: clientData.name,
-  customer_type: clientData.clientType === "Offline" ? "business" : "individual",
+  customer_type: clientData.clientType === "Offline" ? "business" : clientData.clientType === "API" ? "api" : "individual",
   company_name: clientData.name,
   email: clientData.email,
   phone: clientData.contactPerson,
