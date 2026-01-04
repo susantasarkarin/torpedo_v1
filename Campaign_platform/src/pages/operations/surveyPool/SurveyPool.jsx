@@ -13,11 +13,15 @@ export default function SurveyPool() {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedSurvey, setSelectedSurvey] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [trafficStats, setTrafficStats] = useState({}); // survey_id -> {clicks, completes}
+  const [clients, setClients] = useState([]); // List of clients for client name lookup
 
   // Fetch surveys on mount
   useEffect(() => {
     if (token) {
       fetchSurveys();
+      fetchTrafficStats();
+      fetchClients();
     }
   }, [token]);
 
@@ -26,6 +30,7 @@ export default function SurveyPool() {
     if (!token) return;
     const interval = setInterval(() => {
       fetchSurveys();
+      fetchTrafficStats();
     }, 30000); // 30 seconds
     return () => clearInterval(interval);
   }, [token]);
@@ -60,6 +65,91 @@ export default function SurveyPool() {
     }
   };
 
+  // Fetch traffic stats for all surveys
+  const fetchTrafficStats = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/traffic/surveys-stats`, {
+        headers: {
+          'Authorization': token,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setTrafficStats(data.surveys_stats || {});
+      }
+    } catch (err) {
+      console.error('Error fetching traffic stats:', err);
+    }
+  };
+
+  // Fetch clients for client name lookup
+  const fetchClients = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/finance/finance/customers/`, {
+        headers: {
+          'Authorization': token,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setClients(Array.isArray(data) ? data : data.customers || []);
+      }
+    } catch (err) {
+      console.error('Error fetching clients:', err);
+    }
+  };
+
+  // Get client by provider/source name (e.g., "CPX" matches client "CPX Research")
+  const getClientByProvider = (survey) => {
+    const source = survey.provider || survey.source || 'CPX';
+    // Look for a client whose company_name or name contains the source (e.g., "CPX Research" contains "CPX")
+    const client = clients.find(c => {
+      const clientName = (c.company_name || c.name || '').toLowerCase();
+      return clientName.includes(source.toLowerCase()) || 
+             clientName.includes('cpx research') ||
+             source.toLowerCase().includes(clientName.split(' ')[0]?.toLowerCase());
+    });
+    return client;
+  };
+
+  // Get client name - first try by client_id, then by provider/source name
+  const getClientName = (survey) => {
+    // If survey has a direct client_id, use that
+    if (survey.client_id) {
+      const client = clients.find(c => c._id === survey.client_id);
+      if (client) return client.company_name || client.name || 'N/A';
+    }
+    
+    // Otherwise, look up by provider/source name
+    const client = getClientByProvider(survey);
+    return client?.company_name || client?.name || 'N/A';
+  };
+
+  // Get client type from the Clients module
+  const getClientType = (survey) => {
+    // If survey has a direct client_id, use that client's type
+    if (survey.client_id) {
+      const client = clients.find(c => c._id === survey.client_id);
+      if (client) {
+        // customer_type: "business" = "Offline", "individual" = "Online"
+        return client.customer_type === 'business' ? 'Offline' : 'Online';
+      }
+    }
+    
+    // Otherwise, look up by provider/source name
+    const client = getClientByProvider(survey);
+    if (client) {
+      return client.customer_type === 'business' ? 'Offline' : 'Online';
+    }
+    
+    // Default fallback
+    return 'Online';
+  };
+
   // Manual refresh handler
   const handleRefresh = async () => {
     setLoading(true);
@@ -76,8 +166,9 @@ export default function SurveyPool() {
         throw new Error('Failed to refresh CPX inventory');
       }
 
-      // Fetch latest surveys
+      // Fetch latest surveys and stats
       await fetchSurveys();
+      await fetchTrafficStats();
       setCurrentPage(1);
     } catch (err) {
       console.error('Error refreshing CPX inventory:', err);
@@ -197,29 +288,25 @@ export default function SurveyPool() {
             <table className="survey-table">
               <thead>
                 <tr>
-                  <th>Survey ID</th>
                   <th>Name</th>
-                  <th>Source</th>
+                  <th>Client Name</th>
+                  <th>Client Type</th>
                   <th>Country</th>
                   <th>LOI (min)</th>
                   <th>Payout</th>
                   <th>Conversion</th>
+                  <th>Clicks</th>
+                  <th>Completes</th>
                   <th>Date/Time</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody>
-                {paginatedSurveys.map((survey, index) => (
+                {paginatedSurveys.map((survey, index) => {
+                  const surveyId = survey.survey_id || survey._id;
+                  const stats = trafficStats[surveyId] || { clicks: 0, completes: 0 };
+                  return (
                   <tr key={survey._id || survey.survey_id || index}>
-                    <td>
-                      <span 
-                        className="survey-link" 
-                        onClick={() => handleSurveyClick(survey)}
-                        style={{ cursor: 'pointer', color: '#667eea', textDecoration: 'underline' }}
-                      >
-                        {survey.survey_id || survey._id}
-                      </span>
-                    </td>
                     <td>
                       <span 
                         className="survey-link" 
@@ -229,15 +316,18 @@ export default function SurveyPool() {
                         {getSurveyName(survey)}
                       </span>
                     </td>
+                    <td>{getClientName(survey)}</td>
                     <td>
                       <span className="source-badge">
-                        {survey.provider || survey.source || 'CPX'}
+                        {getClientType(survey)}
                       </span>
                     </td>
                     <td>{survey.country || survey.country_code || 'N/A'}</td>
                     <td>{survey.loi || 'N/A'}</td>
                     <td>${survey.payout?.toFixed(2) || survey.cpi?.toFixed(2) || '0.00'}</td>
                     <td>{getConversionRate(survey)}</td>
+                    <td>{stats.clicks}</td>
+                    <td>{stats.completes}</td>
                     <td>{formatDateTime(survey.last_updated || survey.inserted_at)}</td>
                     <td>
                       <span className={`status-badge ${survey.status === 'active' ? 'active' : 'inactive'}`}>
@@ -245,7 +335,8 @@ export default function SurveyPool() {
                       </span>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

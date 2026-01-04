@@ -415,10 +415,9 @@ function ClientsPage() {
           <thead style={styles.thead}>
             <tr>
               <th style={styles.th}>Client No</th>
-              <th style={styles.th}>Name</th>
+              <th style={styles.th}>Client Name</th>
               <th style={styles.th}>Email</th>
               <th style={styles.th}>Phone</th>
-              <th style={styles.th}>Sales Account</th>
               <th style={styles.th}>Status</th>
               <th style={styles.th}>Actions</th>
             </tr>
@@ -432,21 +431,6 @@ function ClientsPage() {
                 <td style={styles.td}>{c.name}</td>
                 <td style={styles.td}>{c.email}</td>
                 <td style={styles.td}>{c.contactPerson}</td>
-                <td style={styles.td}>
-                  <select
-                    style={styles.linkSelect}
-                    value={clientAccountLinks[c._id] || ""}
-                    onChange={(e) => handleLinkSalesAccount(c._id, e.target.value)}
-                    title="Link to Sales Account"
-                  >
-                    <option value="">-- Select Sales Account --</option>
-                    {salesAccounts.map(acc => (
-                      <option key={acc._id} value={acc._id}>
-                        {acc.account_name || acc.company_name || 'Unnamed'}
-                      </option>
-                    ))}
-                  </select>
-                </td>
                 <td style={styles.td}>
                   <span style={{
                     ...styles.statusBadge,
@@ -465,7 +449,7 @@ function ClientsPage() {
             ))}
             {paginatedClients.length === 0 && filtered.length === 0 && (
               <tr>
-                <td colSpan={7} style={styles.emptyState}>
+                <td colSpan={6} style={styles.emptyState}>
                   No clients found.
                 </td>
               </tr>
@@ -615,6 +599,25 @@ function ClientsPage() {
                   </select>
                 </div>
               </div>
+
+              {editingId && (
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Sales Account</label>
+                  <select
+                    style={styles.select}
+                    value={clientAccountLinks[editingId] || ""}
+                    onChange={(e) => handleLinkSalesAccount(editingId, e.target.value)}
+                    title="Link to Sales Account"
+                  >
+                    <option value="">-- Select Sales Account --</option>
+                    {salesAccounts.map(acc => (
+                      <option key={acc._id} value={acc._id}>
+                        {acc.account_name || acc.company_name || 'Unnamed'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div style={styles.modalFooter}>

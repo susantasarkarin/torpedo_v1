@@ -417,6 +417,57 @@ class TrafficService:
             print(f"❌ Error getting traffic stats: {e}")
             return {"total": 0, "by_status": {}}
     
+    def get_all_surveys_traffic_stats(self) -> Dict[str, Dict[str, int]]:
+        """
+        Get aggregated traffic statistics (clicks and completes) for all surveys.
+        
+        Returns:
+            Dictionary mapping survey_id -> {"clicks": int, "completes": int}
+        """
+        try:
+            # Aggregate by survey_id and status
+            pipeline = [
+                {
+                    "$match": {
+                        "assignedSurveyId": {"$exists": True, "$ne": None}
+                    }
+                },
+                {
+                    "$group": {
+                        "_id": {
+                            "survey_id": "$assignedSurveyId",
+                            "status": "$status"
+                        },
+                        "count": {"$sum": 1}
+                    }
+                }
+            ]
+            
+            results = list(self.traffic_collection.aggregate(pipeline))
+            
+            # Build stats dictionary
+            stats_by_survey = {}
+            for r in results:
+                survey_id = r["_id"]["survey_id"]
+                status = r["_id"]["status"]
+                count = r["count"]
+                
+                if survey_id not in stats_by_survey:
+                    stats_by_survey[survey_id] = {"clicks": 0, "completes": 0}
+                
+                # Count all records as clicks (any status means they clicked)
+                stats_by_survey[survey_id]["clicks"] += count
+                
+                # Only count COMPLETE status as completes
+                if status == "COMPLETE":
+                    stats_by_survey[survey_id]["completes"] += count
+            
+            return stats_by_survey
+            
+        except Exception as e:
+            print(f"❌ Error getting all surveys traffic stats: {e}")
+            return {}
+    
     def list_traffic_records(
         self,
         page: int = 1,
