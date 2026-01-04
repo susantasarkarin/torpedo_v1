@@ -1,14 +1,16 @@
 """
-CENTRALIZED OPENAI API WRAPPER
+CENTRALIZED AI API WRAPPER (OpenAI + Anthropic)
 Cost-optimized wrapper with token logging, rate limiting, and safety guards.
+Supports multi-provider routing with confidence-based escalation.
 
 Key optimizations:
 - Strict max_output_tokens enforcement (default 300, background tasks 150-200)
 - Token usage logging to MongoDB
-- Global kill switch via DISABLE_OPENAI_CALLS env var
-- Model routing: gpt-4o-mini by default, escalate only when required
+- Global kill switch via DISABLE_AI_CALLS env var
+- Model routing: gpt-4o-mini by default, escalate to Claude for complex tasks
 - Exponential backoff on retries
 - Request source tracking (cron/api/user)
+- Confidence-based escalation to premium models
 """
 
 import os
@@ -22,6 +24,15 @@ from openai import OpenAI, APIError, RateLimitError, APIConnectionError
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
+# Anthropic import with fallback
+try:
+    from anthropic import Anthropic, APIError as AnthropicAPIError, RateLimitError as AnthropicRateLimitError
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+    AnthropicAPIError = Exception
+    AnthropicRateLimitError = Exception
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -29,21 +40,34 @@ logger = logging.getLogger(__name__)
 
 # ============== CONFIGURATION ==============
 
+# AI Provider types
+AIProvider = Literal["openai", "anthropic"]
+
 # Default token limits - COST CONTROL
 DEFAULT_MAX_OUTPUT_TOKENS = 300       # Standard API responses
 BACKGROUND_MAX_OUTPUT_TOKENS = 150    # Cron/background tasks
 INTERNAL_MAX_OUTPUT_TOKENS = 200      # Internal/middleware tasks
+ESCALATED_MAX_OUTPUT_TOKENS = 500     # Escalated to premium model
 
 # Model routing - cost control
 DEFAULT_MODEL = "gpt-4o-mini"  # ~$0.15/$0.60 per 1M tokens
 PREMIUM_MODEL = "gpt-4o"       # ~$5/$15 per 1M tokens - USE SPARINGLY
+
+# Anthropic models
+ANTHROPIC_DEFAULT_MODEL = "claude-3-5-sonnet-20241022"  # ~$3/$15 per 1M tokens
+ANTHROPIC_PREMIUM_MODEL = "claude-sonnet-4-20250514"        # ~$15/$75 per 1M tokens - BEST QUALITY
 
 # Cost per 1K tokens
 MODEL_COSTS = {
     "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
     "gpt-4o": {"input": 0.005, "output": 0.015},
     "gpt-3.5-turbo": {"input": 0.0005, "output": 0.0015},
+    "claude-3-5-sonnet-20241022": {"input": 0.003, "output": 0.015},
+    "claude-sonnet-4-20250514": {"input": 0.015, "output": 0.075},
 }
+
+# Confidence threshold for escalation
+ESCALATION_CONFIDENCE_THRESHOLD = 0.7  # Below this, escalate to premium model
 
 # Retry configuration
 MAX_RETRIES = 3
@@ -56,20 +80,28 @@ RequestSource = Literal["api", "cron", "background", "user", "internal"]
 
 # ============== GLOBAL KILL SWITCH ==============
 
+def is_ai_disabled() -> bool:
+    """
+    Check if AI calls are disabled via environment variable.
+    Set DISABLE_AI_CALLS=true or DISABLE_OPENAI_CALLS=true to disable all API calls.
+    """
+    return (
+        os.getenv("DISABLE_AI_CALLS", "").lower() in ("true", "1", "yes") or
+        os.getenv("DISABLE_OPENAI_CALLS", "").lower() in ("true", "1", "yes")
+    )
+
+
+# Legacy alias for backwards compatibility
 def is_openai_disabled() -> bool:
-    """
-    Check if OpenAI calls are disabled via environment variable.
-    Set DISABLE_OPENAI_CALLS=true to disable all API calls.
-    """
-    return os.getenv("DISABLE_OPENAI_CALLS", "").lower() in ("true", "1", "yes")
+    return is_ai_disabled()
 
 
 # ============== TOKEN USAGE LOGGING ==============
 
 class TokenUsageLogger:
     """
-    Logs all OpenAI API token usage to MongoDB for cost tracking.
-    Collection: openai_usage_logs
+    Logs all AI API token usage to MongoDB for cost tracking.
+    Collection: ai_usage_logs (renamed from openai_usage_logs)
     """
     
     def __init__(self):
@@ -82,11 +114,12 @@ class TokenUsageLogger:
             try:
                 mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
                 self._client = MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
-                self._collection = self._client['email_automation']['openai_usage_logs']
+                self._collection = self._client['email_automation']['ai_usage_logs']
                 # Create indexes for efficient querying
                 self._collection.create_index([("timestamp", -1)])
                 self._collection.create_index([("source", 1), ("timestamp", -1)])
                 self._collection.create_index([("model", 1), ("timestamp", -1)])
+                self._collection.create_index([("provider", 1), ("timestamp", -1)])
             except Exception as e:
                 logger.warning(f"Could not connect to MongoDB for token logging: {e}")
         return self._collection
@@ -98,6 +131,7 @@ class TokenUsageLogger:
         total_tokens: int,
         model: str,
         source: RequestSource,
+        provider: str = "openai",
         endpoint: str = "",
         latency_ms: int = 0,
         success: bool = True,
@@ -115,6 +149,7 @@ class TokenUsageLogger:
         
         doc = {
             "timestamp": datetime.utcnow(),
+            "provider": provider,
             "model": model,
             "source": source,
             "endpoint": endpoint,
@@ -240,9 +275,29 @@ def get_openai_api_key() -> Optional[str]:
     return os.getenv("OPENAI_API_KEY")
 
 
-# ============== OPENAI CLIENT SINGLETON ==============
+def get_anthropic_api_key() -> Optional[str]:
+    """
+    Get Anthropic API key from database settings first, fallback to env var.
+    """
+    try:
+        mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
+        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
+        settings_db = client["torpedo_settings"]
+        app_settings = settings_db["app_settings"]
+        
+        stored = app_settings.find_one({"_id": "app_config"})
+        if stored and stored.get("anthropic_api_key"):
+            return stored["anthropic_api_key"]
+    except Exception as e:
+        logger.debug(f"Could not fetch Anthropic key from DB: {e}")
+    
+    return os.getenv("ANTHROPIC_API_KEY")
+
+
+# ============== CLIENT SINGLETONS ==============
 
 _openai_client: Optional[OpenAI] = None
+_anthropic_client: Optional["Anthropic"] = None
 
 
 def get_openai_client() -> OpenAI:
@@ -256,6 +311,24 @@ def get_openai_client() -> OpenAI:
     return _openai_client
 
 
+def get_anthropic_client() -> "Anthropic":
+    """Get or create Anthropic client singleton."""
+    global _anthropic_client
+    if not ANTHROPIC_AVAILABLE:
+        raise ValueError("Anthropic library not installed. Run: pip install anthropic")
+    if _anthropic_client is None:
+        api_key = get_anthropic_api_key()
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY not configured in settings or environment")
+        _anthropic_client = Anthropic(api_key=api_key)
+    return _anthropic_client
+
+
+def is_anthropic_model(model: str) -> bool:
+    """Check if the model is an Anthropic model."""
+    return model.startswith("claude")
+
+
 # ============== MAIN API WRAPPER ==============
 
 def chat_completion(
@@ -266,10 +339,12 @@ def chat_completion(
     max_output_tokens: Optional[int] = None,
     temperature: float = 0.1,
     response_format: Optional[Dict] = None,
-    allow_premium_model: bool = False
+    allow_premium_model: bool = False,
+    provider: Optional[AIProvider] = None
 ) -> Dict[str, Any]:
     """
-    Centralized OpenAI chat completion with cost controls.
+    Centralized AI chat completion with cost controls.
+    Supports OpenAI and Anthropic (Claude) models.
     
     Args:
         messages: List of message dicts with 'role' and 'content'
@@ -279,22 +354,28 @@ def chat_completion(
         max_output_tokens: Max tokens in response (auto-set based on source if None)
         temperature: Model temperature (default 0.1 for consistency)
         response_format: Optional response format (e.g., {"type": "json_object"})
-        allow_premium_model: Must be True to use gpt-4o (prevents accidental usage)
+        allow_premium_model: Must be True to use premium models
+        provider: Force provider ("openai" or "anthropic"). Auto-detected from model if None.
     
     Returns:
-        Dict with 'content', 'usage', 'model', 'success', 'error'
+        Dict with 'content', 'usage', 'model', 'provider', 'success', 'error'
     """
     start_time = time.time()
     
+    # Auto-detect provider from model name
+    if provider is None:
+        provider = "anthropic" if is_anthropic_model(model) else "openai"
+    
     # Safety: Check kill switch
-    if is_openai_disabled():
-        logger.warning("OpenAI calls disabled via DISABLE_OPENAI_CALLS")
+    if is_ai_disabled():
+        logger.warning("AI calls disabled via DISABLE_AI_CALLS")
         return {
             "content": "",
             "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
             "model": model,
+            "provider": provider,
             "success": False,
-            "error": "OpenAI calls are disabled"
+            "error": "AI calls are disabled"
         }
     
     # Safety: Check rate limits
@@ -303,14 +384,20 @@ def chat_completion(
             "content": "",
             "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
             "model": model,
+            "provider": provider,
             "success": False,
             "error": f"Rate limit exceeded for source: {source}"
         }
     
     # Model routing: prevent accidental premium model usage
-    if model == PREMIUM_MODEL and not allow_premium_model:
-        logger.warning(f"Downgrading {PREMIUM_MODEL} to {DEFAULT_MODEL} - set allow_premium_model=True to use premium")
-        model = DEFAULT_MODEL
+    if provider == "openai":
+        if model == PREMIUM_MODEL and not allow_premium_model:
+            logger.warning(f"Downgrading {PREMIUM_MODEL} to {DEFAULT_MODEL} - set allow_premium_model=True")
+            model = DEFAULT_MODEL
+    elif provider == "anthropic":
+        if model == ANTHROPIC_PREMIUM_MODEL and not allow_premium_model:
+            logger.warning(f"Downgrading {ANTHROPIC_PREMIUM_MODEL} to {ANTHROPIC_DEFAULT_MODEL}")
+            model = ANTHROPIC_DEFAULT_MODEL
     
     # Set max_output_tokens based on source if not specified
     if max_output_tokens is None:
@@ -321,12 +408,49 @@ def chat_completion(
         else:
             max_output_tokens = DEFAULT_MAX_OUTPUT_TOKENS
     
+    # Route to appropriate provider
+    if provider == "anthropic":
+        return _anthropic_chat_completion(
+            messages=messages,
+            model=model,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+            source=source,
+            endpoint=endpoint,
+            start_time=start_time,
+            response_format=response_format
+        )
+    else:
+        return _openai_chat_completion(
+            messages=messages,
+            model=model,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+            response_format=response_format,
+            source=source,
+            endpoint=endpoint,
+            start_time=start_time
+        )
+
+
+def _openai_chat_completion(
+    messages: List[Dict[str, str]],
+    model: str,
+    max_output_tokens: int,
+    temperature: float,
+    source: RequestSource,
+    endpoint: str,
+    start_time: float,
+    response_format: Optional[Dict] = None
+) -> Dict[str, Any]:
+    """Internal OpenAI implementation."""
+    
     # Build API call kwargs
     kwargs = {
         "model": model,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_output_tokens  # ENFORCED: No open-ended responses
+        "max_tokens": max_output_tokens
     }
     if response_format:
         kwargs["response_format"] = response_format
@@ -355,6 +479,7 @@ def chat_completion(
                 total_tokens=total_tokens,
                 model=model,
                 source=source,
+                provider="openai",
                 endpoint=endpoint,
                 latency_ms=latency_ms,
                 success=True
@@ -368,6 +493,7 @@ def chat_completion(
                     "total_tokens": total_tokens
                 },
                 "model": model,
+                "provider": "openai",
                 "success": True,
                 "error": None
             }
@@ -398,6 +524,7 @@ def chat_completion(
         total_tokens=0,
         model=model,
         source=source,
+        provider="openai",
         endpoint=endpoint,
         latency_ms=latency_ms,
         success=False,
@@ -408,9 +535,240 @@ def chat_completion(
         "content": "",
         "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
         "model": model,
+        "provider": "openai",
         "success": False,
         "error": last_error
     }
+
+
+def _anthropic_chat_completion(
+    messages: List[Dict[str, str]],
+    model: str,
+    max_output_tokens: int,
+    temperature: float,
+    source: RequestSource,
+    endpoint: str,
+    start_time: float,
+    response_format: Optional[Dict] = None
+) -> Dict[str, Any]:
+    """Internal Anthropic/Claude implementation."""
+    
+    if not ANTHROPIC_AVAILABLE:
+        return {
+            "content": "",
+            "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+            "model": model,
+            "provider": "anthropic",
+            "success": False,
+            "error": "Anthropic library not installed. Run: pip install anthropic"
+        }
+    
+    # Convert messages format: extract system prompt if present
+    system_prompt = ""
+    anthropic_messages = []
+    for msg in messages:
+        if msg["role"] == "system":
+            system_prompt = msg["content"]
+        else:
+            anthropic_messages.append({"role": msg["role"], "content": msg["content"]})
+    
+    # If response_format requires JSON, add instruction to system prompt
+    if response_format and response_format.get("type") == "json_object":
+        json_instruction = "\n\nRespond with valid JSON only. No markdown, no explanations."
+        system_prompt = (system_prompt + json_instruction) if system_prompt else json_instruction.strip()
+    
+    # Retry with exponential backoff
+    last_error = None
+    retry_delay = INITIAL_RETRY_DELAY
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            client = get_anthropic_client()
+            
+            kwargs = {
+                "model": model,
+                "messages": anthropic_messages,
+                "max_tokens": max_output_tokens,
+                "temperature": temperature
+            }
+            if system_prompt:
+                kwargs["system"] = system_prompt
+            
+            response = client.messages.create(**kwargs)
+            
+            # Extract usage stats
+            usage = response.usage
+            input_tokens = usage.input_tokens if usage else 0
+            output_tokens = usage.output_tokens if usage else 0
+            total_tokens = input_tokens + output_tokens
+            
+            latency_ms = int((time.time() - start_time) * 1000)
+            
+            # Log usage
+            token_logger.log_usage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+                model=model,
+                source=source,
+                provider="anthropic",
+                endpoint=endpoint,
+                latency_ms=latency_ms,
+                success=True
+            )
+            
+            # Extract content from response
+            content = ""
+            if response.content and len(response.content) > 0:
+                content = response.content[0].text
+            
+            return {
+                "content": content,
+                "usage": {
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": total_tokens
+                },
+                "model": model,
+                "provider": "anthropic",
+                "success": True,
+                "error": None
+            }
+            
+        except AnthropicRateLimitError as e:
+            last_error = str(e)
+            logger.warning(f"Anthropic rate limit hit, retrying in {retry_delay}s...")
+            time.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
+            
+        except AnthropicAPIError as e:
+            last_error = str(e)
+            if attempt < MAX_RETRIES - 1:
+                logger.warning(f"Anthropic API error, retrying: {e}")
+                time.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
+            
+        except Exception as e:
+            last_error = str(e)
+            logger.error(f"Anthropic call failed: {e}")
+            break
+    
+    # Log failed attempt
+    latency_ms = int((time.time() - start_time) * 1000)
+    token_logger.log_usage(
+        input_tokens=0,
+        output_tokens=0,
+        total_tokens=0,
+        model=model,
+        source=source,
+        provider="anthropic",
+        endpoint=endpoint,
+        latency_ms=latency_ms,
+        success=False,
+        error_message=last_error or "Unknown error"
+    )
+    
+    return {
+        "content": "",
+        "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "model": model,
+        "provider": "anthropic",
+        "success": False,
+        "error": last_error
+    }
+
+
+# ============== CONFIDENCE-BASED ESCALATION ==============
+
+def chat_completion_with_escalation(
+    messages: List[Dict[str, str]],
+    source: RequestSource = "api",
+    endpoint: str = "",
+    primary_model: str = DEFAULT_MODEL,
+    escalation_model: str = ANTHROPIC_DEFAULT_MODEL,
+    max_output_tokens: Optional[int] = None,
+    temperature: float = 0.1,
+    response_format: Optional[Dict] = None,
+    confidence_key: str = "confidence_score",
+    confidence_threshold: float = ESCALATION_CONFIDENCE_THRESHOLD
+) -> Dict[str, Any]:
+    """
+    Two-stage chat completion with confidence-based escalation.
+    
+    First tries with primary_model (cheap). If response has low confidence,
+    escalates to escalation_model (expensive but better quality).
+    
+    Args:
+        messages: List of message dicts
+        source: Request source for logging
+        endpoint: API endpoint name
+        primary_model: First model to try (default: gpt-4o-mini)
+        escalation_model: Fallback for low confidence (default: claude-3-5-sonnet)
+        max_output_tokens: Max tokens in response
+        temperature: Model temperature
+        response_format: Optional response format
+        confidence_key: JSON key containing confidence score
+        confidence_threshold: Escalate if confidence below this (0.0-1.0)
+    
+    Returns:
+        Dict with 'content', 'usage', 'model', 'provider', 'success', 'error', 'escalated'
+    """
+    import json
+    
+    # First attempt with primary model
+    result = chat_completion(
+        messages=messages,
+        source=source,
+        endpoint=endpoint,
+        model=primary_model,
+        max_output_tokens=max_output_tokens,
+        temperature=temperature,
+        response_format=response_format
+    )
+    
+    result["escalated"] = False
+    
+    if not result["success"]:
+        return result
+    
+    # Check confidence in response
+    try:
+        parsed = json.loads(result["content"])
+        confidence = parsed.get(confidence_key, 1.0)
+        
+        if isinstance(confidence, (int, float)) and confidence < confidence_threshold:
+            logger.info(f"Low confidence ({confidence:.2f}), escalating to {escalation_model}")
+            
+            # Escalate to better model
+            escalated_result = chat_completion(
+                messages=messages,
+                source=source,
+                endpoint=f"{endpoint}_escalated",
+                model=escalation_model,
+                max_output_tokens=max_output_tokens or ESCALATED_MAX_OUTPUT_TOKENS,
+                temperature=temperature,
+                response_format=response_format,
+                allow_premium_model=True
+            )
+            
+            escalated_result["escalated"] = True
+            escalated_result["primary_confidence"] = confidence
+            
+            # Combine usage from both calls
+            escalated_result["usage"]["total_input_tokens"] = (
+                result["usage"]["input_tokens"] + escalated_result["usage"]["input_tokens"]
+            )
+            escalated_result["usage"]["total_output_tokens"] = (
+                result["usage"]["output_tokens"] + escalated_result["usage"]["output_tokens"]
+            )
+            
+            return escalated_result
+            
+    except (json.JSONDecodeError, KeyError, TypeError):
+        # Can't parse confidence, return primary result
+        pass
+    
+    return result
 
 
 # ============== BATCH PROCESSING UTILITIES ==============

@@ -43,6 +43,7 @@ function Settings() {
     cpx_secure_hash_key: "",
     cpx_api_timeout: 30,
     openai_api_key: "",
+    anthropic_api_key: "",
     google_api_key: "",
     google_cse_id: "",
     google_sheets_service_account: "",
@@ -961,7 +962,7 @@ function Settings() {
               </div>
 
               <div className="settings-group">
-                <h3>🤖 AI / OpenAI Settings</h3>
+                <h3>🤖 AI / LLM Settings</h3>
                 <div className="setting-row">
                   <label>OpenAI API Key</label>
                   <input
@@ -970,7 +971,17 @@ function Settings() {
                     value={appSettings.openai_api_key}
                     onChange={(e) => handleAppSettingChange("openai_api_key", e.target.value)}
                   />
-                  <p className="setting-hint">Used for AI features. Get from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a></p>
+                  <p className="setting-hint">Used for AI features (GPT-4o-mini). Get from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a></p>
+                </div>
+                <div className="setting-row">
+                  <label>Anthropic API Key</label>
+                  <input
+                    type="password"
+                    placeholder={maskedSettings.anthropic_api_key_masked || "sk-ant-..."}
+                    value={appSettings.anthropic_api_key}
+                    onChange={(e) => handleAppSettingChange("anthropic_api_key", e.target.value)}
+                  />
+                  <p className="setting-hint">Used for premium AI classification (Claude). Get from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Anthropic Console</a></p>
                 </div>
               </div>
 

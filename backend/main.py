@@ -334,7 +334,6 @@ if cpx_surveys_collection is not None and cpx_filters_collection is not None:
         surveys_collection=cpx_surveys_collection,
         filters_collection=cpx_filters_collection,
         settings_collection=app_settings_collection,  # Pass settings collection for filter settings
-        projects_collection=projects_collection,  # Pass projects collection for survey pool integration
     )
     cpx_router.set_cpx_service(cpx_service)
     traffic_router.set_cpx_service(cpx_service)  # Inject CPX service into traffic router for survey allocation
@@ -444,6 +443,39 @@ try:
     print("✅ Email Sync router included")
 except Exception as e:
     print(f"⚠️ Email Sync router not included: {e}")
+
+# Unified Inbox router (aggregated email view)
+try:
+    try:
+        from .routers import unified_inbox as unified_inbox_router
+    except ImportError:
+        from routers import unified_inbox as unified_inbox_router
+    app.include_router(unified_inbox_router.router)
+    print("✅ Unified Inbox router included")
+except Exception as e:
+    print(f"⚠️ Unified Inbox router not included: {e}")
+
+# Campaigns router (cold outreach sequences)
+try:
+    try:
+        from .routers import campaigns as campaigns_router
+    except ImportError:
+        from routers import campaigns as campaigns_router
+    app.include_router(campaigns_router.router)
+    print("✅ Campaigns router included")
+except Exception as e:
+    print(f"⚠️ Campaigns router not included: {e}")
+
+# Email Classification router (AI batch classification)
+try:
+    try:
+        from .routers import classification as classification_router
+    except ImportError:
+        from routers import classification as classification_router
+    app.include_router(classification_router.router)
+    print("✅ Email Classification router included")
+except Exception as e:
+    print(f"⚠️ Email Classification router not included: {e}")
 
 # ----------------------------
 # APScheduler for CPX refresh job
