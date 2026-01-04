@@ -226,7 +226,8 @@ class EmailSyncOrchestrator:
         mailbox_id: str,
         alias_email: str,
         is_primary: bool = False,
-        display_name: Optional[str] = None
+        display_name: Optional[str] = None,
+        signature: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Register an alias for a mailbox.
@@ -238,6 +239,7 @@ class EmailSyncOrchestrator:
             alias_email: Alias email address
             is_primary: Whether this is the primary alias
             display_name: Human-readable name
+            signature: HTML email signature for this alias
             
         Returns:
             Dict with alias_id and status
@@ -246,6 +248,7 @@ class EmailSyncOrchestrator:
             mailbox_id=mailbox_id,
             alias_email=alias_email.lower(),
             display_name=display_name or alias_email,
+            signature=signature or "",
             is_primary=is_primary,
             is_active=True,
             created_at=datetime.utcnow()

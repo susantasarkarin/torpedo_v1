@@ -272,17 +272,41 @@ function MailPool() {
       const data = await res.json()
       if (data.success) {
         setStats(data.stats)
-        // Set aliases from accounts
+        // Set aliases from accounts - now aliases are objects with their own signatures
         if (data.stats.accounts) {
           const allAliases = []
+          const sigMap = {}
           data.stats.accounts.forEach(acc => {
-            allAliases.push({ email: acc.email, name: acc.display_name, isPrimary: true })
-            if (acc.aliases) {
+            // Add primary account
+            allAliases.push({ 
+              email: acc.email, 
+              name: acc.display_name, 
+              isPrimary: true,
+              signature: acc.signature || ""
+            })
+            // Store signature for primary account
+            sigMap[acc.email] = acc.signature || ""
+            
+            // Add aliases - they now come as objects with their own signatures
+            if (acc.aliases && Array.isArray(acc.aliases)) {
               acc.aliases.forEach(alias => {
-                allAliases.push({ email: alias, name: acc.display_name, isPrimary: false })
+                // Handle both old format (string) and new format (object)
+                const aliasEmail = typeof alias === 'string' ? alias : alias.email
+                const aliasName = typeof alias === 'string' ? acc.display_name : (alias.display_name || acc.display_name)
+                const aliasSignature = typeof alias === 'string' ? acc.signature : (alias.signature || acc.signature || "")
+                
+                allAliases.push({ 
+                  email: aliasEmail, 
+                  name: aliasName, 
+                  isPrimary: false,
+                  signature: aliasSignature
+                })
+                // Store signature for this alias
+                sigMap[aliasEmail] = aliasSignature
               })
             }
           })
+          setSignatures(sigMap)
           setAliases(allAliases)
           if (allAliases.length > 0) {
             setSelectedAlias(allAliases[0].email)
@@ -402,6 +426,253 @@ function MailPool() {
       setSelectedAlias(aliases[0].email)
     }
     setShowCompose(true)
+  }
+
+  // Send email
+  const [sending, setSending] = useState(false)
+  const handleSendEmail = async () => {
+    if (!composeData.to || !composeData.subject) {
+      alert("Please fill in recipient and subject")
+      return
+    }
+
+    const sessionId = localStorage.getItem("session_id")
+    if (!sessionId) {
+      navigate("/admin/login")
+      return
+    }
+
+    setSending(true)
+    try {
+      const recipients = composeData.to.split(",").map(e => e.trim()).filter(e => e)
+      
+      const res = await fetch(`${API_BASE_URL}/gmail/imap/send`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+        body: JSON.stringify({
+          to: recipients,
+          subject: composeData.subject,
+          body: composeData.body + (signatures[selectedAlias] ? `\n\n${signatures[selectedAlias].replace(/<[^>]*>/g, '')}` : ""),
+          html_body: composeData.body.replace(/\n/g, "<br>") + (signatures[selectedAlias] ? `<br><br>${signatures[selectedAlias]}` : ""),
+          from_email: selectedAlias || null,
+          cc: [],
+          bcc: []
+        }),
+      })
+
+      const data = await res.json()
+      
+      if (data.success) {
+        alert("Email sent successfully!")
+        setShowCompose(false)
+        setComposeData({ to: "", subject: "", body: "", replyTo: null })
+        // Refresh emails to show sent email
+        fetchEmails(1)
+      } else {
+        alert(`Failed to send: ${data.detail || "Unknown error"}`)
+      }
+    } catch (e) {
+      console.error("Error sending email:", e)
+      alert(`Error sending email: ${e.message}`)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  // Re-categorization state and handler
+  const [recategorizing, setRecategorizing] = useState(false)
+  const [recategorizeStatus, setRecategorizeStatus] = useState(null)
+  
+  const handleRecategorizeAll = async (useAi = true) => {
+    const sessionId = localStorage.getItem("session_id")
+    if (!sessionId) {
+      navigate("/admin/login")
+      return
+    }
+
+    if (!confirm(`This will re-categorize all emails using ${useAi ? 'AI' : 'keyword-based'} classification. Continue?`)) {
+      return
+    }
+
+    setRecategorizing(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/email-sync/recategorize-all`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+        body: JSON.stringify({
+          use_ai: useAi,
+          mailbox_id: filterAccount || null,
+          category: null,
+          limit: null
+        }),
+      })
+
+      const data = await res.json()
+      
+      if (data.success) {
+        setRecategorizeStatus({
+          task_id: data.task_id,
+          total: data.total_emails,
+          status: "running",
+          processed: 0
+        })
+        alert(`Started re-categorization of ${data.total_emails} emails. Check status in the console or refresh page.`)
+        // Start polling for status
+        pollRecategorizeStatus(data.task_id)
+      } else {
+        alert(`Failed to start re-categorization: ${data.message || "Unknown error"}`)
+      }
+    } catch (e) {
+      console.error("Error starting re-categorization:", e)
+      alert(`Error: ${e.message}`)
+    } finally {
+      setRecategorizing(false)
+    }
+  }
+
+  const pollRecategorizeStatus = async (taskId) => {
+    const sessionId = localStorage.getItem("session_id")
+    try {
+      const res = await fetch(`${API_BASE_URL}/email-sync/recategorize-status/${taskId}`, {
+        headers: { Authorization: sessionId },
+      })
+      const data = await res.json()
+      setRecategorizeStatus(data)
+      
+      if (data.status === "running" || data.status === "pending") {
+        // Continue polling
+        setTimeout(() => pollRecategorizeStatus(taskId), 3000)
+      } else if (data.status === "completed") {
+        alert(`Re-categorization completed! Processed ${data.processed} emails.`)
+        fetchEmails(1) // Refresh emails
+      }
+    } catch (e) {
+      console.error("Error polling status:", e)
+    }
+  }
+
+  // Trigger backfill for old emails
+  const [backfilling, setBackfilling] = useState(false)
+  const handleBackfill = async (daysBack = 30, specificMailboxId = null) => {
+    const sessionId = localStorage.getItem("session_id")
+    if (!sessionId) {
+      navigate("/admin/login")
+      return
+    }
+
+    // Use specific mailbox or first one from stats
+    const mailboxId = specificMailboxId || stats.accounts?.[0]?.id
+    if (!mailboxId) {
+      alert("No mailbox found. Please add a mailbox first.")
+      return
+    }
+
+    if (!confirm(`This will sync emails from the last ${daysBack} days in the background. Continue?`)) {
+      return
+    }
+
+    setBackfilling(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/email-sync/mailboxes/${mailboxId}/backfill-async?days_back=${daysBack}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+      })
+
+      const data = await res.json()
+      
+      if (data.success) {
+        alert(`Backfill started for ${daysBack} days. Task ID: ${data.task_id}`)
+      } else {
+        alert(`Failed to start backfill: ${data.detail || "Unknown error"}`)
+      }
+    } catch (e) {
+      console.error("Error starting backfill:", e)
+      alert(`Error: ${e.message}`)
+    } finally {
+      setBackfilling(false)
+    }
+  }
+
+  // Download attachment
+  const handleDownloadAttachment = (attachment) => {
+    if (!attachment.data) {
+      alert("Attachment data not available. This may be a large file or from an older sync.")
+      return
+    }
+    
+    try {
+      // Decode base64 and create blob
+      const byteCharacters = atob(attachment.data)
+      const byteNumbers = new Array(byteCharacters.length)
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i)
+      }
+      const byteArray = new Uint8Array(byteNumbers)
+      const blob = new Blob([byteArray], { type: attachment.mime_type || 'application/octet-stream' })
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = attachment.filename || 'attachment'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error("Error downloading attachment:", e)
+      alert("Failed to download attachment: " + e.message)
+    }
+  }
+
+  // Per-mailbox recategorize
+  const handleRecategorizeMailbox = async (mailboxId, useAi = true) => {
+    const sessionId = localStorage.getItem("session_id")
+    if (!sessionId) {
+      navigate("/admin/login")
+      return
+    }
+
+    if (!confirm(`Re-categorize all emails for this mailbox using ${useAi ? 'AI' : 'keywords'}?`)) {
+      return
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/email-sync/recategorize-all`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+        body: JSON.stringify({
+          use_ai: useAi,
+          mailbox_id: mailboxId,
+          category: null,
+          limit: null
+        }),
+      })
+
+      const data = await res.json()
+      
+      if (data.success) {
+        alert(`Started re-categorization of ${data.total_emails} emails for this mailbox.`)
+        pollRecategorizeStatus(data.task_id)
+      } else {
+        alert(`Failed: ${data.message || "Unknown error"}`)
+      }
+    } catch (e) {
+      console.error("Error:", e)
+      alert(`Error: ${e.message}`)
+    }
   }
 
   // Initial load
@@ -544,6 +815,38 @@ function MailPool() {
             </div>
           ))}
         </div>
+
+        {/* Mailboxes with Actions */}
+        <div style={styles.sidebarDivider}>
+          <span style={styles.sidebarTitle}>Mailboxes</span>
+        </div>
+        <div style={styles.sidebarSection}>
+          {stats.accounts?.map((acc) => (
+            <div key={acc.email} style={styles.mailboxItem}>
+              <div style={styles.mailboxHeader}>
+                <span style={styles.mailboxEmail}>{acc.display_name || acc.email.split("@")[0]}</span>
+                <span style={styles.mailboxCount}>{acc.total_emails || 0}</span>
+              </div>
+              <div style={styles.mailboxActions}>
+                <button
+                  style={styles.mailboxActionBtn}
+                  onClick={() => handleRecategorizeMailbox(acc.id, true)}
+                  title="Re-categorize emails with AI"
+                >
+                  🤖 Categorize
+                </button>
+                <button
+                  style={styles.mailboxActionBtn}
+                  onClick={() => handleBackfill(30, acc.id)}
+                  title="Download last 30 days of emails"
+                  disabled={backfilling}
+                >
+                  📥 Backfill
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Main Content */}
@@ -594,6 +897,27 @@ function MailPool() {
               <div style={styles.toolbarLeft}>
                 <input type="checkbox" style={styles.checkbox} />
                 <button style={styles.toolbarBtn} title="Refresh" onClick={() => fetchEmails(pagination.page)}>🔄</button>
+                <button 
+                  style={{...styles.toolbarBtn, opacity: recategorizing ? 0.5 : 1}} 
+                  title="Re-categorize all emails with AI"
+                  onClick={() => handleRecategorizeAll(true)}
+                  disabled={recategorizing}
+                >
+                  {recategorizing ? "🔄" : "🤖"} AI Categorize
+                </button>
+                <button 
+                  style={{...styles.toolbarBtn, opacity: backfilling ? 0.5 : 1}} 
+                  title="Backfill old emails (30 days)"
+                  onClick={() => handleBackfill(30)}
+                  disabled={backfilling}
+                >
+                  {backfilling ? "🔄" : "📥"} Backfill
+                </button>
+                {recategorizeStatus && recategorizeStatus.status === "running" && (
+                  <span style={{fontSize: "0.8rem", color: "#6b7280", marginLeft: "8px"}}>
+                    Categorizing: {recategorizeStatus.processed}/{recategorizeStatus.total}
+                  </span>
+                )}
                 <button style={styles.toolbarBtn} title="More">⋮</button>
               </div>
               <div style={styles.toolbarRight}>
@@ -784,12 +1108,18 @@ function MailPool() {
                       </div>
                       <div style={styles.attachmentsList}>
                         {email.attachments.map((att, i) => (
-                          <div key={i} style={styles.attachmentItem}>
+                          <div 
+                            key={i} 
+                            style={{...styles.attachmentItem, cursor: att.data ? 'pointer' : 'default'}}
+                            onClick={() => handleDownloadAttachment(att)}
+                            title={att.data ? "Click to download" : "Attachment not available for download"}
+                          >
                             <span>📄</span>
                             <span style={styles.attachmentName}>{att.filename || att.name}</span>
                             <span style={styles.attachmentSize}>
                               {att.size ? `(${Math.round(att.size / 1024)}KB)` : ""}
                             </span>
+                            {att.data && <span style={{marginLeft: '8px', color: '#1a73e8'}}>⬇️</span>}
                           </div>
                         ))}
                       </div>
@@ -956,7 +1286,17 @@ function MailPool() {
             )}
           </div>
           <div style={styles.composeFooter}>
-            <button style={styles.sendBtn}>Send</button>
+            <button 
+              style={{
+                ...styles.sendBtn,
+                opacity: sending ? 0.6 : 1,
+                cursor: sending ? "not-allowed" : "pointer"
+              }} 
+              onClick={handleSendEmail}
+              disabled={sending}
+            >
+              {sending ? "Sending..." : "Send"}
+            </button>
             <button style={styles.composeToolBtn}>📎</button>
             <button style={styles.composeToolBtn}>🔗</button>
             <button style={styles.composeToolBtn}>😊</button>
@@ -1047,6 +1387,46 @@ const styles = {
     color: "#5f6368",
     textTransform: "uppercase",
     letterSpacing: "0.5px"
+  },
+  mailboxItem: {
+    padding: "0.5rem 1rem",
+    borderBottom: "1px solid #f0f0f0"
+  },
+  mailboxHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "0.5rem"
+  },
+  mailboxEmail: {
+    fontSize: "0.8rem",
+    fontWeight: "500",
+    color: "#202124",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    maxWidth: "120px"
+  },
+  mailboxCount: {
+    fontSize: "0.7rem",
+    color: "#5f6368",
+    backgroundColor: "#f1f3f4",
+    padding: "2px 6px",
+    borderRadius: "10px"
+  },
+  mailboxActions: {
+    display: "flex",
+    gap: "0.25rem"
+  },
+  mailboxActionBtn: {
+    fontSize: "0.65rem",
+    padding: "4px 8px",
+    border: "1px solid #dadce0",
+    borderRadius: "4px",
+    backgroundColor: "#fff",
+    cursor: "pointer",
+    color: "#1a73e8",
+    transition: "all 0.2s"
   },
   mainContent: {
     flex: 1,

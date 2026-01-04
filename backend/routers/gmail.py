@@ -1714,6 +1714,7 @@ async def update_imap_account_settings(
 # This contains all synced emails with full metadata including historical imports
 email_automation_db = mongo_client["email_automation"]
 mail_pool_emails = email_automation_db["emails"]  # Primary source - new sync system
+mail_pool_mailboxes = email_automation_db["mailboxes"]  # Mailbox accounts (IMAP credentials)
 
 # Legacy gmail_archive for backward compatibility (if needed)
 gmail_archive_db = mongo_client["gmail_archive"]
@@ -1816,8 +1817,8 @@ async def get_mail_pool_stats(
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
         
-        # Get all IMAP accounts
-        accounts = list(imap_accounts_collection.find({"is_active": True}))
+        # Get all mailbox accounts from email_automation.mailboxes (correct collection)
+        accounts = list(mail_pool_mailboxes.find({"is_active": True}))
         
         # Total emails from email_automation.emails
         total_emails = mail_pool_emails.count_documents({})
@@ -1825,6 +1826,9 @@ async def get_mail_pool_stats(
         # Count by direction for inbox/sent breakdown (new schema uses 'direction' field)
         inbox_count = mail_pool_emails.count_documents({"direction": "inbound"})
         sent_count = mail_pool_emails.count_documents({"direction": "outbound"})
+        
+        # Count drafts
+        drafts_count = mail_pool_emails.count_documents({"labels": {"$regex": "DRAFT", "$options": "i"}})
         
         # Get category breakdown (acts as segments) - new schema uses 'category' field
         category_pipeline = [
@@ -1837,27 +1841,70 @@ async def get_mail_pool_stats(
         account_stats = []
         for acc in accounts:
             acc_email = acc["email"]
-            # Match by mailbox email in from_address.email or to_addresses
-            count = mail_pool_emails.count_documents({
-                "$or": [
-                    {"from_address.email": {"$regex": acc_email, "$options": "i"}},
-                    {"to_addresses.email": {"$regex": acc_email, "$options": "i"}},
-                    {"delivered_to": {"$regex": acc_email, "$options": "i"}}
-                ]
-            })
+            acc_id = str(acc["_id"])
             
-            # Get aliases for this account
-            aliases = acc.get("aliases", [])
-            if not aliases and acc.get("alias_emails"):
-                aliases = acc.get("alias_emails", [])
+            # Match by mailbox_id for accurate count
+            count = mail_pool_emails.count_documents({"mailbox_id": acc_id})
+            
+            # Fallback to email matching if no mailbox_id match
+            if count == 0:
+                count = mail_pool_emails.count_documents({
+                    "$or": [
+                        {"from_address.email": {"$regex": acc_email, "$options": "i"}},
+                        {"to_addresses.email": {"$regex": acc_email, "$options": "i"}},
+                        {"delivered_to": {"$regex": acc_email, "$options": "i"}}
+                    ]
+                })
+            
+            # Get aliases for this account - normalize to objects with signatures
+            raw_aliases = acc.get("aliases", [])
+            if not raw_aliases and acc.get("alias_emails"):
+                raw_aliases = acc.get("alias_emails", [])
+            
+            # Also check the separate aliases collection (email_automation.aliases)
+            acc_id = str(acc["_id"])
+            try:
+                from email_sync.storage import EmailStorage
+                storage = EmailStorage()
+                separate_aliases = list(storage.aliases.find({"mailbox_id": acc_id}))
+                for sa in separate_aliases:
+                    raw_aliases.append({
+                        "email": sa.get("alias_email", ""),
+                        "display_name": sa.get("display_name", ""),
+                        "signature": sa.get("signature", ""),
+                        "is_default": sa.get("is_primary", False)
+                    })
+            except Exception as e:
+                logger.debug(f"Could not fetch separate aliases: {e}")
+            
+            # Normalize aliases to objects with email and signature
+            normalized_aliases = []
+            for alias in raw_aliases:
+                if isinstance(alias, str):
+                    # Old format: just email string
+                    normalized_aliases.append({
+                        "email": alias,
+                        "display_name": alias.split("@")[0],
+                        "signature": acc.get("signature", ""),  # Inherit parent signature
+                        "is_default": False
+                    })
+                elif isinstance(alias, dict):
+                    # New format: full alias object
+                    normalized_aliases.append({
+                        "email": alias.get("email", alias.get("alias_email", "")),
+                        "display_name": alias.get("display_name", alias.get("email", alias.get("alias_email", "")).split("@")[0]),
+                        "signature": alias.get("signature", acc.get("signature", "")),  # Use own or inherit
+                        "is_default": alias.get("is_default", alias.get("is_primary", False))
+                    })
             
             account_stats.append({
+                "id": str(acc["_id"]),
                 "email": acc["email"],
                 "display_name": acc.get("display_name", acc["email"].split("@")[0]),
                 "total_emails": count,
                 "today": 0,  # Would need date parsing
-                "last_sync": acc.get("last_sync"),
-                "aliases": aliases,
+                "last_sync": acc.get("last_sync_at"),
+                "aliases": normalized_aliases,
                 "signature": acc.get("signature", ""),
                 "is_default": acc.get("is_default", False)
             })
@@ -1871,6 +1918,7 @@ async def get_mail_pool_stats(
                 "total_accounts": len(accounts),
                 "inbox_count": inbox_count,
                 "sent_count": sent_count,
+                "drafts_count": drafts_count,
                 "segments": {s["_id"]: s["count"] for s in category_stats if s["_id"]},
                 "accounts": account_stats
             }
@@ -1914,6 +1962,14 @@ async def get_mail_pool_emails(
             query["direction"] = "inbound"
         elif direction == "outbox":
             query["direction"] = "outbound"
+        
+        # Draft filter - check labels for DRAFT
+        if is_draft is True:
+            query["labels"] = {"$regex": "DRAFT", "$options": "i"}
+        
+        # Starred filter - check labels for STARRED
+        if is_starred is True:
+            query["labels"] = {"$regex": "STARRED", "$options": "i"}
         
         # Segment filter (using category field in new schema)
         if segment:
@@ -2410,6 +2466,140 @@ async def get_mail_pool_conversations(
         raise
     except Exception as e:
         logger.error(f"Error fetching conversations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# IMAP/SMTP Send Endpoint
+# ============================================
+
+class ImapSendRequest(BaseModel):
+    """Model for sending email via IMAP account's SMTP"""
+    to: List[str] = Field(..., description="Recipient email addresses")
+    subject: str = Field(..., description="Email subject")
+    body: str = Field(..., description="Email body (plain text)")
+    html_body: Optional[str] = Field(None, description="HTML body")
+    cc: List[str] = Field(default=[], description="CC recipients")
+    bcc: List[str] = Field(default=[], description="BCC recipients")
+    from_email: Optional[str] = Field(None, description="Sender email (must be from mailbox)")
+
+
+@router.post("/imap/send")
+async def send_email_imap(send_request: ImapSendRequest, request: Request):
+    """
+    Send an email using IMAP account's SMTP credentials.
+    Uses the mailbox from email_automation.mailboxes collection.
+    """
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    from datetime import datetime
+    
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        # Get the mailbox to send from
+        mailbox = None
+        if send_request.from_email:
+            mailbox = mail_pool_mailboxes.find_one({
+                "email": send_request.from_email,
+                "is_active": True
+            })
+        
+        # If no specific mailbox, get the default or first active one
+        if not mailbox:
+            mailbox = mail_pool_mailboxes.find_one({"is_default": True, "is_active": True})
+        if not mailbox:
+            mailbox = mail_pool_mailboxes.find_one({"is_active": True})
+        
+        if not mailbox:
+            raise HTTPException(status_code=400, detail="No active mailbox configured")
+        
+        # Get SMTP credentials
+        credentials = mailbox.get("credentials", {})
+        smtp_server = credentials.get("smtp_server", "smtp.gmail.com")
+        smtp_port = credentials.get("smtp_port", 587)
+        password = credentials.get("imap_password")  # Same password for SMTP
+        sender_email = mailbox["email"]
+        sender_name = mailbox.get("display_name", "")
+        
+        if not password:
+            raise HTTPException(status_code=400, detail="SMTP credentials not configured")
+        
+        # Build the email
+        if send_request.html_body:
+            msg = MIMEMultipart("alternative")
+            msg.attach(MIMEText(send_request.body, "plain"))
+            msg.attach(MIMEText(send_request.html_body, "html"))
+        else:
+            msg = MIMEMultipart()
+            msg.attach(MIMEText(send_request.body, "plain"))
+        
+        # Set headers
+        if sender_name:
+            msg["From"] = f"{sender_name} <{sender_email}>"
+        else:
+            msg["From"] = sender_email
+        msg["To"] = ", ".join(send_request.to)
+        msg["Subject"] = send_request.subject
+        
+        if send_request.cc:
+            msg["Cc"] = ", ".join(send_request.cc)
+        
+        # All recipients for SMTP
+        all_recipients = send_request.to + send_request.cc + send_request.bcc
+        
+        # Send via SMTP
+        try:
+            with smtplib.SMTP(smtp_server, smtp_port, timeout=30) as server:
+                server.starttls()
+                server.login(sender_email, password)
+                server.sendmail(sender_email, all_recipients, msg.as_string())
+                
+            logger.info(f"Email sent successfully from {sender_email} to {send_request.to}")
+            
+            # Store the sent email in the emails collection for tracking
+            sent_doc = {
+                "mailbox_id": str(mailbox["_id"]),
+                "direction": "outbound",
+                "from_address": {"email": sender_email, "name": sender_name},
+                "to_addresses": [{"email": e, "name": ""} for e in send_request.to],
+                "cc_addresses": [{"email": e, "name": ""} for e in send_request.cc],
+                "bcc_addresses": [{"email": e, "name": ""} for e in send_request.bcc],
+                "subject": send_request.subject,
+                "body_plain": send_request.body,
+                "body_html": send_request.html_body or "",
+                "snippet": send_request.body[:200] if send_request.body else "",
+                "timestamp": datetime.utcnow(),
+                "labels": ["Sent"],
+                "has_attachments": False,
+                "attachment_count": 0,
+                "synced_at": datetime.utcnow(),
+                "processed": True,
+                "provider_message_id": f"sent_{datetime.utcnow().timestamp()}",
+            }
+            mail_pool_emails.insert_one(sent_doc)
+            
+            return {
+                "success": True,
+                "message": "Email sent successfully",
+                "from": sender_email,
+                "to": send_request.to
+            }
+            
+        except smtplib.SMTPAuthenticationError as e:
+            logger.error(f"SMTP auth failed: {e}")
+            raise HTTPException(status_code=401, detail="SMTP authentication failed. Check credentials.")
+        except smtplib.SMTPException as e:
+            logger.error(f"SMTP error: {e}")
+            raise HTTPException(status_code=500, detail=f"SMTP error: {str(e)}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending email: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

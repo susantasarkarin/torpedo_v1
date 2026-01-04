@@ -57,6 +57,14 @@ SENT_FOLDER_NAMES = [
     "Sent Messages",
 ]
 
+# Common drafts folder names
+DRAFTS_FOLDER_NAMES = [
+    "[Gmail]/Drafts",
+    "Drafts",
+    "Draft",
+    "INBOX.Drafts",
+]
+
 
 @dataclass
 class ImapMessage:
@@ -212,17 +220,17 @@ class ImapSyncer:
         if self.rate_limiter:
             self.rate_limiter.record_request(self.mailbox_id)
     
-    def _find_sent_folder(self) -> Optional[str]:
+    def _get_available_folders(self) -> List[str]:
         """
-        Find the sent folder name for this mailbox.
+        Get list of available IMAP folders.
         
         Returns:
-            Sent folder name or None
+            List of folder names
         """
         try:
             status, folder_list = self.connection.list()
             if status != "OK":
-                return None
+                return []
             
             available_folders = []
             for folder_data in folder_list:
@@ -232,6 +240,22 @@ class ImapSyncer:
                     parts = folder_str.split('"')
                     if len(parts) >= 2:
                         available_folders.append(parts[-2])
+            
+            return available_folders
+            
+        except Exception as e:
+            logger.warning(f"Error listing folders: {e}")
+            return []
+    
+    def _find_sent_folder(self) -> Optional[str]:
+        """
+        Find the sent folder name for this mailbox.
+        
+        Returns:
+            Sent folder name or None
+        """
+        try:
+            available_folders = self._get_available_folders()
             
             # Find matching sent folder
             for sent_name in SENT_FOLDER_NAMES:
@@ -243,6 +267,28 @@ class ImapSyncer:
             
         except Exception as e:
             logger.warning(f"Error finding sent folder: {e}")
+            return None
+    
+    def _find_drafts_folder(self) -> Optional[str]:
+        """
+        Find the drafts folder name for this mailbox.
+        
+        Returns:
+            Drafts folder name or None
+        """
+        try:
+            available_folders = self._get_available_folders()
+            
+            # Find matching drafts folder
+            for draft_name in DRAFTS_FOLDER_NAMES:
+                for folder in available_folders:
+                    if folder.lower() == draft_name.lower():
+                        return folder
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Error finding drafts folder: {e}")
             return None
     
     def _get_uidvalidity(self, folder: str) -> Optional[int]:
@@ -352,10 +398,14 @@ class ImapSyncer:
                 if part.get_content_disposition() == "attachment":
                     filename = part.get_filename()
                     if filename:
+                        payload = part.get_payload(decode=True) or b""
+                        # Store attachment data as base64 for download
+                        import base64
                         attachments.append({
                             "filename": self._decode_header(filename),
                             "mime_type": part.get_content_type(),
-                            "size": len(part.get_payload(decode=True) or b""),
+                            "size": len(payload),
+                            "data": base64.b64encode(payload).decode('utf-8') if len(payload) < 10 * 1024 * 1024 else None,  # Only store if < 10MB
                         })
         
         return attachments
@@ -467,12 +517,24 @@ class ImapSyncer:
         """
         # Determine direction
         direction = EmailDirection.INBOUND
+        is_draft = False
         
         from_email = msg.from_address.email.lower()
-        if from_email == self.mailbox_email.lower():
+        folder_lower = msg.folder.lower()
+        
+        if "draft" in folder_lower:
+            # Drafts are outbound (user is sender)
             direction = EmailDirection.OUTBOUND
-        elif "sent" in msg.folder.lower():
+            is_draft = True
+        elif from_email == self.mailbox_email.lower():
             direction = EmailDirection.OUTBOUND
+        elif "sent" in folder_lower:
+            direction = EmailDirection.OUTBOUND
+        
+        # Build labels list
+        labels = [msg.folder]
+        if is_draft:
+            labels.append("DRAFT")
         
         return EmailDocument(
             provider_message_id=msg.message_id,
@@ -490,7 +552,7 @@ class ImapSyncer:
             body_html=msg.body_html,
             snippet=msg.body_plain[:200] if msg.body_plain else "",
             timestamp=msg.date,
-            labels=[msg.folder],
+            labels=labels,
             has_attachments=msg.has_attachments,
             attachment_count=msg.attachment_count,
             attachments=msg.attachments,
@@ -613,9 +675,16 @@ class ImapSyncer:
         total_synced = cursor.messages_synced
         
         try:
-            # Find sent folder
+            # Find sent and drafts folders
             sent_folder = self._find_sent_folder()
-            folders = [("INBOX", "inbox"), (sent_folder, "sent")] if sent_folder else [("INBOX", "inbox")]
+            drafts_folder = self._find_drafts_folder()
+            
+            # Build list of folders to sync
+            folders = [("INBOX", "inbox")]
+            if sent_folder:
+                folders.append((sent_folder, "sent"))
+            if drafts_folder:
+                folders.append((drafts_folder, "drafts"))
             
             for folder, cursor_key in folders:
                 if not folder:
@@ -632,9 +701,12 @@ class ImapSyncer:
                     if cursor_key == "inbox":
                         cursor.inbox_last_uid = 0
                         cursor.inbox_uidvalidity = current_uidvalidity
-                    else:
+                    elif cursor_key == "sent":
                         cursor.sent_last_uid = 0
                         cursor.sent_uidvalidity = current_uidvalidity
+                    elif cursor_key == "drafts":
+                        cursor.drafts_last_uid = 0
+                        cursor.drafts_uidvalidity = current_uidvalidity
                 
                 # Get last synced UID
                 last_uid = getattr(cursor, f"{cursor_key}_last_uid", 0)
@@ -668,9 +740,12 @@ class ImapSyncer:
                     if cursor_key == "inbox":
                         cursor.inbox_last_uid = max_uid
                         cursor.inbox_uidvalidity = current_uidvalidity
-                    else:
+                    elif cursor_key == "sent":
                         cursor.sent_last_uid = max_uid
                         cursor.sent_uidvalidity = current_uidvalidity
+                    elif cursor_key == "drafts":
+                        cursor.drafts_last_uid = max_uid
+                        cursor.drafts_uidvalidity = current_uidvalidity
                     
                     cursor.messages_synced = total_synced
                     
@@ -701,14 +776,21 @@ class ImapSyncer:
         total_synced = cursor.messages_synced
         
         try:
-            # Find sent folder
+            # Find sent and drafts folders
             sent_folder = self._find_sent_folder()
+            drafts_folder = self._find_drafts_folder()
+            
+            # Build list of folders to sync
             folders = [
                 ("INBOX", "inbox", cursor.inbox_last_uid, cursor.inbox_uidvalidity),
             ]
             if sent_folder:
                 folders.append(
                     (sent_folder, "sent", cursor.sent_last_uid, cursor.sent_uidvalidity)
+                )
+            if drafts_folder:
+                folders.append(
+                    (drafts_folder, "drafts", cursor.drafts_last_uid, cursor.drafts_uidvalidity)
                 )
             
             for folder, cursor_key, last_uid, stored_uidvalidity in folders:
@@ -753,9 +835,12 @@ class ImapSyncer:
                 if cursor_key == "inbox":
                     cursor.inbox_last_uid = max_uid
                     cursor.inbox_uidvalidity = current_uidvalidity
-                else:
+                elif cursor_key == "sent":
                     cursor.sent_last_uid = max_uid
                     cursor.sent_uidvalidity = current_uidvalidity
+                elif cursor_key == "drafts":
+                    cursor.drafts_last_uid = max_uid
+                    cursor.drafts_uidvalidity = current_uidvalidity
                 
                 cursor.messages_synced = total_synced
                 

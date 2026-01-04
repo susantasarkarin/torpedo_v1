@@ -153,6 +153,8 @@ class AliasDocument(BaseModel):
     mailbox_id: str = Field(..., description="Reference to parent mailbox")
     alias_email: str = Field(..., description="Alias email address")
     display_name: str = ""
+    signature: str = Field("", description="HTML email signature for this alias")
+    is_primary: bool = False
     is_active: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
     
@@ -258,8 +260,10 @@ class ImapSyncCursor(BaseModel):
     """IMAP-specific sync cursor"""
     inbox_last_uid: int = Field(0, description="Last UID synced from INBOX")
     sent_last_uid: int = Field(0, description="Last UID synced from Sent")
+    drafts_last_uid: int = Field(0, description="Last UID synced from Drafts")
     inbox_uidvalidity: Optional[int] = None
     sent_uidvalidity: Optional[int] = None
+    drafts_uidvalidity: Optional[int] = None
     messages_synced: int = 0
 
 
