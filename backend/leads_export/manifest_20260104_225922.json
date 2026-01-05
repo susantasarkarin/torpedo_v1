@@ -1,0 +1,18 @@
+{
+  "exported_at": "20260104_225922",
+  "source": "mongodb://localhost:27017/email_automation",
+  "collections": {
+    "leads_raw": {
+      "count": 6553,
+      "file": "leads_export/leads_raw_20260104_225922.json"
+    },
+    "leads_enriched": {
+      "count": 5277,
+      "file": "leads_export/leads_enriched_20260104_225922.json"
+    },
+    "lead_ai_classification_logs": {
+      "count": 10752,
+      "file": "leads_export/lead_ai_classification_logs_20260104_225922.json"
+    }
+  }
+}

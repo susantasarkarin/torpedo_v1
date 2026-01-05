@@ -187,6 +187,13 @@ function AILeads() {
   const [gmailSegments, setGmailSegments] = useState([]);
   const [selectedGmailSegments, setSelectedGmailSegments] = useState([]);
   const [gmailImporting, setGmailImporting] = useState(false);
+  const [enrichmentPhases, setEnrichmentPhases] = useState({
+    basic: true,    // Email, Full Name
+    names: true,    // First Name, Last Name
+    company: true,  // Company Name
+    domain: true    // Domain from email
+  });
+  const [gmailImportProgress, setGmailImportProgress] = useState(null);
 
   // Gmail segment options
   const GMAIL_SEGMENT_OPTIONS = [
@@ -342,7 +349,7 @@ function AILeads() {
   };
 
   // Handle CSV file selection
-  const handleCsvFileSelect = (file) => {
+  const handleCsvFileSelect = async (file) => {
     if (!file) return;
     if (!file.name.endsWith(".csv")) {
       setImportError("Please select a CSV file");
@@ -354,7 +361,7 @@ function AILeads() {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      complete: (results) => {
+      complete: async (results) => {
         if (results.errors.length > 0) {
           setImportError("Error parsing CSV: " + results.errors[0].message);
           return;
@@ -362,7 +369,25 @@ function AILeads() {
         const columns = results.meta.fields || [];
         setCsvColumns(columns);
         setCsvData(results.data);
-        const autoMapping = autoMatchColumns(columns);
+        
+        // Try to load saved mapping first
+        let savedMapping = null;
+        try {
+          const res = await fetch(`${API_BASE_URL}/leads/import/csv/mapping?columns=${encodeURIComponent(columns.join(","))}`, {
+            headers: { Authorization: sessionId },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.mapping) {
+              savedMapping = data.mapping;
+            }
+          }
+        } catch (e) {
+          console.log("Could not load saved mapping:", e);
+        }
+        
+        // Use saved mapping if available, otherwise auto-match
+        const autoMapping = savedMapping || autoMatchColumns(columns);
         setColumnMapping(autoMapping);
         setCsvImportStep(2);
       },
@@ -392,19 +417,7 @@ function AILeads() {
     try {
       let res;
       
-      if (importMethod === "json") {
-        if (!importData.trim()) {
-          setImportError("Please enter JSON data");
-          setImporting(false);
-          return;
-        }
-        const leadsToImport = JSON.parse(importData);
-        res = await fetch(`${API_BASE_URL}/leads/import`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: sessionId },
-          body: JSON.stringify({ leads: Array.isArray(leadsToImport) ? leadsToImport : [leadsToImport] }),
-        });
-      } else if (importMethod === "csv") {
+      if (importMethod === "csv") {
         // Enhanced CSV import with mapping
         if (csvImportStep === 1) {
           setImportError("Please select a CSV file first");
@@ -415,6 +428,21 @@ function AILeads() {
           setImportError("Email field mapping is required");
           setImporting(false);
           return;
+        }
+
+        // Save column mapping for future use
+        try {
+          await fetch(`${API_BASE_URL}/leads/import/csv/mapping`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: sessionId },
+            body: JSON.stringify({ 
+              filename: csvFile?.name || "default",
+              mapping: columnMapping,
+              columns: csvColumns
+            }),
+          });
+        } catch (e) {
+          console.log("Could not save mapping:", e);
         }
 
         // Map CSV data to expected format
@@ -582,11 +610,13 @@ function AILeads() {
     setWebSearchProgress(null);
     setWebSearchJobId(null);
     setImportError("");
-    // Reset Gmail state
+    // Reset Gmail/Email state
     setSelectedGmailAccounts([]);
-    setSelectedGmailSegments(GMAIL_SEGMENT_OPTIONS.map(s => s.value));
-    setGmailMaxEmails(500);
+    setSelectedGmailSegments([]);
+    setGmailMaxEmails(100);
     setGmailImporting(false);
+    setGmailImportProgress(null);
+    setEnrichmentPhases({ basic: true, names: true, company: true, domain: true });
   };
 
   // Delete all leads
@@ -624,40 +654,48 @@ function AILeads() {
     }
   };
 
-  // Email IMAP import handler
+  // Email extraction and enrichment handler (from MongoDB stored emails)
   const handleGmailImport = async () => {
     setGmailImporting(true);
     setImportError("");
+    setGmailImportProgress({ status: "running", progress: 0, extracted: 0, enriched: 0, duplicates: 0 });
     
     try {
-      const res = await fetch(`${API_BASE_URL}/leads/gmail/import`, {
+      const res = await fetch(`${API_BASE_URL}/leads/emails/extract`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: sessionId },
         body: JSON.stringify({
           account_emails: selectedGmailAccounts.length > 0 ? selectedGmailAccounts : null,
           max_emails: gmailMaxEmails,
-          since_days: 30,
-          segments: selectedGmailSegments.length > 0 ? selectedGmailSegments : null
+          segments: selectedGmailSegments.length > 0 ? selectedGmailSegments : null,
+          enrichment_phases: enrichmentPhases
         }),
       });
       
       if (!res.ok) {
         const error = await res.json();
-        throw new Error(error.detail || "Email import failed");
+        throw new Error(error.detail || "Lead extraction failed");
       }
       
       const result = await res.json();
-      let alertMsg = `✅ ${result.message}\n\nEmails processed: ${result.emails_processed}\nLeads imported: ${result.leads_imported}\nDuplicates: ${result.duplicates}`;
-      if (result.errors && result.errors.length > 0) {
-        alertMsg += `\n\n⚠️ Errors:\n${result.errors.join("\n")}`;
-      }
-      alert(alertMsg);
-      resetImportModal();
-      fetchRawLeads();
-      fetchLeads();
-      fetchStatistics();
+      setGmailImportProgress({
+        status: "complete",
+        progress: 100,
+        extracted: result.leads_extracted || 0,
+        enriched: result.leads_enriched || 0,
+        duplicates: result.duplicates || 0
+      });
+      
+      // Show success message after a brief delay
+      setTimeout(() => {
+        resetImportModal();
+        fetchRawLeads();
+        fetchLeads();
+        fetchStatistics();
+      }, 1500);
     } catch (err) {
       setImportError(err.message);
+      setGmailImportProgress(null);
     } finally {
       setGmailImporting(false);
     }
@@ -1250,12 +1288,6 @@ function AILeads() {
                 >
                   📧 Gmail
                 </button>
-                <button 
-                  className={`method-tab ${importMethod === "json" ? "active" : ""}`}
-                  onClick={() => { setImportMethod("json"); setCsvImportStep(1); }}
-                >
-                  📋 JSON
-                </button>
               </div>
 
               {/* Error Display */}
@@ -1611,30 +1643,22 @@ function AILeads() {
                 </div>
               )}
 
-              {/* JSON */}
-              {importMethod === "json" && (
-                <div className="import-form">
-                  <label>Paste JSON Data</label>
-                  <textarea
-                    className="form-textarea"
-                    placeholder='[{"name": "John Smith", "title": "VP Sales", "linkedin_url": "https://linkedin.com/in/...", "snippet": "10+ years experience"}]'
-                    value={importData}
-                    onChange={(e) => setImportData(e.target.value)}
-                  />
-                </div>
-              )}
-
-              {/* Gmail Import */}
+              {/* Gmail Import - Extract from MongoDB Emails */}
               {importMethod === "gmail" && (
                 <div className="import-form">
+                  <h3>📧 Extract Leads from Stored Emails</h3>
+                  <p className="form-hint">
+                    Emails are already downloaded in the database. Extract contact information and enrich lead data in phases.
+                  </p>
+
                   {/* Gmail Account Selection */}
                   <div className="form-group">
-                    <label>Select Gmail Accounts</label>
+                    <label>Select Email Accounts</label>
                     <div className="multi-select-container">
-                      <div className="multi-select-options" style={{ maxHeight: "150px", overflowY: "auto" }}>
+                      <div className="multi-select-options" style={{ maxHeight: "120px", overflowY: "auto" }}>
                         {gmailAccounts.length === 0 ? (
                           <div style={{ padding: "10px", color: "#888" }}>
-                            No Gmail accounts connected. Add accounts in Settings.
+                            No email accounts found. Add accounts in Settings.
                           </div>
                         ) : (
                           gmailAccounts.map(account => (
@@ -1666,7 +1690,7 @@ function AILeads() {
                         <button 
                           type="button" 
                           className="btn btn-sm"
-                          onClick={() => setSelectedGmailSegments(GMAIL_SEGMENT_OPTIONS.map(s => s.value))}
+                          onClick={() => setSelectedGmailSegments(GMAIL_SEGMENT_OPTIONS.map(s => s.id))}
                         >
                           Select All
                         </button>
@@ -1679,24 +1703,86 @@ function AILeads() {
                           Clear All
                         </button>
                       </div>
-                      <div className="multi-select-options" style={{ maxHeight: "200px", overflowY: "auto" }}>
+                      <div className="multi-select-options" style={{ maxHeight: "150px", overflowY: "auto" }}>
                         {GMAIL_SEGMENT_OPTIONS.map(segment => (
-                          <label key={segment.value} className="checkbox-option">
+                          <label key={segment.id} className="checkbox-option">
                             <input
                               type="checkbox"
-                              checked={selectedGmailSegments.includes(segment.value)}
+                              checked={selectedGmailSegments.includes(segment.id)}
                               onChange={(e) => {
                                 if (e.target.checked) {
-                                  setSelectedGmailSegments([...selectedGmailSegments, segment.value]);
+                                  setSelectedGmailSegments([...selectedGmailSegments, segment.id]);
                                 } else {
-                                  setSelectedGmailSegments(selectedGmailSegments.filter(s => s !== segment.value));
+                                  setSelectedGmailSegments(selectedGmailSegments.filter(s => s !== segment.id));
                                 }
                               }}
                             />
-                            <span>{segment.label}</span>
+                            <span>{segment.name}</span>
                           </label>
                         ))}
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Enrichment Phases */}
+                  <div className="form-group">
+                    <label>Data Enrichment Phases</label>
+                    <p className="form-hint-small" style={{ marginBottom: "8px", color: "#6b7280" }}>
+                      Select which data fields to extract and enrich
+                    </p>
+                    <div className="enrichment-phases" style={{ 
+                      display: "grid", 
+                      gridTemplateColumns: "1fr 1fr", 
+                      gap: "0.75rem",
+                      padding: "1rem",
+                      backgroundColor: "#f9fafb",
+                      borderRadius: "8px",
+                      border: "1px solid #e5e7eb"
+                    }}>
+                      <label className="checkbox-option" style={{ padding: "0.5rem", backgroundColor: "#fff", borderRadius: "6px" }}>
+                        <input
+                          type="checkbox"
+                          checked={enrichmentPhases?.basic !== false}
+                          onChange={(e) => setEnrichmentPhases({...enrichmentPhases, basic: e.target.checked})}
+                        />
+                        <span style={{ marginLeft: "0.5rem" }}>
+                          <strong>Basic Info</strong>
+                          <small style={{ display: "block", color: "#6b7280" }}>Email, Full Name</small>
+                        </span>
+                      </label>
+                      <label className="checkbox-option" style={{ padding: "0.5rem", backgroundColor: "#fff", borderRadius: "6px" }}>
+                        <input
+                          type="checkbox"
+                          checked={enrichmentPhases?.names !== false}
+                          onChange={(e) => setEnrichmentPhases({...enrichmentPhases, names: e.target.checked})}
+                        />
+                        <span style={{ marginLeft: "0.5rem" }}>
+                          <strong>Name Split</strong>
+                          <small style={{ display: "block", color: "#6b7280" }}>First Name, Last Name</small>
+                        </span>
+                      </label>
+                      <label className="checkbox-option" style={{ padding: "0.5rem", backgroundColor: "#fff", borderRadius: "6px" }}>
+                        <input
+                          type="checkbox"
+                          checked={enrichmentPhases?.company !== false}
+                          onChange={(e) => setEnrichmentPhases({...enrichmentPhases, company: e.target.checked})}
+                        />
+                        <span style={{ marginLeft: "0.5rem" }}>
+                          <strong>Company</strong>
+                          <small style={{ display: "block", color: "#6b7280" }}>Company Name from signature/domain</small>
+                        </span>
+                      </label>
+                      <label className="checkbox-option" style={{ padding: "0.5rem", backgroundColor: "#fff", borderRadius: "6px" }}>
+                        <input
+                          type="checkbox"
+                          checked={enrichmentPhases?.domain !== false}
+                          onChange={(e) => setEnrichmentPhases({...enrichmentPhases, domain: e.target.checked})}
+                        />
+                        <span style={{ marginLeft: "0.5rem" }}>
+                          <strong>Domain</strong>
+                          <small style={{ display: "block", color: "#6b7280" }}>Extract domain from email</small>
+                        </span>
+                      </label>
                     </div>
                   </div>
 
@@ -1711,8 +1797,40 @@ function AILeads() {
                       min={1}
                       max={10000}
                     />
-                    <small style={{ color: "#888" }}>Maximum number of emails to scan for leads per account</small>
+                    <small style={{ color: "#888" }}>Maximum number of emails to scan for leads</small>
                   </div>
+
+                  {/* Import Progress */}
+                  {gmailImportProgress && (
+                    <div style={{ 
+                      marginTop: "1rem", 
+                      padding: "1rem", 
+                      backgroundColor: gmailImportProgress.status === "running" ? "#f0fdf4" : "#f9fafb",
+                      borderRadius: "8px",
+                      border: "1px solid #e5e7eb"
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                        <span style={{ fontWeight: "600" }}>
+                          {gmailImportProgress.status === "running" ? "🔄 Processing..." : "✅ Complete"}
+                        </span>
+                        <span style={{ color: "#6b7280" }}>{gmailImportProgress.progress || 0}%</span>
+                      </div>
+                      <div style={{ width: "100%", height: "6px", backgroundColor: "#e5e7eb", borderRadius: "3px" }}>
+                        <div style={{ 
+                          width: `${gmailImportProgress.progress || 0}%`, 
+                          height: "100%", 
+                          backgroundColor: "#22c55e", 
+                          borderRadius: "3px",
+                          transition: "width 0.3s"
+                        }} />
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: "0.5rem", fontSize: "0.875rem", color: "#6b7280" }}>
+                        <span>Extracted: {gmailImportProgress.extracted || 0}</span>
+                        <span>Enriched: {gmailImportProgress.enriched || 0}</span>
+                        <span>Duplicates: {gmailImportProgress.duplicates || 0}</span>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Gmail-specific import button */}
                   <div className="form-group" style={{ marginTop: "20px" }}>
@@ -1722,11 +1840,11 @@ function AILeads() {
                       disabled={gmailImporting || selectedGmailAccounts.length === 0}
                       style={{ width: "100%" }}
                     >
-                      {gmailImporting ? "⏳ Extracting Leads from Gmail..." : "📧 Extract Leads from Gmail"}
+                      {gmailImporting ? "⏳ Extracting & Enriching Leads..." : "📧 Extract Leads from Emails"}
                     </button>
                     {selectedGmailAccounts.length === 0 && (
                       <small style={{ color: "#ff6b6b", display: "block", marginTop: "5px" }}>
-                        Please select at least one Gmail account
+                        Please select at least one email account
                       </small>
                     )}
                   </div>

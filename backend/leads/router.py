@@ -749,6 +749,106 @@ async def import_from_google_search(
 
 # ============== CSV UPLOAD ENDPOINT ==============
 
+# Collection for storing CSV column mappings
+csv_mappings_collection = _jobs_db['csv_column_mappings']
+try:
+    csv_mappings_collection.create_index("columns_hash", unique=True)
+except Exception as e:
+    print(f"Warning: Could not create csv mappings index: {e}")
+
+
+class CSVMappingSaveRequest(BaseModel):
+    """Request to save a CSV column mapping"""
+    filename: Optional[str] = None
+    mapping: dict
+    columns: List[str]
+
+
+@router.post("/import/csv/mapping")
+async def save_csv_mapping(request: CSVMappingSaveRequest):
+    """
+    POST /leads/import/csv/mapping
+    Save a CSV column mapping for future use.
+    The mapping is keyed by a hash of the sorted column names.
+    """
+    try:
+        # Create a unique key based on sorted column names
+        sorted_columns = sorted([c.lower().strip() for c in request.columns])
+        columns_hash = hash(tuple(sorted_columns))
+        
+        mapping_doc = {
+            "columns_hash": str(columns_hash),
+            "columns": request.columns,
+            "mapping": request.mapping,
+            "filename": request.filename,
+            "updated_at": datetime.utcnow()
+        }
+        
+        csv_mappings_collection.update_one(
+            {"columns_hash": str(columns_hash)},
+            {"$set": mapping_doc},
+            upsert=True
+        )
+        
+        return {"success": True, "message": "Mapping saved for future use"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/import/csv/mapping")
+async def get_csv_mapping(columns: str = Query(..., description="Comma-separated list of CSV columns")):
+    """
+    GET /leads/import/csv/mapping?columns=col1,col2,col3
+    Get a saved CSV column mapping based on the column names.
+    Returns the best matching saved mapping.
+    """
+    try:
+        column_list = [c.strip() for c in columns.split(",") if c.strip()]
+        sorted_columns = sorted([c.lower() for c in column_list])
+        columns_hash = hash(tuple(sorted_columns))
+        
+        # Try exact match first
+        mapping = csv_mappings_collection.find_one({"columns_hash": str(columns_hash)})
+        
+        if mapping:
+            return {
+                "found": True,
+                "mapping": mapping.get("mapping", {}),
+                "filename": mapping.get("filename"),
+                "updated_at": mapping.get("updated_at")
+            }
+        
+        # If no exact match, try to find a partial match
+        # (columns that overlap significantly)
+        all_mappings = list(csv_mappings_collection.find().sort("updated_at", -1).limit(10))
+        
+        best_match = None
+        best_score = 0
+        
+        for m in all_mappings:
+            saved_cols = set([c.lower() for c in m.get("columns", [])])
+            current_cols = set(sorted_columns)
+            overlap = len(saved_cols.intersection(current_cols))
+            score = overlap / max(len(saved_cols), len(current_cols), 1)
+            
+            if score > 0.5 and score > best_score:  # At least 50% overlap
+                best_match = m
+                best_score = score
+        
+        if best_match:
+            return {
+                "found": True,
+                "mapping": best_match.get("mapping", {}),
+                "filename": best_match.get("filename"),
+                "partial_match": True,
+                "match_score": best_score
+            }
+        
+        return {"found": False, "mapping": None}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/import/csv")
 async def import_from_csv(
     file: UploadFile = File(...),
@@ -1123,6 +1223,215 @@ async def import_email_leads_endpoint(
             "errors": result.get("errors"),
             "message": result.get("message", "Import completed")
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== EMAIL EXTRACTION FROM MONGODB ==============
+
+class EmailExtractRequest(BaseModel):
+    """Request to extract leads from stored emails in MongoDB"""
+    account_emails: Optional[List[str]] = None
+    max_emails: int = 100
+    segments: Optional[List[str]] = None
+    enrichment_phases: Optional[dict] = None  # {basic, names, company, domain}
+
+
+def extract_domain_from_email(email: str) -> Optional[str]:
+    """Extract domain from email address"""
+    if not email or "@" not in email:
+        return None
+    return email.split("@")[1].lower()
+
+
+def extract_company_from_domain(domain: str) -> Optional[str]:
+    """Try to extract company name from domain"""
+    if not domain:
+        return None
+    # Remove common TLDs and clean up
+    common_tlds = ['.com', '.net', '.org', '.io', '.co', '.ai', '.tech', '.dev']
+    company = domain
+    for tld in common_tlds:
+        if company.endswith(tld):
+            company = company[:-len(tld)]
+            break
+    # Handle subdomains
+    if '.' in company:
+        parts = company.split('.')
+        company = parts[-1] if len(parts[-1]) > 2 else parts[0]
+    # Capitalize
+    return company.title() if company else None
+
+
+def split_name(full_name: str) -> tuple:
+    """Split full name into first and last name"""
+    if not full_name:
+        return None, None
+    parts = full_name.strip().split()
+    if len(parts) == 0:
+        return None, None
+    if len(parts) == 1:
+        return parts[0], None
+    return parts[0], " ".join(parts[1:])
+
+
+def extract_name_from_email_header(from_header: str) -> tuple:
+    """Extract name and email from 'Name <email@domain.com>' format"""
+    import re
+    if not from_header:
+        return None, None
+    
+    # Pattern: "Name <email@domain.com>" or just "email@domain.com"
+    match = re.match(r'^"?([^"<]+)"?\s*<?([^>]+@[^>]+)>?$', from_header.strip())
+    if match:
+        name = match.group(1).strip().strip('"')
+        email = match.group(2).strip()
+        # Clean up name - remove email if it's the same as email
+        if '@' in name or name.lower() == email.lower():
+            name = None
+        return name, email
+    
+    # Just email
+    if '@' in from_header:
+        return None, from_header.strip()
+    
+    return None, None
+
+
+@router.post("/emails/extract")
+async def extract_leads_from_stored_emails(request: EmailExtractRequest):
+    """
+    POST /leads/emails/extract
+    Extract leads from emails already stored in MongoDB.
+    Performs phased enrichment:
+    - Basic: Email, Full Name
+    - Names: First Name, Last Name (split from full name)
+    - Company: Company name from signature/domain
+    - Domain: Domain extracted from email
+    """
+    try:
+        # Get emails collection
+        emails_collection = _jobs_db['emails']
+        leads_collection = _jobs_db['leads_raw']
+        
+        # Build query
+        query = {}
+        if request.account_emails:
+            query["$or"] = [
+                {"mailbox_email": {"$in": request.account_emails}},
+                {"account_email": {"$in": request.account_emails}}
+            ]
+        if request.segments:
+            query["category"] = {"$in": request.segments}
+        
+        # Only get inbound emails (from external contacts)
+        query["direction"] = "inbound"
+        
+        # Fetch emails
+        emails = list(emails_collection.find(query).limit(request.max_emails))
+        
+        phases = request.enrichment_phases or {
+            "basic": True,
+            "names": True,
+            "company": True,
+            "domain": True
+        }
+        
+        extracted = 0
+        enriched = 0
+        duplicates = 0
+        
+        for email_doc in emails:
+            try:
+                # Get from address
+                from_addr = email_doc.get("from_address") or email_doc.get("from") or {}
+                if isinstance(from_addr, dict):
+                    email_addr = from_addr.get("email", "")
+                    name = from_addr.get("name", "")
+                elif isinstance(from_addr, str):
+                    name, email_addr = extract_name_from_email_header(from_addr)
+                else:
+                    continue
+                
+                if not email_addr or "@" not in email_addr:
+                    continue
+                
+                # Skip internal emails (same domain as account)
+                account_email = email_doc.get("mailbox_email", "")
+                if account_email:
+                    account_domain = extract_domain_from_email(account_email)
+                    sender_domain = extract_domain_from_email(email_addr)
+                    if account_domain and sender_domain and account_domain == sender_domain:
+                        continue
+                
+                # Check for duplicate
+                existing = leads_collection.find_one({"email": email_addr.lower()})
+                if existing:
+                    duplicates += 1
+                    continue
+                
+                # Build lead document with phased enrichment
+                lead_doc = {
+                    "email": email_addr.lower(),
+                    "source": "email_extraction",
+                    "created_at": datetime.utcnow(),
+                    "source_email_id": str(email_doc.get("_id", "")),
+                    "segment": email_doc.get("category"),
+                }
+                
+                # Phase 1: Basic info
+                if phases.get("basic", True):
+                    lead_doc["name"] = name if name else None
+                    extracted += 1
+                
+                # Phase 2: Split names
+                if phases.get("names", True) and name:
+                    first_name, last_name = split_name(name)
+                    lead_doc["first_name"] = first_name
+                    lead_doc["last_name"] = last_name
+                
+                # Phase 3: Domain
+                if phases.get("domain", True):
+                    domain = extract_domain_from_email(email_addr)
+                    lead_doc["company_domain"] = domain
+                
+                # Phase 4: Company (from domain or signature)
+                if phases.get("company", True):
+                    domain = lead_doc.get("company_domain") or extract_domain_from_email(email_addr)
+                    company = extract_company_from_domain(domain)
+                    lead_doc["company_name"] = company
+                    
+                    # Try to extract from email body signature (basic extraction)
+                    body = email_doc.get("body_plain", "") or email_doc.get("body", "")
+                    if body and not company:
+                        # Simple signature detection - look for company patterns
+                        import re
+                        lines = body.split('\n')[-20:]  # Last 20 lines
+                        for line in lines:
+                            # Look for patterns like "Company Name" or "| Company"
+                            company_match = re.search(r'(?:^|\|)\s*([A-Z][A-Za-z0-9\s&]+(?:Inc|LLC|Ltd|Corp|Co)\.?)\s*(?:\||$)', line)
+                            if company_match:
+                                lead_doc["company_name"] = company_match.group(1).strip()
+                                break
+                
+                enriched += 1
+                
+                # Insert lead
+                leads_collection.insert_one(lead_doc)
+                
+            except Exception as e:
+                print(f"Error processing email: {e}")
+                continue
+        
+        return {
+            "success": True,
+            "emails_processed": len(emails),
+            "leads_extracted": extracted,
+            "leads_enriched": enriched,
+            "duplicates": duplicates,
+            "message": f"Extracted {extracted} leads from {len(emails)} emails"
+        }
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
