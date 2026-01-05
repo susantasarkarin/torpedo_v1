@@ -14,6 +14,35 @@ import csv
 import io
 from dotenv import load_dotenv
 
+# RBAC imports for permission enforcement
+try:
+    from ..rbac.decorators import require_permission, require_any_permission
+    from ..rbac.permissions import Permissions
+except ImportError:
+    try:
+        from rbac.decorators import require_permission, require_any_permission
+        from rbac.permissions import Permissions
+    except ImportError:
+        # Fallback: RBAC not available, create no-op decorators
+        def require_permission(perm):
+            def decorator(func):
+                return func
+            return decorator
+        def require_any_permission(*perms):
+            def decorator(func):
+                return func
+            return decorator
+        class Permissions:
+            FINANCE_INVOICE_READ = "finance.invoice.read"
+            FINANCE_INVOICE_CREATE = "finance.invoice.create"
+            FINANCE_INVOICE_UPDATE = "finance.invoice.update"
+            FINANCE_INVOICE_DELETE = "finance.invoice.delete"
+            FINANCE_BILL_READ = "finance.bill.read"
+            FINANCE_BILL_CREATE = "finance.bill.create"
+            FINANCE_BILL_UPDATE = "finance.bill.update"
+            FINANCE_BILL_DELETE = "finance.bill.delete"
+            ADMIN_ALL = "admin.*"
+
 load_dotenv()
 
 # ----------------------------
@@ -1686,6 +1715,7 @@ async def import_estimates_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/finance/invoices/")
+@require_any_permission(Permissions.FINANCE_INVOICE_READ, Permissions.ADMIN_ALL)
 async def get_invoices(
     project_id: Optional[str] = Query(None, description="Filter by project ID"),
     customer_id: Optional[str] = Query(None, description="Filter by customer ID"),
@@ -1729,6 +1759,7 @@ async def get_invoices(
 
 
 @router.get("/finance/invoices/{invoice_id}")
+@require_any_permission(Permissions.FINANCE_INVOICE_READ, Permissions.ADMIN_ALL)
 async def get_invoice(invoice_id: str):
     """
     Get a single invoice by ID (excluding soft-deleted).
@@ -1751,6 +1782,7 @@ async def get_invoice(invoice_id: str):
 
 
 @router.post("/finance/invoices/")
+@require_any_permission(Permissions.FINANCE_INVOICE_CREATE, Permissions.ADMIN_ALL)
 async def create_invoice(invoice_data: Dict[str, Any] = Body(...)):
     """Create a new invoice"""
     try:
@@ -1790,6 +1822,7 @@ async def create_invoice(invoice_data: Dict[str, Any] = Body(...)):
 
 
 @router.put("/finance/invoices/{invoice_id}")
+@require_any_permission(Permissions.FINANCE_INVOICE_UPDATE, Permissions.ADMIN_ALL)
 async def update_invoice(invoice_id: str, invoice_data: Dict[str, Any] = Body(...)):
     """Update an invoice"""
     try:
@@ -1811,6 +1844,7 @@ async def update_invoice(invoice_id: str, invoice_data: Dict[str, Any] = Body(..
 
 
 @router.delete("/finance/invoices/{invoice_id}")
+@require_any_permission(Permissions.FINANCE_INVOICE_DELETE, Permissions.ADMIN_ALL)
 async def delete_invoice(invoice_id: str):
     """
     Soft delete an invoice.
@@ -2043,6 +2077,7 @@ async def import_invoices_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/finance/bills/")
+@require_any_permission(Permissions.FINANCE_BILL_READ, Permissions.ADMIN_ALL)
 async def get_bills(
     project_id: Optional[str] = Query(None, description="Filter by project ID"),
     vendor_id: Optional[str] = Query(None, description="Filter by vendor ID"),
@@ -2086,6 +2121,7 @@ async def get_bills(
 
 
 @router.get("/finance/bills/{bill_id}")
+@require_any_permission(Permissions.FINANCE_BILL_READ, Permissions.ADMIN_ALL)
 async def get_bill(bill_id: str):
     """
     Get a single bill by ID (excluding soft-deleted).
@@ -2108,6 +2144,7 @@ async def get_bill(bill_id: str):
 
 
 @router.post("/finance/bills/")
+@require_any_permission(Permissions.FINANCE_BILL_CREATE, Permissions.ADMIN_ALL)
 async def create_bill(bill_data: Dict[str, Any] = Body(...)):
     """Create a new bill"""
     try:
@@ -2149,6 +2186,7 @@ async def create_bill(bill_data: Dict[str, Any] = Body(...)):
 
 
 @router.put("/finance/bills/{bill_id}")
+@require_any_permission(Permissions.FINANCE_BILL_UPDATE, Permissions.ADMIN_ALL)
 async def update_bill(bill_id: str, bill_data: Dict[str, Any] = Body(...)):
     """Update a bill"""
     try:
@@ -2169,6 +2207,7 @@ async def update_bill(bill_id: str, bill_data: Dict[str, Any] = Body(...)):
 
 
 @router.delete("/finance/bills/{bill_id}")
+@require_any_permission(Permissions.FINANCE_BILL_DELETE, Permissions.ADMIN_ALL)
 async def delete_bill(bill_id: str):
     """
     Soft delete a bill.

@@ -42,6 +42,9 @@ try:
     from .routers import rfq as rfq_router
     from .routers import operations as operations_router
     from .routers import health as health_router
+    from .routers import users as users_router
+    from .routers import roles as roles_router
+    from .routers import approvals as approvals_router
     from .app.services.cpx_service import CPXService
     from .app.routers import survey_allocation as survey_allocation_router
     from .leads import router as leads_router
@@ -55,6 +58,9 @@ except Exception:
     from routers import rfq as rfq_router
     from routers import operations as operations_router
     from routers import health as health_router
+    from routers import users as users_router
+    from routers import roles as roles_router
+    from routers import approvals as approvals_router
     from app.services.cpx_service import CPXService
     from app.routers import survey_allocation as survey_allocation_router
     from leads import router as leads_router
@@ -540,6 +546,25 @@ try:
     print("✅ AI Review Queue router included")
 except Exception as e:
     print(f"⚠️ AI Review Queue router not included: {e}")
+
+# --- RBAC Routers ---
+try:
+    app.include_router(users_router.router)
+    print("✅ Users router included")
+except Exception as e:
+    print(f"⚠️ Users router not included: {e}")
+
+try:
+    app.include_router(roles_router.router)
+    print("✅ Roles router included")
+except Exception as e:
+    print(f"⚠️ Roles router not included: {e}")
+
+try:
+    app.include_router(approvals_router.router)
+    print("✅ Approvals router included")
+except Exception as e:
+    print(f"⚠️ Approvals router not included: {e}")
 
 # ----------------------------
 # APScheduler for CPX refresh job
