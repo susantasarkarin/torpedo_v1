@@ -32,6 +32,12 @@ from .models import (
     SendStatus,
     ReplyType
 )
+from .email_safety import (
+    check_kill_switch,
+    EmailKillSwitchActiveError,
+    is_dry_run_mode,
+    DISABLE_EMAIL_SENDING
+)
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +204,26 @@ class CampaignExecutor:
         recipient_id = send["recipient_id"]
         
         try:
+            # SAFETY: Check kill switch first
+            if DISABLE_EMAIL_SENDING:
+                logger.warning(f"[KILL SWITCH] Email sending blocked for send {send_id}")
+                self.db["campaign_sends"].update_one(
+                    {"_id": send["_id"]},
+                    {"$set": {"status": SendStatus.QUEUED.value, "error_message": "Email sending disabled via kill switch"}}
+                )
+                return
+            
+            # SAFETY: Check dry-run mode
+            if is_dry_run_mode():
+                recipient = self.manager.get_recipient(recipient_id)
+                email = recipient.get("email", "unknown") if recipient else "unknown"
+                logger.info(f"[DRY RUN] Would send to {email} (send_id: {send_id})")
+                self.db["campaign_sends"].update_one(
+                    {"_id": send["_id"]},
+                    {"$set": {"status": SendStatus.SENT.value, "sent_at": datetime.utcnow(), "dry_run": True}}
+                )
+                return
+            
             # Mark as sending
             self.db["campaign_sends"].update_one(
                 {"_id": send["_id"]},

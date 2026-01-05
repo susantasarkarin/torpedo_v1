@@ -13,6 +13,17 @@ import os
 import random
 import base64
 
+# URL validation utility for redirect safety
+try:
+    from ..utils import validate_redirect_url
+except ImportError:
+    try:
+        from utils import validate_redirect_url
+    except ImportError:
+        # Fallback if utils not available
+        def validate_redirect_url(url: str, require_https: bool = True) -> tuple:
+            return True, ""
+
 router = APIRouter(tags=["traffic-flow"])  # No prefix - routes are at root level
 
 # Configuration for traffic flow redirects - always from environment file
@@ -148,6 +159,25 @@ async def cpx_callback(
         else:  # "out" = terminate
             new_status = "TERMINATED"
             redirect_type = "terminateRD"
+        
+        # P0.15: CPX Callback Idempotency Check
+        # Generate callback key: {click_id}:{conversion_type}:{hour_bucket}
+        hour_bucket = datetime.utcnow().strftime("%Y%m%d%H")
+        callback_key = f"{decoded_sfwid}:{new_status}:{hour_bucket}"
+        
+        # Check for existing callback with same key (within the hour)
+        if cpx_callback_logs_collection is not None:
+            existing_callback = cpx_callback_logs_collection.find_one({
+                "callback_key": callback_key,
+                "success": True
+            })
+            if existing_callback:
+                print(f"⚠️ Duplicate callback detected: {callback_key}")
+                # Return the same redirect as before
+                existing_redirect = existing_callback.get("vendor_redirect_url")
+                if existing_redirect:
+                    return RedirectResponse(url=existing_redirect)
+                return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
         # Step 1: Find the traffic record by _id (SFWID)
         traffic_record = None
@@ -309,6 +339,7 @@ async def cpx_callback(
         # Step 6: Log the callback for monitoring
         log_entry = {
             "timestamp": datetime.utcnow(),
+            "callback_key": callback_key,  # P0.15: Idempotency key for deduplication
             "callback_url": str(request.url),
             "rid_received": rid,
             "decoded_sfwid": decoded_sfwid,

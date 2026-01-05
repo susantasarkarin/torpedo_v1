@@ -72,6 +72,7 @@ class EmailSummary(BaseModel):
     lead_id: Optional[str] = None
     contact_id: Optional[str] = None
     rfq_id: Optional[str] = None
+    project_id: Optional[str] = None  # P1.4: Link to Operations project
 
 
 class EmailDetail(EmailSummary):
@@ -592,6 +593,90 @@ async def link_to_lead(
     return {"success": True, "email_id": email_id, "lead_id": lead_id}
 
 
+@router.post("/{email_id}/link-project", response_model=Dict[str, Any])
+async def link_to_project(
+    email_id: str,
+    project_id: str,
+    db: MongoClient = Depends(get_db)
+):
+    """
+    P1.4: Link an email to an Operations project.
+    Optionally links all emails in the same thread.
+    """
+    emails_collection = db["emails"]
+    
+    # Get operations database for project validation
+    mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
+    client = MongoClient(mongo_uri)
+    operations_db = client["campaign_platform"]
+    projects_collection = operations_db["projects"]
+    
+    # Verify email exists
+    email = emails_collection.find_one({"_id": ObjectId(email_id)})
+    if not email:
+        raise HTTPException(status_code=404, detail="Email not found")
+    
+    # Verify project exists
+    project = projects_collection.find_one({"_id": ObjectId(project_id)})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Update email
+    emails_collection.update_one(
+        {"_id": ObjectId(email_id)},
+        {"$set": {"project_id": project_id, "project_linked_at": datetime.utcnow()}}
+    )
+    
+    return {
+        "success": True,
+        "email_id": email_id,
+        "project_id": project_id,
+        "project_name": project.get("name")
+    }
+
+
+@router.post("/thread/{thread_id}/link-project", response_model=Dict[str, Any])
+async def link_thread_to_project(
+    thread_id: str,
+    project_id: str,
+    db: MongoClient = Depends(get_db)
+):
+    """
+    P1.4: Link all emails in a thread to an Operations project.
+    """
+    emails_collection = db["emails"]
+    
+    # Get operations database for project validation
+    mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
+    client = MongoClient(mongo_uri)
+    operations_db = client["campaign_platform"]
+    projects_collection = operations_db["projects"]
+    
+    # Verify project exists
+    project = projects_collection.find_one({"_id": ObjectId(project_id)})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Find all emails in thread
+    thread_emails = list(emails_collection.find({"provider_thread_id": thread_id}))
+    if not thread_emails:
+        raise HTTPException(status_code=404, detail="No emails found for this thread")
+    
+    # Update all emails in thread
+    result = emails_collection.update_many(
+        {"provider_thread_id": thread_id},
+        {"$set": {"project_id": project_id, "project_linked_at": datetime.utcnow()}}
+    )
+    
+    return {
+        "success": True,
+        "thread_id": thread_id,
+        "project_id": project_id,
+        "project_name": project.get("name"),
+        "emails_linked": result.modified_count
+    }
+
+
 # ============== HELPER FUNCTIONS ==============
 
 def _format_email_summary(doc: Dict) -> Dict[str, Any]:
@@ -629,7 +714,8 @@ def _format_email_summary(doc: Dict) -> Dict[str, Any]:
         "priority": doc.get("category_priority"),
         "lead_id": doc.get("crm_lead_id"),
         "contact_id": doc.get("crm_contact_id"),
-        "rfq_id": doc.get("crm_rfq_id")
+        "rfq_id": doc.get("crm_rfq_id"),
+        "project_id": doc.get("project_id")
     }
 
 

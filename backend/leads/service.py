@@ -264,6 +264,25 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
             }}
         )
         
+        # P1.6: Queue low-confidence classifications for human review
+        try:
+            from .review_queue import get_review_queue_service
+            review_service = get_review_queue_service()
+            review_service.add_to_queue(
+                entity_type="lead",
+                entity_id=enriched_id or raw_lead_id,
+                ai_classification=result.model_dump(),
+                confidence_score=result.confidence_score,
+                metadata={
+                    "raw_lead_id": raw_lead_id,
+                    "name": lead.name,
+                    "linkedin_url": lead.linkedin_url
+                }
+            )
+        except Exception as e:
+            # Non-fatal - log and continue
+            pass
+        
         return True, None
     else:
         # Mark as failed

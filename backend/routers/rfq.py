@@ -45,6 +45,114 @@ customers_collection = finance_db["customers"]
 estimates_collection = finance_db["estimates"]
 invoices_collection = finance_db["invoices"]
 
+# Contacts collection for CRM
+contacts_collection = db["contacts"]
+
+
+# ============== RFQ STATE MACHINE ==============
+
+# P1.3: Valid status transitions
+VALID_STATUS_TRANSITIONS = {
+    "pending": ["quoted", "lost"],
+    "quoted": ["negotiating", "won", "lost"],
+    "negotiating": ["quoted", "won", "lost"],
+    "won": [],  # Terminal state
+    "lost": ["pending"],  # Can reopen lost RFQs
+}
+
+def validate_status_transition(current_status: str, new_status: str) -> tuple[bool, str]:
+    """
+    P1.3: Validate RFQ status transition.
+    Returns (is_valid, error_message).
+    """
+    if current_status == new_status:
+        return True, ""
+    
+    allowed = VALID_STATUS_TRANSITIONS.get(current_status, [])
+    if new_status in allowed:
+        return True, ""
+    
+    return False, f"Cannot transition from '{current_status}' to '{new_status}'. Allowed: {allowed}"
+
+
+def create_or_update_contact_on_win(rfq: Dict[str, Any]) -> Optional[str]:
+    """
+    P1.2: Auto-create or update contact when RFQ is won.
+    Returns contact_id if created/updated, None on error.
+    """
+    try:
+        email = rfq.get("contact_email", "").lower().strip()
+        if not email:
+            logger.warning(f"RFQ {rfq.get('rfq_id')} won but no contact_email")
+            return None
+        
+        # Check if contact already exists
+        existing = contacts_collection.find_one({"email": email})
+        
+        # Extract sender info from RFQ
+        sender_name = rfq.get("sender_name", "")
+        sender_company = rfq.get("sender_company", "")
+        
+        # Parse first/last name
+        first_name, last_name = "", ""
+        if sender_name:
+            parts = sender_name.strip().split(" ", 1)
+            first_name = parts[0]
+            last_name = parts[1] if len(parts) > 1 else ""
+        
+        now = datetime.utcnow()
+        
+        if existing:
+            # Update existing contact with won RFQ info
+            update_data = {
+                "updated_at": now,
+                "last_won_rfq_id": rfq.get("rfq_id"),
+                "last_won_rfq_date": now,
+            }
+            # Only update fields if they're empty
+            if not existing.get("firstName") and first_name:
+                update_data["firstName"] = first_name
+            if not existing.get("lastName") and last_name:
+                update_data["lastName"] = last_name
+            if not existing.get("company") and sender_company:
+                update_data["company"] = sender_company
+            
+            # Add 'won-rfq' tag if not present
+            existing_tags = existing.get("tags", [])
+            if "won-rfq" not in existing_tags:
+                update_data["tags"] = existing_tags + ["won-rfq"]
+            
+            contacts_collection.update_one(
+                {"_id": existing["_id"]},
+                {"$set": update_data}
+            )
+            logger.info(f"Updated contact {email} with won RFQ {rfq.get('rfq_id')}")
+            return str(existing["_id"])
+        else:
+            # Create new contact
+            contact_data = {
+                "email": email,
+                "firstName": first_name,
+                "lastName": last_name,
+                "company": sender_company,
+                "phone": "",
+                "tags": ["won-rfq", "auto-created"],
+                "customFields": {
+                    "source": "rfq-win",
+                    "source_rfq_id": rfq.get("rfq_id")
+                },
+                "last_won_rfq_id": rfq.get("rfq_id"),
+                "last_won_rfq_date": now,
+                "created_at": now,
+                "updated_at": now,
+            }
+            result = contacts_collection.insert_one(contact_data)
+            logger.info(f"Created contact {email} from won RFQ {rfq.get('rfq_id')}")
+            return str(result.inserted_id)
+    except Exception as e:
+        logger.error(f"Error creating/updating contact on RFQ win: {e}")
+        return None
+
 
 # ============== PYDANTIC MODELS ==============
 
@@ -215,8 +323,10 @@ async def list_rfqs(
 ) -> Dict[str, Any]:
     """
     List all RFQs with optional filters and pagination.
+    Excludes soft-deleted RFQs.
     """
-    query = {}
+    # P0.18: Exclude soft-deleted RFQs
+    query = {"is_deleted": {"$ne": True}}
     
     if status:
         query["status"] = status
@@ -257,8 +367,11 @@ async def list_rfqs(
 async def get_rfq_stats() -> Dict[str, Any]:
     """
     Get RFQ statistics by status.
+    Excludes soft-deleted RFQs.
     """
     pipeline = [
+        # P0.18: Exclude soft-deleted RFQs
+        {"$match": {"is_deleted": {"$ne": True}}},
         {
             "$group": {
                 "_id": "$status",
@@ -306,14 +419,18 @@ async def get_rfq_stats() -> Dict[str, Any]:
 async def get_rfq(rfq_id: str) -> Dict[str, Any]:
     """
     Get a single RFQ by ID (either rfq_id like RFQ-2025-0001 or MongoDB _id).
+    Excludes soft-deleted RFQs.
     """
+    # P0.18: Exclude soft-deleted RFQs
+    base_filter = {"is_deleted": {"$ne": True}}
+    
     # Try to find by rfq_id first
-    rfq = rfqs_collection.find_one({"rfq_id": rfq_id})
+    rfq = rfqs_collection.find_one({**base_filter, "rfq_id": rfq_id})
     
     # If not found, try by _id
     if not rfq:
         try:
-            rfq = rfqs_collection.find_one({"_id": ObjectId(rfq_id)})
+            rfq = rfqs_collection.find_one({**base_filter, "_id": ObjectId(rfq_id)})
         except:
             pass
     
@@ -393,6 +510,9 @@ async def create_rfq(rfq_data: RFQCreate) -> Dict[str, Any]:
 async def update_rfq(rfq_id: str, rfq_data: RFQUpdate) -> Dict[str, Any]:
     """
     Update an existing RFQ.
+    
+    P1.3: Validates status transitions via state machine.
+    P1.2: Auto-creates/updates contact when status changes to 'won'.
     """
     # Find the RFQ
     rfq = rfqs_collection.find_one({"rfq_id": rfq_id})
@@ -404,6 +524,17 @@ async def update_rfq(rfq_id: str, rfq_data: RFQUpdate) -> Dict[str, Any]:
     
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
+    
+    current_status = rfq.get("status", "pending")
+    
+    # P1.3: Validate status transition
+    if rfq_data.status is not None and rfq_data.status != current_status:
+        is_valid, error_msg = validate_status_transition(current_status, rfq_data.status)
+        if not is_valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status transition: {error_msg}"
+            )
     
     # Build update document
     update_doc = {"updated_at": datetime.utcnow()}
@@ -452,38 +583,80 @@ async def update_rfq(rfq_id: str, rfq_data: RFQUpdate) -> Dict[str, Any]:
     # Get updated document
     updated_rfq = rfqs_collection.find_one({"_id": rfq["_id"]})
     
-    return {
+    # P1.2: Auto-create/update contact when RFQ is won
+    contact_id = None
+    if rfq_data.status == "won" and current_status != "won":
+        contact_id = create_or_update_contact_on_win(updated_rfq)
+    
+    response = {
         "success": True,
         "message": "RFQ updated successfully",
         "rfq": rfq_to_response(updated_rfq)
     }
+    
+    if contact_id:
+        response["contact_created"] = True
+        response["contact_id"] = contact_id
+    
+    return response
 
 
 @router.delete("/{rfq_id}")
 async def delete_rfq(rfq_id: str) -> Dict[str, Any]:
     """
-    Delete an RFQ.
+    Soft delete an RFQ.
+    P0.18: Guards against deletion if linked estimates or invoices exist.
     """
+    # P0.18: Exclude already soft-deleted RFQs
+    base_filter = {"is_deleted": {"$ne": True}}
+    
     # Find the RFQ
-    rfq = rfqs_collection.find_one({"rfq_id": rfq_id})
+    rfq = rfqs_collection.find_one({**base_filter, "rfq_id": rfq_id})
     if not rfq:
         try:
-            rfq = rfqs_collection.find_one({"_id": ObjectId(rfq_id)})
+            rfq = rfqs_collection.find_one({**base_filter, "_id": ObjectId(rfq_id)})
         except:
             pass
     
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
     
-    # Remove RFQ ID from lead
+    # P0.18: Guard - Check for linked estimates
+    if rfq.get("estimate_id"):
+        linked_estimate = estimates_collection.find_one({"_id": ObjectId(rfq["estimate_id"])})
+        if linked_estimate:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete RFQ: linked to estimate {linked_estimate.get('estimate_number', rfq['estimate_id'])}. Delete the estimate first."
+            )
+    
+    # P0.18: Guard - Check for linked invoices
+    if rfq.get("invoice_id"):
+        linked_invoice = invoices_collection.find_one({"_id": ObjectId(rfq["invoice_id"])})
+        if linked_invoice:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete RFQ: linked to invoice {linked_invoice.get('invoice_number', rfq['invoice_id'])}. Delete the invoice first."
+            )
+    
+    # Remove RFQ ID from lead (keep this for data consistency)
     if rfq.get("contact_email"):
         email_leads_collection.update_one(
             {"email": rfq["contact_email"]},
             {"$pull": {"rfq_ids": rfq["rfq_id"]}}
         )
     
-    # Delete RFQ
-    rfqs_collection.delete_one({"_id": rfq["_id"]})
+    # P0.18: Soft delete instead of hard delete
+    rfqs_collection.update_one(
+        {"_id": rfq["_id"]},
+        {"$set": {
+            "is_deleted": True,
+            "deleted_at": datetime.utcnow(),
+            "deleted_by": "api_user"  # TODO: Replace with actual user from auth
+        }}
+    )
+    
+    logger.info(f"Soft deleted RFQ {rfq.get('rfq_id')}")
     
     return {
         "success": True,
@@ -494,23 +667,39 @@ async def delete_rfq(rfq_id: str) -> Dict[str, Any]:
 @router.post("/bulk-delete")
 async def bulk_delete_rfqs(data: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     """
-    Delete multiple RFQs by their IDs.
+    Soft delete multiple RFQs by their IDs.
+    P0.18: Guards against deletion if linked estimates or invoices exist.
     """
     ids = data.get("ids", [])
     if not ids:
         raise HTTPException(status_code=400, detail="No IDs provided")
     
+    # P0.18: Exclude already soft-deleted RFQs
+    base_filter = {"is_deleted": {"$ne": True}}
+    
     deleted_count = 0
+    skipped = []  # Track RFQs that couldn't be deleted
+    
     for rfq_id in ids:
         # Find the RFQ
-        rfq = rfqs_collection.find_one({"rfq_id": rfq_id})
+        rfq = rfqs_collection.find_one({**base_filter, "rfq_id": rfq_id})
         if not rfq:
             try:
-                rfq = rfqs_collection.find_one({"_id": ObjectId(rfq_id)})
+                rfq = rfqs_collection.find_one({**base_filter, "_id": ObjectId(rfq_id)})
             except:
                 continue
         
         if rfq:
+            # P0.18: Guard - Check for linked estimates
+            if rfq.get("estimate_id"):
+                skipped.append({"rfq_id": rfq.get("rfq_id", rfq_id), "reason": "linked to estimate"})
+                continue
+            
+            # P0.18: Guard - Check for linked invoices
+            if rfq.get("invoice_id"):
+                skipped.append({"rfq_id": rfq.get("rfq_id", rfq_id), "reason": "linked to invoice"})
+                continue
+            
             # Remove RFQ ID from lead
             if rfq.get("contact_email"):
                 email_leads_collection.update_one(
@@ -518,36 +707,53 @@ async def bulk_delete_rfqs(data: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
                     {"$pull": {"rfq_ids": rfq.get("rfq_id")}}
                 )
             
-            # Delete RFQ
-            rfqs_collection.delete_one({"_id": rfq["_id"]})
+            # P0.18: Soft delete instead of hard delete
+            rfqs_collection.update_one(
+                {"_id": rfq["_id"]},
+                {"$set": {
+                    "is_deleted": True,
+                    "deleted_at": datetime.utcnow(),
+                    "deleted_by": "api_user"  # TODO: Replace with actual user from auth
+                }}
+            )
             deleted_count += 1
     
-    return {
+    response = {
         "success": True,
         "message": f"Successfully deleted {deleted_count} RFQs",
         "deleted_count": deleted_count
     }
+    
+    if skipped:
+        response["skipped"] = skipped
+        response["message"] += f", skipped {len(skipped)} with linked documents"
+    
+    return response
 
 
 @router.get("/by-lead/{lead_id}")
 async def get_rfqs_by_lead(lead_id: str) -> Dict[str, Any]:
     """
     Get all RFQs for a specific lead.
+    Excludes soft-deleted RFQs.
     """
+    # P0.18: Exclude soft-deleted RFQs
+    base_filter = {"is_deleted": {"$ne": True}}
+    
     # First try to find by lead_id
-    rfqs = list(rfqs_collection.find({"lead_id": lead_id}).sort("created_at", DESCENDING))
+    rfqs = list(rfqs_collection.find({**base_filter, "lead_id": lead_id}).sort("created_at", DESCENDING))
     
     # If no results, try to find by contact_email
     if not rfqs:
         # Check if lead_id is actually an email
         if "@" in lead_id:
-            rfqs = list(rfqs_collection.find({"contact_email": lead_id}).sort("created_at", DESCENDING))
+            rfqs = list(rfqs_collection.find({**base_filter, "contact_email": lead_id}).sort("created_at", DESCENDING))
         else:
             # Try to get the lead's email first
             try:
                 lead = email_leads_collection.find_one({"_id": ObjectId(lead_id)})
                 if lead and lead.get("email"):
-                    rfqs = list(rfqs_collection.find({"contact_email": lead["email"]}).sort("created_at", DESCENDING))
+                    rfqs = list(rfqs_collection.find({**base_filter, "contact_email": lead["email"]}).sort("created_at", DESCENDING))
             except:
                 pass
     

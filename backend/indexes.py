@@ -126,6 +126,8 @@ def setup_indexes(db_manager=None):
     create_index_safe(panel_vendors, "email", sparse=True)
     create_index_safe(panel_vendors, "status")
     create_index_safe(panel_vendors, "createdAt")
+    # Panel vendors VID unique constraint (sparse to allow nulls)
+    create_index_safe(panel_vendors, "vid", unique=True, sparse=True)
     
     # Clients collection (Operations)
     clients = email_db["clients"]
@@ -146,6 +148,38 @@ def setup_indexes(db_manager=None):
     create_index_safe(openai_usage, [("source", ASCENDING), ("timestamp", DESCENDING)])
     create_index_safe(openai_usage, [("model", ASCENDING), ("timestamp", DESCENDING)])
     
+    # ============== EMAIL SAFETY INDEXES ==============
+    # Suppression List - unique email for global suppression
+    suppression_list = email_db["suppression_list"]
+    create_index_safe(suppression_list, "email", unique=True)
+    create_index_safe(suppression_list, "reason")
+    create_index_safe(suppression_list, "suppressed_at")
+    
+    # Campaign Sends - idempotency key to prevent duplicate sends
+    campaign_sends = email_db["campaign_sends"]
+    create_index_safe(campaign_sends, "idempotency_key", unique=True, sparse=True)
+    create_index_safe(campaign_sends, "campaign_id")
+    create_index_safe(campaign_sends, "recipient_id")
+    create_index_safe(campaign_sends, "sent_at")
+    
+    # Email Audit Log - track all email operations
+    email_audit_log = email_db["email_audit_log"]
+    create_index_safe(email_audit_log, [("campaign_id", ASCENDING), ("timestamp", DESCENDING)])
+    create_index_safe(email_audit_log, "timestamp")
+    create_index_safe(email_audit_log, "action")
+    
+    # Audit Log - unified entity audit trail
+    audit_log = email_db["audit_log"]
+    create_index_safe(audit_log, [("entity_type", ASCENDING), ("entity_id", ASCENDING), ("timestamp", DESCENDING)])
+    create_index_safe(audit_log, "timestamp")
+    create_index_safe(audit_log, "user_id", sparse=True)
+    create_index_safe(audit_log, "action")
+    
+    # AI Review Queue - low confidence classifications for human review
+    ai_review_queue = email_db["ai_review_queue"]
+    create_index_safe(ai_review_queue, [("status", ASCENDING), ("queued_at", DESCENDING)])
+    create_index_safe(ai_review_queue, "entity_type")
+    
     # IMAP Accounts
     imap_accounts = email_db["imap_accounts"]
     create_index_safe(imap_accounts, "email", unique=True)
@@ -164,6 +198,7 @@ def setup_indexes(db_manager=None):
     # Invoices collection
     invoices = finance_db["invoices"]
     create_index_safe(invoices, "invoice_number", unique=True, sparse=True)
+    create_index_safe(invoices, "idempotency_key", unique=True, sparse=True)  # P0.14: Invoice idempotency
     create_index_safe(invoices, "customer_id", sparse=True)
     create_index_safe(invoices, "customer_name")
     create_index_safe(invoices, "status")
@@ -193,6 +228,7 @@ def setup_indexes(db_manager=None):
     create_index_safe(url_params, "vendor_id")
     create_index_safe(url_params, "status")
     create_index_safe(url_params, "created_at")
+    create_index_safe(url_params, "callback_key", unique=True, sparse=True)  # P0.15: CPX callback idempotency
     
     # CPX Callback Logs
     cpx_callback_logs = traffic_db["cpx_callback_logs"]

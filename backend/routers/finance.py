@@ -773,20 +773,68 @@ async def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...))
 
 @router.delete("/finance/vendors/{vendor_id}")
 async def delete_vendor(vendor_id: str):
-    """Delete a vendor"""
+    """
+    Soft delete a billing vendor with safety checks.
+    - Blocks if vendor has outstanding balance_due
+    - Blocks if vendor has unpaid bills
+    """
     try:
-        # Check if vendor has bills
-        bill_count = bills_collection.count_documents({"vendor_id": vendor_id})
-        if bill_count > 0:
+        # First check if the vendor exists
+        vendor = vendors_collection.find_one({"_id": ObjectId(vendor_id)})
+        if not vendor:
+            raise HTTPException(status_code=404, detail="Vendor not found")
+        
+        # Safety Check 1: Check for outstanding balance
+        balance_due = vendor.get("balance_due", 0)
+        if balance_due and float(balance_due) > 0:
             raise HTTPException(
-                status_code=400, 
-                detail=f"Cannot delete vendor with {bill_count} bills. Delete bills first."
+                status_code=400,
+                detail=f"Cannot delete vendor with outstanding balance of ${balance_due:.2f}. Clear balance first."
             )
         
-        result = vendors_collection.delete_one({"_id": ObjectId(vendor_id)})
-        if result.deleted_count == 0:
+        # Safety Check 2: Check for unpaid bills
+        unpaid_bill_count = bills_collection.count_documents({
+            "vendor_id": vendor_id,
+            "status": {"$in": ["draft", "pending", "overdue", "partial"]}
+        })
+        if unpaid_bill_count > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete vendor with {unpaid_bill_count} unpaid bills. Pay or void bills first."
+            )
+        
+        # Safety Check 3: Check if vendor has any bills at all (existing check, but modified message)
+        bill_count = bills_collection.count_documents({"vendor_id": vendor_id})
+        if bill_count > 0:
+            # Soft delete - keep for historical records
+            result = vendors_collection.update_one(
+                {"_id": ObjectId(vendor_id)},
+                {
+                    "$set": {
+                        "is_deleted": True,
+                        "deleted_at": datetime.utcnow(),
+                        "status": "archived"
+                    }
+                }
+            )
+            if result.matched_count == 0:
+                raise HTTPException(status_code=404, detail="Vendor not found")
+            return {"message": f"Vendor archived (soft delete) - has {bill_count} historical bills"}
+        
+        # No bills - perform soft delete anyway for consistency
+        result = vendors_collection.update_one(
+            {"_id": ObjectId(vendor_id)},
+            {
+                "$set": {
+                    "is_deleted": True,
+                    "deleted_at": datetime.utcnow(),
+                    "status": "deleted"
+                }
+            }
+        )
+        if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Vendor not found")
-        return {"message": "Vendor deleted successfully"}
+        return {"message": "Vendor deleted successfully (soft delete)"}
     except HTTPException:
         raise
     except Exception as e:
@@ -1063,9 +1111,12 @@ async def import_vendors_csv(file: UploadFile = File(...)):
 
 @router.get("/finance/items/")
 async def get_items():
-    """Get all items"""
+    """
+    Get all items (excluding soft-deleted).
+    P0.16: Filters out soft-deleted items.
+    """
     try:
-        items = list(items_collection.find().sort("name", 1))
+        items = list(items_collection.find({"is_deleted": {"$ne": True}}).sort("name", 1))
         return serialize_docs(items)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching items: {str(e)}")
@@ -1073,9 +1124,12 @@ async def get_items():
 
 @router.get("/finance/items/{item_id}")
 async def get_item(item_id: str):
-    """Get a single item by ID"""
+    """
+    Get a single item by ID (excluding soft-deleted).
+    P0.16: Returns 404 if item is soft-deleted.
+    """
     try:
-        item = items_collection.find_one({"_id": ObjectId(item_id)})
+        item = items_collection.find_one({"_id": ObjectId(item_id), "is_deleted": {"$ne": True}})
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
         return serialize_doc(item)
@@ -1127,12 +1181,73 @@ async def update_item(item_id: str, item_data: Dict[str, Any] = Body(...)):
 
 @router.delete("/finance/items/{item_id}")
 async def delete_item(item_id: str):
-    """Delete an item"""
+    """
+    Soft delete an item with usage validation.
+    P0.17: Checks if item is used in invoices or bills before deletion.
+    P0.16: Uses soft delete instead of hard delete.
+    """
     try:
-        result = items_collection.delete_one({"_id": ObjectId(item_id)})
-        if result.deleted_count == 0:
+        item = items_collection.find_one({"_id": ObjectId(item_id)})
+        if not item:
             raise HTTPException(status_code=404, detail="Item not found")
-        return {"message": "Item deleted successfully"}
+        
+        item_name = item.get("name", "")
+        item_sku = item.get("sku", "")
+        
+        # P0.17: Check if item is used in any invoice line items
+        invoice_usage = invoices_collection.count_documents({
+            "is_deleted": {"$ne": True},
+            "items": {
+                "$elemMatch": {
+                    "$or": [
+                        {"item_id": item_id},
+                        {"item_id": str(item_id)},
+                        {"sku": item_sku},
+                        {"name": item_name}
+                    ]
+                }
+            }
+        })
+        if invoice_usage > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete item '{item_name}' - used in {invoice_usage} invoice(s). Remove from invoices first."
+            )
+        
+        # P0.17: Check if item is used in any bill line items
+        bill_usage = bills_collection.count_documents({
+            "is_deleted": {"$ne": True},
+            "items": {
+                "$elemMatch": {
+                    "$or": [
+                        {"item_id": item_id},
+                        {"item_id": str(item_id)},
+                        {"sku": item_sku},
+                        {"name": item_name}
+                    ]
+                }
+            }
+        })
+        if bill_usage > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete item '{item_name}' - used in {bill_usage} bill(s). Remove from bills first."
+            )
+        
+        # Soft delete - set is_deleted flag instead of removing
+        result = items_collection.update_one(
+            {"_id": ObjectId(item_id)},
+            {
+                "$set": {
+                    "is_deleted": True,
+                    "deleted_at": datetime.utcnow(),
+                    "status": "deleted"
+                }
+            }
+        )
+        return {"message": "Item deleted successfully (soft delete)"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting item: {str(e)}")
 
@@ -1260,9 +1375,13 @@ async def import_items_csv(file: UploadFile = File(...)):
 
 @router.get("/finance/estimates/")
 async def get_estimates():
-    """Get all estimates with customer details"""
+    """
+    Get all estimates with customer details (excluding soft-deleted).
+    P0.16: Filters out soft-deleted estimates.
+    """
     try:
         pipeline = [
+            {"$match": {"is_deleted": {"$ne": True}}},  # P0.16: Exclude soft-deleted
             {
                 "$lookup": {
                     "from": "customers",
@@ -1286,9 +1405,12 @@ async def get_estimates():
 
 @router.get("/finance/estimates/{estimate_id}")
 async def get_estimate(estimate_id: str):
-    """Get a single estimate by ID"""
+    """
+    Get a single estimate by ID (excluding soft-deleted).
+    P0.16: Returns 404 if estimate is soft-deleted.
+    """
     try:
-        estimate = estimates_collection.find_one({"_id": ObjectId(estimate_id)})
+        estimate = estimates_collection.find_one({"_id": ObjectId(estimate_id), "is_deleted": {"$ne": True}})
         if not estimate:
             raise HTTPException(status_code=404, detail="Estimate not found")
         
@@ -1357,14 +1479,27 @@ async def update_estimate(estimate_id: str, estimate_data: Dict[str, Any] = Body
 
 @router.delete("/finance/estimates/{estimate_id}")
 async def delete_estimate(estimate_id: str):
-    """Delete an estimate"""
+    """
+    Soft delete an estimate.
+    P0.16: Finance Soft Delete - marks as deleted instead of removing.
+    """
     try:
         estimate = estimates_collection.find_one({"_id": ObjectId(estimate_id)})
         if not estimate:
             raise HTTPException(status_code=404, detail="Estimate not found")
         
-        result = estimates_collection.delete_one({"_id": ObjectId(estimate_id)})
-        return {"message": "Estimate deleted successfully"}
+        # Soft delete - set is_deleted flag instead of removing
+        result = estimates_collection.update_one(
+            {"_id": ObjectId(estimate_id)},
+            {
+                "$set": {
+                    "is_deleted": True,
+                    "deleted_at": datetime.utcnow(),
+                    "status": "deleted"
+                }
+            }
+        )
+        return {"message": "Estimate deleted successfully (soft delete)"}
     except HTTPException:
         raise
     except Exception as e:
@@ -1556,10 +1691,13 @@ async def get_invoices(
     customer_id: Optional[str] = Query(None, description="Filter by customer ID"),
     status: Optional[str] = Query(None, description="Filter by status"),
 ):
-    """Get all invoices with customer details, with optional filters"""
+    """
+    Get all invoices with customer details (excluding soft-deleted).
+    P0.16: Filters out soft-deleted invoices.
+    """
     try:
-        # Build match stage for filters
-        match_stage = {}
+        # Build match stage for filters - always exclude soft-deleted
+        match_stage = {"is_deleted": {"$ne": True}}  # P0.16: Exclude soft-deleted
         if project_id:
             match_stage["project_id"] = project_id
         if customer_id:
@@ -1568,7 +1706,7 @@ async def get_invoices(
             match_stage["status"] = status
         
         pipeline = [
-            {"$match": match_stage} if match_stage else {"$match": {}},
+            {"$match": match_stage},
             {
                 "$lookup": {
                     "from": "customers",
@@ -1592,9 +1730,12 @@ async def get_invoices(
 
 @router.get("/finance/invoices/{invoice_id}")
 async def get_invoice(invoice_id: str):
-    """Get a single invoice by ID"""
+    """
+    Get a single invoice by ID (excluding soft-deleted).
+    P0.16: Returns 404 if invoice is soft-deleted.
+    """
     try:
-        invoice = invoices_collection.find_one({"_id": ObjectId(invoice_id)})
+        invoice = invoices_collection.find_one({"_id": ObjectId(invoice_id), "is_deleted": {"$ne": True}})
         if not invoice:
             raise HTTPException(status_code=404, detail="Invoice not found")
         
@@ -1671,7 +1812,10 @@ async def update_invoice(invoice_id: str, invoice_data: Dict[str, Any] = Body(..
 
 @router.delete("/finance/invoices/{invoice_id}")
 async def delete_invoice(invoice_id: str):
-    """Delete an invoice"""
+    """
+    Soft delete an invoice.
+    P0.16: Finance Soft Delete - marks as deleted instead of removing.
+    """
     try:
         invoice = invoices_collection.find_one({"_id": ObjectId(invoice_id)})
         if not invoice:
@@ -1684,8 +1828,18 @@ async def delete_invoice(invoice_id: str):
                 {"$inc": {"total_receivables": -invoice.get("balance_due", 0)}}
             )
         
-        result = invoices_collection.delete_one({"_id": ObjectId(invoice_id)})
-        return {"message": "Invoice deleted successfully"}
+        # Soft delete - set is_deleted flag instead of removing
+        result = invoices_collection.update_one(
+            {"_id": ObjectId(invoice_id)},
+            {
+                "$set": {
+                    "is_deleted": True,
+                    "deleted_at": datetime.utcnow(),
+                    "status": "deleted"
+                }
+            }
+        )
+        return {"message": "Invoice deleted successfully (soft delete)"}
     except HTTPException:
         raise
     except Exception as e:
@@ -1894,10 +2048,13 @@ async def get_bills(
     vendor_id: Optional[str] = Query(None, description="Filter by vendor ID"),
     status: Optional[str] = Query(None, description="Filter by status"),
 ):
-    """Get all bills with vendor details, with optional filters"""
+    """
+    Get all bills with vendor details (excluding soft-deleted).
+    P0.16: Filters out soft-deleted bills.
+    """
     try:
-        # Build match stage for filters
-        match_stage = {}
+        # Build match stage for filters - always exclude soft-deleted
+        match_stage = {"is_deleted": {"$ne": True}}  # P0.16: Exclude soft-deleted
         if project_id:
             match_stage["project_id"] = project_id
         if vendor_id:
@@ -1906,7 +2063,7 @@ async def get_bills(
             match_stage["status"] = status
         
         pipeline = [
-            {"$match": match_stage} if match_stage else {"$match": {}},
+            {"$match": match_stage},
             {
                 "$lookup": {
                     "from": "vendors",
@@ -1930,9 +2087,12 @@ async def get_bills(
 
 @router.get("/finance/bills/{bill_id}")
 async def get_bill(bill_id: str):
-    """Get a single bill by ID"""
+    """
+    Get a single bill by ID (excluding soft-deleted).
+    P0.16: Returns 404 if bill is soft-deleted.
+    """
     try:
-        bill = bills_collection.find_one({"_id": ObjectId(bill_id)})
+        bill = bills_collection.find_one({"_id": ObjectId(bill_id), "is_deleted": {"$ne": True}})
         if not bill:
             raise HTTPException(status_code=404, detail="Bill not found")
         
@@ -2010,7 +2170,10 @@ async def update_bill(bill_id: str, bill_data: Dict[str, Any] = Body(...)):
 
 @router.delete("/finance/bills/{bill_id}")
 async def delete_bill(bill_id: str):
-    """Delete a bill"""
+    """
+    Soft delete a bill.
+    P0.16: Finance Soft Delete - marks as deleted instead of removing.
+    """
     try:
         bill = bills_collection.find_one({"_id": ObjectId(bill_id)})
         if not bill:
@@ -2023,8 +2186,18 @@ async def delete_bill(bill_id: str):
                 {"$inc": {"total_payables": -bill.get("balance_due", 0)}}
             )
         
-        result = bills_collection.delete_one({"_id": ObjectId(bill_id)})
-        return {"message": "Bill deleted successfully"}
+        # Soft delete - set is_deleted flag instead of removing
+        result = bills_collection.update_one(
+            {"_id": ObjectId(bill_id)},
+            {
+                "$set": {
+                    "is_deleted": True,
+                    "deleted_at": datetime.utcnow(),
+                    "status": "deleted"
+                }
+            }
+        )
+        return {"message": "Bill deleted successfully (soft delete)"}
     except HTTPException:
         raise
     except Exception as e:
@@ -2442,9 +2615,13 @@ async def get_expenses(
     category: Optional[str] = Query(None, description="Filter by category"),
     approval_status: Optional[str] = Query(None, description="Filter by approval status"),
 ):
-    """Get all expenses with optional filters"""
+    """
+    Get all expenses (excluding soft-deleted).
+    P0.16: Filters out soft-deleted expenses.
+    """
     try:
-        query = {}
+        # Always exclude soft-deleted
+        query = {"is_deleted": {"$ne": True}}  # P0.16: Exclude soft-deleted
         if project_id:
             query["project_id"] = project_id
         if category:
@@ -2503,12 +2680,29 @@ async def update_expense(expense_id: str, expense_data: Dict[str, Any] = Body(..
 
 @router.delete("/expenses/{expense_id}")
 async def delete_expense(expense_id: str):
-    """Delete an expense"""
+    """
+    Soft delete an expense.
+    P0.16: Finance Soft Delete - marks as deleted instead of removing.
+    """
     try:
-        result = expenses_collection.delete_one({"_id": ObjectId(expense_id)})
-        if result.deleted_count == 0:
+        expense = expenses_collection.find_one({"_id": ObjectId(expense_id)})
+        if not expense:
             raise HTTPException(status_code=404, detail="Expense not found")
-        return {"message": "Expense deleted successfully"}
+        
+        # Soft delete - set is_deleted flag instead of removing
+        result = expenses_collection.update_one(
+            {"_id": ObjectId(expense_id)},
+            {
+                "$set": {
+                    "is_deleted": True,
+                    "deleted_at": datetime.utcnow(),
+                    "approval_status": "deleted"
+                }
+            }
+        )
+        return {"message": "Expense deleted successfully (soft delete)"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting expense: {str(e)}")
 

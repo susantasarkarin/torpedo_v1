@@ -20,6 +20,18 @@ try:
     from .auth import hash_password, verify_password, needs_rehash, migrate_user_password
 except ImportError:
     from auth import hash_password, verify_password, needs_rehash, migrate_user_password
+
+# URL validation utility
+try:
+    from .utils import validate_redirect_url
+except ImportError:
+    from utils import validate_redirect_url
+
+# Session store for Redis-backed sessions
+try:
+    from .session_store import get_session_store, SessionStore, SESSION_TTL_SECONDS as REDIS_SESSION_TTL
+except ImportError:
+    from session_store import get_session_store, SessionStore, SESSION_TTL_SECONDS as REDIS_SESSION_TTL
 try:
     # Prefer relative import when running as a package (python -m uvicorn backend.main)
     from .routers import traffic as traffic_router
@@ -29,6 +41,7 @@ try:
     from .routers import gmail as gmail_router
     from .routers import rfq as rfq_router
     from .routers import operations as operations_router
+    from .routers import health as health_router
     from .app.services.cpx_service import CPXService
     from .app.routers import survey_allocation as survey_allocation_router
     from .leads import router as leads_router
@@ -41,6 +54,7 @@ except Exception:
     from routers import gmail as gmail_router
     from routers import rfq as rfq_router
     from routers import operations as operations_router
+    from routers import health as health_router
     from app.services.cpx_service import CPXService
     from app.routers import survey_allocation as survey_allocation_router
     from leads import router as leads_router
@@ -188,9 +202,26 @@ def get_survey_filter_settings() -> Dict[str, Any]:
 SECRET_KEY = os.getenv("SESSION_SECRET", "supersecretkey")
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", 60 * 60 * 24))  # default 24h
 serializer = URLSafeTimedSerializer(SECRET_KEY)
-sessions = {}  # store active sessions (use Redis for production)
 
-def verify_session(request: Request):
+# In-memory sessions dict for backward compatibility during Redis initialization
+# Will be replaced by Redis store calls once initialized
+sessions = {}  # fallback in-memory store (deprecated - use Redis)
+
+# Global session store reference (initialized on first use)
+_session_store = None
+
+async def get_session_store_instance():
+    """Get or initialize the session store singleton."""
+    global _session_store
+    if _session_store is None:
+        _session_store = await get_session_store()
+    return _session_store
+
+async def verify_session(request: Request):
+    """
+    Verify session token from Authorization header.
+    Uses Redis store for session persistence, with fallback to in-memory.
+    """
     session_id = request.headers.get("Authorization")
     if not session_id:
         raise HTTPException(status_code=401, detail="Missing session token")
@@ -203,25 +234,29 @@ def verify_session(request: Request):
         # If this succeeds, the token is valid and not expired
         username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
         
-        # Optional: Check if session exists in memory for additional tracking
-        # If server restarted, session won't be in memory, but token is still valid
-        session_data = sessions.get(session_id)
+        # Try Redis store first
+        store = await get_session_store_instance()
+        session_data = await store.get(session_id)
         
         if session_data:
-            # Session exists in memory, check explicit expiration
-            if datetime.utcnow() > session_data["expires_at"]:
-                del sessions[session_id]
-                print(f"Session expired for user: {username}")
-                raise HTTPException(status_code=401, detail="Session expired or invalid")
+            # Session exists in Redis, extend TTL on activity
+            await store.extend(session_id, SESSION_TTL_SECONDS)
         else:
-            # Session not in memory (e.g., after server restart)
+            # Session not in Redis (e.g., after Redis restart or new session)
             # But token is valid (deserialized successfully), so allow access
-            # Recreate session in memory for tracking (optional)
-            sessions[session_id] = {
-                "username": username,
-                "expires_at": datetime.utcnow() + timedelta(seconds=SESSION_TTL_SECONDS)
-            }
-            print(f"Session recreated for user: {username} (server restart scenario)")
+            # Create session in Redis for tracking
+            await store.create(
+                session_id,
+                {"username": username},
+                SESSION_TTL_SECONDS
+            )
+            print(f"Session created/recreated in store for user: {username}")
+        
+        # Also update in-memory cache for backward compatibility
+        sessions[session_id] = {
+            "username": username,
+            "expires_at": datetime.utcnow() + timedelta(seconds=SESSION_TTL_SECONDS)
+        }
 
         return username
     except SignatureExpired:
@@ -365,6 +400,13 @@ try:
 except Exception as e:
     print(f"⚠️ Settings router not included: {e}")
 
+# Health router for system monitoring
+try:
+    app.include_router(health_router.router)
+    print("✅ Health router included")
+except Exception as e:
+    print(f"⚠️ Health router not included: {e}")
+
 # Gmail router for Gmail API integration
 try:
     app.include_router(gmail_router.router)
@@ -476,6 +518,28 @@ try:
     print("✅ Email Classification router included")
 except Exception as e:
     print(f"⚠️ Email Classification router not included: {e}")
+
+# Audit Trail router
+try:
+    try:
+        from .routers import audit as audit_router
+    except ImportError:
+        from routers import audit as audit_router
+    app.include_router(audit_router.router)
+    print("✅ Audit Trail router included")
+except Exception as e:
+    print(f"⚠️ Audit Trail router not included: {e}")
+
+# P1.6: AI Review Queue router
+try:
+    try:
+        from .routers import review_queue as review_queue_router
+    except ImportError:
+        from routers import review_queue as review_queue_router
+    app.include_router(review_queue_router.router)
+    print("✅ AI Review Queue router included")
+except Exception as e:
+    print(f"⚠️ AI Review Queue router not included: {e}")
 
 # ----------------------------
 # APScheduler for CPX refresh job
@@ -680,6 +744,16 @@ async def login(credentials: Dict[str, str] = Body(...)):
 
         # ✅ Create session token
         session_id = serializer.dumps(username)
+        
+        # Store session in Redis (with fallback to in-memory)
+        store = await get_session_store_instance()
+        await store.create(
+            session_id,
+            {"username": username, "role": role},
+            SESSION_TTL_SECONDS
+        )
+        
+        # Also store in memory for backward compatibility
         sessions[session_id] = {
             "username": username,
             "expires_at": datetime.utcnow() + timedelta(seconds=SESSION_TTL_SECONDS)
@@ -703,8 +777,13 @@ async def login(credentials: Dict[str, str] = Body(...)):
 @app.post("/logout/")
 async def logout(request: Request):
     session_id = request.headers.get("Authorization")
-    if session_id in sessions:
-        del sessions[session_id]
+    if session_id:
+        # Delete from Redis store
+        store = await get_session_store_instance()
+        await store.delete(session_id)
+        
+        # Also delete from in-memory cache
+        sessions.pop(session_id, None)
     return {"message": "Logged out successfully"}
 
 
@@ -1614,6 +1693,21 @@ async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
         if not vendor_data.get("status") or not vendor_data["status"].strip():
             raise HTTPException(status_code=400, detail="Status is required")
 
+        # Validate redirect URLs if provided
+        for url_field in ["completeRD", "terminateRD", "quotaRD"]:
+            urls = vendor_data.get(url_field, [])
+            if urls:
+                # Handle both array and string format
+                url_list = urls if isinstance(urls, list) else [urls]
+                for url in url_list:
+                    if url and url.strip():
+                        is_valid, error_msg = validate_redirect_url(url.strip(), require_https=False)
+                        if not is_valid:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Invalid {url_field} URL: {error_msg}"
+                            )
+
         vendor_data["vid"] = generate_vid()
         result = vendors_collection.insert_one(vendor_data)
         vendor_data["_id"] = str(result.inserted_id)
@@ -1637,20 +1731,79 @@ async def get_vendors():
 async def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...)):
     try:
         vendor_data = {k: v for k, v in vendor_data.items() if k != "_id" and k != "vid"}
+        
+        # Validate redirect URLs if provided
+        for url_field in ["completeRD", "terminateRD", "quotaRD"]:
+            urls = vendor_data.get(url_field, [])
+            if urls:
+                # Handle both array and string format
+                url_list = urls if isinstance(urls, list) else [urls]
+                for url in url_list:
+                    if url and url.strip():
+                        is_valid, error_msg = validate_redirect_url(url.strip(), require_https=False)
+                        if not is_valid:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Invalid {url_field} URL: {error_msg}"
+                            )
+        
         result = vendors_collection.update_one({"_id": ObjectId(vendor_id)}, {"$set": vendor_data})
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Vendor not found")
         return {"message": "Vendor updated successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Vendor update error: {str(e)}")
 
 @app.delete("/vendors/{vendor_id}")
 async def delete_vendor(vendor_id: str):
+    """
+    Soft delete a panel vendor with safety checks.
+    - Blocks if vendor has traffic records
+    - Blocks if vendor is linked to a billing vendor
+    """
     try:
-        result = vendors_collection.delete_one({"_id": ObjectId(vendor_id)})
-        if result.deleted_count == 0:
+        # First check if the vendor exists
+        vendor = vendors_collection.find_one({"_id": ObjectId(vendor_id)})
+        if not vendor:
             raise HTTPException(status_code=404, detail="Vendor not found")
-        return {"message": "Vendor deleted successfully"}
+        
+        # Safety Check 1: Check for traffic records linked to this vendor
+        if url_parameters_collection is not None:
+            vid = vendor.get("vid")
+            if vid:
+                traffic_count = url_parameters_collection.count_documents({"vendorId": vid})
+                if traffic_count > 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Cannot delete vendor with {traffic_count} traffic records. Archive instead."
+                    )
+        
+        # Safety Check 2: Check if linked to a billing vendor
+        linked_billing_id = vendor.get("linked_billing_vendor_id")
+        if linked_billing_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete vendor linked to billing vendor (ID: {linked_billing_id}). Unlink first."
+            )
+        
+        # Soft delete instead of hard delete
+        result = vendors_collection.update_one(
+            {"_id": ObjectId(vendor_id)},
+            {
+                "$set": {
+                    "is_deleted": True,
+                    "deleted_at": datetime.utcnow(),
+                    "status": "deleted"
+                }
+            }
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Vendor not found")
+        return {"message": "Vendor deleted successfully (soft delete)"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Vendor delete error: {str(e)}")
     
@@ -1705,10 +1858,72 @@ async def update_project(project_id: str, project_data: Dict[str, Any] = Body(..
 
 @app.delete("/projects/{project_id}")
 async def delete_project(project_id: str):
+    """
+    Soft delete a project with cascade validation.
+    Checks for linked invoices, bills, and expenses before deletion.
+    P0.13: Project Soft Delete with Cascade Validation
+    """
     try:
-        result = projects_collection.delete_one({"_id": ObjectId(project_id)})
-        if result.deleted_count == 0:
+        # First check if project exists
+        project = projects_collection.find_one({"_id": ObjectId(project_id)})
+        if not project:
             raise HTTPException(status_code=404, detail="Project not found")
-        return {"message": "Project deleted successfully"}
+        
+        # Import finance collections for cascade validation
+        finance_db = client["finance_db"]
+        invoices_collection = finance_db["invoices"]
+        bills_collection = finance_db["bills"]
+        expenses_collection = finance_db["expenses"]
+        
+        # Check for linked invoices (excluding soft-deleted)
+        linked_invoices = invoices_collection.count_documents({
+            "project_id": project_id,
+            "is_deleted": {"$ne": True}
+        })
+        if linked_invoices > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete project with {linked_invoices} linked invoice(s). Delete or unlink invoices first."
+            )
+        
+        # Check for linked bills (excluding soft-deleted)
+        linked_bills = bills_collection.count_documents({
+            "project_id": project_id,
+            "is_deleted": {"$ne": True}
+        })
+        if linked_bills > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete project with {linked_bills} linked bill(s). Delete or unlink bills first."
+            )
+        
+        # Check for linked expenses (excluding soft-deleted)
+        linked_expenses = expenses_collection.count_documents({
+            "project_id": project_id,
+            "is_deleted": {"$ne": True}
+        })
+        if linked_expenses > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot delete project with {linked_expenses} linked expense(s). Delete or unlink expenses first."
+            )
+        
+        # Soft delete - set is_deleted flag instead of removing
+        result = projects_collection.update_one(
+            {"_id": ObjectId(project_id)},
+            {
+                "$set": {
+                    "is_deleted": True,
+                    "deleted_at": datetime.utcnow(),
+                    "projectStatus": "Deleted"
+                }
+            }
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        return {"message": "Project deleted successfully (soft delete)"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Project delete error: {str(e)}")

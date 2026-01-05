@@ -341,6 +341,21 @@ async def sync_accounts_from_clients():
 # PROJECT INVOICING ENDPOINTS
 # ============================================================
 
+import hashlib
+
+def generate_idempotency_key(project_id: str, items: List[Dict]) -> str:
+    """
+    Generate idempotency key for invoice creation.
+    Format: project:{project_id}:inv:{YYYYMMDD}:{line_items_hash}
+    P0.14: Invoice Creation Idempotency
+    """
+    date_str = datetime.utcnow().strftime("%Y%m%d")
+    # Create hash of line items (sorted for consistency)
+    items_str = str(sorted([str(item) for item in items])) if items else ""
+    items_hash = hashlib.sha256(items_str.encode()).hexdigest()[:12]
+    return f"project:{project_id}:inv:{date_str}:{items_hash}"
+
+
 @router.post("/projects/{project_id}/invoice")
 async def create_invoice_from_project(
     project_id: str,
@@ -349,6 +364,7 @@ async def create_invoice_from_project(
     """
     Create an invoice from a project.
     Auto-populates invoice with project details.
+    P0.14: Includes idempotency check to prevent duplicate invoices.
     """
     try:
         # Get project
@@ -417,9 +433,25 @@ async def create_invoice_from_project(
         tax_total = sum(item.get("tax_amount", 0) for item in items)
         total_amount = subtotal + tax_total
         
+        # P0.14: Generate idempotency key and check for duplicates
+        idempotency_key = generate_idempotency_key(project_id, items)
+        existing_invoice = invoices_collection.find_one({
+            "idempotency_key": idempotency_key,
+            "is_deleted": {"$ne": True}
+        })
+        if existing_invoice:
+            # Return existing invoice instead of creating duplicate
+            existing_invoice["_id"] = str(existing_invoice["_id"])
+            return {
+                "message": "Duplicate invoice detected - returning existing invoice",
+                "invoice": existing_invoice,
+                "duplicate": True
+            }
+        
         # Create invoice
         new_invoice = {
             "invoice_number": generate_invoice_number(),
+            "idempotency_key": idempotency_key,
             "customer_id": customer_id,
             "project_id": project_id,  # Link to project
             "project_name": project.get("projectName"),

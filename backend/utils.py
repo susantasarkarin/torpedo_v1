@@ -14,6 +14,8 @@ from bson import ObjectId
 from datetime import datetime, timezone
 from pydantic import BaseModel
 import traceback
+import re
+from urllib.parse import urlparse
 
 
 # ============== DOCUMENT SERIALIZATION ==============
@@ -455,3 +457,102 @@ def merge_queries(*queries: Dict[str, Any]) -> Dict[str, Any]:
         return valid_queries[0]
     
     return {"$and": valid_queries}
+
+
+# ============== URL VALIDATION ==============
+
+def validate_redirect_url(url: str, require_https: bool = True) -> tuple:
+    """
+    Validate a redirect URL for safety.
+    Returns (is_valid, error_message)
+    
+    Args:
+        url: URL to validate
+        require_https: Whether to require HTTPS scheme
+        
+    Returns:
+        Tuple of (is_valid: bool, error_message: str)
+    """
+    if not url:
+        return False, "URL is required"
+    
+    url = url.strip()
+    
+    # Parse URL
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False, "Invalid URL format"
+    
+    # Check scheme
+    if require_https:
+        if parsed.scheme != "https":
+            return False, "URL must use HTTPS"
+    elif parsed.scheme not in ("http", "https"):
+        return False, "URL must use HTTP or HTTPS"
+    
+    # Check for localhost/internal IPs
+    host = parsed.netloc.lower().split(":")[0]
+    blocked_hosts = ["localhost", "127.0.0.1", "0.0.0.0", "::1"]
+    if host in blocked_hosts:
+        return False, "Internal/localhost URLs not allowed"
+    
+    # Check for private IP ranges
+    if re.match(r"^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)", host):
+        return False, "Private IP addresses not allowed"
+    
+    # Check for javascript: or data: schemes
+    if parsed.scheme in ("javascript", "data", "vbscript"):
+        return False, f"Scheme '{parsed.scheme}' not allowed"
+    
+    # Basic path validation
+    if not parsed.netloc:
+        return False, "URL must have a valid host"
+    
+    return True, ""
+
+
+# ============== SOFT DELETE UTILITIES ==============
+
+def soft_delete_update(deleted_by: Optional[str] = None) -> dict:
+    """
+    Generate the $set update for soft delete.
+    
+    Args:
+        deleted_by: Username or ID of the user performing the delete
+        
+    Returns:
+        Dict to use with MongoDB $set for soft delete
+    """
+    return {
+        "$set": {
+            "is_deleted": True,
+            "deleted_at": datetime.utcnow(),
+            "deleted_by": deleted_by
+        }
+    }
+
+
+def not_deleted_filter() -> dict:
+    """
+    Filter to exclude soft-deleted documents.
+    
+    Returns:
+        MongoDB query dict to filter out deleted documents
+    """
+    return {"is_deleted": {"$ne": True}}
+
+
+def include_deleted_filter(include: bool = False) -> dict:
+    """
+    Conditionally filter deleted documents.
+    
+    Args:
+        include: If True, include deleted documents; if False, exclude them
+        
+    Returns:
+        MongoDB query dict (empty if including, filter if excluding)
+    """
+    if include:
+        return {}
+    return {"is_deleted": {"$ne": True}}

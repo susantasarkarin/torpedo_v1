@@ -191,3 +191,137 @@ async def unlink_panel_from_billing(panel_vendor_id: str):
         if isinstance(e, HTTPException):
             raise e
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========================
+# P1.5: Vendor Email Separation
+# ========================
+
+@router.get("/{vendor_id}/emails")
+async def get_vendor_emails(vendor_id: str, vendor_type: str = Query("panel", description="panel or billing")):
+    """
+    P1.5: Get all emails associated with a vendor.
+    Returns structured email data with types: primary, billing, internal, other.
+    """
+    try:
+        collection = panel_vendors_collection if vendor_type == "panel" else billing_vendors_collection
+        vendor = collection.find_one({"_id": ObjectId(vendor_id)})
+        
+        if not vendor:
+            raise HTTPException(status_code=404, detail=f"{vendor_type.capitalize()} vendor not found")
+        
+        # Build emails list from various fields
+        emails = []
+        
+        # Primary/contact email
+        primary_email = vendor.get("email") or vendor.get("contact_email")
+        if primary_email:
+            emails.append({
+                "email": primary_email,
+                "type": "primary",
+                "label": "Primary Contact",
+                "is_primary": True
+            })
+        
+        # Billing email (if different from primary)
+        billing_email = vendor.get("billing_email")
+        if billing_email and billing_email != primary_email:
+            emails.append({
+                "email": billing_email,
+                "type": "billing",
+                "label": "Billing",
+                "is_primary": False
+            })
+        
+        # Internal/operations email
+        internal_email = vendor.get("internal_email") or vendor.get("operations_email")
+        if internal_email and internal_email not in [primary_email, billing_email]:
+            emails.append({
+                "email": internal_email,
+                "type": "internal",
+                "label": "Internal/Operations",
+                "is_primary": False
+            })
+        
+        # Additional emails list
+        additional_emails = vendor.get("additional_emails", [])
+        for add_email in additional_emails:
+            if isinstance(add_email, str):
+                if add_email not in [e["email"] for e in emails]:
+                    emails.append({
+                        "email": add_email,
+                        "type": "other",
+                        "label": "Additional",
+                        "is_primary": False
+                    })
+            elif isinstance(add_email, dict):
+                if add_email.get("email") not in [e["email"] for e in emails]:
+                    emails.append({
+                        "email": add_email.get("email"),
+                        "type": add_email.get("type", "other"),
+                        "label": add_email.get("label", "Additional"),
+                        "is_primary": False
+                    })
+        
+        return {
+            "vendor_id": vendor_id,
+            "vendor_type": vendor_type,
+            "vendor_name": vendor.get("vendor_name") or vendor.get("name"),
+            "emails": emails
+        }
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/{vendor_id}/emails")
+async def update_vendor_emails(
+    vendor_id: str,
+    vendor_type: str = Query("panel", description="panel or billing"),
+    primary_email: Optional[str] = None,
+    billing_email: Optional[str] = None,
+    internal_email: Optional[str] = None,
+    additional_emails: Optional[List[str]] = None
+):
+    """
+    P1.5: Update vendor emails with type separation.
+    Allows setting different email addresses for different purposes.
+    """
+    try:
+        collection = panel_vendors_collection if vendor_type == "panel" else billing_vendors_collection
+        vendor = collection.find_one({"_id": ObjectId(vendor_id)})
+        
+        if not vendor:
+            raise HTTPException(status_code=404, detail=f"{vendor_type.capitalize()} vendor not found")
+        
+        update_doc = {"updated_at": datetime.utcnow()}
+        
+        if primary_email is not None:
+            update_doc["email"] = primary_email
+            update_doc["contact_email"] = primary_email
+        
+        if billing_email is not None:
+            update_doc["billing_email"] = billing_email
+        
+        if internal_email is not None:
+            update_doc["internal_email"] = internal_email
+        
+        if additional_emails is not None:
+            update_doc["additional_emails"] = additional_emails
+        
+        collection.update_one(
+            {"_id": ObjectId(vendor_id)},
+            {"$set": update_doc}
+        )
+        
+        return {
+            "success": True,
+            "vendor_id": vendor_id,
+            "message": "Vendor emails updated"
+        }
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=str(e))
+

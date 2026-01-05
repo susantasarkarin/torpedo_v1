@@ -7,7 +7,8 @@ from pymongo import MongoClient
 from datetime import datetime
 import os
 from dotenv import load_dotenv
-
+# Import email safety module for kill switch status
+from campaigns.email_safety import get_email_status
 # Load env
 load_dotenv()
 
@@ -537,3 +538,21 @@ async def get_openai_daily_usage(request: Request = None) -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching daily usage: {str(e)}")
 
+
+# ============================================
+# Email Safety Status
+# ============================================
+
+@router.get("/email-status")
+async def get_email_sending_status() -> Dict[str, Any]:
+    """
+    Get current email sending status (kill switch and dry-run mode)
+    
+    Returns:
+        - email_sending_enabled: Whether emails can be sent
+        - dry_run_mode: If true, emails are simulated only
+        - can_send_real_emails: Combined check for actual sending
+        - blocked_reason: Reason if sending is blocked
+        - environment: Current env var values
+    """
+    return get_email_status()

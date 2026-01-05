@@ -135,10 +135,15 @@ class TokenUsageLogger:
         endpoint: str = "",
         latency_ms: int = 0,
         success: bool = True,
-        error_message: str = ""
+        error_message: str = "",
+        # P0.19: Additional fields for comprehensive AI logging
+        input_data: Optional[str] = None,
+        output_response: Optional[str] = None,
+        confidence_score: Optional[float] = None
     ):
         """
         Log token usage for cost tracking and analysis.
+        P0.19: Enhanced with input_data, output_response, and confidence_score.
         """
         collection = self._get_collection()
         if collection is None:
@@ -158,9 +163,20 @@ class TokenUsageLogger:
             "total_tokens": total_tokens,
             "cost_usd": round(cost_usd, 6),
             "latency_ms": latency_ms,
+            "duration_ms": latency_ms,  # P0.19: Alias for clarity
             "success": success,
             "error_message": error_message
         }
+        
+        # P0.19: Add optional comprehensive logging fields
+        if input_data is not None:
+            # Truncate large inputs to prevent storage bloat (max 2000 chars)
+            doc["input_data"] = input_data[:2000] if len(input_data) > 2000 else input_data
+        if output_response is not None:
+            # Truncate large outputs (max 2000 chars)
+            doc["output_response"] = output_response[:2000] if len(output_response) > 2000 else output_response
+        if confidence_score is not None:
+            doc["confidence_score"] = confidence_score
         
         try:
             collection.insert_one(doc)
@@ -472,7 +488,13 @@ def _openai_chat_completion(
             
             latency_ms = int((time.time() - start_time) * 1000)
             
-            # Log usage
+            # Extract response content
+            response_content = response.choices[0].message.content
+            
+            # P0.19: Build input summary for logging
+            input_summary = " | ".join([f"{m['role']}: {m['content'][:200]}" for m in messages])
+            
+            # Log usage with P0.19 comprehensive fields
             token_logger.log_usage(
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
@@ -482,11 +504,13 @@ def _openai_chat_completion(
                 provider="openai",
                 endpoint=endpoint,
                 latency_ms=latency_ms,
-                success=True
+                success=True,
+                input_data=input_summary,
+                output_response=response_content
             )
             
             return {
-                "content": response.choices[0].message.content,
+                "content": response_content,
                 "usage": {
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
@@ -518,6 +542,8 @@ def _openai_chat_completion(
     
     # Log failed attempt
     latency_ms = int((time.time() - start_time) * 1000)
+    # P0.19: Build input summary for logging even on failure
+    input_summary = " | ".join([f"{m['role']}: {m['content'][:200]}" for m in messages])
     token_logger.log_usage(
         input_tokens=0,
         output_tokens=0,
@@ -528,7 +554,8 @@ def _openai_chat_completion(
         endpoint=endpoint,
         latency_ms=latency_ms,
         success=False,
-        error_message=last_error or "Unknown error"
+        error_message=last_error or "Unknown error",
+        input_data=input_summary
     )
     
     return {
@@ -604,7 +631,15 @@ def _anthropic_chat_completion(
             
             latency_ms = int((time.time() - start_time) * 1000)
             
-            # Log usage
+            # Extract content from response
+            content = ""
+            if response.content and len(response.content) > 0:
+                content = response.content[0].text
+            
+            # P0.19: Build input summary for logging
+            input_summary = " | ".join([f"{m['role']}: {m['content'][:200]}" for m in messages])
+            
+            # Log usage with P0.19 comprehensive fields
             token_logger.log_usage(
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
@@ -614,13 +649,10 @@ def _anthropic_chat_completion(
                 provider="anthropic",
                 endpoint=endpoint,
                 latency_ms=latency_ms,
-                success=True
+                success=True,
+                input_data=input_summary,
+                output_response=content
             )
-            
-            # Extract content from response
-            content = ""
-            if response.content and len(response.content) > 0:
-                content = response.content[0].text
             
             return {
                 "content": content,
@@ -655,6 +687,8 @@ def _anthropic_chat_completion(
     
     # Log failed attempt
     latency_ms = int((time.time() - start_time) * 1000)
+    # P0.19: Build input summary for logging even on failure
+    input_summary = " | ".join([f"{m['role']}: {m['content'][:200]}" for m in messages])
     token_logger.log_usage(
         input_tokens=0,
         output_tokens=0,
@@ -665,7 +699,8 @@ def _anthropic_chat_completion(
         endpoint=endpoint,
         latency_ms=latency_ms,
         success=False,
-        error_message=last_error or "Unknown error"
+        error_message=last_error or "Unknown error",
+        input_data=input_summary
     )
     
     return {

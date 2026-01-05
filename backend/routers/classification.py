@@ -223,3 +223,32 @@ async def list_categories():
     }
     
     return {"categories": categories}
+
+
+# P0.19: AI Status Endpoint
+@router.get("/ai/status", response_model=Dict[str, Any])
+async def get_ai_status():
+    """
+    Get current AI classification status and kill switch state.
+    P0.19: Provides visibility into AI system status.
+    """
+    disable_ai = os.getenv("DISABLE_AI_CALLS", "").lower() in ("true", "1", "yes")
+    disable_openai = os.getenv("DISABLE_OPENAI_CALLS", "").lower() in ("true", "1", "yes")
+    
+    # Get usage stats from the last 24 hours if available
+    usage_stats = {}
+    try:
+        from ..leads.openai_wrapper import token_logger
+        usage_stats = token_logger.get_usage_summary(hours=24)
+    except Exception as e:
+        usage_stats = {"error": str(e)}
+    
+    return {
+        "ai_enabled": not (disable_ai or disable_openai),
+        "kill_switch_active": disable_ai or disable_openai,
+        "environment": {
+            "DISABLE_AI_CALLS": os.getenv("DISABLE_AI_CALLS", "false"),
+            "DISABLE_OPENAI_CALLS": os.getenv("DISABLE_OPENAI_CALLS", "false")
+        },
+        "usage_stats_24h": usage_stats
+    }
