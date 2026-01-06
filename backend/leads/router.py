@@ -24,7 +24,8 @@ from .service import (
     import_leads, classify_pending_leads, classify_single_lead,
     get_leads, get_raw_leads_with_status, attach_leads_to_campaign,
     get_lead_statistics, delete_leads_by_source, delete_all_leads,
-    get_enriched_lead_by_id, find_duplicate_emails, delete_duplicate_emails
+    get_enriched_lead_by_id, find_duplicate_emails, delete_duplicate_emails,
+    leads_enriched_collection
 )
 from .ingestion import (
     search_linkedin_leads, parse_csv_leads, import_from_google_sheet,
@@ -1699,7 +1700,7 @@ async def update_enriched_lead_endpoint(lead_id: str, data: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Invalid lead ID format")
     
     # Check if lead exists
-    existing_lead = leads_enriched.find_one({"_id": obj_id})
+    existing_lead = leads_enriched_collection.find_one({"_id": obj_id})
     if not existing_lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     
@@ -1711,7 +1712,7 @@ async def update_enriched_lead_endpoint(lead_id: str, data: dict = Body(...)):
     data["updated_at"] = datetime.utcnow().isoformat()
     
     # Update the lead
-    result = leads_enriched.update_one(
+    result = leads_enriched_collection.update_one(
         {"_id": obj_id},
         {"$set": data}
     )

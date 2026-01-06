@@ -605,7 +605,7 @@ function AILeadDetail() {
                 </div>
               )}
 
-              {/* Notes Section - AI Summary */}
+              {/* Notes Section - AI Summary (Email Conversation Summary) */}
               <div className="related-section" id="section-notes">
                 <div className="section-header">
                   <h3>Notes</h3>
@@ -614,19 +614,19 @@ function AILeadDetail() {
                   </select>
                 </div>
                 <div className="notes-content">
-                  {lead.ai_summary || lead.snippet ? (
+                  {lead.conversation_summary ? (
                     <div className="ai-summary-note">
                       <div className="note-header">
                         <span className="note-icon">🤖</span>
                         <span className="note-title">AI Summary</span>
-                        <span className="note-date">{formatDate(lead.updated_at)}</span>
+                        <span className="note-date">{formatDate(lead.summary_updated_at || lead.updated_at)}</span>
                       </div>
                       <div className="note-body">
-                        {lead.ai_summary || lead.snippet || "No AI summary available."}
+                        {lead.conversation_summary}
                       </div>
                     </div>
                   ) : (
-                    <p className="empty-state">No notes available</p>
+                    <p className="empty-state">No email conversation summary available</p>
                   )}
                 </div>
               </div>
