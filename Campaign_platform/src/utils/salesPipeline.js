@@ -47,14 +47,14 @@ export const getStageStyle = (stageId) => {
   return { bg: stage.color.bg, color: stage.color.text }
 }
 
-// Determine if a stage is in the "Leads" phase (pre-qualified)
+// Determine if a stage is in the "Leads" phase (sales pipeline)
 export const isLeadStage = (stageId) => {
-  return ["lead_generation", "outreach"].includes(stageId)
+  return ["discovery_call", "presentation", "rfq_pricing", "negotiation", "won", "lost"].includes(stageId)
 }
 
-// Determine if a stage is in the "Contacts" phase (qualified prospects)
+// Determine if a stage is in the "Contacts" phase (customer management)
 export const isContactStage = (stageId) => {
-  return ["discovery_call", "presentation", "rfq_pricing", "negotiation", "won", "lost"].includes(stageId)
+  return ["onboarding", "project_execution", "payment", "retention"].includes(stageId)
 }
 
 // Determine if a stage is in the "Project" phase (won deals)
