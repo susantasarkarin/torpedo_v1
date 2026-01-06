@@ -15,11 +15,10 @@ function AILeadDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
-  const [showDetails, setShowDetails] = useState(true);
   const [activeSection, setActiveSection] = useState("notes");
   
-  // Edit Modal State
-  const [showEditModal, setShowEditModal] = useState(false);
+  // Section Edit State (per-section editing)
+  const [editingSection, setEditingSection] = useState(null); // 'lead', 'company', 'ai', etc.
   const [editFormData, setEditFormData] = useState({});
   const [saving, setSaving] = useState(false);
   
@@ -155,7 +154,7 @@ function AILeadDetail() {
       if (res.ok) {
         const data = await res.json();
         setLead(data.lead || editFormData);
-        setShowEditModal(false);
+        setEditingSection(null);
         alert("Lead updated successfully!");
       } else {
         const errData = await res.json();
@@ -304,7 +303,6 @@ function AILeadDetail() {
             </button>
           )}
           <button className="action-btn secondary">Convert</button>
-          <button className="action-btn secondary" onClick={() => setShowEditModal(true)}>Edit</button>
           {lead.linkedin_url && (
             <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer" className="action-btn linkedin">
               LinkedIn
@@ -382,162 +380,152 @@ function AILeadDetail() {
           {/* Overview Content */}
           {activeTab === "overview" && (
             <div className="overview-content">
-              {/* Quick Info Card */}
-              <div className="quick-info-card">
-                <div className="info-row">
-                  <span className="label">Lead Owner</span>
-                  <span className="value">System</span>
+              {/* Lead Information Section */}
+              <div className="info-section">
+                <div className="section-title-row">
+                  <h3>Lead Information</h3>
+                  <button className="section-edit-btn" onClick={() => { setEditingSection('lead'); setEditFormData({...lead}); }}>
+                    ✏️ Edit
+                  </button>
                 </div>
-                <div className="info-row">
-                  <span className="label">Email</span>
-                  <span className="value link">{lead.email || "—"}</span>
-                </div>
-                <div className="info-row">
-                  <span className="label">Lead Status</span>
-                  <span className="value">{lead.email_status || "—"}</span>
+                <div className="info-grid">
+                  <div className="info-row">
+                    <span className="label">Email</span>
+                    <span className="value link">{lead.email || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Lead Name</span>
+                    <span className="value">{lead.last_name || lead.name || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">LinkedIn</span>
+                    <span className="value">{lead.linkedin_url ? <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer">View Profile ↗</a> : "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Title</span>
+                    <span className="value">{lead.title || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Company</span>
+                    <span className="value">{lead.company_name || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Location</span>
+                    <span className="value">{lead.location || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Lead Source</span>
+                    <span className="value">{lead.source === "web_search" ? "Web Search" : lead.source === "csv" ? "CSV Import" : lead.source || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Email Status</span>
+                    <span className="value">{lead.email_status || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Seniority Level</span>
+                    <span className="value">{lead.seniority_level || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Department</span>
+                    <span className="value">{lead.department || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Persona</span>
+                    <span className="value">{lead.persona || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Buying Role</span>
+                    <span className="value">{lead.buying_role || "—"}</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Toggle Details */}
-              <div className="details-toggle" onClick={() => setShowDetails(!showDetails)}>
-                {showDetails ? "Hide Details" : "Show Details"}
+              {/* Company Details Section */}
+              <div className="info-section">
+                <div className="section-title-row">
+                  <h3>Company Details</h3>
+                  <button className="section-edit-btn" onClick={() => { setEditingSection('company'); setEditFormData({...lead}); }}>
+                    ✏️ Edit
+                  </button>
+                </div>
+                <div className="info-grid">
+                  <div className="info-row">
+                    <span className="label">Company Founded</span>
+                    <span className="value">{lead.company_founded || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Company Headquarters</span>
+                    <span className="value">{lead.company_headquarters || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Company LinkedIn Url</span>
+                    <span className="value">{lead.company_linkedin_url ? <a href={lead.company_linkedin_url} target="_blank" rel="noopener noreferrer">View ↗</a> : "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Company Employee Count Range</span>
+                    <span className="value">{lead.company_employee_count_range || lead.company_employee_count || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Company Industry</span>
+                    <span className="value">{lead.company_industry || lead.industry || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Company Size</span>
+                    <span className="value">{lead.company_size || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Company Type</span>
+                    <span className="value">{lead.company_type || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Company Revenue Range</span>
+                    <span className="value">{lead.company_revenue_range || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Company Domain</span>
+                    <span className="value">{lead.company_domain || "—"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Company Website</span>
+                    <span className="value">{lead.company_website ? <a href={lead.company_website.startsWith("http") ? lead.company_website : `https://${lead.company_website}`} target="_blank" rel="noopener noreferrer">{lead.company_website} ↗</a> : "—"}</span>
+                  </div>
+                </div>
               </div>
 
-              {showDetails && (
-                <>
-                  {/* Lead Information Section */}
-                  <div className="info-section">
-                    <h3>Lead Information</h3>
-                    <div className="info-grid">
-                      <div className="info-row">
-                        <span className="label">Email</span>
-                        <span className="value link">{lead.email || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Lead Name</span>
-                        <span className="value">{lead.last_name || lead.name || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">LinkedIn</span>
-                        <span className="value">{lead.linkedin_url ? <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer">View Profile ↗</a> : "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Title</span>
-                        <span className="value">{lead.title || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Company</span>
-                        <span className="value">{lead.company_name || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Location</span>
-                        <span className="value">{lead.location || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Lead Source</span>
-                        <span className="value">{lead.source === "web_search" ? "Web Search" : lead.source === "csv" ? "CSV Import" : lead.source || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Email Status</span>
-                        <span className="value">{lead.email_status || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Seniority Level</span>
-                        <span className="value">{lead.seniority_level || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Department</span>
-                        <span className="value">{lead.department || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Persona</span>
-                        <span className="value">{lead.persona || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Buying Role</span>
-                        <span className="value">{lead.buying_role || "—"}</span>
-                      </div>
-                    </div>
+              {/* AI Classification Section */}
+              <div className="info-section">
+                <div className="section-title-row">
+                  <h3>AI Classification</h3>
+                  <button className="section-edit-btn" onClick={() => { setEditingSection('ai'); setEditFormData({...lead}); }}>
+                    ✏️ Edit
+                  </button>
+                </div>
+                <div className="info-grid">
+                  <div className="info-row">
+                    <span className="label">Confidence Score</span>
+                    <span className="value highlight">{lead.confidence_score ? `${Math.round(lead.confidence_score * 100)}%` : "—"}</span>
                   </div>
-
-                  {/* Company Details Section */}
-                  <div className="info-section">
-                    <h3>Company Details</h3>
-                    <div className="info-grid">
-                      <div className="info-row">
-                        <span className="label">Company Founded</span>
-                        <span className="value">{lead.company_founded || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Company Headquarters</span>
-                        <span className="value">{lead.company_headquarters || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Company LinkedIn Url</span>
-                        <span className="value">{lead.company_linkedin_url ? <a href={lead.company_linkedin_url} target="_blank" rel="noopener noreferrer">View ↗</a> : "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Company Employee Count Range</span>
-                        <span className="value">{lead.company_employee_count_range || lead.company_employee_count || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Company Industry</span>
-                        <span className="value">{lead.company_industry || lead.industry || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Company Size</span>
-                        <span className="value">{lead.company_size || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Company Type</span>
-                        <span className="value">{lead.company_type || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Company Revenue Range</span>
-                        <span className="value">{lead.company_revenue_range || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Company Domain</span>
-                        <span className="value">{lead.company_domain || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Company Website</span>
-                        <span className="value">{lead.company_website ? <a href={lead.company_website.startsWith("http") ? lead.company_website : `https://${lead.company_website}`} target="_blank" rel="noopener noreferrer">{lead.company_website} ↗</a> : "—"}</span>
-                      </div>
-                    </div>
+                  <div className="info-row">
+                    <span className="label">Region</span>
+                    <span className="value">{lead.region || "—"}</span>
                   </div>
-
-                  {/* AI Classification Section */}
-                  <div className="info-section">
-                    <h3>AI Classification</h3>
-                    <div className="info-grid">
-                      <div className="info-row">
-                        <span className="label">Confidence Score</span>
-                        <span className="value highlight">{lead.confidence_score ? `${Math.round(lead.confidence_score * 100)}%` : "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Region</span>
-                        <span className="value">{lead.region || "—"}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Created At</span>
-                        <span className="value">{formatDate(lead.created_at)}</span>
-                      </div>
-                      <div className="info-row">
-                        <span className="label">Last Updated</span>
-                        <span className="value">{formatDate(lead.updated_at)}</span>
-                      </div>
-                    </div>
+                  <div className="info-row">
+                    <span className="label">Created At</span>
+                    <span className="value">{formatDate(lead.created_at)}</span>
                   </div>
+                  <div className="info-row">
+                    <span className="label">Last Updated</span>
+                    <span className="value">{formatDate(lead.updated_at)}</span>
+                  </div>
+                </div>
+              </div>
 
-                  {/* Snippet Section */}
-                  {lead.snippet && (
-                    <div className="info-section">
-                      <h3>Bio / Description</h3>
-                      <p className="snippet-text">{lead.snippet}</p>
-                    </div>
-                  )}
-                </>
+              {/* Bio / Description Section */}
+              {lead.snippet && (
+                <div className="info-section">
+                  <h3>Bio / Description</h3>
+                  <p className="snippet-text">{lead.snippet}</p>
+                </div>
               )}
 
               {/* Notes Section */}
@@ -680,12 +668,12 @@ function AILeadDetail() {
       </div>
 
       {/* Edit Lead Modal */}
-      {showEditModal && (
-        <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
+      {editingSection && (
+        <div className="modal-overlay" onClick={() => setEditingSection(null)}>
           <div className="modal-container edit-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Edit Lead</h2>
-              <button className="modal-close" onClick={() => setShowEditModal(false)}>×</button>
+              <h2>Edit {editingSection === 'lead' ? 'Lead Information' : editingSection === 'company' ? 'Company Details' : editingSection === 'ai' ? 'AI Classification' : 'Lead'}</h2>
+              <button className="modal-close" onClick={() => setEditingSection(null)}>×</button>
             </div>
             <div className="modal-body">
               <div className="form-grid">
@@ -785,7 +773,7 @@ function AILeadDetail() {
               </div>
             </div>
             <div className="modal-footer">
-              <button className="btn-secondary" onClick={() => setShowEditModal(false)}>Cancel</button>
+              <button className="btn-secondary" onClick={() => setEditingSection(null)}>Cancel</button>
               <button className="btn-primary" onClick={handleSaveLead} disabled={saving}>
                 {saving ? "Saving..." : "Save Changes"}
               </button>

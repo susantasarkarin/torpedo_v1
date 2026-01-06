@@ -766,17 +766,56 @@ function AILeads() {
     setCurrentPage(1);
   };
 
+  // ============== TAB COUNT HELPERS ==============
+  
+  const getPendingCount = () => {
+    return rawLeads.filter(l => {
+      const isCsv = l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import";
+      const hasEmail = l.email && l.email.trim() !== "";
+      if (isCsv && hasEmail) return false;
+      return l.classification_status === "Pending";
+    }).length;
+  };
+
+  const getCsvCount = () => {
+    const enrichedCsv = leads.filter(l => l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import");
+    const rawCsvWithEmail = rawLeads.filter(l => {
+      const isCsv = l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import";
+      const hasEmail = l.email && l.email.trim() !== "";
+      const notEnriched = !leads.some(e => e._id === l._id || e.email === l.email);
+      return isCsv && hasEmail && notEnriched;
+    });
+    return enrichedCsv.length + rawCsvWithEmail.length;
+  };
+
   // ============== GET DISPLAY DATA ==============
 
   const getDisplayLeads = () => {
     if (activeTab === "pending") {
-      return rawLeads.filter(l => l.classification_status === "Pending");
+      // Exclude CSV records that have an email (they go to classified-csv)
+      return rawLeads.filter(l => {
+        const isCsv = l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import";
+        const hasEmail = l.email && l.email.trim() !== "";
+        // If it's CSV with email, it goes to classified-csv, not pending
+        if (isCsv && hasEmail) return false;
+        return l.classification_status === "Pending";
+      });
     } else if (activeTab === "classified-websearch") {
       // Matches backend valid_sources for web search
       return leads.filter(l => l.source === "web_search" || l.source === "google_search" || l.source === "linkedin");
     } else if (activeTab === "classified-csv") {
       // Matches backend valid_sources for CSV/file imports
-      return leads.filter(l => l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import");
+      // Include enriched leads with CSV source
+      const enrichedCsv = leads.filter(l => l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import");
+      // Also include raw leads with CSV source that have email (auto-classified)
+      const rawCsvWithEmail = rawLeads.filter(l => {
+        const isCsv = l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import";
+        const hasEmail = l.email && l.email.trim() !== "";
+        // Only include raw leads that aren't already in enriched
+        const notEnriched = !leads.some(e => e._id === l._id || e.email === l.email);
+        return isCsv && hasEmail && notEnriched;
+      });
+      return [...enrichedCsv, ...rawCsvWithEmail];
     } else if (activeTab === "classified-gmail") {
       // Matches backend source for email imports (IMAP)
       return leads.filter(l => l.source === "email_import" || l.source === "gmail" || l.source === "imap");
@@ -875,7 +914,7 @@ function AILeads() {
           className={`tab-btn ${activeTab === "pending" ? "active" : ""}`}
           onClick={() => setActiveTab("pending")}
         >
-          Pending ({rawLeads.filter(l => l.classification_status === "Pending").length})
+          Pending ({getPendingCount()})
         </button>
         <button 
           className={`tab-btn ${activeTab === "classified-websearch" ? "active" : ""}`}
@@ -887,7 +926,7 @@ function AILeads() {
           className={`tab-btn ${activeTab === "classified-csv" ? "active" : ""}`}
           onClick={() => setActiveTab("classified-csv")}
         >
-          Classified (CSV Upload) ({leads.filter(l => l.source === "csv" || l.source === "csv_import" || l.source === "import").length})
+          Classified (CSV Upload) ({getCsvCount()})
         </button>
         <button 
           className={`tab-btn ${activeTab === "classified-gmail" ? "active" : ""}`}

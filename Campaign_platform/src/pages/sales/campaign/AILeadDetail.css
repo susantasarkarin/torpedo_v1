@@ -366,6 +366,46 @@
   border-bottom: 1px solid #e0e0e0;
 }
 
+/* Section Title Row with Edit Button */
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  background: #fafafa;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.section-title-row h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border-bottom: none;
+}
+
+.section-edit-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  background: #fff;
+  color: #555;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.section-edit-btn:hover {
+  background: #f5f5f5;
+  border-color: #1976d2;
+  color: #1976d2;
+}
+
 .info-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
