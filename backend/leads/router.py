@@ -998,6 +998,7 @@ async def get_leads_endpoint(
     industry: Optional[str] = None,
     region: Optional[Region] = None,
     min_confidence: Optional[float] = None,
+    lead_stage: Optional[str] = None,
     search: Optional[str] = None,
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200)
@@ -1014,6 +1015,7 @@ async def get_leads_endpoint(
         industry=industry,
         region=region,
         min_confidence=min_confidence,
+        lead_stage=lead_stage,
         search=search,
         page=page,
         limit=limit

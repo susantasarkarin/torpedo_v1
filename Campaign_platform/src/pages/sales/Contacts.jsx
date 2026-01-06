@@ -64,7 +64,8 @@ function Contacts() {
       }
 
       try {
-        const res = await fetch(`${API_BASE_URL}/contacts/`, {
+        // Fetch from /leads endpoint with lead_stage=contacts filter
+        const res = await fetch(`${API_BASE_URL}/leads?lead_stage=contacts&limit=200`, {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
@@ -80,7 +81,7 @@ function Contacts() {
 
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Failed to load contacts");
-        setContacts(data.contacts || []);
+        setContacts(data.leads || []);
       } catch (e) {
         setError(e.message || "Failed to load contacts");
       }
@@ -288,12 +289,10 @@ function Contacts() {
   };
 
   const filtered = useMemo(() => {
-    // First filter by lead_stage === 'contacts' (only show records that have been moved to this stage)
-    const contactsStageFiltered = contacts.filter(c => c.lead_stage === 'contacts');
-    
+    // Server already filters by lead_stage=contacts, just apply search filter
     const q = search.trim().toLowerCase();
-    if (!q) return contactsStageFiltered;
-    return contactsStageFiltered.filter((c) =>
+    if (!q) return contacts;
+    return contacts.filter((c) =>
       ["name", "firstName", "lastName", "email", "title", "companyName", "companyIndustry", "location", "stage"].some((field) =>
         String(c[field] || "").toLowerCase().includes(q)
       )
@@ -370,12 +369,12 @@ function Contacts() {
       {/* Stats Row */}
       <div className="stats-row">
         <div className="stat-card primary">
-          <div className="stat-value">{contacts.filter(c => c.lead_stage === 'contacts').length}</div>
+          <div className="stat-value">{contacts.length}</div>
           <div className="stat-label">Total Contacts</div>
         </div>
         {contactStages.map(stage => (
           <div key={stage.id} className="stat-card">
-            <div className="stat-value">{contacts.filter(c => c.lead_stage === 'contacts' && c.stage === stage.id).length}</div>
+            <div className="stat-value">{contacts.filter(c => c.stage === stage.id).length}</div>
             <div className="stat-label">{stage.icon} {stage.label}</div>
           </div>
         ))}

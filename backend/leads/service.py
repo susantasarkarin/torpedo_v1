@@ -322,6 +322,10 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
     """
     query = {}
     
+    # Filter by lead_stage if provided
+    if filters.lead_stage:
+        query["lead_stage"] = filters.lead_stage
+    
     if filters.seniority_level:
         query["seniority_level"] = filters.seniority_level.value
     

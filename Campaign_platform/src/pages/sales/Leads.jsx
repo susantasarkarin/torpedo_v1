@@ -63,7 +63,8 @@ function Leads() {
       }
 
       try {
-        const res = await fetch(`${API_BASE_URL}/leads/`, {
+        // Fetch from /leads endpoint with lead_stage=leads filter
+        const res = await fetch(`${API_BASE_URL}/leads?lead_stage=leads&limit=200`, {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
@@ -324,12 +325,10 @@ function Leads() {
   };
 
   const filtered = useMemo(() => {
-    // First filter by lead_stage === 'leads' (only show leads that have been moved to this stage)
-    const leadsStageFiltered = leads.filter(l => l.lead_stage === 'leads');
-    
+    // Server already filters by lead_stage=leads, just apply search filter
     const q = search.trim().toLowerCase();
-    if (!q) return leadsStageFiltered;
-    return leadsStageFiltered.filter((l) =>
+    if (!q) return leads;
+    return leads.filter((l) =>
       ["name", "firstName", "lastName", "email", "title", "companyName", "companyIndustry", "location"].some((field) =>
         String(l[field] || "").toLowerCase().includes(q)
       )
@@ -396,12 +395,12 @@ function Leads() {
       {/* Stats Row */}
       <div className="stats-row">
         <div className="stat-card primary">
-          <div className="stat-value">{leads.filter(l => l.lead_stage === 'leads').length}</div>
+          <div className="stat-value">{leads.length}</div>
           <div className="stat-label">Total Leads</div>
         </div>
         {leadStages.map(stage => (
           <div key={stage.id} className="stat-card">
-            <div className="stat-value">{leads.filter(l => l.lead_stage === 'leads' && l.stage === stage.id).length}</div>
+            <div className="stat-value">{leads.filter(l => l.stage === stage.id).length}</div>
             <div className="stat-label">{stage.icon} {stage.label}</div>
           </div>
         ))}

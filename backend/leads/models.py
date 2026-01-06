@@ -506,6 +506,7 @@ class LeadFilterParams(BaseModel):
     region: Optional[Region] = None
     min_confidence: Optional[float] = None
     status: Optional[ClassificationStatus] = None
+    lead_stage: Optional[str] = None  # Filter by lead stage: ai_database, leads, contacts
     search: Optional[str] = None
     page: int = 1
     limit: int = 50
