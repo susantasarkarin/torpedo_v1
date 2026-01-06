@@ -190,8 +190,15 @@ function AILeadDetail() {
           "Content-Type": "application/json",
           Authorization: sessionId,
         },
-        body: JSON.stringify({ ...lead, lead_stage: newStage }),
+        body: JSON.stringify({ lead_stage: newStage }),
       });
+
+      // Check content type before parsing
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await res.text();
+        throw new Error(`Server error: ${res.status} ${res.statusText}`);
+      }
 
       if (res.ok) {
         const data = await res.json();

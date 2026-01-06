@@ -1,5 +1,607 @@
-/* Templates.css */
+/* Templates.css - Zoho CRM Style */
 
+/* ========== ZOHO SPLIT VIEW LAYOUT ========== */
+.templates-zoho-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #f5f5f5;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", sans-serif;
+}
+
+.templates-zoho-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.page-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+}
+
+.template-type-badge {
+  padding: 4px 12px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #666;
+}
+
+.header-right .btn-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  font-size: 24px;
+  color: #666;
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+.header-right .btn-close:hover {
+  background: #f0f0f0;
+}
+
+.templates-zoho-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Left Panel - Template List */
+.templates-list-panel {
+  width: 480px;
+  background: #fff;
+  border-right: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+}
+
+.list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e0e0e0;
+  background: #fafafa;
+}
+
+.list-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.select-all-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.column-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+}
+
+.btn-create {
+  padding: 8px 16px;
+  background: #0070f3;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-create:hover {
+  background: #0051cc;
+}
+
+.templates-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.template-list-item {
+  display: flex;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.template-list-item:hover {
+  background: #f8f9fa;
+}
+
+.template-list-item.selected {
+  background: #e8f4fd;
+  border-left: 3px solid #0070f3;
+}
+
+.template-star {
+  color: #ccc;
+  margin-right: 12px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.template-star:hover {
+  color: #f5a623;
+}
+
+.template-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.template-name-row {
+  margin-bottom: 4px;
+}
+
+.template-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #0070f3;
+}
+
+.template-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #888;
+}
+
+.template-category-tag {
+  color: #f5a623;
+  font-weight: 500;
+}
+
+.template-separator {
+  color: #ccc;
+}
+
+.template-subject {
+  color: #666;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Right Panel - Preview */
+.templates-preview-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  position: relative;
+}
+
+.preview-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.preview-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 4px 0;
+}
+
+.preview-subtitle {
+  font-size: 13px;
+  color: #888;
+}
+
+.preview-tabs {
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  background: #fafafa;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.preview-tab {
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  font-size: 13px;
+  color: #666;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.preview-tab:hover {
+  color: #333;
+}
+
+.preview-tab.active {
+  color: #0070f3;
+  border-bottom-color: #0070f3;
+}
+
+.tab-spacer {
+  flex: 1;
+}
+
+.preview-actions {
+  position: absolute;
+  top: 60px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.preview-action-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid #e0e0e0;
+  background: #fff;
+  border-radius: 4px;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-action-btn:hover {
+  background: #f5f5f5;
+  border-color: #0070f3;
+}
+
+.preview-content {
+  flex: 1;
+  padding: 20px;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+}
+
+.preview-content.mobile .preview-iframe-container {
+  width: 375px;
+  border: 8px solid #333;
+  border-radius: 20px;
+}
+
+.preview-iframe-container {
+  width: 100%;
+  max-width: 800px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.preview-iframe {
+  width: 100%;
+  height: 500px;
+  border: none;
+}
+
+.preview-footer-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid #e0e0e0;
+  background: #fafafa;
+}
+
+.btn-use-template {
+  padding: 10px 20px;
+  background: #0070f3;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-use-template:hover {
+  background: #0051cc;
+}
+
+.btn-edit-template {
+  padding: 10px 20px;
+  background: #fff;
+  color: #333;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-edit-template:hover {
+  background: #f5f5f5;
+}
+
+.btn-delete-template {
+  padding: 10px 20px;
+  background: #fff;
+  color: #dc3545;
+  border: 1px solid #dc3545;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-delete-template:hover {
+  background: #fef2f2;
+}
+
+.no-template-selected {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-size: 14px;
+}
+
+.empty-list {
+  padding: 40px 20px;
+  text-align: center;
+  color: #888;
+}
+
+.empty-list p {
+  margin-bottom: 16px;
+}
+
+/* ========== TEMPLATE EDITOR PAGE ========== */
+.template-editor-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #f5f5f5;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", sans-serif;
+}
+
+.editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  background: #2c3e50;
+  color: #fff;
+}
+
+.editor-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.template-name-display {
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.template-category-badge {
+  padding: 4px 10px;
+  background: #3498db;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.editor-actions .btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+}
+
+.editor-actions .btn-attachment {
+  background: transparent;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.3);
+}
+
+.editor-actions .btn-cancel {
+  background: transparent;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.3);
+}
+
+.editor-actions .btn-preview-btn {
+  background: transparent;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.3);
+}
+
+.editor-actions .btn-save {
+  background: #27ae60;
+  color: #fff;
+}
+
+.editor-actions .btn-save:hover {
+  background: #219a52;
+}
+
+.editor-form-bar {
+  display: flex;
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.editor-input {
+  flex: 1;
+  padding: 14px 20px;
+  border: none;
+  border-right: 1px solid #e0e0e0;
+  font-size: 14px;
+  color: #333;
+}
+
+.editor-input:focus {
+  outline: none;
+  background: #f8f9fa;
+}
+
+.editor-input:last-child {
+  border-right: none;
+}
+
+/* Editor Toolbar */
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.editor-toolbar .toolbar-select {
+  padding: 6px 10px;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  margin-right: 8px;
+}
+
+.editor-toolbar .toolbar-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  color: #555;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.editor-toolbar .toolbar-btn:hover {
+  background: #f0f0f0;
+}
+
+.editor-toolbar .toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: #e0e0e0;
+  margin: 0 8px;
+}
+
+.editor-toolbar .toolbar-color {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.editor-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #fffbe6;
+  border-bottom: 1px solid #ffe58f;
+  font-size: 12px;
+  color: #8a6d3b;
+}
+
+.hint-link {
+  background: none;
+  border: none;
+  color: #0070f3;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.editor-content-area {
+  flex: 1;
+  padding: 20px;
+  background: #f5f5f5;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+}
+
+.rich-text-editor {
+  width: 100%;
+  max-width: 800px;
+  min-height: 400px;
+  padding: 24px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #333;
+  outline: none;
+}
+
+.rich-text-editor:focus {
+  border-color: #0070f3;
+  box-shadow: 0 0 0 3px rgba(0, 112, 243, 0.1);
+}
+
+.rich-text-editor:empty:before {
+  content: "Start typing your email template...";
+  color: #aaa;
+}
+
+.editor-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+  padding: 8px 20px;
+  background: #fff;
+  border-top: 1px solid #e0e0e0;
+  font-size: 12px;
+  color: #888;
+}
+
+.footer-hint {
+  cursor: pointer;
+}
+
+.footer-hint:hover {
+  color: #0070f3;
+}
+
+/* ========== LEGACY STYLES (kept for backwards compatibility) ========== */
 .templates-container {
   max-width: 1200px;
   margin: 0 auto;
