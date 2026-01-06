@@ -1440,6 +1440,35 @@
   outline: none;
 }
 
+.compose-editor {
+  flex: 1;
+  border: none;
+  font-size: 14px;
+  line-height: 1.6;
+  font-family: Arial, sans-serif;
+  color: #202124;
+  min-height: 150px;
+  outline: none;
+}
+
+.compose-editor:focus {
+  outline: none;
+}
+
+.compose-editor:empty:before {
+  content: "Compose your email...";
+  color: #aaa;
+}
+
+.toolbar-color {
+  width: 24px;
+  height: 24px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  padding: 0;
+  cursor: pointer;
+}
+
 .compose-signature {
   margin-top: 24px;
   padding-top: 16px;

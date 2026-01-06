@@ -3,7 +3,7 @@
  * Path: /admin/sales/campaign/ai-leads/:leadId
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { API_BASE_URL } from "../../../config";
 import "./AILeadDetail.css";
@@ -47,6 +47,25 @@ function AILeadDetail() {
   const [imapAccounts, setImapAccounts] = useState([]);
   const [selectedAccount, setSelectedAccount] = useState(null);
   const [signature, setSignature] = useState("");
+  
+  // Rich text editor ref
+  const emailBodyRef = useRef(null);
+  
+  // Rich text editor commands
+  const execEmailCommand = (command, value = null) => {
+    document.execCommand(command, false, value);
+    emailBodyRef.current?.focus();
+  };
+  
+  const insertEmailLink = () => {
+    const url = prompt("Enter URL:");
+    if (url) execEmailCommand("createLink", url);
+  };
+  
+  const insertEmailImage = () => {
+    const url = prompt("Enter image URL:");
+    if (url) execEmailCommand("insertImage", url);
+  };
 
   useEffect(() => {
     fetchLead();
@@ -932,48 +951,55 @@ function AILeadDetail() {
             
             {/* Rich Text Toolbar */}
             <div className="compose-toolbar">
-              <button className="toolbar-btn bold"><b>B</b></button>
-              <button className="toolbar-btn italic"><i>I</i></button>
-              <button className="toolbar-btn underline"><u>U</u></button>
-              <button className="toolbar-btn strikethrough"><s>S</s></button>
-              <button className="toolbar-btn font-family">F ▼</button>
-              <select className="toolbar-select font-size">
-                <option>10</option>
-                <option selected>12</option>
-                <option>14</option>
-                <option>16</option>
-                <option>18</option>
+              <button type="button" className="toolbar-btn bold" onClick={() => execEmailCommand("bold")} title="Bold"><b>B</b></button>
+              <button type="button" className="toolbar-btn italic" onClick={() => execEmailCommand("italic")} title="Italic"><i>I</i></button>
+              <button type="button" className="toolbar-btn underline" onClick={() => execEmailCommand("underline")} title="Underline"><u>U</u></button>
+              <button type="button" className="toolbar-btn strikethrough" onClick={() => execEmailCommand("strikeThrough")} title="Strikethrough"><s>S</s></button>
+              <select className="toolbar-select font-family" onChange={(e) => execEmailCommand("fontName", e.target.value)}>
+                <option value="Arial">Arial</option>
+                <option value="Times New Roman">Times New Roman</option>
+                <option value="Georgia">Georgia</option>
+                <option value="Verdana">Verdana</option>
+              </select>
+              <select className="toolbar-select font-size" onChange={(e) => execEmailCommand("fontSize", e.target.value)} defaultValue="3">
+                <option value="1">10</option>
+                <option value="2">11</option>
+                <option value="3">12</option>
+                <option value="4">14</option>
+                <option value="5">18</option>
+                <option value="6">24</option>
               </select>
               <span className="toolbar-separator"></span>
-              <button className="toolbar-btn text-color">A ▼</button>
-              <button className="toolbar-btn align">≡ ▼</button>
-              <button className="toolbar-btn list-ordered">1.</button>
-              <button className="toolbar-btn list-bullet">•</button>
-              <button className="toolbar-btn indent-less">⇤</button>
-              <button className="toolbar-btn indent-more">⇥</button>
+              <input type="color" className="toolbar-color" title="Text Color" onChange={(e) => execEmailCommand("foreColor", e.target.value)} />
+              <button type="button" className="toolbar-btn align" onClick={() => execEmailCommand("justifyLeft")} title="Align">≡ ▼</button>
+              <button type="button" className="toolbar-btn list-ordered" onClick={() => execEmailCommand("insertOrderedList")} title="Numbered List">1.</button>
+              <button type="button" className="toolbar-btn list-bullet" onClick={() => execEmailCommand("insertUnorderedList")} title="Bullet List">•</button>
+              <button type="button" className="toolbar-btn indent-less" onClick={() => execEmailCommand("outdent")} title="Decrease Indent">⇤</button>
+              <button type="button" className="toolbar-btn indent-more" onClick={() => execEmailCommand("indent")} title="Increase Indent">⇥</button>
               <span className="toolbar-separator"></span>
-              <button className="toolbar-btn superscript">x²</button>
-              <button className="toolbar-btn subscript">x₂</button>
-              <button className="toolbar-btn clear-format">Tx</button>
+              <button type="button" className="toolbar-btn superscript" onClick={() => execEmailCommand("superscript")} title="Superscript">x²</button>
+              <button type="button" className="toolbar-btn subscript" onClick={() => execEmailCommand("subscript")} title="Subscript">x₂</button>
+              <button type="button" className="toolbar-btn clear-format" onClick={() => execEmailCommand("removeFormat")} title="Clear Formatting">Tx</button>
               <span className="toolbar-separator"></span>
-              <button className="toolbar-btn link">🔗</button>
-              <button className="toolbar-btn table">▦</button>
-              <button className="toolbar-btn image">🖼</button>
-              <button className="toolbar-btn hr">―</button>
-              <button className="toolbar-btn code">&lt;/&gt;</button>
-              <button className="toolbar-btn quote">"</button>
-              <button className="toolbar-btn emoji">😊 ▼</button>
+              <button type="button" className="toolbar-btn link" onClick={insertEmailLink} title="Insert Link">🔗</button>
+              <button type="button" className="toolbar-btn table" onClick={() => {}} title="Insert Table">▦</button>
+              <button type="button" className="toolbar-btn image" onClick={insertEmailImage} title="Insert Image">🖼</button>
+              <button type="button" className="toolbar-btn hr" onClick={() => execEmailCommand("insertHorizontalRule")} title="Horizontal Line">―</button>
+              <button type="button" className="toolbar-btn code" onClick={() => execEmailCommand("formatBlock", "pre")} title="Code Block">&lt;/&gt;</button>
+              <button type="button" className="toolbar-btn quote" onClick={() => execEmailCommand("formatBlock", "blockquote")} title="Quote">"</button>
+              <button type="button" className="toolbar-btn emoji" title="Insert Emoji">😊 ▼</button>
               <span className="toolbar-spacer"></span>
               <span className="plain-text-toggle">Plain text</span>
             </div>
             
             {/* Email Body */}
             <div className="compose-body">
-              <textarea
-                className="compose-textarea"
-                value={emailFormData.body}
-                onChange={(e) => setEmailFormData({...emailFormData, body: e.target.value})}
-                placeholder=""
+              <div
+                ref={emailBodyRef}
+                className="compose-editor"
+                contentEditable
+                onInput={(e) => setEmailFormData({...emailFormData, body: e.currentTarget.innerHTML})}
+                dangerouslySetInnerHTML={{ __html: emailFormData.body }}
               />
               
               {/* Signature */}
