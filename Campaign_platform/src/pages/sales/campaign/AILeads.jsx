@@ -768,8 +768,15 @@ function AILeads() {
 
   // ============== TAB COUNT HELPERS ==============
   
+  // Helper to check if a lead belongs to AI Database stage
+  const isInAIDatabase = (lead) => {
+    // A lead is in AI Database if lead_stage is 'ai_database', undefined, null, or empty
+    return !lead.lead_stage || lead.lead_stage === 'ai_database';
+  };
+
   const getPendingCount = () => {
     return rawLeads.filter(l => {
+      if (!isInAIDatabase(l)) return false; // Exclude leads moved to other stages
       const isCsv = l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import";
       const hasEmail = l.email && l.email.trim() !== "";
       if (isCsv && hasEmail) return false;
@@ -778,8 +785,9 @@ function AILeads() {
   };
 
   const getCsvCount = () => {
-    const enrichedCsv = leads.filter(l => l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import");
+    const enrichedCsv = leads.filter(l => isInAIDatabase(l) && (l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import"));
     const rawCsvWithEmail = rawLeads.filter(l => {
+      if (!isInAIDatabase(l)) return false; // Exclude leads moved to other stages
       const isCsv = l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import";
       const hasEmail = l.email && l.email.trim() !== "";
       const notEnriched = !leads.some(e => e._id === l._id || e.email === l.email);
@@ -794,6 +802,7 @@ function AILeads() {
     if (activeTab === "pending") {
       // Exclude CSV records that have an email (they go to classified-csv)
       return rawLeads.filter(l => {
+        if (!isInAIDatabase(l)) return false; // Exclude leads moved to other stages
         const isCsv = l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import";
         const hasEmail = l.email && l.email.trim() !== "";
         // If it's CSV with email, it goes to classified-csv, not pending
@@ -802,13 +811,14 @@ function AILeads() {
       });
     } else if (activeTab === "classified-websearch") {
       // Matches backend valid_sources for web search
-      return leads.filter(l => l.source === "web_search" || l.source === "google_search" || l.source === "linkedin");
+      return leads.filter(l => isInAIDatabase(l) && (l.source === "web_search" || l.source === "google_search" || l.source === "linkedin"));
     } else if (activeTab === "classified-csv") {
       // Matches backend valid_sources for CSV/file imports
       // Include enriched leads with CSV source
-      const enrichedCsv = leads.filter(l => l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import");
+      const enrichedCsv = leads.filter(l => isInAIDatabase(l) && (l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import"));
       // Also include raw leads with CSV source that have email (auto-classified)
       const rawCsvWithEmail = rawLeads.filter(l => {
+        if (!isInAIDatabase(l)) return false; // Exclude leads moved to other stages
         const isCsv = l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import";
         const hasEmail = l.email && l.email.trim() !== "";
         // Only include raw leads that aren't already in enriched
@@ -818,11 +828,11 @@ function AILeads() {
       return [...enrichedCsv, ...rawCsvWithEmail];
     } else if (activeTab === "classified-gmail") {
       // Matches backend source for email imports (IMAP)
-      return leads.filter(l => l.source === "email_import" || l.source === "gmail" || l.source === "imap");
+      return leads.filter(l => isInAIDatabase(l) && (l.source === "email_import" || l.source === "gmail" || l.source === "imap"));
     } else if (activeTab === "classified") {
-      return leads;
+      return leads.filter(l => isInAIDatabase(l));
     }
-    return rawLeads;
+    return rawLeads.filter(l => isInAIDatabase(l));
   };
 
   const displayLeads = getDisplayLeads();

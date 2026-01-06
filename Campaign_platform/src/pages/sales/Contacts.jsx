@@ -288,9 +288,12 @@ function Contacts() {
   };
 
   const filtered = useMemo(() => {
+    // First filter by lead_stage === 'contacts' (only show records that have been moved to this stage)
+    const contactsStageFiltered = contacts.filter(c => c.lead_stage === 'contacts');
+    
     const q = search.trim().toLowerCase();
-    if (!q) return contacts;
-    return contacts.filter((c) =>
+    if (!q) return contactsStageFiltered;
+    return contactsStageFiltered.filter((c) =>
       ["name", "firstName", "lastName", "email", "title", "companyName", "companyIndustry", "location", "stage"].some((field) =>
         String(c[field] || "").toLowerCase().includes(q)
       )
@@ -367,12 +370,12 @@ function Contacts() {
       {/* Stats Row */}
       <div className="stats-row">
         <div className="stat-card primary">
-          <div className="stat-value">{contacts.length}</div>
+          <div className="stat-value">{contacts.filter(c => c.lead_stage === 'contacts').length}</div>
           <div className="stat-label">Total Contacts</div>
         </div>
         {contactStages.map(stage => (
           <div key={stage.id} className="stat-card">
-            <div className="stat-value">{contacts.filter(c => c.stage === stage.id).length}</div>
+            <div className="stat-value">{contacts.filter(c => c.lead_stage === 'contacts' && c.stage === stage.id).length}</div>
             <div className="stat-label">{stage.icon} {stage.label}</div>
           </div>
         ))}

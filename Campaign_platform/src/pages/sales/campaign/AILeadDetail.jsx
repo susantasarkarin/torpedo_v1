@@ -22,6 +22,17 @@ function AILeadDetail() {
   const [editFormData, setEditFormData] = useState({});
   const [saving, setSaving] = useState(false);
   
+  // Convert Modal State
+  const [showConvertModal, setShowConvertModal] = useState(false);
+  const [convertingStage, setConvertingStage] = useState(false);
+  
+  // Lead Stage Options
+  const LEAD_STAGE_OPTIONS = [
+    { value: "ai_database", label: "AI Database", icon: "🤖", color: "#6366f1" },
+    { value: "leads", label: "Leads", icon: "🎯", color: "#10b981" },
+    { value: "contacts", label: "Contacts", icon: "👥", color: "#f59e0b" }
+  ];
+  
   // Email Compose Modal State
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailFormData, setEmailFormData] = useState({
@@ -167,6 +178,38 @@ function AILeadDetail() {
     }
   };
 
+  const handleConvertStage = async (newStage) => {
+    const sessionId = localStorage.getItem("session_id");
+    if (!sessionId) return;
+
+    setConvertingStage(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads/enriched/${leadId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+        body: JSON.stringify({ ...lead, lead_stage: newStage }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setLead({ ...lead, lead_stage: newStage });
+        setShowConvertModal(false);
+        const stageLabel = LEAD_STAGE_OPTIONS.find(s => s.value === newStage)?.label || newStage;
+        alert(`Lead moved to ${stageLabel} successfully!`);
+      } else {
+        const errData = await res.json();
+        alert(errData.detail || "Failed to convert lead");
+      }
+    } catch (e) {
+      alert("Failed to convert lead: " + e.message);
+    } finally {
+      setConvertingStage(false);
+    }
+  };
+
   const openEmailModal = () => {
     setEmailFormData({
       to: lead.email || "",
@@ -302,7 +345,7 @@ function AILeadDetail() {
               Send Email
             </button>
           )}
-          <button className="action-btn secondary">Convert</button>
+          <button className="action-btn secondary" onClick={() => setShowConvertModal(true)}>Convert</button>
           {lead.linkedin_url && (
             <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer" className="action-btn linkedin">
               LinkedIn
@@ -320,7 +363,6 @@ function AILeadDetail() {
             <ul className="related-list">
               <li className={activeSection === "notes" ? "active" : ""} onClick={() => scrollToSection("notes")}>Notes</li>
               <li className={activeSection === "connected" ? "active" : ""} onClick={() => scrollToSection("connected")}>Connected Records</li>
-              <li className={activeSection === "cadences" ? "active" : ""} onClick={() => scrollToSection("cadences")}>Cadences</li>
               <li className={activeSection === "attachments" ? "active" : ""} onClick={() => scrollToSection("attachments")}>Attachments</li>
               <li className={activeSection === "activities" ? "active" : ""} onClick={() => scrollToSection("activities")}>Open Activities</li>
               <li className={activeSection === "closed" ? "active" : ""} onClick={() => scrollToSection("closed")}>Closed Activities</li>
@@ -390,6 +432,15 @@ function AILeadDetail() {
                 </div>
                 <div className="info-grid">
                   <div className="info-row">
+                    <span className="label">Lead Stage</span>
+                    <span className="value">
+                      <span className={`stage-badge ${lead.lead_stage || 'ai_database'}`}>
+                        {LEAD_STAGE_OPTIONS.find(s => s.value === (lead.lead_stage || 'ai_database'))?.icon}{' '}
+                        {LEAD_STAGE_OPTIONS.find(s => s.value === (lead.lead_stage || 'ai_database'))?.label || 'AI Database'}
+                      </span>
+                    </span>
+                  </div>
+                  <div className="info-row">
                     <span className="label">Email</span>
                     <span className="value link">{lead.email || "—"}</span>
                   </div>
@@ -399,7 +450,7 @@ function AILeadDetail() {
                   </div>
                   <div className="info-row">
                     <span className="label">LinkedIn</span>
-                    <span className="value">{lead.linkedin_url ? <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer">View Profile ↗</a> : "—"}</span>
+                    <span className="value">{lead.linkedin_url ? <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer" className="url-link">{lead.linkedin_url} ↗</a> : "—"}</span>
                   </div>
                   <div className="info-row">
                     <span className="label">Title</span>
@@ -459,7 +510,7 @@ function AILeadDetail() {
                   </div>
                   <div className="info-row">
                     <span className="label">Company LinkedIn Url</span>
-                    <span className="value">{lead.company_linkedin_url ? <a href={lead.company_linkedin_url} target="_blank" rel="noopener noreferrer">View ↗</a> : "—"}</span>
+                    <span className="value">{lead.company_linkedin_url ? <a href={lead.company_linkedin_url} target="_blank" rel="noopener noreferrer" className="url-link">{lead.company_linkedin_url} ↗</a> : "—"}</span>
                   </div>
                   <div className="info-row">
                     <span className="label">Company Employee Count Range</span>
@@ -528,7 +579,7 @@ function AILeadDetail() {
                 </div>
               )}
 
-              {/* Notes Section */}
+              {/* Notes Section - AI Summary */}
               <div className="related-section" id="section-notes">
                 <div className="section-header">
                   <h3>Notes</h3>
@@ -536,8 +587,21 @@ function AILeadDetail() {
                     <option>Recent First ▼</option>
                   </select>
                 </div>
-                <div className="add-note">
-                  <input type="text" placeholder="Add a note" />
+                <div className="notes-content">
+                  {lead.ai_summary || lead.snippet ? (
+                    <div className="ai-summary-note">
+                      <div className="note-header">
+                        <span className="note-icon">🤖</span>
+                        <span className="note-title">AI Summary</span>
+                        <span className="note-date">{formatDate(lead.updated_at)}</span>
+                      </div>
+                      <div className="note-body">
+                        {lead.ai_summary || lead.snippet || "No AI summary available."}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="empty-state">No notes available</p>
+                  )}
                 </div>
               </div>
 
@@ -545,14 +609,6 @@ function AILeadDetail() {
               <div className="related-section" id="section-connected">
                 <div className="section-header">
                   <h3>Connected Records</h3>
-                </div>
-                <p className="empty-state">No records found</p>
-              </div>
-
-              {/* Cadences Section */}
-              <div className="related-section" id="section-cadences">
-                <div className="section-header">
-                  <h3>Cadences</h3>
                 </div>
                 <p className="empty-state">No records found</p>
               </div>
@@ -782,27 +838,29 @@ function AILeadDetail() {
         </div>
       )}
 
-      {/* Email Compose Modal */}
+      {/* Email Compose Modal - Gmail Style */}
       {showEmailModal && (
-        <div className="modal-overlay" onClick={() => setShowEmailModal(false)}>
-          <div className="modal-container email-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header email-modal-header">
-              <h2>New Message</h2>
-              <div className="modal-header-actions">
-                <button className="modal-minimize">−</button>
-                <button className="modal-expand">□</button>
-                <button className="modal-close" onClick={() => setShowEmailModal(false)}>×</button>
+        <div className="gmail-compose-overlay">
+          <div className="gmail-compose-modal" onClick={(e) => e.stopPropagation()}>
+            {/* Tabs Bar */}
+            <div className="compose-tabs-bar">
+              <div className="compose-tab active">
+                <span className="tab-label">New Message</span>
+                <button className="tab-close" onClick={() => setShowEmailModal(false)}>×</button>
               </div>
             </div>
-            <div className="modal-body email-modal-body">
-              {/* From Account Selector */}
-              <div className="email-field">
-                <div className="email-field-row">
-                  <div className="sender-avatar">
-                    {selectedAccount?.email?.[0]?.toUpperCase() || "?"}
-                  </div>
+            
+            {/* Header */}
+            <div className="compose-header">
+              <div className="compose-header-left">
+                <div className="sender-info">
+                  <img 
+                    src={selectedAccount?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedAccount?.name || 'User')}&background=4a90d9&color=fff`} 
+                    alt="" 
+                    className="sender-avatar-img"
+                  />
                   <select 
-                    className="account-select"
+                    className="sender-select"
                     value={selectedAccount?.email || ""}
                     onChange={handleAccountChange}
                   >
@@ -812,97 +870,163 @@ function AILeadDetail() {
                       </option>
                     ))}
                   </select>
-                  <button className="insert-template-btn">Insert Template</button>
                 </div>
               </div>
-
-              {/* To Field */}
-              <div className="email-field">
-                <label>To</label>
-                <div className="email-input-row">
-                  <input
-                    type="text"
-                    value={emailFormData.to}
-                    onChange={(e) => setEmailFormData({...emailFormData, to: e.target.value})}
-                    placeholder="Enter recipient email"
-                  />
-                  <span className="cc-bcc-toggle">Bcc Cc</span>
-                </div>
+              <div className="compose-header-right">
+                <button className="template-btn">
+                  Insert Template
+                  <span className="dropdown-arrow">▼</span>
+                </button>
               </div>
-
-              {/* Reply To Field */}
-              <div className="email-field">
-                <label>Reply To</label>
-                <select
-                  value={emailFormData.replyTo}
-                  onChange={(e) => setEmailFormData({...emailFormData, replyTo: e.target.value})}
-                >
-                  {imapAccounts.map((acc) => (
-                    <option key={acc.email} value={acc.email}>
-                      {acc.name || acc.email} &lt;{acc.email}&gt;
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Subject Field */}
-              <div className="email-field">
-                <label>Subject</label>
-                <input
-                  type="text"
-                  value={emailFormData.subject}
-                  onChange={(e) => setEmailFormData({...emailFormData, subject: e.target.value})}
-                  placeholder="Enter subject"
-                />
-              </div>
-
-              {/* Email Toolbar */}
-              <div className="email-toolbar">
-                <button className="toolbar-btn"><b>B</b></button>
-                <button className="toolbar-btn"><i>I</i></button>
-                <button className="toolbar-btn"><u>U</u></button>
-                <button className="toolbar-btn"><s>S</s></button>
-                <span className="toolbar-divider">|</span>
-                <button className="toolbar-btn">F</button>
-                <select className="font-size-select">
-                  <option>10</option>
-                  <option>12</option>
-                  <option>14</option>
-                  <option>16</option>
-                </select>
-                <span className="toolbar-divider">|</span>
-                <button className="toolbar-btn">A</button>
-                <button className="toolbar-btn">≡</button>
-                <button className="toolbar-btn">☰</button>
-                <button className="toolbar-btn">⊞</button>
-                <button className="toolbar-btn">🔗</button>
-                <button className="toolbar-btn">📷</button>
-                <span className="toolbar-right">Plain text</span>
-              </div>
-
-              {/* Email Body */}
-              <div className="email-body-container">
-                <textarea
-                  className="email-body"
-                  value={emailFormData.body}
-                  onChange={(e) => setEmailFormData({...emailFormData, body: e.target.value})}
-                  placeholder="Compose your email..."
-                />
-                
-                {/* Signature Preview */}
-                {signature && (
-                  <div className="signature-preview" dangerouslySetInnerHTML={{ __html: signature }} />
-                )}
+              <div className="compose-window-controls">
+                <button className="window-btn minimize">−</button>
+                <button className="window-btn expand">⬜</button>
+                <button className="window-btn close" onClick={() => setShowEmailModal(false)}>×</button>
               </div>
             </div>
-            <div className="modal-footer email-modal-footer">
-              <button className="attach-btn">📎</button>
+            
+            {/* Reply To */}
+            <div className="compose-field reply-to-field">
+              <span className="field-label">Reply To</span>
+              <span className="field-value">{selectedAccount?.name || selectedAccount?.email} &lt;{selectedAccount?.email}&gt;</span>
+            </div>
+            
+            {/* To Field */}
+            <div className="compose-field to-field">
+              <span className="field-label">To</span>
+              <div className="recipients-container">
+                {emailFormData.to && (
+                  <span className="recipient-chip">
+                    {emailFormData.to.split('@')[0]}
+                    <button className="chip-remove">×</button>
+                  </span>
+                )}
+                <input
+                  type="text"
+                  className="recipient-input"
+                  value={emailFormData.to ? "" : emailFormData.to}
+                  onChange={(e) => setEmailFormData({...emailFormData, to: e.target.value})}
+                  placeholder=""
+                />
+              </div>
+            </div>
+            
+            {/* Subject */}
+            <div className="compose-field subject-field">
+              <span className="field-label">Subject</span>
+              <input
+                type="text"
+                className="subject-input"
+                value={emailFormData.subject}
+                onChange={(e) => setEmailFormData({...emailFormData, subject: e.target.value})}
+                placeholder=""
+              />
+            </div>
+            
+            {/* Rich Text Toolbar */}
+            <div className="compose-toolbar">
+              <button className="toolbar-btn bold"><b>B</b></button>
+              <button className="toolbar-btn italic"><i>I</i></button>
+              <button className="toolbar-btn underline"><u>U</u></button>
+              <button className="toolbar-btn strikethrough"><s>S</s></button>
+              <button className="toolbar-btn font-family">F ▼</button>
+              <select className="toolbar-select font-size">
+                <option>10</option>
+                <option selected>12</option>
+                <option>14</option>
+                <option>16</option>
+                <option>18</option>
+              </select>
+              <span className="toolbar-separator"></span>
+              <button className="toolbar-btn text-color">A ▼</button>
+              <button className="toolbar-btn align">≡ ▼</button>
+              <button className="toolbar-btn list-ordered">1.</button>
+              <button className="toolbar-btn list-bullet">•</button>
+              <button className="toolbar-btn indent-less">⇤</button>
+              <button className="toolbar-btn indent-more">⇥</button>
+              <span className="toolbar-separator"></span>
+              <button className="toolbar-btn superscript">x²</button>
+              <button className="toolbar-btn subscript">x₂</button>
+              <button className="toolbar-btn clear-format">Tx</button>
+              <span className="toolbar-separator"></span>
+              <button className="toolbar-btn link">🔗</button>
+              <button className="toolbar-btn table">▦</button>
+              <button className="toolbar-btn image">🖼</button>
+              <button className="toolbar-btn hr">―</button>
+              <button className="toolbar-btn code">&lt;/&gt;</button>
+              <button className="toolbar-btn quote">"</button>
+              <button className="toolbar-btn emoji">😊 ▼</button>
+              <span className="toolbar-spacer"></span>
+              <span className="plain-text-toggle">Plain text</span>
+            </div>
+            
+            {/* Email Body */}
+            <div className="compose-body">
+              <textarea
+                className="compose-textarea"
+                value={emailFormData.body}
+                onChange={(e) => setEmailFormData({...emailFormData, body: e.target.value})}
+                placeholder=""
+              />
+              
+              {/* Signature */}
+              {signature && (
+                <div className="compose-signature" dangerouslySetInnerHTML={{ __html: signature }} />
+              )}
+            </div>
+            
+            {/* Footer */}
+            <div className="compose-footer">
+              <div className="footer-left">
+                <button className="footer-btn attach" title="Attach file">📎</button>
+                <button className="footer-btn link" title="Insert link">🔗</button>
+              </div>
               <div className="footer-right">
-                <button className="schedule-btn">⏱ Schedule</button>
-                <button className="send-btn" onClick={handleSendEmail} disabled={sendingEmail}>
+                <button className="footer-btn ai" title="AI Assistant">✨</button>
+                <button className="schedule-btn" title="Schedule send">
+                  <span className="schedule-icon">⏱</span>
+                  Schedule
+                </button>
+                <button className="send-btn-gmail" onClick={handleSendEmail} disabled={sendingEmail}>
                   {sendingEmail ? "Sending..." : "Send"}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Convert Stage Modal */}
+      {showConvertModal && (
+        <div className="modal-overlay" onClick={() => setShowConvertModal(false)}>
+          <div className="modal-container convert-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Move Lead to Stage</h2>
+              <button className="modal-close" onClick={() => setShowConvertModal(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p className="convert-description">
+                Select the stage to move <strong>{lead.name || lead.email}</strong> to:
+              </p>
+              <div className="stage-options">
+                {LEAD_STAGE_OPTIONS.map((stage) => (
+                  <button
+                    key={stage.value}
+                    className={`stage-option-btn ${lead.lead_stage === stage.value || (!lead.lead_stage && stage.value === 'ai_database') ? 'current' : ''}`}
+                    onClick={() => handleConvertStage(stage.value)}
+                    disabled={convertingStage || lead.lead_stage === stage.value || (!lead.lead_stage && stage.value === 'ai_database')}
+                  >
+                    <span className="stage-icon">{stage.icon}</span>
+                    <span className="stage-label">{stage.label}</span>
+                    {(lead.lead_stage === stage.value || (!lead.lead_stage && stage.value === 'ai_database')) && (
+                      <span className="current-badge">Current</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={() => setShowConvertModal(false)}>Cancel</button>
             </div>
           </div>
         </div>
