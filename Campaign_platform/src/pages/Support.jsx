@@ -7,7 +7,7 @@ import {
   CheckCircle2, XCircle, MoreVertical, MessageSquare,
   ArrowUpCircle, User, Building, Tag, ChevronRight
 } from 'lucide-react';
-import { PageLayout, PageHeader } from '../components/ui/PageLayout';
+import { PageContainer, PageHeader } from '../components/ui/PageLayout';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -431,7 +431,7 @@ export default function Support() {
   );
 
   return (
-    <PageLayout>
+    <PageContainer>
       <PageHeader
         title="Support"
         subtitle="Manage support tickets and customer inquiries"
@@ -843,6 +843,6 @@ export default function Support() {
           </div>
         </div>
       </Modal>
-    </PageLayout>
+    </PageContainer>
   );
 }

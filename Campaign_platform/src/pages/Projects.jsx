@@ -7,7 +7,7 @@ import {
   Clock, CheckCircle2, AlertCircle, MoreVertical, Trash2,
   Edit, Eye, Archive, TrendingUp, Target, DollarSign
 } from 'lucide-react';
-import { PageLayout, PageHeader } from '../components/ui/PageLayout';
+import { PageContainer, PageHeader } from '../components/ui/PageLayout';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -389,7 +389,7 @@ export default function Projects() {
   );
 
   return (
-    <PageLayout>
+    <PageContainer>
       <PageHeader
         title="Projects"
         subtitle="Manage your projects and tasks"
@@ -592,6 +592,6 @@ export default function Projects() {
         confirmText="Delete"
         variant="danger"
       />
-    </PageLayout>
+    </PageContainer>
   );
 }
