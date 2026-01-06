@@ -2,36 +2,9 @@
   RewriteEngine On
   RewriteBase /
   
-  # Proxy API routes to backend (port 8000)
-  # CPX callback endpoint - must be proxied to backend
-  RewriteCond %{REQUEST_URI} ^/cpx-response [NC]
-  RewriteRule ^(.*)$ http://localhost:8000/$1 [P,L,QSA]
-  
-  # Survey allocation entry endpoint
-  RewriteCond %{REQUEST_URI} ^/survey-allocation/entry [NC]
-  RewriteRule ^(.*)$ http://localhost:8000/$1 [P,L,QSA]
-  
-  # Survey allocation callback endpoint
-  RewriteCond %{REQUEST_URI} ^/survey-allocation/callback [NC]
-  RewriteRule ^(.*)$ http://localhost:8000/$1 [P,L,QSA]
-  
-  # Takesurvey endpoint
-  RewriteCond %{REQUEST_URI} ^/takesurvey [NC]
-  RewriteRule ^(.*)$ http://localhost:8000/$1 [P,L,QSA]
-  
   # Don't rewrite files or directories
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
-  
-  # Don't rewrite symbolic links
-  RewriteCond %{REQUEST_FILENAME} !-l
-  
-  # Rewrite everything else to index.html to allow React Router to handle routing
+
+  # Rewrite everything else to index.html for React Router
   RewriteRule . /index.html [L]
-</IfModule>
-
-# Enable proxy module (requires mod_proxy and mod_proxy_http)
-<IfModule mod_proxy.c>
-  ProxyPreserveHost On
-</IfModule>
-
