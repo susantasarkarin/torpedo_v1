@@ -466,7 +466,7 @@ function Leads() {
                   <td className="name-cell">
                     <span 
                       className="name-link"
-                      onClick={() => navigate(`/admin/sales/leads/${lead._id}`)}
+                      onClick={() => navigate(`/admin/sales/campaign/ai-leads/${lead._id}`)}
                     >
                       {lead.name || `${lead.firstName || ''} ${lead.lastName || ''}`.trim() || '-'}
                     </span>

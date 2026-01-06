@@ -1240,7 +1240,12 @@ function AILeads() {
                     />
                   </td>
                   <td className="name-cell">
-                    {lead.name}
+                    <span 
+                      className="name-link" 
+                      onClick={() => navigate(`/admin/sales/campaign/ai-leads/${lead._id}`)}
+                    >
+                      {lead.name}
+                    </span>
                   </td>
                   <td>{lead.title || lead.job_title || "-"}</td>
                   <td>{lead.company_name || "-"}</td>
