@@ -10,7 +10,8 @@ export const SALES_STAGES = [
   { id: "presentation", label: "Presentation", icon: "📊", color: { bg: "#dbeafe", text: "#1e40af" } },
   { id: "rfq_pricing", label: "RFQ & Pricing", icon: "💰", color: { bg: "#e0e7ff", text: "#3730a3" } },
   { id: "negotiation", label: "Negotiation", icon: "🤝", color: { bg: "#fce7f3", text: "#9d174d" } },
-  { id: "closed", label: "Closed", icon: "✅", color: { bg: "#d1fae5", text: "#065f46" } },
+  { id: "won", label: "Won", icon: "✅", color: { bg: "#d1fae5", text: "#065f46" } },
+  { id: "lost", label: "Lost", icon: "❌", color: { bg: "#fee2e2", text: "#dc2626" } },
   { id: "onboarding", label: "Onboarding", icon: "🚀", color: { bg: "#cffafe", text: "#0f766e" } },
   { id: "project_execution", label: "Project Execution", icon: "⚙️", color: { bg: "#fef9c3", text: "#854d0e" } },
   { id: "payment", label: "Payment", icon: "💳", color: { bg: "#dcfce7", text: "#15803d" } },
@@ -22,8 +23,10 @@ export const LEGACY_STAGE_MAPPING = {
   "RFQ": "rfq_pricing",
   "Proposal": "rfq_pricing",
   "Negotiation": "negotiation",
-  "Won": "closed",
-  "Lost": "closed", // Lost deals are still at "closed" stage, just with different outcome
+  "Won": "won",
+  "Lost": "lost",
+  "closed": "won", // Map old "closed" to "won"
+  "Closed": "won",
 }
 
 // Get stage by ID
@@ -51,7 +54,7 @@ export const isLeadStage = (stageId) => {
 
 // Determine if a stage is in the "Contacts" phase (qualified prospects)
 export const isContactStage = (stageId) => {
-  return ["discovery_call", "presentation", "rfq_pricing", "negotiation", "closed"].includes(stageId)
+  return ["discovery_call", "presentation", "rfq_pricing", "negotiation", "won", "lost"].includes(stageId)
 }
 
 // Determine if a stage is in the "Project" phase (won deals)
