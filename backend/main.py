@@ -566,6 +566,39 @@ try:
 except Exception as e:
     print(f"⚠️ Approvals router not included: {e}")
 
+# --- MCP Action Router ---
+try:
+    try:
+        from .routers import mcp as mcp_router
+    except ImportError:
+        from routers import mcp as mcp_router
+    app.include_router(mcp_router.router)
+    print("✅ MCP Action Router included")
+except Exception as e:
+    print(f"⚠️ MCP Action Router not included: {e}")
+
+# --- Projects Router ---
+try:
+    try:
+        from .routers import projects as projects_router
+    except ImportError:
+        from routers import projects as projects_router
+    app.include_router(projects_router.router)
+    print("✅ Projects router included")
+except Exception as e:
+    print(f"⚠️ Projects router not included: {e}")
+
+# --- Support/Tickets Router ---
+try:
+    try:
+        from .routers import support as support_router
+    except ImportError:
+        from routers import support as support_router
+    app.include_router(support_router.router)
+    print("✅ Support router included")
+except Exception as e:
+    print(f"⚠️ Support router not included: {e}")
+
 # ----------------------------
 # APScheduler for CPX refresh job
 # ----------------------------

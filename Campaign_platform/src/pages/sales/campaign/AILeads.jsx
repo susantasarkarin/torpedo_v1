@@ -869,7 +869,7 @@ function AILeads() {
           className={`tab-btn ${activeTab === "all" ? "active" : ""}`}
           onClick={() => setActiveTab("all")}
         >
-          All Leads ({rawLeads.length})
+          All Leads ({leads.length})
         </button>
         <button 
           className={`tab-btn ${activeTab === "pending" ? "active" : ""}`}
@@ -1015,12 +1015,11 @@ function AILeads() {
                   <th>Seniority</th>
                   <th>Industry</th>
                   <th>Source</th>
-                  <th>Confidence</th>
+                  <th>Email Status</th>
                   {viewMode === "full" && (
                     <>
                       <th>First Name</th>
                       <th>Last Name</th>
-                      <th>Email Status</th>
                       <th>LinkedIn</th>
                       <th>Location</th>
                       <th>Added On</th>
@@ -1051,9 +1050,12 @@ function AILeads() {
                         />
                       </td>
                       <td className="name-cell sticky-col-2">
-                        <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer">
+                        <span 
+                          className="name-link" 
+                          onClick={() => navigate(`/admin/sales/campaign/ai-leads/${lead._id}`)}
+                        >
                           {lead.name}
-                        </a>
+                        </span>
                       </td>
                       <td className="email-cell">{lead.email || "-"}</td>
                       <td>{lead.title || "-"}</td>
@@ -1070,19 +1072,14 @@ function AILeads() {
                         </span>
                       </td>
                       <td>
-                        <span className={`confidence-pill ${getConfidenceClass(lead.confidence_score)}`}>
-                          {Math.round((lead.confidence_score || 0) * 100)}%
+                        <span className={`status-badge ${(lead.email_status || "unknown").toLowerCase().replace(" ", "-")}`}>
+                          {lead.email_status || "Unknown"}
                         </span>
                       </td>
                       {viewMode === "full" && (
                         <>
                           <td>{lead.first_name || "-"}</td>
                           <td>{lead.last_name || "-"}</td>
-                          <td>
-                            <span className={`status-badge ${(lead.email_status || "unknown").toLowerCase().replace(" ", "-")}`}>
-                              {lead.email_status || "Unknown"}
-                            </span>
-                          </td>
                           <td>
                             <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer" className="linkedin-link">
                               View ↗
@@ -1115,17 +1112,11 @@ function AILeads() {
                         </>
                       )}
                       <td className="actions-cell">
-                        {viewMode === "compact" && (
-                          <button 
-                            className="action-btn expand-btn" 
-                            onClick={() => setExpandedLeadId(expandedLeadId === lead._id ? null : lead._id)}
-                            title="View Details"
-                          >
-                            {expandedLeadId === lead._id ? "▲" : "▼"}
-                          </button>
-                        )}
+                        <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer" className="action-link action-btn-linkedin">
+                          LinkedIn ↗
+                        </a>
                         <button className="action-btn" onClick={() => handleClassify([lead._id])}>
-                          Re-classify
+                          Re
                         </button>
                       </td>
                     </tr>
@@ -1200,9 +1191,7 @@ function AILeads() {
                     />
                   </td>
                   <td className="name-cell">
-                    <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer">
-                      {lead.name}
-                    </a>
+                    {lead.name}
                   </td>
                   <td>{lead.title || lead.job_title || "-"}</td>
                   <td>{lead.company_name || "-"}</td>
@@ -1221,8 +1210,8 @@ function AILeads() {
                     </span>
                   </td>
                   <td className="actions-cell">
-                    <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer" className="action-link">
-                      View ↗
+                    <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer" className="action-link action-btn-linkedin">
+                      LinkedIn ↗
                     </a>
                     {lead.classification_status === "Pending" && (
                       <button className="action-btn" onClick={() => handleClassify([lead._id])}>

@@ -129,6 +129,15 @@ class Permissions:
     OPS_RESOURCE_READ = "ops.resource.read"
     OPS_RESOURCE_ASSIGN = "ops.resource.assign"
     
+    # Support/Tickets
+    OPS_TICKET_READ = "ops.ticket.read"
+    OPS_TICKET_CREATE = "ops.ticket.create"
+    OPS_TICKET_UPDATE = "ops.ticket.update"
+    OPS_TICKET_DELETE = "ops.ticket.delete"
+    OPS_TICKET_ASSIGN = "ops.ticket.assign"
+    OPS_TICKET_CLOSE = "ops.ticket.close"
+    OPS_SLA_MANAGE = "ops.sla.manage"
+    
     # ========================================
     # ADMIN MODULE
     # ========================================

@@ -18,9 +18,11 @@ class ProjectService:
     
     def __init__(self, db):
         self.db = db
-        self.projects = db.torpedo_settings.projects
-        self.tasks = db.torpedo_settings.tasks
-        self.time_entries = db.torpedo_settings.time_entries
+        # db is a DatabaseManager, get the torpedo_settings database
+        settings_db = db.get_database("torpedo_settings")
+        self.projects = settings_db["projects"]
+        self.tasks = settings_db["tasks"]
+        self.time_entries = settings_db["time_entries"]
     
     # ==================== PROJECTS ====================
     

@@ -35,6 +35,7 @@ const Templates = lazy(() => import("./pages/sales/campaign/Templates"))
 const Workflow = lazy(() => import("./pages/sales/campaign/Workflow"))
 const Reports = lazy(() => import("./pages/sales/campaign/Reports"))
 const AILeads = lazy(() => import("./pages/sales/campaign/AILeads"))
+const AILeadDetail = lazy(() => import("./pages/sales/campaign/AILeadDetail"))
 const SalesDashboard = lazy(() => import("./pages/sales/SalesDashboard"))
 
 // Operations Pages
@@ -81,6 +82,12 @@ const Settings = lazy(() => import("./pages/Settings"))
 // Logs Page
 const LogsPage = lazy(() => import("./pages/LogsPage"))
 
+// Projects Page
+const Projects = lazy(() => import("./pages/Projects"))
+
+// Support Page
+const Support = lazy(() => import("./pages/Support"))
+
 // Wrapper for lazy loaded pages with consistent loading state
 const LazyPage = ({ children }) => (
   <Suspense fallback={<PageLoading />}>
@@ -126,6 +133,7 @@ function App() {
         <Route path="sales/rfq" element={<LazyPage><RFQ /></LazyPage>} />
         <Route path="sales/campaign/list" element={<LazyPage><List /></LazyPage>} />
         <Route path="sales/campaign/ai-leads" element={<LazyPage><AILeads /></LazyPage>} />
+        <Route path="sales/campaign/ai-leads/:leadId" element={<LazyPage><AILeadDetail /></LazyPage>} />
         <Route path="sales/campaign/templates" element={<LazyPage><Templates /></LazyPage>} />
         <Route path="sales/campaign/workflow" element={<LazyPage><Workflow /></LazyPage>} />
         <Route path="sales/campaign/reports" element={<LazyPage><Reports /></LazyPage>} />
@@ -189,6 +197,12 @@ function App() {
 
         {/* HR */}
         <Route path="hr" element={<LazyPage><HR /></LazyPage>} />
+
+        {/* Projects - Project Management */}
+        <Route path="projects" element={<LazyPage><Projects /></LazyPage>} />
+
+        {/* Support - Ticket Management */}
+        <Route path="support" element={<LazyPage><Support /></LazyPage>} />
       </Route>
 
       {/* Catch all */}

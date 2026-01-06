@@ -106,9 +106,17 @@ function Settings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: "", text: "" })
-  const [activeTab, setActiveTab] = useState("app") // "app", "filters", "gmail", or "allocation"
+  const [activeTab, setActiveTab] = useState("app") // "app", "filters", "gmail", "allocation", "signatures"
   const [testingMongo, setTestingMongo] = useState(false)
   const [testingCpx, setTestingCpx] = useState(false)
+
+  // Email Signatures state
+  const [emailSignatures, setEmailSignatures] = useState([])
+  const [selectedSignatureEmail, setSelectedSignatureEmail] = useState("")
+  const [signatureHtml, setSignatureHtml] = useState("")
+  const [signatureText, setSignatureText] = useState("")
+  const [signaturesLoading, setSignaturesLoading] = useState(false)
+  const [savingSignature, setSavingSignature] = useState(false)
 
   useEffect(() => {
     loadAllSettings()
@@ -121,7 +129,141 @@ function Settings() {
     if (activeTab === "allocation") {
       loadAllocationSettings()
     }
+    if (activeTab === "signatures") {
+      loadEmailSignatures()
+    }
   }, [activeTab])
+
+  // Load Email Signatures
+  const loadEmailSignatures = async () => {
+    setSignaturesLoading(true)
+    try {
+      const token = getAuthToken()
+      
+      // First load gmail accounts if not already loaded
+      if (gmailAccounts.length === 0) {
+        const accountsRes = await fetch(`${API_BASE_URL}/gmail/accounts`, {
+          headers: { Authorization: token }
+        })
+        if (accountsRes.ok) {
+          const data = await accountsRes.json()
+          const accounts = (data.accounts || []).map(acc => ({
+            id: acc._id || acc.email,
+            email: acc.email,
+            display_name: acc.display_name || acc.name,
+          }))
+          setGmailAccounts(accounts)
+        }
+      }
+      
+      // Load all signatures
+      const sigRes = await fetch(`${API_BASE_URL}/settings/email-signatures`, {
+        headers: { Authorization: token }
+      })
+      if (sigRes.ok) {
+        const data = await sigRes.json()
+        setEmailSignatures(data.signatures || [])
+      }
+    } catch (error) {
+      console.error("Error loading signatures:", error)
+    } finally {
+      setSignaturesLoading(false)
+    }
+  }
+
+  // Handle email account selection for signature editing
+  const handleSignatureEmailChange = async (email) => {
+    setSelectedSignatureEmail(email)
+    if (!email) {
+      setSignatureHtml("")
+      setSignatureText("")
+      return
+    }
+
+    // Find existing signature for this email
+    const existing = emailSignatures.find(s => s.email === email)
+    if (existing) {
+      setSignatureHtml(existing.signature_html || "")
+      setSignatureText(existing.signature_text || "")
+    } else {
+      // Fetch from API
+      try {
+        const token = getAuthToken()
+        const res = await fetch(`${API_BASE_URL}/settings/email-signature/${encodeURIComponent(email)}`, {
+          headers: { Authorization: token }
+        })
+        if (res.ok) {
+          const data = await res.json()
+          setSignatureHtml(data.signature || "")
+          setSignatureText(data.signature_text || "")
+        }
+      } catch (e) {
+        console.error("Error fetching signature:", e)
+      }
+    }
+  }
+
+  // Save signature
+  const handleSaveSignature = async () => {
+    if (!selectedSignatureEmail) return
+    
+    setSavingSignature(true)
+    try {
+      const token = getAuthToken()
+      const res = await fetch(`${API_BASE_URL}/settings/email-signature/${encodeURIComponent(selectedSignatureEmail)}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token
+        },
+        body: JSON.stringify({
+          signature_html: signatureHtml,
+          signature_text: signatureText
+        })
+      })
+      
+      if (res.ok) {
+        setMessage({ type: "success", text: "Signature saved successfully!" })
+        loadEmailSignatures() // Refresh list
+      } else {
+        const data = await res.json()
+        setMessage({ type: "error", text: getErrorMessage(data, "Failed to save signature") })
+      }
+    } catch (e) {
+      setMessage({ type: "error", text: "Failed to save signature: " + e.message })
+    } finally {
+      setSavingSignature(false)
+    }
+  }
+
+  // Delete signature
+  const handleDeleteSignature = async () => {
+    if (!selectedSignatureEmail) return
+    if (!confirm(`Delete signature for ${selectedSignatureEmail}?`)) return
+    
+    setSavingSignature(true)
+    try {
+      const token = getAuthToken()
+      const res = await fetch(`${API_BASE_URL}/settings/email-signature/${encodeURIComponent(selectedSignatureEmail)}`, {
+        method: "DELETE",
+        headers: { Authorization: token }
+      })
+      
+      if (res.ok) {
+        setMessage({ type: "success", text: "Signature deleted!" })
+        setSignatureHtml("")
+        setSignatureText("")
+        loadEmailSignatures()
+      } else {
+        const data = await res.json()
+        setMessage({ type: "error", text: getErrorMessage(data, "Failed to delete signature") })
+      }
+    } catch (e) {
+      setMessage({ type: "error", text: "Failed to delete signature: " + e.message })
+    } finally {
+      setSavingSignature(false)
+    }
+  }
 
   const loadGmailSettings = async () => {
     setGmailLoading(true)
@@ -874,6 +1016,13 @@ function Settings() {
         >
           <span className="tab-icon">🔄</span>
           Email Sync
+        </button>
+        <button 
+          className={`tab-button ${activeTab === "signatures" ? "active" : ""}`}
+          onClick={() => setActiveTab("signatures")}
+        >
+          <span className="tab-icon">✍️</span>
+          Email Signatures
         </button>
       </div>
 
@@ -1795,6 +1944,90 @@ function Settings() {
               Monitor email synchronization status, view backfill progress, and manage sync workers.
             </p>
             <EmailSyncProgress refreshInterval={2000} />
+          </div>
+        )}
+
+        {/* Email Signatures Tab */}
+        {activeTab === "signatures" && (
+          <div className="settings-section">
+            <h2>Email Signatures</h2>
+            <p className="section-description">
+              Configure email signatures for each of your email accounts. These signatures will be automatically appended when composing emails.
+            </p>
+
+            {signaturesLoading ? (
+              <div className="loading-state">Loading signatures...</div>
+            ) : (
+              <div className="signatures-container">
+                <div className="signature-selector">
+                  <label>Select Email Account:</label>
+                  <select 
+                    value={selectedSignatureEmail}
+                    onChange={(e) => handleSignatureEmailChange(e.target.value)}
+                  >
+                    <option value="">-- Select an account --</option>
+                    {gmailAccounts.map((acc) => (
+                      <option key={acc.email || acc._id} value={acc.email}>
+                        {acc.display_name || acc.email} ({acc.email})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedSignatureEmail && (
+                  <div className="signature-editor">
+                    <div className="form-group">
+                      <label>Signature (HTML)</label>
+                      <p className="field-hint">You can use HTML for rich formatting including images, links, and styled text.</p>
+                      <textarea
+                        className="signature-textarea"
+                        value={signatureHtml}
+                        onChange={(e) => setSignatureHtml(e.target.value)}
+                        rows={12}
+                        placeholder="<div style='font-family: Arial, sans-serif;'>\n  <p><strong>Your Name</strong></p>\n  <p>Title | Company</p>\n  <p>email@company.com</p>\n</div>"
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label>Plain Text Fallback</label>
+                      <p className="field-hint">This version is used when HTML cannot be displayed.</p>
+                      <textarea
+                        className="signature-textarea-plain"
+                        value={signatureText}
+                        onChange={(e) => setSignatureText(e.target.value)}
+                        rows={6}
+                        placeholder="Your Name\nTitle | Company\nemail@company.com"
+                      />
+                    </div>
+
+                    <div className="signature-preview">
+                      <h4>Preview:</h4>
+                      <div 
+                        className="signature-preview-content"
+                        dangerouslySetInnerHTML={{ __html: signatureHtml || '<em>No signature configured</em>' }}
+                      />
+                    </div>
+
+                    <div className="button-group">
+                      <button 
+                        className="button-primary"
+                        onClick={handleSaveSignature}
+                        disabled={savingSignature}
+                      >
+                        {savingSignature ? "Saving..." : "Save Signature"}
+                      </button>
+                      <button 
+                        className="button-danger"
+                        onClick={handleDeleteSignature}
+                        disabled={savingSignature || !signatureHtml}
+                      >
+                        Delete Signature
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -277,3 +277,12 @@ def get_cpx_surveys_collection() -> Collection:
 def get_url_parameters_collection() -> Collection:
     """Get the URL parameters collection (traffic)."""
     return get_collection(DB_TRAFFIC, COL_URL_PARAMETERS)
+
+
+def get_db():
+    """
+    Get a DatabaseManager instance for use in routers.
+    This is a convenience function for dependency injection.
+    Returns the db_manager which provides access to all databases.
+    """
+    return get_db_manager()

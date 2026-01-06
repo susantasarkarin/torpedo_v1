@@ -89,7 +89,9 @@ class CheckApprovalResponse(BaseModel):
 def get_engine() -> ApprovalEngine:
     """Get the approval engine instance"""
     db = get_db()
-    return get_approval_engine(db)
+    # get_db returns DatabaseManager, we need the torpedo_settings database
+    settings_db = db.get_database("torpedo_settings")
+    return get_approval_engine(settings_db)
 
 
 def get_current_user_context():

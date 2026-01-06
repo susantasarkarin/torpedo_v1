@@ -3,7 +3,7 @@ AGENT 4 — BACKEND API ENGINEER
 FastAPI Router for Lead Management
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, UploadFile, File, Form, Body
 from typing import Optional, List
 from datetime import datetime, timedelta
 from pydantic import BaseModel
@@ -23,7 +23,8 @@ from .models import (
 from .service import (
     import_leads, classify_pending_leads, classify_single_lead,
     get_leads, get_raw_leads_with_status, attach_leads_to_campaign,
-    get_lead_statistics, delete_leads_by_source, delete_all_leads
+    get_lead_statistics, delete_leads_by_source, delete_all_leads,
+    get_enriched_lead_by_id, find_duplicate_emails, delete_duplicate_emails
 )
 from .ingestion import (
     search_linkedin_leads, parse_csv_leads, import_from_google_sheet,
@@ -1666,6 +1667,81 @@ async def sync_account_aliases(account_email: str):
     result = add_detected_aliases(account_email)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+
+# ============== ENRICHED LEAD DETAIL ==============
+
+@router.get("/enriched/{lead_id}")
+async def get_enriched_lead_endpoint(lead_id: str):
+    """
+    GET /leads/enriched/{lead_id}
+    Get a single enriched lead by ID with all details.
+    """
+    lead = get_enriched_lead_by_id(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return {"lead": lead}
+
+
+@router.put("/enriched/{lead_id}")
+async def update_enriched_lead_endpoint(lead_id: str, data: dict = Body(...)):
+    """
+    PUT /leads/enriched/{lead_id}
+    Update an enriched lead by ID.
+    """
+    from bson import ObjectId
+    
+    # Validate lead_id
+    try:
+        obj_id = ObjectId(lead_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid lead ID format")
+    
+    # Check if lead exists
+    existing_lead = leads_enriched.find_one({"_id": obj_id})
+    if not existing_lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    # Remove _id from update data if present
+    if "_id" in data:
+        del data["_id"]
+    
+    # Add updated timestamp
+    data["updated_at"] = datetime.utcnow().isoformat()
+    
+    # Update the lead
+    result = leads_enriched.update_one(
+        {"_id": obj_id},
+        {"$set": data}
+    )
+    
+    if result.modified_count > 0:
+        # Fetch and return updated lead
+        updated_lead = get_enriched_lead_by_id(lead_id)
+        return {"success": True, "lead": updated_lead, "message": "Lead updated successfully"}
+    else:
+        return {"success": True, "lead": get_enriched_lead_by_id(lead_id), "message": "No changes made"}
+
+
+# ============== DUPLICATE EMAIL HANDLING ==============
+
+@router.get("/duplicates/emails")
+async def get_duplicate_emails_endpoint():
+    """
+    GET /leads/duplicates/emails
+    Find all leads with duplicate email addresses.
+    """
+    return find_duplicate_emails()
+
+
+@router.delete("/duplicates/emails")
+async def delete_duplicate_emails_endpoint():
+    """
+    DELETE /leads/duplicates/emails
+    Delete duplicate leads, keeping only the oldest per email.
+    """
+    result = delete_duplicate_emails()
     return result
 
 

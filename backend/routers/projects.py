@@ -13,6 +13,7 @@ from projects.models import (
 )
 from projects.service import ProjectService
 from rbac.decorators import require_permission
+from rbac.permissions import Permissions
 from auth import get_current_user
 
 router = APIRouter(prefix="/api/projects", tags=["Projects"])
@@ -27,7 +28,7 @@ def get_project_service():
 # ==================== PROJECTS ====================
 
 @router.post("")
-@require_permission("projects", "create")
+@require_permission(Permissions.OPS_PROJECT_CREATE)
 def create_project(data: ProjectCreate, current_user: dict = Depends(get_current_user)):
     """Create a new project"""
     service = get_project_service()
@@ -37,7 +38,7 @@ def create_project(data: ProjectCreate, current_user: dict = Depends(get_current
 
 
 @router.get("")
-@require_permission("projects", "read")
+@require_permission(Permissions.OPS_PROJECT_READ)
 def list_projects(
     status: Optional[str] = None,
     priority: Optional[str] = None,
@@ -62,7 +63,7 @@ def list_projects(
 
 
 @router.get("/stats")
-@require_permission("projects", "read")
+@require_permission(Permissions.OPS_PROJECT_READ)
 def get_project_stats(client_id: Optional[str] = None):
     """Get project statistics"""
     service = get_project_service()
@@ -83,7 +84,7 @@ def get_my_tasks(
 
 
 @router.get("/{project_id}")
-@require_permission("projects", "read")
+@require_permission(Permissions.OPS_PROJECT_READ)
 def get_project(project_id: str):
     """Get a project by ID"""
     service = get_project_service()
@@ -94,7 +95,7 @@ def get_project(project_id: str):
 
 
 @router.put("/{project_id}")
-@require_permission("projects", "update")
+@require_permission(Permissions.OPS_PROJECT_UPDATE)
 def update_project(project_id: str, data: ProjectUpdate, current_user: dict = Depends(get_current_user)):
     """Update a project"""
     service = get_project_service()
@@ -106,7 +107,7 @@ def update_project(project_id: str, data: ProjectUpdate, current_user: dict = De
 
 
 @router.patch("/{project_id}/status")
-@require_permission("projects", "update")
+@require_permission(Permissions.OPS_PROJECT_UPDATE)
 def update_project_status(project_id: str, status: ProjectStatus):
     """Update project status"""
     service = get_project_service()
@@ -117,7 +118,7 @@ def update_project_status(project_id: str, status: ProjectStatus):
 
 
 @router.post("/{project_id}/archive")
-@require_permission("projects", "delete")
+@require_permission(Permissions.OPS_PROJECT_DELETE)
 def archive_project(project_id: str):
     """Archive a project"""
     service = get_project_service()
@@ -128,7 +129,7 @@ def archive_project(project_id: str):
 
 
 @router.delete("/{project_id}")
-@require_permission("projects", "delete")
+@require_permission(Permissions.OPS_PROJECT_DELETE)
 def delete_project(project_id: str):
     """Permanently delete a project"""
     service = get_project_service()
@@ -141,7 +142,7 @@ def delete_project(project_id: str):
 # ==================== TEAM MANAGEMENT ====================
 
 @router.post("/{project_id}/team")
-@require_permission("projects", "update")
+@require_permission(Permissions.OPS_PROJECT_ASSIGN)
 def add_team_member(
     project_id: str,
     user_id: str,
@@ -167,7 +168,7 @@ def add_team_member(
 
 
 @router.delete("/{project_id}/team/{user_id}")
-@require_permission("projects", "update")
+@require_permission(Permissions.OPS_PROJECT_ASSIGN)
 def remove_team_member(project_id: str, user_id: str):
     """Remove a team member from a project"""
     service = get_project_service()
@@ -180,7 +181,7 @@ def remove_team_member(project_id: str, user_id: str):
 # ==================== MILESTONES ====================
 
 @router.post("/{project_id}/milestones")
-@require_permission("projects", "update")
+@require_permission(Permissions.OPS_PROJECT_UPDATE)
 def add_milestone(
     project_id: str,
     name: str,
@@ -203,7 +204,7 @@ def add_milestone(
 
 
 @router.patch("/{project_id}/milestones/{milestone_id}")
-@require_permission("projects", "update")
+@require_permission(Permissions.OPS_PROJECT_UPDATE)
 def update_milestone(
     project_id: str,
     milestone_id: str,
@@ -228,7 +229,7 @@ def update_milestone(
 # ==================== TASKS ====================
 
 @router.post("/tasks")
-@require_permission("projects", "create")
+@require_permission(Permissions.OPS_PROJECT_CREATE)
 def create_task(data: TaskCreate, current_user: dict = Depends(get_current_user)):
     """Create a new task"""
     service = get_project_service()
@@ -238,7 +239,7 @@ def create_task(data: TaskCreate, current_user: dict = Depends(get_current_user)
 
 
 @router.get("/tasks")
-@require_permission("projects", "read")
+@require_permission(Permissions.OPS_PROJECT_READ)
 def list_tasks(
     project_id: Optional[str] = None,
     status: Optional[str] = None,
@@ -265,7 +266,7 @@ def list_tasks(
 
 
 @router.get("/tasks/{task_id}")
-@require_permission("projects", "read")
+@require_permission(Permissions.OPS_PROJECT_READ)
 def get_task(task_id: str):
     """Get a task by ID"""
     service = get_project_service()
@@ -276,7 +277,7 @@ def get_task(task_id: str):
 
 
 @router.get("/tasks/{task_id}/subtasks")
-@require_permission("projects", "read")
+@require_permission(Permissions.OPS_PROJECT_READ)
 def get_subtasks(task_id: str):
     """Get subtasks of a task"""
     service = get_project_service()
@@ -285,7 +286,7 @@ def get_subtasks(task_id: str):
 
 
 @router.put("/tasks/{task_id}")
-@require_permission("projects", "update")
+@require_permission(Permissions.OPS_PROJECT_UPDATE)
 def update_task(task_id: str, data: TaskUpdate, current_user: dict = Depends(get_current_user)):
     """Update a task"""
     service = get_project_service()
@@ -297,7 +298,7 @@ def update_task(task_id: str, data: TaskUpdate, current_user: dict = Depends(get
 
 
 @router.patch("/tasks/{task_id}/status")
-@require_permission("projects", "update")
+@require_permission(Permissions.OPS_PROJECT_UPDATE)
 def update_task_status(task_id: str, status: TaskStatus):
     """Update task status"""
     service = get_project_service()
@@ -308,7 +309,7 @@ def update_task_status(task_id: str, status: TaskStatus):
 
 
 @router.delete("/tasks/{task_id}")
-@require_permission("projects", "delete")
+@require_permission(Permissions.OPS_PROJECT_DELETE)
 def delete_task(task_id: str):
     """Delete a task"""
     service = get_project_service()
@@ -321,7 +322,7 @@ def delete_task(task_id: str):
 # ==================== TIME TRACKING ====================
 
 @router.post("/tasks/{task_id}/time")
-@require_permission("projects", "update")
+@require_permission(Permissions.OPS_PROJECT_UPDATE)
 def log_time(
     task_id: str,
     hours: float,
@@ -350,7 +351,7 @@ def log_time(
 
 
 @router.get("/{project_id}/time-entries")
-@require_permission("projects", "read")
+@require_permission(Permissions.OPS_PROJECT_READ)
 def get_project_time_entries(
     project_id: str,
     user_id: Optional[str] = None,

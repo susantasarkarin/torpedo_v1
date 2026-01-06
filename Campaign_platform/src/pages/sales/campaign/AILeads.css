@@ -299,13 +299,16 @@
   text-align: center;
 }
 
-.name-cell a {
+.name-cell a,
+.name-cell .name-link {
   color: var(--primary);
   text-decoration: none;
   font-weight: 500;
+  cursor: pointer;
 }
 
-.name-cell a:hover {
+.name-cell a:hover,
+.name-cell .name-link:hover {
   text-decoration: underline;
 }
 

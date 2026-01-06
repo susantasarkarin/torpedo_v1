@@ -211,3 +211,55 @@ def generate_reset_token() -> Tuple[str, datetime]:
     token = generate_secure_token(32)
     expires = datetime.utcnow() + timedelta(hours=24)
     return token, expires
+
+
+# ============== CURRENT USER DEPENDENCY ==============
+
+def get_current_user() -> dict:
+    """
+    FastAPI dependency to get the current authenticated user.
+    
+    This is a placeholder implementation - integrate with your actual
+    authentication system (JWT, session, OAuth, etc.).
+    
+    Returns:
+        Dictionary with user information:
+        - _id: User ID
+        - user_id: User ID (alias)
+        - id: User ID (alias)
+        - name: User display name
+        - email: User email
+        - roles: List of user roles
+    
+    Raises:
+        HTTPException: If user is not authenticated
+    
+    Usage:
+        from auth import get_current_user
+        from fastapi import Depends
+        
+        @router.get("/protected")
+        def protected_route(current_user: dict = Depends(get_current_user)):
+            return {"user": current_user}
+    """
+    # TODO: Implement actual authentication logic
+    # This could be:
+    # - JWT token validation from Authorization header
+    # - Session validation from cookie
+    # - OAuth token validation
+    
+    # Placeholder: Return a system user
+    # In production, this should:
+    # 1. Extract token from request headers
+    # 2. Validate token
+    # 3. Query user from database
+    # 4. Return user dict or raise HTTPException(401)
+    
+    return {
+        "_id": "system",
+        "id": "system",
+        "user_id": "system",
+        "name": "System User",
+        "email": "system@localhost",
+        "roles": ["admin"],
+    }

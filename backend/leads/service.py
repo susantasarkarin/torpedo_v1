@@ -515,3 +515,96 @@ def delete_all_leads() -> dict:
         "enriched_deleted": enriched_deleted,
         "total_deleted": raw_deleted + enriched_deleted
     }
+
+
+# ============== GET SINGLE ENRICHED LEAD ==============
+
+def get_enriched_lead_by_id(lead_id: str) -> Optional[dict]:
+    """
+    Get a single enriched lead by ID.
+    """
+    try:
+        lead = leads_enriched_collection.find_one({"_id": ObjectId(lead_id)})
+        if lead:
+            lead["_id"] = str(lead["_id"])
+            if "raw_lead_id" in lead:
+                lead["raw_lead_id"] = str(lead["raw_lead_id"])
+        return lead
+    except Exception as e:
+        print(f"Error getting enriched lead {lead_id}: {e}")
+        return None
+
+
+# ============== DUPLICATE EMAIL HANDLING ==============
+
+def find_duplicate_emails() -> dict:
+    """
+    Find leads with duplicate emails.
+    Returns a dictionary with duplicate emails and their lead IDs.
+    """
+    # Aggregate to find emails that appear more than once
+    pipeline = [
+        {"$match": {"email": {"$ne": None, "$ne": ""}}},
+        {"$group": {
+            "_id": "$email",
+            "count": {"$sum": 1},
+            "leads": {"$push": {"id": "$_id", "name": "$name", "created_at": "$created_at"}}
+        }},
+        {"$match": {"count": {"$gt": 1}}},
+        {"$sort": {"count": -1}}
+    ]
+    
+    duplicates = list(leads_enriched_collection.aggregate(pipeline))
+    
+    return {
+        "duplicate_count": len(duplicates),
+        "duplicates": [
+            {
+                "email": d["_id"],
+                "count": d["count"],
+                "leads": [{"id": str(l["id"]), "name": l["name"], "created_at": l.get("created_at")} for l in d["leads"]]
+            }
+            for d in duplicates
+        ]
+    }
+
+
+def delete_duplicate_emails() -> dict:
+    """
+    Delete duplicate leads keeping only the oldest one per email.
+    Uses email as the unique identifier.
+    Returns count of deleted duplicates.
+    """
+    # Find duplicates
+    pipeline = [
+        {"$match": {"email": {"$ne": None, "$ne": ""}}},
+        {"$sort": {"created_at": 1}},  # Sort by creation date (oldest first)
+        {"$group": {
+            "_id": "$email",
+            "count": {"$sum": 1},
+            "leads": {"$push": "$_id"},
+            "first_lead": {"$first": "$_id"}  # Keep the oldest
+        }},
+        {"$match": {"count": {"$gt": 1}}}
+    ]
+    
+    duplicates = list(leads_enriched_collection.aggregate(pipeline))
+    
+    deleted_count = 0
+    for dup in duplicates:
+        # Get all lead IDs except the first one (oldest)
+        leads_to_delete = [lead_id for lead_id in dup["leads"] if lead_id != dup["first_lead"]]
+        
+        if leads_to_delete:
+            # Delete the duplicate leads
+            result = leads_enriched_collection.delete_many({"_id": {"$in": leads_to_delete}})
+            deleted_count += result.deleted_count
+            
+            # Also delete corresponding raw leads if linked
+            for lead_id in leads_to_delete:
+                leads_raw_collection.delete_many({"enriched_lead_id": str(lead_id)})
+    
+    return {
+        "duplicates_found": len(duplicates),
+        "leads_deleted": deleted_count
+    }

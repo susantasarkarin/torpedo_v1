@@ -556,3 +556,138 @@ async def get_email_sending_status() -> Dict[str, Any]:
         - environment: Current env var values
     """
     return get_email_status()
+
+
+# ============================================
+# Email Signature Settings
+# ============================================
+
+# Collection for email signatures
+email_signatures_collection = settings_db["email_signatures"]
+
+
+@router.get("/email-signatures")
+async def get_all_email_signatures(request: Request) -> Dict[str, Any]:
+    """Get all email signatures for all configured email accounts"""
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        signatures = list(email_signatures_collection.find({}))
+        for sig in signatures:
+            sig["_id"] = str(sig["_id"])
+        
+        return {
+            "success": True,
+            "signatures": signatures
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching signatures: {str(e)}")
+
+
+@router.get("/email-signature/{email}")
+async def get_email_signature(email: str, request: Request) -> Dict[str, Any]:
+    """Get email signature for a specific email address"""
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        signature = email_signatures_collection.find_one({"email": email})
+        if signature:
+            signature["_id"] = str(signature["_id"])
+            return {
+                "success": True,
+                "email": email,
+                "signature": signature.get("signature_html", ""),
+                "signature_text": signature.get("signature_text", ""),
+                "is_default": signature.get("is_default", False)
+            }
+        
+        return {
+            "success": True,
+            "email": email,
+            "signature": "",
+            "signature_text": "",
+            "is_default": False
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching signature: {str(e)}")
+
+
+@router.put("/email-signature/{email}")
+async def update_email_signature(
+    email: str,
+    request: Request,
+    data: Dict[str, Any] = Body(...)
+) -> Dict[str, Any]:
+    """Update or create email signature for a specific email address"""
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        signature_html = data.get("signature_html", data.get("signature", ""))
+        signature_text = data.get("signature_text", "")
+        is_default = data.get("is_default", False)
+        
+        # If setting as default, unset other defaults
+        if is_default:
+            email_signatures_collection.update_many(
+                {"email": {"$ne": email}},
+                {"$set": {"is_default": False}}
+            )
+        
+        email_signatures_collection.update_one(
+            {"email": email},
+            {
+                "$set": {
+                    "email": email,
+                    "signature_html": signature_html,
+                    "signature_text": signature_text,
+                    "is_default": is_default,
+                    "updated_at": datetime.utcnow()
+                }
+            },
+            upsert=True
+        )
+        
+        return {
+            "success": True,
+            "message": f"Signature updated for {email}"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating signature: {str(e)}")
+
+
+@router.delete("/email-signature/{email}")
+async def delete_email_signature(email: str, request: Request) -> Dict[str, Any]:
+    """Delete email signature for a specific email address"""
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        result = email_signatures_collection.delete_one({"email": email})
+        
+        if result.deleted_count > 0:
+            return {
+                "success": True,
+                "message": f"Signature deleted for {email}"
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"No signature found for {email}"
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting signature: {str(e)}")

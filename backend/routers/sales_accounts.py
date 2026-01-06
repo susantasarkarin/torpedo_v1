@@ -1,4 +1,4 @@
-# */10 * * * * cd /var/www/campaign_platform && sudo ./deploy.sh --no-confirm >> /var/www/campaign_platform/cron-deploy.log 2>&1"""
+"""
 Sales Accounts Router
 Manages accounts specifically for the Sales module (separate from Finance/Operations)
 """

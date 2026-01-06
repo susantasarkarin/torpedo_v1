@@ -1070,3 +1070,155 @@ async def list_background_tasks():
         "tasks": list(_background_tasks.values()),
         "total": len(_background_tasks)
     }
+
+
+# =========================================================================
+# ACCOUNTS ENDPOINT (for email compose)
+# =========================================================================
+
+@router.get("/accounts")
+async def list_email_accounts(
+    storage: EmailStorage = Depends(get_storage)
+):
+    """
+    Get all configured email accounts (mailboxes) for compose functionality.
+    Returns simplified account info for the compose dropdown.
+    """
+    try:
+        mailboxes = await storage.list_mailboxes()
+        accounts = []
+        for mb in mailboxes:
+            if mb.get("is_active", True):
+                accounts.append({
+                    "email": mb.get("email"),
+                    "name": mb.get("display_name") or mb.get("email", "").split("@")[0],
+                    "provider": mb.get("provider", "imap"),
+                    "mailbox_id": str(mb.get("_id", ""))
+                })
+        return {"accounts": accounts}
+    except Exception as e:
+        logger.error(f"Error listing accounts: {e}")
+        return {"accounts": []}
+
+
+# =========================================================================
+# SEND EMAIL ENDPOINT (via IMAP/SMTP)
+# =========================================================================
+
+class SendEmailRequest(BaseModel):
+    """Request model for sending email"""
+    account_email: EmailStr = Field(..., description="The sender email account")
+    to: List[EmailStr] = Field(..., description="List of recipient emails")
+    cc: Optional[List[EmailStr]] = Field(default=[], description="CC recipients")
+    bcc: Optional[List[EmailStr]] = Field(default=[], description="BCC recipients")
+    subject: str = Field(..., description="Email subject")
+    body: str = Field(..., description="Email body (plain text or HTML)")
+    reply_to: Optional[EmailStr] = Field(default=None, description="Reply-to address")
+    lead_id: Optional[str] = Field(default=None, description="Associated lead ID")
+    is_html: bool = Field(default=False, description="Whether body is HTML")
+
+
+@router.post("/send")
+async def send_email(
+    request: SendEmailRequest,
+    storage: EmailStorage = Depends(get_storage)
+):
+    """
+    Send an email via the configured IMAP/SMTP account.
+    The email will be stored in the sent folder and linked to the lead if provided.
+    """
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    
+    try:
+        # Find the mailbox by email
+        mailboxes = await storage.list_mailboxes()
+        mailbox = None
+        for mb in mailboxes:
+            if mb.get("email") == request.account_email:
+                mailbox = mb
+                break
+        
+        if not mailbox:
+            raise HTTPException(status_code=404, detail=f"Email account {request.account_email} not found")
+        
+        # Get SMTP credentials from mailbox
+        credentials = mailbox.get("credentials", {})
+        smtp_server = credentials.get("smtp_server", "smtp.gmail.com")
+        smtp_port = credentials.get("smtp_port", 587)
+        smtp_user = credentials.get("username", request.account_email)
+        smtp_password = credentials.get("password", credentials.get("app_password", ""))
+        
+        if not smtp_password:
+            raise HTTPException(status_code=400, detail="SMTP password not configured for this account")
+        
+        # Create the email message
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = request.subject
+        msg["From"] = f"{mailbox.get('display_name', '')} <{request.account_email}>"
+        msg["To"] = ", ".join(request.to)
+        
+        if request.cc:
+            msg["Cc"] = ", ".join(request.cc)
+        
+        if request.reply_to:
+            msg["Reply-To"] = request.reply_to
+        
+        # Attach body
+        if request.is_html:
+            msg.attach(MIMEText(request.body, "html"))
+        else:
+            msg.attach(MIMEText(request.body, "plain"))
+        
+        # All recipients
+        all_recipients = list(request.to)
+        if request.cc:
+            all_recipients.extend(request.cc)
+        if request.bcc:
+            all_recipients.extend(request.bcc)
+        
+        # Send the email
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.sendmail(request.account_email, all_recipients, msg.as_string())
+        
+        # Store sent email in database
+        sent_email = {
+            "mailbox_email": request.account_email,
+            "from": request.account_email,
+            "to": request.to,
+            "cc": request.cc or [],
+            "bcc": request.bcc or [],
+            "subject": request.subject,
+            "body": request.body,
+            "is_html": request.is_html,
+            "reply_to": request.reply_to,
+            "lead_id": request.lead_id,
+            "status": "sent",
+            "sent_at": datetime.utcnow().isoformat(),
+            "direction": "outbound"
+        }
+        
+        # Insert into emails collection
+        await storage.store_email(sent_email)
+        
+        logger.info(f"Email sent successfully from {request.account_email} to {request.to}")
+        
+        return {
+            "success": True,
+            "message": "Email sent successfully",
+            "to": request.to,
+            "subject": request.subject
+        }
+        
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error(f"SMTP auth error: {e}")
+        raise HTTPException(status_code=401, detail="SMTP authentication failed. Check credentials.")
+    except smtplib.SMTPException as e:
+        logger.error(f"SMTP error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error sending email: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
