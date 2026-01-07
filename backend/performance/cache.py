@@ -203,11 +203,17 @@ class RedisCache:
                 port=CacheConfig.REDIS_PORT,
                 password=CacheConfig.REDIS_PASSWORD,
                 db=CacheConfig.REDIS_DB,
-                decode_responses=True
+                decode_responses=True,
+                socket_timeout=2.0,  # 2 second timeout to prevent hanging
+                socket_connect_timeout=2.0,  # 2 second connect timeout
+                retry_on_timeout=False  # Don't retry on timeout
             )
-            await self._client.ping()
+            await asyncio.wait_for(self._client.ping(), timeout=2.0)
             self._available = True
             logger.info(f"Redis cache connected: {CacheConfig.REDIS_HOST}:{CacheConfig.REDIS_PORT} DB:{CacheConfig.REDIS_DB}")
+        except asyncio.TimeoutError:
+            logger.warning("Redis cache connection timed out - using in-memory cache only")
+            self._available = False
         except Exception as e:
             logger.warning(f"Redis cache connection failed: {e}")
             self._available = False

@@ -46,13 +46,19 @@ class SessionStore:
                 password=REDIS_PASSWORD,
                 db=REDIS_DB,
                 decode_responses=True,
-                max_connections=10
+                max_connections=10,
+                socket_timeout=2.0,  # 2 second timeout to prevent hanging
+                socket_connect_timeout=2.0  # 2 second connect timeout
             )
             self._client = redis.Redis(connection_pool=self._pool)
-            # Test connection
-            await self._client.ping()
+            # Test connection with timeout
+            import asyncio
+            await asyncio.wait_for(self._client.ping(), timeout=2.0)
             self._available = True
             logger.info(f"Redis session store connected: {REDIS_HOST}:{REDIS_PORT}")
+        except asyncio.TimeoutError:
+            logger.warning("Redis session store connection timed out. Sessions will not persist.")
+            self._available = False
         except Exception as e:
             logger.error(f"Redis connection failed: {e}. Sessions will not persist across restarts.")
             self._available = False
