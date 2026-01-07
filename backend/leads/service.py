@@ -1,6 +1,10 @@
 """
 AGENT 4 — BACKEND SERVICE LAYER
 Lead management service with async processing
+
+Cost Optimization:
+    - Deduplication index to prevent duplicate leads
+    - Tracks dedup index for fast lookups
 """
 
 import os
@@ -18,6 +22,11 @@ from .models import (
     BuyingRole, Gender, EmailStatus
 )
 from .ai_classifier import classify_lead
+from .deduplication import (
+    check_duplicate,
+    add_to_dedup_index,
+    log_rejected_duplicate
+)
 
 load_dotenv()
 
@@ -68,9 +77,16 @@ except Exception as e:
 
 # ============== IMPORT SERVICE ==============
 
-def import_leads(leads: List[LeadInput]) -> LeadImportResponse:
+def import_leads(leads: List[LeadInput], skip_dedup_check: bool = False) -> LeadImportResponse:
     """
     Import raw leads with idempotent behavior (skip duplicates).
+    
+    Args:
+        leads: List of LeadInput objects to import
+        skip_dedup_check: Skip pre-import deduplication check (faster but may hit DB errors)
+        
+    Returns:
+        LeadImportResponse with import stats
     """
     imported = 0
     duplicates = 0
@@ -79,6 +95,25 @@ def import_leads(leads: List[LeadInput]) -> LeadImportResponse:
     
     for lead_input in leads:
         try:
+            # Pre-import deduplication check (optional but recommended)
+            if not skip_dedup_check:
+                dedup_result = check_duplicate(
+                    linkedin_url=lead_input.linkedin_url,
+                    email=lead_input.email,
+                    name=lead_input.name,
+                    company_name=lead_input.company_name
+                )
+                if dedup_result.is_duplicate:
+                    log_rejected_duplicate(
+                        lead=lead_input.model_dump() if hasattr(lead_input, 'model_dump') else dict(lead_input),
+                        reason=dedup_result.reason,
+                        source=lead_input.source or "import"
+                    )
+                    if dedup_result.existing_lead_id:
+                        lead_ids.append(dedup_result.existing_lead_id)
+                    duplicates += 1
+                    continue
+            
             lead_raw = LeadRaw(
                 name=lead_input.name,
                 title=lead_input.title,
@@ -106,8 +141,18 @@ def import_leads(leads: List[LeadInput]) -> LeadImportResponse:
             )
             
             result = leads_raw_collection.insert_one(lead_raw.model_dump())
-            lead_ids.append(str(result.inserted_id))
+            lead_id = str(result.inserted_id)
+            lead_ids.append(lead_id)
             imported += 1
+            
+            # Add to deduplication index for future lookups
+            add_to_dedup_index(
+                lead_id=lead_id,
+                linkedin_url=lead_input.linkedin_url,
+                email=lead_input.email,
+                name=lead_input.name,
+                company_name=lead_input.company_name
+            )
             
         except DuplicateKeyError:
             # Lead already exists - this is expected for idempotent imports

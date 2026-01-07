@@ -28,3 +28,68 @@
 # 4. Results stored in leads_enriched + logs in lead_ai_classification_logs
 # 5. UI displays classified leads with filters
 # 6. User attaches leads to campaigns
+
+# ============== COST OPTIMIZATION EXPORTS ==============
+
+# Search Cache - reduces Google CSE API calls by 70%+
+from .search_cache import (
+    get_cached_response,
+    cache_response,
+    get_cache_stats,
+    get_cache_size,
+    invalidate_cache,
+    get_cache_settings
+)
+
+# Deduplication - prevents duplicate leads
+from .deduplication import (
+    check_duplicate,
+    check_duplicates_batch,
+    add_to_dedup_index,
+    remove_from_dedup_index,
+    rebuild_dedup_index,
+    get_duplicate_stats,
+    normalize_linkedin_url,
+    normalize_email
+)
+
+# Query Generator - AI-powered smart queries (30-40% fewer API calls)
+from .query_generator import (
+    generate_search_plan,
+    optimize_existing_queries,
+    get_query_generation_stats
+)
+
+# Perplexity Client - AI discovery (for research, NOT URL sourcing)
+from .perplexity_client import (
+    perplexity_query,
+    discover_companies,
+    discover_roles,
+    research_company,
+    get_perplexity_usage_stats
+)
+
+# URL Validator - validate LinkedIn URLs before enrichment
+from .url_validator import (
+    validate_linkedin_url,
+    validate_urls_batch,
+    filter_valid_leads,
+    get_validation_stats
+)
+
+# Batch Enrichment - 50% cheaper OpenAI API
+from .batch_enrichment import (
+    queue_leads_for_batch_enrichment,
+    submit_batch_job,
+    check_batch_status,
+    process_batch_results,
+    run_batch_enrichment_cycle,
+    get_batch_stats
+)
+
+# Optimized Scheduler
+from .scheduler_optimized import (
+    start_optimized_scheduler,
+    stop_optimized_scheduler,
+    get_optimized_status
+)

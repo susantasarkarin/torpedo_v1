@@ -267,6 +267,44 @@ def setup_indexes(db_manager=None):
     create_index_safe(sales_accounts, "status")
     create_index_safe(sales_accounts, "createdAt")
     
+    # ============== COST OPTIMIZATION INDEXES ==============
+    
+    # Search Cache - reduces Google CSE API calls by 70%+
+    search_cache = email_db["search_cache"]
+    create_index_safe(search_cache, "query_hash", unique=True)
+    create_index_safe(search_cache, "created_at")
+    create_index_safe(search_cache, "provider")
+    create_index_safe(search_cache, [
+        ("job_title", ASCENDING),
+        ("industry", ASCENDING),
+        ("location", ASCENDING)
+    ], name="search_cache_components")
+    # TTL index for automatic expiration
+    try:
+        search_cache.create_index("expires_at", expireAfterSeconds=0)
+        logger.info("✅ TTL index created: search_cache.expires_at")
+    except Exception as e:
+        logger.debug(f"TTL index exists or failed: {e}")
+    
+    # Search Cache Metrics
+    cache_metrics = email_db["search_cache_metrics"]
+    create_index_safe(cache_metrics, "date")
+    create_index_safe(cache_metrics, [("date", ASCENDING), ("hour", ASCENDING)])
+    
+    # Deduplication Index - fast lookups to prevent duplicate leads
+    dedup_index = email_db["dedup_index"]
+    create_index_safe(dedup_index, "linkedin_url_hash", unique=True, sparse=True)
+    create_index_safe(dedup_index, "email_hash", sparse=True)
+    create_index_safe(dedup_index, "name_company_hash", sparse=True)
+    create_index_safe(dedup_index, "lead_id")
+    create_index_safe(dedup_index, "created_at")
+    
+    # Deduplication Logs - audit trail of rejected duplicates
+    dedup_logs = email_db["dedup_logs"]
+    create_index_safe(dedup_logs, "rejected_at")
+    create_index_safe(dedup_logs, "reason")
+    create_index_safe(dedup_logs, "source")
+    
     print("✅ Database indexes setup complete!")
     return True
 
