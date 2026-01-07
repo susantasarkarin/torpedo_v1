@@ -47,6 +47,12 @@ TEMPERATURE = 0.1  # Low temperature for deterministic output
 
 # Cost tracking moved to openai_wrapper.py TokenUsageLogger
 
+# MongoDB connection for loading prompts from DB
+MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
+_settings_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+_settings_db = _settings_client['torpedo_settings']
+_ai_prompts_collection = _settings_db['ai_prompts']
+
 
 def _legacy_get_openai_api_key() -> Optional[str]:
     """
@@ -59,6 +65,7 @@ def _legacy_get_openai_api_key() -> Optional[str]:
 # ============== OPTIMIZED PROMPT TEMPLATES ==============
 # COST CONTROL: Reduced from ~1500 tokens to ~400 tokens (73% reduction)
 # Verbose instructions removed; model already knows classification rules
+# NOTE: These are fallback defaults - actual prompts loaded from DB via get_classification_prompt()
 
 SYSTEM_PROMPT = """B2B lead enrichment expert. Respond with JSON only.
 
@@ -72,6 +79,30 @@ USER_PROMPT_TEMPLATE = """Enrich lead:
 Name:{name} Title:{title} URL:{linkedin_url}
 Context:{snippet} Location:{location} Company:{company_name} Email:{email}
 Return JSON."""
+
+
+def get_classification_prompt() -> Tuple[str, str]:
+    """
+    Load classification prompts from database with fallback to hardcoded defaults.
+    
+    Returns:
+        Tuple of (system_prompt, user_prompt_template)
+    """
+    try:
+        prompt_doc = _ai_prompts_collection.find_one({
+            "prompt_key": "lead_classification",
+            "is_active": True
+        })
+        
+        if prompt_doc:
+            system_prompt = prompt_doc.get("system_prompt", SYSTEM_PROMPT)
+            user_template = prompt_doc.get("user_prompt_template", USER_PROMPT_TEMPLATE)
+            return system_prompt, user_template
+    except Exception as e:
+        print(f"Warning: Could not load prompts from DB, using defaults: {e}")
+    
+    # Fallback to hardcoded defaults
+    return SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
 
 
 # ============== CLASSIFICATION CACHE ==============
@@ -138,8 +169,11 @@ def classify_lead(lead: LeadRaw, source: str = "api") -> Tuple[Optional[AIClassi
         )
         return cached, log
     
+    # Load prompts from DB (with fallback to hardcoded defaults)
+    system_prompt, user_prompt_template = get_classification_prompt()
+    
     # Build compact prompt - COST CONTROL: Reduced token usage
-    user_prompt = USER_PROMPT_TEMPLATE.format(
+    user_prompt = user_prompt_template.format(
         name=lead.name,
         title=lead.title,
         linkedin_url=lead.linkedin_url,
@@ -163,7 +197,7 @@ def classify_lead(lead: LeadRaw, source: str = "api") -> Tuple[Optional[AIClassi
         # COST CONTROL: Use centralized wrapper with enforced max_output_tokens
         result = chat_completion(
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
             source=source,

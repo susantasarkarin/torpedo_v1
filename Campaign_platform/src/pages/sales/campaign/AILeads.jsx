@@ -195,6 +195,20 @@ function AILeads() {
   });
   const [gmailImportProgress, setGmailImportProgress] = useState(null);
 
+  // AI Discovery State (Perplexity + Google CSE)
+  const [discoveryStep, setDiscoveryStep] = useState(1); // 1=search companies, 2=select companies, 3=preview contacts
+  const [discoveryIndustry, setDiscoveryIndustry] = useState("");
+  const [discoveryLocation, setDiscoveryLocation] = useState("");
+  const [discoveryCriteria, setDiscoveryCriteria] = useState("");
+  const [discoveryDesignation, setDiscoveryDesignation] = useState("");
+  const [discoveredCompanies, setDiscoveredCompanies] = useState([]);
+  const [selectedCompanies, setSelectedCompanies] = useState([]);
+  const [discoveryContacts, setDiscoveryContacts] = useState([]);
+  const [selectedContacts, setSelectedContacts] = useState([]);
+  const [discoveryLoading, setDiscoveryLoading] = useState(false);
+  const [discoveryStatus, setDiscoveryStatus] = useState(null);
+  const [discoveryError, setDiscoveryError] = useState("");
+
   // Gmail segment options
   const GMAIL_SEGMENT_OPTIONS = [
     { id: "promotional", name: "Promotional" },
@@ -699,6 +713,179 @@ function AILeads() {
     } finally {
       setGmailImporting(false);
     }
+  };
+
+  // ============== AI DISCOVERY HANDLERS ==============
+
+  const checkDiscoveryStatus = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads/discover/status`, {
+        headers: { Authorization: sessionId }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDiscoveryStatus(data);
+      }
+    } catch (err) {
+      console.error("Error checking discovery status:", err);
+    }
+  };
+
+  const handleDiscoverCompanies = async () => {
+    if (!discoveryIndustry) {
+      setDiscoveryError("Please enter an industry to search");
+      return;
+    }
+    
+    setDiscoveryLoading(true);
+    setDiscoveryError("");
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads/discover/companies`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json", 
+          Authorization: sessionId 
+        },
+        body: JSON.stringify({
+          industry: discoveryIndustry,
+          location: discoveryLocation,
+          count: 20,
+          criteria: discoveryCriteria
+        })
+      });
+      
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || "Discovery failed");
+      }
+      
+      const data = await res.json();
+      setDiscoveredCompanies(data.companies || []);
+      setDiscoveryStep(2);
+    } catch (err) {
+      setDiscoveryError(err.message);
+    } finally {
+      setDiscoveryLoading(false);
+    }
+  };
+
+  const toggleCompanySelection = (company) => {
+    setSelectedCompanies(prev => {
+      const exists = prev.find(c => c.name === company.name);
+      if (exists) {
+        return prev.filter(c => c.name !== company.name);
+      }
+      return [...prev, company];
+    });
+  };
+
+  const handleFindContacts = async () => {
+    if (selectedCompanies.length === 0) {
+      setDiscoveryError("Please select at least one company");
+      return;
+    }
+    if (!discoveryDesignation) {
+      setDiscoveryError("Please enter a target designation");
+      return;
+    }
+    
+    setDiscoveryLoading(true);
+    setDiscoveryError("");
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads/discover/contacts`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json", 
+          Authorization: sessionId 
+        },
+        body: JSON.stringify({
+          companies: selectedCompanies.map(c => ({ name: c.name, description: c.description })),
+          designation: discoveryDesignation,
+          limit_per_company: 5
+        })
+      });
+      
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || "Contact search failed");
+      }
+      
+      const data = await res.json();
+      setDiscoveryContacts(data.contacts || []);
+      setDiscoveryStep(3);
+    } catch (err) {
+      setDiscoveryError(err.message);
+    } finally {
+      setDiscoveryLoading(false);
+    }
+  };
+
+  const toggleContactSelection = (contact) => {
+    setSelectedContacts(prev => {
+      const idx = prev.findIndex(c => c.linkedin_url === contact.linkedin_url);
+      if (idx > -1) {
+        return prev.filter((_, i) => i !== idx);
+      }
+      return [...prev, contact];
+    });
+  };
+
+  const toggleAllContacts = () => {
+    if (selectedContacts.length === discoveryContacts.length) {
+      setSelectedContacts([]);
+    } else {
+      setSelectedContacts([...discoveryContacts]);
+    }
+  };
+
+  const handleImportDiscoveredContacts = async () => {
+    if (selectedContacts.length === 0) {
+      setDiscoveryError("Please select at least one contact to import");
+      return;
+    }
+    
+    setDiscoveryLoading(true);
+    setDiscoveryError("");
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads/discover/import`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json", 
+          Authorization: sessionId 
+        },
+        body: JSON.stringify({
+          contacts: selectedContacts
+        })
+      });
+      
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || "Import failed");
+      }
+      
+      const data = await res.json();
+      alert(`Successfully imported ${data.imported} contacts!`);
+      resetImportModal();
+      fetchLeads();
+      fetchRawLeads();
+      fetchStatistics();
+    } catch (err) {
+      setDiscoveryError(err.message);
+    } finally {
+      setDiscoveryLoading(false);
+    }
+  };
+
+  const resetDiscovery = () => {
+    setDiscoveryStep(1);
+    setDiscoveredCompanies([]);
+    setSelectedCompanies([]);
+    setDiscoveryContacts([]);
+    setSelectedContacts([]);
+    setDiscoveryError("");
   };
 
   // ============== CLASSIFY HANDLER ==============
@@ -1331,11 +1518,215 @@ function AILeads() {
                 >
                   📧 Gmail
                 </button>
+                <button 
+                  className={`method-tab ${importMethod === "ai-discovery" ? "active" : ""}`}
+                  onClick={() => { setImportMethod("ai-discovery"); setCsvImportStep(1); resetDiscovery(); checkDiscoveryStatus(); }}
+                >
+                  🔮 AI Discovery
+                </button>
               </div>
 
               {/* Error Display */}
               {importError && (
                 <div className="error-alert">{importError}</div>
+              )}
+
+              {/* AI Discovery (Perplexity + Google CSE) */}
+              {importMethod === "ai-discovery" && (
+                <div className="import-form">
+                  <h3>🔮 AI-Powered Company Discovery</h3>
+                  <p className="form-hint">
+                    Use Perplexity AI to discover companies, then find contacts at those companies via Google Search.
+                  </p>
+                  
+                  {discoveryError && (
+                    <div className="error-alert">{discoveryError}</div>
+                  )}
+                  
+                  {discoveryStatus && !discoveryStatus.enabled && (
+                    <div className="warning-alert" style={{ background: '#fef3c7', border: '1px solid #f59e0b', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
+                      ⚠️ Perplexity discovery is not configured. Please add your API key in <a href="/admin/settings">Settings</a>.
+                    </div>
+                  )}
+                  
+                  {/* Step 1: Search Companies */}
+                  {discoveryStep === 1 && (
+                    <div className="discovery-step">
+                      <h4>Step 1: Discover Companies</h4>
+                      <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div className="form-group">
+                          <label>Industry *</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="e.g., fintech, healthtech, SaaS"
+                            value={discoveryIndustry}
+                            onChange={(e) => setDiscoveryIndustry(e.target.value)}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Location (optional)</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="e.g., California, India, Europe"
+                            value={discoveryLocation}
+                            onChange={(e) => setDiscoveryLocation(e.target.value)}
+                          />
+                        </div>
+                        <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                          <label>Additional Criteria (optional)</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="e.g., funded startups, enterprise, B2B"
+                            value={discoveryCriteria}
+                            onChange={(e) => setDiscoveryCriteria(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <button 
+                        className="btn btn-primary" 
+                        onClick={handleDiscoverCompanies}
+                        disabled={discoveryLoading || !discoveryIndustry || (discoveryStatus && !discoveryStatus.enabled)}
+                        style={{ marginTop: '1rem' }}
+                      >
+                        {discoveryLoading ? "Discovering..." : "🔍 Discover Companies"}
+                      </button>
+                    </div>
+                  )}
+                  
+                  {/* Step 2: Select Companies */}
+                  {discoveryStep === 2 && (
+                    <div className="discovery-step">
+                      <h4>Step 2: Select Companies ({selectedCompanies.length}/{discoveredCompanies.length})</h4>
+                      <p className="form-hint-small">Select companies to find contacts at:</p>
+                      
+                      <div style={{ maxHeight: '300px', overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0.5rem' }}>
+                        {discoveredCompanies.map((company, idx) => (
+                          <label 
+                            key={idx} 
+                            style={{ 
+                              display: 'flex', 
+                              alignItems: 'flex-start', 
+                              gap: '0.75rem', 
+                              padding: '0.75rem',
+                              borderBottom: '1px solid #f3f4f6',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedCompanies.some(c => c.name === company.name)}
+                              onChange={() => toggleCompanySelection(company)}
+                              style={{ marginTop: '0.25rem' }}
+                            />
+                            <div>
+                              <strong>{company.name}</strong>
+                              {company.description && (
+                                <p style={{ fontSize: '0.875rem', color: '#6b7280', margin: '0.25rem 0 0 0' }}>
+                                  {company.description}
+                                </p>
+                              )}
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                      
+                      <div className="form-group" style={{ marginTop: '1rem' }}>
+                        <label>Target Designation *</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="e.g., CEO, VP Sales, Director of Marketing"
+                          value={discoveryDesignation}
+                          onChange={(e) => setDiscoveryDesignation(e.target.value)}
+                        />
+                      </div>
+                      
+                      <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                        <button className="btn btn-secondary" onClick={() => setDiscoveryStep(1)}>
+                          ← Back
+                        </button>
+                        <button 
+                          className="btn btn-primary" 
+                          onClick={handleFindContacts}
+                          disabled={discoveryLoading || selectedCompanies.length === 0 || !discoveryDesignation}
+                        >
+                          {discoveryLoading ? "Searching..." : `🔍 Find Contacts at ${selectedCompanies.length} Companies`}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Step 3: Preview and Import Contacts */}
+                  {discoveryStep === 3 && (
+                    <div className="discovery-step">
+                      <h4>Step 3: Preview Contacts ({selectedContacts.length}/{discoveryContacts.length})</h4>
+                      
+                      <div style={{ marginBottom: '0.5rem' }}>
+                        <label style={{ cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={selectedContacts.length === discoveryContacts.length && discoveryContacts.length > 0}
+                            onChange={toggleAllContacts}
+                          />
+                          <span style={{ marginLeft: '0.5rem' }}>Select All</span>
+                        </label>
+                      </div>
+                      
+                      <div style={{ maxHeight: '350px', overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
+                        <table style={{ width: '100%', fontSize: '0.875rem', borderCollapse: 'collapse' }}>
+                          <thead style={{ background: '#f9fafb', position: 'sticky', top: 0 }}>
+                            <tr>
+                              <th style={{ padding: '0.75rem', textAlign: 'left' }}>Select</th>
+                              <th style={{ padding: '0.75rem', textAlign: 'left' }}>Name</th>
+                              <th style={{ padding: '0.75rem', textAlign: 'left' }}>Title</th>
+                              <th style={{ padding: '0.75rem', textAlign: 'left' }}>Company</th>
+                              <th style={{ padding: '0.75rem', textAlign: 'left' }}>Link</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {discoveryContacts.map((contact, idx) => (
+                              <tr key={idx} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                                <td style={{ padding: '0.75rem' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedContacts.some(c => c.linkedin_url === contact.linkedin_url)}
+                                    onChange={() => toggleContactSelection(contact)}
+                                  />
+                                </td>
+                                <td style={{ padding: '0.75rem' }}>{contact.name || '-'}</td>
+                                <td style={{ padding: '0.75rem' }}>{contact.title || '-'}</td>
+                                <td style={{ padding: '0.75rem' }}>{contact.discovered_company || contact.company_name || '-'}</td>
+                                <td style={{ padding: '0.75rem' }}>
+                                  {contact.linkedin_url && (
+                                    <a href={contact.linkedin_url} target="_blank" rel="noopener noreferrer">
+                                      LinkedIn ↗
+                                    </a>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      
+                      <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+                        <button className="btn btn-secondary" onClick={() => setDiscoveryStep(2)}>
+                          ← Back
+                        </button>
+                        <button 
+                          className="btn btn-primary" 
+                          onClick={handleImportDiscoveredContacts}
+                          disabled={discoveryLoading || selectedContacts.length === 0}
+                        >
+                          {discoveryLoading ? "Importing..." : `📥 Import ${selectedContacts.length} Contacts`}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
 
               {/* Web Search (Enhanced with Multi-Select Filters) */}

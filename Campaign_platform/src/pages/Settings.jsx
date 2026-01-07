@@ -44,6 +44,10 @@ function Settings() {
     cpx_api_timeout: 30,
     openai_api_key: "",
     anthropic_api_key: "",
+    perplexity_api_key: "",
+    perplexity_enabled: false,
+    perplexity_daily_limit: 200,
+    perplexity_hourly_limit: 50,
     google_api_key: "",
     google_cse_id: "",
     google_sheets_service_account: "",
@@ -123,6 +127,23 @@ function Settings() {
   const [costAnalyticsLoading, setCostAnalyticsLoading] = useState(false)
   const [costAnalyticsDays, setCostAnalyticsDays] = useState(7)
 
+  // AI Prompts state
+  const [aiPrompts, setAiPrompts] = useState([])
+  const [aiPromptsLoading, setAiPromptsLoading] = useState(false)
+  const [editingPrompt, setEditingPrompt] = useState(null)
+  const [testPromptResult, setTestPromptResult] = useState(null)
+  const [testingPrompt, setTestingPrompt] = useState(false)
+  const [savingPrompt, setSavingPrompt] = useState(false)
+
+  // AI Database state
+  const [aiDatabaseStatus, setAiDatabaseStatus] = useState(null)
+  const [aiDatabaseCompanies, setAiDatabaseCompanies] = useState([])
+  const [aiDatabaseLoading, setAiDatabaseLoading] = useState(false)
+  const [aiDatabaseRefilling, setAiDatabaseRefilling] = useState(false)
+  const [aiDatabaseProcessing, setAiDatabaseProcessing] = useState(false)
+  const [aiDatabaseIndustry, setAiDatabaseIndustry] = useState('')
+  const [aiDatabaseFilter, setAiDatabaseFilter] = useState('all')
+
   useEffect(() => {
     loadAllSettings()
   }, [])
@@ -139,6 +160,12 @@ function Settings() {
     }
     if (activeTab === "costanalytics") {
       loadCostAnalytics()
+    }
+    if (activeTab === "prompts") {
+      loadAiPrompts()
+    }
+    if (activeTab === "aidatabase") {
+      loadAiDatabase()
     }
   }, [activeTab])
 
@@ -197,6 +224,248 @@ function Settings() {
       console.error("Error loading cost analytics:", error)
     } finally {
       setCostAnalyticsLoading(false)
+    }
+  }
+
+  // ============== AI PROMPTS FUNCTIONS ==============
+  
+  const loadAiPrompts = async () => {
+    setAiPromptsLoading(true)
+    try {
+      const token = getAuthToken()
+      const res = await fetch(`${API_BASE_URL}/settings/ai-prompts`, {
+        headers: { Authorization: token }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setAiPrompts(data.prompts || [])
+      } else {
+        console.error("Failed to load AI prompts:", res.status)
+      }
+    } catch (error) {
+      console.error("Error loading AI prompts:", error)
+    } finally {
+      setAiPromptsLoading(false)
+    }
+  }
+
+  const openPromptEditor = (prompt) => {
+    setEditingPrompt({ ...prompt })
+    setTestPromptResult(null)
+  }
+
+  const closePromptEditor = () => {
+    setEditingPrompt(null)
+    setTestPromptResult(null)
+  }
+
+  const handlePromptChange = (field, value) => {
+    setEditingPrompt(prev => ({ ...prev, [field]: value }))
+  }
+
+  const savePrompt = async () => {
+    if (!editingPrompt) return
+    setSavingPrompt(true)
+    try {
+      const token = getAuthToken()
+      const res = await fetch(`${API_BASE_URL}/settings/ai-prompts/${editingPrompt.prompt_key}`, {
+        method: "PUT",
+        headers: { 
+          Authorization: token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          system_prompt: editingPrompt.system_prompt,
+          user_prompt_template: editingPrompt.user_prompt_template,
+          name: editingPrompt.name,
+          description: editingPrompt.description
+        })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setMessage({ type: "success", text: `Prompt saved as version ${data.version}` })
+        loadAiPrompts()
+        closePromptEditor()
+      } else {
+        const error = await res.json()
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to save prompt") })
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: error.message })
+    } finally {
+      setSavingPrompt(false)
+    }
+  }
+
+  const testPrompt = async () => {
+    if (!editingPrompt) return
+    setTestingPrompt(true)
+    setTestPromptResult(null)
+    try {
+      const token = getAuthToken()
+      const res = await fetch(`${API_BASE_URL}/settings/ai-prompts/${editingPrompt.prompt_key}/test`, {
+        method: "POST",
+        headers: { 
+          Authorization: token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          system_prompt: editingPrompt.system_prompt,
+          user_prompt_template: editingPrompt.user_prompt_template
+        })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setTestPromptResult(data)
+      } else {
+        const error = await res.json()
+        setTestPromptResult({ success: false, error: getErrorMessage(error) })
+      }
+    } catch (error) {
+      setTestPromptResult({ success: false, error: error.message })
+    } finally {
+      setTestingPrompt(false)
+    }
+  }
+
+  const rollbackPrompt = async (promptKey, version) => {
+    if (!confirm(`Rollback to version ${version}?`)) return
+    try {
+      const token = getAuthToken()
+      const res = await fetch(`${API_BASE_URL}/settings/ai-prompts/${promptKey}/rollback/${version}`, {
+        method: "POST",
+        headers: { Authorization: token }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setMessage({ type: "success", text: data.message })
+        loadAiPrompts()
+        closePromptEditor()
+      } else {
+        const error = await res.json()
+        setMessage({ type: "error", text: getErrorMessage(error) })
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: error.message })
+    }
+  }
+
+  // ============== AI DATABASE FUNCTIONS ==============
+  
+  const loadAiDatabase = async () => {
+    setAiDatabaseLoading(true)
+    try {
+      const token = getAuthToken()
+      
+      // Load status
+      const statusRes = await fetch(`${API_BASE_URL}/leads/ai-database/status`, {
+        headers: { Authorization: token }
+      })
+      if (statusRes.ok) {
+        const status = await statusRes.json()
+        setAiDatabaseStatus(status)
+      }
+      
+      // Load companies
+      const filter = aiDatabaseFilter !== 'all' ? `?status=${aiDatabaseFilter}` : ''
+      const companiesRes = await fetch(`${API_BASE_URL}/leads/ai-database/companies${filter}`, {
+        headers: { Authorization: token }
+      })
+      if (companiesRes.ok) {
+        const data = await companiesRes.json()
+        setAiDatabaseCompanies(data.companies || [])
+      }
+    } catch (error) {
+      console.error("Error loading AI database:", error)
+    } finally {
+      setAiDatabaseLoading(false)
+    }
+  }
+
+  const refillAiDatabase = async () => {
+    if (!aiDatabaseIndustry.trim()) {
+      setMessage({ type: "error", text: "Please enter an industry/niche to discover companies" })
+      return
+    }
+    setAiDatabaseRefilling(true)
+    try {
+      const token = getAuthToken()
+      const res = await fetch(`${API_BASE_URL}/leads/ai-database/refill`, {
+        method: "POST",
+        headers: { 
+          Authorization: token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          industry: aiDatabaseIndustry.trim(),
+          count: 100
+        })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setMessage({ type: "success", text: `Discovered ${data.companies_added} new companies` })
+        setAiDatabaseIndustry('')
+        loadAiDatabase()
+      } else {
+        const error = await res.json()
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to discover companies") })
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: error.message })
+    } finally {
+      setAiDatabaseRefilling(false)
+    }
+  }
+
+  const processAiDatabaseBatch = async () => {
+    setAiDatabaseProcessing(true)
+    try {
+      const token = getAuthToken()
+      const res = await fetch(`${API_BASE_URL}/leads/ai-database/process-batch`, {
+        method: "POST",
+        headers: { 
+          Authorization: token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ batch_size: 10 })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setMessage({ 
+          type: "success", 
+          text: `Processed ${data.processed} companies: ${data.leads_found} leads found, ${data.enriched} enriched` 
+        })
+        loadAiDatabase()
+      } else {
+        const error = await res.json()
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to process batch") })
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: error.message })
+    } finally {
+      setAiDatabaseProcessing(false)
+    }
+  }
+
+  const clearAiDatabase = async (status) => {
+    if (!confirm(`Clear all ${status || 'all'} companies from the database?`)) return
+    try {
+      const token = getAuthToken()
+      const url = status ? `${API_BASE_URL}/leads/ai-database/clear?status=${status}` : `${API_BASE_URL}/leads/ai-database/clear`
+      const res = await fetch(url, {
+        method: "DELETE",
+        headers: { Authorization: token }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setMessage({ type: "success", text: data.message })
+        loadAiDatabase()
+      } else {
+        const error = await res.json()
+        setMessage({ type: "error", text: getErrorMessage(error) })
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: error.message })
     }
   }
 
@@ -1060,6 +1329,20 @@ function Settings() {
           <span className="tab-icon">💰</span>
           Cost Analytics
         </button>
+        <button 
+          className={`tab-button ${activeTab === "prompts" ? "active" : ""}`}
+          onClick={() => setActiveTab("prompts")}
+        >
+          <span className="tab-icon">🤖</span>
+          AI Prompts
+        </button>
+        <button 
+          className={`tab-button ${activeTab === "aidatabase" ? "active" : ""}`}
+          onClick={() => setActiveTab("aidatabase")}
+        >
+          <span className="tab-icon">🏢</span>
+          AI Database
+        </button>
       </div>
 
       <div className="settings-content">
@@ -1167,6 +1450,47 @@ function Settings() {
                     onChange={(e) => handleAppSettingChange("anthropic_api_key", e.target.value)}
                   />
                   <p className="setting-hint">Used for premium AI classification (Claude). Get from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Anthropic Console</a></p>
+                </div>
+                <div className="setting-row">
+                  <label>Perplexity API Key</label>
+                  <input
+                    type="password"
+                    placeholder={maskedSettings.perplexity_api_key_masked || "pplx-..."}
+                    value={appSettings.perplexity_api_key}
+                    onChange={(e) => handleAppSettingChange("perplexity_api_key", e.target.value)}
+                  />
+                  <p className="setting-hint">For AI company discovery. Get from <a href="https://www.perplexity.ai/settings/api" target="_blank" rel="noopener noreferrer">Perplexity Settings</a></p>
+                </div>
+                <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={appSettings.perplexity_enabled === true}
+                    onChange={(e) => handleAppSettingChange("perplexity_enabled", e.target.checked)}
+                    style={{ width: '18px', height: '18px' }}
+                  />
+                  <label style={{ margin: 0 }}>Enable Perplexity Discovery</label>
+                </div>
+                <div className="setting-row">
+                  <label>Perplexity Hourly Limit</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="500"
+                    value={appSettings.perplexity_hourly_limit || 50}
+                    onChange={(e) => handleAppSettingChange("perplexity_hourly_limit", parseInt(e.target.value) || 50)}
+                    style={{ width: '100px' }}
+                  />
+                </div>
+                <div className="setting-row">
+                  <label>Perplexity Daily Limit</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="2000"
+                    value={appSettings.perplexity_daily_limit || 200}
+                    onChange={(e) => handleAppSettingChange("perplexity_daily_limit", parseInt(e.target.value) || 200)}
+                    style={{ width: '100px' }}
+                  />
                 </div>
               </div>
 
@@ -2208,29 +2532,35 @@ function Settings() {
                 <div className="settings-group">
                   <h3>📊 Daily Breakdown</h3>
                   <div style={{ overflowX: 'auto', marginTop: '1rem' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
                       <thead>
                         <tr style={{ backgroundColor: '#f9fafb', borderBottom: '2px solid #e5e7eb' }}>
-                          <th style={{ padding: '0.75rem', textAlign: 'left' }}>Date</th>
-                          <th style={{ padding: '0.75rem', textAlign: 'right' }}>CSE Queries</th>
-                          <th style={{ padding: '0.75rem', textAlign: 'right' }}>CSE Cost</th>
-                          <th style={{ padding: '0.75rem', textAlign: 'right' }}>OpenAI Reqs</th>
-                          <th style={{ padding: '0.75rem', textAlign: 'right' }}>OpenAI Cost</th>
-                          <th style={{ padding: '0.75rem', textAlign: 'right' }}>Cache Hits</th>
-                          <th style={{ padding: '0.75rem', textAlign: 'right' }}>Hit Rate</th>
-                          <th style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '700' }}>Total</th>
+                          <th style={{ padding: '0.5rem', textAlign: 'left', color: '#111827' }}>Date</th>
+                          <th style={{ padding: '0.5rem', textAlign: 'right', color: '#111827' }}>Perplexity</th>
+                          <th style={{ padding: '0.5rem', textAlign: 'right', color: '#111827' }}>Perp. Cost</th>
+                          <th style={{ padding: '0.5rem', textAlign: 'right', color: '#111827' }}>CSE Queries</th>
+                          <th style={{ padding: '0.5rem', textAlign: 'right', color: '#111827' }}>CSE Cost</th>
+                          <th style={{ padding: '0.5rem', textAlign: 'right', color: '#111827' }}>OpenAI</th>
+                          <th style={{ padding: '0.5rem', textAlign: 'right', color: '#111827' }}>OpenAI Cost</th>
+                          <th style={{ padding: '0.5rem', textAlign: 'right', color: '#111827' }}>Cache Hits</th>
+                          <th style={{ padding: '0.5rem', textAlign: 'right', color: '#111827' }}>Hit Rate</th>
+                          <th style={{ padding: '0.5rem', textAlign: 'right', color: '#111827' }}>Leads</th>
+                          <th style={{ padding: '0.5rem', textAlign: 'right', color: '#111827' }}>Cost/Lead</th>
+                          <th style={{ padding: '0.5rem', textAlign: 'right', fontWeight: '700', color: '#111827' }}>Total</th>
                         </tr>
                       </thead>
                       <tbody>
                         {costAnalytics.daily_breakdown?.map((day, idx) => (
                           <tr key={day.date} style={{ borderBottom: '1px solid #e5e7eb', backgroundColor: idx % 2 === 0 ? 'white' : '#f9fafb' }}>
-                            <td style={{ padding: '0.75rem' }}>{day.date}</td>
-                            <td style={{ padding: '0.75rem', textAlign: 'right' }}>{day.cse_queries}</td>
-                            <td style={{ padding: '0.75rem', textAlign: 'right' }}>${day.cse_cost_usd?.toFixed(3)}</td>
-                            <td style={{ padding: '0.75rem', textAlign: 'right' }}>{day.openai_requests}</td>
-                            <td style={{ padding: '0.75rem', textAlign: 'right' }}>${day.openai_cost_usd?.toFixed(4)}</td>
-                            <td style={{ padding: '0.75rem', textAlign: 'right' }}>{day.cache_hits}</td>
-                            <td style={{ padding: '0.75rem', textAlign: 'right' }}>
+                            <td style={{ padding: '0.5rem' }}>{day.date}</td>
+                            <td style={{ padding: '0.5rem', textAlign: 'right', color: '#8b5cf6' }}>{day.perplexity_requests || 0}</td>
+                            <td style={{ padding: '0.5rem', textAlign: 'right', color: '#8b5cf6' }}>${(day.perplexity_cost_usd || 0).toFixed(4)}</td>
+                            <td style={{ padding: '0.5rem', textAlign: 'right' }}>{day.cse_queries}</td>
+                            <td style={{ padding: '0.5rem', textAlign: 'right' }}>${day.cse_cost_usd?.toFixed(4)}</td>
+                            <td style={{ padding: '0.5rem', textAlign: 'right' }}>{day.openai_requests}</td>
+                            <td style={{ padding: '0.5rem', textAlign: 'right' }}>${day.openai_cost_usd?.toFixed(4)}</td>
+                            <td style={{ padding: '0.5rem', textAlign: 'right' }}>{day.cache_hits}</td>
+                            <td style={{ padding: '0.5rem', textAlign: 'right' }}>
                               <span style={{ 
                                 color: day.cache_hit_rate >= 0.7 ? '#22c55e' : day.cache_hit_rate >= 0.5 ? '#f59e0b' : '#ef4444',
                                 fontWeight: '500'
@@ -2238,7 +2568,11 @@ function Settings() {
                                 {(day.cache_hit_rate * 100).toFixed(1)}%
                               </span>
                             </td>
-                            <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '600' }}>${day.total_cost_usd?.toFixed(4)}</td>
+                            <td style={{ padding: '0.5rem', textAlign: 'right', fontWeight: '500', color: '#2563eb' }}>{day.leads_generated || 0}</td>
+                            <td style={{ padding: '0.5rem', textAlign: 'right', color: day.cost_per_lead_usd > 0 ? '#059669' : '#6b7280' }}>
+                              {day.cost_per_lead_usd > 0 ? `$${day.cost_per_lead_usd?.toFixed(4)}` : '-'}
+                            </td>
+                            <td style={{ padding: '0.5rem', textAlign: 'right', fontWeight: '600' }}>${day.total_cost_usd?.toFixed(4)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -2292,12 +2626,503 @@ function Settings() {
                     </div>
                   </div>
                 </div>
+
+                {/* Perplexity Usage */}
+                {costAnalytics.perplexity && (
+                  <div className="settings-group" style={{ marginTop: '1.5rem' }}>
+                    <h3>🔮 Perplexity Discovery</h3>
+                    <div className="settings-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+                      <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#7c3aed' }}>
+                          {costAnalytics.perplexity.total_requests || 0}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>Requests</div>
+                      </div>
+                      <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#7c3aed' }}>
+                          ${costAnalytics.perplexity.total_cost_usd?.toFixed(2) || '0.00'}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>Cost</div>
+                      </div>
+                      <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#7c3aed' }}>
+                          {costAnalytics.perplexity.cache?.total_entries || 0}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>Cache Entries</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div style={{ textAlign: 'center', padding: '3rem', color: '#6b7280' }}>
                 <p>No analytics data available. Click refresh to load.</p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* AI Prompts Tab */}
+        {activeTab === "prompts" && (
+          <div className="settings-section">
+            <h2>AI Prompt Management</h2>
+            <p className="section-description">
+              Configure AI prompts for lead classification with version history and rollback capability.
+            </p>
+
+            {aiPromptsLoading ? (
+              <div style={{ textAlign: 'center', padding: '2rem' }}>Loading prompts...</div>
+            ) : (
+              <div className="settings-grid">
+                {aiPrompts.map(prompt => (
+                  <div 
+                    key={prompt.prompt_key} 
+                    className="settings-group"
+                    style={{ cursor: 'pointer', transition: 'box-shadow 0.2s' }}
+                    onClick={() => openPromptEditor(prompt)}
+                  >
+                    <h3>{prompt.name || prompt.prompt_key}</h3>
+                    <p style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.5rem' }}>
+                      {prompt.description || 'No description'}
+                    </p>
+                    <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>
+                      <span>Version {prompt.current_version || 1}</span>
+                      <span style={{ margin: '0 0.5rem' }}>•</span>
+                      <span>Model: {prompt.model || 'gpt-4o-mini'}</span>
+                    </div>
+                    <button 
+                      className="btn-primary"
+                      style={{ marginTop: '1rem' }}
+                      onClick={(e) => { e.stopPropagation(); openPromptEditor(prompt); }}
+                    >
+                      Edit Prompt
+                    </button>
+                  </div>
+                ))}
+
+                {aiPrompts.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '2rem', color: '#6b7280' }}>
+                    <p>No prompts configured. Defaults will be seeded automatically.</p>
+                    <button className="btn-primary" onClick={loadAiPrompts}>
+                      Refresh
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Prompt Editor Modal */}
+            {editingPrompt && (
+              <div 
+                style={{
+                  position: 'fixed',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: 'rgba(0,0,0,0.5)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 1000
+                }}
+                onClick={closePromptEditor}
+              >
+                <div 
+                  style={{
+                    background: 'white',
+                    borderRadius: '12px',
+                    padding: '2rem',
+                    maxWidth: '900px',
+                    width: '90%',
+                    maxHeight: '90vh',
+                    overflow: 'auto'
+                  }}
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                    <h3 style={{ margin: 0 }}>Edit: {editingPrompt.name}</h3>
+                    <button onClick={closePromptEditor} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer' }}>×</button>
+                  </div>
+
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>System Prompt</label>
+                    <textarea
+                      value={editingPrompt.system_prompt || ''}
+                      onChange={(e) => handlePromptChange('system_prompt', e.target.value)}
+                      rows={8}
+                      style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #d1d5db', fontFamily: 'monospace', fontSize: '0.875rem' }}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>User Prompt Template</label>
+                    <textarea
+                      value={editingPrompt.user_prompt_template || ''}
+                      onChange={(e) => handlePromptChange('user_prompt_template', e.target.value)}
+                      rows={4}
+                      style={{ width: '100%', padding: '0.75rem', borderRadius: '6px', border: '1px solid #d1d5db', fontFamily: 'monospace', fontSize: '0.875rem' }}
+                    />
+                    <p style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem' }}>
+                      Available variables: {'{name}'}, {'{title}'}, {'{linkedin_url}'}, {'{snippet}'}, {'{location}'}, {'{company_name}'}, {'{email}'}
+                    </p>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
+                    <button 
+                      className="btn-secondary"
+                      onClick={testPrompt}
+                      disabled={testingPrompt}
+                    >
+                      {testingPrompt ? 'Testing...' : '🧪 Test Prompt'}
+                    </button>
+                    <button 
+                      className="btn-primary"
+                      onClick={savePrompt}
+                      disabled={savingPrompt}
+                    >
+                      {savingPrompt ? 'Saving...' : '💾 Save New Version'}
+                    </button>
+                  </div>
+
+                  {/* Test Result */}
+                  {testPromptResult && (
+                    <div style={{ 
+                      marginBottom: '1.5rem', 
+                      padding: '1rem', 
+                      borderRadius: '8px', 
+                      background: testPromptResult.success ? '#f0fdf4' : '#fef2f2',
+                      border: `1px solid ${testPromptResult.success ? '#86efac' : '#fecaca'}`
+                    }}>
+                      <h4 style={{ marginBottom: '0.5rem' }}>{testPromptResult.success ? '✅ Test Successful' : '❌ Test Failed'}</h4>
+                      {testPromptResult.success ? (
+                        <>
+                          <div style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+                            <strong>Sample Lead:</strong> {testPromptResult.sample_lead?.name} - {testPromptResult.sample_lead?.title}
+                          </div>
+                          <div style={{ fontSize: '0.875rem', marginBottom: '0.5rem' }}>
+                            <strong>Tokens Used:</strong> {testPromptResult.tokens_used}
+                          </div>
+                          <pre style={{ 
+                            background: '#f8fafc', 
+                            padding: '0.75rem', 
+                            borderRadius: '6px', 
+                            fontSize: '0.75rem',
+                            overflow: 'auto',
+                            maxHeight: '200px'
+                          }}>
+                            {testPromptResult.ai_response}
+                          </pre>
+                        </>
+                      ) : (
+                        <p>{testPromptResult.error}</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Version History */}
+                  {editingPrompt.versions && editingPrompt.versions.length > 0 && (
+                    <div>
+                      <h4 style={{ marginBottom: '0.75rem' }}>📜 Version History</h4>
+                      <div style={{ maxHeight: '200px', overflow: 'auto' }}>
+                        {[...editingPrompt.versions].reverse().map(v => (
+                          <div 
+                            key={v.version}
+                            style={{ 
+                              display: 'flex', 
+                              justifyContent: 'space-between', 
+                              alignItems: 'center',
+                              padding: '0.5rem',
+                              borderBottom: '1px solid #e5e7eb'
+                            }}
+                          >
+                            <div>
+                              <span style={{ fontWeight: '500' }}>Version {v.version}</span>
+                              <span style={{ marginLeft: '1rem', fontSize: '0.75rem', color: '#6b7280' }}>
+                                {v.created_at ? new Date(v.created_at).toLocaleString() : 'N/A'}
+                              </span>
+                              {v.created_by && (
+                                <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: '#9ca3af' }}>
+                                  by {v.created_by}
+                                </span>
+                              )}
+                            </div>
+                            {v.version !== editingPrompt.current_version && (
+                              <button
+                                onClick={() => rollbackPrompt(editingPrompt.prompt_key, v.version)}
+                                style={{ 
+                                  padding: '0.25rem 0.5rem', 
+                                  fontSize: '0.75rem',
+                                  background: '#f3f4f6',
+                                  border: '1px solid #d1d5db',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                Rollback
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "aidatabase" && (
+          <div className="settings-section">
+            <h2>🏢 AI Company Database</h2>
+            <p className="section-description">
+              Discover companies via Perplexity AI, then search for leads with Google CSE and enrich with OpenAI.
+              The system auto-refills when pending companies drop below 100.
+            </p>
+
+            {/* Status Cards */}
+            {aiDatabaseLoading ? (
+              <div style={{ textAlign: 'center', padding: '2rem' }}>Loading...</div>
+            ) : aiDatabaseStatus ? (
+              <div style={{ marginBottom: '1.5rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+                  <div style={{ background: '#fef3c7', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '2rem', fontWeight: '700', color: '#d97706' }}>{aiDatabaseStatus.pending || 0}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#92400e' }}>Pending</div>
+                  </div>
+                  <div style={{ background: '#dbeafe', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '2rem', fontWeight: '700', color: '#2563eb' }}>{aiDatabaseStatus.searching || 0}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#1d4ed8' }}>Searching</div>
+                  </div>
+                  <div style={{ background: '#d1fae5', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '2rem', fontWeight: '700', color: '#059669' }}>{aiDatabaseStatus.completed || 0}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#047857' }}>Completed</div>
+                  </div>
+                  <div style={{ background: '#fee2e2', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '2rem', fontWeight: '700', color: '#dc2626' }}>{aiDatabaseStatus.no_results || 0}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#b91c1c' }}>No Results</div>
+                  </div>
+                  <div style={{ background: '#f3e8ff', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '2rem', fontWeight: '700', color: '#7c3aed' }}>{aiDatabaseStatus.total || 0}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#6d28d9' }}>Total</div>
+                  </div>
+                </div>
+                
+                {aiDatabaseStatus.needs_refill && (
+                  <div style={{ 
+                    background: '#fef3c7', 
+                    border: '1px solid #f59e0b', 
+                    borderRadius: '8px', 
+                    padding: '0.75rem 1rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                  }}>
+                    <span>⚠️</span>
+                    <span style={{ color: '#92400e' }}>
+                      Pending companies below threshold. Consider running a Perplexity discovery.
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {/* Discovery Section */}
+            <div style={{ 
+              background: '#f8fafc', 
+              border: '1px solid #e2e8f0', 
+              borderRadius: '8px', 
+              padding: '1.5rem',
+              marginBottom: '1.5rem'
+            }}>
+              <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span>🔍</span> Perplexity Company Discovery
+              </h3>
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  placeholder="Enter industry/niche (e.g., 'SaaS companies in fintech')"
+                  value={aiDatabaseIndustry}
+                  onChange={(e) => setAiDatabaseIndustry(e.target.value)}
+                  style={{ 
+                    flex: 1, 
+                    minWidth: '250px', 
+                    padding: '0.75rem',
+                    borderRadius: '6px',
+                    border: '1px solid #d1d5db'
+                  }}
+                />
+                <button
+                  onClick={refillAiDatabase}
+                  disabled={aiDatabaseRefilling}
+                  style={{
+                    background: aiDatabaseRefilling ? '#9ca3af' : '#8b5cf6',
+                    color: 'white',
+                    padding: '0.75rem 1.5rem',
+                    borderRadius: '6px',
+                    border: 'none',
+                    cursor: aiDatabaseRefilling ? 'not-allowed' : 'pointer',
+                    fontWeight: '500'
+                  }}
+                >
+                  {aiDatabaseRefilling ? '🔄 Discovering...' : '🚀 Discover 100 Companies'}
+                </button>
+              </div>
+            </div>
+
+            {/* Process Section */}
+            <div style={{ 
+              background: '#f0fdf4', 
+              border: '1px solid #86efac', 
+              borderRadius: '8px', 
+              padding: '1.5rem',
+              marginBottom: '1.5rem'
+            }}>
+              <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span>⚙️</span> Lead Generation Pipeline
+              </h3>
+              <p style={{ color: '#166534', marginBottom: '1rem', fontSize: '0.875rem' }}>
+                Process pending companies: Google CSE finds contacts → OpenAI enriches lead data
+              </p>
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <button
+                  onClick={processAiDatabaseBatch}
+                  disabled={aiDatabaseProcessing || !aiDatabaseStatus?.pending}
+                  style={{
+                    background: aiDatabaseProcessing ? '#9ca3af' : '#059669',
+                    color: 'white',
+                    padding: '0.75rem 1.5rem',
+                    borderRadius: '6px',
+                    border: 'none',
+                    cursor: aiDatabaseProcessing || !aiDatabaseStatus?.pending ? 'not-allowed' : 'pointer',
+                    fontWeight: '500'
+                  }}
+                >
+                  {aiDatabaseProcessing ? '⚙️ Processing...' : '▶️ Process 10 Companies'}
+                </button>
+                <button
+                  onClick={() => loadAiDatabase()}
+                  style={{
+                    background: 'white',
+                    color: '#374151',
+                    padding: '0.75rem 1rem',
+                    borderRadius: '6px',
+                    border: '1px solid #d1d5db',
+                    cursor: 'pointer'
+                  }}
+                >
+                  🔄 Refresh
+                </button>
+              </div>
+            </div>
+
+            {/* Filter & Companies Table */}
+            <div style={{ 
+              background: 'white', 
+              border: '1px solid #e5e7eb', 
+              borderRadius: '8px', 
+              padding: '1.5rem'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <h3 style={{ margin: 0 }}>📋 Discovered Companies</h3>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <select
+                    value={aiDatabaseFilter}
+                    onChange={(e) => {
+                      setAiDatabaseFilter(e.target.value)
+                      setTimeout(() => loadAiDatabase(), 100)
+                    }}
+                    style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  >
+                    <option value="all">All Status</option>
+                    <option value="pending">Pending</option>
+                    <option value="searching">Searching</option>
+                    <option value="completed">Completed</option>
+                    <option value="no_results">No Results</option>
+                    <option value="error">Error</option>
+                  </select>
+                  <button
+                    onClick={() => clearAiDatabase(aiDatabaseFilter !== 'all' ? aiDatabaseFilter : null)}
+                    style={{
+                      background: '#fee2e2',
+                      color: '#b91c1c',
+                      padding: '0.5rem 1rem',
+                      borderRadius: '6px',
+                      border: '1px solid #fecaca',
+                      cursor: 'pointer',
+                      fontSize: '0.875rem'
+                    }}
+                  >
+                    🗑️ Clear {aiDatabaseFilter !== 'all' ? aiDatabaseFilter : 'All'}
+                  </button>
+                </div>
+              </div>
+
+              {aiDatabaseCompanies.length > 0 ? (
+                <div style={{ maxHeight: '400px', overflow: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: '#f9fafb', position: 'sticky', top: 0 }}>
+                        <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '1px solid #e5e7eb', color: '#111827' }}>Company</th>
+                        <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '1px solid #e5e7eb', color: '#111827' }}>Industry</th>
+                        <th style={{ padding: '0.75rem', textAlign: 'center', borderBottom: '1px solid #e5e7eb', color: '#111827' }}>Status</th>
+                        <th style={{ padding: '0.75rem', textAlign: 'center', borderBottom: '1px solid #e5e7eb', color: '#111827' }}>Leads</th>
+                        <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '1px solid #e5e7eb', color: '#111827' }}>Discovered</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {aiDatabaseCompanies.map((company, idx) => (
+                        <tr key={company._id || idx} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                          <td style={{ padding: '0.75rem' }}>
+                            <div style={{ fontWeight: '500' }}>{company.company_name}</div>
+                            {company.website && (
+                              <a href={company.website} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                                {company.website}
+                              </a>
+                            )}
+                          </td>
+                          <td style={{ padding: '0.75rem', color: '#6b7280', fontSize: '0.875rem' }}>{company.industry || '-'}</td>
+                          <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '0.25rem 0.5rem',
+                              borderRadius: '9999px',
+                              fontSize: '0.75rem',
+                              fontWeight: '500',
+                              background: 
+                                company.status === 'pending' ? '#fef3c7' :
+                                company.status === 'searching' ? '#dbeafe' :
+                                company.status === 'completed' ? '#d1fae5' :
+                                company.status === 'no_results' ? '#fee2e2' : '#f3f4f6',
+                              color:
+                                company.status === 'pending' ? '#92400e' :
+                                company.status === 'searching' ? '#1d4ed8' :
+                                company.status === 'completed' ? '#047857' :
+                                company.status === 'no_results' ? '#b91c1c' : '#374151'
+                            }}>
+                              {company.status}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: '500' }}>
+                            {company.leads_found || 0}
+                          </td>
+                          <td style={{ padding: '0.75rem', fontSize: '0.75rem', color: '#9ca3af' }}>
+                            {company.discovered_at ? new Date(company.discovered_at).toLocaleDateString() : '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '3rem', color: '#9ca3af' }}>
+                  <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🏢</div>
+                  <p>No companies discovered yet</p>
+                  <p style={{ fontSize: '0.875rem' }}>Use Perplexity Discovery above to find companies</p>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

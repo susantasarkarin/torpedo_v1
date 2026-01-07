@@ -232,6 +232,123 @@ async def search_linkedin_leads_batch(
     return leads
 
 
+async def search_linkedin_leads_discovery(
+    query: str,
+    num_results: int = 10,
+    skip_cache: bool = False
+) -> List[dict]:
+    """
+    Search LinkedIn using discovery template (broader search, no /in/ restriction).
+    
+    Used for AI Discovery flow:
+    - Template: site:linkedin.com "{designation}" "{company_name}"
+    - No /in/ prefix for broader results
+    - No designation blocklist (per user requirement)
+    
+    Args:
+        query: Full search query (already formatted with site:linkedin.com)
+        num_results: Number of results to fetch (max 10 per request)
+        skip_cache: Force fresh API call
+        
+    Returns:
+        List of parsed lead data
+    """
+    from .search_cache import get_cached_response, cache_response
+    
+    # ===== CACHE CHECK =====
+    if not skip_cache:
+        cached = get_cached_response(query, provider="google_cse")
+        if cached:
+            return cached
+    
+    # ===== API CALL =====
+    api_key, cse_id = get_google_api_credentials()
+    
+    if not api_key or not cse_id:
+        raise ValueError("Google API Key and CSE ID are required. Configure in Settings.")
+    
+    if not api_key.startswith("AIza"):
+        raise ValueError("Invalid Google API Key format.")
+    
+    url = "https://www.googleapis.com/customsearch/v1"
+    params = {
+        "key": api_key,
+        "cx": cse_id,
+        "q": query,  # Use query as-is (already includes site:linkedin.com)
+        "num": min(num_results, 10)
+    }
+    
+    async with httpx.AsyncClient() as http_client:
+        response = await http_client.get(url, params=params, timeout=30.0)
+        
+        if response.status_code == 400:
+            error_data = response.json()
+            error_msg = error_data.get("error", {}).get("message", "Bad Request")
+            raise ValueError(f"Google API Error: {error_msg}")
+        elif response.status_code == 403:
+            raise ValueError("Google API access denied.")
+        
+        response.raise_for_status()
+        data = response.json()
+    
+    leads = []
+    items = data.get("items", [])
+    
+    for item in items:
+        lead = parse_google_search_result_discovery(item)
+        if lead:
+            leads.append(lead)
+    
+    # ===== CACHE RESPONSE =====
+    if leads:
+        cache_response(query, leads, provider="google_cse")
+    
+    return leads
+
+
+def parse_google_search_result_discovery(item: dict) -> Optional[dict]:
+    """
+    Parse a Google Custom Search result for discovery mode.
+    More lenient than standard parser - accepts any LinkedIn URL.
+    """
+    link = item.get("link", "")
+    
+    # Accept any LinkedIn URL (not just /in/ profiles)
+    if "linkedin.com" not in link:
+        return None
+    
+    title = item.get("title", "")
+    snippet = item.get("snippet", "")
+    
+    # Extract name and job title from the Google search title
+    name, job_title = extract_name_and_title(title)
+    
+    # Try to extract company from snippet
+    company_name = ""
+    if snippet:
+        # Common patterns: "at Company", "@ Company", "| Company"
+        import re
+        company_match = re.search(r'(?:at|@|\|)\s+([A-Z][^|•·\-\n]+?)(?:\s*[|•·\-]|$)', snippet)
+        if company_match:
+            company_name = company_match.group(1).strip()
+    
+    # Try to extract location from snippet
+    location = ""
+    location_match = re.search(r'(?:Location|Based in|Located in)[:\s]+([^|•·\n]+)', snippet, re.IGNORECASE)
+    if location_match:
+        location = location_match.group(1).strip()
+    
+    return {
+        "name": name or title.split(" - ")[0].strip(),
+        "title": job_title,
+        "linkedin_url": link,
+        "snippet": snippet[:300] if snippet else "",
+        "company_name": company_name,
+        "location": location,
+        "source": "ai_discovery"
+    }
+
+
 def parse_google_search_result(item: dict) -> Optional[dict]:
     """
     Parse a Google Custom Search result into lead format.

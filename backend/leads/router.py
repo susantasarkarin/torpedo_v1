@@ -4,7 +4,7 @@ FastAPI Router for Lead Management
 """
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, UploadFile, File, Form, Body
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 import asyncio
@@ -61,6 +61,19 @@ try:
     web_search_jobs_collection.create_index("created_at")
 except Exception as e:
     print(f"Warning: Could not create job indexes: {e}")
+
+# ============== AI COMPANY DATABASE ==============
+ai_companies_collection = _jobs_db['ai_discovered_companies']
+
+try:
+    ai_companies_collection.create_index("domain", unique=True)
+    ai_companies_collection.create_index("status")
+    ai_companies_collection.create_index("discovered_at")
+    ai_companies_collection.create_index("last_searched")
+    ai_companies_collection.create_index([("industry", 1), ("status", 1)])
+    print("✅ AI Company Database indexes created")
+except Exception as e:
+    print(f"Warning: Could not create AI company indexes: {e}")
 
 
 # ============== JOB STATUS CONSTANTS ==============
@@ -1908,3 +1921,658 @@ async def delete_duplicate_emails_endpoint():
 async def health_check():
     """Health check endpoint"""
     return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+
+
+# ============== AI DISCOVERY ENDPOINTS ==============
+# Perplexity for company discovery → Google CSE for contact search
+
+class DiscoverCompaniesRequest(BaseModel):
+    """Request model for company discovery via Perplexity"""
+    industry: str
+    location: str = ""
+    count: int = 20
+    criteria: str = ""  # e.g., "funded startups", "enterprise"
+
+
+class DiscoverContactsRequest(BaseModel):
+    """Request model for finding contacts at discovered companies"""
+    companies: List[Dict[str, str]]  # [{name, description}]
+    designation: str  # Target job title (e.g., "CEO", "VP Sales")
+    limit_per_company: int = 5
+
+
+class ImportDiscoveredContactsRequest(BaseModel):
+    """Request model for importing selected contacts"""
+    contacts: List[Dict[str, Any]]  # Selected contacts from preview
+
+
+@router.get("/discover/status")
+async def get_discovery_status():
+    """
+    GET /leads/discover/status
+    Check if Perplexity discovery is enabled and configured.
+    """
+    try:
+        from .perplexity_client import (
+            is_perplexity_enabled, get_perplexity_settings, check_rate_limit
+        )
+        
+        enabled = is_perplexity_enabled()
+        settings = get_perplexity_settings()
+        rate_allowed, rate_message = check_rate_limit()
+        
+        return {
+            "enabled": enabled,
+            "configured": enabled,  # API key exists and enabled
+            "settings": {
+                "hourly_limit": settings.get("hourly_limit", 50),
+                "daily_limit": settings.get("daily_limit", 200),
+                "default_model": settings.get("default_model", "sonar"),
+            },
+            "rate_limit": {
+                "allowed": rate_allowed,
+                "message": rate_message
+            }
+        }
+    except ImportError:
+        return {
+            "enabled": False,
+            "configured": False,
+            "error": "Perplexity client not available"
+        }
+    except Exception as e:
+        return {
+            "enabled": False,
+            "configured": False,
+            "error": str(e)
+        }
+
+
+@router.post("/discover/companies")
+async def discover_companies_endpoint(request: DiscoverCompaniesRequest):
+    """
+    POST /leads/discover/companies
+    Discover companies using Perplexity AI.
+    
+    Returns list of companies for user selection (checkbox selection in UI).
+    Next step: User selects companies → POST /leads/discover/contacts
+    """
+    try:
+        from .perplexity_client import (
+            is_perplexity_enabled, discover_companies, check_rate_limit
+        )
+        
+        if not is_perplexity_enabled():
+            raise HTTPException(
+                status_code=400, 
+                detail="Perplexity discovery is not enabled. Configure API key in Settings."
+            )
+        
+        rate_allowed, rate_message = check_rate_limit()
+        if not rate_allowed:
+            raise HTTPException(status_code=429, detail=rate_message)
+        
+        result = await discover_companies(
+            industry=request.industry,
+            location=request.location,
+            count=request.count,
+            criteria=request.criteria
+        )
+        
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=500, 
+                detail=result.get("error", "Discovery failed")
+            )
+        
+        # Parse the content to extract company list
+        content = result.get("content", "")
+        companies = _parse_company_list(content)
+        
+        return {
+            "success": True,
+            "companies": companies,
+            "total_found": len(companies),
+            "query": f"{request.criteria} {request.industry} in {request.location}".strip(),
+            "from_cache": result.get("from_cache", False),
+            "raw_content": content  # For debugging
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Discovery error: {str(e)}")
+
+
+def _parse_company_list(content: str) -> List[Dict[str, str]]:
+    """
+    Parse Perplexity response to extract company list.
+    Handles various formats (numbered lists, bullet points, etc.)
+    """
+    companies = []
+    lines = content.split('\n')
+    
+    current_company = {}
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            if current_company:
+                companies.append(current_company)
+                current_company = {}
+            continue
+        
+        # Try to extract company info from numbered/bulleted lists
+        # Patterns: "1. Company Name - description" or "• Company Name: description"
+        import re
+        
+        # Pattern: numbered or bulleted list item with company name
+        match = re.match(r'^[\d\.\)\-\•\*]+\s*\**([^:\-\n]+?)(?:\**)?[\:\-\–]?\s*(.*)$', line)
+        if match:
+            name = match.group(1).strip().strip('*').strip()
+            description = match.group(2).strip() if match.group(2) else ""
+            
+            if name and len(name) > 1 and len(name) < 100:
+                companies.append({
+                    "name": name,
+                    "description": description[:200] if description else "",
+                    "selected": False
+                })
+                continue
+        
+        # If line looks like a continuation/description, append to last company
+        if companies and not any(c in line[:3] for c in '0123456789.•*-'):
+            if len(companies[-1].get("description", "")) < 200:
+                companies[-1]["description"] = (
+                    companies[-1].get("description", "") + " " + line
+                ).strip()[:200]
+    
+    # Add last company if pending
+    if current_company:
+        companies.append(current_company)
+    
+    return companies[:50]  # Limit to 50 companies
+
+
+@router.post("/discover/contacts")
+async def discover_contacts_endpoint(request: DiscoverContactsRequest):
+    """
+    POST /leads/discover/contacts
+    Find contacts at selected companies using Google CSE.
+    
+    Search template: site:linkedin.com "{designation}" "{company_name}"
+    No /in/ prefix (broader search), no designation blocklist (per user request).
+    
+    Returns contacts for preview (checkbox selection) before import.
+    """
+    try:
+        from .ingestion import search_linkedin_leads_discovery
+        from .search_cache import get_cached_search, cache_search_result
+        
+        all_contacts = []
+        errors = []
+        cache_hits = 0
+        api_calls = 0
+        
+        for company in request.companies:
+            company_name = company.get("name", "")
+            if not company_name:
+                continue
+            
+            # Build discovery search query - no /in/ for broader results
+            # Format: site:linkedin.com "{designation}" "{company_name}"
+            search_query = f'site:linkedin.com "{request.designation}" "{company_name}"'
+            
+            try:
+                # Check cache first
+                cached = get_cached_search(search_query)
+                if cached:
+                    cache_hits += 1
+                    contacts = cached.get("results", [])
+                else:
+                    # Call Google CSE
+                    api_calls += 1
+                    contacts = await search_linkedin_leads_discovery(
+                        query=search_query,
+                        num_results=request.limit_per_company
+                    )
+                    # Cache results
+                    cache_search_result(search_query, contacts)
+                
+                # Add company context to each contact
+                for contact in contacts[:request.limit_per_company]:
+                    contact["discovered_company"] = company_name
+                    contact["search_query"] = search_query
+                    contact["selected"] = False  # For UI checkbox
+                    all_contacts.append(contact)
+                    
+            except Exception as e:
+                errors.append(f"{company_name}: {str(e)}")
+        
+        return {
+            "success": True,
+            "contacts": all_contacts,
+            "total_found": len(all_contacts),
+            "companies_searched": len(request.companies),
+            "cache_hits": cache_hits,
+            "api_calls": api_calls,
+            "errors": errors if errors else None
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Contact search error: {str(e)}")
+
+
+@router.post("/discover/import")
+async def import_discovered_contacts_endpoint(request: ImportDiscoveredContactsRequest):
+    """
+    POST /leads/discover/import
+    Import selected contacts from discovery preview.
+    
+    Converts discovered contacts to LeadRaw format and processes through
+    the standard import → classify pipeline.
+    """
+    try:
+        from .models import LeadRaw
+        from .service import import_leads
+        
+        if not request.contacts:
+            raise HTTPException(status_code=400, detail="No contacts provided")
+        
+        # Convert to LeadRaw format
+        leads_to_import = []
+        for contact in request.contacts:
+            lead = LeadRaw(
+                name=contact.get("name", contact.get("title", "Unknown")),
+                title=contact.get("title", contact.get("snippet", "")),
+                company_name=contact.get("discovered_company", contact.get("company_name", "")),
+                linkedin_url=contact.get("linkedin_url", contact.get("url", "")),
+                snippet=contact.get("snippet", ""),
+                location=contact.get("location", ""),
+                email=contact.get("email", ""),
+                source="ai_discovery",
+                import_batch_id=f"discovery_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+            )
+            leads_to_import.append(lead)
+        
+        # Import leads
+        result = import_leads(leads_to_import, auto_classify=True)
+        
+        return {
+            "success": True,
+            "imported": result.get("imported", len(leads_to_import)),
+            "duplicates": result.get("duplicates", 0),
+            "classified": result.get("classified", 0),
+            "batch_id": leads_to_import[0].import_batch_id if leads_to_import else None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import error: {str(e)}")
+
+
+# ============== AI COMPANY DATABASE ENDPOINTS ==============
+
+class CompanyStatus:
+    """Status of a company in the AI database"""
+    PENDING = "pending"      # Discovered, not yet searched for contacts
+    SEARCHING = "searching"  # Currently being searched
+    COMPLETED = "completed"  # Contacts found and imported
+    NO_RESULTS = "no_results"  # Searched but no contacts found
+    ERROR = "error"          # Search failed
+
+
+@router.get("/ai-database/status")
+async def get_ai_database_status():
+    """
+    GET /leads/ai-database/status
+    Get status of the AI Company Database.
+    Returns counts by status and whether refill is needed.
+    """
+    try:
+        from .perplexity_client import is_perplexity_enabled
+        
+        # Count companies by status
+        pipeline = [
+            {"$group": {"_id": "$status", "count": {"$sum": 1}}}
+        ]
+        status_counts = {doc["_id"]: doc["count"] for doc in ai_companies_collection.aggregate(pipeline)}
+        
+        total = sum(status_counts.values())
+        pending = status_counts.get(CompanyStatus.PENDING, 0)
+        completed = status_counts.get(CompanyStatus.COMPLETED, 0)
+        
+        # Check if refill is needed (below 100 pending companies)
+        needs_refill = pending < 100
+        perplexity_enabled = is_perplexity_enabled()
+        
+        # Get recent companies for display
+        recent_companies = list(ai_companies_collection.find(
+            {},
+            {"_id": 0, "name": 1, "domain": 1, "industry": 1, "status": 1, "discovered_at": 1}
+        ).sort("discovered_at", -1).limit(20))
+        
+        # Convert datetime to string for JSON serialization
+        for company in recent_companies:
+            if company.get("discovered_at"):
+                company["discovered_at"] = company["discovered_at"].isoformat()
+        
+        return {
+            "success": True,
+            "total_companies": total,
+            "by_status": {
+                "pending": pending,
+                "searching": status_counts.get(CompanyStatus.SEARCHING, 0),
+                "completed": completed,
+                "no_results": status_counts.get(CompanyStatus.NO_RESULTS, 0),
+                "error": status_counts.get(CompanyStatus.ERROR, 0)
+            },
+            "needs_refill": needs_refill,
+            "refill_threshold": 100,
+            "perplexity_enabled": perplexity_enabled,
+            "recent_companies": recent_companies
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "total_companies": 0,
+            "needs_refill": True
+        }
+
+
+class RefillCompaniesRequest(BaseModel):
+    """Request model for refilling the company database"""
+    industry: str = "technology"
+    location: str = "United States"
+    count: int = 100
+    criteria: str = ""
+
+
+@router.post("/ai-database/refill")
+async def refill_ai_database(request: RefillCompaniesRequest, background_tasks: BackgroundTasks):
+    """
+    POST /leads/ai-database/refill
+    Trigger Perplexity to discover new companies and add to database.
+    Only triggers if count drops below threshold (100).
+    """
+    try:
+        from .perplexity_client import (
+            is_perplexity_enabled, discover_companies, check_rate_limit
+        )
+        
+        if not is_perplexity_enabled():
+            raise HTTPException(
+                status_code=400, 
+                detail="Perplexity discovery is not enabled. Configure API key in Settings."
+            )
+        
+        rate_allowed, rate_message = check_rate_limit()
+        if not rate_allowed:
+            raise HTTPException(status_code=429, detail=rate_message)
+        
+        # Check current pending count
+        pending_count = ai_companies_collection.count_documents({"status": CompanyStatus.PENDING})
+        
+        if pending_count >= 100 and request.count <= 100:
+            return {
+                "success": True,
+                "message": f"Database already has {pending_count} pending companies. No refill needed.",
+                "added": 0
+            }
+        
+        # Discover companies via Perplexity
+        result = await discover_companies(
+            industry=request.industry,
+            location=request.location,
+            count=request.count,
+            criteria=request.criteria
+        )
+        
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=500, 
+                detail=result.get("error", "Discovery failed")
+            )
+        
+        # Parse and insert companies
+        content = result.get("content", "")
+        companies = _parse_company_list(content)
+        
+        added = 0
+        duplicates = 0
+        
+        for company in companies:
+            try:
+                domain = company.get("domain", "").lower().strip()
+                if not domain:
+                    # Try to extract from name
+                    name = company.get("name", "")
+                    domain = name.lower().replace(" ", "").replace(",", "")[:30] + ".com"
+                
+                doc = {
+                    "name": company.get("name", "Unknown"),
+                    "domain": domain,
+                    "industry": company.get("industry", request.industry),
+                    "size": company.get("size", "Unknown"),
+                    "headquarters": company.get("headquarters", request.location),
+                    "description": company.get("description", ""),
+                    "status": CompanyStatus.PENDING,
+                    "discovered_at": datetime.utcnow(),
+                    "discovery_query": f"{request.criteria} {request.industry} in {request.location}".strip(),
+                    "last_searched": None,
+                    "leads_found": 0
+                }
+                
+                ai_companies_collection.insert_one(doc)
+                added += 1
+                
+            except Exception as e:
+                if "duplicate key" in str(e).lower():
+                    duplicates += 1
+                else:
+                    print(f"Error adding company: {e}")
+        
+        return {
+            "success": True,
+            "message": f"Added {added} new companies to AI database",
+            "added": added,
+            "duplicates": duplicates,
+            "total_parsed": len(companies),
+            "query": f"{request.criteria} {request.industry} in {request.location}".strip()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Refill error: {str(e)}")
+
+
+@router.get("/ai-database/companies")
+async def get_ai_database_companies(
+    status: Optional[str] = None,
+    industry: Optional[str] = None,
+    limit: int = 50,
+    skip: int = 0
+):
+    """
+    GET /leads/ai-database/companies
+    Get companies from the AI database with optional filtering.
+    """
+    try:
+        query = {}
+        if status:
+            query["status"] = status
+        if industry:
+            query["industry"] = {"$regex": industry, "$options": "i"}
+        
+        companies = list(ai_companies_collection.find(
+            query,
+            {"_id": 0}
+        ).sort("discovered_at", -1).skip(skip).limit(limit))
+        
+        total = ai_companies_collection.count_documents(query)
+        
+        # Convert datetime to string for JSON serialization
+        for company in companies:
+            if company.get("discovered_at"):
+                company["discovered_at"] = company["discovered_at"].isoformat()
+            if company.get("last_searched"):
+                company["last_searched"] = company["last_searched"].isoformat()
+        
+        return {
+            "success": True,
+            "companies": companies,
+            "total": total,
+            "limit": limit,
+            "skip": skip
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ai-database/process-batch")
+async def process_ai_database_batch(
+    batch_size: int = 10,
+    designation: str = "Manager",
+    background_tasks: BackgroundTasks = None
+):
+    """
+    POST /leads/ai-database/process-batch
+    Process a batch of pending companies:
+    1. Pick N pending companies
+    2. Search Google CSE for leads at each company
+    3. Enrich with OpenAI
+    4. Update company status
+    
+    This is the automated pipeline: Perplexity → Google CSE → OpenAI
+    """
+    try:
+        from .ingestion import search_linkedin_leads
+        from .service import import_leads
+        
+        # Get pending companies
+        pending = list(ai_companies_collection.find(
+            {"status": CompanyStatus.PENDING}
+        ).limit(batch_size))
+        
+        if not pending:
+            return {
+                "success": True,
+                "message": "No pending companies to process",
+                "processed": 0,
+                "leads_found": 0
+            }
+        
+        total_leads = 0
+        processed = 0
+        errors = []
+        
+        for company in pending:
+            company_name = company.get("name", "")
+            domain = company.get("domain", "")
+            
+            try:
+                # Mark as searching
+                ai_companies_collection.update_one(
+                    {"domain": domain},
+                    {"$set": {"status": CompanyStatus.SEARCHING, "last_searched": datetime.utcnow()}}
+                )
+                
+                # Search for leads using Google CSE
+                search_results = search_linkedin_leads(
+                    designation=designation,
+                    company=company_name,
+                    location="",  # Use company headquarters if needed
+                    count=5  # Limit per company
+                )
+                
+                if search_results and len(search_results) > 0:
+                    # Import leads with auto-classification
+                    from .models import LeadRaw
+                    
+                    leads = []
+                    for result in search_results:
+                        lead = LeadRaw(
+                            name=result.get("name", result.get("title", "Unknown")),
+                            title=result.get("title", result.get("snippet", "")),
+                            company_name=company_name,
+                            linkedin_url=result.get("linkedin_url", result.get("url", "")),
+                            snippet=result.get("snippet", ""),
+                            location=result.get("location", ""),
+                            email=result.get("email", ""),
+                            source="ai_pipeline",
+                            import_batch_id=f"ai_batch_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+                        )
+                        leads.append(lead)
+                    
+                    if leads:
+                        import_result = import_leads(leads, auto_classify=True)
+                        leads_found = import_result.get("imported", 0)
+                        total_leads += leads_found
+                        
+                        # Update company status
+                        ai_companies_collection.update_one(
+                            {"domain": domain},
+                            {"$set": {
+                                "status": CompanyStatus.COMPLETED,
+                                "leads_found": leads_found
+                            }}
+                        )
+                    else:
+                        ai_companies_collection.update_one(
+                            {"domain": domain},
+                            {"$set": {"status": CompanyStatus.NO_RESULTS}}
+                        )
+                else:
+                    ai_companies_collection.update_one(
+                        {"domain": domain},
+                        {"$set": {"status": CompanyStatus.NO_RESULTS}}
+                    )
+                
+                processed += 1
+                
+            except Exception as e:
+                errors.append(f"{company_name}: {str(e)}")
+                ai_companies_collection.update_one(
+                    {"domain": domain},
+                    {"$set": {"status": CompanyStatus.ERROR, "error": str(e)}}
+                )
+        
+        return {
+            "success": True,
+            "processed": processed,
+            "leads_found": total_leads,
+            "batch_size": batch_size,
+            "errors": errors if errors else None
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Batch processing error: {str(e)}")
+
+
+@router.delete("/ai-database/clear")
+async def clear_ai_database(status: Optional[str] = None):
+    """
+    DELETE /leads/ai-database/clear
+    Clear companies from AI database.
+    Optional: filter by status to only clear certain records.
+    """
+    try:
+        query = {}
+        if status:
+            query["status"] = status
+        
+        result = ai_companies_collection.delete_many(query)
+        
+        return {
+            "success": True,
+            "deleted": result.deleted_count,
+            "filter": status or "all"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

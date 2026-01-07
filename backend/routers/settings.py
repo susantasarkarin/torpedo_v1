@@ -23,6 +23,14 @@ mongo_client = MongoClient(MONGO_URI)
 settings_db = mongo_client["torpedo_settings"]
 app_settings_collection = settings_db["app_settings"]
 survey_filter_collection = settings_db["survey_filters"]
+ai_prompts_collection = settings_db["ai_prompts"]
+
+# Create indexes for ai_prompts
+try:
+    ai_prompts_collection.create_index("prompt_key", unique=True)
+    ai_prompts_collection.create_index("is_active")
+except Exception:
+    pass
 
 
 def get_settings_by_key(key: str) -> Dict[str, Any]:
@@ -91,11 +99,16 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
             "google_cse_query_delay": stored.get("google_cse_query_delay", 3),
             "google_cse_monthly_budget": stored.get("google_cse_monthly_budget", 50.0),
             "google_cse_rate_limit_enabled": stored.get("google_cse_rate_limit_enabled", True),
+            # Perplexity Discovery settings
+            "perplexity_api_key": stored.get("perplexity_api_key", os.getenv("PERPLEXITY_API_KEY", "")),
+            "perplexity_enabled": stored.get("perplexity_enabled", False),
+            "perplexity_daily_limit": stored.get("perplexity_daily_limit", 200),
+            "perplexity_hourly_limit": stored.get("perplexity_hourly_limit", 50),
         }
         
         # Mask sensitive fields for display
         masked_settings = {**settings}
-        sensitive_fields = ["cpx_secure_hash_key", "openai_api_key", "anthropic_api_key", "google_api_key", "google_sheets_service_account"]
+        sensitive_fields = ["cpx_secure_hash_key", "openai_api_key", "anthropic_api_key", "google_api_key", "google_sheets_service_account", "perplexity_api_key"]
         for field in sensitive_fields:
             if masked_settings.get(field):
                 value = str(masked_settings[field])
@@ -144,7 +157,10 @@ async def save_app_settings(
             "google_api_key", "google_cse_id", "google_sheets_service_account",
             # Rate limiting settings for Google CSE cost control
             "google_cse_daily_limit", "google_cse_hourly_limit", "google_cse_query_delay",
-            "google_cse_monthly_budget", "google_cse_rate_limit_enabled"
+            "google_cse_monthly_budget", "google_cse_rate_limit_enabled",
+            # Perplexity Discovery settings
+            "perplexity_api_key", "perplexity_enabled",
+            "perplexity_daily_limit", "perplexity_hourly_limit"
         ]
         
         filtered_settings = {k: v for k, v in settings.items() if k in allowed_keys and v is not None}
@@ -776,6 +792,58 @@ async def get_cost_analytics(request: Request = None, days: int = 7) -> Dict[str
             "total_cost_usd": round(sum(r["cost_usd"] for r in openai_result), 4)
         }
         
+        # ============ Perplexity Usage ============
+        perplexity_collection = email_db.get_collection('perplexity_usage_logs')
+        discovery_cache_collection = email_db.get_collection('discovery_cache')
+        
+        perplexity_pipeline = [
+            {"$match": {"timestamp": {"$gte": since}}},
+            {"$group": {
+                "_id": "$model",
+                "requests": {"$sum": 1},
+                "successes": {"$sum": {"$cond": ["$success", 1, 0]}},
+                "failures": {"$sum": {"$cond": ["$success", 0, 1]}}
+            }}
+        ]
+        perplexity_result = list(perplexity_collection.aggregate(perplexity_pipeline))
+        
+        # Calculate Perplexity costs
+        perplexity_model_costs = {"sonar": 0.005, "sonar-pro": 0.02}
+        perplexity_total_cost = 0
+        perplexity_by_model = []
+        for r in perplexity_result:
+            model = r["_id"] or "sonar"
+            cost_per_req = perplexity_model_costs.get(model, 0.005)
+            model_cost = r["requests"] * cost_per_req
+            perplexity_total_cost += model_cost
+            perplexity_by_model.append({
+                "model": model,
+                "requests": r["requests"],
+                "successes": r["successes"],
+                "failures": r["failures"],
+                "cost_usd": round(model_cost, 4)
+            })
+        
+        # Check Perplexity cache stats
+        try:
+            perplexity_cache_total = discovery_cache_collection.count_documents({})
+            perplexity_cache_recent = discovery_cache_collection.count_documents({
+                "created_at": {"$gte": since}
+            })
+        except:
+            perplexity_cache_total = 0
+            perplexity_cache_recent = 0
+        
+        perplexity_usage = {
+            "by_model": perplexity_by_model,
+            "total_requests": sum(r["requests"] for r in perplexity_result),
+            "total_cost_usd": round(perplexity_total_cost, 4),
+            "cache": {
+                "total_entries": perplexity_cache_total,
+                "entries_last_period": perplexity_cache_recent
+            }
+        }
+        
         # ============ Daily Breakdown ============
         daily_breakdown = []
         for days_ago in range(min(days, 7)):
@@ -802,22 +870,45 @@ async def get_cost_analytics(request: Request = None, days: int = 7) -> Dict[str
                 {"$group": {"_id": None, "hits": {"$sum": "$hits"}, "misses": {"$sum": "$misses"}}}
             ]))
             
+            # Leads generated for day (from leads_enriched)
+            leads_collection = email_db.get_collection('leads_enriched')
+            leads_day = leads_collection.count_documents({
+                "created_at": {"$gte": day_start, "$lt": day_end}
+            })
+            
+            # Perplexity for day
+            perplexity_day = list(perplexity_collection.aggregate([
+                {"$match": {"timestamp": {"$gte": day_start, "$lt": day_end}}},
+                {"$group": {"_id": None, "requests": {"$sum": 1}, "cost": {"$sum": "$cost_usd"}}}
+            ]))
+            
             cse_queries = cse_day[0]["queries"] if cse_day else 0
             openai_requests = openai_day[0]["requests"] if openai_day else 0
             openai_cost = openai_day[0]["cost"] if openai_day else 0
+            perplexity_requests = perplexity_day[0]["requests"] if perplexity_day else 0
+            perplexity_cost = perplexity_day[0]["cost"] if perplexity_day else 0
             cache_hits = cache_day[0]["hits"] if cache_day else 0
             cache_misses = cache_day[0]["misses"] if cache_day else 0
+            leads_count = leads_day if leads_day else 0
+            
+            cse_cost_day = round(cse_queries * 0.005, 4)
+            total_day_cost = round(cse_cost_day + openai_cost + perplexity_cost, 4)
+            cost_per_lead = round(total_day_cost / leads_count, 4) if leads_count > 0 else 0
             
             daily_breakdown.append({
                 "date": date_str,
                 "cse_queries": cse_queries,
-                "cse_cost_usd": round(cse_queries * 0.005, 3),
+                "cse_cost_usd": cse_cost_day,
                 "openai_requests": openai_requests,
                 "openai_cost_usd": round(openai_cost, 4),
+                "perplexity_requests": perplexity_requests,
+                "perplexity_cost_usd": round(perplexity_cost, 4),
                 "cache_hits": cache_hits,
                 "cache_misses": cache_misses,
                 "cache_hit_rate": round(cache_hits / (cache_hits + cache_misses), 4) if (cache_hits + cache_misses) > 0 else 0,
-                "total_cost_usd": round((cse_queries * 0.005) + openai_cost, 4)
+                "leads_generated": leads_count,
+                "cost_per_lead_usd": cost_per_lead,
+                "total_cost_usd": total_day_cost
             })
         
         # ============ Cost Projections ============
@@ -855,6 +946,9 @@ async def get_cost_analytics(request: Request = None, days: int = 7) -> Dict[str
                 "message": f"Projected monthly cost (${projections['monthly_projection_usd']}) exceeds budget (${projections['monthly_budget_usd']})."
             })
         
+        # Include Perplexity in total cost
+        total_cost_period = cse_usage["estimated_cost_usd"] + openai_usage["total_cost_usd"] + perplexity_usage["total_cost_usd"]
+        
         return {
             "success": True,
             "period_days": days,
@@ -865,6 +959,7 @@ async def get_cost_analytics(request: Request = None, days: int = 7) -> Dict[str
             },
             "google_cse": cse_usage,
             "openai": openai_usage,
+            "perplexity": perplexity_usage,
             "daily_breakdown": daily_breakdown,
             "projections": projections,
             "recommendations": recommendations,
@@ -877,3 +972,401 @@ async def get_cost_analytics(request: Request = None, days: int = 7) -> Dict[str
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error fetching cost analytics: {str(e)}")
+
+
+# ============================================
+# AI Prompts Management
+# ============================================
+
+# Default prompts for auto-seeding (from ai_classifier.py)
+DEFAULT_PROMPTS = {
+    "lead_classification": {
+        "name": "Lead Classification",
+        "description": "System and user prompts for AI-powered lead enrichment and classification",
+        "system_prompt": """B2B lead enrichment expert. Respond with JSON only.
+
+Output Schema:
+{"first_name":"str","last_name":"str","predicted_email":"firstname.lastname@domain.com","seniority_level":"C-Level|VP|Director|Manager|IC|Unknown","department":"Sales|Marketing|Engineering|Operations|Finance|HR|Product|Other","persona":"Decision Maker|Influencer|Gatekeeper|Practitioner","buying_role":"Economic Buyer|Technical Buyer|User Buyer|Champion|Influencer|Unknown","gender":"Male|Female|Unknown","company_size":"Startup|SMB|Mid-Market|Enterprise","region":"US|EU|APAC|LATAM|Other","inferred_location":"str","company_name":"str","company_domain":"str","company_website":"str","company_employee_count":"str","company_employee_count_range":"1-10|11-50|51-200|201-500|501-1000|1001-5000|5001-10000|10000+","company_founded":"str","company_industry":"str","company_type":"Public|Private|Startup|Non-Profit|Government","company_headquarters":"str","company_revenue_range":"$1M-$10M|$10M-$50M|$50M-$100M|$100M-$500M|$500M-$1B|$1B+","company_linkedin_url":"str","confidence_score":0.0-1.0}
+
+Rules: C-Level=CEO/CTO/CFO/Founder. Startup=1-50,SMB=51-200,Mid-Market=201-1000,Enterprise=1000+. Use knowledge for known companies. Minimize nulls.""",
+        "user_prompt_template": """Enrich lead:
+Name:{name} Title:{title} URL:{linkedin_url}
+Context:{snippet} Location:{location} Company:{company_name} Email:{email}
+Return JSON.""",
+        "model": "gpt-4o-mini",
+        "temperature": 0.1,
+        "max_output_tokens": 300
+    },
+    "perplexity_company_discovery": {
+        "name": "Perplexity Company Discovery",
+        "description": "System prompt for Perplexity AI to discover target companies for lead generation",
+        "system_prompt": """You are a B2B market research expert. Your task is to discover and list companies that match specific targeting criteria.
+
+Output Format: Return a JSON array of companies with the following structure:
+[
+  {
+    "name": "Company Name",
+    "domain": "company.com",
+    "industry": "Industry/Sector",
+    "size": "Startup|SMB|Mid-Market|Enterprise",
+    "headquarters": "City, Country",
+    "description": "Brief 1-line description"
+  }
+]
+
+Rules:
+- Only include real, verifiable companies
+- Focus on companies likely to have the requested decision-makers
+- Prioritize companies with active hiring or growth signals
+- Include a mix of company sizes unless specified
+- Ensure domain is accurate (verify mentally before including)
+- Do NOT include companies that have shut down or been acquired""",
+        "user_prompt_template": """Find {count} companies matching these criteria:
+Industry: {industry}
+Location: {location}
+Additional criteria: {criteria}
+
+Return ONLY a valid JSON array, no other text.""",
+        "model": "sonar",
+        "temperature": 0.2,
+        "max_output_tokens": 2000
+    }
+}
+
+
+def seed_default_prompts():
+    """Auto-seed default prompts if collection is empty"""
+    try:
+        if ai_prompts_collection.count_documents({}) == 0:
+            for prompt_key, prompt_data in DEFAULT_PROMPTS.items():
+                doc = {
+                    "prompt_key": prompt_key,
+                    **prompt_data,
+                    "is_active": True,
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                    "versions": [{
+                        "version": 1,
+                        "system_prompt": prompt_data["system_prompt"],
+                        "user_prompt_template": prompt_data["user_prompt_template"],
+                        "created_at": datetime.utcnow(),
+                        "created_by": "system"
+                    }],
+                    "current_version": 1
+                }
+                ai_prompts_collection.insert_one(doc)
+            print("AI Prompts: Seeded default prompts")
+    except Exception as e:
+        print(f"Error seeding default prompts: {e}")
+
+
+@router.get("/ai-prompts")
+async def list_ai_prompts(request: Request = None) -> Dict[str, Any]:
+    """
+    GET /settings/ai-prompts
+    List all AI prompts with current versions.
+    Auto-seeds default prompts if collection is empty.
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        # Auto-seed if empty
+        seed_default_prompts()
+        
+        prompts = list(ai_prompts_collection.find({}))
+        
+        # Clean up MongoDB ObjectId for JSON serialization
+        for prompt in prompts:
+            prompt["_id"] = str(prompt["_id"])
+            if "created_at" in prompt:
+                prompt["created_at"] = prompt["created_at"].isoformat() if hasattr(prompt["created_at"], "isoformat") else str(prompt["created_at"])
+            if "updated_at" in prompt:
+                prompt["updated_at"] = prompt["updated_at"].isoformat() if hasattr(prompt["updated_at"], "isoformat") else str(prompt["updated_at"])
+            # Clean versions timestamps
+            for v in prompt.get("versions", []):
+                if "created_at" in v:
+                    v["created_at"] = v["created_at"].isoformat() if hasattr(v["created_at"], "isoformat") else str(v["created_at"])
+        
+        return {
+            "success": True,
+            "prompts": prompts,
+            "total": len(prompts)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching AI prompts: {str(e)}")
+
+
+@router.get("/ai-prompts/{prompt_key}")
+async def get_ai_prompt(prompt_key: str, request: Request = None) -> Dict[str, Any]:
+    """
+    GET /settings/ai-prompts/{prompt_key}
+    Get specific prompt with version history.
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        prompt = ai_prompts_collection.find_one({"prompt_key": prompt_key})
+        
+        if not prompt:
+            raise HTTPException(status_code=404, detail=f"Prompt '{prompt_key}' not found")
+        
+        # Clean up for JSON
+        prompt["_id"] = str(prompt["_id"])
+        if "created_at" in prompt:
+            prompt["created_at"] = prompt["created_at"].isoformat() if hasattr(prompt["created_at"], "isoformat") else str(prompt["created_at"])
+        if "updated_at" in prompt:
+            prompt["updated_at"] = prompt["updated_at"].isoformat() if hasattr(prompt["updated_at"], "isoformat") else str(prompt["updated_at"])
+        for v in prompt.get("versions", []):
+            if "created_at" in v:
+                v["created_at"] = v["created_at"].isoformat() if hasattr(v["created_at"], "isoformat") else str(v["created_at"])
+        
+        return {
+            "success": True,
+            "prompt": prompt
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching AI prompt: {str(e)}")
+
+
+@router.put("/ai-prompts/{prompt_key}")
+async def update_ai_prompt(
+    prompt_key: str,
+    data: Dict[str, Any] = Body(...),
+    request: Request = None
+) -> Dict[str, Any]:
+    """
+    PUT /settings/ai-prompts/{prompt_key}
+    Update prompt - creates new version with timestamp for rollback.
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        existing = ai_prompts_collection.find_one({"prompt_key": prompt_key})
+        
+        if not existing:
+            raise HTTPException(status_code=404, detail=f"Prompt '{prompt_key}' not found")
+        
+        # Get current version number
+        current_version = existing.get("current_version", 1)
+        new_version = current_version + 1
+        
+        # Create version snapshot
+        version_snapshot = {
+            "version": new_version,
+            "system_prompt": data.get("system_prompt", existing.get("system_prompt", "")),
+            "user_prompt_template": data.get("user_prompt_template", existing.get("user_prompt_template", "")),
+            "created_at": datetime.utcnow(),
+            "created_by": data.get("created_by", "user")
+        }
+        
+        # Prepare update
+        update_fields = {
+            "updated_at": datetime.utcnow(),
+            "current_version": new_version
+        }
+        
+        # Update allowed fields
+        allowed_fields = ["name", "description", "system_prompt", "user_prompt_template", 
+                          "model", "temperature", "max_output_tokens", "is_active"]
+        for field in allowed_fields:
+            if field in data:
+                update_fields[field] = data[field]
+        
+        # Perform update
+        result = ai_prompts_collection.update_one(
+            {"prompt_key": prompt_key},
+            {
+                "$set": update_fields,
+                "$push": {"versions": version_snapshot}
+            }
+        )
+        
+        return {
+            "success": True,
+            "message": f"Prompt updated to version {new_version}",
+            "version": new_version
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating AI prompt: {str(e)}")
+
+
+@router.post("/ai-prompts/{prompt_key}/rollback/{version}")
+async def rollback_ai_prompt(
+    prompt_key: str,
+    version: int,
+    request: Request = None
+) -> Dict[str, Any]:
+    """
+    POST /settings/ai-prompts/{prompt_key}/rollback/{version}
+    Rollback to a specific version.
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        existing = ai_prompts_collection.find_one({"prompt_key": prompt_key})
+        
+        if not existing:
+            raise HTTPException(status_code=404, detail=f"Prompt '{prompt_key}' not found")
+        
+        # Find the target version
+        versions = existing.get("versions", [])
+        target_version = None
+        for v in versions:
+            if v.get("version") == version:
+                target_version = v
+                break
+        
+        if not target_version:
+            raise HTTPException(status_code=404, detail=f"Version {version} not found")
+        
+        # Create new version as rollback
+        new_version = existing.get("current_version", 1) + 1
+        
+        rollback_snapshot = {
+            "version": new_version,
+            "system_prompt": target_version["system_prompt"],
+            "user_prompt_template": target_version["user_prompt_template"],
+            "created_at": datetime.utcnow(),
+            "created_by": f"rollback_from_v{version}"
+        }
+        
+        # Update with rolled back content
+        ai_prompts_collection.update_one(
+            {"prompt_key": prompt_key},
+            {
+                "$set": {
+                    "system_prompt": target_version["system_prompt"],
+                    "user_prompt_template": target_version["user_prompt_template"],
+                    "updated_at": datetime.utcnow(),
+                    "current_version": new_version
+                },
+                "$push": {"versions": rollback_snapshot}
+            }
+        )
+        
+        return {
+            "success": True,
+            "message": f"Rolled back to version {version} (now version {new_version})",
+            "new_version": new_version
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error rolling back AI prompt: {str(e)}")
+
+
+@router.post("/ai-prompts/{prompt_key}/test")
+async def test_ai_prompt(
+    prompt_key: str,
+    data: Dict[str, Any] = Body(...),
+    request: Request = None
+) -> Dict[str, Any]:
+    """
+    POST /settings/ai-prompts/{prompt_key}/test
+    Test prompt with sample data - returns AI output without saving.
+    
+    Body:
+    {
+        "system_prompt": "...",  # Optional - use prompt_key default if not provided
+        "user_prompt_template": "...",  # Optional
+        "sample_lead": {...}  # Optional - uses random lead from DB if not provided
+    }
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        # Get prompt template
+        prompt_doc = ai_prompts_collection.find_one({"prompt_key": prompt_key})
+        
+        system_prompt = data.get("system_prompt") or (prompt_doc.get("system_prompt") if prompt_doc else None)
+        user_prompt_template = data.get("user_prompt_template") or (prompt_doc.get("user_prompt_template") if prompt_doc else None)
+        
+        if not system_prompt or not user_prompt_template:
+            raise HTTPException(status_code=400, detail="Missing prompt templates")
+        
+        # Get sample lead - use provided or fetch random from DB
+        sample_lead = data.get("sample_lead")
+        
+        if not sample_lead:
+            # Fetch random lead from leads_raw
+            email_db = mongo_client['email_automation']
+            leads_raw = email_db['leads_raw']
+            random_leads = list(leads_raw.aggregate([{"$sample": {"size": 1}}]))
+            if random_leads:
+                sample_lead = random_leads[0]
+                sample_lead.pop("_id", None)
+            else:
+                # Use sample data
+                sample_lead = {
+                    "name": "John Smith",
+                    "title": "VP of Sales",
+                    "linkedin_url": "https://linkedin.com/in/johnsmith",
+                    "company_name": "Acme Corp",
+                    "snippet": "Enterprise sales leader with 15 years experience in B2B SaaS",
+                    "location": "San Francisco, CA",
+                    "email": ""
+                }
+        
+        # Format user prompt with sample data
+        user_prompt = user_prompt_template.format(
+            name=sample_lead.get("name", "Unknown"),
+            title=sample_lead.get("title", ""),
+            linkedin_url=sample_lead.get("linkedin_url", ""),
+            snippet=sample_lead.get("snippet", "-"),
+            location=sample_lead.get("location", "-"),
+            company_name=sample_lead.get("company_name", "-"),
+            email=sample_lead.get("email", "-")
+        )
+        
+        # Call OpenAI API for test
+        try:
+            from leads.openai_wrapper import chat_completion
+            
+            result = chat_completion(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                source="prompt_test",
+                max_output_tokens=data.get("max_output_tokens", 300)
+            )
+            
+            return {
+                "success": True,
+                "sample_lead": sample_lead,
+                "formatted_user_prompt": user_prompt,
+                "ai_response": result.get("content", ""),
+                "tokens_used": result.get("tokens_used", 0),
+                "model": result.get("model", "gpt-4o-mini")
+            }
+            
+        except Exception as api_error:
+            return {
+                "success": False,
+                "sample_lead": sample_lead,
+                "formatted_user_prompt": user_prompt,
+                "error": str(api_error)
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error testing AI prompt: {str(e)}")
