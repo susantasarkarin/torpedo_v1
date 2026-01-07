@@ -198,6 +198,19 @@ function AILeads() {
   // AI Discovery State (Perplexity + Google CSE)
   const [discoveryStep, setDiscoveryStep] = useState(1); // 1=search companies, 2=select companies, 3=preview contacts
   const [discoveryIndustry, setDiscoveryIndustry] = useState("");
+
+  // Search Control State (Global pause, circuit breaker, emergency stop)
+  const [searchControl, setSearchControl] = useState({
+    global_paused: false,
+    paused_reason: "",
+    circuit_breaker_open: false,
+    consecutive_errors: 0,
+    last_error: null,
+    auto_resume_disabled: false,
+    active_jobs_count: 0
+  });
+  const [searchControlLoading, setSearchControlLoading] = useState(false);
+  const [allJobs, setAllJobs] = useState([]);
   const [discoveryLocation, setDiscoveryLocation] = useState("");
   const [discoveryCriteria, setDiscoveryCriteria] = useState("");
   const [discoveryDesignation, setDiscoveryDesignation] = useState("");
@@ -303,6 +316,94 @@ function AILeads() {
     }
   }, [sessionId]);
 
+  // Fetch Search Control status (global pause, circuit breaker, etc.)
+  const fetchSearchControl = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads/import/web-search/control`, {
+        headers: { Authorization: sessionId },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setSearchControl(data);
+    } catch (err) {
+      console.error("Error fetching search control:", err);
+    }
+  }, [sessionId]);
+
+  // Fetch all web search jobs
+  const fetchAllJobs = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads/import/web-search/jobs?limit=20`, {
+        headers: { Authorization: sessionId },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setAllJobs(data.jobs || []);
+    } catch (err) {
+      console.error("Error fetching jobs:", err);
+    }
+  }, [sessionId]);
+
+  // Emergency stop all jobs
+  const handleStopAllJobs = async () => {
+    if (!confirm("🚨 EMERGENCY STOP: This will stop ALL running web search jobs. Continue?")) {
+      return;
+    }
+    setSearchControlLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads/import/web-search/stop-all`, {
+        method: "POST",
+        headers: { Authorization: sessionId },
+      });
+      const data = await res.json();
+      alert(data.message || "All jobs stopped");
+      fetchSearchControl();
+      fetchAllJobs();
+      if (window.webSearchPollInterval) {
+        clearInterval(window.webSearchPollInterval);
+      }
+      setWebSearchProgress(null);
+    } catch (err) {
+      alert("Failed to stop jobs: " + err.message);
+    } finally {
+      setSearchControlLoading(false);
+    }
+  };
+
+  // Pause global search
+  const handlePauseSearch = async () => {
+    setSearchControlLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads/import/web-search/control/pause`, {
+        method: "POST",
+        headers: { Authorization: sessionId },
+      });
+      await res.json();
+      fetchSearchControl();
+    } catch (err) {
+      console.error("Failed to pause:", err);
+    } finally {
+      setSearchControlLoading(false);
+    }
+  };
+
+  // Resume global search
+  const handleResumeSearch = async () => {
+    setSearchControlLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads/import/web-search/control/resume`, {
+        method: "POST",
+        headers: { Authorization: sessionId },
+      });
+      await res.json();
+      fetchSearchControl();
+    } catch (err) {
+      console.error("Failed to resume:", err);
+    } finally {
+      setSearchControlLoading(false);
+    }
+  };
+
   useEffect(() => {
     // PHASED LOADING: Load data progressively for faster perceived performance
     // Phase 1: Load leads table immediately (most important for user)
@@ -326,6 +427,12 @@ function AILeads() {
       setTimeout(() => {
         fetchGmailAccounts();
       }, 300);
+      
+      // Also fetch search control status
+      setTimeout(() => {
+        fetchSearchControl();
+        fetchAllJobs();
+      }, 400);
     };
     
     loadPhase1();
@@ -558,16 +665,21 @@ function AILeads() {
                 }
                 
                 // Stop polling if job is done
-                if (["completed", "stopped", "failed"].includes(status.status)) {
+                if (["completed", "stopped", "failed", "api_error", "paused"].includes(status.status)) {
                   clearInterval(pollInterval);
                   setImporting(false);
                   fetchRawLeads();
                   fetchStatistics();
+                  fetchSearchControl(); // Refresh control panel status
                   
                   if (status.status === "completed") {
                     alert(`✅ Search completed! Imported ${status.total_imported} leads, found ${status.emails_found} emails.`);
                   } else if (status.status === "stopped") {
                     alert(`⏹️ Search stopped. Imported ${status.total_imported} leads so far.`);
+                  } else if (status.status === "api_error") {
+                    alert(`🔴 API Error: Check your Google API key in Settings. Imported ${status.total_imported} leads before error.`);
+                  } else if (status.status === "paused") {
+                    // Don't alert for paused - user can see in control panel
                   }
                 }
               }
@@ -1733,6 +1845,105 @@ function AILeads() {
               {importMethod === "web-search" && (
                 <div className="import-form">
                   <h3>🔍 Search LinkedIn Profiles</h3>
+                  
+                  {/* Search Control Panel */}
+                  <div style={{
+                    marginBottom: "1rem",
+                    padding: "0.75rem 1rem",
+                    borderRadius: "8px",
+                    border: "1px solid " + (searchControl.circuit_breaker_open ? "#fecaca" : searchControl.global_paused ? "#fed7aa" : "#e5e7eb"),
+                    backgroundColor: searchControl.circuit_breaker_open ? "#fef2f2" : searchControl.global_paused ? "#fff7ed" : "#f9fafb"
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                        {/* Status indicator */}
+                        <div style={{ 
+                          width: "10px", 
+                          height: "10px", 
+                          borderRadius: "50%", 
+                          backgroundColor: searchControl.circuit_breaker_open ? "#ef4444" : 
+                                           searchControl.global_paused ? "#f59e0b" : "#22c55e"
+                        }} />
+                        <span style={{ fontWeight: "500", color: "#374151" }}>
+                          {searchControl.circuit_breaker_open ? "🔴 Circuit Breaker Open" :
+                           searchControl.global_paused ? "⏸️ Search Paused" : "🟢 Search Active"}
+                        </span>
+                        {searchControl.active_jobs_count > 0 && (
+                          <span style={{ 
+                            fontSize: "0.75rem", 
+                            backgroundColor: "#dbeafe", 
+                            color: "#1e40af", 
+                            padding: "0.125rem 0.5rem", 
+                            borderRadius: "9999px" 
+                          }}>
+                            {searchControl.active_jobs_count} job{searchControl.active_jobs_count !== 1 ? 's' : ''} active
+                          </span>
+                        )}
+                      </div>
+                      
+                      <div style={{ display: "flex", gap: "0.5rem" }}>
+                        {/* Pause/Resume Toggle */}
+                        {searchControl.global_paused || searchControl.circuit_breaker_open ? (
+                          <button
+                            className="btn btn-sm"
+                            style={{ backgroundColor: "#22c55e", color: "white", padding: "0.25rem 0.75rem" }}
+                            onClick={handleResumeSearch}
+                            disabled={searchControlLoading}
+                          >
+                            ▶️ Resume
+                          </button>
+                        ) : (
+                          <button
+                            className="btn btn-sm"
+                            style={{ backgroundColor: "#f59e0b", color: "white", padding: "0.25rem 0.75rem" }}
+                            onClick={handlePauseSearch}
+                            disabled={searchControlLoading}
+                          >
+                            ⏸️ Pause
+                          </button>
+                        )}
+                        
+                        {/* Emergency Stop */}
+                        <button
+                          className="btn btn-sm"
+                          style={{ backgroundColor: "#dc2626", color: "white", padding: "0.25rem 0.75rem" }}
+                          onClick={handleStopAllJobs}
+                          disabled={searchControlLoading || searchControl.active_jobs_count === 0}
+                          title="Stop all running jobs immediately"
+                        >
+                          🚨 Stop All
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* Error message if circuit breaker tripped */}
+                    {searchControl.circuit_breaker_open && searchControl.last_error && (
+                      <div style={{ 
+                        marginTop: "0.5rem", 
+                        padding: "0.5rem", 
+                        backgroundColor: "#fee2e2", 
+                        borderRadius: "4px",
+                        fontSize: "0.875rem",
+                        color: "#991b1b"
+                      }}>
+                        <strong>Error:</strong> {searchControl.last_error.message || "API errors detected"}
+                        <br />
+                        <small>After {searchControl.consecutive_errors} consecutive errors, the circuit breaker tripped. Click Resume to reset.</small>
+                      </div>
+                    )}
+                    
+                    {/* Paused reason */}
+                    {searchControl.global_paused && searchControl.paused_reason && !searchControl.circuit_breaker_open && (
+                      <div style={{ 
+                        marginTop: "0.5rem", 
+                        fontSize: "0.875rem",
+                        color: "#92400e"
+                      }}>
+                        Reason: {searchControl.paused_reason}
+                      </div>
+                    )}
+                  </div>
+                  
                   <p className="form-hint">
                     Configure filters to search for LinkedIn profiles. The system will search up to 10,000 leads using multiple query combinations.
                   </p>
@@ -1826,17 +2037,20 @@ function AILeads() {
                       padding: "1rem", 
                       backgroundColor: webSearchProgress.status === "running" ? "#f0fdf4" : 
                                        webSearchProgress.status === "quota_exceeded" ? "#fef3c7" :
+                                       webSearchProgress.status === "api_error" ? "#fef2f2" :
                                        webSearchProgress.status === "completed" ? "#ecfdf5" : "#f9fafb",
                       borderRadius: "8px",
-                      border: "1px solid #e5e7eb"
+                      border: "1px solid " + (webSearchProgress.status === "api_error" ? "#fecaca" : "#e5e7eb")
                     }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-                        <div className="progress-text" style={{ fontWeight: "600", color: "#374151" }}>
+                        <div className="progress-text" style={{ fontWeight: "600", color: webSearchProgress.status === "api_error" ? "#dc2626" : "#374151" }}>
                           {webSearchProgress.status === "running" && "🔄 "}
                           {webSearchProgress.status === "quota_exceeded" && "⏸️ "}
+                          {webSearchProgress.status === "api_error" && "🔴 "}
                           {webSearchProgress.status === "completed" && "✅ "}
                           {webSearchProgress.status === "stopped" && "⏹️ "}
-                          {webSearchProgress.status?.charAt(0).toUpperCase() + webSearchProgress.status?.slice(1) || "Processing..."}
+                          {webSearchProgress.status === "api_error" ? "API Error" : 
+                           (webSearchProgress.status?.charAt(0).toUpperCase() + webSearchProgress.status?.slice(1) || "Processing...")}
                         </div>
                         {webSearchProgress.job_id && webSearchProgress.status === "running" && (
                           <button
@@ -1863,6 +2077,25 @@ function AILeads() {
                         )}
                       </div>
                       
+                      {/* API Error message */}
+                      {webSearchProgress.status === "api_error" && (
+                        <div style={{ 
+                          marginBottom: "0.75rem", 
+                          padding: "0.5rem", 
+                          backgroundColor: "#fee2e2", 
+                          borderRadius: "4px",
+                          fontSize: "0.875rem",
+                          color: "#991b1b"
+                        }}>
+                          API key may be invalid or expired. Check Settings → Google CSE configuration.
+                          {webSearchProgress.errors && webSearchProgress.errors.length > 0 && (
+                            <div style={{ marginTop: "0.25rem", fontSize: "0.8rem" }}>
+                              Last error: {webSearchProgress.errors[webSearchProgress.errors.length - 1]}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
                       {/* Progress Bar */}
                       <div style={{ 
                         width: "100%", 
@@ -1876,6 +2109,7 @@ function AILeads() {
                           width: `${webSearchProgress.progress_percent || 0}%`, 
                           height: "100%", 
                           backgroundColor: webSearchProgress.status === "running" ? "#22c55e" : 
+                                          webSearchProgress.status === "api_error" ? "#ef4444" :
                                           webSearchProgress.status === "quota_exceeded" ? "#f59e0b" : "#3b82f6",
                           transition: "width 0.3s ease"
                         }} />
