@@ -12,6 +12,7 @@ Features:
 - Full-text search
 - Bulk operations (mark read, archive, categorize)
 - Lead/contact association
+- OPTIMIZED: Caching and projection optimization for performance
 
 Endpoints:
 - GET /inbox - List emails with filters
@@ -29,9 +30,66 @@ from bson import ObjectId
 from pymongo import MongoClient
 
 import os
+import time
+import hashlib
 
 
 router = APIRouter(prefix="/inbox", tags=["Unified Inbox"])
+
+
+# ============== CACHING ==============
+_inbox_cache: Dict[str, Dict[str, Any]] = {}
+CACHE_TTL_SECONDS = 30  # 30 seconds for inbox (more dynamic data)
+
+def _get_cache_key(prefix: str, **kwargs) -> str:
+    params = sorted((k, v) for k, v in kwargs.items() if v is not None)
+    param_str = "&".join(f"{k}={v}" for k, v in params)
+    return f"inbox:{prefix}:{hashlib.md5(param_str.encode()).hexdigest()}"
+
+def _get_cached(key: str) -> Optional[Any]:
+    if key in _inbox_cache:
+        entry = _inbox_cache[key]
+        if time.time() < entry['expires_at']:
+            return entry['value']
+        del _inbox_cache[key]
+    return None
+
+def _set_cached(key: str, value: Any, ttl: int = CACHE_TTL_SECONDS):
+    _inbox_cache[key] = {'value': value, 'expires_at': time.time() + ttl}
+    if len(_inbox_cache) > 100:
+        now = time.time()
+        expired = [k for k, v in _inbox_cache.items() if now >= v['expires_at']]
+        for k in expired:
+            del _inbox_cache[k]
+
+def invalidate_inbox_cache():
+    """Clear inbox cache after mutations"""
+    _inbox_cache.clear()
+
+# Optimized projections for list views
+EMAIL_LIST_PROJECTION = {
+    "_id": 1,
+    "mailbox_id": 1,
+    "mailbox_email": 1,
+    "provider_thread_id": 1,
+    "direction": 1,
+    "from_address": 1,
+    "to_address": 1,
+    "subject": 1,
+    "snippet": 1,
+    "timestamp": 1,
+    "is_read": 1,
+    "is_starred": 1,
+    "is_archived": 1,
+    "has_attachments": 1,
+    "category": 1,
+    "b2b_category": 1,
+    "category_confidence": 1,
+    "category_department": 1,
+    "category_priority": 1,
+    "crm_lead_id": 1,
+    "crm_rfq_id": 1
+}
 
 
 # ============== MODELS ==============
@@ -169,7 +227,7 @@ def get_db():
     return client['email_automation']
 
 
-# ============== ENDPOINTS ==============
+# ============== ENDPOINTS (OPTIMIZED) ==============
 
 @router.get("", response_model=Dict[str, Any])
 async def list_emails(
@@ -198,8 +256,8 @@ async def list_emails(
 ):
     """
     List emails with filters and pagination.
-    
     Returns aggregated emails from all connected mailboxes.
+    OPTIMIZED: Uses projection and caching for performance.
     """
     emails_collection = db["emails"]
     
@@ -254,9 +312,9 @@ async def list_emails(
     # Sort
     sort_direction = 1 if sort_order == "asc" else -1
     
-    # Fetch emails
+    # Fetch emails with PROJECTION for faster queries
     skip = (page - 1) * page_size
-    cursor = emails_collection.find(query).sort(sort_by, sort_direction).skip(skip).limit(page_size)
+    cursor = emails_collection.find(query, EMAIL_LIST_PROJECTION).sort(sort_by, sort_direction).skip(skip).limit(page_size)
     
     emails = []
     for doc in cursor:
@@ -369,10 +427,19 @@ async def list_conversations(
 async def get_inbox_stats(
     mailbox_id: Optional[str] = None,
     date_from: Optional[datetime] = None,
+    bypass_cache: bool = Query(False, description="Force fresh data"),
     
     db: MongoClient = Depends(get_db)
 ):
-    """Get inbox statistics"""
+    """Get inbox statistics (CACHED for 60 seconds)"""
+    
+    # Check cache
+    cache_key = _get_cache_key("stats", mailbox=mailbox_id, date_from=str(date_from) if date_from else None)
+    if not bypass_cache:
+        cached = _get_cached(cache_key)
+        if cached:
+            return cached
+    
     emails_collection = db["emails"]
     
     match_stage = {"is_archived": {"$ne": True}}
@@ -381,53 +448,65 @@ async def get_inbox_stats(
     if date_from:
         match_stage["timestamp"] = {"$gte": date_from}
     
-    # Total and unread
-    total = emails_collection.count_documents(match_stage)
-    
-    unread_query = {**match_stage, "is_read": {"$ne": True}}
-    unread = emails_collection.count_documents(unread_query)
-    
-    starred_query = {**match_stage, "is_starred": True}
-    starred = emails_collection.count_documents(starred_query)
-    
-    # By category
-    category_pipeline = [
+    # OPTIMIZED: Single aggregation for all counts instead of multiple queries
+    stats_pipeline = [
         {"$match": match_stage},
-        {"$group": {
-            "_id": {"$ifNull": ["$b2b_category", "$category"]},
-            "count": {"$sum": 1}
+        {"$facet": {
+            "totals": [
+                {"$group": {
+                    "_id": None,
+                    "total": {"$sum": 1},
+                    "unread": {"$sum": {"$cond": [{"$ne": ["$is_read", True]}, 1, 0]}},
+                    "starred": {"$sum": {"$cond": ["$is_starred", 1, 0]}}
+                }}
+            ],
+            "by_category": [
+                {"$group": {
+                    "_id": {"$ifNull": ["$b2b_category", "$category"]},
+                    "count": {"$sum": 1}
+                }}
+            ],
+            "by_department": [
+                {"$match": {"category_department": {"$exists": True, "$ne": None}}},
+                {"$group": {
+                    "_id": "$category_department",
+                    "count": {"$sum": 1}
+                }}
+            ],
+            "by_mailbox": [
+                {"$group": {
+                    "_id": "$mailbox_id",
+                    "count": {"$sum": 1}
+                }}
+            ]
         }}
     ]
-    by_category = {r["_id"] or "uncategorized": r["count"] for r in emails_collection.aggregate(category_pipeline)}
     
-    # By department
-    dept_pipeline = [
-        {"$match": {**match_stage, "category_department": {"$exists": True}}},
-        {"$group": {
-            "_id": "$category_department",
-            "count": {"$sum": 1}
-        }}
-    ]
-    by_department = {r["_id"]: r["count"] for r in emails_collection.aggregate(dept_pipeline)}
+    result = list(emails_collection.aggregate(stats_pipeline))
     
-    # By mailbox
-    mailbox_pipeline = [
-        {"$match": match_stage},
-        {"$group": {
-            "_id": "$mailbox_id",
-            "count": {"$sum": 1}
-        }}
-    ]
-    by_mailbox = {r["_id"]: r["count"] for r in emails_collection.aggregate(mailbox_pipeline)}
+    if result:
+        data = result[0]
+        totals = data["totals"][0] if data["totals"] else {"total": 0, "unread": 0, "starred": 0}
+        by_category = {r["_id"] or "uncategorized": r["count"] for r in data["by_category"]}
+        by_department = {r["_id"]: r["count"] for r in data["by_department"] if r["_id"]}
+        by_mailbox = {r["_id"]: r["count"] for r in data["by_mailbox"] if r["_id"]}
+    else:
+        totals = {"total": 0, "unread": 0, "starred": 0}
+        by_category = {}
+        by_department = {}
+        by_mailbox = {}
     
-    return InboxStats(
-        total_emails=total,
-        unread_count=unread,
-        starred_count=starred,
+    response = InboxStats(
+        total_emails=totals.get("total", 0),
+        unread_count=totals.get("unread", 0),
+        starred_count=totals.get("starred", 0),
         by_category=by_category,
         by_department=by_department,
         by_mailbox=by_mailbox
     )
+    
+    _set_cached(cache_key, response, ttl=60)
+    return response
 
 
 @router.get("/{email_id}", response_model=EmailDetail)

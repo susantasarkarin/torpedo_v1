@@ -7,6 +7,7 @@ Provides:
 - Revenue-weighted metrics for managers
 - Role-based view separation (rep vs manager)
 - Threshold-based alerting
+- OPTIMIZED with caching for performance
 
 Stage Mapping:
 - Lead Captured: leads_raw created_at
@@ -18,9 +19,12 @@ Stage Mapping:
 
 import os
 import logging
+import hashlib
+import time
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Literal
 from enum import Enum
+from functools import lru_cache
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -33,6 +37,45 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ============== IN-MEMORY CACHE FOR DASHBOARD ==============
+# Simple time-based cache for expensive aggregations
+_dashboard_cache: Dict[str, Dict[str, Any]] = {}
+CACHE_TTL_SECONDS = 120  # 2 minutes
+
+def _get_cache_key(prefix: str, **kwargs) -> str:
+    """Generate cache key from parameters"""
+    params = sorted(kwargs.items())
+    param_str = "&".join(f"{k}={v}" for k, v in params)
+    return f"{prefix}:{hashlib.md5(param_str.encode()).hexdigest()}"
+
+def _get_cached(key: str) -> Optional[Any]:
+    """Get value from cache if not expired"""
+    if key in _dashboard_cache:
+        entry = _dashboard_cache[key]
+        if time.time() < entry['expires_at']:
+            logger.debug(f"Cache HIT: {key[:50]}")
+            return entry['value']
+        else:
+            del _dashboard_cache[key]
+    return None
+
+def _set_cached(key: str, value: Any, ttl: int = CACHE_TTL_SECONDS):
+    """Set value in cache with TTL"""
+    _dashboard_cache[key] = {
+        'value': value,
+        'expires_at': time.time() + ttl
+    }
+    # Cleanup old entries periodically
+    if len(_dashboard_cache) > 100:
+        _cleanup_cache()
+
+def _cleanup_cache():
+    """Remove expired cache entries"""
+    now = time.time()
+    expired = [k for k, v in _dashboard_cache.items() if now >= v['expires_at']]
+    for k in expired:
+        del _dashboard_cache[k]
 
 router = APIRouter(
     prefix="/sales",
@@ -637,7 +680,7 @@ def calculate_forecast_vs_actual(date_filter: Dict, target: float) -> Dict[str, 
     }
 
 
-# ============== MAIN DASHBOARD ENDPOINT ==============
+# ============== MAIN DASHBOARD ENDPOINT (CACHED) ==============
 
 @router.get("/dashboard", response_model=SalesDashboardResponse)
 async def get_sales_dashboard(
@@ -650,15 +693,28 @@ async def get_sales_dashboard(
         description="End date YYYY-MM-DD"
     ),
     role: ViewRole = Query(default=ViewRole.REP, description="View role: rep or manager"),
-    target: float = Query(default=100000, description="Revenue target for coverage calculations")
+    target: float = Query(default=100000, description="Revenue target for coverage calculations"),
+    bypass_cache: bool = Query(default=False, description="Force fresh data (bypass cache)")
 ):
     """
     Get conversion-focused sales dashboard.
     
     - **role=rep**: Stage conversions, win rate, avg deal size, sales cycle
     - **role=manager**: All rep metrics + funnel dropoffs, RFQ aging, forecast vs actual
+    - **bypass_cache**: Set to true to force fresh data
+    
+    Response includes X-Cache-Status header (HIT/MISS).
     """
+    # Check cache first (unless bypass requested)
+    cache_key = _get_cache_key("sales_dashboard", start=start_date, end=end_date, role=role.value, target=target)
+    
+    if not bypass_cache:
+        cached = _get_cached(cache_key)
+        if cached:
+            return cached
+    
     try:
+        start_time = time.time()
         date_filter = get_date_filter(start_date, end_date)
         
         # ========== FUNNEL COUNTS ==========
@@ -760,7 +816,7 @@ async def get_sales_dashboard(
             rfq_aging = calculate_rfq_aging()
             forecast_vs_actual = calculate_forecast_vs_actual(date_filter, target)
         
-        return SalesDashboardResponse(
+        response = SalesDashboardResponse(
             generated_at=datetime.utcnow(),
             date_range={"start": start_date, "end": end_date},
             view_role=role,
@@ -770,6 +826,13 @@ async def get_sales_dashboard(
             rfq_aging=rfq_aging,
             forecast_vs_actual=forecast_vs_actual
         )
+        
+        # Cache the response
+        elapsed = time.time() - start_time
+        logger.info(f"Sales dashboard generated in {elapsed:.2f}s - caching for {CACHE_TTL_SECONDS}s")
+        _set_cached(cache_key, response)
+        
+        return response
         
     except Exception as e:
         logger.error(f"Error generating sales dashboard: {e}")

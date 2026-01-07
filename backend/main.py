@@ -303,6 +303,30 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 
 
 # ----------------------------
+# Performance Timing Middleware
+# ----------------------------
+import time as perf_time
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class TimingMiddleware(BaseHTTPMiddleware):
+    """Track request timing and add X-Response-Time header"""
+    
+    async def dispatch(self, request, call_next):
+        start_time = perf_time.perf_counter()
+        response = await call_next(request)
+        process_time = (perf_time.perf_counter() - start_time) * 1000
+        response.headers["X-Response-Time"] = f"{process_time:.2f}ms"
+        
+        # Log slow requests (>1 second)
+        if process_time > 1000:
+            print(f"⚠️ SLOW REQUEST: {request.method} {request.url.path} - {process_time:.0f}ms")
+        
+        return response
+
+app.add_middleware(TimingMiddleware)
+
+
+# ----------------------------
 # Root Health Check
 # ----------------------------
 @app.get("/", tags=["health"])
@@ -416,6 +440,14 @@ try:
     print("✅ Health router included")
 except Exception as e:
     print(f"⚠️ Health router not included: {e}")
+
+# Performance monitoring router
+try:
+    from routers import performance as performance_router
+    app.include_router(performance_router.router)
+    print("✅ Performance router included")
+except Exception as e:
+    print(f"⚠️ Performance router not included: {e}")
 
 # Gmail router for Gmail API integration
 try:

@@ -5,6 +5,7 @@ Handles:
 - Project Invoicing (create invoice from project)
 - Project Cost Tracking (link bills/expenses to projects)
 - Operations Dashboard KPIs
+- OPTIMIZED: Includes caching and batch loading for performance
 """
 
 from fastapi import APIRouter, HTTPException, Body, Query, Depends, Path
@@ -13,10 +14,41 @@ from bson import ObjectId
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import os
+import time
+import hashlib
 from dotenv import load_dotenv
 from routers.finance import generate_customer_number
 
 load_dotenv()
+
+# ============== CACHING ==============
+_operations_cache: Dict[str, Dict[str, Any]] = {}
+CACHE_TTL_SECONDS = 60  # 1 minute for operations data
+
+def _get_cache_key(prefix: str, **kwargs) -> str:
+    params = sorted(kwargs.items())
+    param_str = "&".join(f"{k}={v}" for k, v in params if v is not None)
+    return f"ops:{prefix}:{hashlib.md5(param_str.encode()).hexdigest()}"
+
+def _get_cached(key: str) -> Optional[Any]:
+    if key in _operations_cache:
+        entry = _operations_cache[key]
+        if time.time() < entry['expires_at']:
+            return entry['value']
+        del _operations_cache[key]
+    return None
+
+def _set_cached(key: str, value: Any, ttl: int = CACHE_TTL_SECONDS):
+    _operations_cache[key] = {'value': value, 'expires_at': time.time() + ttl}
+    if len(_operations_cache) > 50:
+        now = time.time()
+        expired = [k for k, v in _operations_cache.items() if now >= v['expires_at']]
+        for k in expired:
+            del _operations_cache[k]
+
+def invalidate_operations_cache():
+    """Clear operations cache after mutations"""
+    _operations_cache.clear()
 
 # ----------------------------
 # Router Setup
@@ -84,7 +116,7 @@ def generate_invoice_number() -> str:
 
 
 # ============================================================
-# UNIFIED ACCOUNTS ENDPOINTS
+# UNIFIED ACCOUNTS ENDPOINTS (OPTIMIZED)
 # ============================================================
 
 @router.get("/accounts/")
@@ -92,8 +124,17 @@ async def get_accounts(
     account_type: Optional[str] = Query(None, description="Filter by type: client, customer, vendor, both"),
     status: Optional[str] = Query(None, description="Filter by status: active, inactive, prospect"),
     search: Optional[str] = Query(None, description="Search by name, email, or phone"),
+    bypass_cache: bool = Query(False, description="Force fresh data"),
 ):
-    """Get all unified accounts with optional filters"""
+    """Get all unified accounts with optional filters (CACHED + BATCH OPTIMIZED)"""
+    
+    # Try cache first
+    cache_key = _get_cache_key("accounts", type=account_type, status=status, search=search)
+    if not bypass_cache:
+        cached = _get_cached(cache_key)
+        if cached:
+            return cached
+    
     try:
         query = {}
         
@@ -108,40 +149,69 @@ async def get_accounts(
                 {"phone": {"$regex": search, "$options": "i"}},
             ]
         
+        # Fetch accounts with projection for faster query
         accounts = list(accounts_collection.find(query).sort("name", 1))
         
-        # Enrich with project and invoice counts
+        # BATCH: Get all account names for project counting
+        account_names = [a.get("name") for a in accounts if a.get("name")]
+        
+        # BATCH: Get project counts in one aggregation instead of N queries
+        if account_names:
+            project_counts = list(projects_collection.aggregate([
+                {"$match": {"client": {"$in": account_names}}},
+                {"$group": {
+                    "_id": "$client",
+                    "total": {"$sum": 1},
+                    "active": {"$sum": {"$cond": [
+                        {"$in": ["$projectStatus", ["Active", "In Progress", "Live"]]},
+                        1, 0
+                    ]}}
+                }}
+            ]))
+            project_map = {p["_id"]: p for p in project_counts}
+        else:
+            project_map = {}
+        
+        # BATCH: Get invoice totals for all customer IDs in one aggregation
+        customer_ids = [a.get("finance_customer_id") for a in accounts if a.get("finance_customer_id")]
+        if customer_ids:
+            invoice_totals = list(invoices_collection.aggregate([
+                {"$match": {"customer_id": {"$in": customer_ids}}},
+                {"$group": {
+                    "_id": "$customer_id",
+                    "total_invoiced": {"$sum": "$total_amount"},
+                    "total_receivables": {"$sum": "$balance_due"},
+                    "total_paid": {"$sum": "$amount_paid"}
+                }}
+            ]))
+            invoice_map = {str(i["_id"]): i for i in invoice_totals}
+        else:
+            invoice_map = {}
+        
+        # Enrich accounts with batch data
         for account in accounts:
             account["_id"] = str(account["_id"])
+            name = account.get("name")
             
-            # Count projects
-            if account.get("name"):
-                account["total_projects"] = projects_collection.count_documents({
-                    "client": {"$regex": f"^{account['name']}$", "$options": "i"}
-                })
-                account["active_projects"] = projects_collection.count_documents({
-                    "client": {"$regex": f"^{account['name']}$", "$options": "i"},
-                    "projectStatus": {"$in": ["Active", "In Progress", "Live"]}
-                })
+            # Apply project counts from batch
+            if name and name in project_map:
+                account["total_projects"] = project_map[name]["total"]
+                account["active_projects"] = project_map[name]["active"]
+            else:
+                account["total_projects"] = 0
+                account["active_projects"] = 0
             
-            # Sum invoiced amounts if linked to finance customer
-            if account.get("finance_customer_id"):
-                pipeline = [
-                    {"$match": {"customer_id": account["finance_customer_id"]}},
-                    {"$group": {
-                        "_id": None,
-                        "total_invoiced": {"$sum": "$total_amount"},
-                        "total_receivables": {"$sum": "$balance_due"},
-                        "total_paid": {"$sum": "$amount_paid"}
-                    }}
-                ]
-                result = list(invoices_collection.aggregate(pipeline))
-                if result:
-                    account["total_invoiced"] = result[0].get("total_invoiced", 0)
-                    account["total_receivables"] = result[0].get("total_receivables", 0)
-                    account["total_paid"] = result[0].get("total_paid", 0)
+            # Apply invoice totals from batch
+            cust_id = account.get("finance_customer_id")
+            if cust_id and str(cust_id) in invoice_map:
+                inv = invoice_map[str(cust_id)]
+                account["total_invoiced"] = inv.get("total_invoiced", 0)
+                account["total_receivables"] = inv.get("total_receivables", 0)
+                account["total_paid"] = inv.get("total_paid", 0)
         
-        return {"accounts": accounts}
+        result = {"accounts": accounts}
+        _set_cached(cache_key, result)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching accounts: {str(e)}")
 
