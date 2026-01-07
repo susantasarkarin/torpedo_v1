@@ -23,6 +23,54 @@ const DEFAULT_TIMEOUT = 30000; // 30 seconds
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
 
+// ============== REQUEST CACHE & DEDUPLICATION ==============
+
+// In-memory cache for GET requests (TTL-based)
+const responseCache = new Map();
+const DEFAULT_CACHE_TTL = 30000; // 30 seconds
+
+// In-flight request deduplication (prevents duplicate concurrent requests)
+const inflightRequests = new Map();
+
+/**
+ * Get cached response if valid
+ */
+const getCachedResponse = (cacheKey) => {
+  const cached = responseCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.data;
+  }
+  if (cached) {
+    responseCache.delete(cacheKey);
+  }
+  return null;
+};
+
+/**
+ * Cache a response
+ */
+const setCachedResponse = (cacheKey, data, ttl = DEFAULT_CACHE_TTL) => {
+  responseCache.set(cacheKey, {
+    data,
+    expiresAt: Date.now() + ttl,
+  });
+};
+
+/**
+ * Clear specific cache entries or all cache
+ */
+export const clearCache = (pattern = null) => {
+  if (!pattern) {
+    responseCache.clear();
+    return;
+  }
+  for (const key of responseCache.keys()) {
+    if (key.includes(pattern)) {
+      responseCache.delete(key);
+    }
+  }
+};
+
 // ============== AUTH HELPERS ==============
 
 /**
@@ -157,7 +205,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // ============== MAIN API CLIENT ==============
 
 /**
- * Make an API request with automatic retry and error handling
+ * Make an API request with automatic retry, caching, and deduplication
  */
 const request = async (
   method,
@@ -172,9 +220,28 @@ const request = async (
     retries = MAX_RETRIES,
     retryDelay = RETRY_DELAY,
     skipAuth = false,
+    cache = false, // Enable caching for GET requests
+    cacheTTL = DEFAULT_CACHE_TTL,
   } = options;
 
   const url = buildUrl(endpoint, params);
+  
+  // Generate cache key for GET requests
+  const cacheKey = method === "GET" ? `${url}` : null;
+  
+  // Check cache for GET requests
+  if (method === "GET" && cache && cacheKey) {
+    const cached = getCachedResponse(cacheKey);
+    if (cached) {
+      return cached;
+    }
+  }
+  
+  // Deduplicate in-flight GET requests
+  if (method === "GET" && cacheKey && inflightRequests.has(cacheKey)) {
+    return inflightRequests.get(cacheKey);
+  }
+  
   const requestHeaders = skipAuth
     ? { "Content-Type": "application/json", ...headers }
     : getHeaders(headers);
@@ -195,51 +262,72 @@ const request = async (
 
   let lastError;
   let attempt = 0;
+  
+  // Create the request promise for deduplication
+  const requestPromise = (async () => {
+    while (attempt < retries) {
+      try {
+        const response = await fetch(url, config);
+        clearTimeout(timeoutId);
 
-  while (attempt < retries) {
-    try {
-      const response = await fetch(url, config);
-      clearTimeout(timeoutId);
+        // Parse response
+        const contentType = response.headers.get("content-type");
+        let responseData;
 
-      // Parse response
-      const contentType = response.headers.get("content-type");
-      let responseData;
+        if (contentType && contentType.includes("application/json")) {
+          responseData = await response.json();
+        } else {
+          responseData = await response.text();
+        }
 
-      if (contentType && contentType.includes("application/json")) {
-        responseData = await response.json();
-      } else {
-        responseData = await response.text();
-      }
+        // Handle non-OK responses
+        if (!response.ok) {
+          handleError(responseData, response);
+        }
 
-      // Handle non-OK responses
-      if (!response.ok) {
-        handleError(responseData, response);
-      }
+        // Cache successful GET responses if caching enabled
+        if (method === "GET" && cache && cacheKey) {
+          setCachedResponse(cacheKey, responseData, cacheTTL);
+        }
 
-      return responseData;
-    } catch (error) {
-      clearTimeout(timeoutId);
-      lastError = error;
+        return responseData;
+      } catch (error) {
+        clearTimeout(timeoutId);
+        lastError = error;
 
-      // Don't retry on auth errors or validation errors
-      if (error instanceof APIError && [401, 403, 422].includes(error.status)) {
-        throw error;
-      }
+        // Don't retry on auth errors or validation errors
+        if (error instanceof APIError && [401, 403, 422].includes(error.status)) {
+          throw error;
+        }
 
-      // Don't retry on abort (timeout)
-      if (error.name === "AbortError") {
-        throw new APIError("Request timeout", 408);
-      }
+        // Don't retry on abort (timeout)
+        if (error.name === "AbortError") {
+          throw new APIError("Request timeout", 408);
+        }
 
-      attempt++;
-      if (attempt < retries) {
-        console.warn(`API request failed, retrying (${attempt}/${retries})...`);
-        await sleep(retryDelay * attempt); // Exponential backoff
+        attempt++;
+        if (attempt < retries) {
+          console.warn(`API request failed, retrying (${attempt}/${retries})...`);
+          await sleep(retryDelay * attempt); // Exponential backoff
+        }
       }
     }
-  }
 
-  throw lastError || new APIError("Request failed after retries", 0);
+    throw lastError || new APIError("Request failed after retries", 0);
+  })();
+  
+  // Store in-flight GET requests for deduplication
+  if (method === "GET" && cacheKey) {
+    inflightRequests.set(cacheKey, requestPromise);
+    try {
+      const result = await requestPromise;
+      return result;
+    } finally {
+      inflightRequests.delete(cacheKey);
+    }
+  }
+  
+  return requestPromise;
 };
 
 // ============== API METHODS ==============
@@ -406,10 +494,59 @@ const api = {
 
     return allItems;
   },
+  
+  // ============== PERFORMANCE METHODS ==============
+  
+  /**
+   * Execute multiple GET requests in parallel
+   * @param {Array} requests - Array of { endpoint, params, options } objects
+   * @returns {Array} - Array of responses in same order
+   */
+  parallel: async (requests) => {
+    return Promise.all(
+      requests.map(({ endpoint, params = {}, options = {} }) =>
+        api.get(endpoint, params, options)
+      )
+    );
+  },
+  
+  /**
+   * Execute multiple requests in parallel (any method)
+   * @param {Array} requests - Array of { method, endpoint, data, options } objects
+   * @returns {Array} - Array of responses in same order
+   */
+  batch: async (requests) => {
+    return Promise.all(
+      requests.map(({ method = "GET", endpoint, data = null, options = {} }) => {
+        switch (method.toUpperCase()) {
+          case "POST": return api.post(endpoint, data, options);
+          case "PUT": return api.put(endpoint, data, options);
+          case "PATCH": return api.patch(endpoint, data, options);
+          case "DELETE": return api.delete(endpoint, options);
+          default: return api.get(endpoint, data || {}, options);
+        }
+      })
+    );
+  },
+  
+  /**
+   * Cached GET request (30 second TTL by default)
+   * @param {string} endpoint - API endpoint
+   * @param {object} params - Query parameters
+   * @param {number} ttl - Cache TTL in milliseconds
+   */
+  getCached: (endpoint, params = {}, ttl = DEFAULT_CACHE_TTL) =>
+    request("GET", endpoint, null, { params, cache: true, cacheTTL: ttl }),
+    
+  /**
+   * Clear response cache
+   * @param {string} pattern - Optional pattern to match (clears all if null)
+   */
+  clearCache,
 };
 
 export default api;
 
 // ============== NAMED EXPORTS FOR CONVENIENCE ==============
 
-export const { get, post, put, patch, delete: del, login, logout, list, uploadFile, getAll } = api;
+export const { get, post, put, patch, delete: del, login, logout, list, uploadFile, getAll, parallel, batch, getCached } = api;

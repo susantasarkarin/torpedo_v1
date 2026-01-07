@@ -175,11 +175,20 @@ function Settings() {
     try {
       const token = getAuthToken()
       
-      // First load gmail accounts if not already loaded
-      if (gmailAccounts.length === 0) {
-        const accountsRes = await fetch(`${API_BASE_URL}/gmail/accounts`, {
-          headers: { Authorization: token }
-        })
+      // Load accounts and signatures in parallel for faster loading
+      const needsAccounts = gmailAccounts.length === 0
+      const requests = [
+        fetch(`${API_BASE_URL}/settings/email-signatures`, { headers: { Authorization: token } })
+      ]
+      if (needsAccounts) {
+        requests.unshift(fetch(`${API_BASE_URL}/gmail/accounts`, { headers: { Authorization: token } }))
+      }
+      
+      const responses = await Promise.all(requests)
+      
+      if (needsAccounts) {
+        const accountsRes = responses[0]
+        const sigRes = responses[1]
         if (accountsRes.ok) {
           const data = await accountsRes.json()
           const accounts = (data.accounts || []).map(acc => ({
@@ -189,15 +198,16 @@ function Settings() {
           }))
           setGmailAccounts(accounts)
         }
-      }
-      
-      // Load all signatures
-      const sigRes = await fetch(`${API_BASE_URL}/settings/email-signatures`, {
-        headers: { Authorization: token }
-      })
-      if (sigRes.ok) {
-        const data = await sigRes.json()
-        setEmailSignatures(data.signatures || [])
+        if (sigRes.ok) {
+          const data = await sigRes.json()
+          setEmailSignatures(data.signatures || [])
+        }
+      } else {
+        const sigRes = responses[0]
+        if (sigRes.ok) {
+          const data = await sigRes.json()
+          setEmailSignatures(data.signatures || [])
+        }
       }
     } catch (error) {
       console.error("Error loading signatures:", error)
@@ -356,21 +366,22 @@ function Settings() {
     setAiDatabaseLoading(true)
     try {
       const token = getAuthToken()
+      const filter = aiDatabaseFilter !== 'all' ? `?status=${aiDatabaseFilter}` : ''
       
-      // Load status
-      const statusRes = await fetch(`${API_BASE_URL}/leads/ai-database/status`, {
-        headers: { Authorization: token }
-      })
+      // Load status and companies in parallel for faster loading
+      const [statusRes, companiesRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/leads/ai-database/status`, {
+          headers: { Authorization: token }
+        }),
+        fetch(`${API_BASE_URL}/leads/ai-database/companies${filter}`, {
+          headers: { Authorization: token }
+        })
+      ])
+      
       if (statusRes.ok) {
         const status = await statusRes.json()
         setAiDatabaseStatus(status)
       }
-      
-      // Load companies
-      const filter = aiDatabaseFilter !== 'all' ? `?status=${aiDatabaseFilter}` : ''
-      const companiesRes = await fetch(`${API_BASE_URL}/leads/ai-database/companies${filter}`, {
-        headers: { Authorization: token }
-      })
       if (companiesRes.ok) {
         const data = await companiesRes.json()
         setAiDatabaseCompanies(data.companies || [])

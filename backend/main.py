@@ -3,6 +3,7 @@ import traceback
 import re
 from fastapi import FastAPI, HTTPException, Body, Path, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import Response, RedirectResponse
 from dotenv import load_dotenv
 from pymongo import MongoClient
@@ -296,6 +297,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# GZip compression for responses > 500 bytes (speeds up large JSON payloads)
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 
 # ----------------------------
