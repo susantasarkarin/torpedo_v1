@@ -86,6 +86,99 @@ class JobStatus:
     COMPLETED = "completed"
     STOPPED = "stopped"
     FAILED = "failed"
+    API_ERROR = "api_error"  # New status for API credential errors
+
+
+# ============== GLOBAL SEARCH CONTROL ==============
+
+def get_global_search_control() -> dict:
+    """Get global search control settings (pause all jobs, circuit breaker state)"""
+    try:
+        settings_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
+        settings_db = settings_client['torpedo_settings']
+        app_settings = settings_db['app_settings']
+        control = app_settings.find_one({"_id": "search_control"})
+        if control:
+            return {
+                "paused": control.get("paused", False),
+                "paused_at": control.get("paused_at"),
+                "paused_reason": control.get("paused_reason", ""),
+                "consecutive_errors": control.get("consecutive_errors", 0),
+                "circuit_breaker_open": control.get("circuit_breaker_open", False),
+                "last_error": control.get("last_error"),
+                "auto_resume_disabled": control.get("auto_resume_disabled", False),
+            }
+    except Exception as e:
+        print(f"Error reading search control: {e}")
+    return {
+        "paused": False,
+        "paused_at": None,
+        "paused_reason": "",
+        "consecutive_errors": 0,
+        "circuit_breaker_open": False,
+        "last_error": None,
+        "auto_resume_disabled": False,
+    }
+
+
+def set_global_search_control(updates: dict):
+    """Update global search control settings"""
+    try:
+        settings_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=3000)
+        settings_db = settings_client['torpedo_settings']
+        app_settings = settings_db['app_settings']
+        app_settings.update_one(
+            {"_id": "search_control"},
+            {"$set": updates},
+            upsert=True
+        )
+    except Exception as e:
+        print(f"Error updating search control: {e}")
+
+
+def increment_error_count(error_msg: str):
+    """Increment consecutive error count and trip circuit breaker if needed"""
+    control = get_global_search_control()
+    new_count = control.get("consecutive_errors", 0) + 1
+    
+    # Circuit breaker: trips after 5 consecutive errors
+    circuit_open = new_count >= 5
+    
+    set_global_search_control({
+        "consecutive_errors": new_count,
+        "last_error": {"message": error_msg, "timestamp": datetime.utcnow().isoformat()},
+        "circuit_breaker_open": circuit_open,
+    })
+    
+    if circuit_open:
+        print(f"⚠️ Circuit breaker TRIPPED after {new_count} consecutive errors: {error_msg}")
+    
+    return circuit_open
+
+
+def reset_error_count():
+    """Reset error count on successful operation"""
+    set_global_search_control({
+        "consecutive_errors": 0,
+        "circuit_breaker_open": False,
+    })
+
+
+def stop_all_jobs(reason: str = "Emergency stop") -> int:
+    """Stop ALL running/pending web search jobs immediately"""
+    result = web_search_jobs_collection.update_many(
+        {"status": {"$in": [JobStatus.RUNNING, JobStatus.PENDING, JobStatus.PAUSED, JobStatus.QUOTA_EXCEEDED]}},
+        {"$set": {"status": JobStatus.STOPPED, "last_update": datetime.utcnow()}}
+    )
+    
+    # Also set global pause flag
+    set_global_search_control({
+        "paused": True,
+        "paused_at": datetime.utcnow().isoformat(),
+        "paused_reason": reason,
+    })
+    
+    return result.modified_count
 
 
 # ============== RATE LIMITING (DYNAMIC FROM SETTINGS) ==============
@@ -310,10 +403,23 @@ async def run_web_search_job(job_id: str):
     - Auto-classifies after each batch with email prediction
     - Persists state to MongoDB for resume
     - Pauses on quota exceeded, resumes at midnight UTC
+    - Respects global pause and circuit breaker
     """
     job = get_job(job_id)
     if not job:
         print(f"[WebSearch:{job_id}] Job not found")
+        return
+    
+    # Check global control before starting
+    control = get_global_search_control()
+    if control.get("paused"):
+        print(f"[WebSearch:{job_id}] Global search is paused: {control.get('paused_reason')}")
+        update_job(job_id, {"status": JobStatus.PAUSED})
+        return
+    
+    if control.get("circuit_breaker_open"):
+        print(f"[WebSearch:{job_id}] Circuit breaker is open - too many errors")
+        update_job(job_id, {"status": JobStatus.API_ERROR})
         return
     
     update_job(job_id, {
@@ -350,6 +456,18 @@ async def run_web_search_job(job_id: str):
         # Check if stopped
         if job["status"] == JobStatus.STOPPED:
             print(f"[WebSearch:{job_id}] Job stopped by user")
+            break
+        
+        # Check global control flags (allows emergency stop)
+        control = get_global_search_control()
+        if control.get("paused"):
+            print(f"[WebSearch:{job_id}] Global search paused: {control.get('paused_reason')}")
+            update_job(job_id, {"status": JobStatus.PAUSED})
+            break
+        
+        if control.get("circuit_breaker_open"):
+            print(f"[WebSearch:{job_id}] Circuit breaker open - stopping due to API errors")
+            update_job(job_id, {"status": JobStatus.API_ERROR})
             break
         
         # Note: No target limit - job runs indefinitely until manually stopped
@@ -437,7 +555,19 @@ async def run_web_search_job(job_id: str):
                 add_job_error(job_id, f"Search error: {error_msg}")
                 print(f"[WebSearch:{job_id}] Error: {error_msg}")
                 
-                if "quota" in error_msg.lower() or "limit" in error_msg.lower():
+                # Check for API credential errors (these should trip the circuit breaker)
+                is_credential_error = any(x in error_msg.lower() for x in [
+                    "api key", "invalid", "denied", "unauthorized", "forbidden", "aiza"
+                ])
+                
+                if is_credential_error:
+                    # Trip circuit breaker immediately for credential errors
+                    circuit_tripped = increment_error_count(error_msg)
+                    if circuit_tripped:
+                        update_job(job_id, {"status": JobStatus.API_ERROR})
+                        print(f"[WebSearch:{job_id}] API credential error - job stopped")
+                        return
+                elif "quota" in error_msg.lower() or "limit" in error_msg.lower():
                     update_job(job_id, {"status": JobStatus.QUOTA_EXCEEDED})
                     print(f"[WebSearch:{job_id}] API quota exceeded, waiting until midnight...")
                     
@@ -450,11 +580,23 @@ async def run_web_search_job(job_id: str):
                         job = get_job(job_id)
                         if not job or job["status"] == JobStatus.STOPPED:
                             return
+                        # Also check global pause during wait
+                        control = get_global_search_control()
+                        if control.get("paused"):
+                            update_job(job_id, {"status": JobStatus.PAUSED})
+                            return
                         await asyncio.sleep(min(60, wait_seconds))
                         wait_seconds -= 60
                     
                     update_job(job_id, {"status": JobStatus.RUNNING})
+                else:
+                    # Track consecutive errors for circuit breaker
+                    increment_error_count(error_msg)
                 break
+        
+        # Reset error count on successful batch
+        if batch_leads:
+            reset_error_count()
         
         # Import batch leads
         if batch_leads:
@@ -641,7 +783,7 @@ async def stop_web_search(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    if job["status"] not in [JobStatus.RUNNING, JobStatus.PENDING, JobStatus.PAUSED, JobStatus.QUOTA_EXCEEDED]:
+    if job["status"] not in [JobStatus.RUNNING, JobStatus.PENDING, JobStatus.PAUSED, JobStatus.QUOTA_EXCEEDED, JobStatus.API_ERROR]:
         return {
             "success": False,
             "message": f"Job is not running (status: {job['status']})"
@@ -654,6 +796,125 @@ async def stop_web_search(job_id: str):
         "message": "Stop signal sent. Job will stop after current operation.",
         "job_id": job_id,
         "total_imported": job["total_imported"]
+    }
+
+
+@router.post("/import/web-search/stop-all")
+async def stop_all_web_searches():
+    """
+    POST /leads/import/web-search/stop-all
+    EMERGENCY STOP: Stop ALL running web search jobs immediately.
+    Also pauses the global search system to prevent auto-resume.
+    """
+    stopped_count = stop_all_jobs("Emergency stop - all jobs stopped")
+    
+    return {
+        "success": True,
+        "message": f"Emergency stop executed. {stopped_count} jobs stopped.",
+        "jobs_stopped": stopped_count,
+        "global_search_paused": True,
+        "note": "Use /leads/import/web-search/control to resume search capability"
+    }
+
+
+@router.get("/import/web-search/control")
+async def get_search_control():
+    """
+    GET /leads/import/web-search/control
+    Get global search control status (pause state, circuit breaker, errors).
+    """
+    control = get_global_search_control()
+    
+    # Get count of active jobs
+    active_jobs = web_search_jobs_collection.count_documents({
+        "status": {"$in": [JobStatus.RUNNING, JobStatus.PENDING, JobStatus.PAUSED, JobStatus.QUOTA_EXCEEDED]}
+    })
+    
+    return {
+        "global_paused": control.get("paused", False),
+        "paused_at": control.get("paused_at"),
+        "paused_reason": control.get("paused_reason", ""),
+        "circuit_breaker_open": control.get("circuit_breaker_open", False),
+        "consecutive_errors": control.get("consecutive_errors", 0),
+        "last_error": control.get("last_error"),
+        "auto_resume_disabled": control.get("auto_resume_disabled", False),
+        "active_jobs_count": active_jobs
+    }
+
+
+@router.post("/import/web-search/control/resume")
+async def resume_search_control():
+    """
+    POST /leads/import/web-search/control/resume
+    Resume global search capability (un-pause, reset circuit breaker).
+    Does NOT auto-start any jobs - they must be resumed manually.
+    """
+    set_global_search_control({
+        "paused": False,
+        "paused_at": None,
+        "paused_reason": "",
+        "circuit_breaker_open": False,
+        "consecutive_errors": 0,
+    })
+    
+    return {
+        "success": True,
+        "message": "Global search resumed. Use /resume/{job_id} to restart individual jobs.",
+        "global_paused": False,
+        "circuit_breaker_open": False
+    }
+
+
+@router.post("/import/web-search/control/pause")
+async def pause_search_control(reason: str = "Manual pause"):
+    """
+    POST /leads/import/web-search/control/pause
+    Pause global search capability. Running jobs will stop at next check.
+    """
+    set_global_search_control({
+        "paused": True,
+        "paused_at": datetime.utcnow().isoformat(),
+        "paused_reason": reason,
+    })
+    
+    return {
+        "success": True,
+        "message": f"Global search paused: {reason}",
+        "global_paused": True
+    }
+
+
+@router.post("/import/web-search/control/disable-auto-resume")
+async def disable_auto_resume():
+    """
+    POST /leads/import/web-search/control/disable-auto-resume
+    Disable auto-resume of jobs on server restart.
+    """
+    set_global_search_control({
+        "auto_resume_disabled": True,
+    })
+    
+    return {
+        "success": True,
+        "message": "Auto-resume on startup disabled. Jobs will not restart automatically.",
+        "auto_resume_disabled": True
+    }
+
+
+@router.post("/import/web-search/control/enable-auto-resume")
+async def enable_auto_resume():
+    """
+    POST /leads/import/web-search/control/enable-auto-resume  
+    Enable auto-resume of jobs on server restart.
+    """
+    set_global_search_control({
+        "auto_resume_disabled": False,
+    })
+    
+    return {
+        "success": True,
+        "message": "Auto-resume on startup enabled.",
+        "auto_resume_disabled": False
     }
 
 

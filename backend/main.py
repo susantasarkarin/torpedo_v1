@@ -684,13 +684,33 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️ Could not start Email Sync workers: {e}")
     
-    # Resume incomplete web search jobs
+    # Resume incomplete web search jobs (if auto-resume is enabled)
     try:
-        from leads.router import get_incomplete_jobs, run_web_search_job, update_job, JobStatus
+        from leads.router import (
+            get_incomplete_jobs, run_web_search_job, update_job, JobStatus,
+            get_global_search_control
+        )
         import asyncio
         
+        # Check if auto-resume is disabled or global search is paused
+        search_control = get_global_search_control()
+        auto_resume_disabled = search_control.get("auto_resume_disabled", False)
+        global_paused = search_control.get("paused", False)
+        circuit_open = search_control.get("circuit_breaker_open", False)
+        
         incomplete_jobs = get_incomplete_jobs()
-        if incomplete_jobs:
+        
+        if auto_resume_disabled:
+            print(f"⏸️ Web search auto-resume is DISABLED. {len(incomplete_jobs)} jobs not resumed.")
+            print("   Enable with: POST /leads/import/web-search/control/enable-auto-resume")
+        elif global_paused:
+            print(f"⏸️ Global web search is PAUSED. {len(incomplete_jobs)} jobs not resumed.")
+            print(f"   Reason: {search_control.get('paused_reason', 'Unknown')}")
+            print("   Resume with: POST /leads/import/web-search/control/resume")
+        elif circuit_open:
+            print(f"🔴 Circuit breaker OPEN (too many API errors). {len(incomplete_jobs)} jobs not resumed.")
+            print("   Reset with: POST /leads/import/web-search/control/resume")
+        elif incomplete_jobs:
             print(f"🔄 Found {len(incomplete_jobs)} incomplete web search jobs to resume...")
             for job in incomplete_jobs:
                 job_id = job["job_id"]
@@ -698,8 +718,10 @@ async def startup_event():
                 # Schedule the job to run
                 asyncio.create_task(run_web_search_job(job_id))
             print(f"✅ Resumed {len(incomplete_jobs)} web search jobs")
+        else:
+            print("ℹ️ No incomplete web search jobs to resume")
     except Exception as e:
-        print(f"⚠️ Could not resume web search jobs: {e}")
+        print(f"⚠️ Could not check/resume web search jobs: {e}")
     
     if cpx_service is not None:
         try:

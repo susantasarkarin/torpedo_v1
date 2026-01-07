@@ -138,15 +138,34 @@ async def search_linkedin_leads(
     }
     
     async with httpx.AsyncClient() as http_client:
-        response = await http_client.get(url, params=params, timeout=30.0)
+        try:
+            response = await http_client.get(url, params=params, timeout=15.0)  # Reduced timeout
+        except httpx.TimeoutException:
+            raise ValueError("Google API request timed out. Check your network connection.")
+        except httpx.ConnectError:
+            raise ValueError("Could not connect to Google API. Check network connectivity.")
         
-        # Handle specific error responses
+        # Handle specific error responses with clear messages
         if response.status_code == 400:
-            error_data = response.json()
-            error_msg = error_data.get("error", {}).get("message", "Bad Request")
-            raise ValueError(f"Google API Error: {error_msg}")
+            try:
+                error_data = response.json()
+                error_msg = error_data.get("error", {}).get("message", "Bad Request")
+            except:
+                error_msg = response.text[:200]
+            raise ValueError(f"Google API Error (400): {error_msg}")
+        elif response.status_code == 401:
+            raise ValueError("Google API key is invalid or expired. Update your API key in Settings.")
         elif response.status_code == 403:
-            raise ValueError("Google API access denied. Check your API key and ensure Custom Search API is enabled.")
+            try:
+                error_data = response.json()
+                error_msg = error_data.get("error", {}).get("message", "Access denied")
+            except:
+                error_msg = "Access denied"
+            raise ValueError(f"Google API access denied (403): {error_msg}. Check your API key and ensure Custom Search API is enabled.")
+        elif response.status_code == 429:
+            raise ValueError("Google API rate limit exceeded. Wait and retry later.")
+        elif response.status_code >= 500:
+            raise ValueError(f"Google API server error ({response.status_code}). Try again later.")
         
         response.raise_for_status()
         data = response.json()
