@@ -498,40 +498,59 @@ class CPXService:
                 
                 # FIXED: Attach metrics from survey_allocation_service
                 # This fixes the issue where CLICKS and COMPLETES were showing 0
-                if self.survey_allocation_service:
-                    try:
-                        # Look up metrics by survey external_id
-                        survey_id = survey.get("_id")
-                        metrics = self.survey_allocation_service.get_survey_metrics(survey_id)
-                        
-                        if metrics:
-                            # Attach metrics fields to survey
-                            survey["clicks"] = metrics.get("sent_n", 0)  # sent_n is equivalent to "clicks"
-                            survey["completes"] = metrics.get("completes_n", 0)
-                            survey["incompletes"] = metrics.get("incompletes_n", 0)
-                            survey["entrants"] = metrics.get("entrants_n", 0)
-                            survey["conversion_rate"] = metrics.get("conversion_rate", 0.0)
-                            survey["incidence_rate"] = metrics.get("incidence_rate", 0.0)
-                            print(f"✅ Attached metrics for survey {survey_id}: sent={metrics.get('sent_n')}, completes={metrics.get('completes_n')}")
-                        else:
-                            # Initialize with default metrics if none exist
+                # Use defensive programming to prevent crashes
+                try:
+                    if self.survey_allocation_service and hasattr(self.survey_allocation_service, 'get_survey_metrics'):
+                        try:
+                            # Look up metrics by survey external_id
+                            survey_id = survey.get("_id")
+                            metrics = self.survey_allocation_service.get_survey_metrics(survey_id)
+                            
+                            if metrics:
+                                # Attach metrics fields to survey
+                                survey["clicks"] = metrics.get("sent_n", 0)  # sent_n is equivalent to "clicks"
+                                survey["completes"] = metrics.get("completes_n", 0)
+                                survey["incompletes"] = metrics.get("incompletes_n", 0)
+                                survey["entrants"] = metrics.get("entrants_n", 0)
+                                survey["conversion_rate"] = metrics.get("conversion_rate", 0.0)
+                                survey["incidence_rate"] = metrics.get("incidence_rate", 0.0)
+                                print(f"✅ Attached metrics for survey {survey_id}: sent={metrics.get('sent_n')}, completes={metrics.get('completes_n')}")
+                            else:
+                                # Initialize with default metrics if none exist
+                                survey["clicks"] = 0
+                                survey["completes"] = 0
+                                survey["incompletes"] = 0
+                                survey["entrants"] = 0
+                                survey["conversion_rate"] = 0.0
+                                survey["incidence_rate"] = 0.0
+                        except AttributeError as ae:
+                            print(f"⚠️ Survey allocation service missing get_survey_metrics method: {ae}")
                             survey["clicks"] = 0
                             survey["completes"] = 0
                             survey["incompletes"] = 0
                             survey["entrants"] = 0
                             survey["conversion_rate"] = 0.0
                             survey["incidence_rate"] = 0.0
-                    except Exception as e:
-                        print(f"⚠️ Failed to attach metrics for survey {survey.get('_id')}: {e}")
-                        # Provide default values on error
+                        except Exception as me:
+                            print(f"⚠️ Failed to attach metrics for survey {survey.get('_id')}: {me}")
+                            # Provide default values on error
+                            survey["clicks"] = 0
+                            survey["completes"] = 0
+                            survey["incompletes"] = 0
+                            survey["entrants"] = 0
+                            survey["conversion_rate"] = 0.0
+                            survey["incidence_rate"] = 0.0
+                    else:
+                        # No allocation service provided, use defaults
                         survey["clicks"] = 0
                         survey["completes"] = 0
                         survey["incompletes"] = 0
                         survey["entrants"] = 0
                         survey["conversion_rate"] = 0.0
                         survey["incidence_rate"] = 0.0
-                else:
-                    # No allocation service provided, use defaults
+                except Exception as outer_e:
+                    print(f"❌ Unexpected error in metrics attachment: {outer_e}")
+                    # Fallback defaults on any error
                     survey["clicks"] = 0
                     survey["completes"] = 0
                     survey["incompletes"] = 0

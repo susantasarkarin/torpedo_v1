@@ -403,7 +403,7 @@ if cpx_surveys_collection is not None and cpx_filters_collection is not None:
         surveys_collection=cpx_surveys_collection,
         filters_collection=cpx_filters_collection,
         settings_collection=app_settings_collection,  # Pass settings collection for filter settings
-        survey_allocation_service=survey_allocation_service,  # Inject survey allocation service for metrics
+        survey_allocation_service=survey_allocation_service_instance,  # Inject survey allocation service for metrics
     )
     cpx_router.set_cpx_service(cpx_service)
     traffic_router.set_cpx_service(cpx_service)  # Inject CPX service into traffic router for survey allocation
