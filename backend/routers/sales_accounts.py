@@ -37,9 +37,17 @@ class SalesAccountCreate(BaseModel):
     country: Optional[str] = None
     notes: Optional[str] = None
     status: Optional[str] = "active"  # active, inactive, prospect
+    # Company details (auto-filled from leads)
+    employee_count: Optional[str] = None
+    employee_count_range: Optional[str] = None
+    revenue_range: Optional[str] = None
+    company_type: Optional[str] = None
+    company_linkedin_url: Optional[str] = None
     # Links to other modules
     linked_operations_client_id: Optional[str] = None
     linked_finance_customer_id: Optional[str] = None
+    created_from_lead_id: Optional[str] = None
+    contact_ids: Optional[List[str]] = []
 
 class SalesAccountUpdate(BaseModel):
     account_name: Optional[str] = None
@@ -54,8 +62,14 @@ class SalesAccountUpdate(BaseModel):
     country: Optional[str] = None
     notes: Optional[str] = None
     status: Optional[str] = None
+    employee_count: Optional[str] = None
+    employee_count_range: Optional[str] = None
+    revenue_range: Optional[str] = None
+    company_type: Optional[str] = None
+    company_linkedin_url: Optional[str] = None
     linked_operations_client_id: Optional[str] = None
     linked_finance_customer_id: Optional[str] = None
+    contact_ids: Optional[List[str]] = None
 
 def serialize_doc(doc):
     """Convert MongoDB document to JSON-serializable dict"""
@@ -215,5 +229,97 @@ async def unlink_finance_customer(account_id: str):
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Account not found")
         return {"message": "Finance customer unlinked successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========================
+# Account Contacts Endpoints
+# ========================
+
+@router.get("/accounts/{account_id}/contacts")
+async def get_account_contacts(account_id: str):
+    """Get all contacts (leads) linked to a sales account"""
+    try:
+        account = accounts_collection.find_one({"_id": ObjectId(account_id)})
+        if not account:
+            raise HTTPException(status_code=404, detail="Account not found")
+        
+        contact_ids = account.get("contact_ids", [])
+        if not contact_ids:
+            return {"account_id": account_id, "contacts": [], "total": 0}
+        
+        # Fetch contacts from leads_enriched collection
+        leads_collection = db["leads_enriched"]
+        contacts = []
+        for cid in contact_ids:
+            try:
+                contact = leads_collection.find_one({"_id": ObjectId(cid)})
+                if contact:
+                    contacts.append(serialize_doc(contact))
+            except:
+                pass
+        
+        return {
+            "account_id": account_id,
+            "account_name": account.get("account_name"),
+            "contacts": contacts,
+            "total": len(contacts)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/accounts/{account_id}/contacts/{contact_id}")
+async def add_contact_to_account(account_id: str, contact_id: str):
+    """Add a contact (lead) to a sales account"""
+    try:
+        # Verify account exists
+        account = accounts_collection.find_one({"_id": ObjectId(account_id)})
+        if not account:
+            raise HTTPException(status_code=404, detail="Account not found")
+        
+        # Verify contact exists
+        leads_collection = db["leads_enriched"]
+        contact = leads_collection.find_one({"_id": ObjectId(contact_id)})
+        if not contact:
+            raise HTTPException(status_code=404, detail="Contact not found")
+        
+        # Add contact to account
+        accounts_collection.update_one(
+            {"_id": ObjectId(account_id)},
+            {"$addToSet": {"contact_ids": contact_id}, "$set": {"updated_at": datetime.utcnow()}}
+        )
+        
+        # Update contact with account_id
+        leads_collection.update_one(
+            {"_id": ObjectId(contact_id)},
+            {"$set": {"account_id": account_id, "updated_at": datetime.utcnow()}}
+        )
+        
+        return {"message": "Contact added to account successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/accounts/{account_id}/contacts/{contact_id}")
+async def remove_contact_from_account(account_id: str, contact_id: str):
+    """Remove a contact from a sales account"""
+    try:
+        result = accounts_collection.update_one(
+            {"_id": ObjectId(account_id)},
+            {"$pull": {"contact_ids": contact_id}, "$set": {"updated_at": datetime.utcnow()}}
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Account not found")
+        
+        # Remove account_id from contact
+        leads_collection = db["leads_enriched"]
+        leads_collection.update_one(
+            {"_id": ObjectId(contact_id)},
+            {"$unset": {"account_id": ""}, "$set": {"updated_at": datetime.utcnow()}}
+        )
+        
+        return {"message": "Contact removed from account successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

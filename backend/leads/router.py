@@ -1675,6 +1675,160 @@ async def sync_account_aliases(account_email: str):
 
 # ============== ENRICHED LEAD DETAIL ==============
 
+@router.get("/{lead_id}")
+async def get_lead_by_id_endpoint(lead_id: str):
+    """
+    GET /leads/{lead_id}
+    Get a single enriched lead by ID with all details.
+    """
+    lead = get_enriched_lead_by_id(lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return {"lead": lead}
+
+
+@router.put("/{lead_id}")
+async def update_lead_by_id_endpoint(lead_id: str, data: dict = Body(...)):
+    """
+    PUT /leads/{lead_id}
+    Update an enriched lead by ID. Handles stage changes for pipeline management.
+    When moving to contacts (discovery_call+), automatically creates a Sales Account if needed.
+    """
+    from bson import ObjectId
+    from database import get_client
+    
+    # Contact stages that trigger account creation
+    CONTACT_STAGES = ["discovery_call", "presentation", "rfq_pricing", "negotiation", 
+                      "won", "lost", "onboarding", "project_execution", "payment", "retention"]
+    
+    # Validate lead_id
+    try:
+        obj_id = ObjectId(lead_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid lead ID format")
+    
+    # Check if lead exists in enriched collection
+    existing_lead = leads_enriched_collection.find_one({"_id": obj_id})
+    if not existing_lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    # Remove _id from update data if present
+    if "_id" in data:
+        del data["_id"]
+    
+    # Add updated timestamp
+    data["updated_at"] = datetime.utcnow().isoformat()
+    
+    # Check if we're moving to a contact stage (create account if so)
+    new_stage = data.get("stage")
+    old_stage = existing_lead.get("stage")
+    account_created = None
+    
+    if new_stage and new_stage in CONTACT_STAGES and old_stage not in CONTACT_STAGES:
+        # Moving from leads to contacts - create Sales Account if company doesn't have one
+        company_name = existing_lead.get("company_name")
+        company_domain = existing_lead.get("company_domain")
+        
+        if company_name or company_domain:
+            mongo_client = get_client()
+            accounts_collection = mongo_client["email_automation"]["sales_accounts"]
+            
+            # Check if account already exists for this company
+            account_query = {}
+            if company_domain:
+                account_query = {"$or": [
+                    {"website": {"$regex": company_domain, "$options": "i"}},
+                    {"company_name": {"$regex": f"^{company_name}$", "$options": "i"}} if company_name else {}
+                ]}
+            elif company_name:
+                account_query = {"company_name": {"$regex": f"^{company_name}$", "$options": "i"}}
+            
+            existing_account = accounts_collection.find_one(account_query) if account_query else None
+            
+            if not existing_account:
+                # Create new Sales Account from lead's company data
+                account_data = {
+                    "account_name": company_name or company_domain,
+                    "company_name": company_name,
+                    "industry": existing_lead.get("company_industry"),
+                    "website": existing_lead.get("company_website") or (f"https://{company_domain}" if company_domain else None),
+                    "address": existing_lead.get("company_headquarters"),
+                    "status": "prospect",
+                    "employee_count": existing_lead.get("company_employee_count"),
+                    "employee_count_range": existing_lead.get("company_employee_count_range"),
+                    "revenue_range": existing_lead.get("company_revenue_range"),
+                    "company_type": existing_lead.get("company_type"),
+                    "company_linkedin_url": existing_lead.get("company_linkedin_url"),
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                    "created_from_lead_id": lead_id,
+                    "contact_ids": [lead_id]  # Link this contact to the account
+                }
+                
+                result = accounts_collection.insert_one(account_data)
+                account_data["_id"] = str(result.inserted_id)
+                account_created = account_data
+                
+                # Store account_id in lead data
+                data["account_id"] = str(result.inserted_id)
+            else:
+                # Link contact to existing account
+                account_id = str(existing_account["_id"])
+                data["account_id"] = account_id
+                
+                # Add this contact to the account's contact_ids if not already there
+                if lead_id not in existing_account.get("contact_ids", []):
+                    accounts_collection.update_one(
+                        {"_id": existing_account["_id"]},
+                        {"$addToSet": {"contact_ids": lead_id}, "$set": {"updated_at": datetime.utcnow()}}
+                    )
+    
+    # Update the lead
+    result = leads_enriched_collection.update_one(
+        {"_id": obj_id},
+        {"$set": data}
+    )
+    
+    if result.modified_count > 0:
+        # Fetch and return updated lead
+        updated_lead = get_enriched_lead_by_id(lead_id)
+        response = {"success": True, "lead": updated_lead, "message": "Lead updated successfully"}
+        if account_created:
+            response["account_created"] = account_created
+            response["message"] = "Lead updated and Sales Account created successfully"
+        return response
+    else:
+        return {"success": True, "lead": get_enriched_lead_by_id(lead_id), "message": "No changes made"}
+
+
+@router.delete("/{lead_id}")
+async def delete_lead_by_id_endpoint(lead_id: str):
+    """
+    DELETE /leads/{lead_id}
+    Delete an enriched lead by ID.
+    """
+    from bson import ObjectId
+    
+    # Validate lead_id
+    try:
+        obj_id = ObjectId(lead_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid lead ID format")
+    
+    # Check if lead exists
+    existing_lead = leads_enriched_collection.find_one({"_id": obj_id})
+    if not existing_lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    # Delete the lead
+    result = leads_enriched_collection.delete_one({"_id": obj_id})
+    
+    if result.deleted_count > 0:
+        return {"success": True, "message": "Lead deleted successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to delete lead")
+
+
 @router.get("/enriched/{lead_id}")
 async def get_enriched_lead_endpoint(lead_id: str):
     """

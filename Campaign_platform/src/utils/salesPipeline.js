@@ -47,14 +47,14 @@ export const getStageStyle = (stageId) => {
   return { bg: stage.color.bg, color: stage.color.text }
 }
 
-// Determine if a stage is in the "Leads" phase (sales pipeline)
+// Determine if a stage is in the "Leads" phase (early prospecting)
 export const isLeadStage = (stageId) => {
-  return ["discovery_call", "presentation", "rfq_pricing", "negotiation", "won", "lost"].includes(stageId)
+  return ["lead_generation", "outreach"].includes(stageId)
 }
 
-// Determine if a stage is in the "Contacts" phase (customer management)
+// Determine if a stage is in the "Contacts" phase (active deals - discovery_call onwards)
 export const isContactStage = (stageId) => {
-  return ["onboarding", "project_execution", "payment", "retention"].includes(stageId)
+  return ["discovery_call", "presentation", "rfq_pricing", "negotiation", "won", "lost", "onboarding", "project_execution", "payment", "retention"].includes(stageId)
 }
 
 // Determine if a stage is in the "Project" phase (won deals)
@@ -67,9 +67,10 @@ export const getLeadStages = () => {
   return SALES_STAGES.filter(s => isLeadStage(s.id))
 }
 
-// Get stages for contacts page  
+// Get stages for contacts page (show key stages for stats)
 export const getContactStages = () => {
-  return SALES_STAGES.filter(s => isContactStage(s.id))
+  // Show most important stages for contacts stats
+  return SALES_STAGES.filter(s => ["discovery_call", "presentation", "negotiation", "won"].includes(s.id))
 }
 
 // Get stages for project management

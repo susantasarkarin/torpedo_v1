@@ -118,6 +118,11 @@ function Settings() {
   const [signaturesLoading, setSignaturesLoading] = useState(false)
   const [savingSignature, setSavingSignature] = useState(false)
 
+  // Cost Analytics state
+  const [costAnalytics, setCostAnalytics] = useState(null)
+  const [costAnalyticsLoading, setCostAnalyticsLoading] = useState(false)
+  const [costAnalyticsDays, setCostAnalyticsDays] = useState(7)
+
   useEffect(() => {
     loadAllSettings()
   }, [])
@@ -131,6 +136,9 @@ function Settings() {
     }
     if (activeTab === "signatures") {
       loadEmailSignatures()
+    }
+    if (activeTab === "costanalytics") {
+      loadCostAnalytics()
     }
   }, [activeTab])
 
@@ -168,6 +176,27 @@ function Settings() {
       console.error("Error loading signatures:", error)
     } finally {
       setSignaturesLoading(false)
+    }
+  }
+
+  // Load Cost Analytics
+  const loadCostAnalytics = async () => {
+    setCostAnalyticsLoading(true)
+    try {
+      const token = getAuthToken()
+      const res = await fetch(`${API_BASE_URL}/settings/cost-analytics?days=${costAnalyticsDays}`, {
+        headers: { Authorization: token }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setCostAnalytics(data)
+      } else {
+        console.error("Failed to load cost analytics:", res.status)
+      }
+    } catch (error) {
+      console.error("Error loading cost analytics:", error)
+    } finally {
+      setCostAnalyticsLoading(false)
     }
   }
 
@@ -1023,6 +1052,13 @@ function Settings() {
         >
           <span className="tab-icon">✍️</span>
           Email Signatures
+        </button>
+        <button 
+          className={`tab-button ${activeTab === "costanalytics" ? "active" : ""}`}
+          onClick={() => setActiveTab("costanalytics")}
+        >
+          <span className="tab-icon">💰</span>
+          Cost Analytics
         </button>
       </div>
 
@@ -2026,6 +2062,240 @@ function Settings() {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Cost Analytics Tab */}
+        {activeTab === "costanalytics" && (
+          <div className="settings-section">
+            <div className="section-header-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <div>
+                <h2>💰 Cost Analytics Dashboard</h2>
+                <p className="section-description">
+                  Monitor API usage, cache performance, and cost projections across all services.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <select 
+                  value={costAnalyticsDays} 
+                  onChange={(e) => {
+                    setCostAnalyticsDays(parseInt(e.target.value))
+                    // Trigger reload
+                    setTimeout(() => loadCostAnalytics(), 100)
+                  }}
+                  style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid #e5e7eb' }}
+                >
+                  <option value={1}>Last 24 Hours</option>
+                  <option value={7}>Last 7 Days</option>
+                  <option value={14}>Last 14 Days</option>
+                  <option value={30}>Last 30 Days</option>
+                </select>
+                <button 
+                  className="button-secondary"
+                  onClick={loadCostAnalytics}
+                  disabled={costAnalyticsLoading}
+                  style={{ padding: '0.5rem 1rem' }}
+                >
+                  {costAnalyticsLoading ? "Loading..." : "🔄 Refresh"}
+                </button>
+              </div>
+            </div>
+
+            {costAnalyticsLoading && !costAnalytics ? (
+              <div style={{ textAlign: 'center', padding: '3rem' }}>
+                <div className="loading-spinner" style={{ margin: '0 auto 1rem', width: '40px', height: '40px', border: '3px solid #e5e7eb', borderTop: '3px solid #3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                <p>Loading cost analytics...</p>
+              </div>
+            ) : costAnalytics ? (
+              <div className="cost-analytics-content">
+                {/* Recommendations Banner */}
+                {costAnalytics.recommendations && costAnalytics.recommendations.length > 0 && (
+                  <div style={{ marginBottom: '1.5rem' }}>
+                    {costAnalytics.recommendations.map((rec, idx) => (
+                      <div 
+                        key={idx}
+                        style={{
+                          padding: '1rem',
+                          borderRadius: '8px',
+                          marginBottom: '0.5rem',
+                          backgroundColor: rec.severity === 'success' ? '#dcfce7' : rec.severity === 'warning' ? '#fef3c7' : '#fee2e2',
+                          borderLeft: `4px solid ${rec.severity === 'success' ? '#22c55e' : rec.severity === 'warning' ? '#f59e0b' : '#ef4444'}`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.75rem'
+                        }}
+                      >
+                        <span style={{ fontSize: '1.25rem' }}>
+                          {rec.severity === 'success' ? '✅' : rec.severity === 'warning' ? '⚠️' : '🚨'}
+                        </span>
+                        <span style={{ color: rec.severity === 'success' ? '#166534' : rec.severity === 'warning' ? '#92400e' : '#991b1b' }}>
+                          {rec.message}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Summary Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+                  {/* Total Cost */}
+                  <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', borderRadius: '12px', padding: '1.25rem', color: 'white' }}>
+                    <div style={{ fontSize: '0.875rem', opacity: 0.9, marginBottom: '0.5rem' }}>Total Cost ({costAnalytics.period_days} days)</div>
+                    <div style={{ fontSize: '2rem', fontWeight: '700' }}>${costAnalytics.total_cost_usd?.toFixed(2) || '0.00'}</div>
+                    <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: '0.5rem' }}>
+                      Projected: ${costAnalytics.projections?.monthly_projection_usd?.toFixed(2) || '0'}/month
+                    </div>
+                  </div>
+
+                  {/* Cache Performance */}
+                  <div style={{ background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)', borderRadius: '12px', padding: '1.25rem', color: 'white' }}>
+                    <div style={{ fontSize: '0.875rem', opacity: 0.9, marginBottom: '0.5rem' }}>Cache Hit Rate</div>
+                    <div style={{ fontSize: '2rem', fontWeight: '700' }}>
+                      {((costAnalytics.cache_performance?.stats?.hit_rate || 0) * 100).toFixed(1)}%
+                    </div>
+                    <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: '0.5rem' }}>
+                      {costAnalytics.cache_performance?.stats?.cache_hits || 0} hits / {costAnalytics.cache_performance?.stats?.total_requests || 0} requests
+                    </div>
+                  </div>
+
+                  {/* Google CSE */}
+                  <div style={{ background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', borderRadius: '12px', padding: '1.25rem', color: 'white' }}>
+                    <div style={{ fontSize: '0.875rem', opacity: 0.9, marginBottom: '0.5rem' }}>Google CSE</div>
+                    <div style={{ fontSize: '2rem', fontWeight: '700' }}>{costAnalytics.google_cse?.queries || 0}</div>
+                    <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: '0.5rem' }}>
+                      queries (${costAnalytics.google_cse?.estimated_cost_usd?.toFixed(2) || '0'})
+                    </div>
+                  </div>
+
+                  {/* OpenAI */}
+                  <div style={{ background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', borderRadius: '12px', padding: '1.25rem', color: 'white' }}>
+                    <div style={{ fontSize: '0.875rem', opacity: 0.9, marginBottom: '0.5rem' }}>OpenAI API</div>
+                    <div style={{ fontSize: '2rem', fontWeight: '700' }}>{costAnalytics.openai?.total_requests || 0}</div>
+                    <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: '0.5rem' }}>
+                      requests (${costAnalytics.openai?.total_cost_usd?.toFixed(4) || '0'})
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cache Details */}
+                <div className="settings-group" style={{ marginBottom: '1.5rem' }}>
+                  <h3>🗄️ Cache Performance</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+                    <div style={{ background: '#f9fafb', padding: '1rem', borderRadius: '8px' }}>
+                      <div style={{ color: '#6b7280', fontSize: '0.875rem' }}>Cache Entries</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: '600' }}>{costAnalytics.cache_performance?.size?.entry_count || 0}</div>
+                    </div>
+                    <div style={{ background: '#f9fafb', padding: '1rem', borderRadius: '8px' }}>
+                      <div style={{ color: '#6b7280', fontSize: '0.875rem' }}>Cache Size</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: '600' }}>{costAnalytics.cache_performance?.size?.size_mb || 0} MB</div>
+                    </div>
+                    <div style={{ background: '#f9fafb', padding: '1rem', borderRadius: '8px' }}>
+                      <div style={{ color: '#6b7280', fontSize: '0.875rem' }}>Target Hit Rate</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: '600' }}>{((costAnalytics.cache_performance?.stats?.target_hit_rate || 0.7) * 100).toFixed(0)}%</div>
+                    </div>
+                    <div style={{ background: '#f9fafb', padding: '1rem', borderRadius: '8px' }}>
+                      <div style={{ color: '#6b7280', fontSize: '0.875rem' }}>Savings</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: '600', color: '#22c55e' }}>
+                        {costAnalytics.cache_performance?.stats?.estimated_savings_percent?.toFixed(1) || 0}%
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Daily Breakdown Table */}
+                <div className="settings-group">
+                  <h3>📊 Daily Breakdown</h3>
+                  <div style={{ overflowX: 'auto', marginTop: '1rem' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                      <thead>
+                        <tr style={{ backgroundColor: '#f9fafb', borderBottom: '2px solid #e5e7eb' }}>
+                          <th style={{ padding: '0.75rem', textAlign: 'left' }}>Date</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'right' }}>CSE Queries</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'right' }}>CSE Cost</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'right' }}>OpenAI Reqs</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'right' }}>OpenAI Cost</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'right' }}>Cache Hits</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'right' }}>Hit Rate</th>
+                          <th style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '700' }}>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {costAnalytics.daily_breakdown?.map((day, idx) => (
+                          <tr key={day.date} style={{ borderBottom: '1px solid #e5e7eb', backgroundColor: idx % 2 === 0 ? 'white' : '#f9fafb' }}>
+                            <td style={{ padding: '0.75rem' }}>{day.date}</td>
+                            <td style={{ padding: '0.75rem', textAlign: 'right' }}>{day.cse_queries}</td>
+                            <td style={{ padding: '0.75rem', textAlign: 'right' }}>${day.cse_cost_usd?.toFixed(3)}</td>
+                            <td style={{ padding: '0.75rem', textAlign: 'right' }}>{day.openai_requests}</td>
+                            <td style={{ padding: '0.75rem', textAlign: 'right' }}>${day.openai_cost_usd?.toFixed(4)}</td>
+                            <td style={{ padding: '0.75rem', textAlign: 'right' }}>{day.cache_hits}</td>
+                            <td style={{ padding: '0.75rem', textAlign: 'right' }}>
+                              <span style={{ 
+                                color: day.cache_hit_rate >= 0.7 ? '#22c55e' : day.cache_hit_rate >= 0.5 ? '#f59e0b' : '#ef4444',
+                                fontWeight: '500'
+                              }}>
+                                {(day.cache_hit_rate * 100).toFixed(1)}%
+                              </span>
+                            </td>
+                            <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '600' }}>${day.total_cost_usd?.toFixed(4)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* OpenAI Model Breakdown */}
+                {costAnalytics.openai?.by_model && costAnalytics.openai.by_model.length > 0 && (
+                  <div className="settings-group" style={{ marginTop: '1.5rem' }}>
+                    <h3>🤖 OpenAI Model Usage</h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
+                      {costAnalytics.openai.by_model.map((model) => (
+                        <div key={model.model} style={{ background: '#f9fafb', padding: '1rem', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                          <div style={{ fontWeight: '600', marginBottom: '0.5rem' }}>{model.model || 'Unknown'}</div>
+                          <div style={{ fontSize: '0.875rem', color: '#6b7280' }}>
+                            <div>Requests: {model.requests}</div>
+                            <div>Input Tokens: {model.input_tokens?.toLocaleString()}</div>
+                            <div>Output Tokens: {model.output_tokens?.toLocaleString()}</div>
+                            <div style={{ fontWeight: '600', color: '#111827', marginTop: '0.5rem' }}>Cost: ${model.cost_usd?.toFixed(4)}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Budget Progress */}
+                <div className="settings-group" style={{ marginTop: '1.5rem' }}>
+                  <h3>📈 Monthly Budget Progress</h3>
+                  <div style={{ marginTop: '1rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                      <span>Projected: ${costAnalytics.projections?.monthly_projection_usd?.toFixed(2) || 0}</span>
+                      <span>Budget: ${costAnalytics.projections?.monthly_budget_usd || 100}</span>
+                    </div>
+                    <div style={{ height: '12px', background: '#e5e7eb', borderRadius: '6px', overflow: 'hidden' }}>
+                      <div 
+                        style={{ 
+                          height: '100%', 
+                          width: `${Math.min(100, ((costAnalytics.projections?.monthly_projection_usd || 0) / (costAnalytics.projections?.monthly_budget_usd || 100)) * 100)}%`,
+                          background: costAnalytics.projections?.budget_status === 'on_track' 
+                            ? 'linear-gradient(90deg, #22c55e, #4ade80)' 
+                            : 'linear-gradient(90deg, #ef4444, #f87171)',
+                          borderRadius: '6px',
+                          transition: 'width 0.5s ease'
+                        }}
+                      />
+                    </div>
+                    <div style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: costAnalytics.projections?.budget_status === 'on_track' ? '#22c55e' : '#ef4444' }}>
+                      {costAnalytics.projections?.budget_status === 'on_track' ? '✅ On track' : '⚠️ Over budget'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '3rem', color: '#6b7280' }}>
+                <p>No analytics data available. Click refresh to load.</p>
               </div>
             )}
           </div>

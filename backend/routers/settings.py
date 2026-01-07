@@ -691,3 +691,189 @@ async def delete_email_signature(email: str, request: Request) -> Dict[str, Any]
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting signature: {str(e)}")
+
+
+# ============================================
+# Cost Analytics - API Usage Monitoring
+# ============================================
+
+@router.get("/cost-analytics")
+async def get_cost_analytics(request: Request = None, days: int = 7) -> Dict[str, Any]:
+    """
+    Get comprehensive cost analytics for all API services.
+    Includes: Google CSE, OpenAI, and cache performance metrics.
+    
+    Args:
+        days: Number of days to look back (default 7)
+        
+    Returns:
+        Comprehensive cost breakdown and optimization metrics
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        from datetime import timedelta
+        
+        # Get database references
+        email_db = mongo_client['email_automation']
+        
+        # ============ Google CSE Cache Stats ============
+        try:
+            from leads.search_cache import get_cache_stats, get_cache_size
+            cache_stats = get_cache_stats(days)
+            cache_size = get_cache_size()
+        except Exception as e:
+            cache_stats = {"error": str(e)}
+            cache_size = {"error": str(e)}
+        
+        # ============ Google CSE Usage ============
+        cse_collection = email_db.get_collection('google_cse_usage')
+        since = datetime.utcnow() - timedelta(days=days)
+        
+        cse_pipeline = [
+            {"$match": {"timestamp": {"$gte": since}}},
+            {"$group": {
+                "_id": None,
+                "total_queries": {"$sum": 1},
+                "total_results": {"$sum": "$results_count"}
+            }}
+        ]
+        cse_result = list(cse_collection.aggregate(cse_pipeline))
+        
+        cse_usage = {
+            "queries": cse_result[0]["total_queries"] if cse_result else 0,
+            "results": cse_result[0]["total_results"] if cse_result else 0,
+            "cost_per_query_usd": 0.005,  # $5 per 1000 queries
+            "estimated_cost_usd": round((cse_result[0]["total_queries"] if cse_result else 0) * 0.005, 2)
+        }
+        
+        # ============ OpenAI Usage ============
+        openai_collection = email_db.get_collection('openai_usage_logs')
+        
+        openai_pipeline = [
+            {"$match": {"timestamp": {"$gte": since}}},
+            {"$group": {
+                "_id": "$model",
+                "requests": {"$sum": 1},
+                "input_tokens": {"$sum": "$input_tokens"},
+                "output_tokens": {"$sum": "$output_tokens"},
+                "cost_usd": {"$sum": "$cost_usd"}
+            }}
+        ]
+        openai_result = list(openai_collection.aggregate(openai_pipeline))
+        
+        openai_usage = {
+            "by_model": [{
+                "model": r["_id"],
+                "requests": r["requests"],
+                "input_tokens": r["input_tokens"],
+                "output_tokens": r["output_tokens"],
+                "cost_usd": round(r["cost_usd"], 4)
+            } for r in openai_result],
+            "total_requests": sum(r["requests"] for r in openai_result),
+            "total_cost_usd": round(sum(r["cost_usd"] for r in openai_result), 4)
+        }
+        
+        # ============ Daily Breakdown ============
+        daily_breakdown = []
+        for days_ago in range(min(days, 7)):
+            day_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=days_ago)
+            day_end = day_start + timedelta(days=1)
+            date_str = day_start.strftime("%Y-%m-%d")
+            
+            # CSE for day
+            cse_day = list(cse_collection.aggregate([
+                {"$match": {"timestamp": {"$gte": day_start, "$lt": day_end}}},
+                {"$group": {"_id": None, "queries": {"$sum": 1}}}
+            ]))
+            
+            # OpenAI for day
+            openai_day = list(openai_collection.aggregate([
+                {"$match": {"timestamp": {"$gte": day_start, "$lt": day_end}}},
+                {"$group": {"_id": None, "requests": {"$sum": 1}, "cost": {"$sum": "$cost_usd"}}}
+            ]))
+            
+            # Cache metrics for day
+            cache_metrics = email_db.get_collection('search_cache_metrics')
+            cache_day = list(cache_metrics.aggregate([
+                {"$match": {"date": date_str}},
+                {"$group": {"_id": None, "hits": {"$sum": "$hits"}, "misses": {"$sum": "$misses"}}}
+            ]))
+            
+            cse_queries = cse_day[0]["queries"] if cse_day else 0
+            openai_requests = openai_day[0]["requests"] if openai_day else 0
+            openai_cost = openai_day[0]["cost"] if openai_day else 0
+            cache_hits = cache_day[0]["hits"] if cache_day else 0
+            cache_misses = cache_day[0]["misses"] if cache_day else 0
+            
+            daily_breakdown.append({
+                "date": date_str,
+                "cse_queries": cse_queries,
+                "cse_cost_usd": round(cse_queries * 0.005, 3),
+                "openai_requests": openai_requests,
+                "openai_cost_usd": round(openai_cost, 4),
+                "cache_hits": cache_hits,
+                "cache_misses": cache_misses,
+                "cache_hit_rate": round(cache_hits / (cache_hits + cache_misses), 4) if (cache_hits + cache_misses) > 0 else 0,
+                "total_cost_usd": round((cse_queries * 0.005) + openai_cost, 4)
+            })
+        
+        # ============ Cost Projections ============
+        total_cost_period = cse_usage["estimated_cost_usd"] + openai_usage["total_cost_usd"]
+        daily_average = total_cost_period / days if days > 0 else 0
+        
+        projections = {
+            "daily_average_usd": round(daily_average, 2),
+            "monthly_projection_usd": round(daily_average * 30, 2),
+            "monthly_budget_usd": 100.0,  # Configurable
+            "budget_status": "on_track" if daily_average * 30 <= 100 else "over_budget"
+        }
+        
+        # ============ Optimization Recommendations ============
+        recommendations = []
+        
+        cache_hit_rate = cache_stats.get("hit_rate", 0) if isinstance(cache_stats, dict) else 0
+        if cache_hit_rate < 0.7:
+            recommendations.append({
+                "type": "cache",
+                "severity": "warning",
+                "message": f"Cache hit rate is {cache_hit_rate*100:.1f}%, below 70% target. Consider extending cache TTL."
+            })
+        else:
+            recommendations.append({
+                "type": "cache",
+                "severity": "success",
+                "message": f"Cache hit rate is excellent at {cache_hit_rate*100:.1f}%! Saving ~{cache_hit_rate*100:.0f}% on API costs."
+            })
+        
+        if projections["monthly_projection_usd"] > projections["monthly_budget_usd"]:
+            recommendations.append({
+                "type": "budget",
+                "severity": "critical",
+                "message": f"Projected monthly cost (${projections['monthly_projection_usd']}) exceeds budget (${projections['monthly_budget_usd']})."
+            })
+        
+        return {
+            "success": True,
+            "period_days": days,
+            "generated_at": datetime.utcnow().isoformat(),
+            "cache_performance": {
+                "stats": cache_stats,
+                "size": cache_size
+            },
+            "google_cse": cse_usage,
+            "openai": openai_usage,
+            "daily_breakdown": daily_breakdown,
+            "projections": projections,
+            "recommendations": recommendations,
+            "total_cost_usd": round(total_cost_period, 2)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error fetching cost analytics: {str(e)}")

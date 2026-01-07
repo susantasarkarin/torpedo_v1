@@ -106,29 +106,29 @@ function Contacts() {
     setEditingId(contact._id)
     setFormData({
       name: contact.name || "",
-      firstName: contact.firstName || "",
-      lastName: contact.lastName || "",
+      firstName: contact.firstName || contact.first_name || "",
+      lastName: contact.lastName || contact.last_name || "",
       email: contact.email || "",
-      emailStatus: contact.emailStatus || "Valid",
+      emailStatus: contact.emailStatus || contact.email_status || "Valid",
       title: contact.title || "",
-      linkedin: contact.linkedin || "",
+      linkedin: contact.linkedin || contact.linkedin_url || "",
       location: contact.location || "",
-      companyName: contact.companyName || "",
-      companyDomain: contact.companyDomain || "",
-      companyWebsite: contact.companyWebsite || "",
-      companyEmployeeCount: contact.companyEmployeeCount || "",
-      companyEmployeeCountRange: contact.companyEmployeeCountRange || "",
-      companyFounded: contact.companyFounded || "",
-      companyIndustry: contact.companyIndustry || "",
-      companyType: contact.companyType || "",
-      companyHeadquarters: contact.companyHeadquarters || "",
-      companyRevenueRange: contact.companyRevenueRange || "",
-      companyLinkedinUrl: contact.companyLinkedinUrl || "",
-      companyCrunchbaseUrl: contact.companyCrunchbaseUrl || "",
-      companyFundingRounds: contact.companyFundingRounds || "",
-      companyLastFundingRoundAmount: contact.companyLastFundingRoundAmount || "",
-      companyLogoPrimary: contact.companyLogoPrimary || "",
-      companyLogoSecondary: contact.companyLogoSecondary || "",
+      companyName: contact.companyName || contact.company_name || "",
+      companyDomain: contact.companyDomain || contact.company_domain || "",
+      companyWebsite: contact.companyWebsite || contact.company_website || "",
+      companyEmployeeCount: contact.companyEmployeeCount || contact.company_employee_count || "",
+      companyEmployeeCountRange: contact.companyEmployeeCountRange || contact.company_employee_count_range || "",
+      companyFounded: contact.companyFounded || contact.company_founded || "",
+      companyIndustry: contact.companyIndustry || contact.company_industry || "",
+      companyType: contact.companyType || contact.company_type || "",
+      companyHeadquarters: contact.companyHeadquarters || contact.company_headquarters || "",
+      companyRevenueRange: contact.companyRevenueRange || contact.company_revenue_range || "",
+      companyLinkedinUrl: contact.companyLinkedinUrl || contact.company_linkedin_url || "",
+      companyCrunchbaseUrl: contact.companyCrunchbaseUrl || contact.company_crunchbase_url || "",
+      companyFundingRounds: contact.companyFundingRounds || contact.company_funding_rounds || "",
+      companyLastFundingRoundAmount: contact.companyLastFundingRoundAmount || contact.company_last_funding_round_amount || "",
+      companyLogoPrimary: contact.companyLogoPrimary || contact.company_logo_primary || "",
+      companyLogoSecondary: contact.companyLogoSecondary || contact.company_logo_secondary || "",
       stage: contact.stage || "discovery_call",
     })
     setShowForm(true)
@@ -293,7 +293,7 @@ function Contacts() {
     const q = search.trim().toLowerCase();
     if (!q) return contacts;
     return contacts.filter((c) =>
-      ["name", "firstName", "lastName", "email", "title", "companyName", "companyIndustry", "location", "stage"].some((field) =>
+      ["name", "firstName", "lastName", "email", "title", "companyName", "company_name", "companyIndustry", "company_industry", "location", "stage"].some((field) =>
         String(c[field] || "").toLowerCase().includes(q)
       )
     );
@@ -457,8 +457,8 @@ function Contacts() {
                     </div>
                   </td>
                   <td>{contact.title || '-'}</td>
-                  <td>{contact.companyName || '-'}</td>
-                  <td>{contact.companyIndustry || '-'}</td>
+                  <td>{contact.companyName || contact.company_name || '-'}</td>
+                  <td>{contact.companyIndustry || contact.company_industry || '-'}</td>
                   <td>
                     <span className="stage-badge" style={getStageBadgeStyle(contact.stage)}>
                       {stageInfo?.icon} {stageInfo?.label || contact.stage || 'Discovery Call'}

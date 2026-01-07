@@ -62,6 +62,7 @@ def ensure_indexes():
     leads_enriched_collection.create_index("region")
     leads_enriched_collection.create_index("confidence_score")
     leads_enriched_collection.create_index("campaign_ids")
+    leads_enriched_collection.create_index("stage")  # For lead_stage filtering
     
     # classification_logs indexes
     classification_logs_collection.create_index("raw_lead_id")
@@ -360,6 +361,12 @@ def classify_pending_leads(batch_size: Optional[int] = None) -> Tuple[int, int]:
 
 # ============== QUERY SERVICE ==============
 
+# Stage mappings matching frontend salesPipeline.js
+# Leads section: Early-stage leads not yet in active sales process
+LEAD_STAGES = ["lead_generation", "outreach"]
+# Contacts section: Active deals from discovery call onwards (moved from Leads)
+CONTACT_STAGES = ["discovery_call", "presentation", "rfq_pricing", "negotiation", "won", "lost", "onboarding", "project_execution", "payment", "retention"]
+
 def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
     """
     Get enriched leads with filtering and pagination.
@@ -368,8 +375,22 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
     query = {}
     
     # Filter by lead_stage if provided
+    # Maps 'leads' -> early-stage leads, 'contacts' -> active deals (discovery_call onwards)
     if filters.lead_stage:
-        query["lead_stage"] = filters.lead_stage
+        if filters.lead_stage == "leads":
+            # Show leads in early stages OR have no stage (default to leads)
+            query["$or"] = [
+                {"stage": {"$in": LEAD_STAGES}},
+                {"stage": {"$exists": False}},
+                {"stage": None},
+                {"stage": ""}
+            ]
+        elif filters.lead_stage == "contacts":
+            # Show leads that have been moved to contacts (discovery_call onwards)
+            query["stage"] = {"$in": CONTACT_STAGES}
+        else:
+            # Allow filtering by specific stage
+            query["stage"] = filters.lead_stage
     
     if filters.seniority_level:
         query["seniority_level"] = filters.seniority_level.value

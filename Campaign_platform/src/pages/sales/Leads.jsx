@@ -105,29 +105,29 @@ function Leads() {
     setEditingId(lead._id)
     setFormData({
       name: lead.name || "",
-      firstName: lead.firstName || "",
-      lastName: lead.lastName || "",
+      firstName: lead.firstName || lead.first_name || "",
+      lastName: lead.lastName || lead.last_name || "",
       email: lead.email || "",
-      emailStatus: lead.emailStatus || "Valid",
+      emailStatus: lead.emailStatus || lead.email_status || "Valid",
       title: lead.title || "",
-      linkedin: lead.linkedin || "",
+      linkedin: lead.linkedin || lead.linkedin_url || "",
       location: lead.location || "",
-      companyName: lead.companyName || "",
-      companyDomain: lead.companyDomain || "",
-      companyWebsite: lead.companyWebsite || "",
-      companyEmployeeCount: lead.companyEmployeeCount || "",
-      companyEmployeeCountRange: lead.companyEmployeeCountRange || "",
-      companyFounded: lead.companyFounded || "",
-      companyIndustry: lead.companyIndustry || "",
-      companyType: lead.companyType || "",
-      companyHeadquarters: lead.companyHeadquarters || "",
-      companyRevenueRange: lead.companyRevenueRange || "",
-      companyLinkedinUrl: lead.companyLinkedinUrl || "",
-      companyCrunchbaseUrl: lead.companyCrunchbaseUrl || "",
-      companyFundingRounds: lead.companyFundingRounds || "",
-      companyLastFundingRoundAmount: lead.companyLastFundingRoundAmount || "",
-      companyLogoPrimary: lead.companyLogoPrimary || "",
-      companyLogoSecondary: lead.companyLogoSecondary || "",
+      companyName: lead.companyName || lead.company_name || "",
+      companyDomain: lead.companyDomain || lead.company_domain || "",
+      companyWebsite: lead.companyWebsite || lead.company_website || "",
+      companyEmployeeCount: lead.companyEmployeeCount || lead.company_employee_count || "",
+      companyEmployeeCountRange: lead.companyEmployeeCountRange || lead.company_employee_count_range || "",
+      companyFounded: lead.companyFounded || lead.company_founded || "",
+      companyIndustry: lead.companyIndustry || lead.company_industry || "",
+      companyType: lead.companyType || lead.company_type || "",
+      companyHeadquarters: lead.companyHeadquarters || lead.company_headquarters || "",
+      companyRevenueRange: lead.companyRevenueRange || lead.company_revenue_range || "",
+      companyLinkedinUrl: lead.companyLinkedinUrl || lead.company_linkedin_url || "",
+      companyCrunchbaseUrl: lead.companyCrunchbaseUrl || lead.company_crunchbase_url || "",
+      companyFundingRounds: lead.companyFundingRounds || lead.company_funding_rounds || "",
+      companyLastFundingRoundAmount: lead.companyLastFundingRoundAmount || lead.company_last_funding_round_amount || "",
+      companyLogoPrimary: lead.companyLogoPrimary || lead.company_logo_primary || "",
+      companyLogoSecondary: lead.companyLogoSecondary || lead.company_logo_secondary || "",
       stage: lead.stage || "lead_generation",
     })
     setShowForm(true)
@@ -329,7 +329,7 @@ function Leads() {
     const q = search.trim().toLowerCase();
     if (!q) return leads;
     return leads.filter((l) =>
-      ["name", "firstName", "lastName", "email", "title", "companyName", "companyIndustry", "location"].some((field) =>
+      ["name", "firstName", "lastName", "email", "title", "companyName", "company_name", "companyIndustry", "company_industry", "location"].some((field) =>
         String(l[field] || "").toLowerCase().includes(q)
       )
     );
@@ -482,7 +482,7 @@ function Leads() {
                     </div>
                   </td>
                   <td>{lead.title || '-'}</td>
-                  <td>{lead.companyName || '-'}</td>
+                  <td>{lead.companyName || lead.company_name || '-'}</td>
                   <td>
                     <span className="stage-badge" style={getStageBadgeStyle(lead.stage)}>
                       {stageInfo?.icon} {stageInfo?.label || lead.stage || 'New'}
