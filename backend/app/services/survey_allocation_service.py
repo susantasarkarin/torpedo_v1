@@ -365,11 +365,15 @@ class SurveyAllocationService:
         
         Implements atomic allocation to prevent double-allocation:
         1. Get or create respondent
-        2. Check if already allocated
+        2. Check if already allocated (if so, allow re-allocation by resetting status)
         3. Find eligible surveys
         4. Atomically assign survey to respondent
         5. Update survey allocation count
         6. Return entry link
+        
+        NOTE: CPX integration fix - allows re-allocation of respondents who have completed/terminated
+        previous surveys. This fixes the "already_clicked / no" issue where all traffic was being
+        rejected due to respondents being in ALLOCATED/COMPLETED/TERMINATED status.
         """
         # Step 1: Get or create respondent
         respondent, is_new = self.get_or_create_respondent(request)
@@ -377,21 +381,44 @@ class SurveyAllocationService:
         
         # Step 2: Check if already allocated
         if respondent.get("status") != RespondentStatus.NEW.value:
-            # Already processed - return existing allocation if available
-            if respondent.get("entry_link"):
-                return AllocationResponse(
-                    success=True,
-                    message="Respondent already allocated",
-                    respondent_id=respondent_id,
-                    survey_id=respondent.get("survey_id"),
-                    survey_name=respondent.get("survey_name"),
-                    entry_link=respondent.get("entry_link"),
-                    allocation_id=respondent.get("allocation_id")
+            # FIXED: Instead of rejecting, reset status to NEW to allow re-allocation
+            # This fixes the CPX issue where "already_clicked / no" was blocking all traffic
+            print(f"⚠️ Respondent {respondent_id} in status {respondent.get('status')}, resetting to NEW for re-allocation")
+            
+            try:
+                reset_result = self.respondents.find_one_and_update(
+                    {"_id": ObjectId(respondent_id)},
+                    {
+                        "$set": {
+                            "status": RespondentStatus.NEW.value,
+                            "reset_at": datetime.utcnow(),
+                            "reset_count": (respondent.get("reset_count", 0) or 0) + 1,
+                            # Clear previous allocation data
+                            "survey_id": None,
+                            "survey_name": None,
+                            "entry_link": None,
+                            "allocation_id": None,
+                            "vendor_redirect_url": None
+                        }
+                    },
+                    return_document=ReturnDocument.AFTER
                 )
-            else:
+                
+                if reset_result:
+                    respondent = reset_result
+                    print(f"✅ Reset respondent {respondent_id} to NEW status for re-allocation")
+                else:
+                    print(f"❌ Failed to reset respondent {respondent_id}")
+                    return AllocationResponse(
+                        success=False,
+                        message="Failed to reset respondent for re-allocation",
+                        respondent_id=respondent_id
+                    )
+            except Exception as e:
+                print(f"❌ Error resetting respondent {respondent_id}: {e}")
                 return AllocationResponse(
                     success=False,
-                    message=f"Respondent in status: {respondent.get('status')}",
+                    message=f"Error resetting respondent: {str(e)}",
                     respondent_id=respondent_id
                 )
         

@@ -22,6 +22,7 @@ class CPXService:
         surveys_collection: Optional[Any] = None,
         filters_collection: Optional[Any] = None,
         settings_collection: Optional[Any] = None,
+        survey_allocation_service: Optional[Any] = None,
     ):
         """
         Initialize CPX Service
@@ -35,6 +36,7 @@ class CPXService:
             surveys_collection: MongoDB collection for surveys (optional for testing)
             filters_collection: MongoDB collection for filter settings (deprecated, use settings_collection)
             settings_collection: MongoDB collection for app settings (torpedo_settings.app_settings)
+            survey_allocation_service: SurveyAllocationService instance for metrics (optional, needed for clicks/completes)
         """
         self.app_id = app_id
         self.ext_user_id = ext_user_id
@@ -42,6 +44,7 @@ class CPXService:
         self.api_timeout = api_timeout
         self.fetch_limit = fetch_limit
         self.settings_collection = settings_collection
+        self.survey_allocation_service = survey_allocation_service
         
         # If collections are provided, use them; otherwise initialize from env
         if surveys_collection is not None:
@@ -492,6 +495,49 @@ class CPXService:
                 # Convert inserted_at to ISO string if present
                 if "inserted_at" in survey:
                     survey["inserted_at"] = survey["inserted_at"].isoformat()
+                
+                # FIXED: Attach metrics from survey_allocation_service
+                # This fixes the issue where CLICKS and COMPLETES were showing 0
+                if self.survey_allocation_service:
+                    try:
+                        # Look up metrics by survey external_id
+                        survey_id = survey.get("_id")
+                        metrics = self.survey_allocation_service.get_survey_metrics(survey_id)
+                        
+                        if metrics:
+                            # Attach metrics fields to survey
+                            survey["clicks"] = metrics.get("sent_n", 0)  # sent_n is equivalent to "clicks"
+                            survey["completes"] = metrics.get("completes_n", 0)
+                            survey["incompletes"] = metrics.get("incompletes_n", 0)
+                            survey["entrants"] = metrics.get("entrants_n", 0)
+                            survey["conversion_rate"] = metrics.get("conversion_rate", 0.0)
+                            survey["incidence_rate"] = metrics.get("incidence_rate", 0.0)
+                            print(f"✅ Attached metrics for survey {survey_id}: sent={metrics.get('sent_n')}, completes={metrics.get('completes_n')}")
+                        else:
+                            # Initialize with default metrics if none exist
+                            survey["clicks"] = 0
+                            survey["completes"] = 0
+                            survey["incompletes"] = 0
+                            survey["entrants"] = 0
+                            survey["conversion_rate"] = 0.0
+                            survey["incidence_rate"] = 0.0
+                    except Exception as e:
+                        print(f"⚠️ Failed to attach metrics for survey {survey.get('_id')}: {e}")
+                        # Provide default values on error
+                        survey["clicks"] = 0
+                        survey["completes"] = 0
+                        survey["incompletes"] = 0
+                        survey["entrants"] = 0
+                        survey["conversion_rate"] = 0.0
+                        survey["incidence_rate"] = 0.0
+                else:
+                    # No allocation service provided, use defaults
+                    survey["clicks"] = 0
+                    survey["completes"] = 0
+                    survey["incompletes"] = 0
+                    survey["entrants"] = 0
+                    survey["conversion_rate"] = 0.0
+                    survey["incidence_rate"] = 0.0
                 
                 cleaned_surveys.append(survey)
             
