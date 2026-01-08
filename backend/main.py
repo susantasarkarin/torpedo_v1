@@ -701,7 +701,7 @@ async def startup_event():
     
     # Auto-subscribe to Cint webhook on startup
     try:
-        from app.models.cint import OpportunitiesSubscriptionConfig, OpportunitiesFeed
+        from app.models.cint import OpportunitiesSubscriptionConfig, OpportunitiesSubscriptionFilter
         
         # Check if Cint integration is available
         if cint_integration and cint_integration.cint_service:
@@ -711,22 +711,20 @@ async def startup_event():
             if status_result.get("success"):
                 print("✅ Cint webhook already subscribed")
             else:
-                # Create subscription if not already subscribed
+                # Create subscription if not already subscribed (404 means no subscription exists)
                 print("📡 Subscribing to Cint opportunities webhook...")
                 
                 # Default callback URL (will be used for webhook events)
                 callback_url = f"{API_BASE}/api/cint/webhooks/opportunities"
                 
-                # Configure subscription with basic filters (all active opportunities)
+                # Configure subscription with minimal filters (receive all opportunities)
                 config = OpportunitiesSubscriptionConfig(
                     callback_url=callback_url,
                     include_quotas=True,
                     payload_max_size_mb=10,
                     payload_max_survey_count=50,
                     send_interval_seconds=60,
-                    opportunities_filters=[
-                        OpportunitiesFeed(state="open")  # Only open opportunities
-                    ] if hasattr(OpportunitiesFeed, 'state') else None,
+                    opportunities_filters=[],  # Empty filters = all opportunities
                 )
                 
                 result = await cint_integration.cint_service.create_opportunities_subscription(config)
