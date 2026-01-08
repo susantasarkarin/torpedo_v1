@@ -699,6 +699,49 @@ async def startup_event():
     """Initialize scheduler and start background jobs"""
     global cpx_refresh_job
     
+    # Auto-subscribe to Cint webhook on startup
+    try:
+        from app.models.cint import OpportunitiesSubscriptionConfig, OpportunitiesFeed
+        
+        # Check if Cint integration is available
+        if cint_integration and cint_integration.cint_service:
+            # Check current subscription status
+            status_result = await cint_integration.cint_service.get_opportunities_subscription()
+            
+            if status_result.get("success"):
+                print("✅ Cint webhook already subscribed")
+            else:
+                # Create subscription if not already subscribed
+                print("📡 Subscribing to Cint opportunities webhook...")
+                
+                # Default callback URL (will be used for webhook events)
+                callback_url = f"{API_BASE}/api/cint/webhooks/opportunities"
+                
+                # Configure subscription with basic filters (all active opportunities)
+                config = OpportunitiesSubscriptionConfig(
+                    callback_url=callback_url,
+                    include_quotas=True,
+                    payload_max_size_mb=10,
+                    payload_max_survey_count=50,
+                    send_interval_seconds=60,
+                    opportunities_filters=[
+                        OpportunitiesFeed(state="open")  # Only open opportunities
+                    ] if hasattr(OpportunitiesFeed, 'state') else None,
+                )
+                
+                result = await cint_integration.cint_service.create_opportunities_subscription(config)
+                
+                if result.get("success"):
+                    print(f"✅ Cint webhook subscription created: {callback_url}")
+                else:
+                    print(f"⚠️ Cint webhook subscription failed: {result.get('error')}")
+    except ImportError:
+        print("⚠️ Cint models not available for auto-subscription")
+    except Exception as e:
+        print(f"⚠️ Cint webhook subscription error: {e}")
+        import traceback
+        traceback.print_exc()
+    
     # Start Email Sync workers (runs in background even when user navigates away)
     try:
         try:

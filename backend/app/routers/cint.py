@@ -434,6 +434,7 @@ async def get_opportunity(survey_id: int):
 @router.post("/subscription/opportunities")
 async def create_opportunities_subscription(
     config: OpportunitiesSubscriptionConfig,
+    cint_service = Depends(get_cint_service),
 ):
     """
     Create or update opportunities subscription
@@ -449,23 +450,35 @@ async def create_opportunities_subscription(
         }
     """
     try:
-        # TODO: Get CintService from dependency injection
-        # result = await cint_service.create_opportunities_subscription(config)
+        logger.info(f"Creating opportunities subscription with callback: {config.callback_url}")
+        result = await cint_service.create_opportunities_subscription(config)
         
-        logger.info(f"Creating opportunities subscription")
-        
-        return {
-            "success": False,
-            "message": "Not yet implemented",
-        }
+        if result.get("success"):
+            logger.info("✓ Subscription created successfully")
+            return {
+                "success": True,
+                "message": "Subscription created/updated",
+                "callback_url": config.callback_url,
+                "data": result.get("data"),
+            }
+        else:
+            logger.error(f"Subscription creation failed: {result.get('error')}")
+            raise HTTPException(
+                status_code=result.get("status_code", 500),
+                detail=result.get("error", "Failed to create subscription"),
+            )
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error creating subscription: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/subscription/opportunities")
-async def get_opportunities_subscription():
+async def get_opportunities_subscription(
+    cint_service = Depends(get_cint_service),
+):
     """
     Get current opportunities subscription status
     
@@ -473,15 +486,22 @@ async def get_opportunities_subscription():
         Current subscription configuration
     """
     try:
-        # TODO: Get CintService from dependency injection
-        # result = await cint_service.get_opportunities_subscription()
+        logger.info("Retrieving opportunities subscription status")
+        result = await cint_service.get_opportunities_subscription()
         
-        logger.info("Retrieving opportunities subscription")
-        
-        return {
-            "success": False,
-            "message": "Not yet implemented",
-        }
+        if result.get("success"):
+            logger.info("✓ Subscription status retrieved")
+            return {
+                "success": True,
+                "data": result.get("data"),
+            }
+        else:
+            logger.warning(f"Could not retrieve subscription: {result.get('error')}")
+            return {
+                "success": False,
+                "error": result.get("error"),
+                "status_code": result.get("status_code", 500),
+            }
     
     except Exception as e:
         logger.error(f"Error retrieving subscription: {str(e)}")
@@ -489,7 +509,9 @@ async def get_opportunities_subscription():
 
 
 @router.delete("/subscription/opportunities")
-async def delete_opportunities_subscription():
+async def delete_opportunities_subscription(
+    cint_service = Depends(get_cint_service),
+):
     """
     Delete opportunities subscription
     
@@ -500,16 +522,24 @@ async def delete_opportunities_subscription():
         }
     """
     try:
-        # TODO: Get CintService from dependency injection
-        # result = await cint_service.delete_opportunities_subscription()
-        
         logger.info("Deleting opportunities subscription")
+        result = await cint_service.delete_opportunities_subscription()
         
-        return {
-            "success": False,
-            "message": "Not yet implemented",
-        }
+        if result.get("success"):
+            logger.info("✓ Subscription deleted")
+            return {
+                "success": True,
+                "message": "Subscription deleted",
+            }
+        else:
+            logger.error(f"Subscription deletion failed: {result.get('error')}")
+            raise HTTPException(
+                status_code=result.get("status_code", 500),
+                detail=result.get("error", "Failed to delete subscription"),
+            )
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting subscription: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
