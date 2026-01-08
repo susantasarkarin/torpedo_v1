@@ -145,16 +145,22 @@ class CintService:
         """
         url = f"{self.base_url}{self.OPPORTUNITIES_ENDPOINT.format(supplier_code=self.supplier_code)}"
         
+        # Build opportunities filters - must have at least one filter per Cint API spec
+        opportunities = [
+            filter.dict(exclude_none=True)
+            for filter in config.opportunities_filters
+        ] if config.opportunities_filters else [
+            # Default: accept all country_language pairs (broadest filter)
+            {"country_language": {"in": ["eng_us"]}}
+        ]
+        
         payload = {
             "callback": config.callback_url,
             "include_quotas": config.include_quotas,
             "payload_max_size_mb": config.payload_max_size_mb,
             "payload_max_survey_count": config.payload_max_survey_count,
             "send_interval_seconds": config.send_interval_seconds,
-            "opportunities": [
-                filter.dict(exclude_none=True)
-                for filter in config.opportunities_filters
-            ] if config.opportunities_filters else [],
+            "opportunities": opportunities,
         }
         
         try:
