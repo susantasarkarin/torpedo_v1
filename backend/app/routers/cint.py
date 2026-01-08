@@ -33,7 +33,7 @@ from app.models.cint import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/cint", tags=["cint"])
+router = APIRouter(tags=["cint"])
 
 # Global service instances (set by main.py)
 _cint_service = None
