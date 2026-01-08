@@ -628,7 +628,7 @@ class CintService:
         Returns:
             Dict with surveys list, total count, and metadata
         """
-        if not self.cint_surveys_collection:
+        if self.cint_surveys_collection is None:
             return {
                 "success": False,
                 "surveys": [],
