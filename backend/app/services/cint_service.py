@@ -158,8 +158,8 @@ class CintService:
         }
         
         try:
-            # Try PUT first (Cint typically uses PUT for creating/updating subscriptions)
-            response = await self.client.put(
+            # POST per Cint API documentation: https://developer.lucidhq.com/#post-create-opportunities-subscription
+            response = await self.client.post(
                 url,
                 json=payload,
                 headers=self._get_headers(),
