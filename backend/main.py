@@ -722,8 +722,8 @@ async def startup_event():
                     callback_url=callback_url,
                     include_quotas=True,
                     payload_max_size_mb=10,
-                    payload_max_survey_count=50,
-                    send_interval_seconds=60,
+                    payload_max_survey_count=1000,  # Min required: 1000
+                    send_interval_seconds=30,  # Max allowed: 30 seconds
                     opportunities_filters=[],  # Empty filters = all opportunities
                 )
                 

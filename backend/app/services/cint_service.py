@@ -158,7 +158,8 @@ class CintService:
         }
         
         try:
-            response = await self.client.post(
+            # Try PUT first (Cint typically uses PUT for creating/updating subscriptions)
+            response = await self.client.put(
                 url,
                 json=payload,
                 headers=self._get_headers(),
