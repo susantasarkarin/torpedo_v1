@@ -150,8 +150,8 @@ class CintService:
             filter.dict(exclude_none=True)
             for filter in config.opportunities_filters
         ] if config.opportunities_filters else [
-            # Default: accept all country_language pairs (broadest filter)
-            {"country_language": {"in": ["eng_us"]}}
+            # Default: accept major English-speaking locales
+            {"country_language": {"in": ["eng_us", "eng_gb", "eng_ca", "eng_au"]}}
         ]
         
         payload = {

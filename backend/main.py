@@ -717,14 +717,14 @@ async def startup_event():
                 # Default callback URL (will be used for webhook events)
                 callback_url = f"{API_BASE}/api/cint/webhooks/opportunities"
                 
-                # Configure subscription with minimal filters (receive all opportunities)
+                # Configure subscription to receive opportunities from major English locales
                 config = OpportunitiesSubscriptionConfig(
                     callback_url=callback_url,
                     include_quotas=True,
                     payload_max_size_mb=10,
                     payload_max_survey_count=1000,  # Min required: 1000
                     send_interval_seconds=30,  # Max allowed: 30 seconds
-                    opportunities_filters=[],  # Empty filters = all opportunities
+                    opportunities_filters=[],  # Uses default: eng_us, eng_gb, eng_ca, eng_au
                 )
                 
                 result = await cint_integration.cint_service.create_opportunities_subscription(config)
