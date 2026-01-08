@@ -48,6 +48,8 @@ try:
     from .routers import approvals as approvals_router
     from .app.services.cpx_service import CPXService
     from .app.routers import survey_allocation as survey_allocation_router
+    from .app.routers import cint as cint_router
+    from .app.integrations.cint_integration import CintIntegration
     from .leads import router as leads_router
 except Exception:
     # Fallback to absolute import for other runtimes
@@ -64,6 +66,8 @@ except Exception:
     from routers import approvals as approvals_router
     from app.services.cpx_service import CPXService
     from app.routers import survey_allocation as survey_allocation_router
+    from app.routers import cint as cint_router
+    from app.integrations.cint_integration import CintIntegration
     from leads import router as leads_router
 
 # Ensure stdout/stderr use UTF-8 on Windows consoles to avoid UnicodeEncodeError
@@ -412,6 +416,30 @@ if cpx_surveys_collection is not None and cpx_filters_collection is not None:
     print("✅ CPX service injected into traffic router")
 else:
     print("⚠️ CPX Research router not initialized due to database connection issue")
+
+# Cint Integration Setup
+try:
+    from database_setup_cint import setup_cint_database
+    # Initialize Cint database collections
+    setup_cint_database(mongo_uri=MONGO_URI)
+    print("✅ Cint database collections initialized")
+    
+    # Initialize CintIntegration with environment variables or defaults
+    cint_integration = CintIntegration.load_from_env()
+    cint_integration.initialize()
+    
+    # Wire up services to router for dependency injection
+    cint_router.set_cint_service(cint_integration.cint_service)
+    cint_router.set_cint_allocation_ext(cint_integration.allocation_extension)
+    
+    # Register Cint router
+    app.include_router(cint_router.router, prefix="/api/cint", tags=["Cint Research"])
+    print("✅ Cint Research router initialized")
+    print(f"✅ Cint integration active (Supplier Code: {cint_integration.supplier_code})")
+except Exception as e:
+    print(f"⚠️ Cint Research setup failed: {e}")
+    import traceback
+    traceback.print_exc()
 
 # Inject vendors collection into traffic router for CPX callback handling
 try:
