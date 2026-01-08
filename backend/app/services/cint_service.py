@@ -604,3 +604,95 @@ class CintService:
             logger.error(f"Error querying entry link for survey {survey_id}: {str(e)}")
         
         return None
+
+    def get_surveys(
+        self,
+        min_loi: Optional[int] = None,
+        max_loi: Optional[int] = None,
+        min_cpi: Optional[float] = None,
+        country: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Dict[str, Any]:
+        """
+        Get filtered Cint surveys from MongoDB cache
+
+        Args:
+            min_loi: Minimum Length of Interview (minutes)
+            max_loi: Maximum Length of Interview (minutes)
+            min_cpi: Minimum Cost Per Completion ($)
+            country: Filter by country code
+            page: Page number (1-indexed)
+            page_size: Results per page
+
+        Returns:
+            Dict with surveys list, total count, and metadata
+        """
+        if not self.cint_surveys_collection:
+            return {
+                "success": False,
+                "surveys": [],
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+                "message": "Surveys collection not available"
+            }
+        
+        try:
+            # Build query filter
+            filter_query = {"is_active": True}
+            
+            # Apply LOI filters
+            if max_loi is not None:
+                filter_query["length_of_interview"] = {"$lte": max_loi}
+            if min_loi is not None:
+                if "length_of_interview" in filter_query:
+                    filter_query["length_of_interview"]["$gte"] = min_loi
+                else:
+                    filter_query["length_of_interview"] = {"$gte": min_loi}
+            
+            # Apply CPI filter
+            if min_cpi is not None:
+                filter_query["payout"] = {"$gte": min_cpi}
+            
+            # Apply country filter
+            if country:
+                filter_query["country_language"] = {"$regex": f"^{country}", "$options": "i"}
+            
+            # Get total count
+            total = self.cint_surveys_collection.count_documents(filter_query)
+            
+            # Calculate pagination
+            skip = (page - 1) * page_size
+            
+            # Fetch surveys with sorting
+            surveys_cursor = self.cint_surveys_collection.find(filter_query).sort(
+                "_id", -1
+            ).skip(skip).limit(page_size)
+            
+            surveys = []
+            for doc in surveys_cursor:
+                # Remove MongoDB _id if present to avoid serialization issues
+                if "_id" in doc:
+                    del doc["_id"]
+                surveys.append(doc)
+            
+            return {
+                "success": True,
+                "surveys": surveys,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "filtered": min_loi is not None or max_loi is not None or min_cpi is not None or country is not None,
+            }
+        
+        except Exception as e:
+            logger.error(f"Error fetching surveys: {str(e)}")
+            return {
+                "success": False,
+                "surveys": [],
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+                "error": str(e)
+            }

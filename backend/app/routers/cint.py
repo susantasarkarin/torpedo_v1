@@ -9,7 +9,7 @@ Endpoints for:
 """
 from fastapi import APIRouter, HTTPException, Header, Body, Depends, Query, Request
 from fastapi.responses import JSONResponse
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 import logging
 import os
@@ -591,3 +591,71 @@ async def health_check():
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "service": "cint-integration"
     }
+
+
+# ============================================
+# Survey Pool - Filtered Surveys
+# ============================================
+
+@router.get("/surveys")
+async def get_surveys(
+    min_loi: Optional[int] = Query(None, ge=1, le=60, description="Minimum LOI in minutes"),
+    max_loi: Optional[int] = Query(None, ge=1, le=120, description="Maximum LOI in minutes"),
+    min_cpi: Optional[float] = Query(None, ge=0, description="Minimum CPI in USD"),
+    country: Optional[str] = Query(None, description="Filter by country code (e.g., US, CA, GB)"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    cint_service = Depends(get_cint_service),
+) -> Dict[str, Any]:
+    """
+    Get filtered Cint surveys from survey pool
+    
+    This endpoint returns cached surveys from MongoDB that match the filter criteria.
+    Surveys are updated via webhook every 15 seconds from Cint.
+    
+    Args:
+        min_loi: Minimum Length of Interview (minutes)
+        max_loi: Maximum Length of Interview (minutes)
+        min_cpi: Minimum Cost Per Completion (USD)
+        country: Country code filter (e.g., "US")
+        page: Page number (1-indexed)
+        page_size: Results per page (max 100)
+        cint_service: CintService instance
+    
+    Returns:
+        {
+            "success": true,
+            "surveys": [
+                {
+                    "survey_id": 12345,
+                    "country_language": "US-EN",
+                    "length_of_interview": 15,
+                    "payout": 1.50,
+                    "conversion_rate": 0.45,
+                    "is_active": true,
+                    ...
+                }
+            ],
+            "total": 245,
+            "page": 1,
+            "page_size": 20,
+            "filtered": true
+        }
+    """
+    try:
+        logger.info(f"Fetching Cint surveys - page {page}, filters: LOI={min_loi}-{max_loi}, CPI={min_cpi}, Country={country}")
+        
+        result = cint_service.get_surveys(
+            min_loi=min_loi,
+            max_loi=max_loi,
+            min_cpi=min_cpi,
+            country=country,
+            page=page,
+            page_size=page_size,
+        )
+        
+        return result
+    
+    except Exception as e:
+        logger.error(f"Error fetching surveys: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
