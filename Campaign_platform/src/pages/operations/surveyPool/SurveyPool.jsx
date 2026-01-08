@@ -5,12 +5,16 @@ import './SurveyPool.css';
 
 export default function SurveyPool() {
   const { user, token } = useAuth();
+  const [activeTab, setActiveTab] = useState('cpx'); // 'cpx' or 'cint'
   const [surveys, setSurveys] = useState([]);
+  const [cintSurveys, setCintSurveys] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [cintLastUpdated, setCintLastUpdated] = useState(null);
   const [recordsPerPage, setRecordsPerPage] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
+  const [cintCurrentPage, setCintCurrentPage] = useState(1);
   const [selectedSurvey, setSelectedSurvey] = useState(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [trafficStats, setTrafficStats] = useState({}); // survey_id -> {clicks, completes}
@@ -20,6 +24,7 @@ export default function SurveyPool() {
   useEffect(() => {
     if (token) {
       fetchSurveys();
+      fetchCintSurveys();
       fetchTrafficStats();
       fetchClients();
     }
@@ -29,11 +34,15 @@ export default function SurveyPool() {
   useEffect(() => {
     if (!token) return;
     const interval = setInterval(() => {
-      fetchSurveys();
+      if (activeTab === 'cpx') {
+        fetchSurveys();
+      } else {
+        fetchCintSurveys();
+      }
       fetchTrafficStats();
     }, 30000); // 30 seconds
     return () => clearInterval(interval);
-  }, [token]);
+  }, [token, activeTab]);
 
   const fetchSurveys = async (pageSize = 20) => {
     setLoading(true);
@@ -59,6 +68,34 @@ export default function SurveyPool() {
       }
     } catch (err) {
       console.error('Error fetching surveys:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch Cint surveys from cache
+  const fetchCintSurveys = async (pageSize = 20) => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/cint/surveys?page=${cintCurrentPage}&page_size=${pageSize}`, {
+        headers: {
+          'Authorization': token,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch Cint surveys');
+      }
+
+      const data = await response.json();
+      setCintSurveys(data.surveys || []);
+      setCintLastUpdated(new Date().toISOString());
+    } catch (err) {
+      console.error('Error fetching Cint surveys:', err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -213,7 +250,23 @@ export default function SurveyPool() {
     }
   };
 
-  // Client-side pagination
+  // Manual refresh handler for Cint
+  const handleRefreshCint = async () => {
+    setLoading(true);
+    try {
+      // Note: Cint surveys are automatically updated via webhook every 15 seconds
+      // This just refreshes the local cache
+      await fetchCintSurveys();
+      setCintCurrentPage(1);
+    } catch (err) {
+      console.error('Error refreshing Cint surveys:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Client-side pagination for CPX
   const paginatedSurveys = useMemo(() => {
     const startIndex = (currentPage - 1) * recordsPerPage;
     const endIndex = startIndex + recordsPerPage;
@@ -221,6 +274,22 @@ export default function SurveyPool() {
   }, [surveys, currentPage, recordsPerPage]);
 
   const totalPages = Math.ceil(surveys.length / recordsPerPage);
+
+  // Client-side pagination for Cint
+  const paginatedCintSurveys = useMemo(() => {
+    const startIndex = (cintCurrentPage - 1) * recordsPerPage;
+    const endIndex = startIndex + recordsPerPage;
+    return cintSurveys.slice(startIndex, endIndex);
+  }, [cintSurveys, cintCurrentPage, recordsPerPage]);
+
+  const cintTotalPages = Math.ceil(cintSurveys.length / recordsPerPage);
+
+  // Get current surveys to display based on active tab
+  const displaySurveys = activeTab === 'cpx' ? paginatedSurveys : paginatedCintSurveys;
+  const displayTotalPages = activeTab === 'cpx' ? totalPages : cintTotalPages;
+  const displayTotal = activeTab === 'cpx' ? surveys.length : cintSurveys.length;
+  const displayLastUpdated = activeTab === 'cpx' ? lastUpdated : cintLastUpdated;
+  const currentPageNum = activeTab === 'cpx' ? currentPage : cintCurrentPage;
 
   // Handle survey click to show details
   const handleSurveyClick = (survey) => {
@@ -249,7 +318,7 @@ export default function SurveyPool() {
     });
   };
 
-  // Get survey name - for CPX surveys, use survey_id as name
+  // Get survey name - for CPX surveys, use survey_id as name; for Cint, use survey_id
   const getSurveyName = (survey) => {
     const source = survey.provider || survey.source || 'CPX';
     if (source === 'CPX') {
@@ -279,16 +348,16 @@ export default function SurveyPool() {
       <div className="survey-pool-header">
         <div>
           <h1>📋 Survey Pool</h1>
-          <p>CPX Research survey inventory</p>
+          <p>CPX & Cint Research survey inventory</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          {lastUpdated && (
+          {displayLastUpdated && (
             <span style={{ fontSize: '0.85rem', color: '#666' }}>
-              Last updated: {new Date(lastUpdated).toLocaleString()}
+              Last updated: {new Date(displayLastUpdated).toLocaleString()}
             </span>
           )}
           <button
-            onClick={handleRefresh}
+            onClick={activeTab === 'cpx' ? handleRefresh : handleRefreshCint}
             disabled={loading}
             className="refresh-btn"
           >
@@ -297,8 +366,50 @@ export default function SurveyPool() {
         </div>
       </div>
 
+      {/* Survey Source Tabs */}
+      <div className="survey-tabs" style={{ borderBottom: '1px solid #ddd', marginBottom: '1rem' }}>
+        <button
+          className={`tab-btn ${activeTab === 'cpx' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('cpx');
+            setCurrentPage(1);
+          }}
+          style={{
+            padding: '10px 20px',
+            border: 'none',
+            background: 'none',
+            cursor: 'pointer',
+            borderBottom: activeTab === 'cpx' ? '3px solid #667eea' : 'none',
+            color: activeTab === 'cpx' ? '#667eea' : '#666',
+            fontWeight: activeTab === 'cpx' ? 'bold' : 'normal',
+            fontSize: '15px',
+          }}
+        >
+          📊 CPX Research ({surveys.length})
+        </button>
+        <button
+          className={`tab-btn ${activeTab === 'cint' ? 'active' : ''}`}
+          onClick={() => {
+            setActiveTab('cint');
+            setCintCurrentPage(1);
+          }}
+          style={{
+            padding: '10px 20px',
+            border: 'none',
+            background: 'none',
+            cursor: 'pointer',
+            borderBottom: activeTab === 'cint' ? '3px solid #667eea' : 'none',
+            color: activeTab === 'cint' ? '#667eea' : '#666',
+            fontWeight: activeTab === 'cint' ? 'bold' : 'normal',
+            fontSize: '15px',
+          }}
+        >
+          🎯 Cint Research ({cintSurveys.length})
+        </button>
+      </div>
+
       {/* Loading State */}
-      {loading && surveys.length === 0 && !error && (
+      {loading && displaySurveys.length === 0 && !error && (
         <div className="survey-pool-loading">
           <div className="loading-spinner"></div>
           <p>⏳ Loading surveys...</p>
@@ -310,14 +421,14 @@ export default function SurveyPool() {
         <div className="survey-pool-error">
           <p>❌ Failed to fetch surveys</p>
           <p className="error-detail">{error}</p>
-          <button onClick={handleRefresh} className="retry-btn">
+          <button onClick={activeTab === 'cpx' ? handleRefresh : handleRefreshCint} className="retry-btn">
             🔄 Retry
           </button>
         </div>
       )}
 
       {/* Survey Table */}
-      {paginatedSurveys.length > 0 && (
+      {displaySurveys.length > 0 && (
         <>
           <div className="survey-table-container">
             <table className="survey-table">
@@ -337,7 +448,7 @@ export default function SurveyPool() {
                 </tr>
               </thead>
               <tbody>
-                {paginatedSurveys.map((survey, index) => {
+                {displaySurveys.map((survey, index) => {
                   const surveyId = survey.survey_id || survey._id;
                   const stats = trafficStats[surveyId] || { clicks: 0, completes: 0 };
                   return (
@@ -357,16 +468,16 @@ export default function SurveyPool() {
                         {getClientType(survey)}
                       </span>
                     </td>
-                    <td>{survey.country || survey.country_code || 'N/A'}</td>
-                    <td>{survey.loi || 'N/A'}</td>
+                    <td>{survey.country || survey.country_code || survey.country_language || 'N/A'}</td>
+                    <td>{survey.loi || survey.length_of_interview || 'N/A'}</td>
                     <td>${survey.payout?.toFixed(2) || survey.cpi?.toFixed(2) || '0.00'}</td>
                     <td>{getConversionRate(survey)}</td>
                     <td>{stats.clicks}</td>
                     <td>{stats.completes}</td>
                     <td>{formatDateTime(survey.last_updated || survey.inserted_at)}</td>
                     <td>
-                      <span className={`status-badge ${survey.status === 'active' ? 'active' : 'inactive'}`}>
-                        {survey.status || 'active'}
+                      <span className={`status-badge ${(survey.status === 'active' || survey.is_active) ? 'active' : 'inactive'}`}>
+                        {(survey.status || survey.is_active) ? 'active' : 'inactive'}
                       </span>
                     </td>
                   </tr>
@@ -377,11 +488,11 @@ export default function SurveyPool() {
           </div>
 
           {/* Pagination Controls */}
-          {surveys.length > recordsPerPage && (
+          {displayTotal > recordsPerPage && (
             <div className="survey-pool-pagination">
               <div className="pagination-info">
-                Showing {(currentPage - 1) * recordsPerPage + 1} to{' '}
-                {Math.min(currentPage * recordsPerPage, surveys.length)} of {surveys.length} surveys
+                Showing {(currentPageNum - 1) * recordsPerPage + 1} to{' '}
+                {Math.min(currentPageNum * recordsPerPage, displayTotal)} of {displayTotal} surveys
               </div>
 
               <div className="pagination-controls">
@@ -389,7 +500,8 @@ export default function SurveyPool() {
                   value={recordsPerPage}
                   onChange={(e) => {
                     setRecordsPerPage(Number(e.target.value));
-                    setCurrentPage(1);
+                    if (activeTab === 'cpx') setCurrentPage(1);
+                    else setCintCurrentPage(1);
                   }}
                   className="records-per-page"
                 >
@@ -401,34 +513,34 @@ export default function SurveyPool() {
 
                 <div className="pagination-buttons">
                   <button
-                    onClick={() => setCurrentPage(1)}
-                    disabled={currentPage === 1 || loading}
+                    onClick={() => activeTab === 'cpx' ? setCurrentPage(1) : setCintCurrentPage(1)}
+                    disabled={currentPageNum === 1 || loading}
                     className="pagination-btn"
                   >
                     ⬅️ First
                   </button>
                   <button
-                    onClick={() => setCurrentPage(currentPage - 1)}
-                    disabled={currentPage === 1 || loading}
+                    onClick={() => activeTab === 'cpx' ? setCurrentPage(currentPageNum - 1) : setCintCurrentPage(cintCurrentPage - 1)}
+                    disabled={currentPageNum === 1 || loading}
                     className="pagination-btn"
                   >
                     ← Previous
                   </button>
 
                   <span className="pagination-page-info">
-                    Page {currentPage} of {totalPages}
+                    Page {currentPageNum} of {displayTotalPages}
                   </span>
 
                   <button
-                    onClick={() => setCurrentPage(currentPage + 1)}
-                    disabled={currentPage === totalPages || loading}
+                    onClick={() => activeTab === 'cpx' ? setCurrentPage(currentPageNum + 1) : setCintCurrentPage(cintCurrentPage + 1)}
+                    disabled={currentPageNum === displayTotalPages || loading}
                     className="pagination-btn"
                   >
                     Next →
                   </button>
                   <button
-                    onClick={() => setCurrentPage(totalPages)}
-                    disabled={currentPage === totalPages || loading}
+                    onClick={() => activeTab === 'cpx' ? setCurrentPage(displayTotalPages) : setCintCurrentPage(cintTotalPages)}
+                    disabled={currentPageNum === displayTotalPages || loading}
                     className="pagination-btn"
                   >
                     Last ➡️
@@ -440,11 +552,11 @@ export default function SurveyPool() {
         </>
       )}
 
-      {surveys.length === 0 && !error && !loading && (
+      {displaySurveys.length === 0 && !error && !loading && (
         <div className="survey-pool-empty">
           <div className="empty-icon">📭</div>
           <p className="empty-title">No surveys available</p>
-          <p className="empty-subtitle">Refresh to check for new surveys from CPX Research.</p>
+          <p className="empty-subtitle">Refresh to check for new surveys from {activeTab === 'cpx' ? 'CPX Research' : 'Cint Research'}.</p>
         </div>
       )}
 
