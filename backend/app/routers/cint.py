@@ -117,6 +117,9 @@ async def handle_opportunities_webhook(
         opportunities = request_body if isinstance(request_body, list) else [request_body]
         
         logger.info(f"Received opportunities webhook with {len(opportunities)} surveys")
+        # DEBUG: Log raw payload structure
+        logger.info(f"CINT WEBHOOK DEBUG - Raw payload keys: {list(request_body.keys()) if isinstance(request_body, dict) else 'list'}")
+        logger.info(f"CINT WEBHOOK DEBUG - Payload sample: {str(request_body)[:500]}")
         
         # Process through CintService
         processed = await cint_service.process_opportunity_webhook(request_body)
