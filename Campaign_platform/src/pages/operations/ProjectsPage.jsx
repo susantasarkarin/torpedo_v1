@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../../config"; // adjust path as per your structure
+import "./ProjectsPage.css";
 
 function ProjectsPage() {
   const navigate = useNavigate(); // ✅ define at top

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../../config"; // adjust path if needed
+import "./VendorsPage.css";
 
 function VendorsPage() {
   const navigate = useNavigate(); // ✅ must be defined first

@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
+import "./Account.css"
 import "../../styles/SalesPages.css"
 
 // Helper functions to map between account UI format and sales accounts API format
