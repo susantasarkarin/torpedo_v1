@@ -1,7 +1,71 @@
-.contacts-page {
-  padding: 1.5rem;
-  max-width: 1600px;
-  margin: 0 auto;
+/* ============================================
+   CONTACTS PAGE - UNIFORM TABLE STYLING
+   ============================================ */
+
+/* Target all divs with boxShadow (table container) */
+div[style*="boxShadow"] {
+  border-radius: 10px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
+  overflow: hidden;
+}
+
+/* Table styling */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  background: white;
+}
+
+/* Table headers */
+thead {
+  background-color: #f8f9fa !important;
+}
+
+thead tr {
+  border-bottom: 2px solid #e5e7eb !important;
+}
+
+thead th {
+  padding: 0.75rem 1rem !important;
+  font-weight: 600 !important;
+  color: #6b7280 !important;
+  text-align: left !important;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+/* Table body rows */
+tbody tr {
+  border-bottom: 1px solid #f3f4f6 !important;
+  transition: background-color 0.15s ease !important;
+}
+
+tbody tr:hover {
+  background-color: #f9fafb !important;
+}
+
+tbody td {
+  padding: 0.75rem 1rem !important;
+  color: #374151;
+  vertical-align: middle !important;
+}
+
+/* Pagination container */
+div[style*="paginationContainer"] {
+  border-radius: 10px !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Pagination buttons */
+div[style*="paginationContainer"] button {
+  border-radius: 6px !important;
+  transition: all 0.2s ease !important;
+}
+
+div[style*="paginationContainer"] button:hover:not(:disabled) {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
 }
 
 .contacts-header {

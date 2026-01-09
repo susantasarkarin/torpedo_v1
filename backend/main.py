@@ -499,6 +499,18 @@ try:
 except Exception as e:
     print(f"⚠️ Leads router not included: {e}")
 
+# Clay-Level Features router (List building, enrichment, workbooks)
+try:
+    try:
+        from .leads.clay_routes import router as clay_routes
+    except ImportError:
+        from leads.clay_routes import router as clay_routes
+    
+    app.include_router(clay_routes)
+    print("✅ Clay-Level Features router included")
+except Exception as e:
+    print(f"⚠️ Clay router not included: {e}")
+
 # RFQ (Request for Quote) router
 try:
     app.include_router(rfq_router.router)
@@ -699,6 +711,19 @@ async def startup_event():
     """Initialize scheduler and start background jobs"""
     global cpx_refresh_job
     
+    # Initialize Clay-Level Features
+    try:
+        try:
+            from .leads.clay_init import initialize_clay_features
+        except ImportError:
+            from leads.clay_init import initialize_clay_features
+        
+        await initialize_clay_features()
+    except Exception as e:
+        print(f"⚠️ Clay initialization error: {e}")
+        import traceback
+        traceback.print_exc()
+    
     # Auto-subscribe to Cint webhook on startup
     try:
         from app.models.cint import OpportunitiesSubscriptionConfig, OpportunitiesSubscriptionFilter
@@ -863,6 +888,17 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Shutdown scheduler and email sync workers"""
+    # Shutdown Clay features
+    try:
+        try:
+            from .leads.clay_init import shutdown_clay_features
+        except ImportError:
+            from leads.clay_init import shutdown_clay_features
+        
+        await shutdown_clay_features()
+    except Exception as e:
+        print(f"⚠️ Clay shutdown error: {e}")
+    
     if scheduler.running:
         scheduler.shutdown()
         print("✅ Scheduler shutdown complete")
