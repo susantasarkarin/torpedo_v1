@@ -288,7 +288,7 @@ class CintService:
         Args:
             opportunity: CintOpportunity instance
         """
-        if not self.cint_surveys_collection:
+        if self.cint_surveys_collection is None:
             return
         
         query = {"survey_id": opportunity.survey_id}
@@ -464,7 +464,7 @@ class CintService:
         Args:
             supplier_link: SupplierLink instance
         """
-        if not self.cint_entry_links_collection:
+        if self.cint_entry_links_collection is None:
             return
         
         query = {"survey_id": supplier_link.survey_id}
@@ -546,7 +546,7 @@ class CintService:
         Returns:
             List of active CintOpportunity objects
         """
-        if not self.cint_surveys_collection:
+        if self.cint_surveys_collection is None:
             return []
         
         opportunities = []
@@ -578,7 +578,7 @@ class CintService:
         Returns:
             CintOpportunity or None if not found
         """
-        if not self.cint_surveys_collection:
+        if self.cint_surveys_collection is None:
             return None
         
         try:
@@ -600,7 +600,7 @@ class CintService:
         Returns:
             SupplierLink or None if not found
         """
-        if not self.cint_entry_links_collection:
+        if self.cint_entry_links_collection is None:
             return None
         
         try:
