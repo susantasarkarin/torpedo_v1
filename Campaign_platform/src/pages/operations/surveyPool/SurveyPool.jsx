@@ -19,6 +19,8 @@ export default function SurveyPool() {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [trafficStats, setTrafficStats] = useState({}); // survey_id -> {clicks, completes}
   const [clients, setClients] = useState([]); // List of clients for client name lookup
+  const [cpxTotal, setCpxTotal] = useState(0); // Total CPX surveys from API
+  const [cintTotal, setCintTotal] = useState(0); // Total CINT surveys from API
 
   // Fetch surveys on mount
   useEffect(() => {
@@ -63,6 +65,7 @@ export default function SurveyPool() {
 
       const data = await response.json();
       setSurveys(data.surveys || []);
+      setCpxTotal(data.total || data.surveys?.length || 0);
       if (data.last_updated) {
         setLastUpdated(data.last_updated);
       }
@@ -75,12 +78,13 @@ export default function SurveyPool() {
   };
 
   // Fetch Cint surveys from cache
-  const fetchCintSurveys = async (pageSize = 20) => {
+  const fetchCintSurveys = async (pageSize = 100) => {
     setLoading(true);
     setError(null);
     
     try {
-      const response = await fetch(`${API_BASE_URL}/api/cint/surveys?page=${cintCurrentPage}&page_size=${pageSize}`, {
+      // Fetch with larger page size to get all surveys
+      const response = await fetch(`${API_BASE_URL}/api/cint/surveys?page=1&page_size=1000`, {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
@@ -93,6 +97,7 @@ export default function SurveyPool() {
 
       const data = await response.json();
       setCintSurveys(data.surveys || []);
+      setCintTotal(data.total || data.surveys?.length || 0);
       setCintLastUpdated(new Date().toISOString());
     } catch (err) {
       console.error('Error fetching Cint surveys:', err);
@@ -165,6 +170,11 @@ export default function SurveyPool() {
 
   // Get client name - handles both CPX surveys and Projects
   const getClientName = (survey) => {
+    // For CINT surveys, account_name contains the buyer name
+    if (survey.account_name) {
+      return survey.account_name;
+    }
+    
     // For projects, client_name is stored directly
     if (survey.client_name) {
       return survey.client_name;
@@ -190,9 +200,14 @@ export default function SurveyPool() {
 
   // Get client type from the Clients module
   const getClientType = (survey) => {
+    // For CINT surveys (has account_name field), return "ONLINE"
+    if (survey.account_name) {
+      return 'ONLINE';
+    }
+    
     // For CPX/API surveys, return "API" (they come from API)
     if (survey.provider === 'CPX' || survey.source === 'CPX') {
-      return 'API';
+      return 'ONLINE';
     }
     
     // For projects, look up client by client_name
@@ -320,6 +335,10 @@ export default function SurveyPool() {
 
   // Get survey name - for CPX surveys, use survey_id as name; for Cint, use survey_id
   const getSurveyName = (survey) => {
+    // For CINT surveys, use survey_id as the name/link
+    if (survey.account_name) {
+      return survey.survey_id || survey._id || 'N/A';
+    }
     const source = survey.provider || survey.source || 'CPX';
     if (source === 'CPX') {
       return survey.survey_id || survey._id || 'N/A';
@@ -327,8 +346,75 @@ export default function SurveyPool() {
     return survey.name || survey.survey_name || survey.title || 'N/A';
   };
 
+  // Extract country code from country_language (e.g., "eng_us" -> "US", "eng_gb" -> "GB")
+  const getCountryCode = (survey) => {
+    // First check direct country or country_code fields
+    if (survey.country && survey.country.length <= 3) {
+      return survey.country.toUpperCase();
+    }
+    if (survey.country_code && survey.country_code.length <= 3) {
+      return survey.country_code.toUpperCase();
+    }
+    
+    // For CINT surveys, parse country_language field (e.g., "eng_us" -> "US")
+    const countryLanguage = survey.country_language;
+    if (countryLanguage && typeof countryLanguage === 'string') {
+      // Format is typically "lang_country" e.g., "eng_us", "eng_gb", "eng_in"
+      const parts = countryLanguage.split('_');
+      if (parts.length >= 2) {
+        return parts[parts.length - 1].toUpperCase(); // Get last part and uppercase
+      }
+      // If format is different, just uppercase it
+      return countryLanguage.toUpperCase();
+    }
+    
+    return 'N/A';
+  };
+
+  // Get LOI (Length of Interview) in minutes
+  const getLOI = (survey) => {
+    // For CINT surveys, use bid_length_of_interview
+    if (survey.bid_length_of_interview && survey.bid_length_of_interview > 0) {
+      return survey.bid_length_of_interview;
+    }
+    // Fallback to length_of_interview or loi
+    return survey.length_of_interview || survey.loi || 'N/A';
+  };
+
+  // Get Payout/CPI in USD
+  const getPayout = (survey) => {
+    // For CINT surveys, revenue_per_interview is an object {value, currency_code}
+    if (survey.revenue_per_interview) {
+      const rpi = survey.revenue_per_interview;
+      if (typeof rpi === 'object' && rpi.value) {
+        return `$${parseFloat(rpi.value).toFixed(2)}`;
+      }
+      if (typeof rpi === 'number') {
+        return `$${rpi.toFixed(2)}`;
+      }
+    }
+    // Fallback to payout or cpi fields
+    if (survey.payout !== undefined && survey.payout !== null) {
+      return `$${parseFloat(survey.payout).toFixed(2)}`;
+    }
+    if (survey.cpi !== undefined && survey.cpi !== null) {
+      return `$${parseFloat(survey.cpi).toFixed(2)}`;
+    }
+    return '$0.00';
+  };
+
   // Calculate conversion rate properly (stored as decimal, display as percentage)
   const getConversionRate = (survey) => {
+    // For CINT surveys, use 'conversion' field (0.0 to 1.0)
+    if (survey.conversion !== undefined && survey.conversion !== null) {
+      const rate = parseFloat(survey.conversion);
+      if (rate > 1) {
+        return `${rate.toFixed(1)}%`;
+      }
+      return `${(rate * 100).toFixed(1)}%`;
+    }
+    
+    // Fallback to conversion_rate
     const rate = survey.conversion_rate;
     if (rate === null || rate === undefined) return 'N/A';
     // If rate is already > 1, it's likely already a percentage
@@ -337,6 +423,12 @@ export default function SurveyPool() {
     }
     // Otherwise multiply by 100 to get percentage
     return `${(rate * 100).toFixed(1)}%`;
+  };
+
+  // Get date/time for survey (handles CINT and CPX formats)
+  const getSurveyDateTime = (survey) => {
+    // For CINT surveys, use received_at or last_updated_at
+    return survey.received_at || survey.last_updated_at || survey.last_updated || survey.inserted_at;
   };
 
   if (!user) {
@@ -385,7 +477,7 @@ export default function SurveyPool() {
             fontSize: '15px',
           }}
         >
-          📊 CPX Research ({surveys.length})
+          📊 CPX Research ({cpxTotal || surveys.length})
         </button>
         <button
           className={`tab-btn ${activeTab === 'cint' ? 'active' : ''}`}
@@ -404,7 +496,7 @@ export default function SurveyPool() {
             fontSize: '15px',
           }}
         >
-          🎯 Cint Research ({cintSurveys.length})
+          🎯 Cint Research ({cintTotal || cintSurveys.length})
         </button>
       </div>
 
@@ -468,13 +560,13 @@ export default function SurveyPool() {
                         {getClientType(survey)}
                       </span>
                     </td>
-                    <td>{survey.country || survey.country_code || survey.country_language || 'N/A'}</td>
-                    <td>{survey.loi || survey.length_of_interview || 'N/A'}</td>
-                    <td>${survey.payout?.toFixed(2) || survey.cpi?.toFixed(2) || '0.00'}</td>
+                    <td>{getCountryCode(survey)}</td>
+                    <td>{getLOI(survey)}</td>
+                    <td>{getPayout(survey)}</td>
                     <td>{getConversionRate(survey)}</td>
                     <td>{stats.clicks}</td>
                     <td>{stats.completes}</td>
-                    <td>{formatDateTime(survey.last_updated || survey.inserted_at)}</td>
+                    <td>{formatDateTime(getSurveyDateTime(survey))}</td>
                     <td>
                       <span className={`status-badge ${(survey.status === 'active' || survey.is_active) ? 'active' : 'inactive'}`}>
                         {(survey.status || survey.is_active) ? 'active' : 'inactive'}
@@ -576,23 +668,23 @@ export default function SurveyPool() {
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Name</span>
-                  <span className="detail-value">{getSurveyName(selectedSurvey)}</span>
+                  <span className="detail-value">{selectedSurvey.survey_name || getSurveyName(selectedSurvey)}</span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Source</span>
-                  <span className="detail-value">{selectedSurvey.provider || selectedSurvey.source || 'CPX'}</span>
+                  <span className="detail-value">{selectedSurvey.account_name ? 'CINT' : (selectedSurvey.provider || selectedSurvey.source || 'CPX')}</span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Country</span>
-                  <span className="detail-value">{selectedSurvey.country || selectedSurvey.country_code || 'N/A'}</span>
+                  <span className="detail-value">{getCountryCode(selectedSurvey)}</span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Length of Interview</span>
-                  <span className="detail-value">{selectedSurvey.loi || 'N/A'} minutes</span>
+                  <span className="detail-value">{getLOI(selectedSurvey)} minutes</span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Payout</span>
-                  <span className="detail-value">${selectedSurvey.payout?.toFixed(2) || selectedSurvey.cpi?.toFixed(2) || '0.00'}</span>
+                  <span className="detail-value">{getPayout(selectedSurvey)}</span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Conversion Rate</span>
@@ -600,16 +692,28 @@ export default function SurveyPool() {
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Category</span>
-                  <span className="detail-value">{selectedSurvey.category || 'N/A'}</span>
+                  <span className="detail-value">{selectedSurvey.industry || selectedSurvey.category || 'N/A'}</span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Status</span>
-                  <span className="detail-value">{selectedSurvey.status || 'active'}</span>
+                  <span className="detail-value">{selectedSurvey.is_active ? 'active' : (selectedSurvey.status || 'active')}</span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Date/Time Added</span>
-                  <span className="detail-value">{formatDateTime(selectedSurvey.last_updated || selectedSurvey.inserted_at)}</span>
+                  <span className="detail-value">{formatDateTime(getSurveyDateTime(selectedSurvey))}</span>
                 </div>
+                {selectedSurvey.account_name && (
+                  <div className="detail-item">
+                    <span className="detail-label">Buyer/Account</span>
+                    <span className="detail-value">{selectedSurvey.account_name}</span>
+                  </div>
+                )}
+                {selectedSurvey.bid_incidence && (
+                  <div className="detail-item">
+                    <span className="detail-label">Incidence Rate</span>
+                    <span className="detail-value">{selectedSurvey.bid_incidence}%</span>
+                  </div>
+                )}
               </div>
               {selectedSurvey.title && selectedSurvey.title !== getSurveyName(selectedSurvey) && (
                 <div className="detail-item full-width">
