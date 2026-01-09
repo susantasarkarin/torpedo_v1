@@ -84,7 +84,8 @@ export default function SurveyPool() {
     
     try {
       // Fetch with larger page size to get all surveys
-      const response = await fetch(`${API_BASE_URL}/api/cint/surveys?page=1&page_size=1000`, {
+      // Note: API_BASE_URL already ends with /api, so we use /cint/surveys
+      const response = await fetch(`${API_BASE_URL}/cint/surveys?page=1&page_size=1000`, {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
