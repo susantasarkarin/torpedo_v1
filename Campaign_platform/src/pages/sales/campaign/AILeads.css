@@ -258,11 +258,12 @@
 /* ============== TABLE ============== */
 .table-wrapper {
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
   max-width: 100%;
   position: relative;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  margin-bottom: 1.5rem;
 }
 
 .data-table {
@@ -272,18 +273,31 @@
 
 .data-table th,
 .data-table td {
-  padding: 14px 16px;
+  padding: 0.75rem 1rem;
   text-align: left;
   border-bottom: 1px solid var(--border);
 }
 
 .data-table th {
-  background: #f9fafb;
+  background: #f8f9fa;
   font-weight: 600;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  letter-spacing: 0.5px;
+  font-size: 0.9375rem;
+  color: #333;
+  border-bottom: 2px solid #e5e7eb;
+  white-space: nowrap;
+}
+
+.data-table td {
+  font-size: 0.9375rem;
+  color: #374151;
+}
+
+.data-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.data-table tbody tr.clickable-row {
+  cursor: pointer;
 }
 
 .data-table tbody tr:hover {
@@ -410,9 +424,12 @@
 .classified-table-container {
   overflow-x: auto;
   max-width: 100%;
-  -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
+  margin-bottom: 1.5rem;
 }
 
 .classified-table-container::-webkit-scrollbar {
@@ -434,18 +451,32 @@
 }
 
 .classified-table {
-  min-width: 1800px; /* Reduced width - hide less important columns by default */
-  table-layout: fixed; /* Fixed layout for consistent column widths */
+  min-width: 1800px;
+  table-layout: fixed;
+  background: white;
+  border-collapse: collapse;
 }
 
 .classified-table th,
 .classified-table td {
-  padding: 10px 12px;
+  padding: 0.75rem 1rem;
   white-space: nowrap;
-  font-size: 0.8rem;
+  font-size: 0.9375rem;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 150px; /* Default max width for columns */
+  max-width: 150px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.classified-table th {
+  background: #f8f9fa;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.classified-table td {
+  color: #374151;
 }
 
 /* Specific column widths */
@@ -459,21 +490,25 @@
 .classified-table .sticky-col {
   position: sticky;
   left: 0;
-  background: var(--card);
+  background: white;
   z-index: 2;
 }
 
 .classified-table .sticky-col-2 {
   position: sticky;
   left: 40px;
-  background: var(--card);
+  background: white;
   z-index: 2;
 }
 
 .classified-table thead .sticky-col,
 .classified-table thead .sticky-col-2 {
-  background: #f9fafb;
+  background: #f8f9fa;
   z-index: 3;
+}
+
+.classified-table tbody tr:hover {
+  background: #f9fafb;
 }
 
 .classified-table tbody tr:hover .sticky-col,
@@ -481,9 +516,14 @@
   background: #f9fafb;
 }
 
+.classified-table tbody tr.selected {
+  background: #eff6ff;
+}
+
 .classified-table tbody tr.selected .sticky-col,
 .classified-table tbody tr.selected .sticky-col-2 {
   background: #eff6ff;
+}
 }
 
 /* Email cell styling */

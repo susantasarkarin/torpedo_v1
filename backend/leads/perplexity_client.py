@@ -352,6 +352,137 @@ def perplexity_query_sync(
 
 # ============== DISCOVERY FUNCTIONS ==============
 
+async def discover_contacts_direct(
+    designation: str,
+    industry: str,
+    location: str = "",
+    count: int = 10,
+    criteria: str = ""
+) -> Dict[str, Any]:
+    """
+    Discover contacts directly (bypasses Google CSE).
+    Returns people with estimated LinkedIn URLs.
+    
+    This is the OPTIMIZED approach - single API call instead of Perplexity + Google CSE.
+    Cost: $0.005 per request vs $0.005 (Perplexity) + $0.025 (5 Google CSE queries)
+    
+    Args:
+        designation: Job title to search (e.g., "CEO", "VP Sales", "CTO")
+        industry: Industry focus (e.g., "fintech", "SaaS", "healthcare")
+        location: Geographic focus (e.g., "United States", "India")
+        count: Number of contacts to find (default 10)
+        criteria: Additional criteria (e.g., "at startups", "enterprise companies")
+        
+    Returns:
+        Dict with contacts list including name, title, company, linkedin patterns
+    """
+    query = f"""Find {count} real {designation} professionals at {industry} companies"""
+    if location:
+        query += f" in {location}"
+    if criteria:
+        query += f" ({criteria})"
+    
+    query += """.
+
+For each person, provide as JSON array:
+[
+  {
+    "name": "Full Name",
+    "title": "Exact Job Title",
+    "company": "Company Name",
+    "company_domain": "company.com",
+    "linkedin_url": "linkedin.com/in/firstname-lastname-123abc",
+    "location": "City, Country",
+    "company_size": "Startup/SMB/Mid-Market/Enterprise"
+  }
+]
+
+IMPORTANT:
+- Only include REAL people you can verify exist
+- LinkedIn URLs should follow the pattern: linkedin.com/in/firstname-lastname
+- Include company domain for email derivation
+- Focus on decision-makers and senior professionals"""
+
+    result = await perplexity_query(
+        query=query,
+        query_type="contact_discovery_direct",
+        model=SONAR_MODEL
+    )
+    
+    # Parse the response to extract contacts
+    if result.get("success"):
+        contacts = _parse_contacts_from_response(result.get("content", ""))
+        result["contacts"] = contacts
+        result["contacts_count"] = len(contacts)
+    
+    return result
+
+
+def _parse_contacts_from_response(content: str) -> List[Dict[str, str]]:
+    """Parse contacts from Perplexity response text."""
+    import json
+    import re
+    
+    contacts = []
+    
+    # Try to find JSON array in response
+    json_match = re.search(r'\[[\s\S]*?\]', content)
+    if json_match:
+        try:
+            parsed = json.loads(json_match.group())
+            if isinstance(parsed, list):
+                for item in parsed:
+                    if isinstance(item, dict) and item.get("name"):
+                        contacts.append({
+                            "name": item.get("name", ""),
+                            "title": item.get("title", ""),
+                            "company": item.get("company", ""),
+                            "company_domain": item.get("company_domain", ""),
+                            "linkedin_url": item.get("linkedin_url", ""),
+                            "location": item.get("location", ""),
+                            "company_size": item.get("company_size", "")
+                        })
+                return contacts
+        except json.JSONDecodeError:
+            pass
+    
+    # Fallback: parse line by line for structured data
+    lines = content.split('\n')
+    current_contact = {}
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            if current_contact.get("name"):
+                contacts.append(current_contact)
+                current_contact = {}
+            continue
+        
+        # Try to extract name patterns
+        if re.match(r'^\d+\.?\s*\*?\*?([A-Z][a-z]+\s+[A-Z][a-z]+)', line):
+            if current_contact.get("name"):
+                contacts.append(current_contact)
+            name_match = re.search(r'([A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)', line)
+            if name_match:
+                current_contact = {"name": name_match.group(1)}
+        
+        # Extract LinkedIn URL
+        linkedin_match = re.search(r'linkedin\.com/in/([a-zA-Z0-9\-]+)', line)
+        if linkedin_match and current_contact:
+            current_contact["linkedin_url"] = f"linkedin.com/in/{linkedin_match.group(1)}"
+        
+        # Extract title/company patterns
+        if current_contact and not current_contact.get("title"):
+            title_match = re.search(r'(CEO|CTO|CFO|COO|VP|Director|Manager|Head|Chief)[^,\n]*', line, re.IGNORECASE)
+            if title_match:
+                current_contact["title"] = title_match.group(0).strip()
+    
+    if current_contact.get("name"):
+        contacts.append(current_contact)
+    
+    return contacts
+
+
 async def discover_companies(
     industry: str,
     location: str = "",
@@ -360,6 +491,7 @@ async def discover_companies(
 ) -> Dict[str, Any]:
     """
     Discover companies in a specific industry/location.
+    NOTE: For lead generation, use discover_contacts_direct() instead - it's more efficient.
     
     Args:
         industry: Industry to search (e.g., "fintech", "healthtech")

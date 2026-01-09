@@ -143,28 +143,42 @@
 /* Table */
 .rfq-table-container {
   overflow-x: auto;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  margin-bottom: 1.5rem;
 }
 
 .rfq-table {
   width: 100%;
   border-collapse: collapse;
+  background: white;
 }
 
 .rfq-table th {
   padding: 0.75rem 1rem;
   text-align: left;
   font-weight: 600;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  color: #6b7280;
-  background-color: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
+  font-size: 0.9375rem;
+  color: #333;
+  background-color: #f8f9fa;
+  border-bottom: 2px solid #e5e7eb;
+  white-space: nowrap;
 }
 
 .rfq-table td {
   padding: 0.75rem 1rem;
   border-bottom: 1px solid #f3f4f6;
   vertical-align: middle;
+  font-size: 0.9375rem;
+  color: #374151;
+}
+
+.rfq-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.rfq-table tbody tr.clickable-row {
+  cursor: pointer;
 }
 
 .rfq-table tbody tr:hover {

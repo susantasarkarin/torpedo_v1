@@ -48,8 +48,6 @@ function Settings() {
     perplexity_enabled: false,
     perplexity_daily_limit: 200,
     perplexity_hourly_limit: 50,
-    google_api_key: "",
-    google_cse_id: "",
     google_sheets_service_account: "",
   })
   const [maskedSettings, setMaskedSettings] = useState({})
@@ -142,6 +140,9 @@ function Settings() {
   const [aiDatabaseRefilling, setAiDatabaseRefilling] = useState(false)
   const [aiDatabaseProcessing, setAiDatabaseProcessing] = useState(false)
   const [aiDatabaseIndustry, setAiDatabaseIndustry] = useState('')
+  const [aiDatabaseDesignation, setAiDatabaseDesignation] = useState('')
+  const [aiDatabaseLocation, setAiDatabaseLocation] = useState('')
+  const [aiDatabaseCount, setAiDatabaseCount] = useState(20)
   const [aiDatabaseFilter, setAiDatabaseFilter] = useState('all')
 
   useEffect(() => {
@@ -394,32 +395,36 @@ function Settings() {
   }
 
   const refillAiDatabase = async () => {
-    if (!aiDatabaseIndustry.trim()) {
-      setMessage({ type: "error", text: "Please enter an industry/niche to discover companies" })
+    if (!aiDatabaseDesignation.trim() || !aiDatabaseIndustry.trim()) {
+      setMessage({ type: "error", text: "Please enter both designation and industry to discover leads" })
       return
     }
     setAiDatabaseRefilling(true)
     try {
       const token = getAuthToken()
-      const res = await fetch(`${API_BASE_URL}/leads/ai-database/refill`, {
+      const res = await fetch(`${API_BASE_URL}/leads/ai-database/discover-leads`, {
         method: "POST",
         headers: { 
           Authorization: token,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
+          designation: aiDatabaseDesignation.trim(),
           industry: aiDatabaseIndustry.trim(),
-          count: 100
+          location: aiDatabaseLocation.trim() || "USA",
+          count: aiDatabaseCount || 20
         })
       })
       if (res.ok) {
         const data = await res.json()
-        setMessage({ type: "success", text: `Discovered ${data.companies_added} new companies` })
+        setMessage({ type: "success", text: `Discovered ${data.contacts_found} contacts, imported ${data.leads_imported} leads (est. cost: ${data.cost_estimate})` })
+        setAiDatabaseDesignation('')
         setAiDatabaseIndustry('')
+        setAiDatabaseLocation('')
         loadAiDatabase()
       } else {
         const error = await res.json()
-        setMessage({ type: "error", text: getErrorMessage(error, "Failed to discover companies") })
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to discover leads") })
       }
     } catch (error) {
       setMessage({ type: "error", text: error.message })
@@ -1505,29 +1510,7 @@ function Settings() {
                 </div>
               </div>
 
-              <div className="settings-group">
-                <h3>🔍 Google API Settings</h3>
-                <div className="setting-row">
-                  <label>Google API Key</label>
-                  <input
-                    type="password"
-                    placeholder={maskedSettings.google_api_key_masked || "AIza..."}
-                    value={appSettings.google_api_key}
-                    onChange={(e) => handleAppSettingChange("google_api_key", e.target.value)}
-                  />
-                  <p className="setting-hint">From <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer">Google Cloud Console</a></p>
-                </div>
-                <div className="setting-row">
-                  <label>Custom Search Engine ID</label>
-                  <input
-                    type="text"
-                    placeholder={maskedSettings.google_cse_id_masked || "Your CSE ID"}
-                    value={appSettings.google_cse_id}
-                    onChange={(e) => handleAppSettingChange("google_cse_id", e.target.value)}
-                  />
-                  <p className="setting-hint">From <a href="https://programmablesearchengine.google.com/" target="_blank" rel="noopener noreferrer">Google Programmable Search</a></p>
-                </div>
-              </div>
+              {/* Google CSE settings removed - using Perplexity direct discovery instead */}
 
               <div className="settings-group settings-grid-full">
                 <h3>📄 Google Sheets Service Account</h3>
@@ -1544,74 +1527,7 @@ function Settings() {
                 </div>
               </div>
 
-            {/* Google CSE Rate Limiting for Cost Control */}
-            <div className="settings-group">
-              <h3>💰 Google Search Rate Limiting</h3>
-              <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <input
-                  type="checkbox"
-                  checked={appSettings.google_cse_rate_limit_enabled !== false}
-                  onChange={(e) => handleAppSettingChange("google_cse_rate_limit_enabled", e.target.checked)}
-                  style={{ width: '18px', height: '18px' }}
-                />
-                <label style={{ margin: 0 }}>Enable Rate Limiting</label>
-                <span style={{ color: appSettings.google_cse_rate_limit_enabled !== false ? '#10b981' : '#ef4444', fontSize: '0.8rem', fontWeight: 500 }}>
-                  {appSettings.google_cse_rate_limit_enabled !== false ? '✓ Active' : '✗ Off'}
-                </span>
-              </div>
-              <div className="setting-row">
-                <label>Daily / Hourly Limits</label>
-                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-                  <div className="input-with-unit">
-                    <input
-                      type="number"
-                      min="10"
-                      max="10000"
-                      value={appSettings.google_cse_daily_limit || 400}
-                      onChange={(e) => handleAppSettingChange("google_cse_daily_limit", parseInt(e.target.value))}
-                    />
-                    <span className="unit">/day</span>
-                  </div>
-                  <div className="input-with-unit">
-                    <input
-                      type="number"
-                      min="5"
-                      max="500"
-                      value={appSettings.google_cse_hourly_limit || 50}
-                      onChange={(e) => handleAppSettingChange("google_cse_hourly_limit", parseInt(e.target.value))}
-                    />
-                    <span className="unit">/hour</span>
-                  </div>
-                </div>
-                <p className="setting-hint">Est. cost: ${(((appSettings.google_cse_daily_limit || 400) - 100) * 30 * 5 / 1000).toFixed(0)}/mo</p>
-              </div>
-              <div className="setting-row">
-                <label>Query Delay / Budget</label>
-                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-                  <div className="input-with-unit">
-                    <input
-                      type="number"
-                      min="1"
-                      max="60"
-                      value={appSettings.google_cse_query_delay || 3}
-                      onChange={(e) => handleAppSettingChange("google_cse_query_delay", parseInt(e.target.value))}
-                    />
-                    <span className="unit">sec</span>
-                  </div>
-                  <div className="input-with-unit">
-                    <input
-                      type="number"
-                      min="0"
-                      max="500"
-                      step="5"
-                      value={appSettings.google_cse_monthly_budget || 50}
-                      onChange={(e) => handleAppSettingChange("google_cse_monthly_budget", parseFloat(e.target.value))}
-                    />
-                    <span className="unit">$/mo</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+              {/* Google CSE rate limiting removed - no longer needed */}
 
               {/* Survey Filter Settings */}
               <div className="settings-group">
@@ -2495,12 +2411,12 @@ function Settings() {
                     </div>
                   </div>
 
-                  {/* Google CSE */}
+                  {/* Perplexity API */}
                   <div style={{ background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', borderRadius: '12px', padding: '1.25rem', color: 'white' }}>
-                    <div style={{ fontSize: '0.875rem', opacity: 0.9, marginBottom: '0.5rem' }}>Google CSE</div>
-                    <div style={{ fontSize: '2rem', fontWeight: '700' }}>{costAnalytics.google_cse?.queries || 0}</div>
+                    <div style={{ fontSize: '0.875rem', opacity: 0.9, marginBottom: '0.5rem' }}>Perplexity API</div>
+                    <div style={{ fontSize: '2rem', fontWeight: '700' }}>{costAnalytics.perplexity?.requests || 0}</div>
                     <div style={{ fontSize: '0.75rem', opacity: 0.8, marginTop: '0.5rem' }}>
-                      queries (${costAnalytics.google_cse?.estimated_cost_usd?.toFixed(2) || '0'})
+                      requests (${costAnalytics.perplexity?.estimated_cost_usd?.toFixed(2) || '0'})
                     </div>
                   </div>
 
@@ -2886,10 +2802,10 @@ function Settings() {
 
         {activeTab === "aidatabase" && (
           <div className="settings-section">
-            <h2>🏢 AI Company Database</h2>
+            <h2>🏢 AI Lead Discovery</h2>
             <p className="section-description">
-              Discover companies via Perplexity AI, then search for leads with Google CSE and enrich with OpenAI.
-              The system auto-refills when pending companies drop below 100.
+              Discover leads directly via Perplexity AI and enrich with OpenAI.
+              Streamlined 2-step pipeline: Perplexity finds contacts → OpenAI enriches lead data.
             </p>
 
             {/* Status Cards */}
@@ -2948,36 +2864,77 @@ function Settings() {
               marginBottom: '1.5rem'
             }}>
               <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span>🔍</span> Perplexity Company Discovery
+                <span>🔍</span> Perplexity Direct Lead Discovery
               </h3>
-              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <p style={{ color: '#64748b', marginBottom: '1rem', fontSize: '0.875rem' }}>
+                Find contacts directly with Perplexity AI. Leads are auto-imported and classified. Cost: ~$0.001/lead
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
                 <input
                   type="text"
-                  placeholder="Enter industry/niche (e.g., 'SaaS companies in fintech')"
-                  value={aiDatabaseIndustry}
-                  onChange={(e) => setAiDatabaseIndustry(e.target.value)}
+                  placeholder="Designation (e.g., 'CEO', 'VP Sales')"
+                  value={aiDatabaseDesignation}
+                  onChange={(e) => setAiDatabaseDesignation(e.target.value)}
                   style={{ 
-                    flex: 1, 
-                    minWidth: '250px', 
                     padding: '0.75rem',
                     borderRadius: '6px',
                     border: '1px solid #d1d5db'
                   }}
                 />
+                <input
+                  type="text"
+                  placeholder="Industry (e.g., 'SaaS', 'fintech')"
+                  value={aiDatabaseIndustry}
+                  onChange={(e) => setAiDatabaseIndustry(e.target.value)}
+                  style={{ 
+                    padding: '0.75rem',
+                    borderRadius: '6px',
+                    border: '1px solid #d1d5db'
+                  }}
+                />
+                <input
+                  type="text"
+                  placeholder="Location (e.g., 'USA', 'NYC')"
+                  value={aiDatabaseLocation}
+                  onChange={(e) => setAiDatabaseLocation(e.target.value)}
+                  style={{ 
+                    padding: '0.75rem',
+                    borderRadius: '6px',
+                    border: '1px solid #d1d5db'
+                  }}
+                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <label style={{ fontSize: '0.875rem', color: '#374151' }}>Count:</label>
+                  <input
+                    type="number"
+                    min="5"
+                    max="50"
+                    value={aiDatabaseCount}
+                    onChange={(e) => setAiDatabaseCount(parseInt(e.target.value) || 20)}
+                    style={{ 
+                      width: '70px',
+                      padding: '0.75rem',
+                      borderRadius: '6px',
+                      border: '1px solid #d1d5db'
+                    }}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
                 <button
                   onClick={refillAiDatabase}
-                  disabled={aiDatabaseRefilling}
+                  disabled={aiDatabaseRefilling || !aiDatabaseDesignation.trim() || !aiDatabaseIndustry.trim()}
                   style={{
                     background: aiDatabaseRefilling ? '#9ca3af' : '#8b5cf6',
                     color: 'white',
                     padding: '0.75rem 1.5rem',
                     borderRadius: '6px',
                     border: 'none',
-                    cursor: aiDatabaseRefilling ? 'not-allowed' : 'pointer',
+                    cursor: aiDatabaseRefilling || !aiDatabaseDesignation.trim() || !aiDatabaseIndustry.trim() ? 'not-allowed' : 'pointer',
                     fontWeight: '500'
                   }}
                 >
-                  {aiDatabaseRefilling ? '🔄 Discovering...' : '🚀 Discover 100 Companies'}
+                  {aiDatabaseRefilling ? '🔄 Discovering...' : `🚀 Discover ${aiDatabaseCount} Leads`}
                 </button>
               </div>
             </div>
@@ -2991,10 +2948,10 @@ function Settings() {
               marginBottom: '1.5rem'
             }}>
               <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span>⚙️</span> Lead Generation Pipeline
+                <span>⚙️</span> Lead Enrichment Pipeline
               </h3>
               <p style={{ color: '#166534', marginBottom: '1rem', fontSize: '0.875rem' }}>
-                Process pending companies: Google CSE finds contacts → OpenAI enriches lead data
+                Process discovered leads: OpenAI classifies and enriches lead data for quality scoring
               </p>
               <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
                 <button

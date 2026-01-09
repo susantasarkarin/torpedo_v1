@@ -89,42 +89,51 @@
 }
 
 /* Table Styles */
+.table-container {
+  overflow-x: auto;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  margin-bottom: 1.5rem;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
   background-color: white;
-  border-radius: 0.5rem;
-  overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 thead {
-  background-color: #f9fafb;
+  background-color: #f8f9fa;
 }
 
 thead th {
-  padding: 1rem;
+  padding: 0.75rem 1rem;
   text-align: left;
-  font-size: 0.75rem;
   font-weight: 600;
-  text-transform: uppercase;
-  color: #6b7280;
-  letter-spacing: 0.05em;
+  color: #333;
+  border-bottom: 2px solid #e5e7eb;
+  white-space: nowrap;
+  font-size: 0.9375rem;
 }
 
 tbody tr {
-  border-top: 1px solid #e5e7eb;
-  transition: background-color 0.2s ease;
+  border-bottom: 1px solid #f3f4f6;
+  transition: background-color 0.15s ease;
+}
+
+tbody tr.clickable-row {
+  cursor: pointer;
 }
 
 tbody tr:hover {
-  background-color: #f9fafb;
+  background: #f9fafb;
 }
 
 tbody td {
-  padding: 1rem;
+  padding: 0.75rem 1rem;
   font-size: 0.9375rem;
   color: #374151;
+  vertical-align: middle;
 }
 
 /* Status Badge */

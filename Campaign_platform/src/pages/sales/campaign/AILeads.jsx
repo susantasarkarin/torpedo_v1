@@ -195,8 +195,8 @@ function AILeads() {
   });
   const [gmailImportProgress, setGmailImportProgress] = useState(null);
 
-  // AI Discovery State (Perplexity + Google CSE)
-  const [discoveryStep, setDiscoveryStep] = useState(1); // 1=search companies, 2=select companies, 3=preview contacts
+  // AI Discovery State (Perplexity Direct - no Google CSE needed)
+  const [discoveryStep, setDiscoveryStep] = useState(1); // 1=search, 2=preview contacts
   const [discoveryIndustry, setDiscoveryIndustry] = useState("");
 
   // Search Control State (Global pause, circuit breaker, emergency stop)
@@ -677,7 +677,7 @@ function AILeads() {
                   } else if (status.status === "stopped") {
                     alert(`⏹️ Search stopped. Imported ${status.total_imported} leads so far.`);
                   } else if (status.status === "api_error") {
-                    alert(`🔴 API Error: Check your Google API key in Settings. Imported ${status.total_imported} leads before error.`);
+                    alert(`🔴 API Error: Check your Perplexity/OpenAI API keys in Settings. Imported ${status.total_imported} leads before error.`);
                   } else if (status.status === "paused") {
                     // Don't alert for paused - user can see in control panel
                   }
@@ -844,8 +844,8 @@ function AILeads() {
   };
 
   const handleDiscoverCompanies = async () => {
-    if (!discoveryIndustry) {
-      setDiscoveryError("Please enter an industry to search");
+    if (!discoveryIndustry || !discoveryDesignation) {
+      setDiscoveryError("Please enter both industry and designation");
       return;
     }
     
@@ -853,15 +853,17 @@ function AILeads() {
     setDiscoveryError("");
     
     try {
-      const res = await fetch(`${API_BASE_URL}/leads/discover/companies`, {
+      // Use new direct discovery endpoint - finds contacts directly without Google CSE
+      const res = await fetch(`${API_BASE_URL}/leads/ai-database/discover-leads`, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json", 
           Authorization: sessionId 
         },
         body: JSON.stringify({
+          designation: discoveryDesignation,
           industry: discoveryIndustry,
-          location: discoveryLocation,
+          location: discoveryLocation || "USA",
           count: 20,
           criteria: discoveryCriteria
         })
@@ -873,8 +875,13 @@ function AILeads() {
       }
       
       const data = await res.json();
-      setDiscoveredCompanies(data.companies || []);
+      // Set discovered contacts directly and move to preview
+      setDiscoveryContacts(data.contacts || []);
+      setSelectedContacts(data.contacts || []); // Pre-select all
       setDiscoveryStep(2);
+      
+      // Show success message
+      alert(`✅ Discovered ${data.contacts_found} contacts. ${data.leads_imported} leads auto-imported. Cost: ${data.cost_estimate}`);
     } catch (err) {
       setDiscoveryError(err.message);
     } finally {
@@ -1643,12 +1650,12 @@ function AILeads() {
                 <div className="error-alert">{importError}</div>
               )}
 
-              {/* AI Discovery (Perplexity + Google CSE) */}
+              {/* AI Discovery (Perplexity Direct) */}
               {importMethod === "ai-discovery" && (
                 <div className="import-form">
-                  <h3>🔮 AI-Powered Company Discovery</h3>
+                  <h3>🔮 AI-Powered Lead Discovery</h3>
                   <p className="form-hint">
-                    Use Perplexity AI to discover companies, then find contacts at those companies via Google Search.
+                    Use Perplexity AI to discover contacts directly. Streamlined 2-step pipeline: Perplexity finds contacts → OpenAI enriches. Cost: ~$0.001/lead
                   </p>
                   
                   {discoveryError && (
@@ -1661,11 +1668,21 @@ function AILeads() {
                     </div>
                   )}
                   
-                  {/* Step 1: Search Companies */}
+                  {/* Step 1: Search for Leads Directly */}
                   {discoveryStep === 1 && (
                     <div className="discovery-step">
-                      <h4>Step 1: Discover Companies</h4>
+                      <h4>Step 1: Discover Leads</h4>
                       <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div className="form-group">
+                          <label>Target Designation *</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            placeholder="e.g., CEO, VP Sales, Director of Marketing"
+                            value={discoveryDesignation}
+                            onChange={(e) => setDiscoveryDesignation(e.target.value)}
+                          />
+                        </div>
                         <div className="form-group">
                           <label>Industry *</label>
                           <input
@@ -1686,7 +1703,7 @@ function AILeads() {
                             onChange={(e) => setDiscoveryLocation(e.target.value)}
                           />
                         </div>
-                        <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                        <div className="form-group">
                           <label>Additional Criteria (optional)</label>
                           <input
                             type="text"
@@ -1700,81 +1717,19 @@ function AILeads() {
                       <button 
                         className="btn btn-primary" 
                         onClick={handleDiscoverCompanies}
-                        disabled={discoveryLoading || !discoveryIndustry || (discoveryStatus && !discoveryStatus.enabled)}
+                        disabled={discoveryLoading || !discoveryIndustry || !discoveryDesignation || (discoveryStatus && !discoveryStatus.enabled)}
                         style={{ marginTop: '1rem' }}
                       >
-                        {discoveryLoading ? "Discovering..." : "🔍 Discover Companies"}
+                        {discoveryLoading ? "Discovering..." : "🔍 Discover Leads"}
                       </button>
                     </div>
                   )}
                   
-                  {/* Step 2: Select Companies */}
+                  {/* Step 2: Preview Discovered Contacts */}
                   {discoveryStep === 2 && (
                     <div className="discovery-step">
-                      <h4>Step 2: Select Companies ({selectedCompanies.length}/{discoveredCompanies.length})</h4>
-                      <p className="form-hint-small">Select companies to find contacts at:</p>
-                      
-                      <div style={{ maxHeight: '300px', overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '0.5rem' }}>
-                        {discoveredCompanies.map((company, idx) => (
-                          <label 
-                            key={idx} 
-                            style={{ 
-                              display: 'flex', 
-                              alignItems: 'flex-start', 
-                              gap: '0.75rem', 
-                              padding: '0.75rem',
-                              borderBottom: '1px solid #f3f4f6',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedCompanies.some(c => c.name === company.name)}
-                              onChange={() => toggleCompanySelection(company)}
-                              style={{ marginTop: '0.25rem' }}
-                            />
-                            <div>
-                              <strong>{company.name}</strong>
-                              {company.description && (
-                                <p style={{ fontSize: '0.875rem', color: '#6b7280', margin: '0.25rem 0 0 0' }}>
-                                  {company.description}
-                                </p>
-                              )}
-                            </div>
-                          </label>
-                        ))}
-                      </div>
-                      
-                      <div className="form-group" style={{ marginTop: '1rem' }}>
-                        <label>Target Designation *</label>
-                        <input
-                          type="text"
-                          className="form-input"
-                          placeholder="e.g., CEO, VP Sales, Director of Marketing"
-                          value={discoveryDesignation}
-                          onChange={(e) => setDiscoveryDesignation(e.target.value)}
-                        />
-                      </div>
-                      
-                      <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                        <button className="btn btn-secondary" onClick={() => setDiscoveryStep(1)}>
-                          ← Back
-                        </button>
-                        <button 
-                          className="btn btn-primary" 
-                          onClick={handleFindContacts}
-                          disabled={discoveryLoading || selectedCompanies.length === 0 || !discoveryDesignation}
-                        >
-                          {discoveryLoading ? "Searching..." : `🔍 Find Contacts at ${selectedCompanies.length} Companies`}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Step 3: Preview and Import Contacts */}
-                  {discoveryStep === 3 && (
-                    <div className="discovery-step">
-                      <h4>Step 3: Preview Contacts ({selectedContacts.length}/{discoveryContacts.length})</h4>
+                      <h4>Step 2: Preview Contacts ({selectedContacts.length}/{discoveryContacts.length})</h4>
+                      <p className="form-hint-small">Leads have been auto-imported. Review or adjust selection below:</p>
                       
                       <div style={{ marginBottom: '0.5rem' }}>
                         <label style={{ cursor: 'pointer' }}>
@@ -1825,15 +1780,15 @@ function AILeads() {
                       </div>
                       
                       <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                        <button className="btn btn-secondary" onClick={() => setDiscoveryStep(2)}>
-                          ← Back
+                        <button className="btn btn-secondary" onClick={() => setDiscoveryStep(1)}>
+                          ← New Search
                         </button>
                         <button 
                           className="btn btn-primary" 
-                          onClick={handleImportDiscoveredContacts}
-                          disabled={discoveryLoading || selectedContacts.length === 0}
+                          onClick={() => { fetchLeads(); setShowImportModal(false); }}
+                          disabled={discoveryLoading}
                         >
-                          {discoveryLoading ? "Importing..." : `📥 Import ${selectedContacts.length} Contacts`}
+                          ✅ Done - View Leads
                         </button>
                       </div>
                     </div>

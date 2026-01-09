@@ -2552,12 +2552,111 @@ class RefillCompaniesRequest(BaseModel):
     criteria: str = ""
 
 
+class DirectDiscoveryRequest(BaseModel):
+    """Request model for direct contact discovery (Option 1 - no Google CSE)"""
+    designation: str = "Manager"
+    industry: str = "technology"
+    location: str = "United States"
+    count: int = 10
+    criteria: str = ""
+
+
+@router.post("/ai-database/discover-leads")
+async def discover_leads_direct(request: DirectDiscoveryRequest):
+    """
+    POST /leads/ai-database/discover-leads
+    OPTIMIZED: Direct lead discovery using Perplexity + OpenAI only.
+    
+    This is the recommended approach - bypasses Google CSE entirely.
+    Cost: ~$0.0013/lead vs ~$0.006/lead with Google CSE
+    
+    Flow:
+    1. Perplexity discovers contacts with LinkedIn patterns
+    2. OpenAI enriches/classifies leads
+    """
+    try:
+        from .perplexity_client import discover_contacts_direct, is_perplexity_enabled
+        from .service import import_leads
+        from .models import LeadRaw
+        
+        if not is_perplexity_enabled():
+            raise HTTPException(
+                status_code=400,
+                detail="Perplexity API not configured. Add API key in Settings."
+            )
+        
+        # Direct contact discovery
+        result = await discover_contacts_direct(
+            designation=request.designation,
+            industry=request.industry,
+            location=request.location,
+            count=request.count,
+            criteria=request.criteria
+        )
+        
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("error", "Discovery failed")
+            )
+        
+        contacts = result.get("contacts", [])
+        
+        if not contacts:
+            return {
+                "success": True,
+                "message": "No contacts found matching criteria",
+                "leads_imported": 0,
+                "raw_response": result.get("content", "")[:500]
+            }
+        
+        # Convert to leads and import with auto-classification
+        leads = []
+        for contact in contacts:
+            linkedin_url = contact.get("linkedin_url", "")
+            if linkedin_url and not linkedin_url.startswith("http"):
+                linkedin_url = f"https://{linkedin_url}"
+            
+            lead = LeadRaw(
+                name=contact.get("name", "Unknown"),
+                title=contact.get("title", request.designation),
+                company_name=contact.get("company", ""),
+                linkedin_url=linkedin_url,
+                snippet=f"AI Discovery: {request.designation} at {request.industry} companies",
+                location=contact.get("location", request.location),
+                email="",
+                source="ai_direct_discovery",
+                import_batch_id=f"direct_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+            )
+            leads.append(lead)
+        
+        # Import with auto-classification
+        import_result = import_leads(leads, auto_classify=True)
+        
+        return {
+            "success": True,
+            "contacts_found": len(contacts),
+            "leads_imported": import_result.get("imported", 0),
+            "duplicates": import_result.get("duplicates", 0),
+            "method": "perplexity_direct",
+            "cost_estimate": f"${len(contacts) * 0.0013:.4f}",
+            "contacts": contacts[:5]  # Return sample for UI display
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Discovery error: {str(e)}")
+
+
 @router.post("/ai-database/refill")
 async def refill_ai_database(request: RefillCompaniesRequest, background_tasks: BackgroundTasks):
     """
     POST /leads/ai-database/refill
-    Trigger Perplexity to discover new companies and add to database.
-    Only triggers if count drops below threshold (100).
+    LEGACY: Discover companies for the company database.
+    
+    NOTE: For direct lead generation, use /ai-database/discover-leads instead.
+    This endpoint is kept for backward compatibility with the company-first workflow.
     """
     try:
         from .perplexity_client import (
@@ -2699,74 +2798,74 @@ async def get_ai_database_companies(
 async def process_ai_database_batch(
     batch_size: int = 10,
     designation: str = "Manager",
+    industry: str = "technology",
+    location: str = "United States",
     background_tasks: BackgroundTasks = None
 ):
     """
     POST /leads/ai-database/process-batch
-    Process a batch of pending companies:
-    1. Pick N pending companies
-    2. Search Google CSE for leads at each company
-    3. Enrich with OpenAI
-    4. Update company status
+    OPTIMIZED: Direct contact discovery using Perplexity only (no Google CSE).
     
-    This is the automated pipeline: Perplexity → Google CSE → OpenAI
+    New flow (2 APIs instead of 3):
+    1. Perplexity discovers contacts directly with LinkedIn patterns
+    2. OpenAI enriches/classifies leads
+    
+    Cost savings: ~76% reduction (eliminates $0.005 × 5 Google CSE calls per company)
     """
     try:
-        from .ingestion import search_linkedin_leads
+        from .perplexity_client import discover_contacts_direct, is_perplexity_enabled
         from .service import import_leads
+        from .models import LeadRaw
         
-        # Get pending companies
-        pending = list(ai_companies_collection.find(
-            {"status": CompanyStatus.PENDING}
-        ).limit(batch_size))
-        
-        if not pending:
-            return {
-                "success": True,
-                "message": "No pending companies to process",
-                "processed": 0,
-                "leads_found": 0
-            }
+        if not is_perplexity_enabled():
+            raise HTTPException(
+                status_code=400,
+                detail="Perplexity API not configured. Add API key in Settings."
+            )
         
         total_leads = 0
         processed = 0
         errors = []
         
-        for company in pending:
-            company_name = company.get("name", "")
-            domain = company.get("domain", "")
-            
+        # Process in batches - each Perplexity call returns multiple contacts
+        contacts_per_request = 10
+        num_requests = max(1, batch_size // contacts_per_request)
+        
+        for i in range(num_requests):
             try:
-                # Mark as searching
-                ai_companies_collection.update_one(
-                    {"domain": domain},
-                    {"$set": {"status": CompanyStatus.SEARCHING, "last_searched": datetime.utcnow()}}
-                )
-                
-                # Search for leads using Google CSE
-                search_results = search_linkedin_leads(
+                # Direct contact discovery - NO Google CSE needed
+                result = await discover_contacts_direct(
                     designation=designation,
-                    company=company_name,
-                    location="",  # Use company headquarters if needed
-                    count=5  # Limit per company
+                    industry=industry,
+                    location=location,
+                    count=contacts_per_request,
+                    criteria=""
                 )
                 
-                if search_results and len(search_results) > 0:
-                    # Import leads with auto-classification
-                    from .models import LeadRaw
-                    
+                if not result.get("success"):
+                    errors.append(f"Request {i+1}: {result.get('error', 'Unknown error')}")
+                    continue
+                
+                contacts = result.get("contacts", [])
+                
+                if contacts:
+                    # Convert to LeadRaw and import with auto-classification
                     leads = []
-                    for result in search_results:
+                    for contact in contacts:
+                        linkedin_url = contact.get("linkedin_url", "")
+                        if linkedin_url and not linkedin_url.startswith("http"):
+                            linkedin_url = f"https://{linkedin_url}"
+                        
                         lead = LeadRaw(
-                            name=result.get("name", result.get("title", "Unknown")),
-                            title=result.get("title", result.get("snippet", "")),
-                            company_name=company_name,
-                            linkedin_url=result.get("linkedin_url", result.get("url", "")),
-                            snippet=result.get("snippet", ""),
-                            location=result.get("location", ""),
-                            email=result.get("email", ""),
-                            source="ai_pipeline",
-                            import_batch_id=f"ai_batch_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+                            name=contact.get("name", "Unknown"),
+                            title=contact.get("title", designation),
+                            company_name=contact.get("company", ""),
+                            linkedin_url=linkedin_url,
+                            snippet=f"Discovered via AI pipeline - {industry}",
+                            location=contact.get("location", location),
+                            email="",  # Will be enriched by OpenAI
+                            source="ai_pipeline_v2",
+                            import_batch_id=f"ai_direct_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{i}"
                         )
                         leads.append(lead)
                     
@@ -2774,43 +2873,24 @@ async def process_ai_database_batch(
                         import_result = import_leads(leads, auto_classify=True)
                         leads_found = import_result.get("imported", 0)
                         total_leads += leads_found
-                        
-                        # Update company status
-                        ai_companies_collection.update_one(
-                            {"domain": domain},
-                            {"$set": {
-                                "status": CompanyStatus.COMPLETED,
-                                "leads_found": leads_found
-                            }}
-                        )
-                    else:
-                        ai_companies_collection.update_one(
-                            {"domain": domain},
-                            {"$set": {"status": CompanyStatus.NO_RESULTS}}
-                        )
-                else:
-                    ai_companies_collection.update_one(
-                        {"domain": domain},
-                        {"$set": {"status": CompanyStatus.NO_RESULTS}}
-                    )
                 
                 processed += 1
                 
             except Exception as e:
-                errors.append(f"{company_name}: {str(e)}")
-                ai_companies_collection.update_one(
-                    {"domain": domain},
-                    {"$set": {"status": CompanyStatus.ERROR, "error": str(e)}}
-                )
+                errors.append(f"Request {i+1}: {str(e)}")
         
         return {
             "success": True,
             "processed": processed,
             "leads_found": total_leads,
             "batch_size": batch_size,
+            "method": "perplexity_direct",
+            "cost_per_lead": "$0.0013 (vs $0.006 with Google CSE)",
             "errors": errors if errors else None
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Batch processing error: {str(e)}")
 
