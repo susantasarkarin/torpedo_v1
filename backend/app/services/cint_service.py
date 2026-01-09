@@ -269,7 +269,7 @@ class CintService:
                 opportunity.is_active = opportunity.is_live and opportunity.message_reason != "deactivated"
                 
                 # Store in MongoDB if collection provided
-                if self.cint_surveys_collection:
+                if self.cint_surveys_collection is not None:
                     self._upsert_opportunity(opportunity)
                 
                 processed.append(opportunity)
@@ -347,7 +347,7 @@ class CintService:
                 )
                 
                 # Store in MongoDB if collection provided
-                if self.cint_entry_links_collection:
+                if self.cint_entry_links_collection is not None:
                     self._store_entry_link(supplier_link)
                 
                 logger.info(f"Entry link created for survey {survey_id}")
@@ -397,7 +397,7 @@ class CintService:
                     **link_data
                 )
                 
-                if self.cint_entry_links_collection:
+                if self.cint_entry_links_collection is not None:
                     self._store_entry_link(supplier_link)
                 
                 logger.info(f"Entry link updated for survey {survey_id}")
