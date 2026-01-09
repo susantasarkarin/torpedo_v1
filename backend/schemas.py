@@ -346,14 +346,7 @@ class AppSettingsUpdate(BaseModel):
     cpx_secure_hash_key: Optional[str] = None
     cpx_api_timeout: Optional[int] = Field(None, ge=5, le=120)
     openai_api_key: Optional[str] = None
-    google_api_key: Optional[str] = None
-    google_cse_id: Optional[str] = None
     google_sheets_service_account: Optional[str] = None
-    google_cse_daily_limit: Optional[int] = Field(None, ge=0, le=10000)
-    google_cse_hourly_limit: Optional[int] = Field(None, ge=0, le=1000)
-    google_cse_query_delay: Optional[int] = Field(None, ge=0, le=60)
-    google_cse_monthly_budget: Optional[float] = Field(None, ge=0)
-    google_cse_rate_limit_enabled: Optional[bool] = None
 
 
 class SurveyFilterSettings(BaseModel):

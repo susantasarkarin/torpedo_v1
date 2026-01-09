@@ -189,20 +189,7 @@ _settings_db = _settings_client['torpedo_settings']
 _app_settings_collection = _settings_db['app_settings']
 
 def get_rate_limit_settings() -> dict:
-    """Get rate limiting settings from MongoDB (for $50/month budget control)"""
-    try:
-        settings = _app_settings_collection.find_one({"_id": "app_config"})
-        if settings:
-            return {
-                "daily_limit": settings.get("google_cse_daily_limit", 400),
-                "hourly_limit": settings.get("google_cse_hourly_limit", 50),
-                "query_delay": settings.get("google_cse_query_delay", 3),
-                "monthly_budget": settings.get("google_cse_monthly_budget", 50.0),
-                "enabled": settings.get("google_cse_rate_limit_enabled", True),
-            }
-    except Exception as e:
-        print(f"Error loading rate limits: {e}")
-    # Default conservative limits for $50/month budget
+    """Get rate limiting settings (legacy - returns defaults only)"""
     return {"daily_limit": 400, "hourly_limit": 50, "query_delay": 3, "monthly_budget": 50.0, "enabled": True}
 
 # Legacy constants (used as fallback only)
@@ -2917,3 +2904,264 @@ async def clear_ai_database(status: Optional[str] = None):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== AI DATABASE WORKBOOKS (Clay-style) ==============
+
+class CompanyDiscoveryRequest(BaseModel):
+    """Request model for company discovery"""
+    industry: str = "technology"
+    location: str = "United States"
+    count: int = 20
+
+
+class JobDiscoveryRequest(BaseModel):
+    """Request model for job discovery"""
+    job_title: str = "Software Engineer"
+    location: str = "United States"
+    count: int = 20
+
+
+class LocalBusinessDiscoveryRequest(BaseModel):
+    """Request model for local business discovery"""
+    business_type: str = "restaurant"
+    location: str = "New York"
+    count: int = 20
+
+
+@router.get("/ai-database/workbooks")
+async def get_workbooks():
+    """
+    GET /leads/ai-database/workbooks
+    Get list of discovery workbooks (saved searches/results).
+    """
+    try:
+        # Use existing companies as workbooks or create a workbooks collection
+        workbooks_collection = db.get_collection("ai_workbooks")
+        
+        workbooks = list(workbooks_collection.find(
+            {},
+            {"_id": 1, "name": 1, "tags": 1, "created_at": 1, "last_opened": 1, "owner": 1, "access": 1, "is_favorite": 1, "leads_count": 1, "discovery_type": 1}
+        ).sort("created_at", -1).limit(50))
+        
+        # Convert ObjectId to string
+        for wb in workbooks:
+            wb["_id"] = str(wb["_id"])
+        
+        return {"success": True, "workbooks": workbooks}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ai-database/workbooks")
+async def create_workbook(request: dict = Body(...)):
+    """
+    POST /leads/ai-database/workbooks
+    Create a new workbook.
+    """
+    try:
+        workbooks_collection = db.get_collection("ai_workbooks")
+        
+        workbook = {
+            "name": request.get("name", "Untitled workbook"),
+            "tags": request.get("tags", []),
+            "created_at": datetime.utcnow(),
+            "last_opened": datetime.utcnow(),
+            "owner": "You",
+            "access": "Edit",
+            "is_favorite": False,
+            "leads_count": 0,
+            "discovery_type": request.get("discovery_type", "manual")
+        }
+        
+        result = workbooks_collection.insert_one(workbook)
+        workbook["_id"] = str(result.inserted_id)
+        
+        return {"success": True, "workbook": workbook}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ai-database/discover-companies")
+async def discover_companies_direct(request: CompanyDiscoveryRequest):
+    """
+    POST /leads/ai-database/discover-companies
+    Discover companies using Perplexity AI.
+    """
+    try:
+        from .perplexity_client import is_perplexity_enabled
+        
+        if not is_perplexity_enabled():
+            raise HTTPException(
+                status_code=400,
+                detail="Perplexity API not configured. Add API key in Settings."
+            )
+        
+        # Use existing refill logic but return companies directly
+        from .perplexity_client import discover_companies
+        
+        result = await discover_companies(
+            industry=request.industry,
+            count=request.count
+        )
+        
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("error", "Company discovery failed")
+            )
+        
+        companies = result.get("companies", [])
+        
+        # Create a workbook for this discovery
+        workbooks_collection = db.get_collection("ai_workbooks")
+        workbook = {
+            "name": f"Companies in {request.industry}",
+            "tags": [request.industry, request.location],
+            "created_at": datetime.utcnow(),
+            "last_opened": datetime.utcnow(),
+            "owner": "You",
+            "access": "Edit",
+            "is_favorite": False,
+            "leads_count": len(companies),
+            "discovery_type": "companies"
+        }
+        workbooks_collection.insert_one(workbook)
+        
+        return {
+            "success": True,
+            "count": len(companies),
+            "companies": companies[:10],
+            "cost_estimate": f"${len(companies) * 0.001:.4f}"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Company discovery error: {str(e)}")
+
+
+@router.post("/ai-database/discover-jobs")
+async def discover_jobs(request: JobDiscoveryRequest):
+    """
+    POST /leads/ai-database/discover-jobs
+    Discover job postings using Perplexity AI.
+    """
+    try:
+        from .perplexity_client import is_perplexity_enabled, call_perplexity
+        
+        if not is_perplexity_enabled():
+            raise HTTPException(
+                status_code=400,
+                detail="Perplexity API not configured. Add API key in Settings."
+            )
+        
+        prompt = f"""Find {request.count} current job postings for "{request.job_title}" positions in {request.location}.
+
+For each job, provide:
+1. Job title
+2. Company name
+3. Location
+4. Job posting URL (if available)
+5. Brief description
+
+Format as a JSON array with keys: title, company, location, url, description"""
+
+        result = await call_perplexity(prompt, model="llama-3.1-sonar-small-128k-online")
+        
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("error", "Job discovery failed")
+            )
+        
+        # Create a workbook for this discovery
+        workbooks_collection = db.get_collection("ai_workbooks")
+        workbook = {
+            "name": f"{request.job_title} Jobs - {request.location}",
+            "tags": ["jobs", request.job_title, request.location],
+            "created_at": datetime.utcnow(),
+            "last_opened": datetime.utcnow(),
+            "owner": "You",
+            "access": "Edit",
+            "is_favorite": False,
+            "leads_count": request.count,
+            "discovery_type": "jobs"
+        }
+        workbooks_collection.insert_one(workbook)
+        
+        return {
+            "success": True,
+            "count": request.count,
+            "content": result.get("content", ""),
+            "cost_estimate": f"${0.001:.4f}"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Job discovery error: {str(e)}")
+
+
+@router.post("/ai-database/discover-local")
+async def discover_local_businesses(request: LocalBusinessDiscoveryRequest):
+    """
+    POST /leads/ai-database/discover-local
+    Discover local businesses using Perplexity AI.
+    """
+    try:
+        from .perplexity_client import is_perplexity_enabled, call_perplexity
+        
+        if not is_perplexity_enabled():
+            raise HTTPException(
+                status_code=400,
+                detail="Perplexity API not configured. Add API key in Settings."
+            )
+        
+        prompt = f"""Find {request.count} {request.business_type} businesses in {request.location}.
+
+For each business, provide:
+1. Business name
+2. Address
+3. Phone number (if available)
+4. Website (if available)
+5. Brief description or specialty
+
+Format as a JSON array with keys: name, address, phone, website, description"""
+
+        result = await call_perplexity(prompt, model="llama-3.1-sonar-small-128k-online")
+        
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("error", "Local business discovery failed")
+            )
+        
+        # Create a workbook for this discovery
+        workbooks_collection = db.get_collection("ai_workbooks")
+        workbook = {
+            "name": f"{request.business_type.title()}s in {request.location}",
+            "tags": ["local", request.business_type, request.location],
+            "created_at": datetime.utcnow(),
+            "last_opened": datetime.utcnow(),
+            "owner": "You",
+            "access": "Edit",
+            "is_favorite": False,
+            "leads_count": request.count,
+            "discovery_type": "local"
+        }
+        workbooks_collection.insert_one(workbook)
+        
+        return {
+            "success": True,
+            "count": request.count,
+            "content": result.get("content", ""),
+            "cost_estimate": f"${0.001:.4f}"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Local business discovery error: {str(e)}")

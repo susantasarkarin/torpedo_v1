@@ -38,18 +38,7 @@ _app_settings = _settings_db['app_settings']
 
 
 def get_rate_limits():
-    """Get rate limits from settings"""
-    try:
-        cfg = _app_settings.find_one({"_id": "app_config"})
-        if cfg:
-            return {
-                "hourly": cfg.get("google_cse_hourly_limit", 50),
-                "daily": cfg.get("google_cse_daily_limit", 400),
-                "query_delay": cfg.get("google_cse_query_delay", 3),
-                "enabled": cfg.get("google_cse_rate_limit_enabled", True),
-            }
-    except Exception:
-        pass
+    """Get rate limits from settings (legacy - returns defaults only)"""
     return {"hourly": 50, "daily": 400, "query_delay": 3, "enabled": True}
 
 

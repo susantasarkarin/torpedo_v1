@@ -79,6 +79,9 @@ const MailPool = lazy(() => import("./pages/MailPool"))
 // Settings Page
 const Settings = lazy(() => import("./pages/Settings"))
 
+// AI Database Page
+const AIDatabase = lazy(() => import("./pages/AIDatabase"))
+
 // Logs Page
 const LogsPage = lazy(() => import("./pages/LogsPage"))
 
@@ -132,7 +135,8 @@ function App() {
         <Route path="sales/account/:companyName" element={<LazyPage><CompanyDetail /></LazyPage>} />
         <Route path="sales/rfq" element={<LazyPage><RFQ /></LazyPage>} />
         <Route path="sales/campaign/list" element={<LazyPage><List /></LazyPage>} />
-        <Route path="sales/campaign/ai-leads" element={<LazyPage><AILeads /></LazyPage>} />
+        <Route path="sales/campaign/ai-leads" element={<LazyPage><AIDatabase /></LazyPage>} />
+        <Route path="sales/campaign/ai-leads/manage" element={<LazyPage><AILeads /></LazyPage>} />
         <Route path="sales/campaign/ai-leads/:leadId" element={<LazyPage><AILeadDetail /></LazyPage>} />
         <Route path="sales/campaign/templates" element={<LazyPage><Templates /></LazyPage>} />
         <Route path="sales/campaign/workflow" element={<LazyPage><Workflow /></LazyPage>} />

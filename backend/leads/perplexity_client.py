@@ -350,6 +350,21 @@ def perplexity_query_sync(
     )
 
 
+# ============== SIMPLE QUERY HELPER ==============
+
+async def call_perplexity(prompt: str, model: str = None) -> Dict[str, Any]:
+    """
+    Simple helper to call Perplexity API with a prompt.
+    Returns {success, content, error}
+    """
+    return await perplexity_query(
+        query=prompt,
+        query_type="simple_query",
+        model=model,
+        use_cache=True
+    )
+
+
 # ============== DISCOVERY FUNCTIONS ==============
 
 async def discover_contacts_direct(

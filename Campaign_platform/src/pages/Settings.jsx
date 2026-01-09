@@ -1353,11 +1353,11 @@ function Settings() {
           AI Prompts
         </button>
         <button 
-          className={`tab-button ${activeTab === "aidatabase" ? "active" : ""}`}
-          onClick={() => setActiveTab("aidatabase")}
+          className={`tab-button`}
+          onClick={() => window.location.href = "/admin/sales/campaign/ai-leads"}
         >
-          <span className="tab-icon">🏢</span>
-          AI Database
+          <span className="tab-icon">🎯</span>
+          AI Database →
         </button>
       </div>
 
@@ -1510,8 +1510,6 @@ function Settings() {
                 </div>
               </div>
 
-              {/* Google CSE settings removed - using Perplexity direct discovery instead */}
-
               <div className="settings-group settings-grid-full">
                 <h3>📄 Google Sheets Service Account</h3>
                 <div className="setting-row">
@@ -1526,8 +1524,6 @@ function Settings() {
                   <p className="setting-hint">Full JSON key for Sheets API. Download from <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener noreferrer">Service Accounts</a></p>
                 </div>
               </div>
-
-              {/* Google CSE rate limiting removed - no longer needed */}
 
               {/* Survey Filter Settings */}
               <div className="settings-group">

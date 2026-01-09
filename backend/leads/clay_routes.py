@@ -12,19 +12,34 @@ from fastapi import APIRouter, HTTPException, Query, BackgroundTasks, Body
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
-from ..clay_models import (
-    QueryPlan, PreviewExecution, FilterGroup, Source, ImportSession,
-    Workbook, Column, CellValue, WorkbookRow, ExecutionLog,
-    SourceType, SourceProvider, DeduplicationRule
-)
-from ..preview_executor import (
-    PreviewExecutionEngine, CostEstimator, SchemaInferenceEngine
-)
-from ..filter_builder import QueryPlanCompiler
-from ..import_gating import (
-    ImportGatingManager, DeduplicationEngine, ImportValidator, CostEnforcer
-)
-from ..workbook_engine import WorkbookExecutionEngine
+try:
+    from .clay_models import (
+        QueryPlan, PreviewExecution, FilterGroup, Source, ImportSession,
+        Workbook, Column, CellValue, WorkbookRow, ExecutionLog,
+        SourceType, SourceProvider, DeduplicationRule
+    )
+    from .preview_executor import (
+        PreviewExecutionEngine, CostEstimator, SchemaInferenceEngine
+    )
+    from .filter_builder import QueryPlanCompiler
+    from .import_gating import (
+        ImportGatingManager, DeduplicationEngine, ImportValidator, CostEnforcer
+    )
+    from .workbook_engine import WorkbookExecutionEngine
+except ImportError:
+    from clay_models import (
+        QueryPlan, PreviewExecution, FilterGroup, Source, ImportSession,
+        Workbook, Column, CellValue, WorkbookRow, ExecutionLog,
+        SourceType, SourceProvider, DeduplicationRule
+    )
+    from preview_executor import (
+        PreviewExecutionEngine, CostEstimator, SchemaInferenceEngine
+    )
+    from filter_builder import QueryPlanCompiler
+    from import_gating import (
+        ImportGatingManager, DeduplicationEngine, ImportValidator, CostEnforcer
+    )
+    from workbook_engine import WorkbookExecutionEngine
 
 router = APIRouter(prefix="/leads/clay", tags=["Clay-Level Features"])
 
@@ -293,7 +308,7 @@ async def add_column(
 async def execute_column(
     workbook_id: str = Path(...),
     column_id: str = Path(...),
-    background_tasks: BackgroundTasks
+    background_tasks: BackgroundTasks = BackgroundTasks()
 ):
     """
     Execute a column across all rows

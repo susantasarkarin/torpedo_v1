@@ -90,15 +90,7 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
             "cpx_api_timeout": stored.get("cpx_api_timeout", int(os.getenv("CPX_API_TIMEOUT", "30"))),
             "openai_api_key": stored.get("openai_api_key", os.getenv("OPENAI_API_KEY", "")),
             "anthropic_api_key": stored.get("anthropic_api_key", os.getenv("ANTHROPIC_API_KEY", "")),
-            "google_api_key": stored.get("google_api_key", os.getenv("GOOGLE_API_KEY", "")),
-            "google_cse_id": stored.get("google_cse_id", os.getenv("GOOGLE_CSE_ID", "")),
             "google_sheets_service_account": stored.get("google_sheets_service_account", os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT", "")),
-            # Rate limiting settings for Google CSE ($50/month budget)
-            "google_cse_daily_limit": stored.get("google_cse_daily_limit", 400),
-            "google_cse_hourly_limit": stored.get("google_cse_hourly_limit", 50),
-            "google_cse_query_delay": stored.get("google_cse_query_delay", 3),
-            "google_cse_monthly_budget": stored.get("google_cse_monthly_budget", 50.0),
-            "google_cse_rate_limit_enabled": stored.get("google_cse_rate_limit_enabled", True),
             # Perplexity Discovery settings
             "perplexity_api_key": stored.get("perplexity_api_key", os.getenv("PERPLEXITY_API_KEY", "")),
             "perplexity_enabled": stored.get("perplexity_enabled", False),
@@ -108,7 +100,7 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
         
         # Mask sensitive fields for display
         masked_settings = {**settings}
-        sensitive_fields = ["cpx_secure_hash_key", "openai_api_key", "anthropic_api_key", "google_api_key", "google_sheets_service_account", "perplexity_api_key"]
+        sensitive_fields = ["cpx_secure_hash_key", "openai_api_key", "anthropic_api_key", "google_sheets_service_account", "perplexity_api_key"]
         for field in sensitive_fields:
             if masked_settings.get(field):
                 value = str(masked_settings[field])
@@ -154,10 +146,7 @@ async def save_app_settings(
             "mongo_uri",
             "cpx_app_id", "cpx_ext_user_id", "cpx_secure_hash_key", "cpx_api_timeout",
             "openai_api_key", "anthropic_api_key",
-            "google_api_key", "google_cse_id", "google_sheets_service_account",
-            # Rate limiting settings for Google CSE cost control
-            "google_cse_daily_limit", "google_cse_hourly_limit", "google_cse_query_delay",
-            "google_cse_monthly_budget", "google_cse_rate_limit_enabled",
+            "google_sheets_service_account",
             # Perplexity Discovery settings
             "perplexity_api_key", "perplexity_enabled",
             "perplexity_daily_limit", "perplexity_hourly_limit"
