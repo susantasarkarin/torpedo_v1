@@ -824,14 +824,24 @@ export default function SurveyPool() {
                     </button>
                   </div>
                   <div style={{ color: '#888', marginTop: '8px', fontSize: '0.85rem', lineHeight: '1.5' }}>
-                    <strong>CPX Parameters (replace placeholders):</strong>
+                    <strong>Replace placeholders:</strong>
                     <ul style={{ margin: '4px 0 0 16px', padding: 0, listStyle: 'none' }}>
                       <li>• <code>{'{ext_user_id}'}</code> - Unique user ID (mandatory)</li>
-                      <li>• <code>{'{secure_hash}'}</code> - MD5(ext_user_id + "-" + app_secure_hash)</li>
-                      <li>• <code>{'{username}'}</code> - User's username (recommended)</li>
-                      <li>• <code>{'{email}'}</code> - User's email (recommended)</li>
-                      <li>• <code>{'{subid_1}'}</code> / <code>{'{subid_2}'}</code> - Custom tracking</li>
+                      <li>• <code>{'{secure_hash}'}</code> - MD5 hash of (ext_user_id + secure_key)</li>
                     </ul>
+                    <div style={{ marginTop: '8px', padding: '8px', background: '#f0f0f5', borderRadius: '4px', fontSize: '0.8rem' }}>
+                      <strong>Parameter Details:</strong>
+                      <table style={{ width: '100%', marginTop: '4px', fontSize: '0.75rem' }}>
+                        <tbody>
+                          <tr><td><code>&ext_user_id=</code></td><td><strong>Mandatory</strong> - Unique per user</td></tr>
+                          <tr><td><code>&app_id=10754</code></td><td><strong>Mandatory</strong> - Already included</td></tr>
+                          <tr><td><code>&secure_hash=</code></td><td><strong>Recommended</strong> - md5(ext_user_id-app_secure_hash)</td></tr>
+                          <tr><td><code>&username=</code></td><td>Recommended - User's username</td></tr>
+                          <tr><td><code>&email=</code></td><td>Recommended - For duplicate matching</td></tr>
+                          <tr><td><code>&subid_1=</code> / <code>&subid_2=</code></td><td>Optional - Custom tracking info</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )}

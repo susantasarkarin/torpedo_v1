@@ -69,6 +69,10 @@ expenses_collection = finance_db["expenses"]
 payments_received_collection = finance_db["payments_received"]
 payments_made_collection = finance_db["payments_made"]
 
+# email_automation DB for contacts linking
+email_automation_db = client["email_automation"]
+contacts_collection = email_automation_db["contacts"]
+
 print("✅ Finance collections initialized")
 
 
@@ -381,10 +385,57 @@ ITEM_COLUMN_MAPPINGS = {
 
 @router.get("/finance/customers/")
 async def get_customers():
-    """Get all customers"""
+    """Get all customers with linked contacts"""
     try:
         customers = list(customers_collection.find().sort("name", 1))
-        return serialize_docs(customers)
+        
+        # Get all contacts and build a map by linked_customer_id and company_name
+        all_contacts = list(contacts_collection.find())
+        contacts_by_customer_id = {}
+        contacts_by_company_name = {}
+        
+        for contact in all_contacts:
+            # By linked_customer_id
+            if contact.get("linked_customer_id"):
+                cid = contact["linked_customer_id"]
+                if cid not in contacts_by_customer_id:
+                    contacts_by_customer_id[cid] = []
+                contacts_by_customer_id[cid].append({
+                    "_id": str(contact["_id"]),
+                    "name": contact.get("name") or f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
+                    "email": contact.get("email", ""),
+                    "title": contact.get("title", ""),
+                    "stage": contact.get("stage", ""),
+                })
+            # By company name (fallback)
+            if contact.get("companyName"):
+                cn = contact["companyName"]
+                if cn not in contacts_by_company_name:
+                    contacts_by_company_name[cn] = []
+                contacts_by_company_name[cn].append({
+                    "_id": str(contact["_id"]),
+                    "name": contact.get("name") or f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
+                    "email": contact.get("email", ""),
+                    "title": contact.get("title", ""),
+                    "stage": contact.get("stage", ""),
+                })
+        
+        # Attach linked contacts to each customer
+        result = []
+        for customer in customers:
+            cust_id = str(customer["_id"])
+            company_name = customer.get("company_name") or customer.get("name")
+            
+            linked_contacts = contacts_by_customer_id.get(cust_id, [])
+            # Fallback to company name match if no linked_customer_id match
+            if not linked_contacts and company_name:
+                linked_contacts = contacts_by_company_name.get(company_name, [])
+            
+            customer["linked_contacts"] = linked_contacts
+            customer["linked_contacts_count"] = len(linked_contacts)
+            result.append(customer)
+        
+        return serialize_docs(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching customers: {str(e)}")
 

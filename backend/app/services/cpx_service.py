@@ -146,19 +146,24 @@ class CPXService:
         # Per CPX documentation: https://live-api.cpx-research.com
         from urllib.parse import quote
         
+        # Use hardcoded app_id=10754 per CPX documentation
+        CPX_APP_ID = "10754"
+        
         additional_params = (
             f"&ext_user_id={quote(respondent_id)}"
-            f"&app_id={self.app_id}"
+            f"&app_id={CPX_APP_ID}"
             f"&secure_hash={secure_hash}"
-            f"&subid_1={quote(subid_1 or respondent_id)}"
-            f"&subid_2={quote(subid_2 or '')}"
         )
         
-        # Add optional parameters if provided
+        # Add recommended parameters if provided
         if username:
             additional_params += f"&username={quote(username)}"
         if email:
             additional_params += f"&email={quote(email)}"
+        
+        # Add optional tracking parameters
+        additional_params += f"&subid_1={quote(subid_1 or respondent_id)}"
+        additional_params += f"&subid_2={quote(subid_2 or '')}"
         
         return f"{live_link}{additional_params}"
     
@@ -168,12 +173,12 @@ class CPXService:
         Used for display purposes - actual values should be substituted at runtime.
         
         Per CPX documentation parameters:
-        - ext_user_id: {ext_user_id} - Mandatory, unique user ID
-        - app_id: 10754 - Your App ID
-        - secure_hash: {secure_hash} - MD5(ext_user_id + "-" + app_secure_hash)
-        - username: {username} - Optional, user's name
-        - email: {email} - Optional, for duplicate matching
-        - subid_1/subid_2: Optional tracking parameters
+        - ext_user_id: {ext_user_id} - Mandatory, unique user ID per user
+        - app_id: 10754 - Your App ID (hardcoded)
+        - secure_hash: {secure_hash} - MD5({ext_user_id}-{app_secure_hash})
+        - username: {username} - Recommended, user's username
+        - email: {email} - Recommended, used to match duplicate users
+        - subid_1/subid_2: Optional additional tracking info
         
         Args:
             live_link: The base live link from CPX API (href or href_new)
@@ -183,16 +188,19 @@ class CPXService:
         """
         if not live_link:
             return ""
+        
+        # Use hardcoded app_id=10754 per CPX documentation
+        CPX_APP_ID = "10754"
             
         template = (
             f"{live_link}"
             f"&ext_user_id={{ext_user_id}}"
-            f"&app_id={self.app_id}"
+            f"&app_id={CPX_APP_ID}"
             f"&secure_hash={{secure_hash}}"
-            f"&subid_1={{subid_1}}"
-            f"&subid_2={{subid_2}}"
             f"&username={{username}}"
             f"&email={{email}}"
+            f"&subid_1={{subid_1}}"
+            f"&subid_2={{subid_2}}"
         )
         return template
     

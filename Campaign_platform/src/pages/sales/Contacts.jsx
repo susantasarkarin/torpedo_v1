@@ -418,7 +418,7 @@ function Contacts() {
               <th>Name</th>
               <th>Email</th>
               <th>Title</th>
-              <th>Company</th>
+              <th>Company / Client</th>
               <th>Industry</th>
               <th>Stage</th>
               <th>Actions</th>
@@ -458,7 +458,34 @@ function Contacts() {
                     </div>
                   </td>
                   <td>{contact.title || '-'}</td>
-                  <td>{contact.companyName || contact.company_name || '-'}</td>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>{contact.companyName || contact.company_name || '-'}</span>
+                      {contact.linked_customer && (
+                        <span 
+                          className="client-link-badge"
+                          title={`Linked to Client: ${contact.linked_customer.company_name || contact.linked_customer.name}`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '2px 6px',
+                            fontSize: '10px',
+                            background: '#10b981',
+                            color: 'white',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontWeight: '500'
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate('/admin/operations/clients');
+                          }}
+                        >
+                          🔗 Client
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td>{contact.companyIndustry || contact.company_industry || '-'}</td>
                   <td>
                     <span className="stage-badge" style={getStageBadgeStyle(contact.stage)}>

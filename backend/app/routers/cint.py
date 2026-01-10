@@ -777,7 +777,7 @@ async def get_surveys(
     min_cpi: Optional[float] = Query(None, ge=0, description="Minimum CPI in USD"),
     country: Optional[str] = Query(None, description="Filter by country code (e.g., US, CA, GB)"),
     page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    page_size: int = Query(20, ge=1, le=1000, description="Items per page (max 1000)"),
     cint_service = Depends(get_cint_service),
 ) -> Dict[str, Any]:
     """

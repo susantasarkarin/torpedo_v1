@@ -15,6 +15,8 @@ const customerToClient = (customer) => ({
   currency: customer.currency || "INR",
   clientType: customer.customer_type === "business" ? "Offline" : customer.customer_type === "api" ? "API" : "Online",
   status: customer.status === "active" ? "Active" : "Inactive",
+  linked_contacts: customer.linked_contacts || [],
+  linked_contacts_count: customer.linked_contacts_count || 0,
 });
 
 const clientToCustomer = (clientData) => ({
@@ -418,6 +420,7 @@ function ClientsPage() {
               <th style={styles.th}>Client Name</th>
               <th style={styles.th}>Email</th>
               <th style={styles.th}>Phone</th>
+              <th style={styles.th}>Contacts</th>
               <th style={styles.th}>Status</th>
               <th style={styles.th}>Actions</th>
             </tr>
@@ -431,6 +434,30 @@ function ClientsPage() {
                 <td style={styles.td}>{c.name}</td>
                 <td style={styles.td}>{c.email}</td>
                 <td style={styles.td}>{c.contactPerson}</td>
+                <td style={styles.td}>
+                  {c.linked_contacts_count > 0 ? (
+                    <span 
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        padding: '4px 8px',
+                        background: '#e0f2fe',
+                        color: '#0369a1',
+                        borderRadius: '12px',
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => navigate('/admin/sales/contacts')}
+                      title={c.linked_contacts.map(ct => ct.name || ct.email).join(', ')}
+                    >
+                      👤 {c.linked_contacts_count} contact{c.linked_contacts_count > 1 ? 's' : ''}
+                    </span>
+                  ) : (
+                    <span style={{ color: '#9ca3af', fontSize: '12px' }}>—</span>
+                  )}
+                </td>
                 <td style={styles.td}>
                   <span style={{
                     ...styles.statusBadge,
@@ -449,7 +476,7 @@ function ClientsPage() {
             ))}
             {paginatedClients.length === 0 && filtered.length === 0 && (
               <tr>
-                <td colSpan={6} style={styles.emptyState}>
+                <td colSpan={7} style={styles.emptyState}>
                   No clients found.
                 </td>
               </tr>

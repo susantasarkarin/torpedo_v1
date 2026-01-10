@@ -756,6 +756,31 @@ async def get_traffic_stats(
         raise HTTPException(status_code=500, detail=f"Stats error: {str(e)}")
 
 
+@router.get("/traffic/surveys-stats")
+async def get_all_surveys_traffic_stats(request: Request):
+    """
+    Get aggregated traffic statistics (clicks and completes) for all surveys.
+    Returns survey_id -> {"clicks": int, "completes": int} mapping.
+    """
+    try:
+        # Verify session
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        if traffic_service is None:
+            raise HTTPException(status_code=503, detail="Traffic service not initialized")
+        
+        surveys_stats = traffic_service.get_all_surveys_traffic_stats()
+        return {"surveys_stats": surveys_stats}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting all surveys traffic stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Stats error: {str(e)}")
+
+
 @router.post("/api/traffic/assign-survey")
 async def assign_survey_batch(
     request: Request,

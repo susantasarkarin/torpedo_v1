@@ -1745,16 +1745,16 @@ async def create_contact(contact_data: Dict[str, Any] = Body(...)):
         contact_data["stage"] = contact_data.get("stage", "RFQ")
         contact_data["createdAt"] = datetime.utcnow()
         contact_data["updatedAt"] = datetime.utcnow()
-        result = contacts_collection.insert_one(contact_data)
-        contact_data["_id"] = str(result.inserted_id)
         
         # Auto-sync to Customers (finance_db): create/update customer with company info
+        linked_customer_id = None
         if contact_data.get("companyName"):
             # Check if customer already exists for this company
             existing_customer = finance_customers_collection.find_one({"company_name": contact_data["companyName"]})
             
             if existing_customer:
                 # Update existing customer with latest company info
+                linked_customer_id = str(existing_customer["_id"])
                 update_fields = {"updated_at": datetime.utcnow()}
                 if contact_data.get("companyEmail"):
                     update_fields["email"] = contact_data["companyEmail"]
@@ -1803,7 +1803,13 @@ async def create_contact(contact_data: Dict[str, Any] = Body(...)):
                     "created_at": datetime.utcnow(),
                     "updated_at": datetime.utcnow(),
                 }
-                finance_customers_collection.insert_one(customer_data)
+                result_customer = finance_customers_collection.insert_one(customer_data)
+                linked_customer_id = str(result_customer.inserted_id)
+        
+        # Store the linked customer ID in the contact
+        contact_data["linked_customer_id"] = linked_customer_id
+        result = contacts_collection.insert_one(contact_data)
+        contact_data["_id"] = str(result.inserted_id)
         
         return {"message": "Contact created successfully", "contact": contact_data}
     except HTTPException:
@@ -1816,12 +1822,47 @@ async def create_contact(contact_data: Dict[str, Any] = Body(...)):
 async def get_contacts():
     try:
         contacts = list(contacts_collection.find())
+        
+        # Build a map of all customers for quick lookup
+        all_customers = {str(c["_id"]): c for c in finance_customers_collection.find()}
+        
         for contact in contacts:
             contact["_id"] = str(contact["_id"])
             # Convert datetime to string for JSON serialization
             for date_field in ["createdAt", "updatedAt", "movedFromLeadAt", "addedOn"]:
                 if date_field in contact:
                     contact[date_field] = contact[date_field].isoformat() if isinstance(contact[date_field], datetime) else str(contact[date_field])
+            
+            # Include linked customer info if available
+            linked_customer_id = contact.get("linked_customer_id")
+            if linked_customer_id and linked_customer_id in all_customers:
+                customer = all_customers[linked_customer_id]
+                contact["linked_customer"] = {
+                    "_id": str(customer["_id"]),
+                    "name": customer.get("name", ""),
+                    "company_name": customer.get("company_name", ""),
+                    "email": customer.get("email", ""),
+                    "status": customer.get("status", "active")
+                }
+            elif contact.get("companyName"):
+                # Try to find by company name if linked_customer_id not set
+                for cid, customer in all_customers.items():
+                    if customer.get("company_name") == contact["companyName"]:
+                        contact["linked_customer_id"] = cid
+                        contact["linked_customer"] = {
+                            "_id": cid,
+                            "name": customer.get("name", ""),
+                            "company_name": customer.get("company_name", ""),
+                            "email": customer.get("email", ""),
+                            "status": customer.get("status", "active")
+                        }
+                        # Update the contact with the linked_customer_id
+                        contacts_collection.update_one(
+                            {"_id": ObjectId(contact["_id"])},
+                            {"$set": {"linked_customer_id": cid}}
+                        )
+                        break
+        
         return {"contacts": contacts}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fetch contacts error: {str(e)}")
@@ -1850,7 +1891,8 @@ async def update_contact(contact_id: str, contact_data: Dict[str, Any] = Body(..
             existing_customer = finance_customers_collection.find_one({"company_name": contact_data["companyName"]})
             
             if existing_customer:
-                # Update existing customer
+                # Update existing customer and store the link
+                linked_customer_id = str(existing_customer["_id"])
                 update_fields = {"updated_at": datetime.utcnow()}
                 if contact_data.get("companyEmail"):
                     update_fields["email"] = contact_data["companyEmail"]
@@ -1861,6 +1903,12 @@ async def update_contact(contact_id: str, contact_data: Dict[str, Any] = Body(..
                 finance_customers_collection.update_one(
                     {"_id": existing_customer["_id"]},
                     {"$set": update_fields}
+                )
+                
+                # Update the contact with the linked_customer_id
+                contacts_collection.update_one(
+                    {"_id": ObjectId(contact_id)},
+                    {"$set": {"linked_customer_id": linked_customer_id}}
                 )
         
         return {"message": "Contact updated successfully"}

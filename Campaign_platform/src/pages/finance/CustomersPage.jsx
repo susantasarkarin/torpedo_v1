@@ -606,7 +606,7 @@ function CustomersPage() {
                 <th style={styles.th}>Email</th>
                 <th style={styles.th}>Phone</th>
                 <th style={styles.th}>GSTIN</th>
-                <th style={styles.th}>Ops Client</th>
+                <th style={styles.th}>Contacts</th>
                 <th style={styles.th}>Status</th>
                 <th style={styles.th}>Outstanding</th>
                 <th style={styles.th}>Actions</th>
@@ -652,19 +652,28 @@ function CustomersPage() {
                     </code>
                   </td>
                   <td style={styles.td}>
-                    <select
-                      style={styles.linkSelect}
-                      value={customerClientLinks[customer._id] || customer.linked_operations_client_id || ""}
-                      onChange={(e) => handleLinkOperationsClient(customer._id, e.target.value)}
-                      title="Link to Operations Client"
-                    >
-                      <option value="">-- Select Client --</option>
-                      {operationsClients.map(client => (
-                        <option key={client._id} value={client._id}>
-                          {client.company_name || client.name || 'Unnamed'}
-                        </option>
-                      ))}
-                    </select>
+                    {customer.linked_contacts_count > 0 ? (
+                      <span 
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '4px 8px',
+                          background: '#e0f2fe',
+                          color: '#0369a1',
+                          borderRadius: '12px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                        }}
+                        onClick={() => navigate('/admin/sales/contacts')}
+                        title={customer.linked_contacts?.map(ct => ct.name || ct.email).join(', ')}
+                      >
+                        👤 {customer.linked_contacts_count} contact{customer.linked_contacts_count > 1 ? 's' : ''}
+                      </span>
+                    ) : (
+                      <span style={{ color: '#9ca3af', fontSize: '12px' }}>—</span>
+                    )}
                   </td>
                   <td style={styles.td}>
                     <span style={{
