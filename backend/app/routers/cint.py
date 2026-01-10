@@ -328,15 +328,21 @@ async def build_entry_link_url(
     country_code: str = Query(..., description="ISO country code"),
     pid: Optional[str] = Query(None, description="Panelist ID"),
     mid: Optional[str] = Query(None, description="Session/Market ID"),
+    cint_service = Depends(get_cint_service),
 ) -> dict:
     """
     Build complete entry link URL with respondent parameters
+    
+    Per Lucid documentation (https://developer.lucidhq.com/#entry-links):
+    - Entry links use format: https://samplicio.us/s/default.aspx?SID={SurveyID}&PID={PanelistID}
+    - PID: Panelist ID (your unique respondent identifier)
+    - MID: Session ID (unique session identifier)
     
     Args:
         survey_id: Cint survey ID
         respondent_id: Unique respondent ID
         country_code: ISO country code
-        pid: Panelist ID (optional)
+        pid: Panelist ID (optional, defaults to respondent_id)
         mid: Session/Market ID (optional)
     
     Returns:
@@ -346,24 +352,99 @@ async def build_entry_link_url(
         }
     """
     try:
-        # TODO: Get CintService from dependency injection
-        # entry_link = cint_service.build_entry_link(
-        #     live_link=link.live_link,
-        #     respondent_id=respondent_id,
-        #     country_code=country_code,
-        #     pid=pid,
-        #     mid=mid,
-        # )
-        
         logger.info(f"Building entry link for survey {survey_id}")
         
+        # Get cached entry link from MongoDB or fetch from API
+        link_result = await cint_service.get_entry_link(survey_id)
+        
+        if link_result.get("success") and link_result.get("link"):
+            live_link = link_result["link"].LiveLink if hasattr(link_result["link"], 'LiveLink') else link_result["link"].get("LiveLink", "")
+            
+            if live_link:
+                # Build entry link with respondent parameters
+                entry_link = cint_service.build_entry_link(
+                    live_link=live_link,
+                    respondent_id=respondent_id,
+                    country_code=country_code,
+                    pid=pid or respondent_id,
+                    mid=mid,
+                )
+                
+                return {
+                    "success": True,
+                    "entry_link": entry_link,
+                    "survey_id": survey_id,
+                }
+        
+        # If no entry link exists, return template with instructions
         return {
             "success": False,
-            "message": "Not yet implemented",
+            "message": "Entry link not found. Create one first via POST /cint/entry-links/{survey_id}",
+            "survey_id": survey_id,
+            "template": f"https://samplicio.us/s/default.aspx?SID={survey_id}&PID={respondent_id}",
         }
     
     except Exception as e:
         logger.error(f"Error building entry link: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/entry-link-template/{survey_id}")
+async def get_entry_link_template(
+    survey_id: int,
+    cint_service = Depends(get_cint_service),
+) -> dict:
+    """
+    Get entry link template for a survey (with placeholders)
+    
+    Per Lucid documentation:
+    - [%MID%]: Macro for session ID in redirect URLs  
+    - [%REVENUE%]: Macro for payout amount in success redirects
+    - PID: Your panelist/respondent ID
+    
+    Args:
+        survey_id: Cint survey ID
+    
+    Returns:
+        Entry link template with placeholders
+    """
+    try:
+        logger.info(f"Getting entry link template for survey {survey_id}")
+        
+        # Check if entry link exists in cache
+        link_result = await cint_service.get_entry_link(survey_id)
+        
+        if link_result.get("success") and link_result.get("link"):
+            link = link_result["link"]
+            live_link = link.LiveLink if hasattr(link, 'LiveLink') else link.get("LiveLink", "")
+            test_link = link.TestLink if hasattr(link, 'TestLink') else link.get("TestLink", "")
+            
+            return {
+                "success": True,
+                "survey_id": survey_id,
+                "live_link_template": f"{live_link}&PID={{panelist_id}}" if live_link else None,
+                "test_link": test_link,
+                "placeholders": {
+                    "{{panelist_id}}": "Your unique panelist/respondent ID",
+                    "[%MID%]": "Session ID (auto-replaced by Cint)",
+                    "[%REVENUE%]": "Payout amount (auto-replaced by Cint in success redirect)",
+                },
+            }
+        
+        # Return default template if no entry link configured
+        return {
+            "success": True,
+            "survey_id": survey_id,
+            "live_link_template": f"https://samplicio.us/s/default.aspx?SID={survey_id}&PID={{panelist_id}}",
+            "test_link": None,
+            "message": "No entry link configured. This is the default Samplicio format.",
+            "placeholders": {
+                "{{panelist_id}}": "Your unique panelist/respondent ID",
+            },
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting entry link template: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -508,6 +589,65 @@ async def get_opportunities_subscription(
     
     except Exception as e:
         logger.error(f"Error retrieving subscription: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/subscription/resubscribe")
+async def resubscribe_with_correct_url(
+    cint_service = Depends(get_cint_service),
+):
+    """
+    Re-subscribe to opportunities webhook with the correct public callback URL.
+    
+    This endpoint uses the production domain (torpedo.cogentixresearch.com)
+    to ensure CINT servers can reach the webhook endpoint.
+    
+    Returns:
+        {
+            "success": true,
+            "message": "Subscription updated",
+            "callback_url": "https://torpedo.cogentixresearch.com/api/cint/webhooks/opportunities"
+        }
+    """
+    try:
+        # Use the production callback URL
+        callback_url = os.getenv(
+            "CINT_WEBHOOK_CALLBACK_URL", 
+            "https://torpedo.cogentixresearch.com/api/cint/webhooks/opportunities"
+        )
+        
+        logger.info(f"Re-subscribing with correct callback URL: {callback_url}")
+        
+        config = OpportunitiesSubscriptionConfig(
+            callback_url=callback_url,
+            include_quotas=True,
+            payload_max_size_mb=10,
+            payload_max_survey_count=1000,
+            send_interval_seconds=30,
+            opportunities_filters=[],  # Default filters for English locales
+        )
+        
+        result = await cint_service.create_opportunities_subscription(config)
+        
+        if result.get("success"):
+            logger.info("✓ Subscription updated with correct URL")
+            return {
+                "success": True,
+                "message": "Subscription updated with correct callback URL",
+                "callback_url": callback_url,
+                "data": result.get("data"),
+            }
+        else:
+            logger.error(f"Resubscription failed: {result.get('error')}")
+            raise HTTPException(
+                status_code=result.get("status_code", 500),
+                detail=result.get("error", "Failed to resubscribe"),
+            )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resubscribing: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

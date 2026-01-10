@@ -108,13 +108,29 @@ class CPXService:
         self,
         live_link: str,
         respondent_id: str,
+        username: Optional[str] = None,
+        email: Optional[str] = None,
+        subid_1: Optional[str] = None,
+        subid_2: Optional[str] = None,
     ) -> str:
         """
         Generate CPX survey entry link by appending required parameters to live_link.
         
+        Per CPX documentation:
+        - ext_user_id: Mandatory - unique user ID (must be unique per user)
+        - app_id: Mandatory - Your App ID (10754)
+        - secure_hash: Recommended - MD5(ext_user_id + "-" + app_secure_hash)
+        - username: Recommended - username of your user
+        - email: Recommended - used to match duplicate users (CPX will ask if not provided)
+        - subid_1/subid_2: Optional - additional tracking info
+        
         Args:
             live_link: The base live link from CPX API (href or href_new)
             respondent_id: The respondent ID to use as ext_user_id (unique per user)
+            username: Optional username for the user
+            email: Optional email for duplicate matching
+            subid_1: Optional tracking parameter (defaults to respondent_id)
+            subid_2: Optional tracking parameter
             
         Returns:
             Fully constructed entry URL with required parameters appended
@@ -127,13 +143,22 @@ class CPXService:
         secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
         
         # Build additional query parameters to append
-        # subid_1 passes SFWID which CPX returns unchanged in redirect URL
+        # Per CPX documentation: https://live-api.cpx-research.com
+        from urllib.parse import quote
+        
         additional_params = (
-            f"&ext_user_id={respondent_id}"
+            f"&ext_user_id={quote(respondent_id)}"
             f"&app_id={self.app_id}"
             f"&secure_hash={secure_hash}"
-            f"&subid_1={respondent_id}"
+            f"&subid_1={quote(subid_1 or respondent_id)}"
+            f"&subid_2={quote(subid_2 or '')}"
         )
+        
+        # Add optional parameters if provided
+        if username:
+            additional_params += f"&username={quote(username)}"
+        if email:
+            additional_params += f"&email={quote(email)}"
         
         return f"{live_link}{additional_params}"
     
@@ -141,6 +166,14 @@ class CPXService:
         """
         Generate a template entry link by appending placeholders to live_link.
         Used for display purposes - actual values should be substituted at runtime.
+        
+        Per CPX documentation parameters:
+        - ext_user_id: {ext_user_id} - Mandatory, unique user ID
+        - app_id: 10754 - Your App ID
+        - secure_hash: {secure_hash} - MD5(ext_user_id + "-" + app_secure_hash)
+        - username: {username} - Optional, user's name
+        - email: {email} - Optional, for duplicate matching
+        - subid_1/subid_2: Optional tracking parameters
         
         Args:
             live_link: The base live link from CPX API (href or href_new)
@@ -156,6 +189,10 @@ class CPXService:
             f"&ext_user_id={{ext_user_id}}"
             f"&app_id={self.app_id}"
             f"&secure_hash={{secure_hash}}"
+            f"&subid_1={{subid_1}}"
+            f"&subid_2={{subid_2}}"
+            f"&username={{username}}"
+            f"&email={{email}}"
         )
         return template
     

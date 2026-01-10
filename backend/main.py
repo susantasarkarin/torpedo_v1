@@ -87,7 +87,10 @@ load_dotenv()
 # Config
 # ----------------------------
 #changes 4
-API_BASE = os.getenv("API_BASE", "http://34.14.202.129:8000") 
+API_BASE = os.getenv("API_BASE", "http://34.14.202.129:8000")
+# CINT webhook callback URL (must be publicly accessible for CINT servers)
+# Use torpedo.cogentixresearch.com as the production domain
+CINT_WEBHOOK_CALLBACK_URL = os.getenv("CINT_WEBHOOK_CALLBACK_URL", "https://torpedo.cogentixresearch.com/api/cint/webhooks/opportunities") 
 
 # MONGO_URI can be set via .env or configured via Settings UI (profile > settings)
 # Default to localhost if not provided
@@ -739,8 +742,8 @@ async def startup_event():
                 # Create subscription if not already subscribed (404 means no subscription exists)
                 print("📡 Subscribing to Cint opportunities webhook...")
                 
-                # Default callback URL (will be used for webhook events)
-                callback_url = f"{API_BASE}/api/cint/webhooks/opportunities"
+                # Use public callback URL (CINT servers must be able to reach this)
+                callback_url = CINT_WEBHOOK_CALLBACK_URL
                 
                 # Configure subscription to receive opportunities from major English locales
                 config = OpportunitiesSubscriptionConfig(

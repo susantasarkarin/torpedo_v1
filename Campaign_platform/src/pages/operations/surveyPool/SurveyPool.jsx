@@ -673,7 +673,12 @@ export default function SurveyPool() {
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Source</span>
-                  <span className="detail-value">{selectedSurvey.account_name ? 'CINT' : (selectedSurvey.provider || selectedSurvey.source || 'CPX')}</span>
+                  <span className="detail-value" style={{ 
+                    color: selectedSurvey.account_name ? '#10b981' : '#667eea',
+                    fontWeight: 'bold'
+                  }}>
+                    {selectedSurvey.account_name ? '🎯 CINT Research' : '📊 CPX Research'}
+                  </span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Country</span>
@@ -685,37 +690,80 @@ export default function SurveyPool() {
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Payout</span>
-                  <span className="detail-value">{getPayout(selectedSurvey)}</span>
+                  <span className="detail-value" style={{ color: '#10b981', fontWeight: 'bold' }}>{getPayout(selectedSurvey)}</span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Conversion Rate</span>
                   <span className="detail-value">{getConversionRate(selectedSurvey)}</span>
                 </div>
                 <div className="detail-item">
-                  <span className="detail-label">Category</span>
+                  <span className="detail-label">Category/Industry</span>
                   <span className="detail-value">{selectedSurvey.industry || selectedSurvey.category || 'N/A'}</span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Status</span>
-                  <span className="detail-value">{selectedSurvey.is_active ? 'active' : (selectedSurvey.status || 'active')}</span>
+                  <span className={`status-badge ${selectedSurvey.is_active || selectedSurvey.is_live ? 'active' : 'inactive'}`}>
+                    {selectedSurvey.is_active || selectedSurvey.is_live ? '✅ Active' : '❌ Inactive'}
+                  </span>
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Date/Time Added</span>
                   <span className="detail-value">{formatDateTime(getSurveyDateTime(selectedSurvey))}</span>
                 </div>
+                
+                {/* CINT-specific fields */}
                 {selectedSurvey.account_name && (
-                  <div className="detail-item">
-                    <span className="detail-label">Buyer/Account</span>
-                    <span className="detail-value">{selectedSurvey.account_name}</span>
-                  </div>
-                )}
-                {selectedSurvey.bid_incidence && (
-                  <div className="detail-item">
-                    <span className="detail-label">Incidence Rate</span>
-                    <span className="detail-value">{selectedSurvey.bid_incidence}%</span>
-                  </div>
+                  <>
+                    <div className="detail-item">
+                      <span className="detail-label">Buyer/Account</span>
+                      <span className="detail-value">{selectedSurvey.account_name}</span>
+                    </div>
+                    {selectedSurvey.buyer_id && (
+                      <div className="detail-item">
+                        <span className="detail-label">Buyer ID</span>
+                        <span className="detail-value">{selectedSurvey.buyer_id}</span>
+                      </div>
+                    )}
+                    {selectedSurvey.bid_incidence !== undefined && (
+                      <div className="detail-item">
+                        <span className="detail-label">Incidence Rate</span>
+                        <span className="detail-value">{selectedSurvey.bid_incidence}%</span>
+                      </div>
+                    )}
+                    {selectedSurvey.total_remaining !== undefined && (
+                      <div className="detail-item">
+                        <span className="detail-label">Quota Remaining</span>
+                        <span className="detail-value">{selectedSurvey.total_remaining}</span>
+                      </div>
+                    )}
+                    {selectedSurvey.study_type && (
+                      <div className="detail-item">
+                        <span className="detail-label">Study Type</span>
+                        <span className="detail-value">{selectedSurvey.study_type}</span>
+                      </div>
+                    )}
+                    {selectedSurvey.collects_pii !== undefined && (
+                      <div className="detail-item">
+                        <span className="detail-label">Collects PII</span>
+                        <span className="detail-value">{selectedSurvey.collects_pii ? 'Yes' : 'No'}</span>
+                      </div>
+                    )}
+                    {selectedSurvey.revenue_per_click !== undefined && (
+                      <div className="detail-item">
+                        <span className="detail-label">Revenue Per Click</span>
+                        <span className="detail-value">${parseFloat(selectedSurvey.revenue_per_click).toFixed(2)}</span>
+                      </div>
+                    )}
+                    {selectedSurvey.mobile_conversion !== undefined && (
+                      <div className="detail-item">
+                        <span className="detail-label">Mobile Conversion</span>
+                        <span className="detail-value">{(selectedSurvey.mobile_conversion * 100).toFixed(1)}%</span>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
+              
               {selectedSurvey.title && selectedSurvey.title !== getSurveyName(selectedSurvey) && (
                 <div className="detail-item full-width">
                   <span className="detail-label">Title</span>
@@ -723,10 +771,10 @@ export default function SurveyPool() {
                 </div>
               )}
               
-              {/* Live Link - Direct link from CPX API */}
-              {selectedSurvey.live_link && (
-                <div className="detail-item full-width">
-                  <span className="detail-label">🔗 Live Link</span>
+              {/* CPX Live Link - Direct link from CPX API */}
+              {selectedSurvey.live_link && !selectedSurvey.account_name && (
+                <div className="detail-item full-width" style={{ marginTop: '16px' }}>
+                  <span className="detail-label">🔗 Live Link (CPX)</span>
                   <div className="entry-link-container">
                     <input 
                       type="text" 
@@ -755,10 +803,10 @@ export default function SurveyPool() {
                 </div>
               )}
               
-              {/* Entry Link - Generated link with placeholder for ext_user_id */}
-              {selectedSurvey.entry_link && (
+              {/* CPX Entry Link Template */}
+              {selectedSurvey.entry_link && !selectedSurvey.account_name && (
                 <div className="detail-item full-width">
-                  <span className="detail-label">🎯 Entry Link (Template)</span>
+                  <span className="detail-label">🎯 Entry Link Template (CPX)</span>
                   <div className="entry-link-container">
                     <input 
                       type="text" 
@@ -776,11 +824,51 @@ export default function SurveyPool() {
                     </button>
                   </div>
                   <div style={{ color: '#888', marginTop: '8px', fontSize: '0.85rem', lineHeight: '1.5' }}>
-                    <strong>Replace placeholders:</strong>
-                    <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
-                      <li><code>{'{ext_user_id}'}</code> - Unique user ID (mandatory)</li>
-                      <li><code>{'{secure_hash}'}</code> - MD5 hash of (ext_user_id + secure_key)</li>
+                    <strong>CPX Parameters (replace placeholders):</strong>
+                    <ul style={{ margin: '4px 0 0 16px', padding: 0, listStyle: 'none' }}>
+                      <li>• <code>{'{ext_user_id}'}</code> - Unique user ID (mandatory)</li>
+                      <li>• <code>{'{secure_hash}'}</code> - MD5(ext_user_id + "-" + app_secure_hash)</li>
+                      <li>• <code>{'{username}'}</code> - User's username (recommended)</li>
+                      <li>• <code>{'{email}'}</code> - User's email (recommended)</li>
+                      <li>• <code>{'{subid_1}'}</code> / <code>{'{subid_2}'}</code> - Custom tracking</li>
                     </ul>
+                  </div>
+                </div>
+              )}
+              
+              {/* CINT Entry Link Section */}
+              {selectedSurvey.account_name && (
+                <div className="detail-item full-width" style={{ marginTop: '16px', padding: '16px', background: '#f8fafc', borderRadius: '8px' }}>
+                  <span className="detail-label" style={{ color: '#10b981', fontSize: '1rem' }}>🎯 CINT Entry Link</span>
+                  <div style={{ marginTop: '12px' }}>
+                    <div className="entry-link-container">
+                      <input 
+                        type="text" 
+                        readOnly 
+                        value={`https://samplicio.us/s/default.aspx?SID=${selectedSurvey.survey_id}&PID={panelist_id}`}
+                        className="entry-link-input"
+                        onClick={(e) => e.target.select()}
+                      />
+                      <button 
+                        className="copy-link-btn"
+                        onClick={() => navigator.clipboard.writeText(`https://samplicio.us/s/default.aspx?SID=${selectedSurvey.survey_id}&PID={panelist_id}`)}
+                        title="Copy to clipboard"
+                      >
+                        📋 Copy
+                      </button>
+                    </div>
+                    <div style={{ color: '#666', marginTop: '12px', fontSize: '0.85rem', lineHeight: '1.6' }}>
+                      <strong>CINT/Lucid Parameters:</strong>
+                      <ul style={{ margin: '8px 0 0 16px', padding: 0, listStyle: 'none' }}>
+                        <li>• <code>SID</code> - Survey ID: <strong>{selectedSurvey.survey_id}</strong></li>
+                        <li>• <code>PID</code> - Replace <code>{'{panelist_id}'}</code> with your unique panelist/respondent ID</li>
+                        <li>• <code>[%MID%]</code> - Session ID (auto-replaced by CINT in redirects)</li>
+                        <li>• <code>[%REVENUE%]</code> - Payout amount (auto-replaced in success redirects)</li>
+                      </ul>
+                      <div style={{ marginTop: '12px', padding: '8px', background: '#e0f2fe', borderRadius: '4px', fontSize: '0.8rem' }}>
+                        💡 <strong>Tip:</strong> Configure redirect URLs via POST /cint/entry-links/{selectedSurvey.survey_id} to set success, failure, and quota-full callbacks.
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

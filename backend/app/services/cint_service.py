@@ -262,6 +262,17 @@ class CintService:
                 if "webhook_timestamp" not in opp_data:
                     opp_data["webhook_timestamp"] = datetime.now(timezone.utc)
                 
+                # Normalize fields for consistent filtering
+                # LOI: use bid_length_of_interview as primary, fallback to length_of_interview
+                if "bid_length_of_interview" in opp_data and opp_data["bid_length_of_interview"]:
+                    opp_data["length_of_interview"] = opp_data["bid_length_of_interview"]
+                
+                # Payout: extract value from revenue_per_interview object if present
+                if "revenue_per_interview" in opp_data and isinstance(opp_data["revenue_per_interview"], dict):
+                    opp_data["payout"] = opp_data["revenue_per_interview"].get("value", 0)
+                elif "revenue_per_interview" in opp_data and isinstance(opp_data["revenue_per_interview"], (int, float)):
+                    opp_data["payout"] = opp_data["revenue_per_interview"]
+                
                 # Parse to Pydantic model
                 opportunity = CintOpportunity(**opp_data)
                 
@@ -646,21 +657,40 @@ class CintService:
             }
         
         try:
-            # Build query filter
-            filter_query = {"is_active": True}
+            # Build query filter - only show active/live surveys
+            filter_query = {
+                "$or": [
+                    {"is_active": True},
+                    {"is_live": True, "message_reason": {"$ne": "deactivated"}}
+                ]
+            }
             
-            # Apply LOI filters
-            if max_loi is not None:
-                filter_query["length_of_interview"] = {"$lte": max_loi}
-            if min_loi is not None:
-                if "length_of_interview" in filter_query:
-                    filter_query["length_of_interview"]["$gte"] = min_loi
-                else:
-                    filter_query["length_of_interview"] = {"$gte": min_loi}
+            # Apply LOI filters - check both normalized and original fields
+            if max_loi is not None or min_loi is not None:
+                loi_conditions = []
+                loi_filter = {}
+                if max_loi is not None:
+                    loi_filter["$lte"] = max_loi
+                if min_loi is not None:
+                    loi_filter["$gte"] = min_loi
+                
+                # Check both length_of_interview and bid_length_of_interview fields
+                loi_conditions.append({"length_of_interview": loi_filter})
+                loi_conditions.append({"bid_length_of_interview": loi_filter})
+                
+                if "$and" not in filter_query:
+                    filter_query["$and"] = []
+                filter_query["$and"].append({"$or": loi_conditions})
             
-            # Apply CPI filter
+            # Apply CPI filter - check both normalized payout and revenue_per_interview
             if min_cpi is not None:
-                filter_query["payout"] = {"$gte": min_cpi}
+                cpi_conditions = [
+                    {"payout": {"$gte": min_cpi}},
+                    {"revenue_per_interview.value": {"$gte": min_cpi}}
+                ]
+                if "$and" not in filter_query:
+                    filter_query["$and"] = []
+                filter_query["$and"].append({"$or": cpi_conditions})
             
             # Apply country filter
             if country:
