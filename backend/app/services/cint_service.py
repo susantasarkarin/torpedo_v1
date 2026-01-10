@@ -733,3 +733,84 @@ class CintService:
                 "page_size": page_size,
                 "error": str(e)
             }
+
+    def filter_and_delete_surveys(
+        self,
+        max_loi: int = 20,
+        min_cpi: float = 1.0,
+    ) -> Dict[str, Any]:
+        """
+        Filter and delete CINT surveys that don't meet the filter criteria.
+        
+        Surveys are deleted if:
+        - LOI > max_loi (length of interview exceeds maximum)
+        - CPI < min_cpi (cost per interview is below minimum)
+        
+        Args:
+            max_loi: Maximum Length of Interview (minutes). Surveys with LOI > this are deleted.
+            min_cpi: Minimum Cost Per Interview ($). Surveys with CPI < this are deleted.
+        
+        Returns:
+            Dict with deletion statistics
+        """
+        if self.cint_surveys_collection is None:
+            return {
+                "success": False,
+                "message": "Surveys collection not available",
+                "deleted_count": 0
+            }
+        
+        try:
+            # Count surveys before deletion
+            total_before = self.cint_surveys_collection.count_documents({})
+            
+            # Build delete query for surveys that don't meet criteria
+            # Delete if: LOI > max_loi OR CPI < min_cpi
+            delete_query = {
+                "$or": [
+                    # LOI exceeds max (check both field names)
+                    {"length_of_interview": {"$gt": max_loi}},
+                    {"bid_length_of_interview": {"$gt": max_loi}},
+                    # CPI below min (check both field names)
+                    {"$and": [
+                        {"payout": {"$lt": min_cpi}},
+                        {"payout": {"$exists": True, "$ne": None}}
+                    ]},
+                    {"$and": [
+                        {"revenue_per_interview.value": {"$lt": min_cpi}},
+                        {"revenue_per_interview.value": {"$exists": True, "$ne": None}}
+                    ]},
+                ]
+            }
+            
+            # Count surveys to be deleted
+            to_delete = self.cint_surveys_collection.count_documents(delete_query)
+            
+            # Perform deletion
+            result = self.cint_surveys_collection.delete_many(delete_query)
+            
+            # Count surveys after deletion
+            total_after = self.cint_surveys_collection.count_documents({})
+            
+            logger.info(f"Survey filter applied: max_loi={max_loi}, min_cpi={min_cpi}")
+            logger.info(f"Deleted {result.deleted_count} surveys. Before: {total_before}, After: {total_after}")
+            
+            return {
+                "success": True,
+                "message": f"Deleted {result.deleted_count} surveys that did not meet criteria (LOI > {max_loi} min or CPI < ${min_cpi})",
+                "deleted_count": result.deleted_count,
+                "total_before": total_before,
+                "total_after": total_after,
+                "criteria": {
+                    "max_loi": max_loi,
+                    "min_cpi": min_cpi
+                }
+            }
+        
+        except Exception as e:
+            logger.error(f"Error filtering surveys: {str(e)}")
+            return {
+                "success": False,
+                "message": str(e),
+                "deleted_count": 0
+            }

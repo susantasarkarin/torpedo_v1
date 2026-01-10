@@ -282,6 +282,44 @@ export default function SurveyPool() {
     }
   };
 
+  // Apply survey filters - delete CINT surveys that don't meet criteria from Settings
+  const handleApplyFilters = async () => {
+    if (!window.confirm('⚠️ Apply survey filters from Settings?\\n\\nThis will DELETE all CINT surveys that do not meet the criteria (max LOI, min CPI).\\n\\nThis action cannot be undone!')) {
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/cint/surveys/apply-filters`, {
+        method: 'POST',
+        headers: {
+          'Authorization': token,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to apply filters');
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        alert(`✅ ${data.message}\\n\\nTotal before: ${data.total_before}\\nTotal after: ${data.total_after}\\nDeleted: ${data.deleted_count}`);
+        // Refresh the CINT surveys list
+        await fetchCintSurveys();
+      } else {
+        throw new Error(data.message || 'Unknown error');
+      }
+    } catch (err) {
+      console.error('Error applying filters:', err);
+      setError(err.message);
+      alert(`❌ Error: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Client-side pagination for CPX
   const paginatedSurveys = useMemo(() => {
     const startIndex = (currentPage - 1) * recordsPerPage;
@@ -448,6 +486,17 @@ export default function SurveyPool() {
             <span style={{ fontSize: '0.85rem', color: '#666' }}>
               Last updated: {new Date(displayLastUpdated).toLocaleString()}
             </span>
+          )}
+          {activeTab === 'cint' && (
+            <button
+              onClick={handleApplyFilters}
+              disabled={loading}
+              className="refresh-btn"
+              style={{ background: '#dc2626', borderColor: '#dc2626' }}
+              title="Delete CINT surveys that don't meet the filter criteria from Settings"
+            >
+              {loading ? '⏳ Applying...' : '🗑️ Apply Filters'}
+            </button>
           )}
           <button
             onClick={activeTab === 'cpx' ? handleRefresh : handleRefreshCint}
