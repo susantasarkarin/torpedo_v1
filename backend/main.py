@@ -190,6 +190,7 @@ def get_survey_filter_settings() -> Dict[str, Any]:
     defaults = {
         "max_loi": 20,
         "min_cpi": 1.0,
+        "min_incidence": 60,  # Minimum bid_incidence percentage (conversion rate)
         "deletion_period_days": 7,
         "auto_refresh_enabled": True,
         "refresh_interval_seconds": 60,  # 1 minute
@@ -202,6 +203,7 @@ def get_survey_filter_settings() -> Dict[str, Any]:
                 return {
                     "max_loi": stored.get("max_loi", defaults["max_loi"]),
                     "min_cpi": stored.get("min_cpi", defaults["min_cpi"]),
+                    "min_incidence": stored.get("min_incidence", defaults["min_incidence"]),
                     "deletion_period_days": stored.get("deletion_period_days", defaults["deletion_period_days"]),
                     "auto_refresh_enabled": stored.get("auto_refresh_enabled", defaults["auto_refresh_enabled"]),
                     "refresh_interval_seconds": stored.get("refresh_interval_seconds", defaults["refresh_interval_seconds"]),

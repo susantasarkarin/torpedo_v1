@@ -81,7 +81,7 @@ class CintAllocationExtension:
         Returns:
             Best matching CintOpportunity or None if no match
         """
-        if not self.cint_surveys_collection:
+        if self.cint_surveys_collection is None:
             return None
         
         try:
@@ -150,7 +150,7 @@ class CintAllocationExtension:
         """
         try:
             # Get entry link from cache
-            if self.cint_entry_links_collection:
+            if self.cint_entry_links_collection is not None:
                 link_doc = self.cint_entry_links_collection.find_one(
                     {"survey_id": survey.survey_id}
                 )
@@ -189,7 +189,7 @@ class CintAllocationExtension:
             survey_id: Cint survey ID
             event_type: Type of event that occurred
         """
-        if not self.cint_metrics_collection:
+        if self.cint_metrics_collection is None:
             return
         
         try:
@@ -244,7 +244,7 @@ class CintAllocationExtension:
         Returns:
             MongoDB ObjectId of created/updated document
         """
-        if not self.respondents_collection:
+        if self.respondents_collection is None:
             return None
         
         try:
@@ -298,7 +298,7 @@ class CintAllocationExtension:
         Returns:
             True if survey should be paused, False otherwise
         """
-        if not self.cint_metrics_collection or not self.cint_surveys_collection:
+        if self.cint_metrics_collection is None or self.cint_surveys_collection is None:
             return False
         
         try:
@@ -355,7 +355,7 @@ class CintAllocationExtension:
         Returns:
             True if updated successfully
         """
-        if not self.cint_surveys_collection:
+        if self.cint_surveys_collection is None:
             return False
         
         try:
@@ -406,7 +406,7 @@ class CintAllocationExtension:
         Returns:
             Dictionary with performance metrics
         """
-        if not self.cint_metrics_collection:
+        if self.cint_metrics_collection is None:
             return None
         
         try:
@@ -453,7 +453,7 @@ class CintAllocationExtension:
         Returns:
             List of allocation records or None
         """
-        if not self.respondents_collection:
+        if self.respondents_collection is None:
             return None
         
         try:

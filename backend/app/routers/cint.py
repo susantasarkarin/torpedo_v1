@@ -125,7 +125,7 @@ async def handle_opportunities_webhook(
         processed = await cint_service.process_opportunity_webhook(request_body)
         
         # Update allocation metrics if extension available
-        if cint_allocation and processed:
+        if cint_allocation is not None and processed:
             for opp in processed:
                 await cint_allocation.update_opportunity_from_webhook(
                     opp.survey_id,
@@ -831,54 +831,4 @@ async def get_surveys(
     
     except Exception as e:
         logger.error(f"Error fetching surveys: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ============================================
-# Survey Pool - Filter and Delete Surveys
-# ============================================
-
-@router.post("/surveys/apply-filters")
-async def apply_survey_filters(
-    request: Request,
-    cint_service = Depends(get_cint_service),
-) -> Dict[str, Any]:
-    """
-    Re-apply survey filter settings to existing CINT surveys.
-    
-    This is a cleanup tool that removes surveys that no longer meet the current
-    filter criteria (used when filter settings are changed).
-    
-    New surveys are automatically filtered during webhook ingestion - this endpoint
-    is for cleaning up existing surveys that were stored before the filter change.
-    
-    Filter settings (max_loi, min_cpi) are read from Settings page.
-    Surveys are deleted if:
-    - LOI (Length of Interview) > max_loi setting
-    - CPI (Cost Per Interview) < min_cpi setting
-    
-    Returns:
-        {
-            "success": true,
-            "message": "Deleted X surveys...",
-            "deleted_count": 50,
-            "total_before": 200,
-            "total_after": 150,
-            "criteria": {
-                "max_loi": 20,
-                "min_cpi": 1.0
-            }
-        }
-    """
-    try:
-        logger.info("Applying survey filters to existing CINT surveys")
-        
-        # Apply filters and delete non-matching surveys
-        # Method reads filter settings from torpedo_settings.app_settings
-        result = cint_service.filter_and_delete_surveys()
-        
-        return result
-    
-    except Exception as e:
-        logger.error(f"Error applying survey filters: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

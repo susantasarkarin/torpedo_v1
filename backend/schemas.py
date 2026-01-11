@@ -353,6 +353,7 @@ class SurveyFilterSettings(BaseModel):
     """Survey filter settings."""
     max_loi: int = Field(default=20, ge=1, le=120)
     min_cpi: float = Field(default=1.0, ge=0)
+    min_incidence: int = Field(default=60, ge=0, le=100, description="Minimum bid_incidence percentage (conversion rate)")
     deletion_period_days: int = Field(default=7, ge=1, le=365)
     auto_refresh_enabled: bool = True
     refresh_interval_seconds: int = Field(default=60, ge=10, le=3600)

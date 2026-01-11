@@ -120,6 +120,7 @@ class CintService:
         return {
             "max_loi": 20,  # Maximum 20 minutes
             "min_cpi": 1.0,  # Minimum $1.00 payout
+            "min_incidence": 60,  # Minimum 60% conversion rate (bid_incidence)
             "deletion_period_days": 7,
         }
 
@@ -129,7 +130,7 @@ class CintService:
         Same logic as CPX: only store surveys that pass the filter.
         
         Args:
-            survey_data: Survey data dict with loi and payout fields
+            survey_data: Survey data dict with loi, payout, and bid_incidence fields
             
         Returns:
             True if survey passes filters (should be stored), False otherwise
@@ -137,8 +138,9 @@ class CintService:
         filter_settings = self.get_filter_settings()
         max_loi = filter_settings.get("max_loi", 20)
         min_cpi = filter_settings.get("min_cpi", 1.0)
+        min_incidence = filter_settings.get("min_incidence", 60)
         
-        # Get LOI - check multiple field names
+        # Get LOI - use length_of_interview primarily
         loi = survey_data.get("length_of_interview") or survey_data.get("bid_length_of_interview") or 0
         
         # Get payout - check multiple field names
@@ -150,14 +152,27 @@ class CintService:
             elif isinstance(rpi, (int, float)):
                 payout = rpi
         
-        # Filter: LOI must be <= max_loi
-        if loi > max_loi:
+        # Get conversion rate - try bid_incidence first, then incidence_rate
+        incidence = survey_data.get("bid_incidence") or survey_data.get("incidence_rate", 0)
+        if isinstance(incidence, str):
+            try:
+                incidence = float(incidence)
+            except:
+                incidence = 0
+        
+        # Filter: LOI must be <= max_loi (skip if LOI is 0, meaning not provided)
+        if loi > 0 and loi > max_loi:
             logger.debug(f"Survey {survey_data.get('survey_id')} filtered out: LOI {loi} > {max_loi}")
             return False
         
         # Filter: payout must be >= min_cpi
         if payout < min_cpi:
             logger.debug(f"Survey {survey_data.get('survey_id')} filtered out: payout ${payout} < ${min_cpi}")
+            return False
+        
+        # Filter: incidence must be >= min_incidence (skip if incidence is 0, meaning not provided)
+        if incidence > 0 and incidence < min_incidence:
+            logger.debug(f"Survey {survey_data.get('survey_id')} filtered out: incidence {incidence}% < {min_incidence}%")
             return False
         
         return True
@@ -760,15 +775,16 @@ class CintService:
                     filter_query["$and"] = []
                 filter_query["$and"].append({"$or": loi_conditions})
             
-            # Apply CPI filter - check both normalized payout and revenue_per_interview
-            if min_cpi is not None:
-                cpi_conditions = [
-                    {"payout": {"$gte": min_cpi}},
-                    {"revenue_per_interview.value": {"$gte": min_cpi}}
-                ]
-                if "$and" not in filter_query:
-                    filter_query["$and"] = []
-                filter_query["$and"].append({"$or": cpi_conditions})
+            # Apply CPI filter - always apply minimum $1.00 filter from settings
+            filter_settings = self.get_filter_settings()
+            effective_min_cpi = min_cpi if min_cpi is not None else filter_settings.get("min_cpi", 1.0)
+            cpi_conditions = [
+                {"payout": {"$gte": effective_min_cpi}},
+                {"revenue_per_interview.value": {"$gte": effective_min_cpi}}
+            ]
+            if "$and" not in filter_query:
+                filter_query["$and"] = []
+            filter_query["$and"].append({"$or": cpi_conditions})
             
             # Apply country filter
             if country:

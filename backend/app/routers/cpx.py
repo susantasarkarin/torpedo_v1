@@ -110,37 +110,6 @@ async def save_filter_settings(
         raise HTTPException(status_code=500, detail=f"Error saving filter settings: {str(e)}")
 
 
-@router.post("/refresh")
-async def refresh_cpx_inventory(request: Request = None) -> Dict[str, Any]:
-    """
-    Manually trigger CPX survey inventory refresh
-    
-    This will fetch the latest surveys from CPX API and update the database
-    """
-    try:
-        # Verify session
-        session_id = request.headers.get("Authorization")
-        if not session_id:
-            raise HTTPException(status_code=401, detail="Missing session token")
-        
-        service = get_cpx_service()
-        
-        # Fetch and upsert surveys
-        surveys = service.fetch_cpx_surveys()
-        count = service.upsert_surveys(surveys)
-        
-        return {
-            "message": "CPX inventory refreshed",
-            "surveys_fetched": len(surveys),
-            "surveys_upserted": count,
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error refreshing CPX inventory: {str(e)}")
-
-
 @router.get("/filter-settings")
 async def get_filter_settings(request: Request = None) -> Dict[str, Any]:
     """Get saved filter settings"""

@@ -557,51 +557,53 @@ class CPXService:
                                 survey["completes"] = metrics.get("completes_n", 0)
                                 survey["incompletes"] = metrics.get("incompletes_n", 0)
                                 survey["entrants"] = metrics.get("entrants_n", 0)
-                                survey["conversion_rate"] = metrics.get("conversion_rate", 0.0)
-                                survey["incidence_rate"] = metrics.get("incidence_rate", 0.0)
+                                # Preserve original conversion_rate if exists
+                                if not survey.get("conversion_rate"):
+                                    survey["conversion_rate"] = metrics.get("conversion_rate", 0.0)
+                                if not survey.get("incidence_rate"):
+                                    survey["incidence_rate"] = metrics.get("incidence_rate", 0.0)
                                 print(f"✅ Attached metrics for survey {survey_id}: sent={metrics.get('sent_n')}, completes={metrics.get('completes_n')}")
                             else:
-                                # Initialize with default metrics if none exist
+                                # Initialize with default metrics if none exist, but preserve conversion_rate
                                 survey["clicks"] = 0
                                 survey["completes"] = 0
                                 survey["incompletes"] = 0
                                 survey["entrants"] = 0
-                                survey["conversion_rate"] = 0.0
-                                survey["incidence_rate"] = 0.0
+                                # Only set to 0.0 if not already set
+                                if not survey.get("conversion_rate"):
+                                    survey["conversion_rate"] = 0.0
+                                if not survey.get("incidence_rate"):
+                                    survey["incidence_rate"] = 0.0
                         except AttributeError as ae:
                             print(f"⚠️ Survey allocation service missing get_survey_metrics method: {ae}")
                             survey["clicks"] = 0
                             survey["completes"] = 0
                             survey["incompletes"] = 0
                             survey["entrants"] = 0
-                            survey["conversion_rate"] = 0.0
-                            survey["incidence_rate"] = 0.0
+                            # Preserve conversion_rate
                         except Exception as me:
                             print(f"⚠️ Failed to attach metrics for survey {survey.get('_id')}: {me}")
-                            # Provide default values on error
+                            # Provide default values on error, preserve conversion_rate
                             survey["clicks"] = 0
                             survey["completes"] = 0
                             survey["incompletes"] = 0
                             survey["entrants"] = 0
-                            survey["conversion_rate"] = 0.0
-                            survey["incidence_rate"] = 0.0
                     else:
-                        # No allocation service provided, use defaults
+                        # No allocation service provided, use defaults but preserve conversion_rate
                         survey["clicks"] = 0
                         survey["completes"] = 0
                         survey["incompletes"] = 0
                         survey["entrants"] = 0
-                        survey["conversion_rate"] = 0.0
-                        survey["incidence_rate"] = 0.0
+                        if not survey.get("incidence_rate"):
+                            survey["incidence_rate"] = 0.0
                 except Exception as outer_e:
                     print(f"❌ Unexpected error in metrics attachment: {outer_e}")
-                    # Fallback defaults on any error
+                    # Fallback defaults on any error, but preserve conversion_rate
                     survey["clicks"] = 0
                     survey["completes"] = 0
                     survey["incompletes"] = 0
                     survey["entrants"] = 0
-                    survey["conversion_rate"] = 0.0
-                    survey["incidence_rate"] = 0.0
+                    # Don't overwrite conversion_rate if it exists
                 
                 cleaned_surveys.append(survey)
             

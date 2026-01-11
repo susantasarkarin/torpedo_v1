@@ -3,6 +3,18 @@ import { useAuth } from '../../../hooks/useAuth';
 import { API_BASE_URL } from '../../../config';
 import './SurveyPool.css';
 
+// Cint country_language ID to country code mapping
+const CINT_COUNTRY_LANGUAGE_MAP = {
+  1: 'UK', 2: 'FR', 3: 'DE', 4: 'NL', 5: 'AU', 6: 'CA', 7: 'NZ', 8: 'IE', 9: 'US',
+  10: 'ES', 11: 'IT', 12: 'BR', 13: 'MX', 14: 'AR', 15: 'CL', 16: 'CO', 17: 'PE',
+  18: 'AT', 19: 'CH', 20: 'BE', 21: 'SE', 22: 'NO', 23: 'DK', 24: 'KR', 25: 'JP',
+  26: 'CN', 27: 'IN', 28: 'BE', 29: 'PL', 30: 'RU', 31: 'TR', 32: 'ZA', 33: 'SG',
+  34: 'MY', 35: 'TH', 36: 'PH', 37: 'ID', 38: 'VN', 39: 'TW', 40: 'HK', 41: 'AE',
+  42: 'SA', 43: 'EG', 44: 'NG', 45: 'KE', 46: 'GH', 47: 'PT', 48: 'FI', 49: 'CZ',
+  50: 'HU', 51: 'RO', 52: 'GR', 53: 'UA', 54: 'IL', 55: 'PK', 56: 'BD', 57: 'LK',
+  86: 'KZ', 146: 'EU',
+};
+
 export default function SurveyPool() {
   const { user, token } = useAuth();
   const [surveys, setSurveys] = useState([]); // Unified pool - all surveys
@@ -213,73 +225,6 @@ export default function SurveyPool() {
     return 'Online';
   };
 
-  // Manual refresh handler
-  const handleRefresh = async () => {
-    setLoading(true);
-    try {
-      // Refresh CPX inventory first
-      const response = await fetch(`${API_BASE_URL}/cpx/refresh`, {
-        method: 'POST',
-        headers: {
-          'Authorization': token,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to refresh CPX inventory');
-      }
-
-      // Fetch all surveys (both CPX and CINT)
-      await fetchAllSurveys();
-      await fetchTrafficStats();
-      setCurrentPage(1);
-    } catch (err) {
-      console.error('Error refreshing inventory:', err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Apply survey filters - delete surveys that don't meet criteria from Settings
-  const handleApplyFilters = async () => {
-    if (!window.confirm('⚠️ Apply survey filters from Settings?\\n\\nThis will DELETE all surveys that do not meet the criteria (max LOI, min CPI).\\n\\nThis action cannot be undone!')) {
-      return;
-    }
-    
-    setLoading(true);
-    try {
-      const response = await fetch(`${API_BASE_URL}/cint/surveys/apply-filters`, {
-        method: 'POST',
-        headers: {
-          'Authorization': token,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to apply filters');
-      }
-
-      const data = await response.json();
-      
-      if (data.success) {
-        alert(`✅ ${data.message}\\n\\nTotal before: ${data.total_before}\\nTotal after: ${data.total_after}\\nDeleted: ${data.deleted_count}`);
-        // Refresh all surveys
-        await fetchAllSurveys();
-      } else {
-        throw new Error(data.message || 'Unknown error');
-      }
-    } catch (err) {
-      console.error('Error applying filters:', err);
-      setError(err.message);
-      alert(`❌ Error: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Client-side pagination
   const paginatedSurveys = useMemo(() => {
     const startIndex = (currentPage - 1) * recordsPerPage;
@@ -316,52 +261,56 @@ export default function SurveyPool() {
     });
   };
 
-  // Get survey name - for CPX surveys, use survey_id as name; for Cint, use survey_id
+  // Get survey name - for CINT show study number (survey_id), for CPX show survey_name
   const getSurveyName = (survey) => {
-    // For CINT surveys, use survey_id as the name/link
-    if (survey.account_name) {
+    // For CINT surveys (those with account_name), show survey_id as study number
+    if (survey.account_name || (survey.survey_id && !survey.name)) {
       return survey.survey_id || survey._id || 'N/A';
     }
-    const source = survey.provider || survey.source || 'CPX';
-    if (source === 'CPX') {
-      return survey.survey_id || survey._id || 'N/A';
-    }
-    return survey.name || survey.survey_name || survey.title || 'N/A';
+    // For CPX surveys, show survey name
+    return survey.survey_name || survey.name || survey.survey_id || survey._id || 'N/A';
   };
 
-  // Extract country code from country_language (e.g., "eng_us" -> "US", "eng_gb" -> "GB")
+  // Extract country code from country_language - last 2 alphabets in caps (e.g., eng_us -> US)
   const getCountryCode = (survey) => {
-    // First check direct country or country_code fields
-    if (survey.country && survey.country.length <= 3) {
-      return survey.country.toUpperCase();
-    }
-    if (survey.country_code && survey.country_code.length <= 3) {
-      return survey.country_code.toUpperCase();
-    }
-    
-    // For CINT surveys, parse country_language field (e.g., "eng_us" -> "US")
     const countryLanguage = survey.country_language;
+    
+    // Priority: Extract last 2 characters from country_language string (e.g., "eng_us" -> "US")
     if (countryLanguage && typeof countryLanguage === 'string') {
-      // Format is typically "lang_country" e.g., "eng_us", "eng_gb", "eng_in"
+      // Get last 2 characters and uppercase them
+      const lastTwo = countryLanguage.slice(-2).toUpperCase();
+      if (lastTwo && /^[A-Z]{2}$/.test(lastTwo)) {
+        return lastTwo;
+      }
+      // Fallback: try splitting by underscore
       const parts = countryLanguage.split('_');
       if (parts.length >= 2) {
-        return parts[parts.length - 1].toUpperCase(); // Get last part and uppercase
+        return parts[parts.length - 1].toUpperCase();
       }
-      // If format is different, just uppercase it
       return countryLanguage.toUpperCase();
+    }
+    
+    // For CINT surveys with numeric country_language ID - use mapping
+    if (countryLanguage && typeof countryLanguage === 'number') {
+      return CINT_COUNTRY_LANGUAGE_MAP[countryLanguage] || `ID:${countryLanguage}`;
+    }
+    
+    // Fallback to direct country or country_code fields
+    if (survey.country && typeof survey.country === 'string' && survey.country.length <= 3) {
+      return survey.country.toUpperCase();
+    }
+    if (survey.country_code && typeof survey.country_code === 'string' && survey.country_code.length <= 3) {
+      return survey.country_code.toUpperCase();
     }
     
     return 'N/A';
   };
 
-  // Get LOI (Length of Interview) in minutes
+  // Get LOI (Length of Interview) in minutes - use length_of_interview field
   const getLOI = (survey) => {
-    // For CINT surveys, use bid_length_of_interview
-    if (survey.bid_length_of_interview && survey.bid_length_of_interview > 0) {
-      return survey.bid_length_of_interview;
-    }
-    // Fallback to length_of_interview or loi
-    return survey.length_of_interview || survey.loi || 'N/A';
+    // Use length_of_interview as primary field
+    const loi = survey.length_of_interview || survey.loi || survey.bid_length_of_interview;
+    return (loi && loi > 0) ? loi : 'N/A';
   };
 
   // Get Payout/CPI in USD
@@ -386,9 +335,20 @@ export default function SurveyPool() {
     return '$0.00';
   };
 
-  // Calculate conversion rate properly (stored as decimal, display as percentage)
+  // Calculate conversion rate - use bid_incidence or incidence_rate for CINT surveys
   const getConversionRate = (survey) => {
-    // For CINT surveys, use 'conversion' field (0.0 to 1.0)
+    // For CINT surveys, try 'bid_incidence' first, then 'incidence_rate' (percentage value)
+    const incidence = survey.bid_incidence ?? survey.incidence_rate;
+    if (incidence !== undefined && incidence !== null && incidence > 0) {
+      const rate = parseFloat(incidence);
+      // Values typically already a percentage (e.g., 60 = 60%)
+      if (rate <= 1) {
+        return `${(rate * 100).toFixed(1)}%`;
+      }
+      return `${rate.toFixed(1)}%`;
+    }
+    
+    // Fallback to conversion or conversion_rate
     if (survey.conversion !== undefined && survey.conversion !== null) {
       const rate = parseFloat(survey.conversion);
       if (rate > 1) {
@@ -397,14 +357,11 @@ export default function SurveyPool() {
       return `${(rate * 100).toFixed(1)}%`;
     }
     
-    // Fallback to conversion_rate
     const rate = survey.conversion_rate;
     if (rate === null || rate === undefined) return 'N/A';
-    // If rate is already > 1, it's likely already a percentage
     if (rate > 1) {
       return `${rate.toFixed(1)}%`;
     }
-    // Otherwise multiply by 100 to get percentage
     return `${(rate * 100).toFixed(1)}%`;
   };
 
@@ -420,35 +377,7 @@ export default function SurveyPool() {
 
   return (
     <div className="survey-pool-container">
-      <div className="survey-pool-header">
-        <div>
-          <h1>📋 Survey Pool</h1>
-          <p>Unified CPX & CINT Research survey inventory ({totalSurveys} surveys)</p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          {lastUpdated && (
-            <span style={{ fontSize: '0.85rem', color: '#666' }}>
-              Last updated: {new Date(lastUpdated).toLocaleString()}
-            </span>
-          )}
-          <button
-            onClick={handleApplyFilters}
-            disabled={loading}
-            className="refresh-btn"
-            style={{ background: '#dc2626', borderColor: '#dc2626' }}
-            title="Delete surveys that don't meet the filter criteria from Settings"
-          >
-            {loading ? '⏳ Applying...' : '🗑️ Apply Filters'}
-          </button>
-          <button
-            onClick={handleRefresh}
-            disabled={loading}
-            className="refresh-btn"
-          >
-            {loading ? '⏳ Refreshing...' : '🔄 Refresh'}
-          </button>
-        </div>
-      </div>
+      {/* Header hidden per user request */}
 
       {/* Loading State */}
       {loading && paginatedSurveys.length === 0 && !error && (
@@ -463,7 +392,7 @@ export default function SurveyPool() {
         <div className="survey-pool-error">
           <p>❌ Failed to fetch surveys</p>
           <p className="error-detail">{error}</p>
-          <button onClick={handleRefresh} className="retry-btn">
+          <button onClick={() => window.location.reload()} className="retry-btn">
             🔄 Retry
           </button>
         </div>

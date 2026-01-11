@@ -233,7 +233,7 @@ async def save_survey_filter_settings(
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
         
-        allowed_keys = ["max_loi", "min_cpi", "deletion_period_days", "auto_refresh_enabled", "refresh_interval_seconds"]
+        allowed_keys = ["max_loi", "min_cpi", "min_incidence", "deletion_period_days", "auto_refresh_enabled", "refresh_interval_seconds"]
         filtered = {k: v for k, v in filters.items() if k in allowed_keys and v is not None}
         
         # Validation
@@ -241,6 +241,8 @@ async def save_survey_filter_settings(
             filtered["max_loi"] = max(1, min(120, int(filtered["max_loi"])))
         if "min_cpi" in filtered:
             filtered["min_cpi"] = max(0.01, min(100, float(filtered["min_cpi"])))
+        if "min_incidence" in filtered:
+            filtered["min_incidence"] = max(0, min(100, int(filtered["min_incidence"])))
         if "deletion_period_days" in filtered:
             filtered["deletion_period_days"] = max(1, min(30, int(filtered["deletion_period_days"])))
         if "refresh_interval_seconds" in filtered:
