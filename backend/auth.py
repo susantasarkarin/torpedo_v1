@@ -39,12 +39,12 @@ def hash_password(password: str) -> str:
         Hashed password string
     """
     if BCRYPT_AVAILABLE:
-        # Use bcrypt with a work factor of 12 (secure and performant)
-        salt = bcrypt.gensalt(rounds=12)
+        # Use bcrypt with a work factor of 10 (secure and faster for login)
+        salt = bcrypt.gensalt(rounds=10)
         hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
         return hashed.decode('utf-8')
     else:
-        # Fallback to PBKDF2-SHA256 with 260,000 iterations (OWASP recommended)
+        # Fallback to PBKDF2-SHA256 with 100,000 iterations (faster but still secure)
         salt = secrets.token_hex(16)
         hash_obj = hashlib.pbkdf2_hmac(
             'sha256',

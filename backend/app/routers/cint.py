@@ -844,11 +844,15 @@ async def apply_survey_filters(
     cint_service = Depends(get_cint_service),
 ) -> Dict[str, Any]:
     """
-    Apply survey filter settings and delete CINT surveys that don't meet criteria.
+    Re-apply survey filter settings to existing CINT surveys.
     
-    This reads the filter settings from Settings page (max_loi, min_cpi) and deletes
-    all surveys from the Survey Pool that don't meet the criteria.
+    This is a cleanup tool that removes surveys that no longer meet the current
+    filter criteria (used when filter settings are changed).
     
+    New surveys are automatically filtered during webhook ingestion - this endpoint
+    is for cleaning up existing surveys that were stored before the filter change.
+    
+    Filter settings (max_loi, min_cpi) are read from Settings page.
     Surveys are deleted if:
     - LOI (Length of Interview) > max_loi setting
     - CPI (Cost Per Interview) < min_cpi setting
@@ -867,33 +871,11 @@ async def apply_survey_filters(
         }
     """
     try:
-        # Get survey filter settings from Settings API
-        from pymongo import MongoClient
-        import os
-        
-        MONGO_URI = os.getenv("MONGO_URI")
-        mongo_client = MongoClient(MONGO_URI)
-        settings_db = mongo_client["torpedo_settings"]
-        app_settings = settings_db["app_settings"]
-        
-        # Get stored filter settings
-        stored = app_settings.find_one({"_id": "survey_filters"})
-        if stored and "data" in stored:
-            filter_settings = stored["data"]
-        else:
-            filter_settings = {}
-        
-        # Default values if not set
-        max_loi = filter_settings.get("max_loi", 20)
-        min_cpi = filter_settings.get("min_cpi", 1.0)
-        
-        logger.info(f"Applying survey filters: max_loi={max_loi}, min_cpi={min_cpi}")
+        logger.info("Applying survey filters to existing CINT surveys")
         
         # Apply filters and delete non-matching surveys
-        result = cint_service.filter_and_delete_surveys(
-            max_loi=max_loi,
-            min_cpi=min_cpi,
-        )
+        # Method reads filter settings from torpedo_settings.app_settings
+        result = cint_service.filter_and_delete_surveys()
         
         return result
     

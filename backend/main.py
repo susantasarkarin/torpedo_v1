@@ -40,6 +40,7 @@ try:
     from .routers import finance as finance_router
     from .routers import settings as settings_router
     from .routers import gmail as gmail_router
+    from .app.routers import gmail_router as gmail_api_router
     from .routers import rfq as rfq_router
     from .routers import operations as operations_router
     from .routers import health as health_router
@@ -58,6 +59,7 @@ except Exception:
     from routers import finance as finance_router
     from routers import settings as settings_router
     from routers import gmail as gmail_router
+    from app.routers import gmail_router as gmail_api_router
     from routers import rfq as rfq_router
     from routers import operations as operations_router
     from routers import health as health_router
@@ -481,12 +483,19 @@ try:
 except Exception as e:
     print(f"⚠️ Performance router not included: {e}")
 
-# Gmail router for Gmail API integration
+# Gmail router for Gmail API integration (legacy - IMAP based)
 try:
     app.include_router(gmail_router.router)
-    print("✅ Gmail router included")
+    print("✅ Gmail router included (legacy)")
 except Exception as e:
     print(f"⚠️ Gmail router not included: {e}")
+
+# New Gmail API router (OAuth + metadata-only storage + AI classification)
+try:
+    app.include_router(gmail_api_router.router)
+    print("✅ Gmail API router included (new)")
+except Exception as e:
+    print(f"⚠️ Gmail API router not included: {e}")
 
 # Survey Allocation & Quality Control Engine router
 try:

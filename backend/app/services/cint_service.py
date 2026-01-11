@@ -91,6 +91,78 @@ class CintService:
         await self.client.aclose()
 
     # ============================================
+    # Survey Filter Settings (same as CPX)
+    # ============================================
+
+    def get_filter_settings(self) -> Dict[str, Any]:
+        """
+        Get survey filter settings from Settings database.
+        Uses the same settings as CPX from torpedo_settings.app_settings.
+        
+        Returns:
+            Dict with filter settings (max_loi, min_cpi, deletion_period_days)
+        """
+        try:
+            # Connect to torpedo_settings database
+            MONGO_URI = os.getenv("MONGO_URI")
+            if MONGO_URI:
+                mongo_client = MongoClient(MONGO_URI)
+                settings_db = mongo_client["torpedo_settings"]
+                app_settings = settings_db["app_settings"]
+                
+                stored = app_settings.find_one({"_id": "survey_filters"})
+                if stored and "data" in stored:
+                    return stored["data"]
+        except Exception as e:
+            logger.warning(f"Could not read survey filter settings: {e}")
+        
+        # Default settings
+        return {
+            "max_loi": 20,  # Maximum 20 minutes
+            "min_cpi": 1.0,  # Minimum $1.00 payout
+            "deletion_period_days": 7,
+        }
+
+    def _apply_filters(self, survey_data: Dict[str, Any]) -> bool:
+        """
+        Apply user-configured filters to survey.
+        Same logic as CPX: only store surveys that pass the filter.
+        
+        Args:
+            survey_data: Survey data dict with loi and payout fields
+            
+        Returns:
+            True if survey passes filters (should be stored), False otherwise
+        """
+        filter_settings = self.get_filter_settings()
+        max_loi = filter_settings.get("max_loi", 20)
+        min_cpi = filter_settings.get("min_cpi", 1.0)
+        
+        # Get LOI - check multiple field names
+        loi = survey_data.get("length_of_interview") or survey_data.get("bid_length_of_interview") or 0
+        
+        # Get payout - check multiple field names
+        payout = survey_data.get("payout", 0)
+        if not payout and "revenue_per_interview" in survey_data:
+            rpi = survey_data["revenue_per_interview"]
+            if isinstance(rpi, dict):
+                payout = rpi.get("value", 0)
+            elif isinstance(rpi, (int, float)):
+                payout = rpi
+        
+        # Filter: LOI must be <= max_loi
+        if loi > max_loi:
+            logger.debug(f"Survey {survey_data.get('survey_id')} filtered out: LOI {loi} > {max_loi}")
+            return False
+        
+        # Filter: payout must be >= min_cpi
+        if payout < min_cpi:
+            logger.debug(f"Survey {survey_data.get('survey_id')} filtered out: payout ${payout} < ${min_cpi}")
+            return False
+        
+        return True
+
+    # ============================================
     # Authentication & Headers
     # ============================================
 
@@ -278,6 +350,12 @@ class CintService:
                 
                 # Determine if survey is active
                 opportunity.is_active = opportunity.is_live and opportunity.message_reason != "deactivated"
+                
+                # Apply filters - only store surveys that meet filter criteria
+                # This replicates CPX Research logic for survey selection
+                if not self._apply_filters(opp_data):
+                    logger.info(f"Survey {opportunity.survey_id} filtered out (LOI/CPI criteria)")
+                    continue  # Skip storing this survey
                 
                 # Store in MongoDB if collection provided
                 if self.cint_surveys_collection is not None:
@@ -736,19 +814,22 @@ class CintService:
 
     def filter_and_delete_surveys(
         self,
-        max_loi: int = 20,
-        min_cpi: float = 1.0,
+        max_loi: int = None,
+        min_cpi: float = None,
     ) -> Dict[str, Any]:
         """
-        Filter and delete CINT surveys that don't meet the filter criteria.
+        Re-apply filter settings to existing CINT surveys.
         
-        Surveys are deleted if:
-        - LOI > max_loi (length of interview exceeds maximum)
-        - CPI < min_cpi (cost per interview is below minimum)
+        This is used when filter settings are changed to clean up
+        surveys that no longer meet the new criteria.
+        
+        Uses the same filter logic as during webhook ingestion:
+        - Surveys are deleted if: LOI > max_loi OR CPI < min_cpi
+        - If max_loi/min_cpi not provided, reads from settings DB
         
         Args:
-            max_loi: Maximum Length of Interview (minutes). Surveys with LOI > this are deleted.
-            min_cpi: Minimum Cost Per Interview ($). Surveys with CPI < this are deleted.
+            max_loi: Maximum Length of Interview (minutes). If None, reads from settings.
+            min_cpi: Minimum Cost Per Interview ($). If None, reads from settings.
         
         Returns:
             Dict with deletion statistics
@@ -761,6 +842,14 @@ class CintService:
             }
         
         try:
+            # Get filter settings if not provided
+            if max_loi is None or min_cpi is None:
+                filter_settings = self.get_filter_settings()
+                if max_loi is None:
+                    max_loi = filter_settings.get("max_loi", 20)
+                if min_cpi is None:
+                    min_cpi = filter_settings.get("min_cpi", 1.0)
+            
             # Count surveys before deletion
             total_before = self.cint_surveys_collection.count_documents({})
             

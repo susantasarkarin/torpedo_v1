@@ -47,13 +47,13 @@ class SessionStore:
                 db=REDIS_DB,
                 decode_responses=True,
                 max_connections=10,
-                socket_timeout=2.0,  # 2 second timeout to prevent hanging
-                socket_connect_timeout=2.0  # 2 second connect timeout
+                socket_timeout=0.5,  # 0.5 second timeout for faster fallback
+                socket_connect_timeout=0.5  # 0.5 second connect timeout
             )
             self._client = redis.Redis(connection_pool=self._pool)
             # Test connection with timeout
             import asyncio
-            await asyncio.wait_for(self._client.ping(), timeout=2.0)
+            await asyncio.wait_for(self._client.ping(), timeout=0.5)
             self._available = True
             logger.info(f"Redis session store connected: {REDIS_HOST}:{REDIS_PORT}")
         except asyncio.TimeoutError:
@@ -229,11 +229,17 @@ class InMemorySessionStore:
         }
 
 
+# Global fallback store cache
+_fallback_store = None
+
 async def get_session_store() -> SessionStore:
     """Factory function to get appropriate session store."""
+    global _fallback_store
     store = await SessionStore.get_instance()
     if store.is_available:
         return store
-    # Fallback to in-memory for development
-    logger.warning("Falling back to in-memory session store")
-    return InMemorySessionStore()
+    # Fallback to in-memory for development (cached)
+    if _fallback_store is None:
+        logger.warning("Falling back to in-memory session store")
+        _fallback_store = InMemorySessionStore()
+    return _fallback_store

@@ -73,8 +73,11 @@ const UnifiedVendorsPage = lazy(() => import("./pages/vendor/UnifiedVendorsPage"
 // Profile Page
 const MyProfile = lazy(() => import("./pages/MyProfile"))
 
-// Mail Pool
-const MailPool = lazy(() => import("./pages/MailPool"))
+// Mail Pool - New Gmail API powered inbox
+const MailPool = lazy(() => import("./pages/MailPoolNew"))
+
+// Gmail Setup Page
+const GmailSetup = lazy(() => import("./pages/GmailSetup"))
 
 // Settings Page
 const Settings = lazy(() => import("./pages/Settings"))
@@ -176,6 +179,9 @@ function App() {
 
         {/* Mail Pool - Consolidated Email Activity */}
         <Route path="mail-pool" element={<LazyPage><MailPool /></LazyPage>} />
+        
+        {/* Gmail Setup - Connect Gmail accounts */}
+        <Route path="gmail-setup" element={<LazyPage><GmailSetup /></LazyPage>} />
 
         {/* Logs */}
         <Route path="logs" element={<LazyPage><LogsPage /></LazyPage>} />
