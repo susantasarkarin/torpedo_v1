@@ -19,6 +19,12 @@
     ProxyPreserveHost On
     ProxyRequests Off
     
+    # =====================================================
+    # API ENDPOINTS - Proxy all /api/* requests to backend
+    # =====================================================
+    ProxyPass /api/ http://localhost:8000/
+    ProxyPassReverse /api/ http://localhost:8000/
+    
     # CPX callback endpoint - proxy to backend
     ProxyPass /cpx-response http://localhost:8000/cpx-response
     ProxyPassReverse /cpx-response http://localhost:8000/cpx-response

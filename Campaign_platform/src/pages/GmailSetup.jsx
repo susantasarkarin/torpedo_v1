@@ -1,26 +1,26 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { useNavigate, useSearchParams } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../config"
 
 function GmailSetup() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
   const [mailboxes, setMailboxes] = useState([])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState(null)
-  const [connecting, setConnecting] = useState(false)
-
-  // Check for OAuth callback
-  useEffect(() => {
-    const state = searchParams.get("state")
-    if (state) {
-      // OAuth callback received - the backend should have processed it
-      setMessage({ type: "success", text: "Gmail account connected successfully!" })
-      navigate("/admin/gmail-setup", { replace: true })
-    }
-  }, [searchParams, navigate])
+  const [configStatus, setConfigStatus] = useState(null)
+  
+  // Add mailbox form
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [newEmail, setNewEmail] = useState("")
+  const [newDisplayName, setNewDisplayName] = useState("")
+  const [adding, setAdding] = useState(false)
+  
+  // Service account upload
+  const [showUploadModal, setShowUploadModal] = useState(false)
+  const [serviceAccountFile, setServiceAccountFile] = useState(null)
+  const [uploading, setUploading] = useState(false)
 
   const getAuthHeader = useCallback(() => {
     const sessionId = localStorage.getItem("session_id")
@@ -30,6 +30,24 @@ function GmailSetup() {
     }
     return sessionId
   }, [navigate])
+
+  // Check configuration status
+  const fetchConfigStatus = useCallback(async () => {
+    const auth = getAuthHeader()
+    if (!auth) return
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/gmail/config/status`, {
+        headers: { Authorization: auth }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setConfigStatus(data)
+      }
+    } catch (err) {
+      console.error("Error fetching config status:", err)
+    }
+  }, [getAuthHeader])
 
   // Fetch existing mailboxes
   const fetchMailboxes = useCallback(async () => {
@@ -43,7 +61,7 @@ function GmailSetup() {
       })
       if (res.ok) {
         const data = await res.json()
-        setMailboxes(data)
+        setMailboxes(data.mailboxes || [])
       }
     } catch (err) {
       console.error("Error fetching mailboxes:", err)
@@ -53,32 +71,92 @@ function GmailSetup() {
   }, [getAuthHeader])
 
   useEffect(() => {
+    fetchConfigStatus()
     fetchMailboxes()
-  }, [fetchMailboxes])
+  }, [fetchConfigStatus, fetchMailboxes])
 
-  // Connect new Gmail account
-  const handleConnect = async () => {
+  // Upload service account credentials
+  const handleUploadServiceAccount = async () => {
+    if (!serviceAccountFile) {
+      setMessage({ type: "error", text: "Please select a service account JSON file" })
+      return
+    }
+    
     const auth = getAuthHeader()
     if (!auth) return
     
-    setConnecting(true)
+    setUploading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/gmail/auth/url`, {
-        headers: { Authorization: auth }
+      const fileContent = await serviceAccountFile.text()
+      const credentials = JSON.parse(fileContent)
+      
+      const res = await fetch(`${API_BASE_URL}/gmail/config/service-account`, {
+        method: "POST",
+        headers: { 
+          Authorization: auth,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ credentials })
       })
       
       if (res.ok) {
-        const data = await res.json()
-        // Redirect to Google OAuth
-        window.location.href = data.auth_url
+        setMessage({ type: "success", text: "Service account configured successfully!" })
+        setShowUploadModal(false)
+        setServiceAccountFile(null)
+        fetchConfigStatus()
       } else {
-        setMessage({ type: "error", text: "Failed to generate auth URL" })
+        const err = await res.json()
+        setMessage({ type: "error", text: err.detail || "Failed to upload credentials" })
+      }
+    } catch (err) {
+      console.error("Error:", err)
+      setMessage({ type: "error", text: "Invalid JSON file" })
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  // Add new mailbox
+  const handleAddMailbox = async (e) => {
+    e.preventDefault()
+    
+    if (!newEmail.trim()) {
+      setMessage({ type: "error", text: "Please enter an email address" })
+      return
+    }
+    
+    const auth = getAuthHeader()
+    if (!auth) return
+    
+    setAdding(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/gmail/mailboxes`, {
+        method: "POST",
+        headers: { 
+          Authorization: auth,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          email: newEmail.trim(),
+          display_name: newDisplayName.trim() || null
+        })
+      })
+      
+      if (res.ok) {
+        setMessage({ type: "success", text: `Mailbox ${newEmail} added successfully!` })
+        setNewEmail("")
+        setNewDisplayName("")
+        setShowAddForm(false)
+        fetchMailboxes()
+      } else {
+        const err = await res.json()
+        setMessage({ type: "error", text: err.detail || "Failed to add mailbox" })
       }
     } catch (err) {
       console.error("Error:", err)
       setMessage({ type: "error", text: "Connection error" })
     } finally {
-      setConnecting(false)
+      setAdding(false)
     }
   }
 
@@ -87,7 +165,7 @@ function GmailSetup() {
     const auth = getAuthHeader()
     if (!auth) return
     
-    if (!confirm("Are you sure you want to disconnect this Gmail account?")) return
+    if (!confirm("Are you sure you want to remove this mailbox?")) return
     
     try {
       const res = await fetch(`${API_BASE_URL}/gmail/mailboxes/${mailboxId}`, {
@@ -96,10 +174,10 @@ function GmailSetup() {
       })
       
       if (res.ok) {
-        setMessage({ type: "success", text: "Gmail account disconnected" })
+        setMessage({ type: "success", text: "Mailbox removed" })
         fetchMailboxes()
       } else {
-        setMessage({ type: "error", text: "Failed to disconnect" })
+        setMessage({ type: "error", text: "Failed to remove mailbox" })
       }
     } catch (err) {
       console.error("Error:", err)
@@ -115,18 +193,23 @@ function GmailSetup() {
     try {
       const res = await fetch(`${API_BASE_URL}/gmail/mailboxes/${mailboxId}/sync`, {
         method: "POST",
-        headers: { Authorization: auth }
+        headers: { 
+          Authorization: auth,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ full_sync: false, max_results: 500 })
       })
       
       if (res.ok) {
         const data = await res.json()
         setMessage({ 
           type: "success", 
-          text: `Synced ${data.new_emails} new emails, ${data.updated_emails} updated` 
+          text: `Synced ${data.new_emails || 0} new emails` 
         })
         fetchMailboxes()
       } else {
-        setMessage({ type: "error", text: "Sync failed" })
+        const err = await res.json()
+        setMessage({ type: "error", text: err.detail || "Sync failed" })
       }
     } catch (err) {
       console.error("Error:", err)
@@ -134,13 +217,39 @@ function GmailSetup() {
     }
   }
 
+  // Test connection
+  const handleTestConnection = async (mailboxId) => {
+    const auth = getAuthHeader()
+    if (!auth) return
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/gmail/mailboxes/${mailboxId}/test`, {
+        method: "POST",
+        headers: { Authorization: auth }
+      })
+      
+      if (res.ok) {
+        const data = await res.json()
+        if (data.success) {
+          setMessage({ type: "success", text: `Connection successful! ${data.messages_total} messages in mailbox.` })
+        } else {
+          setMessage({ type: "error", text: data.error || "Connection test failed" })
+        }
+      } else {
+        setMessage({ type: "error", text: "Test failed" })
+      }
+    } catch (err) {
+      setMessage({ type: "error", text: "Connection error" })
+    }
+  }
+
   return (
     <div style={styles.container}>
       <div style={styles.card}>
         <div style={styles.header}>
-          <h1 style={styles.title}>📧 Gmail Integration</h1>
+          <h1 style={styles.title}>📧 Gmail Workspace Integration</h1>
           <p style={styles.subtitle}>
-            Connect your Gmail account to sync emails and enable AI-powered classification
+            Connect Google Workspace mailboxes using Service Account delegation
           </p>
         </div>
 
@@ -151,39 +260,131 @@ function GmailSetup() {
             color: message.type === "success" ? "#065f46" : "#991b1b"
           }}>
             {message.text}
+            <button 
+              onClick={() => setMessage(null)} 
+              style={styles.dismissBtn}
+            >×</button>
           </div>
         )}
 
-        {/* Connect Button */}
-        <div style={styles.connectSection}>
-          <button
-            style={styles.connectBtn}
-            onClick={handleConnect}
-            disabled={connecting}
-          >
-            <img 
-              src="https://www.google.com/favicon.ico" 
-              alt="Google" 
-              style={{ width: 20, height: 20, marginRight: 10 }}
-            />
-            {connecting ? "Connecting..." : "Connect Gmail Account"}
-          </button>
-          <p style={styles.hint}>
-            Click to authorize Torpedo to access your Gmail account (read-only access to email metadata)
-          </p>
+        {/* Service Account Status */}
+        <div style={styles.configSection}>
+          <div style={styles.configHeader}>
+            <h2 style={styles.sectionTitle}>🔐 Service Account Configuration</h2>
+            {configStatus?.configured ? (
+              <span style={styles.configuredBadge}>✅ Configured</span>
+            ) : (
+              <span style={styles.notConfiguredBadge}>⚠️ Not Configured</span>
+            )}
+          </div>
+          
+          {configStatus?.configured ? (
+            <div style={styles.configInfo}>
+              <p><strong>Service Account:</strong> {configStatus.service_account_email}</p>
+              <p><strong>Project:</strong> {configStatus.project_id}</p>
+              <button
+                style={styles.reconfigureBtn}
+                onClick={() => setShowUploadModal(true)}
+              >
+                🔄 Update Credentials
+              </button>
+            </div>
+          ) : (
+            <div style={styles.configSetup}>
+              <p style={styles.configInstructions}>
+                To enable Gmail integration, you need to:
+              </p>
+              <ol style={styles.setupSteps}>
+                <li>Create a Service Account in Google Cloud Console</li>
+                <li>Enable the Gmail API</li>
+                <li>Enable Domain-Wide Delegation</li>
+                <li>Add the service account to Google Workspace Admin</li>
+                <li>Upload the service account JSON key below</li>
+              </ol>
+              <button
+                style={styles.uploadBtn}
+                onClick={() => setShowUploadModal(true)}
+              >
+                📤 Upload Service Account Key
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Connected Accounts */}
+        {/* Add Mailbox Section */}
+        {configStatus?.configured && (
+          <div style={styles.addSection}>
+            {!showAddForm ? (
+              <button
+                style={styles.addMailboxBtn}
+                onClick={() => setShowAddForm(true)}
+              >
+                ➕ Add Mailbox
+              </button>
+            ) : (
+              <form onSubmit={handleAddMailbox} style={styles.addForm}>
+                <h3 style={styles.formTitle}>Add New Mailbox</h3>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Email Address *</label>
+                  <input
+                    type="email"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    placeholder="user@yourdomain.com"
+                    style={styles.input}
+                    required
+                  />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Display Name (optional)</label>
+                  <input
+                    type="text"
+                    value={newDisplayName}
+                    onChange={(e) => setNewDisplayName(e.target.value)}
+                    placeholder="John Doe"
+                    style={styles.input}
+                  />
+                </div>
+                <div style={styles.formActions}>
+                  <button
+                    type="submit"
+                    style={styles.submitBtn}
+                    disabled={adding}
+                  >
+                    {adding ? "Adding..." : "Add Mailbox"}
+                  </button>
+                  <button
+                    type="button"
+                    style={styles.cancelBtn}
+                    onClick={() => {
+                      setShowAddForm(false)
+                      setNewEmail("")
+                      setNewDisplayName("")
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        )}
+
+        {/* Connected Mailboxes */}
         <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Connected Accounts</h2>
+          <h2 style={styles.sectionTitle}>📬 Connected Mailboxes</h2>
           
           {loading ? (
             <div style={styles.loading}>Loading...</div>
+          ) : !configStatus?.configured ? (
+            <div style={styles.empty}>
+              <p>Configure service account first to add mailboxes.</p>
+            </div>
           ) : mailboxes.length === 0 ? (
             <div style={styles.empty}>
-              <p>No Gmail accounts connected yet.</p>
+              <p>No mailboxes connected yet.</p>
               <p style={styles.emptyHint}>
-                Connect your Gmail to start syncing and classifying emails with AI.
+                Add a Google Workspace email address to start syncing.
               </p>
             </div>
           ) : (
@@ -194,14 +395,22 @@ function GmailSetup() {
                     <div style={styles.mailboxEmail}>
                       <span style={styles.emailIcon}>📬</span>
                       {mailbox.email}
+                      {mailbox.display_name && (
+                        <span style={styles.displayName}>({mailbox.display_name})</span>
+                      )}
                     </div>
                     <div style={styles.mailboxMeta}>
                       <span style={styles.metaItem}>
-                        📊 {mailbox.total_emails || 0} emails
+                        📊 {mailbox.email_count || 0} emails
                       </span>
-                      {mailbox.last_sync && (
+                      {mailbox.last_sync_at && (
                         <span style={styles.metaItem}>
-                          🔄 Last sync: {new Date(mailbox.last_sync).toLocaleString()}
+                          🔄 Last sync: {new Date(mailbox.last_sync_at).toLocaleString()}
+                        </span>
+                      )}
+                      {mailbox.sync_error && (
+                        <span style={styles.errorBadge}>
+                          ⚠️ {mailbox.sync_error}
                         </span>
                       )}
                       <span style={{
@@ -215,16 +424,23 @@ function GmailSetup() {
                   </div>
                   <div style={styles.mailboxActions}>
                     <button
+                      style={styles.testBtn}
+                      onClick={() => handleTestConnection(mailbox.id)}
+                      title="Test connection"
+                    >
+                      🔌 Test
+                    </button>
+                    <button
                       style={styles.syncBtn}
                       onClick={() => handleSync(mailbox.id)}
                     >
-                      🔄 Sync Now
+                      🔄 Sync
                     </button>
                     <button
                       style={styles.disconnectBtn}
                       onClick={() => handleDisconnect(mailbox.id)}
                     >
-                      ❌ Disconnect
+                      ❌
                     </button>
                   </div>
                 </div>
@@ -235,11 +451,11 @@ function GmailSetup() {
 
         {/* Help Section */}
         <div style={styles.helpSection}>
-          <h3 style={styles.helpTitle}>How it works</h3>
+          <h3 style={styles.helpTitle}>How Service Account Delegation Works</h3>
           <ul style={styles.helpList}>
-            <li>🔐 <strong>Secure OAuth:</strong> We use Google's official OAuth flow - we never see your password</li>
-            <li>📋 <strong>Metadata Only:</strong> We only store email metadata (subject, sender, date). Full content is fetched on-demand.</li>
-            <li>🤖 <strong>AI Classification:</strong> Our AI automatically categorizes emails by type, department, and priority</li>
+            <li>🔐 <strong>Single Credential:</strong> One service account accesses all mailboxes - no individual OAuth required</li>
+            <li>🏢 <strong>Domain-Wide:</strong> Admin grants access once, all users in domain are accessible</li>
+            <li>📋 <strong>Metadata Only:</strong> We store email metadata (subject, sender, date). Full content fetched on-demand.</li>
             <li>🔄 <strong>Auto Sync:</strong> Emails sync automatically every 15 minutes</li>
           </ul>
         </div>
@@ -260,6 +476,47 @@ function GmailSetup() {
           </button>
         </div>
       </div>
+
+      {/* Upload Modal */}
+      {showUploadModal && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modal}>
+            <h2 style={styles.modalTitle}>Upload Service Account Key</h2>
+            <p style={styles.modalText}>
+              Upload the JSON key file downloaded from Google Cloud Console.
+            </p>
+            <div style={styles.fileUpload}>
+              <input
+                type="file"
+                accept=".json"
+                onChange={(e) => setServiceAccountFile(e.target.files[0])}
+                style={styles.fileInput}
+              />
+              {serviceAccountFile && (
+                <p style={styles.fileName}>📄 {serviceAccountFile.name}</p>
+              )}
+            </div>
+            <div style={styles.modalActions}>
+              <button
+                style={styles.uploadConfirmBtn}
+                onClick={handleUploadServiceAccount}
+                disabled={uploading || !serviceAccountFile}
+              >
+                {uploading ? "Uploading..." : "Upload & Configure"}
+              </button>
+              <button
+                style={styles.modalCancelBtn}
+                onClick={() => {
+                  setShowUploadModal(false)
+                  setServiceAccountFile(null)
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -277,7 +534,7 @@ const styles = {
     borderRadius: "12px",
     boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
     padding: "2rem",
-    maxWidth: "800px",
+    maxWidth: "900px",
     width: "100%"
   },
   header: {
@@ -297,32 +554,148 @@ const styles = {
     padding: "1rem",
     borderRadius: "8px",
     marginBottom: "1.5rem",
-    textAlign: "center"
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center"
   },
-  connectSection: {
-    textAlign: "center",
-    marginBottom: "2rem",
-    padding: "2rem",
+  dismissBtn: {
+    background: "none",
+    border: "none",
+    fontSize: "1.25rem",
+    cursor: "pointer",
+    opacity: 0.7
+  },
+  configSection: {
+    padding: "1.5rem",
     backgroundColor: "#f8fafc",
-    borderRadius: "8px"
-  },
-  connectBtn: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "0.875rem 2rem",
-    backgroundColor: "white",
-    border: "2px solid #e5e7eb",
     borderRadius: "8px",
+    marginBottom: "2rem",
+    border: "1px solid #e5e7eb"
+  },
+  configHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "1rem"
+  },
+  configuredBadge: {
+    padding: "0.25rem 0.75rem",
+    backgroundColor: "#d1fae5",
+    color: "#065f46",
+    borderRadius: "9999px",
+    fontSize: "0.875rem",
+    fontWeight: "500"
+  },
+  notConfiguredBadge: {
+    padding: "0.25rem 0.75rem",
+    backgroundColor: "#fef3c7",
+    color: "#92400e",
+    borderRadius: "9999px",
+    fontSize: "0.875rem",
+    fontWeight: "500"
+  },
+  configInfo: {
+    color: "#374151",
+    fontSize: "0.875rem"
+  },
+  reconfigureBtn: {
+    marginTop: "1rem",
+    padding: "0.5rem 1rem",
+    backgroundColor: "white",
+    color: "#374151",
+    border: "1px solid #d1d5db",
+    borderRadius: "6px",
+    cursor: "pointer",
+    fontSize: "0.875rem"
+  },
+  configSetup: {
+    color: "#374151"
+  },
+  configInstructions: {
+    marginBottom: "0.5rem"
+  },
+  setupSteps: {
+    margin: "0 0 1rem",
+    paddingLeft: "1.5rem",
+    color: "#6b7280",
+    fontSize: "0.875rem",
+    lineHeight: "1.75"
+  },
+  uploadBtn: {
+    padding: "0.75rem 1.5rem",
+    backgroundColor: "#3b82f6",
+    color: "white",
+    border: "none",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontSize: "1rem",
+    fontWeight: "500"
+  },
+  addSection: {
+    marginBottom: "2rem"
+  },
+  addMailboxBtn: {
+    width: "100%",
+    padding: "1rem",
+    backgroundColor: "#f0fdf4",
+    color: "#166534",
+    border: "2px dashed #86efac",
+    borderRadius: "8px",
+    cursor: "pointer",
     fontSize: "1rem",
     fontWeight: "500",
-    color: "#374151",
-    cursor: "pointer",
     transition: "all 0.2s"
   },
-  hint: {
-    marginTop: "0.75rem",
-    color: "#6b7280",
+  addForm: {
+    padding: "1.5rem",
+    backgroundColor: "#f8fafc",
+    borderRadius: "8px",
+    border: "1px solid #e5e7eb"
+  },
+  formTitle: {
+    margin: "0 0 1rem",
+    fontSize: "1rem",
+    color: "#374151"
+  },
+  formGroup: {
+    marginBottom: "1rem"
+  },
+  label: {
+    display: "block",
+    marginBottom: "0.375rem",
+    fontSize: "0.875rem",
+    color: "#374151",
+    fontWeight: "500"
+  },
+  input: {
+    width: "100%",
+    padding: "0.625rem 0.75rem",
+    border: "1px solid #d1d5db",
+    borderRadius: "6px",
+    fontSize: "1rem",
+    boxSizing: "border-box"
+  },
+  formActions: {
+    display: "flex",
+    gap: "0.75rem"
+  },
+  submitBtn: {
+    padding: "0.625rem 1.25rem",
+    backgroundColor: "#3b82f6",
+    color: "white",
+    border: "none",
+    borderRadius: "6px",
+    cursor: "pointer",
+    fontSize: "0.875rem",
+    fontWeight: "500"
+  },
+  cancelBtn: {
+    padding: "0.625rem 1.25rem",
+    backgroundColor: "white",
+    color: "#374151",
+    border: "1px solid #d1d5db",
+    borderRadius: "6px",
+    cursor: "pointer",
     fontSize: "0.875rem"
   },
   section: {
@@ -374,13 +747,18 @@ const styles = {
     color: "#1f2937",
     marginBottom: "0.5rem"
   },
+  displayName: {
+    color: "#6b7280",
+    fontWeight: "400"
+  },
   emailIcon: {
     fontSize: "1.25rem"
   },
   mailboxMeta: {
     display: "flex",
     gap: "1rem",
-    flexWrap: "wrap"
+    flexWrap: "wrap",
+    alignItems: "center"
   },
   metaItem: {
     fontSize: "0.875rem",
@@ -392,9 +770,25 @@ const styles = {
     fontSize: "0.75rem",
     fontWeight: "500"
   },
+  errorBadge: {
+    padding: "0.125rem 0.5rem",
+    backgroundColor: "#fee2e2",
+    color: "#991b1b",
+    borderRadius: "4px",
+    fontSize: "0.75rem"
+  },
   mailboxActions: {
     display: "flex",
     gap: "0.5rem"
+  },
+  testBtn: {
+    padding: "0.5rem 0.75rem",
+    backgroundColor: "#eff6ff",
+    color: "#1e40af",
+    border: "none",
+    borderRadius: "6px",
+    cursor: "pointer",
+    fontSize: "0.875rem"
   },
   syncBtn: {
     padding: "0.5rem 1rem",
@@ -406,7 +800,7 @@ const styles = {
     fontSize: "0.875rem"
   },
   disconnectBtn: {
-    padding: "0.5rem 1rem",
+    padding: "0.5rem 0.75rem",
     backgroundColor: "white",
     color: "#991b1b",
     border: "1px solid #fee2e2",
@@ -457,6 +851,76 @@ const styles = {
     borderRadius: "8px",
     fontSize: "1rem",
     cursor: "pointer"
+  },
+  // Modal styles
+  modalOverlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1000
+  },
+  modal: {
+    backgroundColor: "white",
+    borderRadius: "12px",
+    padding: "2rem",
+    maxWidth: "500px",
+    width: "90%",
+    boxShadow: "0 20px 25px rgba(0,0,0,0.15)"
+  },
+  modalTitle: {
+    margin: "0 0 0.5rem",
+    fontSize: "1.25rem",
+    color: "#1f2937"
+  },
+  modalText: {
+    color: "#6b7280",
+    marginBottom: "1.5rem"
+  },
+  fileUpload: {
+    padding: "1.5rem",
+    backgroundColor: "#f8fafc",
+    borderRadius: "8px",
+    border: "2px dashed #d1d5db",
+    marginBottom: "1.5rem",
+    textAlign: "center"
+  },
+  fileInput: {
+    width: "100%"
+  },
+  fileName: {
+    marginTop: "0.5rem",
+    color: "#374151",
+    fontSize: "0.875rem"
+  },
+  modalActions: {
+    display: "flex",
+    gap: "0.75rem",
+    justifyContent: "flex-end"
+  },
+  uploadConfirmBtn: {
+    padding: "0.75rem 1.5rem",
+    backgroundColor: "#3b82f6",
+    color: "white",
+    border: "none",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontSize: "1rem",
+    fontWeight: "500"
+  },
+  modalCancelBtn: {
+    padding: "0.75rem 1.5rem",
+    backgroundColor: "white",
+    color: "#374151",
+    border: "1px solid #d1d5db",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontSize: "1rem"
   }
 }
 

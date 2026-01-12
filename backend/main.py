@@ -499,6 +499,14 @@ try:
 except Exception as e:
     print(f"⚠️ Gmail API router not included: {e}")
 
+# Gmail Workspace router (Service Account with Domain-Wide Delegation)
+try:
+    from routers import gmail_workspace as gmail_workspace_router
+    app.include_router(gmail_workspace_router.router)
+    print("✅ Gmail Workspace router included (Service Account)")
+except Exception as e:
+    print(f"⚠️ Gmail Workspace router not included: {e}")
+
 # Survey Allocation & Quality Control Engine router
 try:
     app.include_router(survey_allocation_router.router)
