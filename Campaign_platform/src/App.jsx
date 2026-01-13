@@ -73,8 +73,8 @@ const UnifiedVendorsPage = lazy(() => import("./pages/vendor/UnifiedVendorsPage"
 // Profile Page
 const MyProfile = lazy(() => import("./pages/MyProfile"))
 
-// Mail Pool - New Gmail API powered inbox
-const MailPool = lazy(() => import("./pages/MailPoolNew"))
+// Mail Pool - Original inbox view
+const MailPool = lazy(() => import("./pages/MailPool"))
 
 // Gmail Setup Page
 const GmailSetup = lazy(() => import("./pages/GmailSetup"))

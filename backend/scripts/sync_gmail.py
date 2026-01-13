@@ -19,7 +19,7 @@ print(f"Found {len(mailboxes)} mailboxes")
 for mb in mailboxes:
     print(f"Syncing: {mb['email']}")
     try:
-        result = service.sync_mailbox(mb["id"], max_results=10000, full_sync=True)
+        result = service.sync_mailbox(mb["id"], max_results=1000000, full_sync=True)
         print(f"  Result: {result}")
     except Exception as e:
         print(f"  Error: {e}")

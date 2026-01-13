@@ -197,7 +197,7 @@ function GmailSetup() {
           Authorization: auth,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ full_sync: false, max_results: 10000 })
+        body: JSON.stringify({ full_sync: false, max_results: 1000000 })
       })
       
       if (res.ok) {
