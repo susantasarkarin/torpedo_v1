@@ -9,19 +9,32 @@ This script runs as a cron job to ensure all background services are running:
 3. Cint subscription - Checks webhook is active and resubscribes if needed
 
 Run via cron every 5-10 minutes:
-    */5 * * * * cd /var/www/campaign_platform/backend && python3 scripts/watchdog.py >> /var/log/watchdog.log 2>&1
+    */5 * * * * cd /var/www/campaign_platform/backend && ./venv/bin/python scripts/watchdog.py >> /var/log/campaign_watchdog.log 2>&1
 """
 import sys
 import os
 import asyncio
 from datetime import datetime
 
-# Set up path for imports
-sys.path.insert(0, "/var/www/campaign_platform/backend")
-os.chdir("/var/www/campaign_platform/backend")
+# Set up path for imports - use venv
+BACKEND_PATH = "/var/www/campaign_platform/backend"
+sys.path.insert(0, BACKEND_PATH)
+os.chdir(BACKEND_PATH)
 
-from dotenv import load_dotenv
-load_dotenv()
+# Load environment variables (try with dotenv if available, otherwise from .env file manually)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # Manually load .env if dotenv not available
+    env_file = os.path.join(BACKEND_PATH, ".env")
+    if os.path.exists(env_file):
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
+                    os.environ[key.strip()] = value.strip()
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 CINT_WEBHOOK_CALLBACK_URL = os.getenv("CINT_WEBHOOK_CALLBACK_URL", "https://torpedo.cogentixresearch.com/api/cint/webhooks/opportunities")
