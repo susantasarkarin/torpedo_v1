@@ -188,9 +188,9 @@ def get_survey_filter_settings() -> Dict[str, Any]:
     Used for CPX filtering, cleanup, and refresh scheduling.
     """
     defaults = {
-        "max_loi": 20,
-        "min_cpi": 1.0,
-        "min_incidence": 60,  # Minimum bid_incidence percentage (conversion rate)
+        "max_loi": 30,  # Increased from 20 to show more surveys
+        "min_cpi": 0.3,  # Lowered from 1.0 to show more surveys
+        "min_incidence": 10,  # Lowered from 60 to show more surveys
         "deletion_period_days": 7,
         "auto_refresh_enabled": True,
         "refresh_interval_seconds": 60,  # 1 minute
@@ -728,6 +728,105 @@ def refresh_cpx_inventory():
         print(f"❌ [CPX] Refresh failed: {str(e)}")
         traceback.print_exc()
 
+
+def background_gmail_sync():
+    """
+    Background job to sync emails for all registered mailboxes.
+    Runs every 5 minutes to pull new emails without human intervention.
+    """
+    try:
+        print(f"🔄 [Gmail] Starting background sync at {datetime.utcnow().isoformat()}")
+        
+        # Try Gmail Workspace Service first (Service Account with Domain-Wide Delegation)
+        try:
+            from app.services.gmail_workspace_service import GmailWorkspaceService
+            
+            ws_service = GmailWorkspaceService(mongo_uri=MONGO_URI)
+            ws_service.load_service_account()
+            
+            mailboxes = ws_service.list_mailboxes()
+            total_synced = 0
+            
+            for mb in mailboxes:
+                try:
+                    # Use incremental sync (not full_sync) for background job
+                    result = ws_service.sync_mailbox(mb["id"], max_results=1000, full_sync=False)
+                    new_count = result.get("new_emails", 0)
+                    total_synced += new_count
+                    if new_count > 0:
+                        print(f"   📧 {mb['email']}: +{new_count} new emails")
+                except Exception as e:
+                    print(f"   ⚠️ {mb['email']}: sync error - {e}")
+            
+            print(f"✅ [Gmail] Background sync complete: {total_synced} new emails across {len(mailboxes)} mailboxes")
+        except ImportError:
+            print("⚠️ [Gmail] Gmail Workspace Service not available")
+        except Exception as e:
+            print(f"⚠️ [Gmail] Workspace sync error: {e}")
+        
+    except Exception as e:
+        print(f"❌ [Gmail] Background sync failed: {str(e)}")
+        traceback.print_exc()
+
+
+def cint_health_check():
+    """
+    Background job to check Cint subscription health and auto-resubscribe if needed.
+    Runs every 30 minutes to ensure webhook is active.
+    """
+    import asyncio
+    
+    async def _check_and_resubscribe():
+        try:
+            print(f"🔄 [Cint] Health check at {datetime.utcnow().isoformat()}")
+            
+            if not cint_integration or not cint_integration.cint_service:
+                print("⚠️ [Cint] Integration not initialized")
+                return
+            
+            # Check current subscription status
+            status_result = await cint_integration.cint_service.get_opportunities_subscription()
+            
+            if status_result.get("success"):
+                print("✅ [Cint] Webhook subscription is active")
+            else:
+                # Subscription not found or expired, re-subscribe
+                print("⚠️ [Cint] Subscription inactive, attempting to resubscribe...")
+                
+                from app.models.cint import OpportunitiesSubscriptionConfig
+                
+                config = OpportunitiesSubscriptionConfig(
+                    callback_url=CINT_WEBHOOK_CALLBACK_URL,
+                    include_quotas=True,
+                    payload_max_size_mb=10,
+                    payload_max_survey_count=1000,
+                    send_interval_seconds=30,
+                    opportunities_filters=[],
+                )
+                
+                result = await cint_integration.cint_service.create_opportunities_subscription(config)
+                
+                if result.get("success"):
+                    print(f"✅ [Cint] Resubscribed successfully: {CINT_WEBHOOK_CALLBACK_URL}")
+                else:
+                    print(f"❌ [Cint] Resubscribe failed: {result.get('error')}")
+                    
+        except Exception as e:
+            print(f"❌ [Cint] Health check failed: {str(e)}")
+            traceback.print_exc()
+    
+    # Run the async function
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(_check_and_resubscribe())
+        else:
+            loop.run_until_complete(_check_and_resubscribe())
+    except RuntimeError:
+        # No event loop, create one
+        asyncio.run(_check_and_resubscribe())
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize scheduler and start background jobs"""
@@ -867,6 +966,41 @@ async def startup_event():
         except Exception as e:
             print(f"❌ Failed to schedule CPX refresh job: {str(e)}")
             traceback.print_exc()
+    
+    # ----------------------------
+    # Background Gmail Sync Job (every 5 minutes)
+    # ----------------------------
+    try:
+        # Only add if scheduler is running
+        if scheduler.running:
+            scheduler.add_job(
+                background_gmail_sync,
+                IntervalTrigger(seconds=300),  # Every 5 minutes
+                id="gmail_sync",
+                name="Gmail Background Sync",
+                replace_existing=True
+            )
+            print("✅ Gmail background sync job scheduled (every 5 minutes)")
+        else:
+            print("⚠️ Scheduler not running, Gmail sync job not scheduled")
+    except Exception as e:
+        print(f"⚠️ Could not schedule Gmail sync job: {e}")
+    
+    # ----------------------------
+    # Cint Health Check & Auto-Resubscribe (every 30 minutes)
+    # ----------------------------
+    try:
+        if scheduler.running and cint_integration and cint_integration.cint_service:
+            scheduler.add_job(
+                cint_health_check,
+                IntervalTrigger(seconds=1800),  # Every 30 minutes
+                id="cint_health_check",
+                name="Cint Health Check & Auto-Resubscribe",
+                replace_existing=True
+            )
+            print("✅ Cint health check job scheduled (every 30 minutes)")
+    except Exception as e:
+        print(f"⚠️ Could not schedule Cint health check job: {e}")
     
     # ============== STARTUP SUMMARY BANNER ==============
     print("\n" + "=" * 60)

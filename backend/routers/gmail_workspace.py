@@ -37,7 +37,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/gmail",
+    prefix="/gmail-ws",
     tags=["gmail-workspace"]
 )
 

@@ -37,7 +37,7 @@ function GmailSetup() {
     if (!auth) return
     
     try {
-      const res = await fetch(`${API_BASE_URL}/gmail/config/status`, {
+      const res = await fetch(`${API_BASE_URL}/gmail-ws/config/status`, {
         headers: { Authorization: auth }
       })
       if (res.ok) {
@@ -56,7 +56,7 @@ function GmailSetup() {
     
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/gmail/mailboxes`, {
+      const res = await fetch(`${API_BASE_URL}/gmail-ws/mailboxes`, {
         headers: { Authorization: auth }
       })
       if (res.ok) {
@@ -90,7 +90,7 @@ function GmailSetup() {
       const fileContent = await serviceAccountFile.text()
       const credentials = JSON.parse(fileContent)
       
-      const res = await fetch(`${API_BASE_URL}/gmail/config/service-account`, {
+      const res = await fetch(`${API_BASE_URL}/gmail-ws/config/service-account`, {
         method: "POST",
         headers: { 
           Authorization: auth,
@@ -130,7 +130,7 @@ function GmailSetup() {
     
     setAdding(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/gmail/mailboxes`, {
+      const res = await fetch(`${API_BASE_URL}/gmail-ws/mailboxes`, {
         method: "POST",
         headers: { 
           Authorization: auth,
@@ -168,7 +168,7 @@ function GmailSetup() {
     if (!confirm("Are you sure you want to remove this mailbox?")) return
     
     try {
-      const res = await fetch(`${API_BASE_URL}/gmail/mailboxes/${mailboxId}`, {
+      const res = await fetch(`${API_BASE_URL}/gmail-ws/mailboxes/${mailboxId}`, {
         method: "DELETE",
         headers: { Authorization: auth }
       })
@@ -191,13 +191,13 @@ function GmailSetup() {
     if (!auth) return
     
     try {
-      const res = await fetch(`${API_BASE_URL}/gmail/mailboxes/${mailboxId}/sync`, {
+      const res = await fetch(`${API_BASE_URL}/gmail-ws/mailboxes/${mailboxId}/sync`, {
         method: "POST",
         headers: { 
           Authorization: auth,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ full_sync: false, max_results: 500 })
+        body: JSON.stringify({ full_sync: false, max_results: 10000 })
       })
       
       if (res.ok) {
@@ -223,7 +223,7 @@ function GmailSetup() {
     if (!auth) return
     
     try {
-      const res = await fetch(`${API_BASE_URL}/gmail/mailboxes/${mailboxId}/test`, {
+      const res = await fetch(`${API_BASE_URL}/gmail-ws/mailboxes/${mailboxId}/test`, {
         method: "POST",
         headers: { Authorization: auth }
       })

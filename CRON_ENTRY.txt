@@ -1,7 +1,21 @@
-# Copy this line to your crontab (crontab -e)
-# Runs deploy.sh every 10 minutes
+# Copy these lines to your crontab (crontab -e)
+# ============================================
 
+# 1. Auto-deploy from GitHub every 10 minutes
 */10 * * * * cd /var/www/campaign_platform && ./deploy.sh --no-confirm >> /var/www/campaign_platform/cron-deploy.log 2>&1
+
+# 2. Watchdog: Gmail sync, CPX/Cint health check every 5 minutes
+*/5 * * * * cd /var/www/campaign_platform/backend && /usr/bin/python3 scripts/watchdog.py >> /var/log/campaign_watchdog.log 2>&1
+
+# 3. Full Gmail sync (all emails) every hour - for catching up
+0 * * * * cd /var/www/campaign_platform/backend && /usr/bin/python3 scripts/sync_gmail.py >> /var/log/gmail_full_sync.log 2>&1
+
+# ============================================
+# NOTES:
+# - The watchdog script checks Gmail, CPX, and Cint every 5 minutes
+# - If the backend APScheduler jobs are running, these cron jobs provide redundancy
+# - The deploy job syncs code from GitHub to keep VM/GitHub aligned
+# ============================================
 
 
 
