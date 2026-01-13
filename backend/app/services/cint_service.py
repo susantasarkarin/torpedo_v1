@@ -142,6 +142,12 @@ class CintService:
         
         # Get LOI - use length_of_interview primarily
         loi = survey_data.get("length_of_interview") or survey_data.get("bid_length_of_interview") or 0
+        # Ensure LOI is numeric
+        if isinstance(loi, str):
+            try:
+                loi = float(loi)
+            except:
+                loi = 0
         
         # Get payout - check multiple field names
         payout = survey_data.get("payout", 0)
@@ -151,6 +157,12 @@ class CintService:
                 payout = rpi.get("value", 0)
             elif isinstance(rpi, (int, float)):
                 payout = rpi
+        # Ensure payout is numeric
+        if isinstance(payout, str):
+            try:
+                payout = float(payout)
+            except:
+                payout = 0
         
         # Get conversion rate - try bid_incidence first, then incidence_rate
         incidence = survey_data.get("bid_incidence") or survey_data.get("incidence_rate", 0)
