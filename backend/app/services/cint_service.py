@@ -378,11 +378,9 @@ class CintService:
                 # Determine if survey is active
                 opportunity.is_active = opportunity.is_live and opportunity.message_reason != "deactivated"
                 
-                # Apply filters - only store surveys that meet filter criteria
-                # This replicates CPX Research logic for survey selection
-                if not self._apply_filters(opp_data):
-                    logger.info(f"Survey {opportunity.survey_id} filtered out (LOI/CPI criteria)")
-                    continue  # Skip storing this survey
+                # Store ALL surveys without filtering during ingestion
+                # Filters are now applied only during display/routing, not during ingestion
+                # This allows us to keep a complete inventory and apply dynamic filters
                 
                 # Store in MongoDB if collection provided
                 if self.cint_surveys_collection is not None:
@@ -410,7 +408,13 @@ class CintService:
         query = {"survey_id": opportunity.survey_id}
         update = {
             "$set": opportunity.dict(exclude={"id"}, exclude_none=False),
-            "$setOnInsert": {"created_at": datetime.now(timezone.utc)},
+            # Set created_at and click tracking fields only on first insert
+            # click_count is incremented by allocation service when user is routed to survey
+            "$setOnInsert": {
+                "created_at": datetime.now(timezone.utc),
+                "click_count": 0,
+                "last_clicked_at": None
+            },
         }
         
         self.cint_surveys_collection.update_one(
@@ -931,3 +935,60 @@ class CintService:
                 "message": str(e),
                 "deleted_count": 0
             }
+
+    def cleanup_unclicked_surveys(self, days: int = 3) -> int:
+        """
+        Delete CINT surveys that have received 0 clicks and are older than specified days.
+        
+        Click-based cleanup logic:
+        - Surveys with click_count > 0 are kept indefinitely (or until separate expiry)
+        - Surveys with click_count == 0 AND created_at > X days ago are deleted
+        
+        Args:
+            days: Number of days after which unclicked surveys should be deleted (default: 3)
+            
+        Returns:
+            Number of surveys deleted
+        """
+        if self.cint_surveys_collection is None:
+            return 0
+        
+        try:
+            cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+            
+            # Delete surveys where:
+            # 1. click_count is 0, null, or doesn't exist AND
+            # 2. created_at is older than cutoff_date
+            result = self.cint_surveys_collection.delete_many({
+                "$and": [
+                    {
+                        "$or": [
+                            {"click_count": {"$exists": False}},
+                            {"click_count": None},
+                            {"click_count": 0}
+                        ]
+                    },
+                    {
+                        "$or": [
+                            {"created_at": {"$lt": cutoff_date}},
+                            # Fallback for legacy surveys without created_at
+                            {
+                                "$and": [
+                                    {"created_at": {"$exists": False}},
+                                    {"received_at": {"$lt": cutoff_date}}
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            })
+            
+            deleted_count = result.deleted_count
+            if deleted_count > 0:
+                logger.info(f"🗑️  Cleaned up {deleted_count} unclicked CINT surveys older than {days} days")
+            
+            return deleted_count
+            
+        except Exception as e:
+            logger.error(f"Error cleaning up unclicked surveys: {e}")
+            return 0

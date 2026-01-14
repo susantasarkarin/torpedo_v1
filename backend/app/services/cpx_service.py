@@ -314,16 +314,14 @@ class CPXService:
                 print("ℹ️  No surveys returned from CPX API")
                 return []
             
-            # Normalize and filter surveys
+            # Normalize surveys (store ALL surveys without filtering)
+            # Filters are now applied only during display/routing, not during ingestion
             normalized_surveys = []
             for survey in surveys:
                 normalized = self._normalize_survey(survey)
-                
-                # Apply filters
-                if self._apply_filters(normalized):
-                    normalized_surveys.append(normalized)
+                normalized_surveys.append(normalized)
             
-            print(f"✅ Fetched {len(normalized_surveys)} CPX surveys (before filters: {len(surveys)})")
+            print(f"✅ Fetched {len(normalized_surveys)} CPX surveys (storing all without filtering)")
             return normalized_surveys
             
         except requests.exceptions.Timeout:
@@ -378,6 +376,8 @@ class CPXService:
             "last_updated": datetime.utcnow(),
             "live_link": live_link,  # Store live link from CPX API
             "raw_data": survey,  # Store raw data for reference
+            # Click tracking fields - used for click-based cleanup
+            # click_count and last_clicked_at are set via $setOnInsert to preserve existing values
         }
         
         # Generate entry_link by appending parameters to live_link
@@ -436,20 +436,30 @@ class CPXService:
         
         try:
             upserted_count = 0
+            new_count = 0
             for survey in surveys:
-                # Use $set for all fields except inserted_at
-                # Use $setOnInsert for inserted_at to preserve original insert time
+                # Use $set for all fields except those that should persist
+                # Use $setOnInsert for fields that should only be set on first insert:
+                #   - created_at: when survey was first stored (used for click-based cleanup)
+                #   - click_count: initialize to 0 (incremented by allocation service)
+                #   - last_clicked_at: null until first click
                 result = self.cpx_surveys_collection.update_one(
                     {"_id": survey.get("_id")},
                     {
                         "$set": survey,
-                        "$setOnInsert": {"inserted_at": datetime.utcnow()}
+                        "$setOnInsert": {
+                            "created_at": datetime.utcnow(),
+                            "click_count": 0,
+                            "last_clicked_at": None
+                        }
                     },
                     upsert=True
                 )
                 upserted_count += 1
+                if result.upserted_id:
+                    new_count += 1
             
-            print(f"✅ Upserted {upserted_count} surveys into MongoDB")
+            print(f"✅ Upserted {upserted_count} surveys into MongoDB ({new_count} new, {upserted_count - new_count} updated)")
             return upserted_count
             
         except Exception as e:
@@ -696,10 +706,14 @@ class CPXService:
     
     def cleanup_old_surveys(self, days: int = 3) -> int:
         """
-        Delete surveys that are older than specified number of days
+        Delete surveys that have received 0 clicks and are older than specified days.
+        
+        Click-based cleanup logic:
+        - Surveys with click_count > 0 are kept indefinitely (or until separate expiry)
+        - Surveys with click_count == 0 AND created_at > X days ago are deleted
         
         Args:
-            days: Number of days after which surveys should be deleted (default: 3)
+            days: Number of days after which unclicked surveys should be deleted (default: 3)
             
         Returns:
             Number of surveys deleted
@@ -707,14 +721,36 @@ class CPXService:
         try:
             cutoff_date = datetime.utcnow() - timedelta(days=days)
             
-            # Delete surveys where last_updated is older than cutoff_date
+            # Delete surveys where:
+            # 1. click_count is 0, null, or doesn't exist AND
+            # 2. created_at is older than cutoff_date
             result = self.cpx_surveys_collection.delete_many({
-                "last_updated": {"$lt": cutoff_date}
+                "$and": [
+                    {
+                        "$or": [
+                            {"click_count": {"$exists": False}},
+                            {"click_count": None},
+                            {"click_count": 0}
+                        ]
+                    },
+                    {
+                        "$or": [
+                            {"created_at": {"$lt": cutoff_date}},
+                            # Fallback for legacy surveys without created_at
+                            {
+                                "$and": [
+                                    {"created_at": {"$exists": False}},
+                                    {"last_updated": {"$lt": cutoff_date}}
+                                ]
+                            }
+                        ]
+                    }
+                ]
             })
             
             deleted_count = result.deleted_count
             if deleted_count > 0:
-                print(f"🗑️  Cleaned up {deleted_count} surveys older than {days} days")
+                print(f"🗑️  Cleaned up {deleted_count} unclicked surveys older than {days} days")
             
             return deleted_count
             
