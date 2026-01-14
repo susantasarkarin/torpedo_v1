@@ -2251,7 +2251,8 @@ async def get_mail_pool_email_detail(
         # Get AI summary (don't generate on-the-fly to avoid blocking)
         ai_summary = email_doc.get("ai_summary", "")
         
-        return {
+        # Build the result object (thread will be populated below)
+        result = {
             "success": True,
             "email": {
                 "id": str(email_doc["_id"]),

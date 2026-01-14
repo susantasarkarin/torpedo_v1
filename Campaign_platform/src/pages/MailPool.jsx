@@ -231,9 +231,19 @@ const getAvatarColor = (name) => {
   return colors[hash % colors.length]
 }
 
+// Build version stamp for deployment verification
+const BUILD_VERSION = "2026.01.15.1"
+const BUILD_TIMESTAMP = new Date().toISOString()
+
 function MailPool() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
+  
+  // Log version on component mount for deployment verification
+  useEffect(() => {
+    console.log(`%c[MailPool] Build: ${BUILD_VERSION}`, 'color: #1a73e8; font-weight: bold;')
+    console.log(`[MailPool] Loaded at: ${BUILD_TIMESTAMP}`)
+  }, [])
   
   // Stats & Accounts
   const [stats, setStats] = useState({
