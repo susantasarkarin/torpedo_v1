@@ -64,6 +64,11 @@ class SurveyAllocationService:
         self.metrics = self.db["survey_metrics"]
         self.allocation_log = self.db["allocation_log"]
         
+        # CPX and CINT survey collections for click tracking
+        # These are the source survey pools that need click_count updates
+        self.cpx_surveys = self.client["cpx_research"]["cpx_surveys"]
+        self.cint_surveys = self.client["cint_research"]["cint_surveys"]
+        
         # Settings collection (shared with main settings)
         self.settings_db = self.client["torpedo_settings"]
         self.settings_collection = self.settings_db["app_settings"]
@@ -531,7 +536,11 @@ class SurveyAllocationService:
         # Step 4c: Update metrics
         self._increment_metric(survey_id, "sent_n")
         
-        # Step 4d: Log allocation
+        # Step 4d: Increment click count on source survey (CPX/CINT collection)
+        # This tracks clicks for the click-based cleanup logic
+        self._increment_survey_click_count(survey)
+        
+        # Step 4e: Log allocation
         self._log_allocation(
             respondent_id=respondent_id,
             survey_id=survey_id,
@@ -831,6 +840,65 @@ class SurveyAllocationService:
     def get_survey_metrics(self, survey_id: str) -> Optional[dict]:
         """Get metrics for a specific survey"""
         return self.metrics.find_one({"survey_id": survey_id})
+    
+    def _increment_survey_click_count(self, survey: dict):
+        """
+        Increment click_count and update last_clicked_at on CPX/CINT survey document.
+        
+        This is called when a respondent is allocated to a survey, ensuring the
+        source survey pool (cpx_surveys or cint_surveys) tracks click activity
+        for the click-based cleanup logic.
+        
+        Args:
+            survey: Survey dict containing provider and external_id fields
+        """
+        try:
+            provider = survey.get("provider", "").upper()
+            external_id = survey.get("external_id") or survey.get("survey_id")
+            
+            if not external_id:
+                print(f"⚠️ Cannot increment click count: no external_id found")
+                return
+            
+            now = datetime.utcnow()
+            
+            if provider == "CPX":
+                # Update CPX survey - uses _id as survey_id
+                self.cpx_surveys.update_one(
+                    {"_id": str(external_id)},
+                    {
+                        "$inc": {"click_count": 1},
+                        "$set": {"last_clicked_at": now}
+                    }
+                )
+                print(f"✅ Incremented click_count for CPX survey {external_id}")
+                
+            elif provider == "CINT":
+                # Update CINT survey - uses survey_id field
+                # Handle both string and int survey_id
+                try:
+                    survey_id_int = int(external_id)
+                    self.cint_surveys.update_one(
+                        {"survey_id": survey_id_int},
+                        {
+                            "$inc": {"click_count": 1},
+                            "$set": {"last_clicked_at": now}
+                        }
+                    )
+                except ValueError:
+                    self.cint_surveys.update_one(
+                        {"survey_id": external_id},
+                        {
+                            "$inc": {"click_count": 1},
+                            "$set": {"last_clicked_at": now}
+                        }
+                    )
+                print(f"✅ Incremented click_count for CINT survey {external_id}")
+            else:
+                print(f"⚠️ Unknown provider '{provider}' - cannot increment click count")
+                
+        except Exception as e:
+            print(f"⚠️ Failed to increment survey click count: {e}")
     
     def get_all_metrics(self) -> List[dict]:
         """Get metrics for all surveys"""

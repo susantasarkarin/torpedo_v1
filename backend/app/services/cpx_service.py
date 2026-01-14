@@ -475,22 +475,35 @@ class CPXService:
         category: Optional[str] = None,
         page: int = 1,
         page_size: int = 20,
+        apply_default_filters: bool = True,
     ) -> Dict[str, Any]:
         """
-        Get surveys from MongoDB with optional filters and pagination
+        Get surveys from MongoDB with optional filters and pagination.
+        
+        Filters are applied at display time (not during ingestion) to allow
+        for dynamic filtering without re-fetching from CPX API.
         
         Args:
             min_loi: Minimum LOI filter
-            max_loi: Maximum LOI filter
-            min_payout: Minimum payout filter
+            max_loi: Maximum LOI filter (defaults to saved max_loi setting if apply_default_filters=True)
+            min_payout: Minimum payout filter (defaults to saved min_cpi setting if apply_default_filters=True)
             country: Country filter
             category: Category filter
             page: Page number (1-indexed)
             page_size: Number of surveys per page
+            apply_default_filters: If True, apply saved filter settings as defaults
             
         Returns:
             Dictionary with surveys and pagination info
         """
+        # Apply default filters from saved settings if not explicitly provided
+        if apply_default_filters:
+            filter_settings = self.get_filter_settings()
+            if max_loi is None:
+                max_loi = filter_settings.get("max_loi", 20)
+            if min_payout is None:
+                min_payout = filter_settings.get("min_cpi", 1.0)
+        
         # Build filter query
         query = {}
         

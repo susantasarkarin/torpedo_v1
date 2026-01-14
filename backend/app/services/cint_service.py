@@ -740,17 +740,22 @@ class CintService:
         country: Optional[str] = None,
         page: int = 1,
         page_size: int = 20,
+        apply_default_filters: bool = True,
     ) -> Dict[str, Any]:
         """
-        Get filtered Cint surveys from MongoDB cache
+        Get filtered Cint surveys from MongoDB cache.
+        
+        Filters are applied at display time (not during ingestion) to allow
+        for dynamic filtering without missing webhook updates.
 
         Args:
             min_loi: Minimum Length of Interview (minutes)
-            max_loi: Maximum Length of Interview (minutes)
-            min_cpi: Minimum Cost Per Completion ($)
+            max_loi: Maximum Length of Interview (minutes) - defaults to saved max_loi setting
+            min_cpi: Minimum Cost Per Completion ($) - defaults to saved min_cpi setting
             country: Filter by country code
             page: Page number (1-indexed)
             page_size: Results per page
+            apply_default_filters: If True, apply saved filter settings as defaults
 
         Returns:
             Dict with surveys list, total count, and metadata
@@ -764,6 +769,14 @@ class CintService:
                 "page_size": page_size,
                 "message": "Surveys collection not available"
             }
+        
+        # Apply default filters from saved settings if not explicitly provided
+        filter_settings = self.get_filter_settings()
+        if apply_default_filters:
+            if max_loi is None:
+                max_loi = filter_settings.get("max_loi", 20)
+            if min_cpi is None:
+                min_cpi = filter_settings.get("min_cpi", 1.0)
         
         try:
             # Build query filter - only show active/live surveys
@@ -791,8 +804,7 @@ class CintService:
                     filter_query["$and"] = []
                 filter_query["$and"].append({"$or": loi_conditions})
             
-            # Apply CPI filter - always apply minimum $1.00 filter from settings
-            filter_settings = self.get_filter_settings()
+            # Apply CPI filter
             effective_min_cpi = min_cpi if min_cpi is not None else filter_settings.get("min_cpi", 1.0)
             cpi_conditions = [
                 {"payout": {"$gte": effective_min_cpi}},

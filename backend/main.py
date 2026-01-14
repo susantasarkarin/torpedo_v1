@@ -772,6 +772,7 @@ def background_gmail_sync():
 def cint_health_check():
     """
     Background job to check Cint subscription health and auto-resubscribe if needed.
+    Also runs click-based cleanup for unclicked surveys.
     Runs every 30 minutes to ensure webhook is active.
     """
     import asyncio
@@ -783,6 +784,14 @@ def cint_health_check():
             if not cint_integration or not cint_integration.cint_service:
                 print("⚠️ [Cint] Integration not initialized")
                 return
+            
+            # Run click-based cleanup for unclicked surveys (older than 3 days with 0 clicks)
+            try:
+                deleted_count = cint_integration.cint_service.cleanup_unclicked_surveys(days=3)
+                if deleted_count > 0:
+                    print(f"🗑️ [Cint] Cleaned up {deleted_count} unclicked surveys")
+            except Exception as cleanup_error:
+                print(f"⚠️ [Cint] Cleanup error: {cleanup_error}")
             
             # Check current subscription status
             status_result = await cint_integration.cint_service.get_opportunities_subscription()
