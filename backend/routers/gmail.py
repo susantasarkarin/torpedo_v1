@@ -2220,31 +2220,8 @@ async def get_mail_pool_email_detail(
         attachments = email_doc.get("attachments", [])
         has_attachments = email_doc.get("has_attachments", False) or len(attachments) > 0
         
-        # Get or generate AI summary
+        # Get AI summary (don't generate on-the-fly to avoid blocking)
         ai_summary = email_doc.get("ai_summary", "")
-        if not ai_summary and cleaned_body and len(cleaned_body.strip()) > 50:
-            try:
-                # Import the AI summary function
-                from leads.ai_classifier import generate_single_email_summary
-                
-                # Generate summary
-                subject = email_doc.get("subject", "")
-                ai_summary = generate_single_email_summary(
-                    subject=subject,
-                    body=cleaned_body,
-                    from_email=from_email,
-                    date=date_str
-                )
-                
-                # Cache the summary in the database for future requests
-                if ai_summary:
-                    mail_pool_emails.update_one(
-                        {"_id": email_doc["_id"]},
-                        {"$set": {"ai_summary": ai_summary}}
-                    )
-            except Exception as e:
-                logger.warning(f"Failed to generate AI summary: {e}")
-                ai_summary = ""
         
         return {
             "success": True,
