@@ -61,6 +61,21 @@ class WorkspaceMailbox:
     created_at: datetime = field(default_factory=datetime.utcnow)
 
 
+def _serialize_doc(doc: Dict) -> Dict:
+    """Convert MongoDB document to JSON-serializable dict"""
+    if doc is None:
+        return None
+    result = {}
+    for key, value in doc.items():
+        if isinstance(value, datetime):
+            result[key] = value.isoformat() if value else None
+        elif isinstance(value, ObjectId):
+            result[key] = str(value)
+        else:
+            result[key] = value
+    return result
+
+
 class GmailWorkspaceService:
     """
     Gmail API service using Service Account with Domain-Wide Delegation.
@@ -365,24 +380,27 @@ class GmailWorkspaceService:
         mailbox = self.mailboxes.find_one({"_id": oid})
         if mailbox:
             mailbox["id"] = str(mailbox.pop("_id"))
-        return mailbox
+            return _serialize_doc(mailbox)
+        return None
     
     def get_mailbox_by_email(self, email: str) -> Optional[Dict]:
         """Get mailbox by email address"""
         mailbox = self.mailboxes.find_one({"email": email.lower()})
         if mailbox:
             mailbox["id"] = str(mailbox.pop("_id"))
-        return mailbox
+        return _serialize_doc(mailbox) if mailbox else None
     
     def list_mailboxes(self, active_only: bool = True) -> List[Dict]:
         """List all mailboxes"""
         query = {"is_active": True} if active_only else {}
         mailboxes = list(self.mailboxes.find(query).sort("email", 1))
         
+        result = []
         for m in mailboxes:
             m["id"] = str(m.pop("_id"))
+            result.append(_serialize_doc(m))
         
-        return mailboxes
+        return result
     
     def update_mailbox(self, mailbox_id: str, updates: Dict) -> bool:
         """Update mailbox settings"""

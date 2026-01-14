@@ -1728,6 +1728,10 @@ mail_pool_legacy_emails = gmail_archive_db["emails"]
 # Additional collections for leads data
 mail_pool_email_leads = email_automation_db["email_leads"]
 mail_pool_conversations = email_automation_db["email_conversations"]
+
+# Settings database for email signatures
+settings_db = mongo_client["settings"]
+email_signatures_collection = settings_db["email_signatures"]
 mail_pool_sync_log = gmail_db["email_sync_log"]
 
 
@@ -1898,19 +1902,35 @@ async def get_mail_pool_stats(
             normalized_aliases = []
             for alias in raw_aliases:
                 if isinstance(alias, str):
+                    alias_email = alias
+                elif isinstance(alias, dict):
+                    alias_email = alias.get("email", alias.get("alias_email", ""))
+                else:
+                    continue
+                
+                # Look up signature from email_signatures collection first
+                alias_saved_sig = email_signatures_collection.find_one({"email": alias_email})
+                if alias_saved_sig:
+                    alias_signature = alias_saved_sig.get("signature_html", alias_saved_sig.get("signature", ""))
+                elif isinstance(alias, dict):
+                    alias_signature = alias.get("signature", acc.get("signature", ""))
+                else:
+                    alias_signature = acc.get("signature", "")
+                
+                if isinstance(alias, str):
                     # Old format: just email string
                     normalized_aliases.append({
-                        "email": alias,
-                        "display_name": alias.split("@")[0],
-                        "signature": acc.get("signature", ""),  # Inherit parent signature
+                        "email": alias_email,
+                        "display_name": alias_email.split("@")[0],
+                        "signature": alias_signature,
                         "is_default": False
                     })
-                elif isinstance(alias, dict):
+                else:
                     # New format: full alias object
                     normalized_aliases.append({
-                        "email": alias.get("email", alias.get("alias_email", "")),
-                        "display_name": alias.get("display_name", alias.get("email", alias.get("alias_email", "")).split("@")[0]),
-                        "signature": alias.get("signature", acc.get("signature", "")),  # Use own or inherit
+                        "email": alias_email,
+                        "display_name": alias.get("display_name", alias_email.split("@")[0]),
+                        "signature": alias_signature,
                         "is_default": alias.get("is_default", alias.get("is_primary", False))
                     })
             
@@ -1919,6 +1939,14 @@ async def get_mail_pool_stats(
                 "mailbox_id": acc_id,
                 "direction": "inbound"
             })
+            
+            # Get signature from email_signatures collection first, then fallback to mailbox
+            saved_signature = email_signatures_collection.find_one({"email": acc["email"]})
+            signature_html = ""
+            if saved_signature:
+                signature_html = saved_signature.get("signature_html", saved_signature.get("signature", ""))
+            if not signature_html:
+                signature_html = acc.get("signature", "")
             
             account_stats.append({
                 "id": str(acc["_id"]),
@@ -1929,7 +1957,7 @@ async def get_mail_pool_stats(
                 "today": 0,  # Would need date parsing
                 "last_sync": acc.get("last_sync_at"),
                 "aliases": normalized_aliases,
-                "signature": acc.get("signature", ""),
+                "signature": signature_html,
                 "is_default": acc.get("is_default", False)
             })
         
@@ -2268,8 +2296,64 @@ async def get_mail_pool_email_detail(
                 "ai_action_items": email_doc.get("ai_action_items", []),
                 "ai_reply_expected": email_doc.get("ai_reply_expected"),
                 "ai_classified_at": email_doc.get("ai_classified_at", "").isoformat() if email_doc.get("ai_classified_at") else ""
-            }
+            },
+            "thread": []  # Thread emails will be populated below
         }
+        
+        # Fetch thread emails if thread_id exists
+        thread_id = email_doc.get("provider_thread_id") or email_doc.get("gmail_thread_id")
+        if thread_id:
+            # Find all emails in this thread, sorted by timestamp
+            thread_emails = list(mail_pool_emails.find(
+                {"$or": [
+                    {"provider_thread_id": thread_id},
+                    {"gmail_thread_id": thread_id}
+                ]}
+            ).sort("timestamp", 1))  # Oldest first
+            
+            thread_list = []
+            for t_email in thread_emails:
+                # Get from address
+                t_from_addr = t_email.get("from_address", {})
+                if isinstance(t_from_addr, dict):
+                    t_from_email = t_from_addr.get("email", "")
+                    t_from_name = t_from_addr.get("name", "")
+                else:
+                    t_from_email, t_from_name = parse_email_address(str(t_from_addr))
+                
+                # Get to addresses
+                t_to_addresses = t_email.get("to_addresses", [])
+                t_to_email = t_to_addresses[0].get("email", "") if t_to_addresses else ""
+                
+                # Get body
+                t_body_plain = t_email.get("body_plain", "") or t_email.get("body", "") or t_email.get("content", "")
+                t_body_html = t_email.get("body_html", "") or t_email.get("html_body", "")
+                t_cleaned_body = clean_email_body(t_body_plain) if t_body_plain else ""
+                if not t_cleaned_body and not t_body_html:
+                    t_cleaned_body = t_email.get("snippet", "")
+                
+                t_timestamp = t_email.get("timestamp")
+                t_date_str = t_timestamp.isoformat() if t_timestamp else ""
+                
+                thread_list.append({
+                    "id": str(t_email["_id"]),
+                    "email": t_from_email,
+                    "name": t_from_name,
+                    "to_email": t_to_email,
+                    "subject": t_email.get("subject", ""),
+                    "body": t_cleaned_body,
+                    "body_html": t_body_html,
+                    "snippet": t_email.get("snippet", ""),
+                    "date": t_date_str,
+                    "added_on": t_date_str,
+                    "direction": t_email.get("direction", "inbound"),
+                    "attachments": t_email.get("attachments", []),
+                    "has_attachments": t_email.get("has_attachments", False)
+                })
+            
+            result["thread"] = thread_list
+        
+        return result
     
     except HTTPException:
         raise

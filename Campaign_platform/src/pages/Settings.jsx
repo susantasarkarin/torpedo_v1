@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react"
 import { API_BASE_URL } from "../config"
-import EmailSyncProgress from "../components/EmailSyncProgress"
 import "./Settings.css"
 
 // Helper to get auth token - handles both storage methods
@@ -61,8 +60,7 @@ function Settings() {
     refresh_interval_seconds: 60,
   })
 
-  // Gmail Settings state
-  const [gmailAccounts, setGmailAccounts] = useState([])
+  // Gmail Settings state - Rate Limits for outgoing emails
   const [rateLimits, setRateLimits] = useState({
     max_per_day: 500,
     max_per_hour: 50,
@@ -70,6 +68,10 @@ function Settings() {
     cooldown_seconds: 10,
     enabled: true,
   })
+  
+  // Gmail Workspace Signatures
+  const [workspaceSignatures, setWorkspaceSignatures] = useState([])
+  const [signaturesLoading, setSignaturesLoading] = useState(false)
 
   // Survey Allocation Settings state
   const [allocationSettings, setAllocationSettings] = useState({
@@ -83,42 +85,13 @@ function Settings() {
     prefer_high_ir_surveys: true,
     prefer_high_cpi_surveys: false,
   })
-  const [newAccount, setNewAccount] = useState({ 
-    email: "", 
-    password: "",  // App password for IMAP
-    display_name: "", 
-    imap_server: "",  // Auto-detected if empty
-    imap_port: 993,
-    smtp_server: "",
-    smtp_port: 587,
-    use_ssl: true,
-    is_default: false,
-    skip_validation: false  // Skip IMAP connection test
-  })
-  const [newAlias, setNewAlias] = useState({ email: "", name: "", account_id: "" })
-  const [showAddAccount, setShowAddAccount] = useState(false)
-  const [showAddAlias, setShowAddAlias] = useState(null) // account_id when open
-  const [gmailLoading, setGmailLoading] = useState(false)
-  
-  // Historical import state
-  const [importProgress, setImportProgress] = useState({}) // { email: { status, progress, ... } }
-  const [idleStatus, setIdleStatus] = useState({ available: false, accounts: {} })
-  const [importDays, setImportDays] = useState({}) // { email: days }
   
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: "", text: "" })
-  const [activeTab, setActiveTab] = useState("app") // "app", "filters", "gmail", "allocation", "signatures"
+  const [activeTab, setActiveTab] = useState("app") // "app", "allocation"
   const [testingMongo, setTestingMongo] = useState(false)
   const [testingCpx, setTestingCpx] = useState(false)
-
-  // Email Signatures state
-  const [emailSignatures, setEmailSignatures] = useState([])
-  const [selectedSignatureEmail, setSelectedSignatureEmail] = useState("")
-  const [signatureHtml, setSignatureHtml] = useState("")
-  const [signatureText, setSignatureText] = useState("")
-  const [signaturesLoading, setSignaturesLoading] = useState(false)
-  const [savingSignature, setSavingSignature] = useState(false)
 
   // Cost Analytics state
   const [costAnalytics, setCostAnalytics] = useState(null)
@@ -150,25 +123,81 @@ function Settings() {
   }, [])
 
   useEffect(() => {
-    if (activeTab === "gmail") {
-      loadGmailSettings()
-    }
     if (activeTab === "allocation") {
       loadAllocationSettings()
     }
-    if (activeTab === "signatures") {
-      loadEmailSignatures()
-    }
-    if (activeTab === "costanalytics") {
-      loadCostAnalytics()
-    }
-    if (activeTab === "prompts") {
-      loadAiPrompts()
-    }
-    if (activeTab === "aidatabase") {
-      loadAiDatabase()
-    }
   }, [activeTab])
+
+  // Load Gmail Workspace Signatures
+  const loadWorkspaceSignatures = async () => {
+    setSignaturesLoading(true)
+    try {
+      const token = getAuthToken()
+      const response = await fetch(`${API_BASE_URL}/gmail-ws/signatures`, {
+        headers: { Authorization: token }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setWorkspaceSignatures(data.signatures || [])
+      }
+    } catch (error) {
+      console.error("Error loading workspace signatures:", error)
+    } finally {
+      setSignaturesLoading(false)
+    }
+  }
+
+  // Load Rate Limits
+  const loadRateLimits = async () => {
+    try {
+      const token = getAuthToken()
+      const response = await fetch(`${API_BASE_URL}/gmail/rate-limits`, {
+        headers: { Authorization: token }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        if (data.rate_limits) {
+          setRateLimits(data.rate_limits)
+        }
+      }
+    } catch (error) {
+      console.error("Error loading rate limits:", error)
+    }
+  }
+
+  // Save Rate Limits
+  const saveRateLimitsHandler = async () => {
+    setSaving(true)
+    setMessage({ type: "", text: "" })
+    
+    try {
+      const token = getAuthToken()
+      const response = await fetch(`${API_BASE_URL}/gmail/rate-limits`, {
+        method: "POST",
+        headers: {
+          Authorization: token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(rateLimits)
+      })
+      
+      if (response.ok) {
+        setMessage({ type: "success", text: "Rate limits saved!" })
+      } else {
+        const error = await response.json()
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to save rate limits") })
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: "Failed to save rate limits" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // Handle rate limit change
+  const handleRateLimitChange = (key, value) => {
+    setRateLimits(prev => ({ ...prev, [key]: value }))
+  }
 
   // Load Email Signatures
   const loadEmailSignatures = async () => {
@@ -789,7 +818,7 @@ function Settings() {
     try {
       const token = getAuthToken()
       
-      // Load app settings and survey filters in parallel
+      // Load app settings, survey filters, and rate limits in parallel
       const [appRes, filterRes] = await Promise.all([
         fetch(`${API_BASE_URL}/settings/app`, {
           headers: { Authorization: token }
@@ -809,6 +838,9 @@ function Settings() {
         const data = await filterRes.json()
         setSurveyFilters(prev => ({ ...prev, ...data.filters }))
       }
+      
+      // Load rate limits separately (non-blocking)
+      loadRateLimits()
     } catch (error) {
       console.error("Error loading settings:", error)
       setMessage({ type: "error", text: "Failed to load settings" })
@@ -1000,10 +1032,6 @@ function Settings() {
 
   const handleFilterChange = (key, value) => {
     setSurveyFilters(prev => ({ ...prev, [key]: value }))
-  }
-
-  const handleRateLimitChange = (key, value) => {
-    setRateLimits(prev => ({ ...prev, [key]: value }))
   }
 
   // Gmail account management functions
@@ -1317,20 +1345,6 @@ function Settings() {
           <span className="tab-icon">📊</span>
           Survey Allocation
         </button>
-        <button 
-          className={`tab-button ${activeTab === "gmail" ? "active" : ""}`}
-          onClick={() => setActiveTab("gmail")}
-        >
-          <span className="tab-icon">📬</span>
-          Gmail & Rate Limits
-        </button>
-        <button 
-          className={`tab-button ${activeTab === "emailsync" ? "active" : ""}`}
-          onClick={() => setActiveTab("emailsync")}
-        >
-          <span className="tab-icon">🔄</span>
-          Email Sync
-        </button>
       </div>
 
       <div className="settings-content">
@@ -1564,6 +1578,129 @@ function Settings() {
                 </div>
               </div>
 
+              {/* Email Rate Limits Section */}
+              <div className="settings-group">
+                <h3>⏱️ Email Rate Limits</h3>
+                
+                <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={rateLimits.enabled}
+                    onChange={(e) => handleRateLimitChange("enabled", e.target.checked)}
+                    style={{ width: '18px', height: '18px' }}
+                  />
+                  <label style={{ margin: 0 }}>Enable Rate Limiting</label>
+                </div>
+                
+                <div className="setting-row">
+                  <label>Daily / Hourly / Per Minute</label>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <div className="input-with-unit">
+                      <input
+                        type="number"
+                        min="1"
+                        max="2000"
+                        value={rateLimits.max_per_day}
+                        onChange={(e) => handleRateLimitChange("max_per_day", parseInt(e.target.value))}
+                        disabled={!rateLimits.enabled}
+                        style={{ width: '80px' }}
+                      />
+                      <span className="unit">/day</span>
+                    </div>
+                    <div className="input-with-unit">
+                      <input
+                        type="number"
+                        min="1"
+                        max="500"
+                        value={rateLimits.max_per_hour}
+                        onChange={(e) => handleRateLimitChange("max_per_hour", parseInt(e.target.value))}
+                        disabled={!rateLimits.enabled}
+                        style={{ width: '70px' }}
+                      />
+                      <span className="unit">/hr</span>
+                    </div>
+                    <div className="input-with-unit">
+                      <input
+                        type="number"
+                        min="1"
+                        max="30"
+                        value={rateLimits.max_per_minute}
+                        onChange={(e) => handleRateLimitChange("max_per_minute", parseInt(e.target.value))}
+                        disabled={!rateLimits.enabled}
+                        style={{ width: '60px' }}
+                      />
+                      <span className="unit">/min</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="setting-row">
+                  <label>Cooldown</label>
+                  <div className="input-with-unit">
+                    <input
+                      type="number"
+                      min="0"
+                      max="300"
+                      value={rateLimits.cooldown_seconds}
+                      onChange={(e) => handleRateLimitChange("cooldown_seconds", parseInt(e.target.value))}
+                      disabled={!rateLimits.enabled}
+                      style={{ width: '70px' }}
+                    />
+                    <span className="unit">sec</span>
+                  </div>
+                  <p className="setting-hint">Delay between sending emails</p>
+                </div>
+                
+                <button 
+                  className="save-button-small"
+                  onClick={saveRateLimitsHandler}
+                  disabled={saving}
+                  style={{ marginTop: '0.5rem' }}
+                >
+                  {saving ? "Saving..." : "Save Rate Limits"}
+                </button>
+              </div>
+
+              {/* Email Signatures Section */}
+              <div className="settings-group">
+                <div className="group-header">
+                  <h3>✉️ Email Signatures</h3>
+                  <button 
+                    className="refresh-button"
+                    onClick={loadWorkspaceSignatures}
+                    disabled={signaturesLoading}
+                  >
+                    {signaturesLoading ? "Loading..." : "🔄 Import from Gmail"}
+                  </button>
+                </div>
+                
+                {workspaceSignatures.length === 0 ? (
+                  <p className="no-data-message">
+                    Click "Import from Gmail" to fetch signatures from your Gmail Workspace mailboxes.
+                  </p>
+                ) : (
+                  <div className="signatures-list">
+                    {workspaceSignatures.map((sig, idx) => (
+                      <div key={idx} className="signature-item">
+                        <div className="signature-header">
+                          <strong>{sig.email}</strong>
+                          {sig.is_primary && <span className="badge primary">Primary</span>}
+                          {sig.display_name && <span className="signature-name">{sig.display_name}</span>}
+                        </div>
+                        {sig.signature_html ? (
+                          <div 
+                            className="signature-preview"
+                            dangerouslySetInnerHTML={{ __html: sig.signature_html }}
+                          />
+                        ) : (
+                          <p className="no-signature">No signature configured</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
             </div>{/* End settings-grid */}
 
             <div className="settings-actions">
@@ -1721,484 +1858,6 @@ function Settings() {
                 {saving ? "Saving..." : "Save Allocation Settings"}
               </button>
             </div>
-          </div>
-        )}
-
-        {activeTab === "gmail" && (
-          <div className="settings-section">
-            <h2>Email Account Settings (IMAP/SMTP)</h2>
-            <p className="section-description">
-              Manage email accounts for lead extraction. For Gmail, use an App Password.
-            </p>
-
-            {gmailLoading ? (
-              <div className="settings-loading-inline">
-                <div className="spinner-small"></div>
-                <span>Loading Gmail settings...</span>
-              </div>
-            ) : (
-              <>
-                <div className="settings-grid">
-                {/* Gmail Accounts Section */}
-                <div className="settings-group settings-grid-full">
-                  <div className="group-header">
-                    <h3>📧 Email Accounts</h3>
-                    <button 
-                      className="add-button"
-                      onClick={() => setShowAddAccount(!showAddAccount)}
-                    >
-                      {showAddAccount ? "Cancel" : "+ Add Account"}
-                    </button>
-                  </div>
-                  
-                  {showAddAccount && (
-                    <div className="add-form">
-                      <div className="setting-row">
-                        <label>Email Address *</label>
-                        <input
-                          type="email"
-                          placeholder="example@gmail.com"
-                          value={newAccount.email}
-                          onChange={(e) => setNewAccount(prev => ({ ...prev, email: e.target.value }))}
-                        />
-                      </div>
-                      <div className="setting-row">
-                        <label>App Password *</label>
-                        <input
-                          type="password"
-                          placeholder="App password (not your regular password)"
-                          value={newAccount.password}
-                          onChange={(e) => setNewAccount(prev => ({ ...prev, password: e.target.value }))}
-                        />
-                        <small className="field-hint">
-                          For Gmail: Create an App Password at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">Google Account Settings</a>
-                        </small>
-                      </div>
-                      <div className="setting-row">
-                        <label>Display Name</label>
-                        <input
-                          type="text"
-                          placeholder="John Doe"
-                          value={newAccount.display_name}
-                          onChange={(e) => setNewAccount(prev => ({ ...prev, display_name: e.target.value }))}
-                        />
-                      </div>
-                      
-                      <details className="advanced-settings">
-                        <summary>Advanced IMAP/SMTP Settings</summary>
-                        <div className="advanced-content">
-                          <div className="setting-row">
-                            <label>IMAP Server</label>
-                            <input
-                              type="text"
-                              placeholder="Auto-detected (e.g., imap.gmail.com)"
-                              value={newAccount.imap_server}
-                              onChange={(e) => setNewAccount(prev => ({ ...prev, imap_server: e.target.value }))}
-                            />
-                          </div>
-                          <div className="setting-row">
-                            <label>IMAP Port</label>
-                            <input
-                              type="number"
-                              value={newAccount.imap_port}
-                              onChange={(e) => setNewAccount(prev => ({ ...prev, imap_port: parseInt(e.target.value) || 993 }))}
-                            />
-                          </div>
-                          <div className="setting-row">
-                            <label>SMTP Server</label>
-                            <input
-                              type="text"
-                              placeholder="Auto-detected (e.g., smtp.gmail.com)"
-                              value={newAccount.smtp_server}
-                              onChange={(e) => setNewAccount(prev => ({ ...prev, smtp_server: e.target.value }))}
-                            />
-                          </div>
-                          <div className="setting-row">
-                            <label>SMTP Port</label>
-                            <input
-                              type="number"
-                              value={newAccount.smtp_port}
-                              onChange={(e) => setNewAccount(prev => ({ ...prev, smtp_port: parseInt(e.target.value) || 587 }))}
-                            />
-                          </div>
-                          <div className="setting-row checkbox-row">
-                            <label className="checkbox-label">
-                              <input
-                                type="checkbox"
-                                checked={newAccount.use_ssl}
-                                onChange={(e) => setNewAccount(prev => ({ ...prev, use_ssl: e.target.checked }))}
-                              />
-                              <span>Use SSL/TLS</span>
-                            </label>
-                          </div>
-                        </div>
-                      </details>
-                      
-                      <div className="setting-row checkbox-row">
-                        <label className="checkbox-label">
-                          <input
-                            type="checkbox"
-                            checked={newAccount.is_default}
-                            onChange={(e) => setNewAccount(prev => ({ ...prev, is_default: e.target.checked }))}
-                          />
-                          <span>Set as default account</span>
-                        </label>
-                      </div>
-                      <div className="setting-row checkbox-row" style={{ backgroundColor: '#fef3c7', padding: '12px', borderRadius: '8px', border: '1px solid #f59e0b' }}>
-                        <label className="checkbox-label">
-                          <input
-                            type="checkbox"
-                            checked={newAccount.skip_validation}
-                            onChange={(e) => setNewAccount(prev => ({ ...prev, skip_validation: e.target.checked }))}
-                          />
-                          <span style={{ fontWeight: '500' }}>Skip connection test (save credentials without validating)</span>
-                        </label>
-                        <p style={{ fontSize: '12px', color: '#92400e', marginTop: '6px', marginLeft: '24px' }}>
-                          ⚠️ Use this if IMAP is blocked by firewall/VPN. Credentials will be saved and you can test later.
-                        </p>
-                      </div>
-                      <div className="form-actions">
-                        <button 
-                          className="save-button-small"
-                          onClick={addGmailAccount}
-                          disabled={saving || !newAccount.email || !newAccount.password}
-                        >
-                          {saving ? "Adding..." : "Add Account"}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {gmailAccounts.length === 0 ? (
-                    <p className="empty-message">No email accounts configured. Add one to get started.</p>
-                  ) : (
-                    <div className="accounts-list">
-                      {gmailAccounts.map((account) => (
-                        <div key={account.id} className="account-card">
-                          <div className="account-header">
-                            <div className="account-info">
-                              <span className="account-email">{account.email}</span>
-                              {account.name && <span className="account-name">({account.name})</span>}
-                              {account.is_default && <span className="default-badge">Default</span>}
-                              <span className={`status-badge ${account.is_authenticated ? "authenticated" : "not-authenticated"}`}>
-                                {account.is_authenticated ? "✓ Active" : "⚠ Inactive"}
-                              </span>
-                              {account.imap_server && <span className="server-info">({account.imap_server})</span>}
-                            </div>
-                            <div className="account-actions">
-                              <button 
-                                className="action-button"
-                                onClick={() => testEmailAccount(account.email)}
-                                title="Test IMAP connection"
-                              >
-                                🔌
-                              </button>
-                              <button 
-                                className="action-button delete"
-                                onClick={() => removeGmailAccount(account.email)}
-                                title="Remove account"
-                              >
-                                🗑️
-                              </button>
-                            </div>
-                          </div>
-                          
-                          {account.last_sync && (
-                            <div className="account-meta">
-                              <span className="last-sync">Last sync: {new Date(account.last_sync).toLocaleString()}</span>
-                            </div>
-                          )}
-                          
-                          {/* Historical Import Section */}
-                          <div className="import-section">
-                            <div className="import-controls">
-                              <label className="import-label">Import History:</label>
-                              <select
-                                className="import-days-select"
-                                value={importDays[account.email] || 30}
-                                onChange={(e) => updateImportDaysSetting(account.email, parseInt(e.target.value))}
-                              >
-                                <option value={7}>Last 7 days</option>
-                                <option value={30}>Last 30 days</option>
-                                <option value={90}>Last 90 days</option>
-                                <option value={180}>Last 6 months</option>
-                                <option value={365}>Last 1 year</option>
-                                <option value={730}>Last 2 years</option>
-                                <option value={0}>All emails</option>
-                              </select>
-                              <button
-                                className="import-button"
-                                onClick={() => startHistoricalImport(account.email)}
-                                disabled={importProgress[account.email]?.status === "in_progress" || importProgress[account.email]?.status === "running"}
-                              >
-                                {(importProgress[account.email]?.status === "in_progress" || importProgress[account.email]?.status === "running") ? "⏳ Importing..." : "📥 Import"}
-                              </button>
-                            </div>
-                            
-                            {/* Import Progress */}
-                            {importProgress[account.email] && importProgress[account.email].status !== "not_started" && (
-                              <div className="import-progress">
-                                <div className="progress-status">
-                                  <span className={`progress-badge ${importProgress[account.email].status}`}>
-                                    {importProgress[account.email].status === "in_progress" && "⏳ Importing..."}
-                                    {importProgress[account.email].status === "completed" && "✅ Completed"}
-                                    {importProgress[account.email].status === "error" && "❌ Error"}
-                                    {importProgress[account.email].status === "running" && "⏳ Importing..."}
-                                  </span>
-                                  {importProgress[account.email].processed_count !== undefined && importProgress[account.email].total_count > 0 && (
-                                    <span className="progress-count">
-                                      {importProgress[account.email].phase === "classifying" ? "🔄 Classifying: " : ""}
-                                      {importProgress[account.email].processed_count} / {importProgress[account.email].total_count} emails 
-                                      ({Math.round((importProgress[account.email].processed_count / importProgress[account.email].total_count) * 100)}%)
-                                    </span>
-                                  )}
-                                  {importProgress[account.email].processed_count !== undefined && !importProgress[account.email].total_count && (
-                                    <span className="progress-count">
-                                      {importProgress[account.email].phase === "connecting" && "🔌 Connecting to IMAP..."}
-                                      {importProgress[account.email].phase === "fetching" && "📥 Downloading emails via IMAP..."}
-                                      {!importProgress[account.email].phase && "📥 Fetching emails..."}
-                                    </span>
-                                  )}
-                                </div>
-                                {(importProgress[account.email].status === "in_progress" || importProgress[account.email].status === "running") && (
-                                  <div className="progress-bar-container">
-                                    <div 
-                                      className="progress-bar"
-                                      style={{ 
-                                        width: `${importProgress[account.email].total_count 
-                                          ? (importProgress[account.email].processed_count / importProgress[account.email].total_count) * 100 
-                                          : 5}%` 
-                                      }}
-                                    ></div>
-                                  </div>
-                                )}
-                                {importProgress[account.email].leads_created !== undefined && (
-                                  <div className="progress-stats">
-                                    <span>📧 Leads created: {importProgress[account.email].leads_created}</span>
-                                    <span>📋 RFQs detected: {importProgress[account.email].rfqs_created || 0}</span>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                          
-                          {/* Email Aliases Section */}
-                          <div className="aliases-section">
-                            <div className="aliases-header">
-                              <span className="aliases-title">📧 Email Aliases</span>
-                              <div className="aliases-actions">
-                                <button
-                                  className="action-button"
-                                  onClick={() => syncAliases(account.email)}
-                                  title="Auto-detect aliases from sent emails"
-                                  disabled={gmailLoading}
-                                >
-                                  {gmailLoading ? "⏳" : "🔍"}
-                                </button>
-                                <button
-                                  className="action-button"
-                                  onClick={() => setShowAddAlias(showAddAlias === account.email ? null : account.email)}
-                                  title="Add alias manually"
-                                >
-                                  ➕
-                                </button>
-                              </div>
-                            </div>
-                            
-                            {/* Alias List */}
-                            {account.aliases && account.aliases.length > 0 ? (
-                              <div className="aliases-list">
-                                {account.aliases.map((alias, idx) => (
-                                  <div key={idx} className="alias-item">
-                                    <span className="alias-email">{alias.email}</span>
-                                    {alias.name && <span className="alias-name">({alias.name})</span>}
-                                    {alias.is_primary && <span className="primary-badge">Primary</span>}
-                                    {alias.source === "auto_detected" && <span className="detected-badge">Auto</span>}
-                                    <button
-                                      className="action-button delete small"
-                                      onClick={() => removeAlias(account.email, alias.email)}
-                                      title="Remove alias"
-                                    >
-                                      ✕
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="no-aliases">No aliases configured. Click 🔍 to auto-detect from sent emails or ➕ to add manually.</p>
-                            )}
-                            
-                            {/* Add Alias Form */}
-                            {showAddAlias === account.email && (
-                              <div className="add-alias-form">
-                                <input
-                                  type="email"
-                                  placeholder="alias@example.com"
-                                  value={newAlias.email}
-                                  onChange={(e) => setNewAlias(prev => ({ ...prev, email: e.target.value }))}
-                                  className="alias-input"
-                                />
-                                <input
-                                  type="text"
-                                  placeholder="Display Name (optional)"
-                                  value={newAlias.name}
-                                  onChange={(e) => setNewAlias(prev => ({ ...prev, name: e.target.value }))}
-                                  className="alias-input"
-                                />
-                                <button
-                                  className="save-button-small"
-                                  onClick={() => addAlias(account.email)}
-                                  disabled={saving || !newAlias.email}
-                                >
-                                  {saving ? "Adding..." : "Add"}
-                                </button>
-                                <button
-                                  className="cancel-button-small"
-                                  onClick={() => {
-                                    setShowAddAlias(null)
-                                    setNewAlias({ email: "", name: "", account_id: "" })
-                                  }}
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Real-time Monitoring Section */}
-                <div className="settings-group">
-                  <h3>🔄 Real-time Monitoring (IMAP IDLE)</h3>
-                  
-                  <div className="idle-status-section">
-                    <div className="idle-status-info">
-                      <span className={`idle-status-badge ${idleStatus.available ? (idleStatus.running ? "running" : "stopped") : "unavailable"}`}>
-                        {!idleStatus.available ? "⚠ Not Available" : (idleStatus.running ? "🟢 Running" : "🔴 Stopped")}
-                      </span>
-                      {idleStatus.running && idleStatus.active_watchers && (
-                        <span className="watcher-count">{idleStatus.active_watchers} account(s)</span>
-                      )}
-                    </div>
-                    <div className="idle-actions">
-                      <button
-                        className="idle-button start"
-                        onClick={() => toggleIdleWatchers(true)}
-                        disabled={!idleStatus.available || idleStatus.running}
-                      >
-                        ▶ Start
-                      </button>
-                      <button
-                        className="idle-button stop"
-                        onClick={() => toggleIdleWatchers(false)}
-                        disabled={!idleStatus.available || !idleStatus.running}
-                      >
-                        ⏹ Stop
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Rate Limits Section */}
-                <div className="settings-group">
-                  <h3>⏱️ Email Rate Limits</h3>
-                  
-                  <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <input
-                      type="checkbox"
-                      checked={rateLimits.enabled}
-                      onChange={(e) => handleRateLimitChange("enabled", e.target.checked)}
-                      style={{ width: '18px', height: '18px' }}
-                    />
-                    <label style={{ margin: 0 }}>Enable Rate Limiting</label>
-                  </div>
-                  
-                  <div className="setting-row">
-                    <label>Daily / Hourly / Per Minute</label>
-                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      <div className="input-with-unit">
-                        <input
-                          type="number"
-                          min="1"
-                          max="2000"
-                          value={rateLimits.max_per_day}
-                          onChange={(e) => handleRateLimitChange("max_per_day", parseInt(e.target.value))}
-                          disabled={!rateLimits.enabled}
-                          style={{ width: '80px' }}
-                        />
-                        <span className="unit">/day</span>
-                      </div>
-                      <div className="input-with-unit">
-                        <input
-                          type="number"
-                          min="1"
-                          max="500"
-                          value={rateLimits.max_per_hour}
-                          onChange={(e) => handleRateLimitChange("max_per_hour", parseInt(e.target.value))}
-                          disabled={!rateLimits.enabled}
-                          style={{ width: '70px' }}
-                        />
-                        <span className="unit">/hr</span>
-                      </div>
-                      <div className="input-with-unit">
-                        <input
-                          type="number"
-                          min="1"
-                          max="30"
-                          value={rateLimits.max_per_minute}
-                          onChange={(e) => handleRateLimitChange("max_per_minute", parseInt(e.target.value))}
-                          disabled={!rateLimits.enabled}
-                          style={{ width: '60px' }}
-                        />
-                        <span className="unit">/min</span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="setting-row">
-                    <label>Cooldown</label>
-                    <div className="input-with-unit">
-                      <input
-                        type="number"
-                        min="0"
-                        max="300"
-                        value={rateLimits.cooldown_seconds}
-                        onChange={(e) => handleRateLimitChange("cooldown_seconds", parseInt(e.target.value))}
-                        disabled={!rateLimits.enabled}
-                        style={{ width: '70px' }}
-                      />
-                      <span className="unit">sec</span>
-                    </div>
-                    <p className="setting-hint">Delay between sending emails</p>
-                  </div>
-                </div>
-                </div>{/* End settings-grid */}
-
-                <div className="settings-actions">
-                  <button 
-                    className="save-button"
-                    onClick={saveRateLimits}
-                    disabled={saving}
-                  >
-                    {saving ? "Saving..." : "Save Rate Limit Settings"}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Email Sync Tab */}
-        {activeTab === "emailsync" && (
-          <div className="settings-section">
-            <h2>Email Sync Progress</h2>
-            <p className="section-description">
-              Monitor email synchronization status, view backfill progress, and manage sync workers.
-            </p>
-            <EmailSyncProgress refreshInterval={2000} />
           </div>
         )}
       </div>

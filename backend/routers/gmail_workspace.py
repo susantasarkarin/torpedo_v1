@@ -278,6 +278,102 @@ async def remove_mailbox(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/mailboxes/{mailbox_id}/signatures")
+async def get_mailbox_signatures(mailbox_id: str):
+    """
+    Get email signatures from Gmail for a mailbox.
+    
+    Fetches signatures from Gmail's sendAs settings using Gmail API.
+    """
+    try:
+        service = get_gmail_service()
+        mailbox = service.get_mailbox(mailbox_id)
+        
+        if not mailbox:
+            raise HTTPException(status_code=404, detail="Mailbox not found")
+        
+        email = mailbox.get("email")
+        gmail = service._get_service(email)
+        
+        # Fetch send-as addresses with signatures
+        response = gmail.users().settings().sendAs().list(userId="me").execute()
+        
+        signatures = []
+        for send_as in response.get("sendAs", []):
+            sig_html = send_as.get("signature", "")
+            if sig_html:  # Only include if signature exists
+                signatures.append({
+                    "email": send_as.get("sendAsEmail", ""),
+                    "display_name": send_as.get("displayName", ""),
+                    "signature_html": sig_html,
+                    "is_primary": send_as.get("isPrimary", False),
+                    "is_default": send_as.get("isDefault", False),
+                })
+        
+        return {
+            "success": True,
+            "mailbox_email": email,
+            "signatures": signatures
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching signatures: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/signatures")
+async def get_all_signatures():
+    """
+    Get email signatures from all active Gmail Workspace mailboxes.
+    
+    Fetches signatures from each mailbox's sendAs settings.
+    """
+    try:
+        service = get_gmail_service()
+        
+        if not service.is_configured():
+            return {"success": False, "error": "Service account not configured", "signatures": []}
+        
+        mailboxes = service.list_mailboxes()
+        all_signatures = []
+        
+        for mailbox in mailboxes:
+            if not mailbox.get("is_active"):
+                continue
+                
+            email = mailbox.get("email")
+            mailbox_id = str(mailbox.get("_id", mailbox.get("id", "")))
+            
+            try:
+                gmail = service._get_service(email)
+                response = gmail.users().settings().sendAs().list(userId="me").execute()
+                
+                for send_as in response.get("sendAs", []):
+                    sig_html = send_as.get("signature", "")
+                    all_signatures.append({
+                        "mailbox_id": mailbox_id,
+                        "mailbox_email": email,
+                        "email": send_as.get("sendAsEmail", ""),
+                        "display_name": send_as.get("displayName", ""),
+                        "signature_html": sig_html,
+                        "is_primary": send_as.get("isPrimary", False),
+                        "is_default": send_as.get("isDefault", False),
+                    })
+            except Exception as e:
+                logger.warning(f"Error fetching signatures for {email}: {e}")
+                continue
+        
+        return {
+            "success": True,
+            "total": len(all_signatures),
+            "signatures": all_signatures
+        }
+    except Exception as e:
+        logger.error(f"Error fetching all signatures: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/mailboxes/{mailbox_id}/test")
 async def test_mailbox_connection(mailbox_id: str):
     """

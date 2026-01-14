@@ -97,6 +97,30 @@ function AIDatabase() {
   const [gmailMaxEmails, setGmailMaxEmails] = useState(100)
   const [gmailImporting, setGmailImporting] = useState(false)
   const [gmailImportProgress, setGmailImportProgress] = useState(null)
+
+  // Import Method state (tabs: web-search, csv, gmail, ai-discovery)
+  const [importMethod, setImportMethod] = useState("web-search")
+  const [showImportPanel, setShowImportPanel] = useState(false)
+  
+  // Web Search state
+  const [webSearchDesignation, setWebSearchDesignation] = useState("")
+  const [webSearchCountries, setWebSearchCountries] = useState([])
+  const [webSearchSeniorities, setWebSearchSeniorities] = useState([])
+  const [webSearchProgress, setWebSearchProgress] = useState(null)
+  const [searchControl, setSearchControl] = useState({
+    global_paused: false,
+    paused_reason: "",
+    circuit_breaker_open: false,
+    active_jobs_count: 0
+  })
+  
+  // AI Discovery state
+  const [discoveryIndustry, setDiscoveryIndustry] = useState("")
+  const [discoveryLocation, setDiscoveryLocation] = useState("")
+  const [discoveryCriteria, setDiscoveryCriteria] = useState("")
+  const [discoveryDesignation, setDiscoveryDesignation] = useState("")
+  const [discoveryLoading, setDiscoveryLoading] = useState(false)
+  const [discoveryError, setDiscoveryError] = useState("")
   
   // Workbooks/Files state
   const [workbooks, setWorkbooks] = useState([])
@@ -637,6 +661,367 @@ function AIDatabase() {
           </div>
         </div>
 
+        {/* Import Leads Section with Tabs */}
+        <div className="import-leads-section">
+          <div className="import-tabs-header">
+            <button 
+              className={`import-tab ${importMethod === "web-search" ? "active" : ""}`}
+              onClick={() => { setImportMethod("web-search"); setShowImportPanel(true); }}
+            >
+              🌐 Web Search
+            </button>
+            <button 
+              className={`import-tab ${importMethod === "csv" ? "active" : ""}`}
+              onClick={() => { setImportMethod("csv"); setShowImportPanel(true); setCsvImportStep(1); }}
+            >
+              📄 CSV Upload
+            </button>
+            <button 
+              className={`import-tab ${importMethod === "gmail" ? "active" : ""}`}
+              onClick={() => { setImportMethod("gmail"); setShowImportPanel(true); fetchGmailAccounts(); }}
+            >
+              📧 Gmail
+            </button>
+            <button 
+              className={`import-tab ${importMethod === "ai-discovery" ? "active" : ""}`}
+              onClick={() => { setImportMethod("ai-discovery"); setShowImportPanel(true); }}
+            >
+              🔮 AI Discovery
+            </button>
+          </div>
+
+          {/* Import Panel Content */}
+          {showImportPanel && (
+            <div className="import-panel">
+              {/* Web Search Panel */}
+              {importMethod === "web-search" && (
+                <div className="import-panel-content">
+                  {/* Search Control Status */}
+                  {searchControl.global_paused && (
+                    <div className="search-status-banner paused">
+                      <span className="status-dot">●</span>
+                      <span className="status-text">Search Paused</span>
+                      <span className="status-reason">Reason: {searchControl.paused_reason || "Manual pause"}</span>
+                      <button className="btn-resume" onClick={() => navigate("/admin/sales/campaign/ai-leads/manage")}>
+                        ▶ Resume
+                      </button>
+                      <button className="btn-stop" onClick={() => navigate("/admin/sales/campaign/ai-leads/manage")}>
+                        ■ Stop All
+                      </button>
+                    </div>
+                  )}
+                  
+                  <p className="panel-description">
+                    Configure filters to search for LinkedIn profiles. The system will search up to 10,000 leads using multiple query combinations.
+                  </p>
+                  
+                  <div className="form-group">
+                    <label>Designation / Title (multiple, comma-separated)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., CEO, VP Sales, Director of Marketing"
+                      value={webSearchDesignation}
+                      onChange={(e) => setWebSearchDesignation(e.target.value)}
+                      className="form-input"
+                    />
+                    <small className="form-hint">Enter job titles separated by commas</small>
+                  </div>
+                  
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Countries / Regions (select multiple)</label>
+                      <div className="checkbox-grid">
+                        {["United States", "United Kingdom", "Canada", "Australia", "Germany", "France", "India", "Singapore"].map(country => (
+                          <label key={country} className="checkbox-label">
+                            <input
+                              type="checkbox"
+                              checked={webSearchCountries.includes(country)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setWebSearchCountries([...webSearchCountries, country])
+                                } else {
+                                  setWebSearchCountries(webSearchCountries.filter(c => c !== country))
+                                }
+                              }}
+                            />
+                            {country}
+                          </label>
+                        ))}
+                      </div>
+                      <small className="selected-count">{webSearchCountries.length} selected</small>
+                    </div>
+                    
+                    <div className="form-group">
+                      <label>Seniority Levels (select multiple)</label>
+                      <div className="checkbox-grid">
+                        {["Owner", "Founder", "CXO", "Partner", "VP", "Director", "Manager", "Senior"].map(level => (
+                          <label key={level} className="checkbox-label">
+                            <input
+                              type="checkbox"
+                              checked={webSearchSeniorities.includes(level)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setWebSearchSeniorities([...webSearchSeniorities, level])
+                                } else {
+                                  setWebSearchSeniorities(webSearchSeniorities.filter(s => s !== level))
+                                }
+                              }}
+                            />
+                            {level}
+                          </label>
+                        ))}
+                      </div>
+                      <small className="selected-count">{webSearchSeniorities.length} selected</small>
+                    </div>
+                  </div>
+                  
+                  <div className="panel-actions">
+                    <button className="btn-cancel" onClick={() => setShowImportPanel(false)}>Cancel</button>
+                    <button 
+                      className="btn-import"
+                      onClick={() => navigate("/admin/sales/campaign/ai-leads/manage")}
+                    >
+                      ⭐ Import Leads
+                    </button>
+                  </div>
+                </div>
+              )}
+              
+              {/* CSV Upload Panel */}
+              {importMethod === "csv" && (
+                <div className="import-panel-content">
+                  <p className="panel-description">
+                    Upload a CSV file with your leads. Required field: Email. Optional: Name, Company, Title, etc.
+                  </p>
+                  
+                  {csvImportStep === 1 && (
+                    <div className="csv-upload-area">
+                      <input
+                        type="file"
+                        accept=".csv"
+                        ref={fileInputRef}
+                        onChange={handleCsvUpload}
+                        style={{ display: "none" }}
+                      />
+                      <div 
+                        className="upload-dropzone"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <span className="upload-icon">📄</span>
+                        <span className="upload-text">Click to upload CSV or drag and drop</span>
+                        <span className="upload-hint">Supports .csv files</span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {csvImportStep === 2 && csvColumns.length > 0 && (
+                    <div className="csv-mapping">
+                      <h4>Map CSV Columns to Fields</h4>
+                      <div className="mapping-grid">
+                        {DB_FIELDS.map(field => (
+                          <div key={field.key} className="mapping-row">
+                            <label>{field.label} {field.required && <span className="required">*</span>}</label>
+                            <select
+                              value={columnMapping[field.key] || ""}
+                              onChange={(e) => setColumnMapping({ ...columnMapping, [field.key]: e.target.value })}
+                            >
+                              <option value="">-- Select column --</option>
+                              {csvColumns.map(col => (
+                                <option key={col} value={col}>{col}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="panel-actions">
+                        <button className="btn-cancel" onClick={() => { setCsvImportStep(1); setCsvData([]); setCsvColumns([]); }}>Back</button>
+                        <button className="btn-import" onClick={() => setCsvImportStep(3)}>Preview Data</button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {csvImportStep === 3 && (
+                    <div className="csv-preview">
+                      <h4>Preview ({csvData.length} rows)</h4>
+                      <div className="preview-table-wrapper">
+                        <table className="preview-table">
+                          <thead>
+                            <tr>
+                              {Object.keys(columnMapping).filter(k => columnMapping[k]).map(k => (
+                                <th key={k}>{DB_FIELDS.find(f => f.key === k)?.label || k}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {csvData.slice(0, 5).map((row, idx) => (
+                              <tr key={idx}>
+                                {Object.keys(columnMapping).filter(k => columnMapping[k]).map(k => (
+                                  <td key={k}>{row[columnMapping[k]] || "-"}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="panel-actions">
+                        <button className="btn-cancel" onClick={() => setCsvImportStep(2)}>Back</button>
+                        <button 
+                          className="btn-import" 
+                          disabled={csvImporting}
+                          onClick={handleCsvImport}
+                        >
+                          {csvImporting ? "Importing..." : `Import ${csvData.length} Leads`}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {csvImportStep === 1 && (
+                    <div className="panel-actions">
+                      <button className="btn-cancel" onClick={() => setShowImportPanel(false)}>Cancel</button>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Gmail Import Panel */}
+              {importMethod === "gmail" && (
+                <div className="import-panel-content">
+                  <p className="panel-description">
+                    Import contacts from your Gmail accounts. Select accounts and configure import options.
+                  </p>
+                  
+                  {gmailAccounts.length === 0 ? (
+                    <div className="empty-state">
+                      <span>📧</span>
+                      <p>No Gmail accounts connected.</p>
+                      <button 
+                        className="btn-secondary"
+                        onClick={() => navigate("/admin/settings")}
+                      >
+                        Connect Gmail Account
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="gmail-accounts-list">
+                        <label>Select Gmail Accounts</label>
+                        {gmailAccounts.map(account => (
+                          <label key={account.email} className="checkbox-label">
+                            <input
+                              type="checkbox"
+                              checked={selectedGmailAccounts.includes(account.email)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedGmailAccounts([...selectedGmailAccounts, account.email])
+                                } else {
+                                  setSelectedGmailAccounts(selectedGmailAccounts.filter(a => a !== account.email))
+                                }
+                              }}
+                            />
+                            {account.email}
+                          </label>
+                        ))}
+                      </div>
+                      
+                      <div className="form-group">
+                        <label>Max emails to scan</label>
+                        <input
+                          type="number"
+                          min="10"
+                          max="1000"
+                          value={gmailMaxEmails}
+                          onChange={(e) => setGmailMaxEmails(parseInt(e.target.value) || 100)}
+                          className="form-input"
+                        />
+                      </div>
+                      
+                      <div className="panel-actions">
+                        <button className="btn-cancel" onClick={() => setShowImportPanel(false)}>Cancel</button>
+                        <button 
+                          className="btn-import"
+                          disabled={gmailImporting || selectedGmailAccounts.length === 0}
+                          onClick={handleGmailImport}
+                        >
+                          {gmailImporting ? "Importing..." : "Import from Gmail"}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+              
+              {/* AI Discovery Panel */}
+              {importMethod === "ai-discovery" && (
+                <div className="import-panel-content">
+                  <p className="panel-description">
+                    Use AI to discover contacts based on your criteria. Powered by Perplexity AI.
+                  </p>
+                  
+                  <div className="form-group">
+                    <label>Industry</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., SaaS, Fintech, Healthcare"
+                      value={discoveryIndustry}
+                      onChange={(e) => setDiscoveryIndustry(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>Location</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., USA, Europe, Asia Pacific"
+                      value={discoveryLocation}
+                      onChange={(e) => setDiscoveryLocation(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>Target Designation</label>
+                    <input
+                      type="text"
+                      placeholder="e.g., CEO, VP of Sales, Marketing Director"
+                      value={discoveryDesignation}
+                      onChange={(e) => setDiscoveryDesignation(e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+                  
+                  <div className="form-group">
+                    <label>Additional Criteria</label>
+                    <textarea
+                      placeholder="e.g., Companies with 50-500 employees, Recently funded startups"
+                      value={discoveryCriteria}
+                      onChange={(e) => setDiscoveryCriteria(e.target.value)}
+                      className="form-textarea"
+                      rows={3}
+                    />
+                  </div>
+                  
+                  {discoveryError && (
+                    <div className="error-message">{discoveryError}</div>
+                  )}
+                  
+                  <div className="panel-actions">
+                    <button className="btn-cancel" onClick={() => setShowImportPanel(false)}>Cancel</button>
+                    <button 
+                      className="btn-import"
+                      disabled={discoveryLoading}
+                      onClick={() => navigate("/admin/sales/campaign/ai-leads/manage")}
+                    >
+                      {discoveryLoading ? "Discovering..." : "🔮 Discover Contacts"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         {/* Start from a source */}
         <div className="source-section source-section-centered">
           <h3 className="source-title">Start from a source</h3>
@@ -653,11 +1038,11 @@ function AIDatabase() {
               <span className="source-icon">💬</span>
               <span>Local businesses</span>
             </button>
-            <button className="source-card source-csv" onClick={() => openModal("csv")}>
+            <button className="source-card source-csv" onClick={() => { setImportMethod("csv"); setShowImportPanel(true); setCsvImportStep(1); }}>
               <span className="source-icon">📄</span>
               <span>Import CSV</span>
             </button>
-            <button className="source-card source-gmail" onClick={() => openModal("gmail")}>
+            <button className="source-card source-gmail" onClick={() => { setImportMethod("gmail"); setShowImportPanel(true); fetchGmailAccounts(); }}>
               <span className="source-icon">📧</span>
               <span>Import from Gmail</span>
             </button>

@@ -375,18 +375,27 @@ function MailPool() {
     }
   }, [filterSegment, filterSearch, filterDirection, filterAccount, filterFolder, pagination.limit])
 
-  // Fetch email thread/detail
+  // Fetch email thread/detail - shows full conversation like Gmail
   const fetchEmailThread = async (emailId) => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      // Try to fetch thread first
+      // Fetch email detail with full thread from backend
       const res = await fetch(`${API_BASE_URL}/gmail/mail-pool/emails/${emailId}`, {
         headers: { Authorization: sessionId },
       })
       const data = await res.json()
       if (data.success) {
         setSelectedEmail(data.email)
-        setEmailThread([data.email])
+        // Use the thread array if available (full conversation chain), otherwise fallback to single email
+        if (data.thread && Array.isArray(data.thread) && data.thread.length > 0) {
+          // Sort thread by date ascending (oldest first) for chronological view
+          const sortedThread = [...data.thread].sort((a, b) => 
+            new Date(a.date || a.added_on || 0) - new Date(b.date || b.added_on || 0)
+          )
+          setEmailThread(sortedThread)
+        } else {
+          setEmailThread([data.email])
+        }
         setViewMode("email")
       }
     } catch (e) {
