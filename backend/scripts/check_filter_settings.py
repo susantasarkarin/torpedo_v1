@@ -14,10 +14,15 @@ result = db.app_settings.find_one({'_id': 'survey_filters'})
 print("Current filter settings:")
 print(result)
 
-# If you want to reset to good defaults, uncomment below:
-# db.app_settings.update_one(
-#     {'_id': 'survey_filters'},
-#     {'$set': {'data': {'max_loi': 20, 'min_cpi': 1.0, 'deletion_period_days': 3}}},
-#     upsert=True
-# )
-# print("Settings updated!")
+# Reset to good defaults
+db.app_settings.update_one(
+    {'_id': 'survey_filters'},
+    {'$set': {'max_loi': 20, 'min_cpi': 1.0, 'deletion_period_days': 3}},
+    upsert=True
+)
+print("\n✅ Settings updated to: max_loi=20, min_cpi=1.0, deletion_period_days=3")
+
+# Verify
+result = db.app_settings.find_one({'_id': 'survey_filters'})
+print("New filter settings:")
+print(result)

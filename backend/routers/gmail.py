@@ -2302,6 +2302,7 @@ async def get_mail_pool_email_detail(
         
         # Fetch thread emails if thread_id exists
         thread_id = email_doc.get("provider_thread_id") or email_doc.get("gmail_thread_id")
+        thread_list = []
         if thread_id:
             # Find all emails in this thread, sorted by timestamp
             thread_emails = list(mail_pool_emails.find(
