@@ -21,6 +21,7 @@ from fastapi import APIRouter, HTTPException, Request, Query, Body, BackgroundTa
 from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
+from bson import ObjectId
 from dotenv import load_dotenv
 
 # Add gmail_automation to path
@@ -1710,11 +1711,15 @@ async def update_imap_account_settings(
 # MAIL POOL - Consolidated Email Activity Tracking
 # ============================================
 
-# Primary email collection - use email_automation.emails (new sync system)
-# This contains all synced emails with full metadata including historical imports
+# Primary email collection - use torpedo_gmail (Gmail Workspace sync system)
+# This contains all synced emails with full metadata
+torpedo_gmail_db = mongo_client["torpedo_gmail"]
+mail_pool_emails = torpedo_gmail_db["email_metadata"]  # Primary source - Gmail Workspace sync
+mail_pool_workspace_mailboxes = torpedo_gmail_db["workspace_mailboxes"]  # Gmail Workspace mailboxes
+
+# Legacy email_automation for backward compatibility
 email_automation_db = mongo_client["email_automation"]
-mail_pool_emails = email_automation_db["emails"]  # Primary source - new sync system
-mail_pool_mailboxes = email_automation_db["mailboxes"]  # Mailbox accounts (IMAP credentials)
+mail_pool_mailboxes = email_automation_db["mailboxes"]  # Old IMAP mailbox accounts
 
 # Legacy gmail_archive for backward compatibility (if needed)
 gmail_archive_db = mongo_client["gmail_archive"]
@@ -1817,8 +1822,26 @@ async def get_mail_pool_stats(
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
         
-        # Get all mailbox accounts from email_automation.mailboxes (correct collection)
-        accounts = list(mail_pool_mailboxes.find({"is_active": True}))
+        # Get all mailbox accounts from both collections
+        # 1. Old IMAP mailboxes (mailboxes collection)
+        imap_accounts = list(mail_pool_mailboxes.find({"is_active": True}))
+        
+        # 2. Gmail Workspace mailboxes (workspace_mailboxes collection)
+        workspace_accounts = list(mail_pool_workspace_mailboxes.find({"is_active": True}))
+        
+        # Merge both lists, avoiding duplicates by email
+        seen_emails = set()
+        accounts = []
+        for acc in workspace_accounts:  # Prefer workspace accounts
+            email = acc.get("email", "").lower()
+            if email and email not in seen_emails:
+                seen_emails.add(email)
+                accounts.append(acc)
+        for acc in imap_accounts:
+            email = acc.get("email", "").lower()
+            if email and email not in seen_emails:
+                seen_emails.add(email)
+                accounts.append(acc)
         
         # Total emails from email_automation.emails
         total_emails = mail_pool_emails.count_documents({})
@@ -1846,15 +1869,9 @@ async def get_mail_pool_stats(
             # Match by mailbox_id for accurate count
             count = mail_pool_emails.count_documents({"mailbox_id": acc_id})
             
-            # Fallback to email matching if no mailbox_id match
+            # Use email_count from the mailbox if available
             if count == 0:
-                count = mail_pool_emails.count_documents({
-                    "$or": [
-                        {"from_address.email": {"$regex": acc_email, "$options": "i"}},
-                        {"to_addresses.email": {"$regex": acc_email, "$options": "i"}},
-                        {"delivered_to": {"$regex": acc_email, "$options": "i"}}
-                    ]
-                })
+                count = acc.get("email_count", 0)
             
             # Get aliases for this account - normalize to objects with signatures
             raw_aliases = acc.get("aliases", [])
@@ -1897,11 +1914,18 @@ async def get_mail_pool_stats(
                         "is_default": alias.get("is_default", alias.get("is_primary", False))
                     })
             
+            # Count inbox emails for this specific account
+            acc_inbox_count = mail_pool_emails.count_documents({
+                "mailbox_id": acc_id,
+                "direction": "inbound"
+            })
+            
             account_stats.append({
                 "id": str(acc["_id"]),
                 "email": acc["email"],
                 "display_name": acc.get("display_name", acc["email"].split("@")[0]),
                 "total_emails": count,
+                "inbox_count": acc_inbox_count,
                 "today": 0,  # Would need date parsing
                 "last_sync": acc.get("last_sync_at"),
                 "aliases": normalized_aliases,
@@ -1975,22 +1999,26 @@ async def get_mail_pool_emails(
         if segment:
             query["category"] = {"$regex": segment, "$options": "i"}
         
-        # Account filter (check from_address.email and to_addresses.email)
+        # Account filter - match by mailbox_id or email in from/to fields
         if account:
-            query["$or"] = [
-                {"from_address.email": {"$regex": account, "$options": "i"}},
-                {"to_addresses.email": {"$regex": account, "$options": "i"}},
-                {"delivered_to": {"$regex": account, "$options": "i"}}
-            ]
+            # First try to find the mailbox_id for this account email
+            mailbox = mail_pool_workspace_mailboxes.find_one({"email": account.lower()})
+            if mailbox:
+                query["mailbox_id"] = str(mailbox["_id"])
+            else:
+                # Fallback to email matching
+                query["$or"] = [
+                    {"from_email": {"$regex": account, "$options": "i"}},
+                    {"to_emails": {"$regex": account, "$options": "i"}}
+                ]
         
-        # Search in subject, from_address.email/name, body_plain
+        # Search in subject, from_email, snippet
         if search:
             search_query = [
-                {"from_address.email": {"$regex": search, "$options": "i"}},
-                {"from_address.name": {"$regex": search, "$options": "i"}},
-                {"to_addresses.email": {"$regex": search, "$options": "i"}},
+                {"from_email": {"$regex": search, "$options": "i"}},
+                {"from_name": {"$regex": search, "$options": "i"}},
+                {"to_emails": {"$regex": search, "$options": "i"}},
                 {"subject": {"$regex": search, "$options": "i"}},
-                {"body_plain": {"$regex": search, "$options": "i"}},
                 {"snippet": {"$regex": search, "$options": "i"}}
             ]
             if "$or" in query:
@@ -2028,20 +2056,16 @@ async def get_mail_pool_emails(
             .skip(skip)
             .limit(limit))
         
-        # Format for response (adapting new schema to existing frontend format)
+        # Format for response (adapting email_metadata schema to existing frontend format)
         formatted_emails = []
         for email_doc in emails:
-            # Get from_address (new schema stores as dict with email/name)
-            from_addr = email_doc.get("from_address", {})
-            if isinstance(from_addr, dict):
-                from_email = from_addr.get("email", "")
-                from_name = from_addr.get("name", "")
-            else:
-                from_email, from_name = parse_email_address(str(from_addr))
+            # Get from email/name (email_metadata uses from_email/from_name fields)
+            from_email = email_doc.get("from_email", "")
+            from_name = email_doc.get("from_name", "")
             
-            # Get to addresses
-            to_addresses = email_doc.get("to_addresses", [])
-            to_email = to_addresses[0].get("email", "") if to_addresses else ""
+            # Get to addresses (email_metadata uses to_emails as a list)
+            to_emails = email_doc.get("to_emails", [])
+            to_email = to_emails[0] if to_emails else ""
             
             # Get direction from field
             email_direction = email_doc.get("direction", "inbound")
@@ -2052,9 +2076,6 @@ async def get_mail_pool_emails(
             
             # Get body/snippet
             snippet = email_doc.get("snippet", "")
-            if not snippet:
-                body = email_doc.get("body_plain", "") or email_doc.get("body_html", "")
-                snippet = clean_email_body(body)[:200] if body else ""
             
             # Get category/segment
             category = email_doc.get("category", "") or ""
@@ -2067,6 +2088,14 @@ async def get_mail_pool_emails(
             # Check for attachments
             has_attachments = email_doc.get("has_attachments", False)
             attachment_count = email_doc.get("attachment_count", 0)
+            
+            # Get mailbox email for account_email field
+            mailbox_id = email_doc.get("mailbox_id")
+            account_email = ""
+            if mailbox_id:
+                mailbox = mail_pool_workspace_mailboxes.find_one({"_id": ObjectId(mailbox_id)})
+                if mailbox:
+                    account_email = mailbox.get("email", "")
             
             formatted_emails.append({
                 "id": str(email_doc["_id"]),
@@ -2081,22 +2110,27 @@ async def get_mail_pool_emails(
                 "subject": email_doc.get("subject", "(no subject)"),
                 "added_on": date_str,
                 "date": date_str,
-                "source": "email_sync",
-                "has_rfq": email_doc.get("crm_rfq_id") is not None,
+                "source": "gmail_workspace",
+                "has_rfq": False,
                 "has_attachments": has_attachments,
                 "attachment_count": attachment_count,
                 "direction": email_direction,
                 "is_internal": False,
-                "is_starred": "STARRED" in str(labels).upper(),
+                "is_starred": email_doc.get("is_starred", False) or "STARRED" in str(labels).upper(),
                 "is_draft": "DRAFT" in str(labels).upper(),
-                "is_read": email_doc.get("processed", True),
-                "account_email": email_doc.get("delivered_to", to_email),
+                "is_read": email_doc.get("is_read", True),
+                "account_email": account_email or to_email,
                 "to_email": to_email,
-                "thread_id": email_doc.get("provider_thread_id", ""),
+                "thread_id": email_doc.get("gmail_thread_id", ""),
                 "thread_count": 1,
-                "message_id": email_doc.get("provider_message_id", ""),
+                "message_id": email_doc.get("gmail_message_id", ""),
                 "category": category,
-                "synced_at": email_doc.get("synced_at", "").isoformat() if email_doc.get("synced_at") else ""
+                "synced_at": email_doc.get("synced_at", "").isoformat() if email_doc.get("synced_at") else "",
+                # AI Classification fields
+                "ai_category": email_doc.get("ai_category"),
+                "ai_confidence": email_doc.get("ai_confidence"),
+                "ai_urgency": email_doc.get("ai_urgency"),
+                "ai_intent": email_doc.get("ai_intent")
             })
         
         return {
@@ -2165,10 +2199,14 @@ async def get_mail_pool_email_detail(
         elif email_direction == "outbound":
             email_direction = "outbox"
         
-        # Get body content
-        body_plain = email_doc.get("body_plain", "")
-        body_html = email_doc.get("body_html", "")
+        # Get body content - try multiple field names for compatibility
+        body_plain = email_doc.get("body_plain", "") or email_doc.get("body", "") or email_doc.get("content", "")
+        body_html = email_doc.get("body_html", "") or email_doc.get("html_body", "")
         cleaned_body = clean_email_body(body_plain) if body_plain else ""
+        
+        # If still no body, try to use snippet as fallback
+        if not cleaned_body and not body_html:
+            cleaned_body = email_doc.get("snippet", "")
         
         # Get category and labels
         category = email_doc.get("category", "") or ""
@@ -2241,7 +2279,18 @@ async def get_mail_pool_email_detail(
                 "thread_id": email_doc.get("provider_thread_id", ""),
                 "is_starred": "STARRED" in str(labels).upper(),
                 "is_draft": "DRAFT" in str(labels).upper(),
-                "synced_at": email_doc.get("synced_at", "").isoformat() if email_doc.get("synced_at") else ""
+                "synced_at": email_doc.get("synced_at", "").isoformat() if email_doc.get("synced_at") else "",
+                # AI Classification fields (Tier 1 + Tier 2)
+                "ai_category": email_doc.get("ai_category"),
+                "ai_confidence": email_doc.get("ai_confidence"),
+                "ai_method": email_doc.get("ai_method"),
+                "ai_intent": email_doc.get("ai_intent"),
+                "ai_urgency": email_doc.get("ai_urgency"),
+                "ai_sentiment": email_doc.get("ai_sentiment"),
+                "ai_key_points": email_doc.get("ai_key_points", []),
+                "ai_action_items": email_doc.get("ai_action_items", []),
+                "ai_reply_expected": email_doc.get("ai_reply_expected"),
+                "ai_classified_at": email_doc.get("ai_classified_at", "").isoformat() if email_doc.get("ai_classified_at") else ""
             }
         }
     
@@ -2601,5 +2650,314 @@ async def send_email_imap(send_request: ImapSendRequest, request: Request):
     except Exception as e:
         logger.error(f"Error sending email: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# MAIL POOL AI CLASSIFICATION ENDPOINTS
+# ============================================
+
+# Background task tracking for classification
+_classification_tasks: Dict[str, Any] = {}
+
+
+class ClassifyRequest(BaseModel):
+    """Request model for email classification"""
+    email_ids: Optional[List[str]] = None  # Specific emails to classify
+    limit: int = Field(100, ge=1, le=1000, description="Max emails to process")
+    run_tier2: bool = Field(True, description="Run deep analysis for client/vendor emails")
+    category_filter: Optional[str] = Field(None, description="Only classify emails in this category")
+
+
+@router.post("/mail-pool/classify")
+async def classify_mail_pool_emails(
+    request: Request,
+    classify_request: ClassifyRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Start AI classification of Mail Pool emails.
+    
+    Uses tiered approach:
+    - Tier 1: Fast classification (keywords + GPT-4o-mini) for ALL emails
+    - Tier 2: Deep analysis (Claude Sonnet) for client/vendor emails only
+    
+    Returns task_id to track progress.
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        import uuid
+        import threading
+        from leads.email_classifier import (
+            classify_email_batch,
+            get_emails_needing_classification,
+            get_internal_domains
+        )
+        
+        # Get email IDs to classify
+        if classify_request.email_ids:
+            email_ids = classify_request.email_ids
+        else:
+            email_ids = get_emails_needing_classification(
+                limit=classify_request.limit,
+                category_filter=classify_request.category_filter
+            )
+        
+        if not email_ids:
+            return {
+                "success": True,
+                "message": "No emails need classification",
+                "total": 0
+            }
+        
+        # Get internal domains for classification
+        internal_domains = get_internal_domains()
+        
+        # Create task
+        task_id = str(uuid.uuid4())
+        _classification_tasks[task_id] = {
+            "task_id": task_id,
+            "status": "pending",
+            "total": len(email_ids),
+            "processed": 0,
+            "tier1_only": 0,
+            "tier2_analyzed": 0,
+            "errors": 0,
+            "run_tier2": classify_request.run_tier2,
+            "created_at": datetime.utcnow().isoformat()
+        }
+        
+        # Run classification in background thread
+        def run_classification():
+            try:
+                _classification_tasks[task_id]["status"] = "running"
+                _classification_tasks[task_id]["started_at"] = datetime.utcnow().isoformat()
+                
+                result = classify_email_batch(
+                    email_ids=email_ids,
+                    run_tier2=classify_request.run_tier2,
+                    internal_domains=internal_domains,
+                    source="background"
+                )
+                
+                _classification_tasks[task_id].update({
+                    "status": "completed",
+                    "completed_at": datetime.utcnow().isoformat(),
+                    "processed": result["stats"]["processed"],
+                    "tier1_only": result["stats"]["tier1_only"],
+                    "tier2_analyzed": result["stats"]["tier2_analyzed"],
+                    "errors": result["stats"]["errors"],
+                    "by_category": result["stats"]["by_category"]
+                })
+                
+            except Exception as e:
+                logger.error(f"Classification task error: {e}")
+                _classification_tasks[task_id]["status"] = "failed"
+                _classification_tasks[task_id]["error"] = str(e)
+        
+        thread = threading.Thread(target=run_classification)
+        thread.daemon = True
+        thread.start()
+        
+        return {
+            "success": True,
+            "task_id": task_id,
+            "total_emails": len(email_ids),
+            "run_tier2": classify_request.run_tier2,
+            "message": f"Started classification of {len(email_ids)} emails"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error starting classification: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/mail-pool/classify/status/{task_id}")
+async def get_classification_status(
+    request: Request,
+    task_id: str
+):
+    """Get status of a classification task"""
+    session_id = request.headers.get("Authorization")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Missing session token")
+    
+    if task_id not in _classification_tasks:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    return _classification_tasks[task_id]
+
+
+@router.get("/mail-pool/classify/tasks")
+async def list_classification_tasks(request: Request):
+    """List all classification tasks"""
+    session_id = request.headers.get("Authorization")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Missing session token")
+    
+    return {
+        "tasks": list(_classification_tasks.values())
+    }
+
+
+@router.post("/mail-pool/classify-single/{email_id}")
+async def classify_single_email(
+    request: Request,
+    email_id: str,
+    run_tier2: bool = Query(True, description="Run deep analysis")
+):
+    """
+    Classify a single email on-demand.
+    Returns classification result immediately (not background task).
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        from bson import ObjectId
+        from leads.email_classifier import classify_email_full, get_internal_domains
+        
+        # Fetch email
+        try:
+            email_doc = mail_pool_emails.find_one({"_id": ObjectId(email_id)})
+        except Exception:
+            email_doc = None
+        
+        if not email_doc:
+            raise HTTPException(status_code=404, detail="Email not found")
+        
+        # Extract fields
+        subject = email_doc.get("subject", "")
+        body = email_doc.get("body_plain", "") or email_doc.get("snippet", "")
+        from_email = email_doc.get("from_email", "")
+        to_emails = email_doc.get("to_emails", [])
+        to_email = to_emails[0] if to_emails else ""
+        timestamp = email_doc.get("timestamp")
+        date_str = timestamp.isoformat() if timestamp else ""
+        
+        # Get internal domains
+        internal_domains = get_internal_domains()
+        
+        # Classify
+        classification = classify_email_full(
+            email_id=email_id,
+            subject=subject,
+            body=body,
+            from_email=from_email,
+            to_email=to_email,
+            date=date_str,
+            internal_domains=internal_domains,
+            run_tier2=run_tier2,
+            source="api"
+        )
+        
+        # Update database
+        update_fields = {
+            "ai_category": classification.get("tier1_category"),
+            "ai_confidence": classification.get("tier1_confidence"),
+            "ai_method": classification.get("tier1_method"),
+            "ai_classified_at": datetime.utcnow()
+        }
+        
+        if classification.get("tier2_intent"):
+            update_fields.update({
+                "ai_intent": classification.get("tier2_intent"),
+                "ai_urgency": classification.get("tier2_urgency"),
+                "ai_sentiment": classification.get("tier2_sentiment"),
+                "ai_summary": classification.get("tier2_summary"),
+                "ai_key_points": classification.get("tier2_key_points"),
+                "ai_action_items": classification.get("tier2_action_items"),
+                "ai_reply_expected": classification.get("tier2_reply_expected"),
+                "ai_tier2_at": datetime.utcnow()
+            })
+        
+        mail_pool_emails.update_one(
+            {"_id": ObjectId(email_id)},
+            {"$set": update_fields}
+        )
+        
+        return {
+            "success": True,
+            "classification": classification
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error classifying email: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/mail-pool/classification-stats")
+async def get_classification_stats(request: Request):
+    """Get AI classification statistics for Mail Pool"""
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        # Count by AI category
+        category_pipeline = [
+            {"$group": {"_id": "$ai_category", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+        category_stats = list(mail_pool_emails.aggregate(category_pipeline))
+        
+        # Count by AI intent (Tier 2)
+        intent_pipeline = [
+            {"$match": {"ai_intent": {"$exists": True}}},
+            {"$group": {"_id": "$ai_intent", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+        intent_stats = list(mail_pool_emails.aggregate(intent_pipeline))
+        
+        # Count by urgency
+        urgency_pipeline = [
+            {"$match": {"ai_urgency": {"$exists": True}}},
+            {"$group": {"_id": "$ai_urgency", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+        urgency_stats = list(mail_pool_emails.aggregate(urgency_pipeline))
+        
+        # Count totals
+        total_emails = mail_pool_emails.count_documents({})
+        classified = mail_pool_emails.count_documents({"ai_category": {"$exists": True}})
+        tier2_analyzed = mail_pool_emails.count_documents({"ai_intent": {"$exists": True}})
+        unclassified = total_emails - classified
+        
+        # Client/Vendor counts
+        client_count = mail_pool_emails.count_documents({"ai_category": "client"})
+        vendor_count = mail_pool_emails.count_documents({"ai_category": "vendor"})
+        
+        # Urgency breakdown
+        urgent_count = mail_pool_emails.count_documents({"ai_urgency": {"$in": ["critical", "high"]}})
+        
+        return {
+            "success": True,
+            "stats": {
+                "total_emails": total_emails,
+                "classified": classified,
+                "unclassified": unclassified,
+                "tier2_analyzed": tier2_analyzed,
+                "client_emails": client_count,
+                "vendor_emails": vendor_count,
+                "urgent_emails": urgent_count,
+                "by_category": {s["_id"]: s["count"] for s in category_stats if s["_id"]},
+                "by_intent": {s["_id"]: s["count"] for s in intent_stats if s["_id"]},
+                "by_urgency": {s["_id"]: s["count"] for s in urgency_stats if s["_id"]}
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching classification stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 

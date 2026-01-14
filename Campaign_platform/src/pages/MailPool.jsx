@@ -19,6 +19,28 @@ const SEGMENT_COLORS = {
   others: { bg: "#f3f4f6", text: "#374151", icon: "📧" },
 }
 
+// AI Category colors (Tier 1)
+const AI_CATEGORY_COLORS = {
+  client: { bg: "#dcfce7", text: "#166534", icon: "👤" },
+  vendor: { bg: "#dbeafe", text: "#1e40af", icon: "🏢" },
+  internal: { bg: "#e0f2fe", text: "#0369a1", icon: "🏠" },
+  promotional: { bg: "#fef3c7", text: "#92400e", icon: "📢" },
+  invoice: { bg: "#ccfbf1", text: "#0f766e", icon: "📄" },
+  banking: { bg: "#f3e8ff", text: "#6b21a8", icon: "🏦" },
+  automated: { bg: "#e5e7eb", text: "#6b7280", icon: "🤖" },
+  spam: { bg: "#fee2e2", text: "#dc2626", icon: "🚫" },
+  others: { bg: "#f3f4f6", text: "#374151", icon: "📧" },
+}
+
+// AI Urgency colors
+const URGENCY_COLORS = {
+  critical: { bg: "#fee2e2", text: "#dc2626" },
+  high: { bg: "#fed7aa", text: "#c2410c" },
+  medium: { bg: "#fef3c7", text: "#92400e" },
+  low: { bg: "#e5e7eb", text: "#6b7280" },
+  none: { bg: "transparent", text: "#9ca3af" },
+}
+
 // Gmail-like folder structure
 const FOLDERS = [
   { id: "inbox", name: "Inbox", icon: "📥", direction: "inbox", count: 0 },
@@ -250,6 +272,9 @@ function MailPool() {
   // Signatures & Aliases
   const [signatures, setSignatures] = useState({})
   const [aliases, setAliases] = useState([])
+  
+  // Per-account inbox counts
+  const [accountInboxCounts, setAccountInboxCounts] = useState({})
 
   // Fetch stats
   const fetchStats = useCallback(async () => {
@@ -276,6 +301,7 @@ function MailPool() {
         if (data.stats.accounts) {
           const allAliases = []
           const sigMap = {}
+          const inboxCounts = {}
           data.stats.accounts.forEach(acc => {
             // Add primary account
             allAliases.push({ 
@@ -286,6 +312,8 @@ function MailPool() {
             })
             // Store signature for primary account
             sigMap[acc.email] = acc.signature || ""
+            // Store per-account inbox count (use total_emails as proxy, or inbox_count if available)
+            inboxCounts[acc.email] = acc.inbox_count || acc.total_emails || 0
             
             // Add aliases - they now come as objects with their own signatures
             if (acc.aliases && Array.isArray(acc.aliases)) {
@@ -308,6 +336,7 @@ function MailPool() {
           })
           setSignatures(sigMap)
           setAliases(allAliases)
+          setAccountInboxCounts(inboxCounts)
           if (allAliases.length > 0) {
             setSelectedAlias(allAliases[0].email)
           }
@@ -550,56 +579,131 @@ function MailPool() {
         setTimeout(() => pollRecategorizeStatus(taskId), 3000)
       } else if (data.status === "completed") {
         alert(`Re-categorization completed! Processed ${data.processed} emails.`)
-        fetchEmails(1) // Refresh emails
+        fetchEmails(1)
       }
     } catch (e) {
       console.error("Error polling status:", e)
     }
   }
 
-  // Trigger backfill for old emails
-  const [backfilling, setBackfilling] = useState(false)
-  const handleBackfill = async (daysBack = 30, specificMailboxId = null) => {
+  // AI Classification state
+  const [classifying, setClassifying] = useState(false)
+  const [classifyStatus, setClassifyStatus] = useState(null)
+
+  // Start AI classification (Tiered)
+  const handleAIClassify = async (runTier2 = true) => {
     const sessionId = localStorage.getItem("session_id")
     if (!sessionId) {
       navigate("/admin/login")
       return
     }
 
-    // Use specific mailbox or first one from stats
-    const mailboxId = specificMailboxId || stats.accounts?.[0]?.id
-    if (!mailboxId) {
-      alert("No mailbox found. Please add a mailbox first.")
+    if (!confirm(`Start AI classification?\n\n• Tier 1: Fast classification of all emails\n• Tier 2: Deep analysis of client/vendor emails${runTier2 ? ' (enabled)' : ' (disabled)'}\n\nContinue?`)) {
       return
     }
 
-    if (!confirm(`This will sync emails from the last ${daysBack} days in the background. Continue?`)) {
-      return
-    }
-
-    setBackfilling(true)
+    setClassifying(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/email-sync/mailboxes/${mailboxId}/backfill-async?days_back=${daysBack}`, {
+      const res = await fetch(`${API_BASE_URL}/gmail/mail-pool/classify`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
         },
+        body: JSON.stringify({
+          limit: 500,
+          run_tier2: runTier2,
+          category_filter: null
+        }),
       })
 
       const data = await res.json()
       
       if (data.success) {
-        alert(`Backfill started for ${daysBack} days. Task ID: ${data.task_id}`)
+        if (data.total === 0) {
+          alert("All emails are already classified!")
+          setClassifying(false)
+          return
+        }
+        setClassifyStatus({
+          task_id: data.task_id,
+          total: data.total_emails,
+          status: "running",
+          processed: 0
+        })
+        alert(`Started AI classification of ${data.total_emails} emails.`)
+        pollClassifyStatus(data.task_id)
       } else {
-        alert(`Failed to start backfill: ${data.detail || "Unknown error"}`)
+        alert(`Failed: ${data.message || "Unknown error"}`)
+        setClassifying(false)
       }
     } catch (e) {
-      console.error("Error starting backfill:", e)
+      console.error("Error starting classification:", e)
       alert(`Error: ${e.message}`)
-    } finally {
-      setBackfilling(false)
+      setClassifying(false)
     }
+  }
+
+  const pollClassifyStatus = async (taskId) => {
+    const sessionId = localStorage.getItem("session_id")
+    try {
+      const res = await fetch(`${API_BASE_URL}/gmail/mail-pool/classify/status/${taskId}`, {
+        headers: { Authorization: sessionId },
+      })
+      const data = await res.json()
+      setClassifyStatus(data)
+      
+      if (data.status === "running" || data.status === "pending") {
+        setTimeout(() => pollClassifyStatus(taskId), 3000)
+      } else if (data.status === "completed") {
+        alert(`AI classification completed!\n\n• Processed: ${data.processed}\n• Tier 1 only: ${data.tier1_only || 0}\n• Tier 2 analyzed: ${data.tier2_analyzed || 0}\n• Errors: ${data.errors || 0}`)
+        setClassifying(false)
+        fetchEmails(1)
+      } else if (data.status === "failed") {
+        alert(`Classification failed: ${data.error || "Unknown error"}`)
+        setClassifying(false)
+      }
+    } catch (e) {
+      console.error("Error polling status:", e)
+    }
+  }
+
+  // Get AI category badge
+  const getAICategoryBadge = (category) => {
+    if (!category) return null
+    const config = AI_CATEGORY_COLORS[category] || AI_CATEGORY_COLORS.others
+    return (
+      <span style={{
+        backgroundColor: config.bg,
+        color: config.text,
+        padding: "2px 6px",
+        borderRadius: "4px",
+        fontSize: "0.65rem",
+        fontWeight: "600",
+        marginRight: "4px",
+        textTransform: "uppercase"
+      }}>
+        {config.icon} {category}
+      </span>
+    )
+  }
+
+  // Get urgency badge
+  const getUrgencyBadge = (urgency) => {
+    if (!urgency || urgency === "none") return null
+    const config = URGENCY_COLORS[urgency] || URGENCY_COLORS.medium
+    return (
+      <span style={{
+        backgroundColor: config.bg,
+        color: config.text,
+        padding: "2px 6px",
+        borderRadius: "4px",
+        fontSize: "0.65rem",
+        fontWeight: "600"
+      }}>
+        {urgency === "critical" ? "🔴" : urgency === "high" ? "🟠" : ""} {urgency.toUpperCase()}
+      </span>
+    )
   }
 
   // Download attachment
@@ -689,6 +793,17 @@ function MailPool() {
   useEffect(() => {
     fetchEmails(1)
   }, [filterSegment, filterSearch, filterDirection, filterAccount, filterFolder, fetchEmails])
+
+  // Refresh inbox count when account filter changes - use pagination.total for filtered count
+  useEffect(() => {
+    if (filterAccount && filterFolder === "inbox") {
+      // Update the account-specific inbox count from pagination
+      setAccountInboxCounts(prev => ({
+        ...prev,
+        [filterAccount]: pagination.total
+      }))
+    }
+  }, [filterAccount, filterFolder, pagination.total])
 
   // Format date like Gmail
   const formatDate = (dateStr) => {
@@ -781,8 +896,12 @@ function MailPool() {
             >
               <span style={styles.sidebarIcon}>{folder.icon}</span>
               <span style={styles.sidebarLabel}>{folder.name}</span>
-              {folder.id === "inbox" && stats.emails_today > 0 && (
-                <span style={styles.sidebarBadge}>{stats.emails_today}</span>
+              {folder.id === "inbox" && (
+                <span style={styles.sidebarBadge}>
+                  {filterAccount 
+                    ? (accountInboxCounts[filterAccount] || pagination.total || 0).toLocaleString()
+                    : (stats.inbox_count || 0).toLocaleString()}
+                </span>
               )}
             </div>
           ))}
@@ -793,59 +912,33 @@ function MailPool() {
           <span style={styles.sidebarTitle}>Labels</span>
         </div>
         <div style={styles.sidebarSection}>
-          {Object.entries(SEGMENT_COLORS).slice(0, 8).map(([segment, config]) => (
-            <div
-              key={segment}
-              style={{
-                ...styles.sidebarItem,
-                backgroundColor: filterSegment === segment ? config.bg : "transparent"
-              }}
-              onClick={() => handleLabelSelect(segment)}
-            >
-              <span style={{
-                width: "12px",
-                height: "12px",
-                borderRadius: "2px",
-                backgroundColor: config.text,
-                marginRight: "12px"
-              }}></span>
-              <span style={styles.sidebarLabel}>
-                {segment.replace("_", " ").charAt(0).toUpperCase() + segment.replace("_", " ").slice(1)}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        {/* Mailboxes with Actions */}
-        <div style={styles.sidebarDivider}>
-          <span style={styles.sidebarTitle}>Mailboxes</span>
-        </div>
-        <div style={styles.sidebarSection}>
-          {stats.accounts?.map((acc) => (
-            <div key={acc.email} style={styles.mailboxItem}>
-              <div style={styles.mailboxHeader}>
-                <span style={styles.mailboxEmail}>{acc.display_name || acc.email.split("@")[0]}</span>
-                <span style={styles.mailboxCount}>{acc.total_emails || 0}</span>
+          {Object.entries(SEGMENT_COLORS).slice(0, 8).map(([segment, config]) => {
+            const count = stats.segments?.[segment] || 0;
+            return (
+              <div
+                key={segment}
+                style={{
+                  ...styles.sidebarItem,
+                  backgroundColor: filterSegment === segment ? config.bg : "transparent"
+                }}
+                onClick={() => handleLabelSelect(segment)}
+              >
+                <span style={{
+                  width: "12px",
+                  height: "12px",
+                  borderRadius: "2px",
+                  backgroundColor: config.text,
+                  marginRight: "12px"
+                }}></span>
+                <span style={styles.sidebarLabel}>
+                  {segment.replace("_", " ").charAt(0).toUpperCase() + segment.replace("_", " ").slice(1)}
+                </span>
+                {count > 0 && (
+                  <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "#6b7280" }}>{count}</span>
+                )}
               </div>
-              <div style={styles.mailboxActions}>
-                <button
-                  style={styles.mailboxActionBtn}
-                  onClick={() => handleRecategorizeMailbox(acc.id, true)}
-                  title="Re-categorize emails with AI"
-                >
-                  🤖 Categorize
-                </button>
-                <button
-                  style={styles.mailboxActionBtn}
-                  onClick={() => handleBackfill(30, acc.id)}
-                  title="Download last 30 days of emails"
-                  disabled={backfilling}
-                >
-                  📥 Backfill
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -863,7 +956,7 @@ function MailPool() {
               <option value="">All Accounts</option>
               {stats.accounts?.map(acc => (
                 <option key={acc.email} value={acc.email}>
-                  {acc.display_name || acc.email}
+                  {acc.email}
                 </option>
               ))}
             </select>
@@ -898,31 +991,22 @@ function MailPool() {
                 <input type="checkbox" style={styles.checkbox} />
                 <button style={styles.toolbarBtn} title="Refresh" onClick={() => fetchEmails(pagination.page)}>🔄</button>
                 <button 
-                  style={{...styles.toolbarBtn, opacity: recategorizing ? 0.5 : 1}} 
-                  title="Re-categorize all emails with AI"
-                  onClick={() => handleRecategorizeAll(true)}
-                  disabled={recategorizing}
+                  style={{...styles.toolbarBtn, backgroundColor: "#e8f0fe", color: "#1a73e8", fontWeight: "500", padding: "4px 12px", borderRadius: "16px"}}
+                  title="AI Classify Emails" 
+                  onClick={() => handleAIClassify(true)}
+                  disabled={classifying}
                 >
-                  {recategorizing ? "🔄" : "🤖"} AI Categorize
+                  {classifying ? "⏳ Classifying..." : "✨ AI Classify"}
                 </button>
-                <button 
-                  style={{...styles.toolbarBtn, opacity: backfilling ? 0.5 : 1}} 
-                  title="Backfill old emails (30 days)"
-                  onClick={() => handleBackfill(30)}
-                  disabled={backfilling}
-                >
-                  {backfilling ? "🔄" : "📥"} Backfill
-                </button>
-                {recategorizeStatus && recategorizeStatus.status === "running" && (
-                  <span style={{fontSize: "0.8rem", color: "#6b7280", marginLeft: "8px"}}>
-                    Categorizing: {recategorizeStatus.processed}/{recategorizeStatus.total}
+                {classifyStatus && classifyStatus.status === "running" && (
+                  <span style={{fontSize: "0.75rem", color: "#6b7280", marginLeft: "8px"}}>
+                    Processing {classifyStatus.processed}/{classifyStatus.total}...
                   </span>
                 )}
-                <button style={styles.toolbarBtn} title="More">⋮</button>
               </div>
               <div style={styles.toolbarRight}>
                 <span style={styles.paginationText}>
-                  {pagination.total > 0 ? `${((pagination.page - 1) * pagination.limit) + 1}-${Math.min(pagination.page * pagination.limit, pagination.total)} of ${pagination.total}` : "0"}
+                  {pagination.total > 0 ? `${((pagination.page - 1) * pagination.limit) + 1}-${Math.min(pagination.page * pagination.limit, pagination.total).toLocaleString()} of ${pagination.total.toLocaleString()}` : "0"}
                 </span>
                 <button 
                   style={styles.toolbarBtn} 
@@ -976,8 +1060,12 @@ function MailPool() {
 
                   {/* Subject & Snippet */}
                   <div style={styles.emailSubjectLine}>
-                    {/* Labels/Tags */}
-                    {email.segment && email.segment !== "others" && getSegmentBadge(email.segment)}
+                    {/* AI Category Badge (Tier 1) */}
+                    {email.ai_category && getAICategoryBadge(email.ai_category)}
+                    {/* Urgency badge if high/critical */}
+                    {(email.ai_urgency === "critical" || email.ai_urgency === "high") && getUrgencyBadge(email.ai_urgency)}
+                    {/* Legacy segment badge */}
+                    {!email.ai_category && email.segment && email.segment !== "others" && getSegmentBadge(email.segment)}
                     {email.has_rfq && (
                       <span style={styles.rfqTag}>RFQ</span>
                     )}
@@ -1034,10 +1122,92 @@ function MailPool() {
             <div style={styles.detailSubject}>
               <h2 style={styles.subjectText}>{stripHtml(selectedEmail.subject) || "(no subject)"}</h2>
               <div style={styles.subjectLabels}>
-                {selectedEmail.segment && getSegmentBadge(selectedEmail.segment)}
+                {/* AI Category Badge */}
+                {selectedEmail.ai_category && getAICategoryBadge(selectedEmail.ai_category)}
+                {/* Urgency Badge */}
+                {selectedEmail.ai_urgency && selectedEmail.ai_urgency !== "none" && getUrgencyBadge(selectedEmail.ai_urgency)}
+                {/* Legacy segment */}
+                {!selectedEmail.ai_category && selectedEmail.segment && getSegmentBadge(selectedEmail.segment)}
                 <span style={styles.inboxLabel}>{filterFolder === "sent" ? "Sent" : "Inbox"} ×</span>
               </div>
             </div>
+
+            {/* AI Insights Section (Tier 2) */}
+            {(selectedEmail.ai_intent || selectedEmail.ai_action_items?.length > 0) && (
+              <div style={{
+                margin: "12px 0",
+                padding: "16px",
+                backgroundColor: "#f0f7ff",
+                borderRadius: "12px",
+                border: "1px solid #d0e5ff"
+              }}>
+                <div style={{ display: "flex", alignItems: "center", marginBottom: "12px" }}>
+                  <span style={{ fontSize: "1.2rem", marginRight: "8px" }}>🤖</span>
+                  <span style={{ fontWeight: "600", color: "#1a73e8" }}>AI Analysis</span>
+                  {selectedEmail.ai_confidence && (
+                    <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "#6b7280" }}>
+                      {Math.round(selectedEmail.ai_confidence * 100)}% confident
+                    </span>
+                  )}
+                </div>
+                
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px" }}>
+                  {/* Intent */}
+                  {selectedEmail.ai_intent && (
+                    <div style={{ padding: "8px 12px", backgroundColor: "white", borderRadius: "8px" }}>
+                      <div style={{ fontSize: "0.7rem", color: "#6b7280", marginBottom: "4px" }}>INTENT</div>
+                      <div style={{ fontWeight: "500", color: "#374151", textTransform: "capitalize" }}>
+                        {selectedEmail.ai_intent.replace(/_/g, " ")}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Sentiment */}
+                  {selectedEmail.ai_sentiment && (
+                    <div style={{ padding: "8px 12px", backgroundColor: "white", borderRadius: "8px" }}>
+                      <div style={{ fontSize: "0.7rem", color: "#6b7280", marginBottom: "4px" }}>SENTIMENT</div>
+                      <div style={{ fontWeight: "500", color: selectedEmail.ai_sentiment === "positive" ? "#059669" : selectedEmail.ai_sentiment === "negative" ? "#dc2626" : "#6b7280", textTransform: "capitalize" }}>
+                        {selectedEmail.ai_sentiment === "positive" ? "😊" : selectedEmail.ai_sentiment === "negative" ? "😟" : "😐"} {selectedEmail.ai_sentiment}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Reply Expected */}
+                  {selectedEmail.ai_reply_expected !== undefined && (
+                    <div style={{ padding: "8px 12px", backgroundColor: "white", borderRadius: "8px" }}>
+                      <div style={{ fontSize: "0.7rem", color: "#6b7280", marginBottom: "4px" }}>REPLY EXPECTED</div>
+                      <div style={{ fontWeight: "500", color: selectedEmail.ai_reply_expected ? "#dc2626" : "#059669" }}>
+                        {selectedEmail.ai_reply_expected ? "✅ Yes" : "❌ No"}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Key Points */}
+                {selectedEmail.ai_key_points && selectedEmail.ai_key_points.length > 0 && (
+                  <div style={{ marginTop: "12px", padding: "8px 12px", backgroundColor: "white", borderRadius: "8px" }}>
+                    <div style={{ fontSize: "0.7rem", color: "#6b7280", marginBottom: "6px" }}>KEY POINTS</div>
+                    <ul style={{ margin: "0", paddingLeft: "20px", color: "#374151", fontSize: "0.9rem" }}>
+                      {selectedEmail.ai_key_points.map((point, i) => (
+                        <li key={i} style={{ marginBottom: "4px" }}>{point}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {/* Action Items */}
+                {selectedEmail.ai_action_items && selectedEmail.ai_action_items.length > 0 && (
+                  <div style={{ marginTop: "12px", padding: "8px 12px", backgroundColor: "#fef3c7", borderRadius: "8px", border: "1px solid #fcd34d" }}>
+                    <div style={{ fontSize: "0.7rem", color: "#92400e", marginBottom: "6px" }}>⚡ ACTION ITEMS</div>
+                    <ul style={{ margin: "0", paddingLeft: "20px", color: "#78350f", fontSize: "0.9rem", fontWeight: "500" }}>
+                      {selectedEmail.ai_action_items.map((action, i) => (
+                        <li key={i} style={{ marginBottom: "4px" }}>{action}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* AI Summary Section */}
             {selectedEmail.ai_summary && (
