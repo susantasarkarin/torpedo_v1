@@ -1728,10 +1728,6 @@ mail_pool_legacy_emails = gmail_archive_db["emails"]
 # Additional collections for leads data
 mail_pool_email_leads = email_automation_db["email_leads"]
 mail_pool_conversations = email_automation_db["email_conversations"]
-
-# Settings database for email signatures
-settings_db = mongo_client["settings"]
-email_signatures_collection = settings_db["email_signatures"]
 mail_pool_sync_log = gmail_db["email_sync_log"]
 
 
@@ -1902,62 +1898,31 @@ async def get_mail_pool_stats(
             normalized_aliases = []
             for alias in raw_aliases:
                 if isinstance(alias, str):
-                    alias_email = alias
-                elif isinstance(alias, dict):
-                    alias_email = alias.get("email", alias.get("alias_email", ""))
-                else:
-                    continue
-                
-                # Look up signature from email_signatures collection first
-                alias_saved_sig = email_signatures_collection.find_one({"email": alias_email})
-                if alias_saved_sig:
-                    alias_signature = alias_saved_sig.get("signature_html", alias_saved_sig.get("signature", ""))
-                elif isinstance(alias, dict):
-                    alias_signature = alias.get("signature", acc.get("signature", ""))
-                else:
-                    alias_signature = acc.get("signature", "")
-                
-                if isinstance(alias, str):
                     # Old format: just email string
                     normalized_aliases.append({
-                        "email": alias_email,
-                        "display_name": alias_email.split("@")[0],
-                        "signature": alias_signature,
+                        "email": alias,
+                        "display_name": alias.split("@")[0],
+                        "signature": acc.get("signature", ""),  # Inherit parent signature
                         "is_default": False
                     })
-                else:
+                elif isinstance(alias, dict):
                     # New format: full alias object
                     normalized_aliases.append({
-                        "email": alias_email,
-                        "display_name": alias.get("display_name", alias_email.split("@")[0]),
-                        "signature": alias_signature,
+                        "email": alias.get("email", alias.get("alias_email", "")),
+                        "display_name": alias.get("display_name", alias.get("email", alias.get("alias_email", "")).split("@")[0]),
+                        "signature": alias.get("signature", acc.get("signature", "")),  # Use own or inherit
                         "is_default": alias.get("is_default", alias.get("is_primary", False))
                     })
-            
-            # Count inbox emails for this specific account
-            acc_inbox_count = mail_pool_emails.count_documents({
-                "mailbox_id": acc_id,
-                "direction": "inbound"
-            })
-            
-            # Get signature from email_signatures collection first, then fallback to mailbox
-            saved_signature = email_signatures_collection.find_one({"email": acc["email"]})
-            signature_html = ""
-            if saved_signature:
-                signature_html = saved_signature.get("signature_html", saved_signature.get("signature", ""))
-            if not signature_html:
-                signature_html = acc.get("signature", "")
             
             account_stats.append({
                 "id": str(acc["_id"]),
                 "email": acc["email"],
                 "display_name": acc.get("display_name", acc["email"].split("@")[0]),
                 "total_emails": count,
-                "inbox_count": acc_inbox_count,
                 "today": 0,  # Would need date parsing
                 "last_sync": acc.get("last_sync_at"),
                 "aliases": normalized_aliases,
-                "signature": signature_html,
+                "signature": acc.get("signature", ""),
                 "is_default": acc.get("is_default", False)
             })
         
@@ -2146,7 +2111,7 @@ async def get_mail_pool_emails(
                 "is_internal": False,
                 "is_starred": email_doc.get("is_starred", False) or "STARRED" in str(labels).upper(),
                 "is_draft": "DRAFT" in str(labels).upper(),
-                "is_read": email_doc.get("is_read", True),
+                "is_read": email_doc.get("is_read", "UNREAD" not in str(labels).upper()),
                 "account_email": account_email or to_email,
                 "to_email": to_email,
                 "thread_id": email_doc.get("gmail_thread_id", ""),
@@ -2227,14 +2192,10 @@ async def get_mail_pool_email_detail(
         elif email_direction == "outbound":
             email_direction = "outbox"
         
-        # Get body content - try multiple field names for compatibility
-        body_plain = email_doc.get("body_plain", "") or email_doc.get("body", "") or email_doc.get("content", "")
-        body_html = email_doc.get("body_html", "") or email_doc.get("html_body", "")
+        # Get body content
+        body_plain = email_doc.get("body_plain", "")
+        body_html = email_doc.get("body_html", "")
         cleaned_body = clean_email_body(body_plain) if body_plain else ""
-        
-        # If still no body, try to use snippet as fallback
-        if not cleaned_body and not body_html:
-            cleaned_body = email_doc.get("snippet", "")
         
         # Get category and labels
         category = email_doc.get("category", "") or ""
@@ -2248,11 +2209,33 @@ async def get_mail_pool_email_detail(
         attachments = email_doc.get("attachments", [])
         has_attachments = email_doc.get("has_attachments", False) or len(attachments) > 0
         
-        # Get AI summary (don't generate on-the-fly to avoid blocking)
+        # Get or generate AI summary
         ai_summary = email_doc.get("ai_summary", "")
+        if not ai_summary and cleaned_body and len(cleaned_body.strip()) > 50:
+            try:
+                # Import the AI summary function
+                from leads.ai_classifier import generate_single_email_summary
+                
+                # Generate summary
+                subject = email_doc.get("subject", "")
+                ai_summary = generate_single_email_summary(
+                    subject=subject,
+                    body=cleaned_body,
+                    from_email=from_email,
+                    date=date_str
+                )
+                
+                # Cache the summary in the database for future requests
+                if ai_summary:
+                    mail_pool_emails.update_one(
+                        {"_id": email_doc["_id"]},
+                        {"$set": {"ai_summary": ai_summary}}
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to generate AI summary: {e}")
+                ai_summary = ""
         
-        # Build the result object (thread will be populated below)
-        result = {
+        return {
             "success": True,
             "email": {
                 "id": str(email_doc["_id"]),
@@ -2297,65 +2280,8 @@ async def get_mail_pool_email_detail(
                 "ai_action_items": email_doc.get("ai_action_items", []),
                 "ai_reply_expected": email_doc.get("ai_reply_expected"),
                 "ai_classified_at": email_doc.get("ai_classified_at", "").isoformat() if email_doc.get("ai_classified_at") else ""
-            },
-            "thread": []  # Thread emails will be populated below
+            }
         }
-        
-        # Fetch thread emails if thread_id exists
-        thread_id = email_doc.get("provider_thread_id") or email_doc.get("gmail_thread_id")
-        thread_list = []
-        if thread_id:
-            # Find all emails in this thread, sorted by timestamp
-            thread_emails = list(mail_pool_emails.find(
-                {"$or": [
-                    {"provider_thread_id": thread_id},
-                    {"gmail_thread_id": thread_id}
-                ]}
-            ).sort("timestamp", 1))  # Oldest first
-            
-            thread_list = []
-            for t_email in thread_emails:
-                # Get from address
-                t_from_addr = t_email.get("from_address", {})
-                if isinstance(t_from_addr, dict):
-                    t_from_email = t_from_addr.get("email", "")
-                    t_from_name = t_from_addr.get("name", "")
-                else:
-                    t_from_email, t_from_name = parse_email_address(str(t_from_addr))
-                
-                # Get to addresses
-                t_to_addresses = t_email.get("to_addresses", [])
-                t_to_email = t_to_addresses[0].get("email", "") if t_to_addresses else ""
-                
-                # Get body
-                t_body_plain = t_email.get("body_plain", "") or t_email.get("body", "") or t_email.get("content", "")
-                t_body_html = t_email.get("body_html", "") or t_email.get("html_body", "")
-                t_cleaned_body = clean_email_body(t_body_plain) if t_body_plain else ""
-                if not t_cleaned_body and not t_body_html:
-                    t_cleaned_body = t_email.get("snippet", "")
-                
-                t_timestamp = t_email.get("timestamp")
-                t_date_str = t_timestamp.isoformat() if t_timestamp else ""
-                
-                thread_list.append({
-                    "id": str(t_email["_id"]),
-                    "email": t_from_email,
-                    "name": t_from_name,
-                    "to_email": t_to_email,
-                    "subject": t_email.get("subject", ""),
-                    "body": t_cleaned_body,
-                    "body_html": t_body_html,
-                    "snippet": t_email.get("snippet", ""),
-                    "date": t_date_str,
-                    "added_on": t_date_str,
-                    "direction": t_email.get("direction", "inbound"),
-                    "attachments": t_email.get("attachments", []),
-                    "has_attachments": t_email.get("has_attachments", False)
-                })
-            
-            result["thread"] = thread_list
-        
-        return result
     
     except HTTPException:
         raise
@@ -2600,7 +2526,7 @@ class ImapSendRequest(BaseModel):
 async def send_email_imap(send_request: ImapSendRequest, request: Request):
     """
     Send an email using IMAP account's SMTP credentials.
-    Uses the mailbox from email_automation.mailboxes collection.
+    Uses the mailbox from email_automation.mailboxes or workspace_mailboxes collection.
     """
     import smtplib
     from email.mime.text import MIMEText
@@ -2612,26 +2538,63 @@ async def send_email_imap(send_request: ImapSendRequest, request: Request):
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
         
-        # Get the mailbox to send from
+        # Get the mailbox to send from - check both IMAP and Workspace mailboxes
         mailbox = None
+        mailbox_type = "imap"  # Track which type we found
+        
         if send_request.from_email:
+            # First try IMAP mailboxes
             mailbox = mail_pool_mailboxes.find_one({
                 "email": send_request.from_email,
                 "is_active": True
             })
+            
+            # If not found, try Gmail Workspace mailboxes
+            if not mailbox:
+                mailbox = mail_pool_workspace_mailboxes.find_one({
+                    "email": send_request.from_email,
+                    "is_active": True
+                })
+                if mailbox:
+                    mailbox_type = "workspace"
+            
+            # Also check aliases in workspace mailboxes
+            if not mailbox:
+                mailbox = mail_pool_workspace_mailboxes.find_one({
+                    "aliases.email": send_request.from_email,
+                    "is_active": True
+                })
+                if mailbox:
+                    mailbox_type = "workspace"
         
-        # If no specific mailbox, get the default or first active one
+        # If no specific mailbox, get the default or first active one from either collection
         if not mailbox:
             mailbox = mail_pool_mailboxes.find_one({"is_default": True, "is_active": True})
         if not mailbox:
+            mailbox = mail_pool_workspace_mailboxes.find_one({"is_default": True, "is_active": True})
+            if mailbox:
+                mailbox_type = "workspace"
+        if not mailbox:
             mailbox = mail_pool_mailboxes.find_one({"is_active": True})
+        if not mailbox:
+            mailbox = mail_pool_workspace_mailboxes.find_one({"is_active": True})
+            if mailbox:
+                mailbox_type = "workspace"
         
         if not mailbox:
-            raise HTTPException(status_code=400, detail="No active mailbox configured")
+            raise HTTPException(status_code=400, detail="No active mailbox configured. Please add a mailbox in Gmail Setup.")
         
-        # Get SMTP credentials
-        credentials = mailbox.get("credentials", {})
-        smtp_server = credentials.get("smtp_server", "smtp.gmail.com")
+        # Get SMTP credentials based on mailbox type
+        if mailbox_type == "workspace":
+            # Gmail Workspace uses OAuth, need to use Gmail API for sending
+            # For now, try to use app password if configured
+            credentials = mailbox.get("credentials", {})
+            if not credentials:
+                credentials = {}
+            smtp_server = credentials.get("smtp_server", "smtp.gmail.com")
+        else:
+            credentials = mailbox.get("credentials", {})
+            smtp_server = credentials.get("smtp_server", "smtp.gmail.com")
         smtp_port = credentials.get("smtp_port", 587)
         password = credentials.get("imap_password")  # Same password for SMTP
         sender_email = mailbox["email"]

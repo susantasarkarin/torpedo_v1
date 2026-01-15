@@ -231,19 +231,9 @@ const getAvatarColor = (name) => {
   return colors[hash % colors.length]
 }
 
-// Build version stamp for deployment verification
-const BUILD_VERSION = "2026.01.15.1"
-const BUILD_TIMESTAMP = new Date().toISOString()
-
 function MailPool() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
-  
-  // Log version on component mount for deployment verification
-  useEffect(() => {
-    console.log(`%c[MailPool] Build: ${BUILD_VERSION}`, 'color: #1a73e8; font-weight: bold;')
-    console.log(`[MailPool] Loaded at: ${BUILD_TIMESTAMP}`)
-  }, [])
   
   // Stats & Accounts
   const [stats, setStats] = useState({
@@ -282,9 +272,6 @@ function MailPool() {
   // Signatures & Aliases
   const [signatures, setSignatures] = useState({})
   const [aliases, setAliases] = useState([])
-  
-  // Per-account inbox counts
-  const [accountInboxCounts, setAccountInboxCounts] = useState({})
 
   // Fetch stats
   const fetchStats = useCallback(async () => {
@@ -311,7 +298,6 @@ function MailPool() {
         if (data.stats.accounts) {
           const allAliases = []
           const sigMap = {}
-          const inboxCounts = {}
           data.stats.accounts.forEach(acc => {
             // Add primary account
             allAliases.push({ 
@@ -322,8 +308,6 @@ function MailPool() {
             })
             // Store signature for primary account
             sigMap[acc.email] = acc.signature || ""
-            // Store per-account inbox count (use total_emails as proxy, or inbox_count if available)
-            inboxCounts[acc.email] = acc.inbox_count || acc.total_emails || 0
             
             // Add aliases - they now come as objects with their own signatures
             if (acc.aliases && Array.isArray(acc.aliases)) {
@@ -346,7 +330,6 @@ function MailPool() {
           })
           setSignatures(sigMap)
           setAliases(allAliases)
-          setAccountInboxCounts(inboxCounts)
           if (allAliases.length > 0) {
             setSelectedAlias(allAliases[0].email)
           }
@@ -385,27 +368,18 @@ function MailPool() {
     }
   }, [filterSegment, filterSearch, filterDirection, filterAccount, filterFolder, pagination.limit])
 
-  // Fetch email thread/detail - shows full conversation like Gmail
+  // Fetch email thread/detail
   const fetchEmailThread = async (emailId) => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      // Fetch email detail with full thread from backend
+      // Try to fetch thread first
       const res = await fetch(`${API_BASE_URL}/gmail/mail-pool/emails/${emailId}`, {
         headers: { Authorization: sessionId },
       })
       const data = await res.json()
       if (data.success) {
         setSelectedEmail(data.email)
-        // Use the thread array if available (full conversation chain), otherwise fallback to single email
-        if (data.thread && Array.isArray(data.thread) && data.thread.length > 0) {
-          // Sort thread by date ascending (oldest first) for chronological view
-          const sortedThread = [...data.thread].sort((a, b) => 
-            new Date(a.date || a.added_on || 0) - new Date(b.date || b.added_on || 0)
-          )
-          setEmailThread(sortedThread)
-        } else {
-          setEmailThread([data.email])
-        }
+        setEmailThread([data.email])
         setViewMode("email")
       }
     } catch (e) {
@@ -813,17 +787,6 @@ function MailPool() {
     fetchEmails(1)
   }, [filterSegment, filterSearch, filterDirection, filterAccount, filterFolder, fetchEmails])
 
-  // Refresh inbox count when account filter changes - use pagination.total for filtered count
-  useEffect(() => {
-    if (filterAccount && filterFolder === "inbox") {
-      // Update the account-specific inbox count from pagination
-      setAccountInboxCounts(prev => ({
-        ...prev,
-        [filterAccount]: pagination.total
-      }))
-    }
-  }, [filterAccount, filterFolder, pagination.total])
-
   // Format date like Gmail
   const formatDate = (dateStr) => {
     if (!dateStr) return ""
@@ -915,12 +878,8 @@ function MailPool() {
             >
               <span style={styles.sidebarIcon}>{folder.icon}</span>
               <span style={styles.sidebarLabel}>{folder.name}</span>
-              {folder.id === "inbox" && (
-                <span style={styles.sidebarBadge}>
-                  {filterAccount 
-                    ? (accountInboxCounts[filterAccount] || pagination.total || 0).toLocaleString()
-                    : (stats.inbox_count || 0).toLocaleString()}
-                </span>
+              {folder.id === "inbox" && stats.inbox_count > 0 && (
+                <span style={styles.sidebarBadge}>{stats.inbox_count?.toLocaleString()}</span>
               )}
             </div>
           ))}
@@ -1045,7 +1004,11 @@ function MailPool() {
               {emails.length > 0 ? emails.map((email) => (
                 <div 
                   key={email.id}
-                  style={styles.emailRow}
+                  style={{
+                    ...styles.emailRow,
+                    backgroundColor: email.is_read === false ? "#f2f6fc" : "transparent",
+                    fontWeight: email.is_read === false ? "600" : "400"
+                  }}
                   onClick={() => fetchEmailThread(email.id)}
                 >
                   {/* Checkbox & Star */}
@@ -1070,7 +1033,11 @@ function MailPool() {
                   </div>
 
                   {/* Sender Name */}
-                  <div style={styles.emailSender}>
+                  <div style={{
+                    ...styles.emailSender,
+                    fontWeight: email.is_read === false ? "700" : "600"
+                  }}>
+                    {email.is_read === false && <span style={{color: "#1a73e8", marginRight: "4px"}}>●</span>}
                     {email.name || email.email?.split("@")[0] || "Unknown"}
                     {email.thread_count > 1 && (
                       <span style={styles.threadCount}>{email.thread_count}</span>
@@ -1089,9 +1056,9 @@ function MailPool() {
                       <span style={styles.rfqTag}>RFQ</span>
                     )}
                     
-                    <span style={styles.emailSubject}>
-                      {(stripHtml(email.subject) || "(no subject)").length > 60 
-                        ? (stripHtml(email.subject) || "(no subject)").substring(0, 60) + "..." 
+                    <span style={styles.emailSubject} title={stripHtml(email.subject) || "(no subject)"}>
+                      {(stripHtml(email.subject) || "(no subject)").length > 50 
+                        ? (stripHtml(email.subject) || "(no subject)").substring(0, 50) + "..." 
                         : (stripHtml(email.subject) || "(no subject)")}
                     </span>
                     <span style={styles.emailSnippetSeparator}> - </span>
@@ -1275,8 +1242,12 @@ function MailPool() {
                   </div>
 
                   {/* Message Body */}
-                  <div style={styles.messageBody}>
-                    {email.body ? (
+                  <div style={{...styles.messageBody, maxHeight: "none", overflow: "visible"}}>
+                    {email.body_html ? (
+                      <div dangerouslySetInnerHTML={{ 
+                        __html: `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${email.body_html}</div>`
+                      }} />
+                    ) : email.body ? (
                       <div dangerouslySetInnerHTML={{ 
                         __html: formatEmailBody(email.body)
                       }} />
@@ -1467,10 +1438,21 @@ function MailPool() {
               onChange={(e) => setComposeData({...composeData, body: e.target.value})}
               placeholder="Write your message..."
             />
-            {/* Signature Preview */}
-            {selectedAlias && signatures[selectedAlias] && (
+            {/* Signature Preview - shows when alias is selected */}
+            {selectedAlias && (
               <div style={styles.signaturePreview}>
-                <div dangerouslySetInnerHTML={{ __html: signatures[selectedAlias] }} />
+                {signatures[selectedAlias] ? (
+                  <>
+                    <div style={{ fontSize: "0.7rem", color: "#5f6368", marginBottom: "4px", borderTop: "1px solid #e5e7eb", paddingTop: "8px" }}>
+                      Signature for {selectedAlias}:
+                    </div>
+                    <div dangerouslySetInnerHTML={{ __html: signatures[selectedAlias] }} />
+                  </>
+                ) : (
+                  <div style={{ fontSize: "0.75rem", color: "#9ca3af", fontStyle: "italic", borderTop: "1px solid #e5e7eb", paddingTop: "8px" }}>
+                    No signature configured for {selectedAlias}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1798,8 +1780,8 @@ const styles = {
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
-    maxWidth: "400px",
-    flexShrink: 0
+    maxWidth: "250px",
+    flexShrink: 1
   },
   emailSnippetSeparator: {
     color: "#5f6368",
