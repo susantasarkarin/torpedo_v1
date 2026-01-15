@@ -624,6 +624,17 @@ try:
 except Exception as e:
     print(f"⚠️ Email Classification router not included: {e}")
 
+# Gemini Email Classification router (free tier with multi-key rotation)
+try:
+    try:
+        from .routers import gemini_classification as gemini_classification_router
+    except ImportError:
+        from routers import gemini_classification as gemini_classification_router
+    app.include_router(gemini_classification_router.router)
+    print("✅ Gemini Email Classification router included")
+except Exception as e:
+    print(f"⚠️ Gemini Email Classification router not included: {e}")
+
 # Audit Trail router
 try:
     try:

@@ -1,16 +1,21 @@
 """
-CENTRALIZED AI API WRAPPER (OpenAI + Anthropic)
+CENTRALIZED AI API WRAPPER (Gemini + OpenAI + Anthropic)
 Cost-optimized wrapper with token logging, rate limiting, and safety guards.
-Supports multi-provider routing with confidence-based escalation.
+Supports multi-provider routing with Gemini FREE tier as default.
 
-Key optimizations:
+Key Features:
+- Gemini 1.5 Flash as DEFAULT (FREE with multi-key rotation)
+- Automatic fallback to OpenAI if Gemini fails
 - Strict max_output_tokens enforcement (default 300, background tasks 150-200)
 - Token usage logging to MongoDB
 - Global kill switch via DISABLE_AI_CALLS env var
-- Model routing: gpt-4o-mini by default, escalate to Claude for complex tasks
 - Exponential backoff on retries
 - Request source tracking (cron/api/user)
-- Confidence-based escalation to premium models
+
+Provider Priority:
+1. Gemini (FREE - 6000+ requests/day with 6 keys)
+2. OpenAI (Fallback - costs money)
+3. Anthropic (Premium - for complex tasks)
 """
 
 import os
@@ -40,8 +45,12 @@ logger = logging.getLogger(__name__)
 
 # ============== CONFIGURATION ==============
 
-# AI Provider types
-AIProvider = Literal["openai", "anthropic"]
+# AI Provider types - Gemini is now the DEFAULT (FREE tier)
+AIProvider = Literal["openai", "anthropic", "gemini"]
+
+# DEFAULT PROVIDER: Use Gemini for FREE tier with multi-key rotation
+# Set AI_DEFAULT_PROVIDER env var to override
+DEFAULT_PROVIDER = os.getenv("AI_DEFAULT_PROVIDER", "gemini")
 
 # Default token limits - COST CONTROL
 DEFAULT_MAX_OUTPUT_TOKENS = 300       # Standard API responses
@@ -50,12 +59,16 @@ INTERNAL_MAX_OUTPUT_TOKENS = 200      # Internal/middleware tasks
 ESCALATED_MAX_OUTPUT_TOKENS = 500     # Escalated to premium model
 
 # Model routing - cost control
-DEFAULT_MODEL = "gpt-4o-mini"  # ~$0.15/$0.60 per 1M tokens
+DEFAULT_MODEL = "gpt-4o-mini"  # ~$0.15/$0.60 per 1M tokens (FALLBACK)
 PREMIUM_MODEL = "gpt-4o"       # ~$5/$15 per 1M tokens - USE SPARINGLY
 
-# Anthropic models
+# Anthropic models (FALLBACK - costs money)
 ANTHROPIC_DEFAULT_MODEL = "claude-3-5-sonnet-20241022"  # ~$3/$15 per 1M tokens
 ANTHROPIC_PREMIUM_MODEL = "claude-sonnet-4-20250514"        # ~$15/$75 per 1M tokens - BEST QUALITY
+
+# Gemini models (FREE TIER - DEFAULT)
+GEMINI_DEFAULT_MODEL = "gemini-1.5-flash"  # FREE - 1000 RPD, 15 RPM per key
+GEMINI_PREMIUM_MODEL = "gemini-1.5-pro"    # FREE - for complex tasks
 
 # Cost per 1K tokens
 MODEL_COSTS = {
@@ -64,6 +77,8 @@ MODEL_COSTS = {
     "gpt-3.5-turbo": {"input": 0.0005, "output": 0.0015},
     "claude-3-5-sonnet-20241022": {"input": 0.003, "output": 0.015},
     "claude-sonnet-4-20250514": {"input": 0.015, "output": 0.075},
+    "gemini-1.5-flash": {"input": 0.0, "output": 0.0},  # FREE
+    "gemini-1.5-pro": {"input": 0.0, "output": 0.0},    # FREE
 }
 
 # Confidence threshold for escalation
@@ -347,11 +362,16 @@ def is_anthropic_model(model: str) -> bool:
 
 # ============== MAIN API WRAPPER ==============
 
+def is_gemini_model(model: str) -> bool:
+    """Check if the model is a Gemini model."""
+    return model.startswith("gemini")
+
+
 def chat_completion(
     messages: List[Dict[str, str]],
     source: RequestSource = "api",
     endpoint: str = "",
-    model: str = DEFAULT_MODEL,
+    model: str = None,  # None = use default provider's model
     max_output_tokens: Optional[int] = None,
     temperature: float = 0.1,
     response_format: Optional[Dict] = None,
@@ -360,27 +380,45 @@ def chat_completion(
 ) -> Dict[str, Any]:
     """
     Centralized AI chat completion with cost controls.
-    Supports OpenAI and Anthropic (Claude) models.
+    Supports Gemini (FREE - default), OpenAI, and Anthropic (Claude) models.
     
     Args:
         messages: List of message dicts with 'role' and 'content'
         source: Request source for logging and rate limiting
         endpoint: API endpoint name for logging
-        model: Model to use (defaults to gpt-4o-mini for cost control)
+        model: Model to use (defaults to Gemini Flash for FREE tier)
         max_output_tokens: Max tokens in response (auto-set based on source if None)
         temperature: Model temperature (default 0.1 for consistency)
         response_format: Optional response format (e.g., {"type": "json_object"})
         allow_premium_model: Must be True to use premium models
-        provider: Force provider ("openai" or "anthropic"). Auto-detected from model if None.
+        provider: Force provider ("gemini", "openai", or "anthropic"). 
+                  Defaults to "gemini" for FREE tier.
     
     Returns:
         Dict with 'content', 'usage', 'model', 'provider', 'success', 'error'
     """
     start_time = time.time()
     
-    # Auto-detect provider from model name
-    if provider is None:
-        provider = "anthropic" if is_anthropic_model(model) else "openai"
+    # Default to Gemini (FREE tier) if no provider/model specified
+    if provider is None and model is None:
+        provider = DEFAULT_PROVIDER  # Defaults to "gemini"
+        model = GEMINI_DEFAULT_MODEL
+    elif provider is None:
+        # Auto-detect provider from model name
+        if is_gemini_model(model):
+            provider = "gemini"
+        elif is_anthropic_model(model):
+            provider = "anthropic"
+        else:
+            provider = "openai"
+    elif model is None:
+        # Set model based on provider
+        if provider == "gemini":
+            model = GEMINI_DEFAULT_MODEL
+        elif provider == "anthropic":
+            model = ANTHROPIC_DEFAULT_MODEL
+        else:
+            model = DEFAULT_MODEL
     
     # Safety: Check kill switch
     if is_ai_disabled():
@@ -394,8 +432,8 @@ def chat_completion(
             "error": "AI calls are disabled"
         }
     
-    # Safety: Check rate limits
-    if not rate_limiter.is_allowed(source):
+    # Safety: Check rate limits (Gemini has its own key-based rate limiting)
+    if provider != "gemini" and not rate_limiter.is_allowed(source):
         return {
             "content": "",
             "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
@@ -406,7 +444,10 @@ def chat_completion(
         }
     
     # Model routing: prevent accidental premium model usage
-    if provider == "openai":
+    if provider == "gemini":
+        if model == GEMINI_PREMIUM_MODEL and not allow_premium_model:
+            model = GEMINI_DEFAULT_MODEL
+    elif provider == "openai":
         if model == PREMIUM_MODEL and not allow_premium_model:
             logger.warning(f"Downgrading {PREMIUM_MODEL} to {DEFAULT_MODEL} - set allow_premium_model=True")
             model = DEFAULT_MODEL
@@ -424,8 +465,19 @@ def chat_completion(
         else:
             max_output_tokens = DEFAULT_MAX_OUTPUT_TOKENS
     
-    # Route to appropriate provider
-    if provider == "anthropic":
+    # Route to appropriate provider - Gemini FIRST (FREE tier)
+    if provider == "gemini":
+        return _gemini_chat_completion(
+            messages=messages,
+            model=model,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+            source=source,
+            endpoint=endpoint,
+            start_time=start_time,
+            response_format=response_format
+        )
+    elif provider == "anthropic":
         return _anthropic_chat_completion(
             messages=messages,
             model=model,
@@ -440,6 +492,143 @@ def chat_completion(
         return _openai_chat_completion(
             messages=messages,
             model=model,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+            response_format=response_format,
+            source=source,
+            endpoint=endpoint,
+            start_time=start_time
+        )
+
+
+# ============== GEMINI IMPLEMENTATION (FREE TIER) ==============
+
+def _gemini_chat_completion(
+    messages: List[Dict[str, str]],
+    model: str,
+    max_output_tokens: int,
+    temperature: float,
+    source: RequestSource,
+    endpoint: str,
+    start_time: float,
+    response_format: Optional[Dict] = None
+) -> Dict[str, Any]:
+    """
+    Internal Gemini implementation using FREE tier with multi-key rotation.
+    """
+    try:
+        from .gemini_wrapper import gemini_generate, GEMINI_AVAILABLE
+        
+        if not GEMINI_AVAILABLE:
+            logger.warning("Gemini not available, falling back to OpenAI")
+            return _openai_chat_completion(
+                messages=messages,
+                model=DEFAULT_MODEL,
+                max_output_tokens=max_output_tokens,
+                temperature=temperature,
+                response_format=response_format,
+                source=source,
+                endpoint=endpoint,
+                start_time=start_time
+            )
+        
+        # Convert messages to prompt format
+        system_instruction = None
+        prompt_parts = []
+        
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            
+            if role == "system":
+                system_instruction = content
+            elif role == "user":
+                prompt_parts.append(f"User: {content}")
+            elif role == "assistant":
+                prompt_parts.append(f"Assistant: {content}")
+        
+        prompt = "\n\n".join(prompt_parts)
+        
+        # Determine response format
+        resp_format = "json" if response_format and response_format.get("type") == "json_object" else "text"
+        
+        # Call Gemini
+        result = gemini_generate(
+            prompt=prompt,
+            system_instruction=system_instruction,
+            model=model,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+            response_format=resp_format,
+            source=source,
+            endpoint=endpoint
+        )
+        
+        latency_ms = int((time.time() - start_time) * 1000)
+        
+        if result["success"]:
+            tokens = result.get("tokens", {})
+            
+            # Log usage (cost is $0 for Gemini free tier)
+            token_logger.log_usage(
+                input_tokens=tokens.get("input", 0),
+                output_tokens=tokens.get("output", 0),
+                total_tokens=tokens.get("total", 0),
+                model=model,
+                source=source,
+                provider="gemini",
+                endpoint=endpoint,
+                latency_ms=latency_ms,
+                success=True,
+                input_data=prompt[:500],
+                output_response=result.get("content", "")[:500]
+            )
+            
+            return {
+                "content": result.get("content", ""),
+                "usage": {
+                    "input_tokens": tokens.get("input", 0),
+                    "output_tokens": tokens.get("output", 0),
+                    "total_tokens": tokens.get("total", 0)
+                },
+                "model": model,
+                "provider": "gemini",
+                "success": True,
+                "error": None
+            }
+        else:
+            error_msg = result.get("error", "Unknown Gemini error")
+            logger.warning(f"Gemini failed: {error_msg}, falling back to OpenAI")
+            
+            # Fallback to OpenAI if Gemini fails
+            return _openai_chat_completion(
+                messages=messages,
+                model=DEFAULT_MODEL,
+                max_output_tokens=max_output_tokens,
+                temperature=temperature,
+                response_format=response_format,
+                source=source,
+                endpoint=endpoint,
+                start_time=start_time
+            )
+    
+    except ImportError:
+        logger.warning("Gemini wrapper not available, falling back to OpenAI")
+        return _openai_chat_completion(
+            messages=messages,
+            model=DEFAULT_MODEL,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+            response_format=response_format,
+            source=source,
+            endpoint=endpoint,
+            start_time=start_time
+        )
+    except Exception as e:
+        logger.error(f"Gemini error: {e}, falling back to OpenAI")
+        return _openai_chat_completion(
+            messages=messages,
+            model=DEFAULT_MODEL,
             max_output_tokens=max_output_tokens,
             temperature=temperature,
             response_format=response_format,

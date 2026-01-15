@@ -2,19 +2,24 @@
 TIERED EMAIL CLASSIFICATION ENGINE
 Two-tier AI approach for cost-effective email classification:
 
-Tier 1 (Fast/Cheap): Basic triage using GPT-4o-mini or keywords
+Tier 1 (Fast/Cheap): Basic triage using GPT-4o-mini, Gemini Flash, or keywords
 - Classifies ALL emails into: client, vendor, promotional, internal, invoice, banking, spam, others
 
 Tier 2 (Deep/Quality): Rich analysis using better model
 - Only for Client/Vendor emails
 - Extracts: intent, urgency, action items, summary, sentiment
+
+Provider Options:
+- openai: OpenAI GPT-4o-mini (paid)
+- anthropic: Claude 3.5 Sonnet (paid)
+- gemini: Google Gemini 1.5 Flash (FREE with multi-key rotation)
 """
 
 import os
 import json
 import logging
 from datetime import datetime
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List, Tuple, Literal
 from enum import Enum
 from pymongo import MongoClient
 from dotenv import load_dotenv
@@ -26,8 +31,28 @@ from .openai_wrapper import (
     ANTHROPIC_DEFAULT_MODEL
 )
 
+# Try to import Gemini wrapper
+try:
+    from .gemini_wrapper import (
+        gemini_generate, 
+        gemini_classify_email,
+        GEMINI_AVAILABLE,
+        GEMINI_FLASH_MODEL
+    )
+except ImportError:
+    GEMINI_AVAILABLE = False
+    gemini_generate = None
+    gemini_classify_email = None
+    GEMINI_FLASH_MODEL = "gemini-1.5-flash"
+
 load_dotenv()
 logger = logging.getLogger(__name__)
+
+# AI Provider type
+AIProvider = Literal["openai", "anthropic", "gemini"]
+
+# Default provider (use Gemini for free tier)
+DEFAULT_AI_PROVIDER = os.getenv("EMAIL_CLASSIFICATION_PROVIDER", "gemini")
 
 # MongoDB connection
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
@@ -255,6 +280,59 @@ def classify_tier1_ai(
         return EmailTier1Category.OTHERS, 0.3
 
 
+def classify_tier1_gemini(
+    subject: str,
+    body: str,
+    from_email: str,
+    to_email: str = "",
+    source: str = "background"
+) -> Tuple[EmailTier1Category, float]:
+    """
+    Gemini-based Tier 1 classification using FREE Gemini 1.5 Flash.
+    Uses multi-key rotation to stay within free tier limits.
+    
+    COST: $0 (Free tier with 1000 RPD, 15 RPM per key)
+    """
+    if not GEMINI_AVAILABLE or gemini_classify_email is None:
+        logger.warning("Gemini not available, falling back to OpenAI")
+        return classify_tier1_ai(subject, body, from_email, to_email, source)
+    
+    try:
+        result = gemini_classify_email(
+            subject=subject,
+            body=body,
+            from_email=from_email,
+            to_email=to_email,
+            source=source
+        )
+        
+        if not result["success"]:
+            logger.warning(f"Gemini Tier 1 failed: {result.get('error')}")
+            return EmailTier1Category.OTHERS, 0.3
+        
+        parsed = result.get("parsed", {})
+        if not parsed:
+            try:
+                parsed = json.loads(result.get("content", "{}"))
+            except:
+                parsed = {}
+        
+        category_str = parsed.get("category", "others").lower()
+        confidence = float(parsed.get("confidence", 0.7))
+        
+        # Map to enum
+        try:
+            category = EmailTier1Category(category_str)
+        except ValueError:
+            category = EmailTier1Category.OTHERS
+        
+        return category, confidence
+        
+    except Exception as e:
+        logger.error(f"Gemini Tier 1 classification error: {e}")
+        return EmailTier1Category.OTHERS, 0.3
+
+
 def classify_tier1(
     subject: str,
     body: str,
@@ -262,6 +340,7 @@ def classify_tier1(
     to_email: str = "",
     internal_domains: List[str] = None,
     use_ai_fallback: bool = True,
+    ai_provider: AIProvider = None,
     source: str = "background"
 ) -> Dict[str, Any]:
     """
@@ -269,8 +348,15 @@ def classify_tier1(
     1. Try keyword-based first (free)
     2. If uncertain (confidence < 0.6), use AI fallback
     
+    Args:
+        ai_provider: "openai", "anthropic", or "gemini" (default: gemini for free tier)
+    
     Returns dict with category, confidence, method used
     """
+    # Use default provider if not specified
+    if ai_provider is None:
+        ai_provider = DEFAULT_AI_PROVIDER
+    
     # First try keywords (free)
     category, confidence = classify_tier1_keywords(
         subject, body, from_email, to_email, internal_domains
@@ -279,18 +365,28 @@ def classify_tier1(
     
     # If uncertain, use AI
     if confidence < 0.6 and use_ai_fallback:
-        ai_category, ai_confidence = classify_tier1_ai(
-            subject, body, from_email, to_email, source
-        )
+        # Choose AI provider
+        if ai_provider == "gemini" and GEMINI_AVAILABLE:
+            ai_category, ai_confidence = classify_tier1_gemini(
+                subject, body, from_email, to_email, source
+            )
+            ai_method = "gemini_tier1"
+        else:
+            ai_category, ai_confidence = classify_tier1_ai(
+                subject, body, from_email, to_email, source
+            )
+            ai_method = "openai_tier1"
+        
         if ai_confidence > confidence:
             category = ai_category
             confidence = ai_confidence
-            method = "ai_tier1"
+            method = ai_method
     
     return {
         "tier1_category": category.value,
         "tier1_confidence": round(confidence, 2),
         "tier1_method": method,
+        "tier1_provider": ai_provider if method != "keywords" else "none",
         "needs_tier2": category in [EmailTier1Category.CLIENT, EmailTier1Category.VENDOR]
     }
 

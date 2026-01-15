@@ -41,8 +41,9 @@ function Settings() {
     cpx_ext_user_id: "",
     cpx_secure_hash_key: "",
     cpx_api_timeout: 30,
-    openai_api_key: "",
-    anthropic_api_key: "",
+    gemini_api_keys: "",  // FREE tier - comma-separated keys
+    openai_api_key: "",   // Fallback
+    anthropic_api_key: "", // Premium
     perplexity_api_key: "",
     perplexity_enabled: false,
     perplexity_daily_limit: 200,
@@ -1434,24 +1435,37 @@ function Settings() {
               <div className="settings-group">
                 <h3>🤖 AI / LLM Settings</h3>
                 <div className="setting-row">
-                  <label>OpenAI API Key</label>
+                  <label>Gemini API Keys (FREE - Recommended)</label>
+                  <input
+                    type="password"
+                    placeholder={maskedSettings.gemini_api_keys_masked || "AIza...,AIza...,AIza..."}
+                    value={appSettings.gemini_api_keys}
+                    onChange={(e) => handleAppSettingChange("gemini_api_keys", e.target.value)}
+                  />
+                  <p className="setting-hint">
+                    <strong>FREE tier:</strong> Add 6-7 comma-separated keys for ~7000 requests/day. 
+                    Get from <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
+                  </p>
+                </div>
+                <div className="setting-row">
+                  <label>OpenAI API Key (Fallback)</label>
                   <input
                     type="password"
                     placeholder={maskedSettings.openai_api_key_masked || "sk-..."}
                     value={appSettings.openai_api_key}
                     onChange={(e) => handleAppSettingChange("openai_api_key", e.target.value)}
                   />
-                  <p className="setting-hint">Used for AI features (GPT-4o-mini). Get from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a></p>
+                  <p className="setting-hint">Fallback if Gemini fails. Costs ~$0.15/1K requests. Get from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a></p>
                 </div>
                 <div className="setting-row">
-                  <label>Anthropic API Key</label>
+                  <label>Anthropic API Key (Premium)</label>
                   <input
                     type="password"
                     placeholder={maskedSettings.anthropic_api_key_masked || "sk-ant-..."}
                     value={appSettings.anthropic_api_key}
                     onChange={(e) => handleAppSettingChange("anthropic_api_key", e.target.value)}
                   />
-                  <p className="setting-hint">Used for premium AI classification (Claude). Get from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Anthropic Console</a></p>
+                  <p className="setting-hint">For premium AI tasks only. Costs ~$3/1K requests. Get from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Anthropic Console</a></p>
                 </div>
                 <div className="setting-row">
                   <label>Perplexity API Key</label>

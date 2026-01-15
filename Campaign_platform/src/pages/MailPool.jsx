@@ -344,10 +344,12 @@ function MailPool() {
               // Update signature map with Gmail API data
               const updatedSigMap = { ...sigMap }
               sigData.signatures.forEach(sig => {
-                if (sig.sendAsEmail && sig.signature) {
-                  updatedSigMap[sig.sendAsEmail] = sig.signature
+                // API returns 'email' and 'signature_html' fields
+                if (sig.email && sig.signature_html) {
+                  updatedSigMap[sig.email] = sig.signature_html
                 }
               })
+              console.log("Loaded signatures for:", Object.keys(updatedSigMap))
               setSignatures(updatedSigMap)
             }
           } catch (sigErr) {
