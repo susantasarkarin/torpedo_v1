@@ -306,11 +306,20 @@ export default function SurveyPool() {
     return 'N/A';
   };
 
-  // Get LOI (Length of Interview) in minutes - use length_of_interview field
+  // Get LOI (Length of Interview) in minutes - check all possible field names
   const getLOI = (survey) => {
-    // Use length_of_interview as primary field
-    const loi = survey.length_of_interview || survey.loi || survey.bid_length_of_interview;
-    return (loi && loi > 0) ? loi : 'N/A';
+    // Check all possible LOI field names
+    const loi = survey.loi || 
+                survey.length_of_interview || 
+                survey.bid_length_of_interview ||
+                survey.LOI ||
+                survey.survey_loi;
+    
+    // Ensure it's a valid number
+    if (loi !== undefined && loi !== null && !isNaN(loi) && loi > 0) {
+      return Math.round(loi);
+    }
+    return 'N/A';
   };
 
   // Get Payout/CPI in USD
@@ -369,6 +378,40 @@ export default function SurveyPool() {
   const getSurveyDateTime = (survey) => {
     // For CINT surveys, use received_at or last_updated_at
     return survey.received_at || survey.last_updated_at || survey.last_updated || survey.inserted_at;
+  };
+
+  // Get survey status - determines if survey is active/live
+  const getSurveyStatus = (survey) => {
+    const source = survey.source || survey.provider || '';
+    
+    // For CINT surveys, check is_active and is_live fields
+    if (source.toUpperCase() === 'CINT') {
+      if (survey.is_active === true || survey.is_live === true) {
+        return 'ACTIVE';
+      }
+      if (survey.message_reason === 'deactivated') {
+        return 'INACTIVE';
+      }
+      // Default to active if we have the survey in the pool
+      return survey.is_active !== false ? 'ACTIVE' : 'INACTIVE';
+    }
+    
+    // For CPX surveys, check if they have a valid live_link (means they're active)
+    if (source.toUpperCase() === 'CPX') {
+      // If survey has a live_link, it's active
+      if (survey.live_link && survey.live_link.length > 0) {
+        return 'ACTIVE';
+      }
+      // If survey is in the pool and passed filters, consider it active
+      return 'ACTIVE';
+    }
+    
+    // Fallback: check status/is_active fields
+    if (survey.status === 'active' || survey.is_active === true) {
+      return 'ACTIVE';
+    }
+    
+    return 'INACTIVE';
   };
 
   if (!user) {
@@ -461,8 +504,8 @@ export default function SurveyPool() {
                     <td>{stats.completes}</td>
                     <td>{formatDateTime(getSurveyDateTime(survey))}</td>
                     <td>
-                      <span className={`status-badge ${(survey.status === 'active' || survey.is_active) ? 'active' : 'inactive'}`}>
-                        {(survey.status === 'active' || survey.is_active) ? 'active' : 'inactive'}
+                      <span className={`status-badge ${getSurveyStatus(survey) === 'ACTIVE' ? 'active' : 'inactive'}`}>
+                        {getSurveyStatus(survey)}
                       </span>
                     </td>
                   </tr>
@@ -593,8 +636,8 @@ export default function SurveyPool() {
                 </div>
                 <div className="detail-item">
                   <span className="detail-label">Status</span>
-                  <span className={`status-badge ${selectedSurvey.is_active || selectedSurvey.is_live ? 'active' : 'inactive'}`}>
-                    {selectedSurvey.is_active || selectedSurvey.is_live ? '✅ Active' : '❌ Inactive'}
+                  <span className={`status-badge ${getSurveyStatus(selectedSurvey) === 'ACTIVE' ? 'active' : 'inactive'}`}>
+                    {getSurveyStatus(selectedSurvey) === 'ACTIVE' ? '✅ Active' : '❌ Inactive'}
                   </span>
                 </div>
                 <div className="detail-item">

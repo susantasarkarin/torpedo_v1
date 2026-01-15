@@ -89,7 +89,7 @@ load_dotenv()
 # Config
 # ----------------------------
 #changes 4
-API_BASE = os.getenv("API_BASE", "http://34.14.202.129:8000")
+API_BASE = os.getenv("API_BASE", "http://34.41.181.74:8000")
 # CINT webhook callback URL (must be publicly accessible for CINT servers)
 # Use torpedo.cogentixresearch.com as the production domain
 CINT_WEBHOOK_CALLBACK_URL = os.getenv("CINT_WEBHOOK_CALLBACK_URL", "https://torpedo.cogentixresearch.com/api/cint/webhooks/opportunities") 
@@ -101,7 +101,7 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # CORS Origins - comma-separated list
 CORS_ORIGINS = os.getenv(
     "CORS_ORIGINS", 
-    "http://localhost:5173,http://localhost:5174,http://localhost:3000,http://localhost:9945,http://34.14.202.129,https://www.surveyieldwork.com,https://surveyieldwork.com"
+    "http://localhost:5173,http://localhost:5174,http://localhost:3000,http://localhost:9945,http://34.41.181.74,https://www.surveyieldwork.com,https://surveyieldwork.com"
 ).split(",")
 
 # ----------------------------

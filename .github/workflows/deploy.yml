@@ -17,16 +17,16 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.GCP_VM_IP }}
-          username: santoshpradhan
+          username: susanta
           key: ${{ secrets.GCP_SSH_KEY }}
           script: |
-            cd ~/campaign_platform
+            cd /var/www/campaign_platform
             git fetch origin main
             git reset --hard origin/main
-            source ~/campaign_platform/backend/venv/bin/activate
-            pip install -r ~/campaign_platform/backend/requirements.txt
-            sudo systemctl restart backend
-            cd ~/campaign_platform/Campaign_platform
+            source /var/www/campaign_platform/backend/venv/bin/activate
+            pip install -r /var/www/campaign_platform/backend/requirements.txt
+            sudo systemctl restart campaign-backend
+            cd /var/www/campaign_platform/Campaign_platform
             npm install
             npm run build
             sudo systemctl restart frontend

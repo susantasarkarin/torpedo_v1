@@ -1,8 +1,7 @@
 import { useState, useRef, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import Papa from "papaparse"
-
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000"
+import { API_BASE_URL as API_BASE } from "../../config"
 
 // Database fields for contacts
 const DB_FIELDS = [
