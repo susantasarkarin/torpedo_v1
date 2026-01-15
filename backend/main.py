@@ -744,6 +744,7 @@ def background_gmail_sync():
     """
     Background job to sync emails for all registered mailboxes.
     Runs every 5 minutes to pull new emails without human intervention.
+    Also auto-classifies new emails using Gemini and extracts leads.
     """
     try:
         print(f"🔄 [Gmail] Starting background sync at {datetime.utcnow().isoformat()}")
@@ -770,6 +771,25 @@ def background_gmail_sync():
                     print(f"   ⚠️ {mb['email']}: sync error - {e}")
             
             print(f"✅ [Gmail] Background sync complete: {total_synced} new emails across {len(mailboxes)} mailboxes")
+            
+            # Auto-classify new emails if any were synced
+            if total_synced > 0:
+                try:
+                    from leads.gemini_email_classifier import classify_pending_emails
+                    print(f"🤖 [AI] Starting auto-classification of {min(total_synced, 100)} emails...")
+                    classify_result = classify_pending_emails(
+                        limit=min(total_synced, 100),  # Limit to 100 per batch
+                        source="background"
+                    )
+                    if classify_result.get("success"):
+                        print(f"✅ [AI] Classified {classify_result.get('classified', 0)} emails, extracted {classify_result.get('leads_extracted', 0)} leads")
+                    else:
+                        print(f"⚠️ [AI] Classification: {classify_result.get('error', 'Unknown error')}")
+                except ImportError:
+                    print("⚠️ [AI] Gemini classifier not available")
+                except Exception as classify_err:
+                    print(f"⚠️ [AI] Classification error: {classify_err}")
+                    
         except ImportError:
             print("⚠️ [Gmail] Gmail Workspace Service not available")
         except Exception as e:

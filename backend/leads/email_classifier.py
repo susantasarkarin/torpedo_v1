@@ -557,14 +557,27 @@ def classify_email_batch(
     email_ids: List[str],
     run_tier2: bool = True,
     internal_domains: List[str] = None,
-    source: str = "background"
+    source: str = "background",
+    extract_leads: bool = True
 ) -> Dict[str, Any]:
     """
     Batch classification of emails from database.
+    Uses Gemini 1.5 Flash (FREE) for classification.
+    Extracts leads for client/vendor emails into Sales > Leads.
     
     Returns summary with counts and individual results.
     """
     from bson import ObjectId
+    
+    # Import lead extraction if enabled
+    lead_extractor = None
+    if extract_leads:
+        try:
+            from .gemini_email_classifier import create_lead_from_email, extract_name_parts, extract_domain_from_email
+            lead_extractor = True
+        except ImportError:
+            logger.warning("Lead extraction not available - gemini_email_classifier not found")
+            lead_extractor = False
     
     results = []
     stats = {
@@ -572,6 +585,7 @@ def classify_email_batch(
         "processed": 0,
         "tier1_only": 0,
         "tier2_analyzed": 0,
+        "leads_extracted": 0,
         "errors": 0,
         "by_category": {}
     }
@@ -614,6 +628,9 @@ def classify_email_batch(
                 "ai_classified_at": datetime.utcnow()
             }
             
+            # Track category early for lead extraction logic
+            cat = classification.get("tier1_category", "others")
+            
             # Add tier 2 fields if available
             if classification.get("tier2_intent"):
                 update_fields.update({
@@ -629,6 +646,51 @@ def classify_email_batch(
                 stats["tier2_analyzed"] += 1
             else:
                 stats["tier1_only"] += 1
+            
+            # Extract leads for client/vendor emails
+            if lead_extractor and cat in ["client", "vendor"]:
+                try:
+                    # Use Gemini to extract lead info
+                    from .gemini_wrapper import gemini_extract_lead
+                    lead_result = gemini_extract_lead(
+                        email_content=body[:1500],
+                        sender_email=from_email,
+                        source=source
+                    )
+                    
+                    if lead_result.get("success") and lead_result.get("parsed"):
+                        parsed = lead_result["parsed"]
+                        full_name = parsed.get("full_name", "")
+                        first_name = parsed.get("first_name", "")
+                        last_name = parsed.get("last_name", "")
+                        
+                        if not first_name and not last_name and full_name:
+                            first_name, last_name = extract_name_parts(full_name)
+                        
+                        email_addr = parsed.get("email", "") or from_email
+                        
+                        lead_create = create_lead_from_email(
+                            full_name=full_name,
+                            first_name=first_name,
+                            last_name=last_name,
+                            email=email_addr,
+                            website=parsed.get("website", ""),
+                            domain=parsed.get("domain", "") or extract_domain_from_email(email_addr),
+                            source_email_id=email_id,
+                            title=parsed.get("title", ""),
+                            company_name=parsed.get("company_name", ""),
+                            phone=parsed.get("phone", ""),
+                            linkedin_url=parsed.get("linkedin_url", ""),
+                            confidence=classification.get("tier1_confidence", 0.7)
+                        )
+                        
+                        if lead_create.get("success"):
+                            stats["leads_extracted"] += 1
+                            update_fields["extracted_lead_id"] = lead_create.get("lead_id")
+                            classification["lead_extracted"] = True
+                            classification["lead_id"] = lead_create.get("lead_id")
+                except Exception as lead_err:
+                    logger.warning(f"Lead extraction failed for {email_id}: {lead_err}")
             
             email_metadata.update_one(
                 {"_id": ObjectId(email_id)},
