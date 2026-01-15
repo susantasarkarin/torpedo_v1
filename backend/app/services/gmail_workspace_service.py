@@ -861,3 +861,154 @@ class GmailWorkspaceService:
                 for m in mailboxes
             ]
         }
+    
+    # =========================================================================
+    # SEND EMAIL via Gmail API
+    # =========================================================================
+    
+    def send_email(
+        self,
+        from_email: str,
+        to: List[str],
+        subject: str,
+        body_html: str,
+        body_plain: Optional[str] = None,
+        cc: Optional[List[str]] = None,
+        bcc: Optional[List[str]] = None,
+        reply_to_message_id: Optional[str] = None,
+        thread_id: Optional[str] = None,
+        signature_html: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Send email via Gmail API using domain-wide delegation.
+        
+        Args:
+            from_email: Sender email (must be a configured mailbox or alias)
+            to: List of recipient emails
+            subject: Email subject
+            body_html: HTML body content
+            body_plain: Plain text body (optional)
+            cc: CC recipients (optional)
+            bcc: BCC recipients (optional)
+            reply_to_message_id: For threading replies
+            thread_id: Gmail thread ID for replies
+            signature_html: Email signature HTML to append
+        
+        Returns:
+            Dict with success status and message_id or error
+        """
+        import base64
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        
+        try:
+            # Find the mailbox for this sender
+            mailbox = self.mailboxes.find_one({
+                "$or": [
+                    {"email": from_email.lower()},
+                    {"aliases.email": from_email.lower()},
+                    {"aliases": from_email.lower()}  # Handle string aliases
+                ],
+                "is_active": True
+            })
+            
+            if not mailbox:
+                return {
+                    "success": False,
+                    "error": f"No active mailbox found for {from_email}"
+                }
+            
+            # Get Gmail service for this mailbox
+            gmail = self._get_service(mailbox["email"])
+            
+            # Append signature if provided
+            final_body_html = body_html
+            final_body_plain = body_plain or ""
+            
+            if signature_html:
+                final_body_html = body_html + "<br><br>" + signature_html
+                # Strip HTML for plain text signature
+                import re
+                sig_plain = re.sub(r'<[^>]+>', '', signature_html)
+                final_body_plain = (body_plain or "") + "\n\n" + sig_plain
+            
+            # Create message
+            msg = MIMEMultipart("alternative")
+            msg["To"] = ", ".join(to)
+            msg["From"] = from_email
+            msg["Subject"] = subject
+            
+            if cc:
+                msg["Cc"] = ", ".join(cc)
+            
+            # Add reply headers for threading
+            if reply_to_message_id:
+                msg["In-Reply-To"] = reply_to_message_id
+                msg["References"] = reply_to_message_id
+            
+            # Add body parts (plain first, then HTML for proper rendering)
+            if final_body_plain:
+                msg.attach(MIMEText(final_body_plain, "plain"))
+            msg.attach(MIMEText(final_body_html, "html"))
+            
+            # Encode for Gmail API
+            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+            
+            # Build request body
+            send_body = {"raw": raw}
+            if thread_id:
+                send_body["threadId"] = thread_id
+            
+            # Send via Gmail API
+            result = gmail.users().messages().send(
+                userId="me",
+                body=send_body
+            ).execute()
+            
+            sent_message_id = result.get("id")
+            
+            # Store the sent email in our database
+            sent_doc = {
+                "mailbox_id": str(mailbox["_id"]),
+                "provider_message_id": sent_message_id,
+                "provider_thread_id": result.get("threadId", thread_id),
+                "direction": "outbound",
+                "from_address": {"email": from_email, "name": mailbox.get("display_name", "")},
+                "to_addresses": [{"email": e, "name": ""} for e in to],
+                "cc_addresses": [{"email": e, "name": ""} for e in (cc or [])],
+                "subject": subject,
+                "body_plain": final_body_plain,
+                "body_html": final_body_html,
+                "snippet": (body_plain or body_html[:200])[:200],
+                "timestamp": datetime.utcnow(),
+                "labels": ["SENT"],
+                "has_attachments": False,
+                "attachment_count": 0,
+                "synced_at": datetime.utcnow(),
+                "processed": True,
+                "is_read": True
+            }
+            self.emails.insert_one(sent_doc)
+            
+            logger.info(f"Email sent successfully via Gmail API from {from_email} to {to}")
+            
+            return {
+                "success": True,
+                "message_id": sent_message_id,
+                "thread_id": result.get("threadId"),
+                "from": from_email,
+                "to": to
+            }
+            
+        except HttpError as e:
+            logger.error(f"Gmail API error sending email: {e}")
+            return {
+                "success": False,
+                "error": f"Gmail API error: {str(e)}"
+            }
+        except Exception as e:
+            logger.error(f"Error sending email: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }

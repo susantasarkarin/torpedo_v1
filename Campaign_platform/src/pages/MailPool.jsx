@@ -372,14 +372,33 @@ function MailPool() {
   const fetchEmailThread = async (emailId) => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      // Try to fetch thread first
+      // First get the email to find its thread_id
       const res = await fetch(`${API_BASE_URL}/gmail/mail-pool/emails/${emailId}`, {
         headers: { Authorization: sessionId },
       })
       const data = await res.json()
       if (data.success) {
         setSelectedEmail(data.email)
-        setEmailThread([data.email])
+        
+        // If email has a thread_id, fetch all emails in the thread
+        if (data.email.thread_id) {
+          try {
+            const threadRes = await fetch(`${API_BASE_URL}/gmail/mail-pool/thread/${data.email.thread_id}`, {
+              headers: { Authorization: sessionId },
+            })
+            const threadData = await threadRes.json()
+            if (threadData.success && threadData.emails?.length > 0) {
+              setEmailThread(threadData.emails)
+            } else {
+              setEmailThread([data.email])
+            }
+          } catch (threadErr) {
+            console.error("Error fetching thread:", threadErr)
+            setEmailThread([data.email])
+          }
+        } else {
+          setEmailThread([data.email])
+        }
         setViewMode("email")
       }
     } catch (e) {
@@ -468,7 +487,11 @@ function MailPool() {
     try {
       const recipients = composeData.to.split(",").map(e => e.trim()).filter(e => e)
       
-      const res = await fetch(`${API_BASE_URL}/gmail/imap/send`, {
+      // Get signature HTML for selected alias
+      const signatureHtml = signatures[selectedAlias] || null
+      
+      // Use Gmail API endpoint (not IMAP/SMTP)
+      const res = await fetch(`${API_BASE_URL}/gmail-ws/send`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -477,11 +500,14 @@ function MailPool() {
         body: JSON.stringify({
           to: recipients,
           subject: composeData.subject,
-          body: composeData.body + (signatures[selectedAlias] ? `\n\n${signatures[selectedAlias].replace(/<[^>]*>/g, '')}` : ""),
-          html_body: composeData.body.replace(/\n/g, "<br>") + (signatures[selectedAlias] ? `<br><br>${signatures[selectedAlias]}` : ""),
+          body: composeData.body,
+          html_body: composeData.body.replace(/\n/g, "<br>"),
           from_email: selectedAlias || null,
           cc: [],
-          bcc: []
+          bcc: [],
+          signature_html: signatureHtml,
+          reply_to_message_id: composeData.replyTo?.message_id || null,
+          thread_id: composeData.replyTo?.thread_id || null
         }),
       })
 
@@ -494,7 +520,7 @@ function MailPool() {
         // Refresh emails to show sent email
         fetchEmails(1)
       } else {
-        alert(`Failed to send: ${data.detail || "Unknown error"}`)
+        alert(`Failed to send: ${data.detail || data.error || "Unknown error"}`)
       }
     } catch (e) {
       console.error("Error sending email:", e)

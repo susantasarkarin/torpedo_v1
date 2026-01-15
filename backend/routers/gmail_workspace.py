@@ -575,6 +575,82 @@ async def get_stats():
 
 
 # ============================================
+# SEND EMAIL via Gmail API
+# ============================================
+
+class SendEmailRequest(BaseModel):
+    """Send email request"""
+    to: List[EmailStr] = Field(..., description="Recipient emails")
+    subject: str = Field(..., description="Email subject")
+    body: str = Field(..., description="Email body (plain text)")
+    html_body: Optional[str] = Field(None, description="HTML body (optional)")
+    from_email: Optional[str] = Field(None, description="Sender email (must be configured mailbox or alias)")
+    cc: List[EmailStr] = Field(default=[], description="CC recipients")
+    bcc: List[EmailStr] = Field(default=[], description="BCC recipients")
+    signature_html: Optional[str] = Field(None, description="Email signature HTML to append")
+    reply_to_message_id: Optional[str] = Field(None, description="For threading replies")
+    thread_id: Optional[str] = Field(None, description="Gmail thread ID for replies")
+
+
+@router.post("/send")
+async def send_email(request: Request, send_request: SendEmailRequest):
+    """
+    Send email via Gmail API using domain-wide delegation.
+    
+    This uses the Gmail API directly - no IMAP/SMTP required.
+    The sender email must be a configured mailbox or alias.
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        service = get_gmail_service()
+        
+        if not service.is_configured():
+            raise HTTPException(
+                status_code=400, 
+                detail="Gmail Workspace service not configured. Please set up service account credentials."
+            )
+        
+        # Use provided from_email or find the first active mailbox
+        from_email = send_request.from_email
+        if not from_email:
+            mailboxes = service.list_mailboxes()
+            if not mailboxes:
+                raise HTTPException(status_code=400, detail="No mailboxes configured")
+            from_email = mailboxes[0]["email"]
+        
+        # Build HTML body
+        html_body = send_request.html_body or send_request.body.replace("\n", "<br>")
+        
+        # Send email
+        result = service.send_email(
+            from_email=from_email,
+            to=send_request.to,
+            subject=send_request.subject,
+            body_html=html_body,
+            body_plain=send_request.body,
+            cc=send_request.cc,
+            bcc=send_request.bcc,
+            reply_to_message_id=send_request.reply_to_message_id,
+            thread_id=send_request.thread_id,
+            signature_html=send_request.signature_html
+        )
+        
+        if not result["success"]:
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to send email"))
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending email: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
 # Legacy Compatibility (for old OAuth routes)
 # ============================================
 

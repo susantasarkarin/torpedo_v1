@@ -2290,6 +2290,91 @@ async def get_mail_pool_email_detail(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/mail-pool/thread/{thread_id}")
+async def get_mail_pool_thread(
+    request: Request,
+    thread_id: str
+):
+    """
+    Get all emails in a conversation thread.
+    Returns emails sorted by date (oldest first for proper conversation flow).
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        # Find all emails with this thread_id
+        thread_emails = list(mail_pool_emails.find({
+            "provider_thread_id": thread_id
+        }).sort("timestamp", 1))  # Sort oldest first
+        
+        if not thread_emails:
+            raise HTTPException(status_code=404, detail="Thread not found")
+        
+        formatted_emails = []
+        for email_doc in thread_emails:
+            # Get from_address
+            from_addr = email_doc.get("from_address", {})
+            if isinstance(from_addr, dict):
+                from_email = from_addr.get("email", "")
+                from_name = from_addr.get("name", "")
+            else:
+                from_email, from_name = parse_email_address(str(from_addr))
+            
+            # Get to addresses
+            to_addresses = email_doc.get("to_addresses", [])
+            to_email = ", ".join([addr.get("email", "") for addr in to_addresses]) if to_addresses else ""
+            
+            # Get direction
+            email_direction = email_doc.get("direction", "inbound")
+            if email_direction == "inbound":
+                email_direction = "inbox"
+            elif email_direction == "outbound":
+                email_direction = "outbox"
+            
+            # Get body content
+            body_plain = email_doc.get("body_plain", "")
+            body_html = email_doc.get("body_html", "")
+            cleaned_body = clean_email_body(body_plain) if body_plain else ""
+            
+            labels = email_doc.get("labels", [])
+            timestamp = email_doc.get("timestamp")
+            
+            formatted_emails.append({
+                "id": str(email_doc["_id"]),
+                "email": from_email,
+                "name": from_name,
+                "to_email": to_email,
+                "subject": email_doc.get("subject", "(no subject)"),
+                "body": cleaned_body,
+                "body_html": body_html,
+                "snippet": email_doc.get("snippet", cleaned_body[:200] if cleaned_body else ""),
+                "added_on": timestamp.isoformat() if timestamp else "",
+                "date": timestamp.isoformat() if timestamp else "",
+                "direction": email_direction,
+                "message_id": email_doc.get("provider_message_id", ""),
+                "thread_id": email_doc.get("provider_thread_id", ""),
+                "is_starred": "STARRED" in str(labels).upper(),
+                "is_read": email_doc.get("is_read", "UNREAD" not in str(labels).upper()),
+                "attachments": email_doc.get("attachments", []),
+                "has_attachments": email_doc.get("has_attachments", False)
+            })
+        
+        return {
+            "success": True,
+            "thread_id": thread_id,
+            "email_count": len(formatted_emails),
+            "emails": formatted_emails
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching thread: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/mail-pool/contact")
 async def get_mail_pool_contact(
     request: Request,
@@ -2508,11 +2593,11 @@ async def get_mail_pool_conversations(
 
 
 # ============================================
-# IMAP/SMTP Send Endpoint
+# IMAP/SMTP Send Endpoint (DEPRECATED - Use /gmail-ws/send)
 # ============================================
 
 class ImapSendRequest(BaseModel):
-    """Model for sending email via IMAP account's SMTP"""
+    """Model for sending email via IMAP account's SMTP (DEPRECATED)"""
     to: List[str] = Field(..., description="Recipient email addresses")
     subject: str = Field(..., description="Email subject")
     body: str = Field(..., description="Email body (plain text)")
@@ -2520,156 +2605,61 @@ class ImapSendRequest(BaseModel):
     cc: List[str] = Field(default=[], description="CC recipients")
     bcc: List[str] = Field(default=[], description="BCC recipients")
     from_email: Optional[str] = Field(None, description="Sender email (must be from mailbox)")
+    signature_html: Optional[str] = Field(None, description="Email signature HTML")
 
 
 @router.post("/imap/send")
 async def send_email_imap(send_request: ImapSendRequest, request: Request):
     """
-    Send an email using IMAP account's SMTP credentials.
-    Uses the mailbox from email_automation.mailboxes or workspace_mailboxes collection.
-    """
-    import smtplib
-    from email.mime.text import MIMEText
-    from email.mime.multipart import MIMEMultipart
-    from datetime import datetime
+    DEPRECATED: Use /gmail-ws/send instead.
     
+    This endpoint now redirects to the Gmail API send endpoint.
+    IMAP/SMTP is no longer used for sending emails.
+    """
+    # Forward to Gmail API send endpoint
     try:
         session_id = request.headers.get("Authorization")
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
         
-        # Get the mailbox to send from - check both IMAP and Workspace mailboxes
-        mailbox = None
-        mailbox_type = "imap"  # Track which type we found
+        # Import Gmail Workspace service
+        from app.services.gmail_workspace_service import GmailWorkspaceService
         
-        if send_request.from_email:
-            # First try IMAP mailboxes
-            mailbox = mail_pool_mailboxes.find_one({
-                "email": send_request.from_email,
-                "is_active": True
-            })
-            
-            # If not found, try Gmail Workspace mailboxes
-            if not mailbox:
-                mailbox = mail_pool_workspace_mailboxes.find_one({
-                    "email": send_request.from_email,
-                    "is_active": True
-                })
-                if mailbox:
-                    mailbox_type = "workspace"
-            
-            # Also check aliases in workspace mailboxes
-            if not mailbox:
-                mailbox = mail_pool_workspace_mailboxes.find_one({
-                    "aliases.email": send_request.from_email,
-                    "is_active": True
-                })
-                if mailbox:
-                    mailbox_type = "workspace"
+        service = GmailWorkspaceService()
         
-        # If no specific mailbox, get the default or first active one from either collection
-        if not mailbox:
-            mailbox = mail_pool_mailboxes.find_one({"is_default": True, "is_active": True})
-        if not mailbox:
-            mailbox = mail_pool_workspace_mailboxes.find_one({"is_default": True, "is_active": True})
-            if mailbox:
-                mailbox_type = "workspace"
-        if not mailbox:
-            mailbox = mail_pool_mailboxes.find_one({"is_active": True})
-        if not mailbox:
-            mailbox = mail_pool_workspace_mailboxes.find_one({"is_active": True})
-            if mailbox:
-                mailbox_type = "workspace"
+        if not service.is_configured():
+            raise HTTPException(
+                status_code=400, 
+                detail="Gmail Workspace service not configured. Please set up service account credentials."
+            )
         
-        if not mailbox:
-            raise HTTPException(status_code=400, detail="No active mailbox configured. Please add a mailbox in Gmail Setup.")
+        # Use provided from_email or find the first active mailbox
+        from_email = send_request.from_email
+        if not from_email:
+            mailboxes = service.list_mailboxes()
+            if not mailboxes:
+                raise HTTPException(status_code=400, detail="No mailboxes configured")
+            from_email = mailboxes[0]["email"]
         
-        # Get SMTP credentials based on mailbox type
-        if mailbox_type == "workspace":
-            # Gmail Workspace uses OAuth, need to use Gmail API for sending
-            # For now, try to use app password if configured
-            credentials = mailbox.get("credentials", {})
-            if not credentials:
-                credentials = {}
-            smtp_server = credentials.get("smtp_server", "smtp.gmail.com")
-        else:
-            credentials = mailbox.get("credentials", {})
-            smtp_server = credentials.get("smtp_server", "smtp.gmail.com")
-        smtp_port = credentials.get("smtp_port", 587)
-        password = credentials.get("imap_password")  # Same password for SMTP
-        sender_email = mailbox["email"]
-        sender_name = mailbox.get("display_name", "")
+        # Build HTML body
+        html_body = send_request.html_body or send_request.body.replace("\n", "<br>")
         
-        if not password:
-            raise HTTPException(status_code=400, detail="SMTP credentials not configured")
+        # Send email via Gmail API
+        result = service.send_email(
+            from_email=from_email,
+            to=send_request.to,
+            subject=send_request.subject,
+            body_html=html_body,
+            body_plain=send_request.body,
+            cc=send_request.cc,
+            bcc=send_request.bcc,
+            signature_html=send_request.signature_html
+        )
         
-        # Build the email
-        if send_request.html_body:
-            msg = MIMEMultipart("alternative")
-            msg.attach(MIMEText(send_request.body, "plain"))
-            msg.attach(MIMEText(send_request.html_body, "html"))
-        else:
-            msg = MIMEMultipart()
-            msg.attach(MIMEText(send_request.body, "plain"))
+        if not result["success"]:
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to send email"))
         
-        # Set headers
-        if sender_name:
-            msg["From"] = f"{sender_name} <{sender_email}>"
-        else:
-            msg["From"] = sender_email
-        msg["To"] = ", ".join(send_request.to)
-        msg["Subject"] = send_request.subject
-        
-        if send_request.cc:
-            msg["Cc"] = ", ".join(send_request.cc)
-        
-        # All recipients for SMTP
-        all_recipients = send_request.to + send_request.cc + send_request.bcc
-        
-        # Send via SMTP
-        try:
-            with smtplib.SMTP(smtp_server, smtp_port, timeout=30) as server:
-                server.starttls()
-                server.login(sender_email, password)
-                server.sendmail(sender_email, all_recipients, msg.as_string())
-                
-            logger.info(f"Email sent successfully from {sender_email} to {send_request.to}")
-            
-            # Store the sent email in the emails collection for tracking
-            sent_doc = {
-                "mailbox_id": str(mailbox["_id"]),
-                "direction": "outbound",
-                "from_address": {"email": sender_email, "name": sender_name},
-                "to_addresses": [{"email": e, "name": ""} for e in send_request.to],
-                "cc_addresses": [{"email": e, "name": ""} for e in send_request.cc],
-                "bcc_addresses": [{"email": e, "name": ""} for e in send_request.bcc],
-                "subject": send_request.subject,
-                "body_plain": send_request.body,
-                "body_html": send_request.html_body or "",
-                "snippet": send_request.body[:200] if send_request.body else "",
-                "timestamp": datetime.utcnow(),
-                "labels": ["Sent"],
-                "has_attachments": False,
-                "attachment_count": 0,
-                "synced_at": datetime.utcnow(),
-                "processed": True,
-                "provider_message_id": f"sent_{datetime.utcnow().timestamp()}",
-            }
-            mail_pool_emails.insert_one(sent_doc)
-            
-            return {
-                "success": True,
-                "message": "Email sent successfully",
-                "from": sender_email,
-                "to": send_request.to
-            }
-            
-        except smtplib.SMTPAuthenticationError as e:
-            logger.error(f"SMTP auth failed: {e}")
-            raise HTTPException(status_code=401, detail="SMTP authentication failed. Check credentials.")
-        except smtplib.SMTPException as e:
-            logger.error(f"SMTP error: {e}")
-            raise HTTPException(status_code=500, detail=f"SMTP error: {str(e)}")
+        return result
         
     except HTTPException:
         raise
