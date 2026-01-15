@@ -49,9 +49,9 @@ logger = logging.getLogger(__name__)
 # ============== CONFIGURATION ==============
 
 # Available Gemini models
-GEMINI_FLASH_MODEL = "gemini-2.5-flash-preview-05-20"  # Latest 2.5 Flash - best for classification
+GEMINI_FLASH_MODEL = "gemini-2.5-flash-lite"  # Fast, efficient, good for classification
 GEMINI_PRO_MODEL = "gemini-2.5-pro"       # More capable for complex extraction
-GEMINI_FLASH_PREVIEW = "gemini-2.5-flash-preview-05-20"  # Latest flash preview
+GEMINI_FLASH_PREVIEW = "gemini-2.5-flash"  # Latest flash preview
 
 # Default model for email classification
 DEFAULT_GEMINI_MODEL = GEMINI_FLASH_MODEL
