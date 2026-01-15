@@ -2151,7 +2151,7 @@ async def get_mail_pool_email_detail(
 ):
     """
     Get detailed information about a specific email in the Mail Pool
-    Uses email_automation.emails collection (new sync system)
+    Uses torpedo_gmail.email_metadata collection and fetches body from Gmail API
     """
     try:
         session_id = request.headers.get("Authorization")
@@ -2168,22 +2168,29 @@ async def get_mail_pool_email_detail(
         if not email_doc:
             raise HTTPException(status_code=404, detail="Email not found")
         
-        # Get from_address (new schema stores as dict with email/name)
-        from_addr = email_doc.get("from_address", {})
-        if isinstance(from_addr, dict):
-            from_email = from_addr.get("email", "")
-            from_name = from_addr.get("name", "")
+        # Handle both old nested schema and new flat schema
+        # New flat schema: from_email, from_name, to_emails (direct fields)
+        # Old nested schema: from_address.email, from_address.name, to_addresses
+        if "from_email" in email_doc:
+            # New flat schema (torpedo_gmail.email_metadata)
+            from_email = email_doc.get("from_email", "")
+            from_name = email_doc.get("from_name", "")
+            to_emails = email_doc.get("to_emails", [])
+            to_names = ", ".join(to_emails) if to_emails else ""
+            cc_emails = email_doc.get("cc_emails", [])
+            cc_str = ", ".join(cc_emails) if cc_emails else ""
         else:
-            from_email, from_name = parse_email_address(str(from_addr))
-        
-        # Get to addresses
-        to_addresses = email_doc.get("to_addresses", [])
-        to_email = to_addresses[0].get("email", "") if to_addresses else ""
-        to_names = ", ".join([addr.get("email", "") for addr in to_addresses]) if to_addresses else ""
-        
-        # Get CC addresses
-        cc_addresses = email_doc.get("cc_addresses", [])
-        cc_str = ", ".join([addr.get("email", "") for addr in cc_addresses]) if cc_addresses else ""
+            # Old nested schema (email_automation.emails)
+            from_addr = email_doc.get("from_address", {})
+            if isinstance(from_addr, dict):
+                from_email = from_addr.get("email", "")
+                from_name = from_addr.get("name", "")
+            else:
+                from_email, from_name = parse_email_address(str(from_addr))
+            to_addresses = email_doc.get("to_addresses", [])
+            to_names = ", ".join([addr.get("email", "") for addr in to_addresses]) if to_addresses else ""
+            cc_addresses = email_doc.get("cc_addresses", [])
+            cc_str = ", ".join([addr.get("email", "") for addr in cc_addresses]) if cc_addresses else ""
         
         # Get direction
         email_direction = email_doc.get("direction", "inbound")
@@ -2192,9 +2199,85 @@ async def get_mail_pool_email_detail(
         elif email_direction == "outbound":
             email_direction = "outbox"
         
-        # Get body content
-        body_plain = email_doc.get("body_plain", "")
-        body_html = email_doc.get("body_html", "")
+        # Get body content from stored data
+        body_plain = email_doc.get("body_plain", "") or ""
+        body_html = email_doc.get("body_html", "") or ""
+        
+        # If body is empty, try to fetch from Gmail API
+        gmail_message_id = email_doc.get("gmail_message_id", "")
+        mailbox_id = email_doc.get("mailbox_id", "")
+        
+        if not body_html and not body_plain and gmail_message_id and mailbox_id:
+            try:
+                from app.services.gmail_workspace_service import GmailWorkspaceService
+                
+                service = GmailWorkspaceService()
+                if service.is_configured():
+                    # Get the mailbox to find the email address for delegation
+                    mailbox = mail_pool_workspace_mailboxes.find_one({"_id": ObjectId(mailbox_id)})
+                    if mailbox:
+                        user_email = mailbox.get("email", "")
+                        if user_email:
+                            # Fetch full email from Gmail API
+                            gmail_service = service._get_gmail_service(user_email)
+                            if gmail_service:
+                                msg = gmail_service.users().messages().get(
+                                    userId='me',
+                                    id=gmail_message_id,
+                                    format='full'
+                                ).execute()
+                                
+                                # Extract body from message parts
+                                def get_body_from_parts(parts):
+                                    html_body = ""
+                                    plain_body = ""
+                                    for part in parts:
+                                        mime_type = part.get("mimeType", "")
+                                        if mime_type == "text/html":
+                                            data = part.get("body", {}).get("data", "")
+                                            if data:
+                                                import base64
+                                                html_body = base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+                                        elif mime_type == "text/plain":
+                                            data = part.get("body", {}).get("data", "")
+                                            if data:
+                                                import base64
+                                                plain_body = base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+                                        elif "parts" in part:
+                                            nested_html, nested_plain = get_body_from_parts(part["parts"])
+                                            if nested_html:
+                                                html_body = nested_html
+                                            if nested_plain:
+                                                plain_body = nested_plain
+                                    return html_body, plain_body
+                                
+                                payload = msg.get("payload", {})
+                                parts = payload.get("parts", [])
+                                
+                                if parts:
+                                    body_html, body_plain = get_body_from_parts(parts)
+                                else:
+                                    # Single part message
+                                    mime_type = payload.get("mimeType", "")
+                                    data = payload.get("body", {}).get("data", "")
+                                    if data:
+                                        import base64
+                                        decoded = base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+                                        if mime_type == "text/html":
+                                            body_html = decoded
+                                        else:
+                                            body_plain = decoded
+                                
+                                # Cache the body in the database for future requests
+                                if body_html or body_plain:
+                                    mail_pool_emails.update_one(
+                                        {"_id": email_doc["_id"]},
+                                        {"$set": {"body_html": body_html, "body_plain": body_plain}}
+                                    )
+                                    logger.info(f"Fetched and cached email body for {gmail_message_id}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch email body from Gmail API: {e}")
+        
         cleaned_body = clean_email_body(body_plain) if body_plain else ""
         
         # Get category and labels
@@ -2213,10 +2296,7 @@ async def get_mail_pool_email_detail(
         ai_summary = email_doc.get("ai_summary", "")
         if not ai_summary and cleaned_body and len(cleaned_body.strip()) > 50:
             try:
-                # Import the AI summary function
                 from leads.ai_classifier import generate_single_email_summary
-                
-                # Generate summary
                 subject = email_doc.get("subject", "")
                 ai_summary = generate_single_email_summary(
                     subject=subject,
@@ -2224,8 +2304,6 @@ async def get_mail_pool_email_detail(
                     from_email=from_email,
                     date=date_str
                 )
-                
-                # Cache the summary in the database for future requests
                 if ai_summary:
                     mail_pool_emails.update_one(
                         {"_id": email_doc["_id"]},
@@ -2249,7 +2327,7 @@ async def get_mail_pool_email_detail(
                 "category": category,
                 "snippet": email_doc.get("snippet", cleaned_body[:200] if cleaned_body else ""),
                 "subject": email_doc.get("subject", "(no subject)"),
-                "body": cleaned_body,
+                "body": cleaned_body or body_html,  # Fallback to HTML if no plain text
                 "body_html": body_html,
                 "ai_summary": ai_summary,
                 "added_on": date_str,
@@ -2261,15 +2339,16 @@ async def get_mail_pool_email_detail(
                 "attachments": attachments,
                 "direction": email_direction,
                 "is_internal": False,
-                "account_email": email_doc.get("delivered_to", to_email),
+                "account_email": to_names.split(",")[0] if to_names else "",
                 "to_email": to_names,
                 "cc": cc_str,
-                "message_id": email_doc.get("provider_message_id", ""),
-                "thread_id": email_doc.get("provider_thread_id", ""),
-                "is_starred": "STARRED" in str(labels).upper(),
+                "message_id": email_doc.get("gmail_message_id", email_doc.get("provider_message_id", "")),
+                "thread_id": email_doc.get("gmail_thread_id", email_doc.get("provider_thread_id", "")),
+                "is_starred": email_doc.get("is_starred", False) or "STARRED" in str(labels).upper(),
+                "is_read": email_doc.get("is_read", True),
                 "is_draft": "DRAFT" in str(labels).upper(),
                 "synced_at": email_doc.get("synced_at", "").isoformat() if email_doc.get("synced_at") else "",
-                # AI Classification fields (Tier 1 + Tier 2)
+                # AI Classification fields
                 "ai_category": email_doc.get("ai_category"),
                 "ai_confidence": email_doc.get("ai_confidence"),
                 "ai_method": email_doc.get("ai_method"),
@@ -2297,6 +2376,7 @@ async def get_mail_pool_thread(
 ):
     """
     Get all emails in a conversation thread.
+    Fetches full body from Gmail API if not cached.
     Returns emails sorted by date (oldest first for proper conversation flow).
     """
     try:
@@ -2304,27 +2384,42 @@ async def get_mail_pool_thread(
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
         
-        # Find all emails with this thread_id
+        # Find all emails with this thread_id - check both field names
         thread_emails = list(mail_pool_emails.find({
-            "provider_thread_id": thread_id
+            "$or": [
+                {"gmail_thread_id": thread_id},
+                {"provider_thread_id": thread_id}
+            ]
         }).sort("timestamp", 1))  # Sort oldest first
         
         if not thread_emails:
             raise HTTPException(status_code=404, detail="Thread not found")
         
+        # Initialize Gmail service once if needed
+        gmail_service = None
+        service = None
+        
         formatted_emails = []
         for email_doc in thread_emails:
-            # Get from_address
-            from_addr = email_doc.get("from_address", {})
-            if isinstance(from_addr, dict):
-                from_email = from_addr.get("email", "")
-                from_name = from_addr.get("name", "")
+            # Handle both flat and nested schema
+            if "from_email" in email_doc:
+                # Flat schema (torpedo_gmail.email_metadata)
+                from_email = email_doc.get("from_email", "")
+                from_name = email_doc.get("from_name", "")
+                to_emails = email_doc.get("to_emails", [])
+                to_email = ", ".join(to_emails) if to_emails else ""
+                cc_emails = email_doc.get("cc_emails", [])
+                cc_str = ", ".join(cc_emails) if cc_emails else ""
             else:
-                from_email, from_name = parse_email_address(str(from_addr))
-            
-            # Get to addresses
-            to_addresses = email_doc.get("to_addresses", [])
-            to_email = ", ".join([addr.get("email", "") for addr in to_addresses]) if to_addresses else ""
+                # Nested schema
+                from_addr = email_doc.get("from_address", {})
+                if isinstance(from_addr, dict):
+                    from_email = from_addr.get("email", "")
+                    from_name = from_addr.get("name", "")
+                else:
+                    from_email, from_name = parse_email_address(str(from_addr))
+                to_addresses = email_doc.get("to_addresses", [])
+                to_email = ", ".join([addr.get("email", "") for addr in to_addresses]) if to_addresses else ""
             
             # Get direction
             email_direction = email_doc.get("direction", "inbound")
@@ -2334,10 +2429,82 @@ async def get_mail_pool_thread(
                 email_direction = "outbox"
             
             # Get body content
-            body_plain = email_doc.get("body_plain", "")
-            body_html = email_doc.get("body_html", "")
-            cleaned_body = clean_email_body(body_plain) if body_plain else ""
+            body_plain = email_doc.get("body_plain", "") or ""
+            body_html = email_doc.get("body_html", "") or ""
             
+            # Fetch from Gmail API if body is empty
+            gmail_message_id = email_doc.get("gmail_message_id", "")
+            mailbox_id = email_doc.get("mailbox_id", "")
+            
+            if not body_html and not body_plain and gmail_message_id and mailbox_id:
+                try:
+                    if not service:
+                        from app.services.gmail_workspace_service import GmailWorkspaceService
+                        service = GmailWorkspaceService()
+                    
+                    if service and service.is_configured():
+                        mailbox = mail_pool_workspace_mailboxes.find_one({"_id": ObjectId(mailbox_id)})
+                        if mailbox:
+                            user_email = mailbox.get("email", "")
+                            if user_email:
+                                gmail_service = service._get_gmail_service(user_email)
+                                if gmail_service:
+                                    msg = gmail_service.users().messages().get(
+                                        userId='me',
+                                        id=gmail_message_id,
+                                        format='full'
+                                    ).execute()
+                                    
+                                    # Extract body from message parts
+                                    def get_body_from_parts(parts):
+                                        html_body = ""
+                                        plain_body = ""
+                                        for part in parts:
+                                            mime_type = part.get("mimeType", "")
+                                            if mime_type == "text/html":
+                                                data = part.get("body", {}).get("data", "")
+                                                if data:
+                                                    import base64
+                                                    html_body = base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+                                            elif mime_type == "text/plain":
+                                                data = part.get("body", {}).get("data", "")
+                                                if data:
+                                                    import base64
+                                                    plain_body = base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+                                            elif "parts" in part:
+                                                nested_html, nested_plain = get_body_from_parts(part["parts"])
+                                                if nested_html:
+                                                    html_body = nested_html
+                                                if nested_plain:
+                                                    plain_body = nested_plain
+                                        return html_body, plain_body
+                                    
+                                    payload = msg.get("payload", {})
+                                    parts = payload.get("parts", [])
+                                    
+                                    if parts:
+                                        body_html, body_plain = get_body_from_parts(parts)
+                                    else:
+                                        mime_type = payload.get("mimeType", "")
+                                        data = payload.get("body", {}).get("data", "")
+                                        if data:
+                                            import base64
+                                            decoded = base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+                                            if mime_type == "text/html":
+                                                body_html = decoded
+                                            else:
+                                                body_plain = decoded
+                                    
+                                    # Cache the body
+                                    if body_html or body_plain:
+                                        mail_pool_emails.update_one(
+                                            {"_id": email_doc["_id"]},
+                                            {"$set": {"body_html": body_html, "body_plain": body_plain}}
+                                        )
+                except Exception as e:
+                    logger.warning(f"Failed to fetch email body from Gmail API: {e}")
+            
+            cleaned_body = clean_email_body(body_plain) if body_plain else ""
             labels = email_doc.get("labels", [])
             timestamp = email_doc.get("timestamp")
             
@@ -2347,15 +2514,15 @@ async def get_mail_pool_thread(
                 "name": from_name,
                 "to_email": to_email,
                 "subject": email_doc.get("subject", "(no subject)"),
-                "body": cleaned_body,
+                "body": cleaned_body or body_html,
                 "body_html": body_html,
                 "snippet": email_doc.get("snippet", cleaned_body[:200] if cleaned_body else ""),
                 "added_on": timestamp.isoformat() if timestamp else "",
                 "date": timestamp.isoformat() if timestamp else "",
                 "direction": email_direction,
-                "message_id": email_doc.get("provider_message_id", ""),
-                "thread_id": email_doc.get("provider_thread_id", ""),
-                "is_starred": "STARRED" in str(labels).upper(),
+                "message_id": email_doc.get("gmail_message_id", email_doc.get("provider_message_id", "")),
+                "thread_id": email_doc.get("gmail_thread_id", email_doc.get("provider_thread_id", "")),
+                "is_starred": email_doc.get("is_starred", False) or "STARRED" in str(labels).upper(),
                 "is_read": email_doc.get("is_read", "UNREAD" not in str(labels).upper()),
                 "attachments": email_doc.get("attachments", []),
                 "has_attachments": email_doc.get("has_attachments", False)

@@ -333,6 +333,26 @@ function MailPool() {
           if (allAliases.length > 0) {
             setSelectedAlias(allAliases[0].email)
           }
+          
+          // Fetch signatures from Gmail API to get accurate signature data
+          try {
+            const sigRes = await fetch(`${API_BASE_URL}/gmail-ws/signatures`, {
+              headers: { Authorization: sessionId },
+            })
+            const sigData = await sigRes.json()
+            if (sigData.success && sigData.signatures) {
+              // Update signature map with Gmail API data
+              const updatedSigMap = { ...sigMap }
+              sigData.signatures.forEach(sig => {
+                if (sig.sendAsEmail && sig.signature) {
+                  updatedSigMap[sig.sendAsEmail] = sig.signature
+                }
+              })
+              setSignatures(updatedSigMap)
+            }
+          } catch (sigErr) {
+            console.log("Could not fetch Gmail signatures, using stored signatures:", sigErr)
+          }
         }
       }
     } catch (e) {
