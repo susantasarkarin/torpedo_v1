@@ -70,6 +70,7 @@ except Exception as e:
 class GeminiEmailCategory(str, Enum):
     """Email categories from Gemini classification"""
     CLIENT = "client"           # Potential sales lead
+    RFQ = "rfq"                 # Request for Quote/Proposal
     VENDOR = "vendor"           # From vendors/suppliers
     INTERNAL = "internal"       # Internal communications
     PROMOTIONAL = "promotional" # Marketing emails
@@ -83,6 +84,7 @@ class GeminiEmailCategory(str, Enum):
 # Categories that should trigger lead extraction
 LEAD_ELIGIBLE_CATEGORIES = {
     GeminiEmailCategory.CLIENT,
+    GeminiEmailCategory.RFQ,     # RFQ emails are high-value leads
     GeminiEmailCategory.VENDOR,  # Vendors can also be leads
 }
 
@@ -342,10 +344,17 @@ def classify_email_with_gemini(
     to_email: str = "",
     internal_domains: List[str] = None,
     extract_leads: bool = True,
-    source: str = "background"
+    source: str = "background",
+    use_keywords_first: bool = False  # Disabled by default - use Gemini for all classification
 ) -> Dict[str, Any]:
     """
-    Classify an email using Gemini with optional lead extraction.
+    Classify an email using Gemini 2.5 Flash for accurate classification.
+    
+    Keyword-based classification is now DISABLED by default because it causes
+    misclassification issues:
+    - RFQ emails marked as "Others"
+    - Vendor payment follow-ups marked as "Invoice"
+    - Some promotional emails marked as "Others"
     
     Args:
         email_id: MongoDB email ID
@@ -356,6 +365,7 @@ def classify_email_with_gemini(
         internal_domains: List of internal domain patterns
         extract_leads: Whether to extract and create leads
         source: Request source for logging
+        use_keywords_first: Legacy mode - use keywords first (disabled by default)
     
     Returns:
         Classification result with optional lead info
@@ -370,37 +380,36 @@ def classify_email_with_gemini(
         "lead_extracted": False,
         "lead_info": None,
         "lead_id": None,
-        "error": None
+        "error": None,
+        "reasoning": None
     }
     
-    # Step 1: Try keyword-based classification first (FREE)
-    keyword_category, keyword_confidence = classify_by_keywords(
-        subject, body, from_email, internal_domains
-    )
-    
-    if keyword_category and keyword_confidence >= 0.8:
-        result["category"] = keyword_category.value
-        result["confidence"] = keyword_confidence
-        result["method"] = "keywords"
-        result["success"] = True
-        
-        # Log classification
-        _log_classification(
-            email_id=email_id,
-            category=keyword_category.value,
-            confidence=keyword_confidence,
-            method="keywords",
-            model=None
+    # LEGACY MODE: Try keyword-based classification first (only if explicitly enabled)
+    # This is disabled by default because it causes misclassification
+    if use_keywords_first:
+        keyword_category, keyword_confidence = classify_by_keywords(
+            subject, body, from_email, internal_domains
         )
         
-        # Keywords can't determine sales leads, so we'll still use Gemini for that
-        if keyword_category in LEAD_ELIGIBLE_CATEGORIES and extract_leads:
-            # Fall through to Gemini for lead extraction
-            pass
-        else:
-            return result
+        # Only use keywords for VERY high confidence on spam/promotional/automated
+        # These are the only categories where keywords are reliable
+        if keyword_category and keyword_confidence >= 0.95:
+            if keyword_category in [GeminiEmailCategory.SPAM, GeminiEmailCategory.AUTOMATED]:
+                result["category"] = keyword_category.value
+                result["confidence"] = keyword_confidence
+                result["method"] = "keywords"
+                result["success"] = True
+                
+                _log_classification(
+                    email_id=email_id,
+                    category=keyword_category.value,
+                    confidence=keyword_confidence,
+                    method="keywords",
+                    model=None
+                )
+                return result
     
-    # Step 2: Use Gemini for AI classification
+    # PRIMARY: Use Gemini 2.5 Flash for accurate classification
     if not GEMINI_AVAILABLE:
         result["error"] = "Gemini not available"
         return result
@@ -415,12 +424,6 @@ def classify_email_with_gemini(
     
     if not gemini_result["success"]:
         result["error"] = gemini_result.get("error", "Gemini classification failed")
-        # Use keyword result if available
-        if keyword_category:
-            result["category"] = keyword_category.value
-            result["confidence"] = keyword_confidence
-            result["method"] = "keywords_fallback"
-            result["success"] = True
         return result
     
     # Parse Gemini response
@@ -436,6 +439,17 @@ def classify_email_with_gemini(
     confidence = float(parsed.get("confidence", 0.7))
     is_sales_lead = parsed.get("is_sales_lead", False)
     lead_info = parsed.get("lead_info", {})
+    reasoning = parsed.get("reasoning", "")
+    
+    # Validate category is one of the known categories
+    valid_categories = ["client", "rfq", "vendor", "internal", "promotional", 
+                        "invoice", "banking", "automated", "spam", "others"]
+    if category not in valid_categories:
+        category = "others"
+    
+    # RFQ emails are high-value leads - ensure is_sales_lead is True
+    if category == "rfq":
+        is_sales_lead = True
     
     result["category"] = category
     result["confidence"] = confidence
@@ -444,6 +458,7 @@ def classify_email_with_gemini(
     result["tokens"] = gemini_result.get("tokens", {})
     result["success"] = True
     result["is_sales_lead"] = is_sales_lead
+    result["reasoning"] = reasoning
     
     # Log classification
     _log_classification(

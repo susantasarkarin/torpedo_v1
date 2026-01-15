@@ -49,9 +49,9 @@ logger = logging.getLogger(__name__)
 # ============== CONFIGURATION ==============
 
 # Available Gemini models
-GEMINI_FLASH_MODEL = "gemini-2.0-flash"  # Fast, efficient, good for classification
+GEMINI_FLASH_MODEL = "gemini-2.5-flash-preview-05-20"  # Latest 2.5 Flash - best for classification
 GEMINI_PRO_MODEL = "gemini-2.5-pro"       # More capable for complex extraction
-GEMINI_FLASH_PREVIEW = "gemini-2.5-flash"  # Latest flash preview
+GEMINI_FLASH_PREVIEW = "gemini-2.5-flash-preview-05-20"  # Latest flash preview
 
 # Default model for email classification
 DEFAULT_GEMINI_MODEL = GEMINI_FLASH_MODEL
@@ -595,36 +595,98 @@ def gemini_classify_email(
 ) -> Dict[str, Any]:
     """
     Classify an email using Gemini (convenience wrapper).
-    Uses minimal tokens for cost efficiency.
+    Uses Gemini 2.5 Flash for accurate classification.
     """
-    system_prompt = """You are an email classifier. Analyze the email and output JSON only.
+    system_prompt = """You are an expert email classifier for a B2B company. Analyze the email content, context, and intent carefully before classifying.
 
-Categories:
-- client: Inbound emails from prospects/customers seeking services or products
-- vendor: From suppliers, service providers, partners
-- internal: Same company domain, team communications  
-- promotional: Marketing emails, newsletters, sales pitches
-- invoice: Billing, payments, invoices
-- banking: Bank communications, statements
-- automated: Auto-replies, notifications, system emails
-- spam: Junk mail, scams
-- others: Cannot determine
+CATEGORIES (choose the most appropriate one):
 
-Output format:
-{"category": "<category>", "confidence": 0.0-1.0, "is_sales_lead": true/false, "lead_info": {"full_name": "", "first_name": "", "last_name": "", "email": "", "website": "", "domain": ""}}
+1. **client** - Inbound emails from potential customers or existing clients:
+   - Inquiries about products/services
+   - Project discussions or requirements
+   - Meeting requests from prospects
+   - Follow-ups on proposals sent to them
+   - Feedback or testimonials from customers
 
-If is_sales_lead is true, extract lead_info from the email signature and content."""
+2. **rfq** - Request for Quote/Proposal emails:
+   - Explicit requests for pricing or quotations
+   - RFQ, RFP, RFI documents
+   - Tender invitations
+   - Bid requests
+   - "Please provide your quote for..."
+   - "We are looking for vendors to..."
+
+3. **vendor** - FROM vendors/suppliers/service providers TO us:
+   - Sales pitches from other companies trying to sell to us
+   - Follow-ups from vendors about their services
+   - Vendor asking about payment status for their invoices
+   - Supplier communications about orders we placed
+   - Partnership proposals from other businesses
+
+4. **internal** - Internal company communications:
+   - Emails from same company domain
+   - Team discussions, HR emails
+   - Internal announcements
+
+5. **promotional** - Marketing/advertising emails:
+   - Newsletters, marketing campaigns
+   - Promotional offers with "unsubscribe" links
+   - Webinar invitations from marketing lists
+   - Mass-sent marketing content
+   - Product announcements from mailing lists
+
+6. **invoice** - Billing documents SENT BY US or received:
+   - Invoices, receipts
+   - Payment confirmations
+   - Billing statements
+   - NOTE: Vendor asking "where is our payment" = vendor, NOT invoice
+
+7. **banking** - Bank communications:
+   - Bank statements, alerts
+   - Transaction notifications from banks
+   - Wire transfer confirmations
+
+8. **automated** - System-generated emails:
+   - Auto-replies, out-of-office
+   - Delivery notifications
+   - Calendar invites
+   - Password resets
+   - noreply@ addresses
+
+9. **spam** - Junk/scam emails:
+   - Obvious scams, phishing
+   - Lottery/prize notifications
+   - Suspicious requests
+
+10. **others** - Only if none of the above clearly apply
+
+IMPORTANT DISTINCTIONS:
+- Vendor following up on THEIR invoice payment = "vendor" (they want money from us)
+- Client asking about OUR invoice/pricing = "client" or "rfq"
+- Generic marketing newsletter = "promotional"
+- Cold sales email from another company = "vendor" (they're selling to us)
+- Customer inquiry about our services = "client"
+- Explicit quote request = "rfq"
+
+Output ONLY valid JSON:
+{"category": "<category>", "confidence": 0.0-1.0, "is_sales_lead": true/false, "reasoning": "brief explanation", "lead_info": {"full_name": "", "first_name": "", "last_name": "", "email": "", "title": "", "company_name": "", "website": "", "domain": ""}}
+
+Set is_sales_lead=true for: client inquiries, rfq emails, or any genuine business opportunity."""
     
-    # Truncate body for efficiency
-    body_preview = body[:800] if body else ""
+    # Truncate body for efficiency but keep more context
+    body_preview = body[:1200] if body else ""
     
-    user_prompt = f"""From: {from_email or '-'}
-To: {to_email or '-'}
-Subject: {subject or '-'}
-Body:
+    user_prompt = f"""Analyze this email and classify it:
+
+From: {from_email or 'unknown'}
+To: {to_email or 'unknown'}
+Subject: {subject or '(no subject)'}
+
+--- Email Body ---
 {body_preview}
+--- End ---
 
-Classify this email and extract lead info if it's a potential sales lead."""
+Classify this email into one of the categories. If it's a potential sales lead (client inquiry or RFQ), extract contact information."""
     
     return gemini_generate(
         prompt=user_prompt,
