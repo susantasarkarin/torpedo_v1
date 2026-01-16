@@ -1,5 +1,5 @@
 """
-"""TIERED EMAIL CLASSIFICATION ENGINE (OpenAI Only)
+TIERED EMAIL CLASSIFICATION ENGINE (OpenAI Only)
 Two-tier AI approach for email classification:
 
 Tier 1 (Fast/Cheap): Basic triage using GPT-4o-mini
