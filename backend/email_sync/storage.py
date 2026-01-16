@@ -191,13 +191,20 @@ class EmailStorage:
     
     def _enqueue_for_categorization(self, email_id: str, email: EmailDocument):
         """
-        Add email to categorization queue.
+        Add email to categorization queue and mark for AI classification.
         
         Args:
             email_id: Email ObjectId string
             email: EmailDocument
         """
         try:
+            # Mark email as needing AI classification
+            self.emails.update_one(
+                {"_id": ObjectId(email_id)},
+                {"$set": {"ai_needs_classification": True}}
+            )
+            
+            # Also add to legacy categorization queue for backward compatibility
             queue_item = {
                 "email_id": email_id,
                 "mailbox_id": email.mailbox_id,

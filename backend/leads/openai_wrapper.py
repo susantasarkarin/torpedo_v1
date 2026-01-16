@@ -45,12 +45,13 @@ logger = logging.getLogger(__name__)
 
 # ============== CONFIGURATION ==============
 
-# AI Provider types - Gemini is now the DEFAULT (FREE tier)
+# AI Provider types - OpenAI is the DEFAULT (with Gemini fallback)
 AIProvider = Literal["openai", "anthropic", "gemini"]
 
-# DEFAULT PROVIDER: Use Gemini for FREE tier with multi-key rotation
+# DEFAULT PROVIDER: Use OpenAI for primary classification with Gemini fallback
 # Set AI_DEFAULT_PROVIDER env var to override
-DEFAULT_PROVIDER = os.getenv("AI_DEFAULT_PROVIDER", "gemini")
+# Two-tier approach: GPT-4o-mini for Tier 1, GPT-4o for Tier 2 (confidence < 0.7)
+DEFAULT_PROVIDER = os.getenv("AI_DEFAULT_PROVIDER", "openai")
 
 # Default token limits - COST CONTROL
 DEFAULT_MAX_OUTPUT_TOKENS = 300       # Standard API responses
@@ -908,38 +909,41 @@ def chat_completion_with_escalation(
     messages: List[Dict[str, str]],
     source: RequestSource = "api",
     endpoint: str = "",
-    primary_model: str = DEFAULT_MODEL,
-    escalation_model: str = ANTHROPIC_DEFAULT_MODEL,
+    primary_model: str = DEFAULT_MODEL,  # gpt-4o-mini for Tier 1
+    escalation_model: str = PREMIUM_MODEL,  # gpt-4o for Tier 2 (low confidence)
     max_output_tokens: Optional[int] = None,
     temperature: float = 0.1,
     response_format: Optional[Dict] = None,
     confidence_key: str = "confidence_score",
-    confidence_threshold: float = ESCALATION_CONFIDENCE_THRESHOLD
+    confidence_threshold: float = ESCALATION_CONFIDENCE_THRESHOLD,
+    fallback_to_gemini: bool = True  # Fallback to Gemini if OpenAI fails
 ) -> Dict[str, Any]:
     """
-    Two-stage chat completion with confidence-based escalation.
+    Two-stage chat completion with confidence-based escalation and Gemini fallback.
     
-    First tries with primary_model (cheap). If response has low confidence,
-    escalates to escalation_model (expensive but better quality).
+    Tier 1: GPT-4o-mini (cheap, fast) for initial classification
+    Tier 2: GPT-4o (better quality) if confidence < 0.7
+    Fallback: Gemini Flash (FREE) if OpenAI fails
     
     Args:
         messages: List of message dicts
         source: Request source for logging
         endpoint: API endpoint name
         primary_model: First model to try (default: gpt-4o-mini)
-        escalation_model: Fallback for low confidence (default: claude-3-5-sonnet)
+        escalation_model: For low confidence (default: gpt-4o)
         max_output_tokens: Max tokens in response
         temperature: Model temperature
         response_format: Optional response format
         confidence_key: JSON key containing confidence score
         confidence_threshold: Escalate if confidence below this (0.0-1.0)
+        fallback_to_gemini: If True, fallback to Gemini when OpenAI fails
     
     Returns:
         Dict with 'content', 'usage', 'model', 'provider', 'success', 'error', 'escalated'
     """
     import json
     
-    # First attempt with primary model
+    # First attempt with primary model (OpenAI GPT-4o-mini)
     result = chat_completion(
         messages=messages,
         source=source,
@@ -947,13 +951,30 @@ def chat_completion_with_escalation(
         model=primary_model,
         max_output_tokens=max_output_tokens,
         temperature=temperature,
-        response_format=response_format
+        response_format=response_format,
+        provider="openai"
     )
     
     result["escalated"] = False
+    result["used_fallback"] = False
     
-    if not result["success"]:
-        return result
+    # If OpenAI fails, try Gemini fallback
+    if not result["success"] and fallback_to_gemini:
+        logger.warning(f"OpenAI failed ({result.get('error')}), falling back to Gemini")
+        result = chat_completion(
+            messages=messages,
+            source=source,
+            endpoint=f"{endpoint}_gemini_fallback",
+            model=GEMINI_DEFAULT_MODEL,
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+            response_format=response_format,
+            provider="gemini"
+        )
+        result["escalated"] = False
+        result["used_fallback"] = True
+        if not result["success"]:
+            return result
     
     # Check confidence in response
     try:
@@ -963,7 +984,7 @@ def chat_completion_with_escalation(
         if isinstance(confidence, (int, float)) and confidence < confidence_threshold:
             logger.info(f"Low confidence ({confidence:.2f}), escalating to {escalation_model}")
             
-            # Escalate to better model
+            # Escalate to better model (GPT-4o)
             escalated_result = chat_completion(
                 messages=messages,
                 source=source,
@@ -972,11 +993,28 @@ def chat_completion_with_escalation(
                 max_output_tokens=max_output_tokens or ESCALATED_MAX_OUTPUT_TOKENS,
                 temperature=temperature,
                 response_format=response_format,
-                allow_premium_model=True
+                allow_premium_model=True,
+                provider="openai"
             )
+            
+            # If escalated model fails, try Gemini Pro as fallback
+            if not escalated_result["success"] and fallback_to_gemini:
+                logger.warning(f"Escalated model failed ({escalated_result.get('error')}), falling back to Gemini Pro")
+                escalated_result = chat_completion(
+                    messages=messages,
+                    source=source,
+                    endpoint=f"{endpoint}_gemini_pro_fallback",
+                    model=GEMINI_PREMIUM_MODEL,
+                    max_output_tokens=max_output_tokens or ESCALATED_MAX_OUTPUT_TOKENS,
+                    temperature=temperature,
+                    response_format=response_format,
+                    provider="gemini",
+                    allow_premium_model=True
+                )
             
             escalated_result["escalated"] = True
             escalated_result["primary_confidence"] = confidence
+            escalated_result["used_fallback"] = escalated_result.get("provider") == "gemini"
             
             # Combine usage from both calls
             escalated_result["usage"]["total_input_tokens"] = (

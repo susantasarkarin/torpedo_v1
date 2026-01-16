@@ -67,6 +67,14 @@ from .workers import (
     WorkerManager,
 )
 
+# OpenAI Email Classifier (Two-tier with Gemini fallback)
+from .openai_email_classifier import (
+    OpenAIEmailClassifier,
+    OpenAIClassificationWorker,
+    classify_single_email,
+    start_background_classification,
+)
+
 # Orchestrator
 from .orchestrator import EmailSyncOrchestrator
 
@@ -101,6 +109,11 @@ __all__ = [
     "IncrementalSyncWorker",
     "CategorizationWorker",
     "WorkerManager",
+    # OpenAI Email Classifier
+    "OpenAIEmailClassifier",
+    "OpenAIClassificationWorker",
+    "classify_single_email",
+    "start_background_classification",
     # Main
     "EmailSyncOrchestrator",
     "router",

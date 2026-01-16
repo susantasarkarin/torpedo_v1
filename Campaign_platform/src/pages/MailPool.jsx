@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../config"
 import "./Settings.css"
 
-// Segment colors for labels
+// Segment colors for labels - DEPRECATED: Now using AI categories
 const SEGMENT_COLORS = {
   promotional: { bg: "#fef3c7", text: "#92400e", icon: "📢" },
   outreach: { bg: "#dbeafe", text: "#1e40af", icon: "📤" },
@@ -19,7 +19,7 @@ const SEGMENT_COLORS = {
   others: { bg: "#f3f4f6", text: "#374151", icon: "📧" },
 }
 
-// AI Category colors (Tier 1)
+// AI Category colors (Tier 1) - Primary classification
 const AI_CATEGORY_COLORS = {
   client: { bg: "#dcfce7", text: "#166534", icon: "👤" },
   vendor: { bg: "#dbeafe", text: "#1e40af", icon: "🏢" },
@@ -30,6 +30,14 @@ const AI_CATEGORY_COLORS = {
   automated: { bg: "#e5e7eb", text: "#6b7280", icon: "🤖" },
   spam: { bg: "#fee2e2", text: "#dc2626", icon: "🚫" },
   others: { bg: "#f3f4f6", text: "#374151", icon: "📧" },
+}
+
+// Review status colors
+const REVIEW_STATUS_COLORS = {
+  pending: { bg: "#fef3c7", text: "#92400e", icon: "⏳" },
+  approved: { bg: "#dcfce7", text: "#166534", icon: "✅" },
+  rejected: { bg: "#fee2e2", text: "#dc2626", icon: "❌" },
+  modified: { bg: "#dbeafe", text: "#1e40af", icon: "✏️" },
 }
 
 // AI Urgency colors
@@ -240,25 +248,33 @@ function MailPool() {
     total_emails: 0,
     emails_today: 0,
     segments: {},
-    accounts: []
+    ai_categories: {},
+    accounts: [],
+    pending_review: 0
   })
   
   // Emails list
   const [emails, setEmails] = useState([])
   const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, total_pages: 0 })
   
-  // Filters
-  const [filterSegment, setFilterSegment] = useState("")
+  // Filters - AI Category based
+  const [filterSegment, setFilterSegment] = useState("") // Legacy, kept for compatibility
+  const [filterAICategory, setFilterAICategory] = useState("")
   const [filterSearch, setFilterSearch] = useState("")
   const [searchInput, setSearchInput] = useState("")
   const [filterDirection, setFilterDirection] = useState("inbox") // Default to inbox
   const [filterAccount, setFilterAccount] = useState("")
   const [filterFolder, setFilterFolder] = useState("inbox")
   
+  // Review Queue
+  const [reviewQueue, setReviewQueue] = useState([])
+  const [reviewLoading, setReviewLoading] = useState(false)
+  const [showReviewQueue, setShowReviewQueue] = useState(false)
+  
   // Email viewing
   const [selectedEmail, setSelectedEmail] = useState(null)
   const [emailThread, setEmailThread] = useState([])
-  const [viewMode, setViewMode] = useState("list") // list, email, compose
+  const [viewMode, setViewMode] = useState("list") // list, email, compose, review
   
   // Contact popup
   const [showContactPopup, setShowContactPopup] = useState(false)
@@ -375,6 +391,7 @@ function MailPool() {
       if (filterAccount) url += `&account=${encodeURIComponent(filterAccount)}`
       if (filterFolder === "drafts") url += `&is_draft=true`
       if (filterFolder === "starred") url += `&is_starred=true`
+      if (filterAICategory) url += `&ai_category=${filterAICategory}`
 
       const res = await fetch(url, {
         headers: { Authorization: sessionId },
@@ -388,7 +405,7 @@ function MailPool() {
     } catch (e) {
       console.error("Error fetching emails:", e)
     }
-  }, [filterSegment, filterSearch, filterDirection, filterAccount, filterFolder, pagination.limit])
+  }, [filterSegment, filterAICategory, filterSearch, filterDirection, filterAccount, filterFolder, pagination.limit])
 
   // Fetch email thread/detail
   const fetchEmailThread = async (emailId) => {
@@ -425,6 +442,67 @@ function MailPool() {
       }
     } catch (e) {
       console.error("Error fetching email:", e)
+    }
+  }
+
+  // Fetch review queue
+  const fetchReviewQueue = useCallback(async () => {
+    const sessionId = localStorage.getItem("session_id")
+    if (!sessionId) return
+
+    setReviewLoading(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/review-queue/pending?limit=100`, {
+        headers: { Authorization: sessionId },
+      })
+      const data = await res.json()
+      if (data.success || data.items) {
+        setReviewQueue(data.items || data.pending || [])
+      }
+    } catch (e) {
+      console.error("Error fetching review queue:", e)
+    } finally {
+      setReviewLoading(false)
+    }
+  }, [])
+
+  // Handle review action (approve/reject/modify)
+  const handleReviewAction = async (itemId, action, corrections = null) => {
+    const sessionId = localStorage.getItem("session_id")
+    if (!sessionId) return
+
+    try {
+      let endpoint = `${API_BASE_URL}/review-queue/${itemId}/${action}`
+      let body = {}
+      
+      if (action === "modify" && corrections) {
+        body = { corrections }
+      }
+      
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+        body: JSON.stringify(body),
+      })
+      
+      const data = await res.json()
+      if (data.success) {
+        // Remove from queue and refresh
+        setReviewQueue(prev => prev.filter(item => item._id !== itemId && item.id !== itemId))
+        // Update pending count
+        setStats(prev => ({
+          ...prev,
+          pending_review: Math.max(0, (prev.pending_review || 0) - 1)
+        }))
+      } else {
+        alert(`Failed to ${action}: ${data.message || "Unknown error"}`)
+      }
+    } catch (e) {
+      console.error(`Error ${action}ing review item:`, e)
+      alert(`Error: ${e.message}`)
     }
   }
 
@@ -832,8 +910,17 @@ function MailPool() {
 
   // Reload emails when filters change
   useEffect(() => {
-    fetchEmails(1)
-  }, [filterSegment, filterSearch, filterDirection, filterAccount, filterFolder, fetchEmails])
+    if (!showReviewQueue) {
+      fetchEmails(1)
+    }
+  }, [filterSegment, filterAICategory, filterSearch, filterDirection, filterAccount, filterFolder, fetchEmails, showReviewQueue])
+
+  // Load review queue when switching to review mode
+  useEffect(() => {
+    if (showReviewQueue || viewMode === "review") {
+      fetchReviewQueue()
+    }
+  }, [showReviewQueue, viewMode, fetchReviewQueue])
 
   // Format date like Gmail
   const formatDate = (dateStr) => {
@@ -933,21 +1020,58 @@ function MailPool() {
           ))}
         </div>
 
-        {/* Labels */}
+        {/* Review Queue Section */}
         <div style={styles.sidebarDivider}>
-          <span style={styles.sidebarTitle}>Labels</span>
+          <span style={styles.sidebarTitle}>Review</span>
         </div>
         <div style={styles.sidebarSection}>
-          {Object.entries(SEGMENT_COLORS).slice(0, 8).map(([segment, config]) => {
-            const count = stats.segments?.[segment] || 0;
+          <div
+            style={{
+              ...styles.sidebarItem,
+              backgroundColor: viewMode === "review" ? "#fef3c7" : "transparent",
+              fontWeight: viewMode === "review" ? "600" : "400"
+            }}
+            onClick={() => {
+              setViewMode("review")
+              setShowReviewQueue(true)
+            }}
+          >
+            <span style={styles.sidebarIcon}>📋</span>
+            <span style={styles.sidebarLabel}>Review Queue</span>
+            {stats.pending_review > 0 && (
+              <span style={{
+                marginLeft: "auto",
+                backgroundColor: "#fbbf24",
+                color: "#78350f",
+                padding: "2px 8px",
+                borderRadius: "10px",
+                fontSize: "0.7rem",
+                fontWeight: "600"
+              }}>{stats.pending_review}</span>
+            )}
+          </div>
+        </div>
+
+        {/* AI Categories */}
+        <div style={styles.sidebarDivider}>
+          <span style={styles.sidebarTitle}>AI Categories</span>
+        </div>
+        <div style={styles.sidebarSection}>
+          {Object.entries(AI_CATEGORY_COLORS).map(([category, config]) => {
+            const count = stats.ai_categories?.[category] || 0;
             return (
               <div
-                key={segment}
+                key={category}
                 style={{
                   ...styles.sidebarItem,
-                  backgroundColor: filterSegment === segment ? config.bg : "transparent"
+                  backgroundColor: filterAICategory === category ? config.bg : "transparent"
                 }}
-                onClick={() => handleLabelSelect(segment)}
+                onClick={() => {
+                  setFilterAICategory(filterAICategory === category ? "" : category)
+                  setFilterSegment("") // Clear legacy segment filter
+                  setViewMode("list")
+                  setShowReviewQueue(false)
+                }}
               >
                 <span style={{
                   width: "12px",
@@ -957,7 +1081,7 @@ function MailPool() {
                   marginRight: "12px"
                 }}></span>
                 <span style={styles.sidebarLabel}>
-                  {segment.replace("_", " ").charAt(0).toUpperCase() + segment.replace("_", " ").slice(1)}
+                  {config.icon} {category.charAt(0).toUpperCase() + category.slice(1)}
                 </span>
                 {count > 0 && (
                   <span style={{ marginLeft: "auto", fontSize: "0.75rem", color: "#6b7280" }}>{count}</span>
@@ -1008,8 +1132,183 @@ function MailPool() {
           )}
         </div>
 
+        {/* Review Queue View */}
+        {(viewMode === "review" || showReviewQueue) && (
+          <div style={styles.emailListContainer}>
+            <div style={styles.toolbar}>
+              <div style={styles.toolbarLeft}>
+                <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: "600" }}>📋 Review Queue</h2>
+                <span style={{ marginLeft: "12px", color: "#6b7280", fontSize: "0.85rem" }}>
+                  {reviewQueue.length} items pending review
+                </span>
+              </div>
+              <div style={styles.toolbarRight}>
+                <button 
+                  style={styles.toolbarBtn} 
+                  onClick={fetchReviewQueue}
+                  title="Refresh"
+                >🔄</button>
+                <button 
+                  style={{...styles.toolbarBtn, backgroundColor: "#dcfce7", color: "#166534"}}
+                  onClick={() => {
+                    setShowReviewQueue(false)
+                    setViewMode("list")
+                  }}
+                >
+                  ← Back to Mail
+                </button>
+              </div>
+            </div>
+
+            {reviewLoading ? (
+              <div style={{ padding: "40px", textAlign: "center", color: "#6b7280" }}>
+                Loading review queue...
+              </div>
+            ) : reviewQueue.length === 0 ? (
+              <div style={{ padding: "40px", textAlign: "center", color: "#6b7280" }}>
+                <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>✅</div>
+                <div>All caught up! No emails pending review.</div>
+              </div>
+            ) : (
+              <div style={styles.emailList}>
+                {reviewQueue.map((item) => {
+                  const classification = item.classification || {}
+                  const emailSummary = item.email_summary || {}
+                  const categoryConfig = AI_CATEGORY_COLORS[classification.category] || AI_CATEGORY_COLORS.others
+                  
+                  return (
+                    <div key={item._id || item.id} style={{
+                      ...styles.emailRow,
+                      borderLeft: `4px solid ${categoryConfig.text}`,
+                      display: "flex",
+                      flexDirection: "column",
+                      padding: "12px 16px",
+                      gap: "8px"
+                    }}>
+                      {/* Email Header */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <div style={{
+                          ...styles.avatar,
+                          backgroundColor: getAvatarColor(emailSummary.from || "?"),
+                          flexShrink: 0
+                        }}>
+                          {getInitials("", emailSummary.from)}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: "600", fontSize: "0.9rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {emailSummary.from || "Unknown sender"}
+                          </div>
+                          <div style={{ fontSize: "0.85rem", color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {emailSummary.subject || "(no subject)"}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: "0.75rem", color: "#6b7280", flexShrink: 0 }}>
+                          {formatDate(emailSummary.received_at)}
+                        </div>
+                      </div>
+
+                      {/* Snippet */}
+                      <div style={{ fontSize: "0.8rem", color: "#6b7280", lineHeight: "1.4" }}>
+                        {emailSummary.snippet?.slice(0, 150)}...
+                      </div>
+
+                      {/* AI Classification */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                        <span style={{
+                          backgroundColor: categoryConfig.bg,
+                          color: categoryConfig.text,
+                          padding: "4px 10px",
+                          borderRadius: "12px",
+                          fontSize: "0.75rem",
+                          fontWeight: "600"
+                        }}>
+                          {categoryConfig.icon} {classification.category?.toUpperCase() || "UNKNOWN"}
+                        </span>
+                        <span style={{ fontSize: "0.75rem", color: "#6b7280" }}>
+                          Confidence: {Math.round((classification.confidence || 0) * 100)}%
+                        </span>
+                        {item.escalated && (
+                          <span style={{ fontSize: "0.7rem", backgroundColor: "#fef3c7", color: "#92400e", padding: "2px 6px", borderRadius: "4px" }}>
+                            Escalated
+                          </span>
+                        )}
+                        {item.used_fallback && (
+                          <span style={{ fontSize: "0.7rem", backgroundColor: "#e0f2fe", color: "#0369a1", padding: "2px 6px", borderRadius: "4px" }}>
+                            Gemini Fallback
+                          </span>
+                        )}
+                      </div>
+
+                      {/* AI Reasoning */}
+                      {classification.reasoning && (
+                        <div style={{ fontSize: "0.8rem", color: "#4b5563", fontStyle: "italic", backgroundColor: "#f9fafb", padding: "8px 12px", borderRadius: "6px" }}>
+                          💡 {classification.reasoning}
+                        </div>
+                      )}
+
+                      {/* Action Buttons */}
+                      <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+                        <button
+                          onClick={() => handleReviewAction(item._id || item.id, "approve")}
+                          style={{
+                            padding: "6px 16px",
+                            backgroundColor: "#dcfce7",
+                            color: "#166534",
+                            border: "none",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            fontWeight: "500",
+                            fontSize: "0.8rem"
+                          }}
+                        >
+                          ✅ Approve
+                        </button>
+                        <button
+                          onClick={() => {
+                            const newCategory = prompt("Enter correct category:", classification.category)
+                            if (newCategory) {
+                              handleReviewAction(item._id || item.id, "modify", { category: newCategory })
+                            }
+                          }}
+                          style={{
+                            padding: "6px 16px",
+                            backgroundColor: "#dbeafe",
+                            color: "#1e40af",
+                            border: "none",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            fontWeight: "500",
+                            fontSize: "0.8rem"
+                          }}
+                        >
+                          ✏️ Modify
+                        </button>
+                        <button
+                          onClick={() => handleReviewAction(item._id || item.id, "reject")}
+                          style={{
+                            padding: "6px 16px",
+                            backgroundColor: "#fee2e2",
+                            color: "#dc2626",
+                            border: "none",
+                            borderRadius: "6px",
+                            cursor: "pointer",
+                            fontWeight: "500",
+                            fontSize: "0.8rem"
+                          }}
+                        >
+                          ❌ Reject
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Email List View */}
-        {viewMode === "list" && (
+        {viewMode === "list" && !showReviewQueue && (
           <div style={styles.emailListContainer}>
             {/* Toolbar */}
             <div style={styles.toolbar}>

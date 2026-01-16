@@ -1860,6 +1860,22 @@ async def get_mail_pool_stats(
         ]
         category_stats = list(mail_pool_emails.aggregate(category_pipeline))
         
+        # Get AI category breakdown (new OpenAI classification)
+        ai_category_pipeline = [
+            {"$match": {"ai_tier1_category": {"$exists": True, "$ne": None}}},
+            {"$group": {"_id": "$ai_tier1_category", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+        ai_category_stats = list(mail_pool_emails.aggregate(ai_category_pipeline))
+        
+        # Get pending review count from ai_review_queue
+        try:
+            review_queue = mail_pool_client["email_automation"]["ai_review_queue"]
+            pending_review_count = review_queue.count_documents({"status": "pending"})
+        except Exception as e:
+            logger.debug(f"Could not get review queue count: {e}")
+            pending_review_count = 0
+        
         # Get emails by account (using mailbox_id in new schema)
         account_stats = []
         for acc in accounts:
@@ -1937,6 +1953,8 @@ async def get_mail_pool_stats(
                 "sent_count": sent_count,
                 "drafts_count": drafts_count,
                 "segments": {s["_id"]: s["count"] for s in category_stats if s["_id"]},
+                "ai_categories": {s["_id"]: s["count"] for s in ai_category_stats if s["_id"]},
+                "pending_review": pending_review_count,
                 "accounts": account_stats
             }
         }
@@ -1953,7 +1971,8 @@ async def get_mail_pool_emails(
     request: Request,
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
-    segment: Optional[str] = Query(None, description="Filter by segment/category"),
+    segment: Optional[str] = Query(None, description="Filter by segment/category (legacy)"),
+    ai_category: Optional[str] = Query(None, description="Filter by AI classification category"),
     account: Optional[str] = Query(None, description="Filter by inbox account"),
     direction: Optional[str] = Query(None, description="Filter by direction (inbox/outbox)"),
     is_draft: Optional[bool] = Query(None, description="Filter by draft status"),
@@ -1988,9 +2007,13 @@ async def get_mail_pool_emails(
         if is_starred is True:
             query["labels"] = {"$regex": "STARRED", "$options": "i"}
         
-        # Segment filter (using category field in new schema)
+        # Segment filter (using category field in new schema) - legacy
         if segment:
             query["category"] = {"$regex": segment, "$options": "i"}
+        
+        # AI Category filter (new OpenAI-based classification)
+        if ai_category:
+            query["ai_tier1_category"] = ai_category.lower()
         
         # Account filter - match by mailbox_id or email in from/to fields
         if account:
