@@ -89,7 +89,7 @@ class MailboxUpdate(BaseModel):
 class SyncRequest(BaseModel):
     """Sync request"""
     full_sync: bool = Field(False, description="Force full sync instead of incremental")
-    max_results: int = Field(500, ge=1, le=5000, description="Maximum emails to sync")
+    max_results: int = Field(500, ge=1, le=50000, description="Maximum emails to sync")
 
 
 # ============================================
