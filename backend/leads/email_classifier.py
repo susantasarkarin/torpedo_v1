@@ -1,18 +1,16 @@
 """
-TIERED EMAIL CLASSIFICATION ENGINE
-Two-tier AI approach for cost-effective email classification:
+"""TIERED EMAIL CLASSIFICATION ENGINE (OpenAI Only)
+Two-tier AI approach for email classification:
 
-Tier 1 (Fast/Cheap): Basic triage using GPT-4o-mini, Gemini Flash, or keywords
+Tier 1 (Fast/Cheap): Basic triage using GPT-4o-mini
 - Classifies ALL emails into: client, vendor, promotional, internal, invoice, banking, spam, others
+- Uses keyword pre-filtering for obvious categories
 
-Tier 2 (Deep/Quality): Rich analysis using better model
-- Only for Client/Vendor emails
+Tier 2 (Deep/Quality): Summarization using GPT-4o
+- Only for Client/Vendor emails  
 - Extracts: intent, urgency, action items, summary, sentiment
 
-Provider Options:
-- openai: OpenAI GPT-4o-mini (paid)
-- anthropic: Claude 3.5 Sonnet (paid)
-- gemini: Google Gemini 1.5 Flash (FREE with multi-key rotation)
+Provider: OpenAI (gpt-4o-mini for Tier 1, gpt-4o for Tier 2)
 """
 
 import os
@@ -48,11 +46,11 @@ except ImportError:
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# AI Provider type
-AIProvider = Literal["openai", "anthropic", "gemini"]
+# AI Provider type - OpenAI is now the only supported provider
+AIProvider = Literal["openai"]
 
-# Default provider (use Gemini for free tier)
-DEFAULT_AI_PROVIDER = os.getenv("EMAIL_CLASSIFICATION_PROVIDER", "gemini")
+# Default provider - OpenAI only
+DEFAULT_AI_PROVIDER = "openai"
 
 # MongoDB connection
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
@@ -201,27 +199,41 @@ def classify_tier1_keywords(
     return EmailTier1Category.OTHERS, 0.3
 
 
-# Tier 1 AI prompt - minimal tokens
-TIER1_SYSTEM_PROMPT = """Email classifier. Output JSON only:
+# Tier 1 AI prompt - improved for accuracy
+TIER1_SYSTEM_PROMPT = """You are an email classifier for a B2B survey/research company. Classify emails accurately.
+
+Output JSON only:
 {"category":"client|vendor|internal|promotional|invoice|banking|automated|spam|others","confidence":0.0-1.0}
 
-Rules:
-- client: Inbound from prospects/customers seeking services
-- vendor: From suppliers, service providers, partners
-- internal: Same company domain, team communications
-- promotional: Marketing, newsletters, sales pitches
-- invoice: Billing, payments, invoices
-- banking: Bank communications
-- automated: Auto-replies, notifications, system emails
-- spam: Junk mail
-- others: Cannot determine"""
+CATEGORY DEFINITIONS:
+- client: Business inquiries FROM prospects/customers seeking OUR services (RFQ, project inquiries, meeting requests)
+- vendor: FROM external suppliers/service providers TO us (sales pitches, partnership proposals, software vendors)
+- internal: FROM same company domains (surveyfieldwork.com, cogentixresearch.com) - team communications
+- promotional: Marketing newsletters, promotional offers with unsubscribe links
+- invoice: Billing documents, payment confirmations, invoice attachments
+- banking: FROM bank domains (axisbank.com, axis.bank.in, hdfc, icici, sbi) - statements, alerts, KYC
+- automated: System notifications, noreply@, auto-replies, calendar invites, password resets
+- spam: Obvious junk, scams, phishing attempts
+- others: Only if absolutely cannot determine
+
+IMPORTANT:
+- Bank statements/alerts from *bank* domains = banking (NOT others)
+- Internal team emails from company domains = internal
+- Vendor following up on THEIR payment = vendor (not invoice)
+- RFQ/quote requests = client"""
 
 TIER1_USER_PROMPT = """From: {from_email}
 To: {to_email}
 Subject: {subject}
 Body preview: {body}
 
-Classify. JSON only."""
+Internal company domains: {internal_domains}
+
+Classify this email. JSON only."""
+
+
+# Default internal domains for the company
+DEFAULT_INTERNAL_DOMAINS = ["surveyfieldwork.com", "cogentixresearch.com"]
 
 
 def classify_tier1_ai(
@@ -229,17 +241,22 @@ def classify_tier1_ai(
     body: str,
     from_email: str,
     to_email: str = "",
+    internal_domains: List[str] = None,
     source: str = "background"
 ) -> Tuple[EmailTier1Category, float]:
     """
-    AI-based Tier 1 classification using cheap model.
+    AI-based Tier 1 classification using GPT-4o-mini.
     Use when keyword-based classification is uncertain.
     
     COST: ~0.0001 per email using GPT-4o-mini
     """
     try:
+        # Use default internal domains if not provided
+        if internal_domains is None:
+            internal_domains = DEFAULT_INTERNAL_DOMAINS
+        
         # Truncate body for cost control
-        body_preview = body[:500] if body else ""
+        body_preview = body[:800] if body else ""
         
         result = chat_completion(
             messages=[
@@ -248,13 +265,14 @@ def classify_tier1_ai(
                     from_email=from_email or "-",
                     to_email=to_email or "-",
                     subject=subject or "-",
-                    body=body_preview
+                    body=body_preview,
+                    internal_domains=", ".join(internal_domains) if internal_domains else "none"
                 )}
             ],
             source=source,
             endpoint="email_tier1",
             model=DEFAULT_MODEL,  # GPT-4o-mini - cheap
-            max_output_tokens=50,  # Very small response
+            max_output_tokens=100,  # Small response
             temperature=0.1,
             response_format={"type": "json_object"}
         )
@@ -344,18 +362,15 @@ def classify_tier1(
     source: str = "background"
 ) -> Dict[str, Any]:
     """
-    Complete Tier 1 classification.
+    Complete Tier 1 classification using OpenAI.
     1. Try keyword-based first (free)
-    2. If uncertain (confidence < 0.6), use AI fallback
-    
-    Args:
-        ai_provider: "openai", "anthropic", or "gemini" (default: gemini for free tier)
+    2. If uncertain (confidence < 0.6), use OpenAI GPT-4o-mini
     
     Returns dict with category, confidence, method used
     """
-    # Use default provider if not specified
-    if ai_provider is None:
-        ai_provider = DEFAULT_AI_PROVIDER
+    # Use default internal domains if not provided
+    if internal_domains is None:
+        internal_domains = DEFAULT_INTERNAL_DOMAINS
     
     # First try keywords (free)
     category, confidence = classify_tier1_keywords(
@@ -363,19 +378,13 @@ def classify_tier1(
     )
     method = "keywords"
     
-    # If uncertain, use AI
+    # If uncertain, use OpenAI for AI classification
     if confidence < 0.6 and use_ai_fallback:
-        # Choose AI provider
-        if ai_provider == "gemini" and GEMINI_AVAILABLE:
-            ai_category, ai_confidence = classify_tier1_gemini(
-                subject, body, from_email, to_email, source
-            )
-            ai_method = "gemini_tier1"
-        else:
-            ai_category, ai_confidence = classify_tier1_ai(
-                subject, body, from_email, to_email, source
-            )
-            ai_method = "openai_tier1"
+        # Always use OpenAI (gpt-4o-mini for Tier 1)
+        ai_category, ai_confidence = classify_tier1_ai(
+            subject, body, from_email, to_email, internal_domains, source
+        )
+        ai_method = "openai_tier1"
         
         if ai_confidence > confidence:
             category = ai_category
@@ -386,7 +395,7 @@ def classify_tier1(
         "tier1_category": category.value,
         "tier1_confidence": round(confidence, 2),
         "tier1_method": method,
-        "tier1_provider": ai_provider if method != "keywords" else "none",
+        "tier1_provider": "openai" if method != "keywords" else "none",
         "needs_tier2": category in [EmailTier1Category.CLIENT, EmailTier1Category.VENDOR]
     }
 
@@ -740,7 +749,13 @@ def get_emails_needing_classification(
     category_filter: str = None
 ) -> List[str]:
     """Get email IDs that haven't been AI classified yet"""
-    query = {"ai_category": {"$exists": False}}
+    query = {
+        "$or": [
+            {"ai_category": {"$exists": False}},
+            {"ai_category": None},
+            {"ai_category": ""}
+        ]
+    }
     
     if category_filter:
         query["category"] = category_filter
@@ -766,3 +781,97 @@ def get_emails_needing_tier2(limit: int = 50) -> List[str]:
     ).sort("timestamp", -1).limit(limit)
     
     return [str(e["_id"]) for e in emails]
+
+
+def classify_all_pending_emails(
+    batch_size: int = 100,
+    max_batches: int = None,
+    run_tier2: bool = True,
+    delay_between_batches: float = 2.0,
+    source: str = "background"
+) -> Dict[str, Any]:
+    """
+    Classify ALL pending emails in batches until complete.
+    Uses OpenAI GPT-4o-mini for Tier 1, GPT-4o for Tier 2 summaries.
+    
+    This function loops until all unclassified emails are processed.
+    
+    Args:
+        batch_size: Emails per batch (default 100)
+        max_batches: Max batches to process (None = unlimited)
+        run_tier2: Whether to run Tier 2 analysis for client/vendor
+        delay_between_batches: Seconds to wait between batches
+        source: Request source for logging
+    
+    Returns:
+        Summary statistics
+    """
+    import time
+    
+    internal_domains = get_internal_domains() or DEFAULT_INTERNAL_DOMAINS
+    
+    total_stats = {
+        "success": True,
+        "total_processed": 0,
+        "total_tier1": 0,
+        "total_tier2": 0,
+        "total_leads": 0,
+        "total_errors": 0,
+        "batches_processed": 0,
+        "by_category": {},
+        "started_at": datetime.utcnow().isoformat()
+    }
+    
+    batch_count = 0
+    
+    while True:
+        # Check batch limit
+        if max_batches and batch_count >= max_batches:
+            logger.info(f"Reached max batch limit ({max_batches})")
+            break
+        
+        # Get next batch of unclassified emails
+        email_ids = get_emails_needing_classification(limit=batch_size)
+        
+        if not email_ids:
+            logger.info("No more unclassified emails")
+            break
+        
+        logger.info(f"Processing batch {batch_count + 1} with {len(email_ids)} emails")
+        
+        # Classify batch
+        batch_result = classify_email_batch(
+            email_ids=email_ids,
+            run_tier2=run_tier2,
+            internal_domains=internal_domains,
+            source=source,
+            extract_leads=True
+        )
+        
+        batch_stats = batch_result.get("stats", {})
+        
+        # Aggregate stats
+        total_stats["total_processed"] += batch_stats.get("processed", 0)
+        total_stats["total_tier1"] += batch_stats.get("tier1_only", 0)
+        total_stats["total_tier2"] += batch_stats.get("tier2_analyzed", 0)
+        total_stats["total_leads"] += batch_stats.get("leads_extracted", 0)
+        total_stats["total_errors"] += batch_stats.get("errors", 0)
+        
+        # Merge category counts
+        for cat, count in batch_stats.get("by_category", {}).items():
+            total_stats["by_category"][cat] = total_stats["by_category"].get(cat, 0) + count
+        
+        batch_count += 1
+        total_stats["batches_processed"] = batch_count
+        
+        logger.info(f"Batch {batch_count} complete: {batch_stats.get('processed', 0)} processed, "
+                    f"{batch_stats.get('errors', 0)} errors")
+        
+        # Delay between batches
+        if delay_between_batches > 0:
+            time.sleep(delay_between_batches)
+    
+    total_stats["completed_at"] = datetime.utcnow().isoformat()
+    logger.info(f"Classification complete: {total_stats['total_processed']} emails processed in {batch_count} batches")
+    
+    return total_stats

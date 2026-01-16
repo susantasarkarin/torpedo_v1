@@ -101,8 +101,14 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 # CORS Origins - comma-separated list
 CORS_ORIGINS = os.getenv(
     "CORS_ORIGINS", 
-    "http://localhost:5173,http://localhost:5174,http://localhost:3000,http://localhost:9945,http://34.41.181.74,https://www.surveyieldwork.com,https://surveyieldwork.com"
-).split(",")
+    "*"
+)
+
+# Handle wildcard or list of origins
+if CORS_ORIGINS == "*":
+    CORS_ORIGINS = ["*"]
+else:
+    CORS_ORIGINS = CORS_ORIGINS.split(",")
 
 # ----------------------------
 # MongoDB connection

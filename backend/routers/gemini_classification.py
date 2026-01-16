@@ -132,28 +132,31 @@ async def classify_batch_emails(
     background_tasks: BackgroundTasks
 ):
     """
-    Start batch classification of pending emails in the background.
+    Start batch classification of ALL pending emails in the background.
     
-    Uses rate limiting to stay within Gemini free tier limits (15 RPM per key).
+    Uses OpenAI GPT-4o-mini for Tier 1 classification.
+    Loops until all unclassified emails are processed.
     """
     try:
         try:
-            from ..leads.gemini_email_classifier import classify_pending_emails
+            from ..leads.email_classifier import classify_all_pending_emails
         except ImportError:
-            from leads.gemini_email_classifier import classify_pending_emails
+            from leads.email_classifier import classify_all_pending_emails
         
-        # Run in background
+        # Run in background - will loop until all emails are classified
         background_tasks.add_task(
-            classify_pending_emails,
-            limit=request.limit,
-            internal_domains=request.internal_domains,
+            classify_all_pending_emails,
+            batch_size=min(request.limit, 100),  # Process in batches of up to 100
+            max_batches=None,  # No limit - process ALL
+            run_tier2=True,
+            delay_between_batches=2.0,
             source="api"
         )
         
         return {
             "success": True,
-            "message": f"Started background classification for up to {request.limit} emails",
-            "note": "Rate limited to ~12 requests per minute per API key"
+            "message": f"Started background classification - will process ALL unclassified emails in batches of {min(request.limit, 100)}",
+            "note": "Using OpenAI GPT-4o-mini for classification"
         }
     
     except Exception as e:
@@ -163,20 +166,25 @@ async def classify_batch_emails(
 @router.post("/classify-batch-sync", response_model=Dict[str, Any])
 async def classify_batch_emails_sync(request: ClassifyBatchRequest):
     """
-    Classify batch of emails synchronously (waits for completion).
+    Classify ALL pending emails synchronously (waits for completion).
     
-    Warning: This can take a long time for large batches due to rate limiting.
+    Uses OpenAI GPT-4o-mini for Tier 1, GPT-4o for Tier 2.
+    Loops until all unclassified emails are processed.
+    
+    Warning: This can take a long time for large email volumes.
     Use /classify-batch for background processing.
     """
     try:
         try:
-            from ..leads.gemini_email_classifier import classify_pending_emails
+            from ..leads.email_classifier import classify_all_pending_emails
         except ImportError:
-            from leads.gemini_email_classifier import classify_pending_emails
+            from leads.email_classifier import classify_all_pending_emails
         
-        result = classify_pending_emails(
-            limit=request.limit,
-            internal_domains=request.internal_domains,
+        result = classify_all_pending_emails(
+            batch_size=min(request.limit, 100),
+            max_batches=None,  # Process ALL
+            run_tier2=True,
+            delay_between_batches=1.0,
             source="api"
         )
         

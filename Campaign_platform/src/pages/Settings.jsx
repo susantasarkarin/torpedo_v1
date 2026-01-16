@@ -41,7 +41,16 @@ function Settings() {
     cpx_ext_user_id: "",
     cpx_secure_hash_key: "",
     cpx_api_timeout: 30,
-    gemini_api_keys: "",  // FREE tier - comma-separated keys
+    gemini_api_key_1: "",
+    gemini_api_key_2: "",
+    gemini_api_key_3: "",
+    gemini_api_key_4: "",
+    gemini_api_key_5: "",
+    gemini_api_key_6: "",
+    gemini_api_key_7: "",
+    gemini_api_key_8: "",
+    gemini_api_key_9: "",
+    gemini_api_key_10: "",
     openai_api_key: "",   // Fallback
     anthropic_api_key: "", // Premium
     perplexity_api_key: "",
@@ -1436,16 +1445,24 @@ function Settings() {
                 <h3>🤖 AI / LLM Settings</h3>
                 <div className="setting-row">
                   <label>Gemini API Keys (FREE - Recommended)</label>
-                  <input
-                    type="password"
-                    placeholder={maskedSettings.gemini_api_keys_masked || "AIza...,AIza...,AIza..."}
-                    value={appSettings.gemini_api_keys}
-                    onChange={(e) => handleAppSettingChange("gemini_api_keys", e.target.value)}
-                  />
-                  <p className="setting-hint">
-                    <strong>FREE tier:</strong> Add 6-7 comma-separated keys for ~7000 requests/day. 
+                  <p className="setting-hint" style={{ marginBottom: '0.75rem' }}>
+                    <strong>FREE tier:</strong> Add up to 10 keys for ~10,000 requests/day. 
                     Get from <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
                   </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
+                      <div key={num} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ minWidth: '24px', fontSize: '12px', color: '#6b7280' }}>{num}.</span>
+                        <input
+                          type="password"
+                          placeholder={maskedSettings[`gemini_api_key_${num}_masked`] || "AIza..."}
+                          value={appSettings[`gemini_api_key_${num}`] || ""}
+                          onChange={(e) => handleAppSettingChange(`gemini_api_key_${num}`, e.target.value)}
+                          style={{ flex: 1 }}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 <div className="setting-row">
                   <label>OpenAI API Key (Fallback)</label>

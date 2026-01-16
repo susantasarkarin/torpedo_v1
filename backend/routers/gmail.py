@@ -1860,10 +1860,20 @@ async def get_mail_pool_stats(
         ]
         category_stats = list(mail_pool_emails.aggregate(category_pipeline))
         
-        # Get AI category breakdown (new OpenAI classification)
+        # Get AI category breakdown (check both ai_category and ai_tier1_category fields)
         ai_category_pipeline = [
-            {"$match": {"ai_tier1_category": {"$exists": True, "$ne": None}}},
-            {"$group": {"_id": "$ai_tier1_category", "count": {"$sum": 1}}},
+            {"$match": {
+                "$or": [
+                    {"ai_category": {"$exists": True, "$ne": None, "$ne": ""}},
+                    {"ai_tier1_category": {"$exists": True, "$ne": None, "$ne": ""}}
+                ]
+            }},
+            {"$project": {
+                "category": {
+                    "$ifNull": ["$ai_category", "$ai_tier1_category"]
+                }
+            }},
+            {"$group": {"_id": "$category", "count": {"$sum": 1}}},
             {"$sort": {"count": -1}}
         ]
         ai_category_stats = list(mail_pool_emails.aggregate(ai_category_pipeline))

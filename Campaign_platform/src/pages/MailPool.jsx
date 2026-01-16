@@ -1001,23 +1001,32 @@ function MailPool() {
 
         {/* Folders */}
         <div style={styles.sidebarSection}>
-          {FOLDERS.map(folder => (
-            <div
-              key={folder.id}
-              style={{
-                ...styles.sidebarItem,
-                backgroundColor: filterFolder === folder.id ? "#d3e3fd" : "transparent",
-                fontWeight: filterFolder === folder.id ? "600" : "400"
-              }}
-              onClick={() => handleFolderSelect(folder)}
-            >
-              <span style={styles.sidebarIcon}>{folder.icon}</span>
-              <span style={styles.sidebarLabel}>{folder.name}</span>
-              {folder.id === "inbox" && stats.inbox_count > 0 && (
-                <span style={styles.sidebarBadge}>{stats.inbox_count?.toLocaleString()}</span>
-              )}
-            </div>
-          ))}
+          {FOLDERS.map(folder => {
+            // Get count for each folder type
+            let folderCount = 0;
+            if (folder.id === "inbox") folderCount = stats.inbox_count || 0;
+            else if (folder.id === "sent") folderCount = stats.sent_count || 0;
+            else if (folder.id === "drafts") folderCount = stats.drafts_count || 0;
+            else if (folder.id === "all") folderCount = stats.total_emails || 0;
+            
+            return (
+              <div
+                key={folder.id}
+                style={{
+                  ...styles.sidebarItem,
+                  backgroundColor: filterFolder === folder.id ? "#d3e3fd" : "transparent",
+                  fontWeight: filterFolder === folder.id ? "600" : "400"
+                }}
+                onClick={() => handleFolderSelect(folder)}
+              >
+                <span style={styles.sidebarIcon}>{folder.icon}</span>
+                <span style={styles.sidebarLabel}>{folder.name}</span>
+                {folderCount > 0 && (
+                  <span style={styles.sidebarBadge}>{folderCount.toLocaleString()}</span>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Review Queue Section */}

@@ -26,7 +26,7 @@ import os
 import json
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from dataclasses import dataclass, field
 
 from google.oauth2 import service_account
@@ -536,14 +536,14 @@ class GmailWorkspaceService:
             if not messages:
                 break
             
-            # Fetch message details in batches
+            # Fetch message details with FULL body for AI classification
             for msg in messages:
                 try:
+                    # Use 'full' format to download complete email body
                     msg_data = service.users().messages().get(
                         userId="me",
                         id=msg["id"],
-                        format="metadata",
-                        metadataHeaders=["From", "To", "Cc", "Subject", "Date"]
+                        format="full"  # Changed from 'metadata' to 'full' for AI classification
                     ).execute()
                     
                     self._save_email_metadata(mailbox_id, email, msg_data)
@@ -587,14 +587,13 @@ class GmailWorkspaceService:
                 history = results.get("history", [])
                 
                 for record in history:
-                    # Handle new messages
+                    # Handle new messages - download full body for AI classification
                     for msg in record.get("messagesAdded", []):
                         try:
                             msg_data = service.users().messages().get(
                                 userId="me",
                                 id=msg["message"]["id"],
-                                format="metadata",
-                                metadataHeaders=["From", "To", "Cc", "Subject", "Date"]
+                                format="full"  # Changed from 'metadata' to 'full' for AI classification
                             ).execute()
                             
                             self._save_email_metadata(mailbox_id, email, msg_data)
@@ -625,7 +624,7 @@ class GmailWorkspaceService:
         return stats
     
     def _save_email_metadata(self, mailbox_id: str, mailbox_email: str, msg_data: Dict):
-        """Save email metadata to database"""
+        """Save email metadata and body to database for AI classification"""
         headers = {h["name"].lower(): h["value"] for h in msg_data.get("payload", {}).get("headers", [])}
         
         # Parse from
@@ -648,10 +647,14 @@ class GmailWorkspaceService:
         except:
             timestamp = datetime.utcnow()
         
-        # Check for attachments
-        parts = msg_data.get("payload", {}).get("parts", [])
+        # Check for attachments and extract body
+        payload = msg_data.get("payload", {})
+        parts = payload.get("parts", [])
         has_attachments = any(p.get("filename") for p in parts)
         attachment_count = sum(1 for p in parts if p.get("filename"))
+        
+        # Extract email body (plain text and HTML)
+        body_plain, body_html = self._extract_body(payload)
         
         labels = msg_data.get("labelIds", [])
         
@@ -665,6 +668,8 @@ class GmailWorkspaceService:
             "cc_emails": cc_emails,
             "subject": headers.get("subject", "(No Subject)"),
             "snippet": msg_data.get("snippet", ""),
+            "body_plain": body_plain,  # Added for AI classification
+            "body_html": body_html,    # Added for display
             "timestamp": timestamp,
             "labels": labels,
             "direction": direction,
@@ -682,6 +687,62 @@ class GmailWorkspaceService:
             {"$set": doc},
             upsert=True
         )
+    
+    def _extract_body(self, payload: Dict) -> Tuple[str, str]:
+        """Extract plain text and HTML body from email payload"""
+        import base64
+        
+        body_plain = ""
+        body_html = ""
+        
+        def decode_body(data: str) -> str:
+            """Decode base64url encoded body"""
+            try:
+                return base64.urlsafe_b64decode(data).decode('utf-8', errors='replace')
+            except:
+                return ""
+        
+        def extract_from_parts(parts: List[Dict]):
+            """Recursively extract body from parts"""
+            nonlocal body_plain, body_html
+            
+            for part in parts:
+                mime_type = part.get("mimeType", "")
+                body_data = part.get("body", {}).get("data", "")
+                
+                if body_data:
+                    decoded = decode_body(body_data)
+                    if mime_type == "text/plain" and not body_plain:
+                        body_plain = decoded
+                    elif mime_type == "text/html" and not body_html:
+                        body_html = decoded
+                
+                # Recurse into nested parts
+                if part.get("parts"):
+                    extract_from_parts(part["parts"])
+        
+        # Check if body is directly in payload (simple emails)
+        body_data = payload.get("body", {}).get("data", "")
+        mime_type = payload.get("mimeType", "")
+        
+        if body_data:
+            decoded = decode_body(body_data)
+            if "html" in mime_type:
+                body_html = decoded
+            else:
+                body_plain = decoded
+        
+        # Extract from parts (multipart emails)
+        if payload.get("parts"):
+            extract_from_parts(payload["parts"])
+        
+        # If no plain text, strip HTML
+        if not body_plain and body_html:
+            import re
+            body_plain = re.sub(r'<[^>]+>', ' ', body_html)
+            body_plain = re.sub(r'\s+', ' ', body_plain).strip()
+        
+        return body_plain[:10000], body_html[:50000]  # Limit size for DB
     
     def _extract_email(self, header: str) -> str:
         """Extract email address from header"""

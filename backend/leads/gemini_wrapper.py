@@ -51,7 +51,6 @@ logger = logging.getLogger(__name__)
 # Available Gemini models
 GEMINI_FLASH_MODEL = "gemini-2.5-flash-lite"  # Fast, efficient, good for classification
 GEMINI_PRO_MODEL = "gemini-2.5-pro"       # More capable for complex extraction
-GEMINI_FLASH_PREVIEW = "gemini-2.5-flash"  # Latest flash preview
 
 # Default model for email classification
 DEFAULT_GEMINI_MODEL = GEMINI_FLASH_MODEL
@@ -104,19 +103,28 @@ class GeminiKeyManager:
         self._load_keys()
     
     def _load_keys_from_db(self) -> List[str]:
-        """Load API keys from database settings"""
+        """Load API keys from database settings (individual key slots 1-10)"""
+        keys = []
         try:
             client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=2000)
             settings_db = client["torpedo_settings"]
             app_settings = settings_db["app_settings"]
             
             stored = app_settings.find_one({"_id": "app_config"})
-            if stored and stored.get("gemini_api_keys"):
-                keys_str = stored["gemini_api_keys"]
-                return [k.strip() for k in keys_str.split(",") if k.strip()]
+            if stored:
+                # Load from individual key slots (1-10)
+                for i in range(1, 11):
+                    key = stored.get(f"gemini_api_key_{i}", "")
+                    if key and key.strip():
+                        keys.append(key.strip())
+                
+                # Backward compatibility: also check old comma-separated format
+                if not keys and stored.get("gemini_api_keys"):
+                    keys_str = stored["gemini_api_keys"]
+                    keys = [k.strip() for k in keys_str.split(",") if k.strip()]
         except Exception as e:
             logger.debug(f"Could not fetch Gemini keys from DB: {e}")
-        return []
+        return keys
     
     def _load_keys(self):
         """Load API keys from database settings first, then environment variables"""
@@ -128,14 +136,8 @@ class GeminiKeyManager:
             keys.extend(db_keys)
             logger.info(f"✅ Loaded {len(db_keys)} Gemini API key(s) from database")
         
-        # Check for comma-separated keys in env
-        multi_keys = os.getenv("GEMINI_API_KEYS", "")
-        if multi_keys:
-            env_keys = [k.strip() for k in multi_keys.split(",") if k.strip() and k.strip() not in keys]
-            keys.extend(env_keys)
-        
-        # Check for numbered keys (GEMINI_API_KEY_1 through GEMINI_API_KEY_20)
-        for i in range(1, 21):
+        # Check for numbered keys in env (GEMINI_API_KEY_1 through GEMINI_API_KEY_10)
+        for i in range(1, 11):
             key = os.getenv(f"GEMINI_API_KEY_{i}", "")
             if key and key not in keys:
                 keys.append(key)
@@ -160,7 +162,7 @@ class GeminiKeyManager:
         if keys:
             logger.info(f"✅ Loaded {len(keys)} Gemini API key(s)")
         else:
-            logger.warning("⚠️ No Gemini API keys found. Set GEMINI_API_KEY or GEMINI_API_KEYS env var.")
+            logger.warning("⚠️ No Gemini API keys found. Set GEMINI_API_KEY_1 through GEMINI_API_KEY_10 env vars.")
     
     def _reset_minute_counters(self, key: str):
         """Reset per-minute counters if a minute has passed"""
