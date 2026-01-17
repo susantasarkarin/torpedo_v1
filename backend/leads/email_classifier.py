@@ -470,7 +470,7 @@ def classify_tier2(
             ],
             source=source,
             endpoint="email_tier2",
-            model=ANTHROPIC_DEFAULT_MODEL,  # Claude 3.5 Sonnet - better quality
+            model=OPENAI_DEFAULT_MODEL,  # GPT-4o for quality Tier 2 analysis
             max_output_tokens=400,  # More detailed response
             temperature=0.2,
             response_format={"type": "json_object"}
