@@ -165,19 +165,25 @@ Analyze this email. Return valid JSON only, no markdown formatting."""
             ],
             model=DEFAULT_MODEL,  # gpt-4o-mini
             temperature=0.1,
-            max_tokens=1200,
+            max_output_tokens=1200,
             response_format={"type": "json_object"},
             source=source
         )
         
-        if not response:
-            logger.warning(f"No response from AI for email {email_id}")
+        if not response or not response.get("success"):
+            logger.warning(f"No response from AI for email {email_id}: {response.get('error') if response else 'None'}")
+            return _default_result(email_id, from_email, first_name, last_name, full_name, from_domain)
+        
+        # Extract content from response dict
+        content = response.get("content", "")
+        if not content:
+            logger.warning(f"Empty content from AI for email {email_id}")
             return _default_result(email_id, from_email, first_name, last_name, full_name, from_domain)
         
         # Parse response
         try:
             # Clean response if it has markdown
-            clean_response = response.strip()
+            clean_response = content.strip()
             if clean_response.startswith("```"):
                 clean_response = re.sub(r'^```json?\s*', '', clean_response)
                 clean_response = re.sub(r'\s*```$', '', clean_response)
