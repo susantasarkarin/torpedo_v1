@@ -258,7 +258,7 @@ function GmailSetup() {
   }
 
   // Sync mailbox with progress tracking
-  const handleSyncWithProgress = async (mailboxId, autoClassifyAfter = false) => {
+  const handleSyncWithProgress = async (mailboxId, autoClassifyAfter = false, skipRefresh = false) => {
     const auth = getAuthHeader()
     if (!auth) return
     
@@ -334,7 +334,10 @@ function GmailSetup() {
           text: `✅ Synced ${newEmails.toLocaleString()} new emails from ${emailAddress}` 
         })
         
-        fetchMailboxes()
+        // Only refresh mailboxes if not part of bulk operation
+        if (!skipRefresh) {
+          fetchMailboxes()
+        }
         
         // Auto-classify after sync if requested
         if (autoClassifyAfter && newEmails > 0) {
@@ -397,16 +400,15 @@ function GmailSetup() {
   const handleSyncAll = async () => {
     setMessage({ type: "info", text: "🔄 Starting sync of all mailboxes..." })
     
-    let totalNewEmails = 0
+    // Sync all mailboxes without refreshing the list each time (skipRefresh = true)
     for (const mailbox of mailboxes) {
-      await handleSyncWithProgress(mailbox.id, false)
-      const progress = syncProgress[mailbox.id]
-      if (progress?.synced) {
-        totalNewEmails += progress.synced
-      }
+      await handleSyncWithProgress(mailbox.id, false, true)
     }
     
-    // Always run classification after sync (creates AI summaries and classifies)
+    // Refresh mailbox list once after all syncs complete
+    fetchMailboxes()
+    
+    // Run classification after sync (creates AI summaries and classifies)
     setMessage({ type: "info", text: "🤖 Sync complete! Now creating AI summaries and classifying emails..." })
     await runAutoClassification()
   }
