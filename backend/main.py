@@ -89,7 +89,7 @@ load_dotenv()
 # Config
 # ----------------------------
 #changes 4
-API_BASE = os.getenv("API_BASE", "http://34.41.181.74:8000")
+API_BASE = os.getenv("API_BASE", "http://139.59.32.72:8000")
 # CINT webhook callback URL (must be publicly accessible for CINT servers)
 # Use torpedo.cogentixresearch.com as the production domain
 CINT_WEBHOOK_CALLBACK_URL = os.getenv("CINT_WEBHOOK_CALLBACK_URL", "https://torpedo.cogentixresearch.com/api/cint/webhooks/opportunities") 

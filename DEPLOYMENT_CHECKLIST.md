@@ -1,8 +1,8 @@
-# 🚀 Production Deployment Checklist - GCP VM (34.41.181.74)
+# 🚀 Production Deployment Checklist - GCP VM (139.59.32.72)
 
 **Deployment Date**: January 8, 2026  
 **Git Commit**: 6e41ae5 (Complete Cint API integration)  
-**Target**: surveyieldwork.com (34.41.181.74)
+**Target**: surveyieldwork.com (139.59.32.72)
 
 ---
 
@@ -25,13 +25,13 @@
 
 **Required**: SSH access to GCP VM  
 **User**: susanta  
-**Host**: 34.41.181.74  
+**Host**: 139.59.32.72  
 **Port**: 22
 
 ### Connection Test
 ```bash
 # Run on your local machine
-ssh susanta@34.41.181.74 "echo 'SSH Access OK'"
+ssh root@139.59.32.72 "echo 'SSH Access OK'"
 ```
 
 **Status**: ☐ SSH Access Verified
@@ -43,22 +43,22 @@ ssh susanta@34.41.181.74 "echo 'SSH Access OK'"
 ### System Packages
 - [ ] Python 3.8+ installed
   ```bash
-  ssh susanta@34.41.181.74 "python3 --version"
+  ssh root@139.59.32.72 "python3 --version"
   ```
 
 - [ ] Git installed
   ```bash
-  ssh susanta@34.41.181.74 "git --version"
+  ssh root@139.59.32.72 "git --version"
   ```
 
 - [ ] MongoDB running (or URI available)
   ```bash
-  ssh susanta@34.41.181.74 "mongod --version"
+  ssh root@139.59.32.72 "mongod --version"
   ```
 
 - [ ] npm/Node.js installed (for PM2)
   ```bash
-  ssh susanta@34.41.181.74 "npm --version || echo 'Install npm'"
+  ssh root@139.59.32.72 "npm --version || echo 'Install npm'"
   ```
 
 ---
@@ -105,7 +105,7 @@ CINT_SUPPLIER_CODE=6777
 CINT_ENVIRONMENT=sandbox
 CINT_WEBHOOK_SECRET=M7jTY9DGoXEC3AG8tAJ289l57U6e9hpT2q5xN7n88UbpiYInITVU35MHTFRB8520syiC4WQA7oS2LN90PRuD7
 API_BASE=https://surveyieldwork.com
-CORS_ORIGINS=https://surveyieldwork.com,https://www.surveyieldwork.com,http://34.41.181.74
+CORS_ORIGINS=https://surveyieldwork.com,https://www.surveyieldwork.com,http://139.59.32.72
 EOF
   ```
 
@@ -162,7 +162,7 @@ EOF
   sudo bash -c 'cat > /etc/nginx/sites-available/campaign-api << "EOF"
 server {
     listen 80;
-    server_name surveyieldwork.com www.surveyieldwork.com 34.41.181.74;
+    server_name surveyieldwork.com www.surveyieldwork.com 139.59.32.72;
 
     location / {
         proxy_pass http://127.0.0.1:8000;
@@ -200,13 +200,13 @@ EOF'
 ### Phase 6: DNS Configuration
 - [ ] Update DNS record for surveyieldwork.com
   - **Type**: A Record
-  - **Value**: 34.41.181.74
+  - **Value**: 139.59.32.72
   - **TTL**: 3600 (or lower for faster propagation)
 
 - [ ] Test DNS resolution
   ```bash
   nslookup surveyieldwork.com
-  # Should return 34.41.181.74
+  # Should return 139.59.32.72
   ```
 
 **Checkpoint 6**: DNS pointing to GCP VM (wait 5-15 minutes for propagation)
@@ -217,7 +217,7 @@ EOF'
 
 ### Test 1: Health Check
 ```bash
-curl http://34.41.181.74/health
+curl http://139.59.32.72/health
 # Expected: {"status": "healthy", ...}
 
 curl http://surveyieldwork.com/health
@@ -227,10 +227,10 @@ curl http://surveyieldwork.com/health
 
 ### Test 2: Cint Endpoints
 ```bash
-curl http://34.41.181.74/api/cint/health
+curl http://139.59.32.72/api/cint/health
 # Expected: {"status": "healthy", "supplier_code": "6777", ...}
 
-curl http://34.41.181.74/api/cint/opportunities
+curl http://139.59.32.72/api/cint/opportunities
 # Expected: {"success": true, "opportunities": [...]}
 ```
 - [ ] Cint endpoints accessible
@@ -238,7 +238,7 @@ curl http://34.41.181.74/api/cint/opportunities
 ### Test 3: API Documentation
 ```bash
 # Visit in browser:
-http://34.41.181.74/docs
+http://139.59.32.72/docs
 # or
 https://surveyieldwork.com/docs
 ```
@@ -264,7 +264,7 @@ BODY='{"survey_id": 123}'
 # Compute signature (on Linux/Mac):
 SIG=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" -hex | cut -d' ' -f2)
 
-curl -X POST http://34.41.181.74/api/cint/webhooks/opportunities \
+curl -X POST http://139.59.32.72/api/cint/webhooks/opportunities \
   -H "Content-Type: application/json" \
   -H "X-Cint-Signature: $SIG" \
   -d "$BODY"
@@ -414,7 +414,7 @@ sudo tail -f /var/log/nginx/access.log
 nslookup surveyieldwork.com
 
 # Check DNS configuration in domain registrar
-# Verify A record points to 34.41.181.74
+# Verify A record points to 139.59.32.72
 ```
 
 ---

@@ -1,6 +1,6 @@
 # 🚀 Cint Integration - Production Deployment Guide
 
-**Deployment Target**: GCP VM (34.41.181.74)  
+**Deployment Target**: GCP VM (139.59.32.72)  
 **Domain**: surveyieldwork.com  
 **Timeline**: ~15 minutes
 
@@ -48,7 +48,7 @@ Before deploying, ensure on your GCP VM:
 
 #### Step 1: SSH into GCP VM
 ```bash
-ssh susanta@34.41.181.74
+ssh root@139.59.32.72
 ```
 
 #### Step 2: Navigate to Project & Update Code
@@ -85,7 +85,7 @@ MONGO_URI=mongodb://localhost:27017/
 
 # API Configuration
 API_BASE=https://surveyieldwork.com
-CORS_ORIGINS=https://surveyieldwork.com,https://www.surveyieldwork.com,http://34.41.181.74
+CORS_ORIGINS=https://surveyieldwork.com,https://www.surveyieldwork.com,http://139.59.32.72
 
 # Cint API Configuration (Already set in code)
 CINT_API_KEY=C61C48A6-8154-4F9F-B616-8DFB66F452A7
@@ -135,7 +135,7 @@ sudo apt-get install nginx -y
 sudo bash -c 'cat > /etc/nginx/sites-available/campaign-api << "EOF"
 server {
     listen 80;
-    server_name surveyieldwork.com www.surveyieldwork.com 34.41.181.74;
+    server_name surveyieldwork.com www.surveyieldwork.com 139.59.32.72;
 
     # Redirect HTTP to HTTPS (after SSL is set up)
     # return 301 https://$server_name$request_uri;

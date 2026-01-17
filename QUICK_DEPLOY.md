@@ -1,6 +1,6 @@
 # 🚀 Quick Deployment Commands - Copy & Paste
 
-**For GCP VM (34.41.181.74) - Ubuntu/Linux**
+**For GCP VM (139.59.32.72) - Ubuntu/Linux**
 
 ---
 
@@ -8,7 +8,7 @@
 
 ```bash
 # SSH into VM
-ssh susanta@34.41.181.74
+ssh root@139.59.32.72
 
 # Navigate to project
 cd /home/susanta/campaign_platform
@@ -31,7 +31,7 @@ CINT_SUPPLIER_CODE=6777
 CINT_ENVIRONMENT=sandbox
 CINT_WEBHOOK_SECRET=M7jTY9DGoXEC3AG8tAJ289l57U6e9hpT2q5xN7n88UbpiYInITVU35MHTFRB8520syiC4WQA7oS2LN90PRuD7
 API_BASE=https://surveyieldwork.com
-CORS_ORIGINS=https://surveyieldwork.com,https://www.surveyieldwork.com,http://34.41.181.74
+CORS_ORIGINS=https://surveyieldwork.com,https://www.surveyieldwork.com,http://139.59.32.72
 EOF
 
 # Start backend
@@ -46,7 +46,7 @@ sudo apt-get install nginx -y
 sudo bash -c 'cat > /etc/nginx/sites-available/campaign-api << "EOF"
 server {
     listen 80;
-    server_name surveyieldwork.com www.surveyieldwork.com 34.41.181.74;
+    server_name surveyieldwork.com www.surveyieldwork.com 139.59.32.72;
 
     location / {
         proxy_pass http://127.0.0.1:8000;
@@ -73,7 +73,7 @@ sudo systemctl enable nginx
 
 ```bash
 # SSH into VM
-ssh susanta@34.41.181.74
+ssh root@139.59.32.72
 
 # Update code
 cd /home/susanta/campaign_platform/backend
@@ -93,13 +93,13 @@ pm2 logs campaign-backend
 
 ```bash
 # Check if backend is running
-ssh susanta@34.41.181.74 "pm2 status"
+ssh root@139.59.32.72 "pm2 status"
 
 # View logs
-ssh susanta@34.41.181.74 "pm2 logs campaign-backend --lines 50"
+ssh root@139.59.32.72 "pm2 logs campaign-backend --lines 50"
 
 # Test health endpoint
-curl http://34.41.181.74/health
+curl http://139.59.32.72/health
 
 # Test after DNS propagates
 curl https://surveyieldwork.com/health
@@ -111,13 +111,13 @@ curl https://surveyieldwork.com/health
 
 ```bash
 # Stop backend
-ssh susanta@34.41.181.74 "pm2 stop campaign-backend"
+ssh root@139.59.32.72 "pm2 stop campaign-backend"
 
 # Restart backend
-ssh susanta@34.41.181.74 "pm2 restart campaign-backend"
+ssh root@139.59.32.72 "pm2 restart campaign-backend"
 
 # View detailed logs
-ssh susanta@34.41.181.74 "pm2 logs campaign-backend --lines 100"
+ssh root@139.59.32.72 "pm2 logs campaign-backend --lines 100"
 ```
 
 ---
@@ -130,7 +130,7 @@ ssh susanta@34.41.181.74 "pm2 logs campaign-backend --lines 100"
 #!/bin/bash
 # Test webhook with proper signature
 
-HOST="http://34.41.181.74"  # Change to https://surveyieldwork.com after DNS propagates
+HOST="http://139.59.32.72"  # Change to https://surveyieldwork.com after DNS propagates
 WEBHOOK_SECRET="M7jTY9DGoXEC3AG8tAJ289l57U6e9hpT2q5xN7n88UbpiYInITVU35MHTFRB8520syiC4WQA7oS2LN90PRuD7"
 
 BODY='{"survey_id": 123, "supplier_id": 6777, "message_reason": "new"}'
@@ -157,7 +157,7 @@ echo "Done!"
 
 ```bash
 # Connect to MongoDB
-ssh susanta@34.41.181.74 "mongosh localhost:27017/campaign_platform"
+ssh root@139.59.32.72 "mongosh localhost:27017/campaign_platform"
 
 # In MongoDB shell:
 use campaign_platform
@@ -187,38 +187,38 @@ CINT_WEBHOOK_SECRET=M7jTY9DGoXEC3AG8tAJ289l57U6e9hpT2q5xN7n88UbpiYInITVU35MHTFRB
 ### Issue: "Address already in use"
 ```bash
 # Kill process on port 8000
-ssh susanta@34.41.181.74 "lsof -i :8000 | grep LISTEN | awk '{print $2}' | xargs kill -9"
+ssh root@139.59.32.72 "lsof -i :8000 | grep LISTEN | awk '{print $2}' | xargs kill -9"
 pm2 restart campaign-backend
 ```
 
 ### Issue: MongoDB connection refused
 ```bash
 # Check if mongod is running
-ssh susanta@34.41.181.74 "ps aux | grep mongod"
+ssh root@139.59.32.72 "ps aux | grep mongod"
 
 # Start MongoDB if not running
-ssh susanta@34.41.181.74 "mongod --fork --logpath /var/log/mongodb.log"
+ssh root@139.59.32.72 "mongod --fork --logpath /var/log/mongodb.log"
 ```
 
 ### Issue: Nginx not forwarding
 ```bash
 # Check Nginx status
-ssh susanta@34.41.181.74 "sudo systemctl status nginx"
+ssh root@139.59.32.72 "sudo systemctl status nginx"
 
 # Check logs
-ssh susanta@34.41.181.74 "sudo tail -f /var/log/nginx/error.log"
+ssh root@139.59.32.72 "sudo tail -f /var/log/nginx/error.log"
 
 # Test Nginx config
-ssh susanta@34.41.181.74 "sudo nginx -t"
+ssh root@139.59.32.72 "sudo nginx -t"
 ```
 
 ### Issue: Backend won't start
 ```bash
 # Check what's wrong
-ssh susanta@34.41.181.74 "pm2 logs campaign-backend"
+ssh root@139.59.32.72 "pm2 logs campaign-backend"
 
 # Check if all dependencies installed
-ssh susanta@34.41.181.74 "python3 -c 'import fastapi, httpx, pymongo; print(\"OK\")'"
+ssh root@139.59.32.72 "python3 -c 'import fastapi, httpx, pymongo; print(\"OK\")'"
 ```
 
 ---
@@ -264,7 +264,7 @@ After deployment, these endpoints will be live:
 - [ ] Cint endpoints accessible
 - [ ] MongoDB collections created
 - [ ] Environment variables configured
-- [ ] DNS pointing to 34.41.181.74
+- [ ] DNS pointing to 139.59.32.72
 - [ ] Webhook signature validation tested
 - [ ] No errors in `pm2 logs campaign-backend`
 - [ ] Cint dashboard webhook configured

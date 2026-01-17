@@ -84,7 +84,7 @@ except Exception as outer_e:
 3. **Restart backend service:**
    ```bash
    # SSH to server
-   ssh susanta@34.41.181.74
+   ssh root@139.59.32.72
    
    # Navigate to backend
    cd /var/www/campaign_platform/backend
