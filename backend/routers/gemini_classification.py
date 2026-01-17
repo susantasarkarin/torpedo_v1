@@ -168,7 +168,7 @@ async def classify_batch_emails_sync(request: ClassifyBatchRequest):
     """
     Classify ALL pending emails synchronously (waits for completion).
     
-    Uses OpenAI GPT-4o-mini for Tier 1, GPT-4o for Tier 2.
+    Uses unified GPT-4o-mini classification with summary + lead extraction.
     Loops until all unclassified emails are processed.
     
     Warning: This can take a long time for large email volumes.
@@ -183,12 +183,47 @@ async def classify_batch_emails_sync(request: ClassifyBatchRequest):
         result = classify_all_pending_emails(
             batch_size=min(request.limit, 100),
             max_batches=None,  # Process ALL
-            run_tier2=True,
             delay_between_batches=1.0,
             source="api"
         )
         
         return result
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/clear-classifications", response_model=Dict[str, Any])
+async def clear_all_classifications():
+    """
+    Clear ALL AI classifications from emails.
+    Use before re-running classification with new settings.
+    """
+    try:
+        try:
+            from ..leads.email_classifier import clear_all_classifications
+        except ImportError:
+            from leads.email_classifier import clear_all_classifications
+        
+        count = clear_all_classifications()
+        return {"success": True, "cleared_count": count}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/stats", response_model=Dict[str, Any])
+async def get_classification_stats():
+    """
+    Get current classification statistics.
+    """
+    try:
+        try:
+            from ..leads.email_classifier import get_classification_stats
+        except ImportError:
+            from leads.email_classifier import get_classification_stats
+        
+        return get_classification_stats()
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,56 +1,36 @@
 """
-TIERED EMAIL CLASSIFICATION ENGINE (OpenAI Only)
-Two-tier AI approach for email classification:
+UNIFIED EMAIL CLASSIFIER (Single GPT-4o-mini Call)
+===================================================
+Combines summarization + classification + lead extraction in ONE API call.
 
-Tier 1 (Fast/Cheap): Basic triage using GPT-4o-mini
-- Classifies ALL emails into: client, vendor, promotional, internal, invoice, banking, spam, others
-- Uses keyword pre-filtering for obvious categories
-
-Tier 2 (Deep/Quality): Summarization using GPT-4o
-- Only for Client/Vendor emails  
-- Extracts: intent, urgency, action items, summary, sentiment
-
-Provider: OpenAI (gpt-4o-mini for Tier 1, gpt-4o for Tier 2)
+Categories:
+- client: Business inquiries FROM prospects/customers
+- vendor: FROM external suppliers/service providers  
+- invoice: Bills, payment requests, dues
+- banking: Bank statements, transactions, alerts
+- internal: Between team members (same company domains)
+- newsletter: Marketing newsletters, industry updates
+- bounce: Undeliverable, failed delivery notifications
+- promotional: Ads, offers, sales pitches
+- automated: System notifications, alerts, confirmations
+- others: Cannot determine
 """
 
 import os
 import json
 import logging
+import re
+import time
 from datetime import datetime
-from typing import Optional, Dict, Any, List, Tuple, Literal
-from enum import Enum
+from typing import Optional, Dict, Any, List
 from pymongo import MongoClient
+from bson import ObjectId
 from dotenv import load_dotenv
 
-from .openai_wrapper import (
-    chat_completion, 
-    DEFAULT_MODEL, 
-    PREMIUM_MODEL,
-    ANTHROPIC_DEFAULT_MODEL
-)
-
-# Try to import Gemini wrapper
-try:
-    from .gemini_wrapper import (
-        gemini_generate, 
-        gemini_classify_email,
-        GEMINI_AVAILABLE,
-        GEMINI_FLASH_MODEL
-    )
-except ImportError:
-    GEMINI_AVAILABLE = False
-    gemini_generate = None
-    gemini_classify_email = None
-    GEMINI_FLASH_MODEL = "gemini-1.5-flash"
+from .openai_wrapper import chat_completion, DEFAULT_MODEL
 
 load_dotenv()
 logger = logging.getLogger(__name__)
-
-# AI Provider type - OpenAI is now the only supported provider
-AIProvider = Literal["openai"]
-
-# Default provider - OpenAI only
-DEFAULT_AI_PROVIDER = "openai"
 
 # MongoDB connection
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
@@ -59,819 +39,434 @@ torpedo_gmail_db = mongo_client['torpedo_gmail']
 email_metadata = torpedo_gmail_db['email_metadata']
 
 
-# ============== TIER 1 CATEGORIES (Basic Triage) ==============
+# Internal company domains
+INTERNAL_DOMAINS = ["surveyfieldwork.com", "cogentixresearch.com"]
 
-class EmailTier1Category(str, Enum):
-    """Basic email categories for fast triage"""
-    CLIENT = "client"           # Inbound from clients/prospects
-    VENDOR = "vendor"           # From vendors/suppliers/partners
-    INTERNAL = "internal"       # Internal team communications
-    PROMOTIONAL = "promotional" # Marketing, newsletters, spam-like
-    INVOICE = "invoice"         # Billing, invoices, payments
-    BANKING = "banking"         # Bank statements, transactions
-    AUTOMATED = "automated"     # Auto-replies, notifications, system emails
-    SPAM = "spam"               # Obvious spam/junk
-    OTHERS = "others"           # Uncategorized
-
-
-# ============== TIER 2 INTENTS (Deep Analysis) ==============
-
-class EmailIntent(str, Enum):
-    """Detailed email intents for client/vendor emails"""
-    # Client Intents
-    NEW_INQUIRY = "new_inquiry"           # New business inquiry
-    RFQ_REQUEST = "rfq_request"           # Request for quote
-    MEETING_REQUEST = "meeting_request"   # Meeting/call request
-    FOLLOW_UP = "follow_up"               # Follow-up on previous conversation
-    QUESTION = "question"                 # General question
-    COMPLAINT = "complaint"               # Issue/complaint
-    FEEDBACK = "feedback"                 # Feedback/review
-    NEGOTIATION = "negotiation"           # Price/contract negotiation
-    PURCHASE_ORDER = "purchase_order"     # Purchase order
-    CANCELLATION = "cancellation"         # Cancel request
-    
-    # Vendor Intents
-    PROPOSAL = "proposal"                 # Vendor proposal/pitch
-    QUOTE_RESPONSE = "quote_response"     # Quote/pricing response
-    DELIVERY_UPDATE = "delivery_update"   # Delivery/status update
-    SUPPORT_RESPONSE = "support_response" # Support ticket response
-    INVOICE_PAYMENT = "invoice_payment"   # Invoice or payment related
-    CONTRACT = "contract"                 # Contract related
-    
-    # General
-    INFORMATIONAL = "informational"       # FYI, no action needed
-    ACTION_REQUIRED = "action_required"   # Needs response/action
-    URGENT = "urgent"                     # Time-sensitive
-    OTHER = "other"
-
-
-class EmailUrgency(str, Enum):
-    """Email urgency levels"""
-    CRITICAL = "critical"   # Needs immediate attention
-    HIGH = "high"           # Respond within 24 hours
-    MEDIUM = "medium"       # Respond within 48 hours
-    LOW = "low"             # Can wait
-    NONE = "none"           # No urgency
-
-
-# ============== TIER 1: FAST CLASSIFICATION ==============
-
-# Keywords for fast rule-based pre-classification (FREE - no API calls)
-TIER1_KEYWORDS = {
-    EmailTier1Category.PROMOTIONAL: [
-        "unsubscribe", "newsletter", "marketing", "promotion", "sale", "discount",
-        "limited time", "act now", "exclusive offer", "free trial", "webinar invite",
-        "subscription", "click here", "view in browser", "email preferences"
-    ],
-    EmailTier1Category.AUTOMATED: [
-        "auto-reply", "automatic reply", "out of office", "noreply", "no-reply",
-        "donotreply", "do not reply", "automated message", "this is an automated",
-        "delivery notification", "read receipt", "calendar invitation", "meeting accepted"
-    ],
-    EmailTier1Category.INVOICE: [
-        "invoice", "payment due", "billing statement", "receipt", "remittance",
-        "amount due", "pay now", "payment confirmation", "outstanding balance"
-    ],
-    EmailTier1Category.BANKING: [
-        "bank statement", "account summary", "wire transfer", "ach transfer",
-        "bank of", "bank notification", "transaction alert", "account balance"
-    ],
-    EmailTier1Category.SPAM: [
-        "winner", "lottery", "inheritance", "nigerian prince", "urgent transfer",
-        "congratulations you won", "claim your prize", "limited time offer",
-        "act immediately", "wire money"
-    ],
-}
-
-# Known vendor domains (expand as needed)
-VENDOR_DOMAINS = [
-    "zoho.com", "quickbooks.com", "xero.com", "freshbooks.com",
-    "aws.amazon.com", "cloud.google.com", "azure.microsoft.com",
-    "slack.com", "zoom.us", "hubspot.com", "salesforce.com",
-    "mailchimp.com", "sendgrid.com", "twilio.com"
+# Valid categories
+CATEGORIES = [
+    "client", "vendor", "invoice", "banking", "internal",
+    "newsletter", "bounce", "promotional", "automated", "others"
 ]
 
-# Internal domain patterns (will be matched dynamically)
-INTERNAL_DOMAIN_PATTERNS = []  # Populated from workspace_mailboxes
+# Unified system prompt for classification + summarization + lead extraction
+UNIFIED_SYSTEM_PROMPT = """You are an email analyzer for a B2B survey/market research company (Survey Fieldwork / Cogentix Research).
 
+Analyze the email and return JSON with summary, classification, and sender information.
 
-def classify_tier1_keywords(
-    subject: str, 
-    body: str, 
-    from_email: str,
-    to_email: str = "",
-    internal_domains: List[str] = None
-) -> Tuple[EmailTier1Category, float]:
-    """
-    Fast keyword-based classification (Tier 1).
-    Returns (category, confidence) - confidence 0.0-1.0
-    
-    This is FREE - no API calls.
-    """
-    content = f"{subject} {body}".lower()
-    from_domain = from_email.split("@")[-1].lower() if "@" in from_email else ""
-    
-    # Check internal first
-    if internal_domains:
-        for domain in internal_domains:
-            if from_domain.endswith(domain.lower()):
-                return EmailTier1Category.INTERNAL, 0.9
-    
-    # Check vendor domains
-    for vendor_domain in VENDOR_DOMAINS:
-        if vendor_domain in from_domain:
-            return EmailTier1Category.VENDOR, 0.8
-    
-    # Score each category by keyword matches
-    scores = {}
-    for category, keywords in TIER1_KEYWORDS.items():
-        score = sum(1 for kw in keywords if kw in content)
-        if score > 0:
-            # Normalize score based on number of keywords matched
-            confidence = min(0.9, 0.3 + (score * 0.15))
-            scores[category] = confidence
-    
-    if scores:
-        best_category = max(scores, key=scores.get)
-        return best_category, scores[best_category]
-    
-    # No confident match - needs AI classification
-    return EmailTier1Category.OTHERS, 0.3
+CATEGORIES (pick ONE most appropriate):
+- client: Business inquiry FROM prospects/customers seeking OUR research/survey services (RFQ, project inquiry, meeting request about their needs)
+- vendor: FROM external suppliers/service providers contacting US (sales pitch, partnership offer, software vendor, payment followup FROM vendor about THEIR invoice)
+- invoice: Invoice/bill attached or referenced, billing statement, payment request WITH specific invoice details/numbers
+- banking: FROM bank domains (axisbank, hdfcbank, icici, sbi, kotak, etc) - statements, transactions, OTPs, KYC, alerts
+- internal: FROM @surveyfieldwork.com or @cogentixresearch.com to same - team communications between colleagues
+- newsletter: Marketing newsletters with "unsubscribe" link AND regular publication pattern, industry news digests, weekly/monthly roundups from companies
+- bounce: Delivery failure, "undeliverable", "mailer-daemon", "postmaster", NDR, returned mail, "failed to deliver"
+- promotional: One-off marketing/sales email, ads, offers, cold outreach, webinar invites (NOT regular newsletters)
+- automated: System notifications, noreply@, auto-replies, calendar invites, password resets, confirmations, OTPs (non-bank), alerts
+- others: ONLY if absolutely cannot determine from any context
 
-
-# Tier 1 AI prompt - improved for accuracy
-TIER1_SYSTEM_PROMPT = """You are an email classifier for a B2B survey/research company. Classify emails accurately.
-
-Output JSON only:
-{"category":"client|vendor|internal|promotional|invoice|banking|automated|spam|others","confidence":0.0-1.0}
-
-CATEGORY DEFINITIONS:
-- client: Business inquiries FROM prospects/customers seeking OUR services (RFQ, project inquiries, meeting requests)
-- vendor: FROM external suppliers/service providers TO us (sales pitches, partnership proposals, software vendors)
-- internal: FROM same company domains (surveyfieldwork.com, cogentixresearch.com) - team communications
-- promotional: Marketing newsletters, promotional offers with unsubscribe links
-- invoice: Billing documents, payment confirmations, invoice attachments
-- banking: FROM bank domains (axisbank.com, axis.bank.in, hdfc, icici, sbi) - statements, alerts, KYC
-- automated: System notifications, noreply@, auto-replies, calendar invites, password resets
-- spam: Obvious junk, scams, phishing attempts
-- others: Only if absolutely cannot determine
-
-IMPORTANT:
-- Bank statements/alerts from *bank* domains = banking (NOT others)
-- Internal team emails from company domains = internal
-- Vendor following up on THEIR payment = vendor (not invoice)
-- RFQ/quote requests = client"""
-
-TIER1_USER_PROMPT = """From: {from_email}
-To: {to_email}
-Subject: {subject}
-Body preview: {body}
-
-Internal company domains: {internal_domains}
-
-Classify this email. JSON only."""
-
-
-# Default internal domains for the company
-DEFAULT_INTERNAL_DOMAINS = ["surveyfieldwork.com", "cogentixresearch.com"]
-
-
-def classify_tier1_ai(
-    subject: str,
-    body: str,
-    from_email: str,
-    to_email: str = "",
-    internal_domains: List[str] = None,
-    source: str = "background"
-) -> Tuple[EmailTier1Category, float]:
-    """
-    AI-based Tier 1 classification using GPT-4o-mini.
-    Use when keyword-based classification is uncertain.
-    
-    COST: ~0.0001 per email using GPT-4o-mini
-    """
-    try:
-        # Use default internal domains if not provided
-        if internal_domains is None:
-            internal_domains = DEFAULT_INTERNAL_DOMAINS
-        
-        # Truncate body for cost control
-        body_preview = body[:800] if body else ""
-        
-        result = chat_completion(
-            messages=[
-                {"role": "system", "content": TIER1_SYSTEM_PROMPT},
-                {"role": "user", "content": TIER1_USER_PROMPT.format(
-                    from_email=from_email or "-",
-                    to_email=to_email or "-",
-                    subject=subject or "-",
-                    body=body_preview,
-                    internal_domains=", ".join(internal_domains) if internal_domains else "none"
-                )}
-            ],
-            source=source,
-            endpoint="email_tier1",
-            model=DEFAULT_MODEL,  # GPT-4o-mini - cheap
-            max_output_tokens=100,  # Small response
-            temperature=0.1,
-            response_format={"type": "json_object"}
-        )
-        
-        if not result["success"]:
-            logger.warning(f"Tier 1 AI failed: {result.get('error')}")
-            return EmailTier1Category.OTHERS, 0.3
-        
-        parsed = json.loads(result["content"])
-        category_str = parsed.get("category", "others").lower()
-        confidence = float(parsed.get("confidence", 0.7))
-        
-        # Map to enum
-        try:
-            category = EmailTier1Category(category_str)
-        except ValueError:
-            category = EmailTier1Category.OTHERS
-        
-        return category, confidence
-        
-    except Exception as e:
-        logger.error(f"Tier 1 classification error: {e}")
-        return EmailTier1Category.OTHERS, 0.3
-
-
-def classify_tier1_gemini(
-    subject: str,
-    body: str,
-    from_email: str,
-    to_email: str = "",
-    source: str = "background"
-) -> Tuple[EmailTier1Category, float]:
-    """
-    Gemini-based Tier 1 classification using FREE Gemini 1.5 Flash.
-    Uses multi-key rotation to stay within free tier limits.
-    
-    COST: $0 (Free tier with 1000 RPD, 15 RPM per key)
-    """
-    if not GEMINI_AVAILABLE or gemini_classify_email is None:
-        logger.warning("Gemini not available, falling back to OpenAI")
-        return classify_tier1_ai(subject, body, from_email, to_email, source)
-    
-    try:
-        result = gemini_classify_email(
-            subject=subject,
-            body=body,
-            from_email=from_email,
-            to_email=to_email,
-            source=source
-        )
-        
-        if not result["success"]:
-            logger.warning(f"Gemini Tier 1 failed: {result.get('error')}")
-            return EmailTier1Category.OTHERS, 0.3
-        
-        parsed = result.get("parsed", {})
-        if not parsed:
-            try:
-                parsed = json.loads(result.get("content", "{}"))
-            except:
-                parsed = {}
-        
-        category_str = parsed.get("category", "others").lower()
-        confidence = float(parsed.get("confidence", 0.7))
-        
-        # Map to enum
-        try:
-            category = EmailTier1Category(category_str)
-        except ValueError:
-            category = EmailTier1Category.OTHERS
-        
-        return category, confidence
-        
-    except Exception as e:
-        logger.error(f"Gemini Tier 1 classification error: {e}")
-        return EmailTier1Category.OTHERS, 0.3
-
-
-def classify_tier1(
-    subject: str,
-    body: str,
-    from_email: str,
-    to_email: str = "",
-    internal_domains: List[str] = None,
-    use_ai_fallback: bool = True,
-    ai_provider: AIProvider = None,
-    source: str = "background"
-) -> Dict[str, Any]:
-    """
-    Complete Tier 1 classification using OpenAI.
-    1. Try keyword-based first (free)
-    2. If uncertain (confidence < 0.6), use OpenAI GPT-4o-mini
-    
-    Returns dict with category, confidence, method used
-    """
-    # Use default internal domains if not provided
-    if internal_domains is None:
-        internal_domains = DEFAULT_INTERNAL_DOMAINS
-    
-    # First try keywords (free)
-    category, confidence = classify_tier1_keywords(
-        subject, body, from_email, to_email, internal_domains
-    )
-    method = "keywords"
-    
-    # If uncertain, use OpenAI for AI classification
-    if confidence < 0.6 and use_ai_fallback:
-        # Always use OpenAI (gpt-4o-mini for Tier 1)
-        ai_category, ai_confidence = classify_tier1_ai(
-            subject, body, from_email, to_email, internal_domains, source
-        )
-        ai_method = "openai_tier1"
-        
-        if ai_confidence > confidence:
-            category = ai_category
-            confidence = ai_confidence
-            method = ai_method
-    
-    return {
-        "tier1_category": category.value,
-        "tier1_confidence": round(confidence, 2),
-        "tier1_method": method,
-        "tier1_provider": "openai" if method != "keywords" else "none",
-        "needs_tier2": category in [EmailTier1Category.CLIENT, EmailTier1Category.VENDOR]
-    }
-
-
-# ============== TIER 2: DEEP ANALYSIS ==============
-
-TIER2_SYSTEM_PROMPT = """You are an expert B2B email analyst. Analyze business emails and extract insights.
-
-Output JSON only:
+OUTPUT FORMAT (valid JSON only, no markdown):
 {
-    "intent": "new_inquiry|rfq_request|meeting_request|follow_up|question|complaint|feedback|negotiation|purchase_order|cancellation|proposal|quote_response|delivery_update|support_response|invoice_payment|contract|informational|action_required|urgent|other",
-    "urgency": "critical|high|medium|low|none",
-    "sentiment": "positive|neutral|negative|mixed",
-    "summary": "1-2 sentence summary",
-    "key_points": ["point 1", "point 2"],
-    "action_items": ["action 1", "action 2"],
-    "mentioned_amounts": ["$1,000", "€500"],
-    "mentioned_dates": ["Jan 15", "next week"],
-    "contact_name": "Person name if mentioned",
-    "company_mentioned": "Company name if mentioned",
-    "is_reply": true/false,
-    "reply_expected": true/false,
-    "deadline_mentioned": "date or null"
+  "summary": "2-3 sentence summary explaining email purpose, key points, and any required actions",
+  "category": "one of the categories above",
+  "confidence": 0.0-1.0,
+  "urgency": "critical|high|medium|low|none",
+  "action_required": true/false,
+  "action_items": ["list of specific action items if any"],
+  "sender_info": {
+    "name": "Full name of sender (extract from signature or From header)",
+    "first_name": "First name only",
+    "last_name": "Last name only", 
+    "email": "sender@email.com",
+    "email_status": "valid",
+    "title": "Job title/designation if mentioned in email or signature",
+    "linkedin": "LinkedIn profile URL if mentioned",
+    "location": "City, Country if mentioned",
+    "company_name": "Company/organization name",
+    "company_domain": "company.com",
+    "company_linkedin": "Company LinkedIn URL if mentioned",
+    "company_industry": "Industry if determinable",
+    "company_size": "Employee count if mentioned",
+    "company_type": "Type of company if determinable",
+    "phone": "Phone number if in signature"
+  }
 }
 
-Be concise. Focus on actionable insights."""
+CLASSIFICATION HINTS:
+- "mailer-daemon", "postmaster", "Undeliverable", "Delivery Status" = bounce
+- @axisbank.com, @hdfcbank.com, @icicibank.com, alerts@*.bank = banking
+- @surveyfieldwork.com, @cogentixresearch.com between team = internal
+- Has "Unsubscribe" + comes regularly from same sender = newsletter
+- Vendor asking about THEIR unpaid invoice = vendor (not invoice category)
+- Invoice WITH attachment or specific invoice number for US to pay = invoice
+- "noreply@", "no-reply@", system-generated = automated
+- Research/survey project inquiry from external company = client
 
-TIER2_USER_PROMPT = """Analyze this {category} email:
-
-From: {from_email}
-To: {to_email}
-Subject: {subject}
-Date: {date}
-
-Body:
-{body}
-
-Extract insights. JSON only."""
+IMPORTANT: Extract as much sender information as possible from the email signature, headers, and content."""
 
 
-def classify_tier2(
+def extract_sender_name(from_header: str) -> tuple:
+    """Extract name parts from email From header"""
+    if not from_header:
+        return "", "", ""
+    
+    # Handle "John Doe <john@example.com>" format
+    match = re.match(r'^"?([^"<]+)"?\s*<?', from_header)
+    if match:
+        full_name = match.group(1).strip()
+        # Remove email if accidentally included
+        full_name = re.sub(r'<[^>]+>', '', full_name).strip()
+        parts = full_name.split()
+        if len(parts) >= 2:
+            return parts[0], " ".join(parts[1:]), full_name
+        elif len(parts) == 1:
+            return parts[0], "", full_name
+    return "", "", ""
+
+
+def classify_and_summarize(
+    email_id: str,
     subject: str,
     body: str,
     from_email: str,
+    from_name: str = "",
     to_email: str = "",
-    date: str = "",
-    tier1_category: str = "client",
     source: str = "background"
 ) -> Dict[str, Any]:
     """
-    Deep Tier 2 analysis for client/vendor emails.
-    Uses better model for quality insights.
-    
-    COST: ~0.003 per email using Claude Sonnet or GPT-4o
-    Only call for emails where tier1_category is 'client' or 'vendor'
+    Unified classification + summarization + lead extraction in ONE API call.
+    Uses GPT-4o-mini for cost efficiency.
     """
+    # Truncate body to save tokens (keep first 4000 chars)
+    body_preview = body[:4000] if body else ""
+    
+    # Extract sender info from header
+    first_name, last_name, full_name = extract_sender_name(from_name or from_email)
+    from_domain = from_email.split("@")[-1].lower() if "@" in from_email else ""
+    
+    # Build user prompt
+    user_prompt = f"""From: {from_name} <{from_email}>
+To: {to_email}
+Subject: {subject}
+
+Body:
+{body_preview}
+
+---
+Internal company domains: {', '.join(INTERNAL_DOMAINS)}
+
+Analyze this email. Return valid JSON only, no markdown formatting."""
+
     try:
-        # Use more of the body for deep analysis
-        body_text = body[:2000] if body else ""
-        
-        result = chat_completion(
+        response = chat_completion(
             messages=[
-                {"role": "system", "content": TIER2_SYSTEM_PROMPT},
-                {"role": "user", "content": TIER2_USER_PROMPT.format(
-                    category=tier1_category,
-                    from_email=from_email or "-",
-                    to_email=to_email or "-",
-                    subject=subject or "-",
-                    date=date or "-",
-                    body=body_text
-                )}
+                {"role": "system", "content": UNIFIED_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt}
             ],
-            source=source,
-            endpoint="email_tier2",
-            model=OPENAI_DEFAULT_MODEL,  # GPT-4o for quality Tier 2 analysis
-            max_output_tokens=400,  # More detailed response
-            temperature=0.2,
-            response_format={"type": "json_object"}
-        )
-        
-        if not result["success"]:
-            logger.warning(f"Tier 2 AI failed: {result.get('error')}")
-            return {"tier2_error": result.get("error", "Unknown error")}
-        
-        parsed = json.loads(result["content"])
-        
-        # Normalize and validate
-        return {
-            "tier2_intent": parsed.get("intent", "other"),
-            "tier2_urgency": parsed.get("urgency", "medium"),
-            "tier2_sentiment": parsed.get("sentiment", "neutral"),
-            "tier2_summary": parsed.get("summary", ""),
-            "tier2_key_points": parsed.get("key_points", []),
-            "tier2_action_items": parsed.get("action_items", []),
-            "tier2_amounts": parsed.get("mentioned_amounts", []),
-            "tier2_dates": parsed.get("mentioned_dates", []),
-            "tier2_contact_name": parsed.get("contact_name", ""),
-            "tier2_company": parsed.get("company_mentioned", ""),
-            "tier2_is_reply": parsed.get("is_reply", False),
-            "tier2_reply_expected": parsed.get("reply_expected", False),
-            "tier2_deadline": parsed.get("deadline_mentioned"),
-            "tier2_analyzed_at": datetime.utcnow().isoformat(),
-            "tier2_model": ANTHROPIC_DEFAULT_MODEL
-        }
-        
-    except json.JSONDecodeError as e:
-        logger.error(f"Tier 2 JSON parse error: {e}")
-        return {"tier2_error": "JSON parse error"}
-    except Exception as e:
-        logger.error(f"Tier 2 classification error: {e}")
-        return {"tier2_error": str(e)}
-
-
-# ============== COMBINED CLASSIFICATION ==============
-
-def classify_email_full(
-    email_id: str = None,
-    subject: str = "",
-    body: str = "",
-    from_email: str = "",
-    to_email: str = "",
-    date: str = "",
-    internal_domains: List[str] = None,
-    run_tier2: bool = True,
-    source: str = "background"
-) -> Dict[str, Any]:
-    """
-    Full email classification pipeline.
-    
-    1. Tier 1: Fast classification (keywords + cheap AI)
-    2. Tier 2: Deep analysis (only for client/vendor, using better AI)
-    
-    Returns combined classification result.
-    """
-    result = {
-        "email_id": email_id,
-        "classified_at": datetime.utcnow().isoformat()
-    }
-    
-    # Tier 1: Fast triage
-    tier1 = classify_tier1(
-        subject=subject,
-        body=body,
-        from_email=from_email,
-        to_email=to_email,
-        internal_domains=internal_domains,
-        source=source
-    )
-    result.update(tier1)
-    
-    # Tier 2: Deep analysis (only for client/vendor)
-    if run_tier2 and tier1["needs_tier2"]:
-        tier2 = classify_tier2(
-            subject=subject,
-            body=body,
-            from_email=from_email,
-            to_email=to_email,
-            date=date,
-            tier1_category=tier1["tier1_category"],
+            model=DEFAULT_MODEL,  # gpt-4o-mini
+            temperature=0.1,
+            max_tokens=1200,
+            response_format={"type": "json_object"},
             source=source
         )
-        result.update(tier2)
-    
-    return result
+        
+        if not response:
+            logger.warning(f"No response from AI for email {email_id}")
+            return _default_result(email_id, from_email, first_name, last_name, full_name, from_domain)
+        
+        # Parse response
+        try:
+            # Clean response if it has markdown
+            clean_response = response.strip()
+            if clean_response.startswith("```"):
+                clean_response = re.sub(r'^```json?\s*', '', clean_response)
+                clean_response = re.sub(r'\s*```$', '', clean_response)
+            result = json.loads(clean_response)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Invalid JSON from AI for email {email_id}: {e}")
+            return _default_result(email_id, from_email, first_name, last_name, full_name, from_domain)
+        
+        # Normalize category
+        category = result.get("category", "others").lower().strip()
+        if category not in CATEGORIES:
+            category = "others"
+        
+        # Extract sender info with fallbacks
+        sender_info = result.get("sender_info", {})
+        
+        return {
+            "email_id": email_id,
+            "success": True,
+            "summary": result.get("summary", ""),
+            "category": category,
+            "confidence": float(result.get("confidence", 0.8)),
+            "urgency": result.get("urgency", "none"),
+            "action_required": result.get("action_required", False),
+            "action_items": result.get("action_items", []),
+            "sender_info": {
+                "name": sender_info.get("name") or full_name,
+                "first_name": sender_info.get("first_name") or first_name,
+                "last_name": sender_info.get("last_name") or last_name,
+                "email": sender_info.get("email") or from_email,
+                "email_status": sender_info.get("email_status", "valid"),
+                "title": sender_info.get("title", ""),
+                "linkedin": sender_info.get("linkedin", ""),
+                "location": sender_info.get("location", ""),
+                "company_name": sender_info.get("company_name", ""),
+                "company_domain": sender_info.get("company_domain") or from_domain,
+                "company_linkedin": sender_info.get("company_linkedin", ""),
+                "company_industry": sender_info.get("company_industry", ""),
+                "company_size": sender_info.get("company_size", ""),
+                "company_type": sender_info.get("company_type", ""),
+                "phone": sender_info.get("phone", "")
+            },
+            "classified_at": datetime.utcnow(),
+            "model": DEFAULT_MODEL,
+            "method": "unified_gpt4o_mini"
+        }
+        
+    except Exception as e:
+        logger.error(f"Classification error for {email_id}: {e}")
+        return _default_result(email_id, from_email, first_name, last_name, full_name, from_domain)
 
 
-def classify_email_batch(
-    email_ids: List[str],
-    run_tier2: bool = True,
-    internal_domains: List[str] = None,
+def _default_result(email_id: str, from_email: str, first_name: str, last_name: str, full_name: str, from_domain: str = "") -> Dict:
+    """Return default result when AI fails"""
+    return {
+        "email_id": email_id,
+        "success": False,
+        "summary": "",
+        "category": "others",
+        "confidence": 0.0,
+        "urgency": "none",
+        "action_required": False,
+        "action_items": [],
+        "sender_info": {
+            "name": full_name,
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": from_email,
+            "email_status": "unknown",
+            "title": "",
+            "linkedin": "",
+            "location": "",
+            "company_name": "",
+            "company_domain": from_domain,
+            "company_linkedin": "",
+            "company_industry": "",
+            "company_size": "",
+            "company_type": "",
+            "phone": ""
+        },
+        "classified_at": datetime.utcnow(),
+        "model": DEFAULT_MODEL,
+        "method": "fallback"
+    }
+
+
+def clear_all_classifications():
+    """Remove all AI classification data from emails"""
+    result = email_metadata.update_many(
+        {},
+        {
+            "$unset": {
+                "ai_category": "",
+                "ai_tier1_category": "",
+                "ai_confidence": "",
+                "ai_method": "",
+                "ai_classified_at": "",
+                "ai_summary": "",
+                "ai_urgency": "",
+                "ai_action_required": "",
+                "ai_action_items": "",
+                "ai_intent": "",
+                "ai_sentiment": "",
+                "ai_tier2_result": "",
+                "sender_info": ""
+            }
+        }
+    )
+    logger.info(f"Cleared classification from {result.modified_count} emails")
+    return result.modified_count
+
+
+def classify_batch(
+    batch_size: int = 50,
     source: str = "background",
-    extract_leads: bool = True
+    delay_between_emails: float = 0.05
 ) -> Dict[str, Any]:
     """
-    Batch classification of emails from database.
-    Uses Gemini 1.5 Flash (FREE) for classification.
-    Extracts leads for client/vendor emails into Sales > Leads.
-    
-    Returns summary with counts and individual results.
+    Classify a batch of unclassified emails.
+    Returns stats about the batch.
     """
-    from bson import ObjectId
+    # Find unclassified emails
+    unclassified = list(email_metadata.find(
+        {"ai_category": {"$exists": False}},
+        {
+            "_id": 1,
+            "gmail_message_id": 1,
+            "subject": 1,
+            "body_plain": 1,
+            "from_email": 1,
+            "from_name": 1,
+            "to_emails": 1
+        }
+    ).limit(batch_size))
     
-    # Import lead extraction if enabled
-    lead_extractor = None
-    if extract_leads:
-        try:
-            from .gemini_email_classifier import create_lead_from_email, extract_name_parts, extract_domain_from_email
-            lead_extractor = True
-        except ImportError:
-            logger.warning("Lead extraction not available - gemini_email_classifier not found")
-            lead_extractor = False
+    if not unclassified:
+        return {"processed": 0, "success": 0, "errors": 0, "message": "No unclassified emails"}
     
-    results = []
     stats = {
-        "total": len(email_ids),
         "processed": 0,
-        "tier1_only": 0,
-        "tier2_analyzed": 0,
-        "leads_extracted": 0,
+        "success": 0,
         "errors": 0,
-        "by_category": {}
+        "categories": {}
     }
     
-    for email_id in email_ids:
+    for email_doc in unclassified:
+        email_id = str(email_doc["_id"])
+        
         try:
-            # Fetch email from database
-            email_doc = email_metadata.find_one({"_id": ObjectId(email_id)})
-            if not email_doc:
-                stats["errors"] += 1
-                continue
-            
-            # Extract fields
-            subject = email_doc.get("subject", "")
-            body = email_doc.get("body_plain", "") or email_doc.get("snippet", "")
-            from_email = email_doc.get("from_email", "")
-            to_emails = email_doc.get("to_emails", [])
-            to_email = to_emails[0] if to_emails else ""
-            timestamp = email_doc.get("timestamp")
-            date_str = timestamp.isoformat() if timestamp else ""
-            
-            # Classify
-            classification = classify_email_full(
+            result = classify_and_summarize(
                 email_id=email_id,
-                subject=subject,
-                body=body,
-                from_email=from_email,
-                to_email=to_email,
-                date=date_str,
-                internal_domains=internal_domains,
-                run_tier2=run_tier2,
+                subject=email_doc.get("subject", ""),
+                body=email_doc.get("body_plain", ""),
+                from_email=email_doc.get("from_email", ""),
+                from_name=email_doc.get("from_name", ""),
+                to_email=email_doc.get("to_emails", [""])[0] if email_doc.get("to_emails") else "",
                 source=source
             )
             
-            # Update database
-            update_fields = {
-                "ai_category": classification.get("tier1_category"),
-                "ai_confidence": classification.get("tier1_confidence"),
-                "ai_method": classification.get("tier1_method"),
-                "ai_classified_at": datetime.utcnow()
-            }
-            
-            # Track category early for lead extraction logic
-            cat = classification.get("tier1_category", "others")
-            
-            # Add tier 2 fields if available
-            if classification.get("tier2_intent"):
-                update_fields.update({
-                    "ai_intent": classification.get("tier2_intent"),
-                    "ai_urgency": classification.get("tier2_urgency"),
-                    "ai_sentiment": classification.get("tier2_sentiment"),
-                    "ai_summary": classification.get("tier2_summary"),
-                    "ai_key_points": classification.get("tier2_key_points"),
-                    "ai_action_items": classification.get("tier2_action_items"),
-                    "ai_reply_expected": classification.get("tier2_reply_expected"),
-                    "ai_tier2_at": datetime.utcnow()
-                })
-                stats["tier2_analyzed"] += 1
-            else:
-                stats["tier1_only"] += 1
-            
-            # Extract leads for client/vendor emails
-            if lead_extractor and cat in ["client", "vendor"]:
-                try:
-                    # Use Gemini to extract lead info
-                    from .gemini_wrapper import gemini_extract_lead
-                    lead_result = gemini_extract_lead(
-                        email_content=body[:1500],
-                        sender_email=from_email,
-                        source=source
-                    )
-                    
-                    if lead_result.get("success") and lead_result.get("parsed"):
-                        parsed = lead_result["parsed"]
-                        full_name = parsed.get("full_name", "")
-                        first_name = parsed.get("first_name", "")
-                        last_name = parsed.get("last_name", "")
-                        
-                        if not first_name and not last_name and full_name:
-                            first_name, last_name = extract_name_parts(full_name)
-                        
-                        email_addr = parsed.get("email", "") or from_email
-                        
-                        lead_create = create_lead_from_email(
-                            full_name=full_name,
-                            first_name=first_name,
-                            last_name=last_name,
-                            email=email_addr,
-                            website=parsed.get("website", ""),
-                            domain=parsed.get("domain", "") or extract_domain_from_email(email_addr),
-                            source_email_id=email_id,
-                            title=parsed.get("title", ""),
-                            company_name=parsed.get("company_name", ""),
-                            phone=parsed.get("phone", ""),
-                            linkedin_url=parsed.get("linkedin_url", ""),
-                            confidence=classification.get("tier1_confidence", 0.7)
-                        )
-                        
-                        if lead_create.get("success"):
-                            stats["leads_extracted"] += 1
-                            update_fields["extracted_lead_id"] = lead_create.get("lead_id")
-                            classification["lead_extracted"] = True
-                            classification["lead_id"] = lead_create.get("lead_id")
-                except Exception as lead_err:
-                    logger.warning(f"Lead extraction failed for {email_id}: {lead_err}")
-            
+            # Update email in database
             email_metadata.update_one(
-                {"_id": ObjectId(email_id)},
-                {"$set": update_fields}
+                {"_id": email_doc["_id"]},
+                {
+                    "$set": {
+                        "ai_category": result["category"],
+                        "ai_confidence": result["confidence"],
+                        "ai_summary": result["summary"],
+                        "ai_urgency": result["urgency"],
+                        "ai_action_required": result["action_required"],
+                        "ai_action_items": result["action_items"],
+                        "ai_classified_at": result["classified_at"],
+                        "ai_method": result["method"],
+                        "sender_info": result["sender_info"]
+                    }
+                }
             )
             
-            # Track stats
-            cat = classification.get("tier1_category", "others")
-            stats["by_category"][cat] = stats["by_category"].get(cat, 0) + 1
             stats["processed"] += 1
+            if result["success"]:
+                stats["success"] += 1
+            else:
+                stats["errors"] += 1
             
-            results.append(classification)
+            # Track category distribution
+            cat = result["category"]
+            stats["categories"][cat] = stats["categories"].get(cat, 0) + 1
+            
+            # Small delay to avoid rate limits
+            if delay_between_emails > 0:
+                time.sleep(delay_between_emails)
             
         except Exception as e:
-            logger.error(f"Error classifying email {email_id}: {e}")
+            logger.error(f"Error processing email {email_id}: {e}")
             stats["errors"] += 1
     
-    return {
-        "stats": stats,
-        "results": results
-    }
-
-
-# ============== UTILITY FUNCTIONS ==============
-
-def get_internal_domains() -> List[str]:
-    """Get internal domain list from workspace mailboxes"""
-    try:
-        workspace_mailboxes = torpedo_gmail_db["workspace_mailboxes"]
-        mailboxes = workspace_mailboxes.find({"is_active": True}, {"email": 1})
-        
-        domains = set()
-        for mb in mailboxes:
-            email = mb.get("email", "")
-            if "@" in email:
-                domain = email.split("@")[-1].lower()
-                domains.add(domain)
-        
-        return list(domains)
-    except Exception as e:
-        logger.error(f"Error fetching internal domains: {e}")
-        return []
-
-
-def get_emails_needing_classification(
-    limit: int = 100,
-    category_filter: str = None
-) -> List[str]:
-    """Get email IDs that haven't been AI classified yet"""
-    query = {
-        "$or": [
-            {"ai_category": {"$exists": False}},
-            {"ai_category": None},
-            {"ai_category": ""}
-        ]
-    }
-    
-    if category_filter:
-        query["category"] = category_filter
-    
-    emails = email_metadata.find(
-        query,
-        {"_id": 1}
-    ).sort("timestamp", -1).limit(limit)
-    
-    return [str(e["_id"]) for e in emails]
-
-
-def get_emails_needing_tier2(limit: int = 50) -> List[str]:
-    """Get client/vendor emails that need Tier 2 analysis"""
-    query = {
-        "ai_category": {"$in": ["client", "vendor"]},
-        "ai_intent": {"$exists": False}
-    }
-    
-    emails = email_metadata.find(
-        query,
-        {"_id": 1}
-    ).sort("timestamp", -1).limit(limit)
-    
-    return [str(e["_id"]) for e in emails]
+    return stats
 
 
 def classify_all_pending_emails(
-    batch_size: int = 100,
-    max_batches: int = None,
-    run_tier2: bool = True,
-    delay_between_batches: float = 2.0,
+    batch_size: int = 50,
+    max_batches: Optional[int] = None,
+    delay_between_batches: float = 1.0,
     source: str = "background"
 ) -> Dict[str, Any]:
     """
-    Classify ALL pending emails in batches until complete.
-    Uses OpenAI GPT-4o-mini for Tier 1, GPT-4o for Tier 2 summaries.
-    
-    This function loops until all unclassified emails are processed.
-    
-    Args:
-        batch_size: Emails per batch (default 100)
-        max_batches: Max batches to process (None = unlimited)
-        run_tier2: Whether to run Tier 2 analysis for client/vendor
-        delay_between_batches: Seconds to wait between batches
-        source: Request source for logging
-    
-    Returns:
-        Summary statistics
+    Classify ALL unclassified emails in batches.
+    Loops until no more unclassified emails remain.
     """
-    import time
-    
-    internal_domains = get_internal_domains() or DEFAULT_INTERNAL_DOMAINS
-    
     total_stats = {
         "success": True,
         "total_processed": 0,
-        "total_tier1": 0,
-        "total_tier2": 0,
-        "total_leads": 0,
+        "total_success": 0,
         "total_errors": 0,
-        "batches_processed": 0,
-        "by_category": {},
+        "batches": 0,
+        "categories": {},
         "started_at": datetime.utcnow().isoformat()
     }
     
-    batch_count = 0
-    
+    batch_num = 0
     while True:
-        # Check batch limit
-        if max_batches and batch_count >= max_batches:
-            logger.info(f"Reached max batch limit ({max_batches})")
+        batch_num += 1
+        
+        # Check max batches
+        if max_batches and batch_num > max_batches:
+            logger.info(f"Reached max batches limit: {max_batches}")
             break
         
-        # Get next batch of unclassified emails
-        email_ids = get_emails_needing_classification(limit=batch_size)
+        logger.info(f"Processing batch {batch_num} with {batch_size} emails")
         
-        if not email_ids:
+        batch_stats = classify_batch(
+            batch_size=batch_size,
+            source=source
+        )
+        
+        if batch_stats["processed"] == 0:
             logger.info("No more unclassified emails")
             break
         
-        logger.info(f"Processing batch {batch_count + 1} with {len(email_ids)} emails")
-        
-        # Classify batch
-        batch_result = classify_email_batch(
-            email_ids=email_ids,
-            run_tier2=run_tier2,
-            internal_domains=internal_domains,
-            source=source,
-            extract_leads=True
-        )
-        
-        batch_stats = batch_result.get("stats", {})
-        
-        # Aggregate stats
-        total_stats["total_processed"] += batch_stats.get("processed", 0)
-        total_stats["total_tier1"] += batch_stats.get("tier1_only", 0)
-        total_stats["total_tier2"] += batch_stats.get("tier2_analyzed", 0)
-        total_stats["total_leads"] += batch_stats.get("leads_extracted", 0)
+        # Accumulate stats
+        total_stats["total_processed"] += batch_stats["processed"]
+        total_stats["total_success"] += batch_stats.get("success", 0)
         total_stats["total_errors"] += batch_stats.get("errors", 0)
+        total_stats["batches"] += 1
         
-        # Merge category counts
-        for cat, count in batch_stats.get("by_category", {}).items():
-            total_stats["by_category"][cat] = total_stats["by_category"].get(cat, 0) + count
+        for cat, count in batch_stats.get("categories", {}).items():
+            total_stats["categories"][cat] = total_stats["categories"].get(cat, 0) + count
         
-        batch_count += 1
-        total_stats["batches_processed"] = batch_count
-        
-        logger.info(f"Batch {batch_count} complete: {batch_stats.get('processed', 0)} processed, "
-                    f"{batch_stats.get('errors', 0)} errors")
+        logger.info(f"Batch {batch_num} complete: {batch_stats['processed']} processed, {batch_stats.get('errors', 0)} errors")
         
         # Delay between batches
         if delay_between_batches > 0:
             time.sleep(delay_between_batches)
     
     total_stats["completed_at"] = datetime.utcnow().isoformat()
-    logger.info(f"Classification complete: {total_stats['total_processed']} emails processed in {batch_count} batches")
+    logger.info(f"Classification complete: {total_stats['total_processed']} emails in {total_stats['batches']} batches")
     
     return total_stats
+
+
+def get_classification_stats() -> Dict[str, Any]:
+    """Get current classification statistics"""
+    pipeline = [
+        {"$group": {"_id": "$ai_category", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]
+    
+    results = list(email_metadata.aggregate(pipeline))
+    
+    total = email_metadata.count_documents({})
+    classified = email_metadata.count_documents({"ai_category": {"$exists": True, "$ne": None}})
+    
+    return {
+        "total_emails": total,
+        "classified": classified,
+        "unclassified": total - classified,
+        "categories": {r["_id"]: r["count"] for r in results if r["_id"]}
+    }
+
+
+# Legacy function aliases for backwards compatibility
+def classify_email_batch(*args, **kwargs):
+    """Legacy wrapper for classify_batch"""
+    return {"stats": classify_batch(*args, **kwargs), "results": []}
+
+
+def get_emails_needing_classification(limit: int = 100) -> List[str]:
+    """Get email IDs that haven't been classified yet"""
+    emails = email_metadata.find(
+        {"ai_category": {"$exists": False}},
+        {"_id": 1}
+    ).limit(limit)
+    return [str(e["_id"]) for e in emails]
