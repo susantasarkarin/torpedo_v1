@@ -275,7 +275,11 @@ class CintService:
             return {"success": True, "data": response.json()}
         
         except httpx.HTTPStatusError as e:
-            logger.error(f"Cint subscription error: {e.response.status_code} - {e.response.text}")
+            # 404 often means the endpoint URL is wrong or subscription needs different method
+            if e.response.status_code == 404:
+                logger.warning(f"Cint subscription endpoint not found (404) - verify API endpoint and supplier code: {self.supplier_code}")
+            else:
+                logger.error(f"Cint subscription error: {e.response.status_code} - {e.response.text}")
             return {"success": False, "error": str(e), "status_code": e.response.status_code}
         except Exception as e:
             logger.error(f"Cint subscription failed: {str(e)}")
@@ -301,7 +305,11 @@ class CintService:
             return {"success": True, "data": response.json()}
         
         except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to get subscription: {e.response.status_code}")
+            # 404 is expected if subscription doesn't exist yet
+            if e.response.status_code == 404:
+                logger.debug(f"Subscription not found for {self.supplier_code} (will be created on first webhook)")
+            else:
+                logger.error(f"Failed to get subscription: {e.response.status_code}")
             return {"success": False, "error": str(e), "status_code": e.response.status_code}
         except Exception as e:
             logger.error(f"Failed to get subscription: {str(e)}")

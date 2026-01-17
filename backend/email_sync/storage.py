@@ -60,7 +60,7 @@ class EmailStorage:
             self.emails.create_index("provider_thread_id")
             self.emails.create_index("alias_id")
             self.emails.create_index("direction")
-            self.emails.create_index("timestamp", expireAfterSeconds=None)
+            self.emails.create_index("timestamp")
             self.emails.create_index([("timestamp", DESCENDING)])
             self.emails.create_index("processed")
             self.emails.create_index("category")
