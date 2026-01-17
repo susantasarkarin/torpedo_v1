@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../config"
 
@@ -21,6 +21,11 @@ function GmailSetup() {
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [serviceAccountFile, setServiceAccountFile] = useState(null)
   const [uploading, setUploading] = useState(false)
+  
+  // Sync progress tracking - per mailbox
+  const [syncProgress, setSyncProgress] = useState({}) // { mailboxId: { status, total, synced, percent, message } }
+  const [classifying, setClassifying] = useState(false)
+  const syncIntervalRef = useRef({})
 
   const getAuthHeader = useCallback(() => {
     const sessionId = localStorage.getItem("session_id")
@@ -75,6 +80,45 @@ function GmailSetup() {
     fetchMailboxes()
   }, [fetchConfigStatus, fetchMailboxes])
 
+  // Cleanup sync intervals on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(syncIntervalRef.current).forEach(clearInterval)
+    }
+  }, [])
+
+  // Auto-classify all emails
+  const runAutoClassification = async () => {
+    const auth = getAuthHeader()
+    if (!auth) return
+    
+    setClassifying(true)
+    setMessage({ type: "info", text: "🤖 Starting AI classification of all downloaded emails..." })
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/gemini/classify-batch`, {
+        method: "POST",
+        headers: { 
+          Authorization: auth,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ limit: 100, extract_leads: true })
+      })
+      
+      if (res.ok) {
+        setMessage({ type: "success", text: "✅ AI classification started! Emails are being processed in the background." })
+      } else {
+        const err = await res.json()
+        setMessage({ type: "error", text: err.detail || "Classification failed to start" })
+      }
+    } catch (err) {
+      console.error("Classification error:", err)
+      setMessage({ type: "error", text: "Failed to start classification" })
+    } finally {
+      setClassifying(false)
+    }
+  }
+
   // Upload service account credentials
   const handleUploadServiceAccount = async () => {
     if (!serviceAccountFile) {
@@ -116,7 +160,7 @@ function GmailSetup() {
     }
   }
 
-  // Add new mailbox
+  // Add new mailbox with auto-sync and classification
   const handleAddMailbox = async (e) => {
     e.preventDefault()
     
@@ -129,6 +173,8 @@ function GmailSetup() {
     if (!auth) return
     
     setAdding(true)
+    setMessage({ type: "info", text: `Connecting to ${newEmail}...` })
+    
     try {
       const res = await fetch(`${API_BASE_URL}/gmail-ws/mailboxes`, {
         method: "POST",
@@ -142,19 +188,45 @@ function GmailSetup() {
         })
       })
       
-      if (res.ok) {
-        setMessage({ type: "success", text: `Mailbox ${newEmail} added successfully!` })
+      const data = await res.json()
+      
+      if (res.ok && data.success !== false) {
+        const mailboxId = data.mailbox?.id || data.id
+        setMessage({ type: "success", text: `✅ Mailbox ${newEmail} connected! Starting email download...` })
         setNewEmail("")
         setNewDisplayName("")
         setShowAddForm(false)
-        fetchMailboxes()
+        await fetchMailboxes()
+        
+        // Auto-start sync with progress tracking
+        if (mailboxId) {
+          handleSyncWithProgress(mailboxId, true) // true = auto-classify after
+        }
       } else {
-        const err = await res.json()
-        setMessage({ type: "error", text: err.detail || "Failed to add mailbox" })
+        // Better error messaging for connection issues
+        const errorDetail = data.detail || ""
+        let errorMessage = "Failed to add mailbox"
+        
+        if (errorDetail.includes("Cannot access mailbox")) {
+          errorMessage = "Cannot access this mailbox. Please ensure domain-wide delegation is configured correctly."
+        } else if (errorDetail.includes("Access denied") || errorDetail.includes("403")) {
+          errorMessage = "Access denied. Check that the service account has domain-wide delegation permissions."
+        } else if (errorDetail.includes("not found") || errorDetail.includes("404")) {
+          errorMessage = "User not found in domain. Verify the email address is correct."
+        } else if (errorDetail) {
+          errorMessage = errorDetail
+        }
+        
+        setMessage({ type: "error", text: errorMessage })
       }
     } catch (err) {
       console.error("Error:", err)
-      setMessage({ type: "error", text: "Connection error" })
+      // Improved error handling for network issues
+      if (err.name === "TypeError" && err.message.includes("fetch")) {
+        setMessage({ type: "error", text: "Network error: Unable to connect to server. Please check your connection." })
+      } else {
+        setMessage({ type: "error", text: "Failed to connect mailbox. Please try again." })
+      }
     } finally {
       setAdding(false)
     }
@@ -185,12 +257,53 @@ function GmailSetup() {
     }
   }
 
-  // Sync mailbox
-  const handleSync = async (mailboxId) => {
+  // Sync mailbox with progress tracking
+  const handleSyncWithProgress = async (mailboxId, autoClassifyAfter = false) => {
     const auth = getAuthHeader()
     if (!auth) return
     
+    // Find mailbox to get email info
+    const mailbox = mailboxes.find(m => m.id === mailboxId)
+    const emailAddress = mailbox?.email || mailboxId
+    
+    // Initialize progress
+    setSyncProgress(prev => ({
+      ...prev,
+      [mailboxId]: { 
+        status: "checking", 
+        total: 0, 
+        synced: 0, 
+        percent: 0, 
+        message: "Checking mailbox..." 
+      }
+    }))
+    
     try {
+      // First, test connection to get total message count
+      const testRes = await fetch(`${API_BASE_URL}/gmail-ws/mailboxes/${mailboxId}/test`, {
+        method: "POST",
+        headers: { Authorization: auth }
+      })
+      
+      let totalMessages = 0
+      if (testRes.ok) {
+        const testData = await testRes.json()
+        if (testData.success) {
+          totalMessages = testData.messages_total || 0
+          setSyncProgress(prev => ({
+            ...prev,
+            [mailboxId]: { 
+              status: "syncing", 
+              total: totalMessages, 
+              synced: 0, 
+              percent: 0,
+              message: `Starting download of ${totalMessages.toLocaleString()} emails...` 
+            }
+          }))
+        }
+      }
+      
+      // Start the sync
       const res = await fetch(`${API_BASE_URL}/gmail-ws/mailboxes/${mailboxId}/sync`, {
         method: "POST",
         headers: { 
@@ -202,19 +315,85 @@ function GmailSetup() {
       
       if (res.ok) {
         const data = await res.json()
+        const newEmails = data.new_emails || 0
+        const syncedCount = data.synced || data.email_count || newEmails
+        
+        setSyncProgress(prev => ({
+          ...prev,
+          [mailboxId]: { 
+            status: "complete", 
+            total: totalMessages || syncedCount, 
+            synced: syncedCount, 
+            percent: 100,
+            message: `✅ Downloaded ${syncedCount.toLocaleString()} emails` 
+          }
+        }))
+        
         setMessage({ 
           type: "success", 
-          text: `Synced ${data.new_emails || 0} new emails` 
+          text: `✅ Synced ${newEmails.toLocaleString()} new emails from ${emailAddress}` 
         })
+        
         fetchMailboxes()
+        
+        // Auto-classify after sync if requested
+        if (autoClassifyAfter && newEmails > 0) {
+          setTimeout(() => {
+            runAutoClassification()
+          }, 1000)
+        }
+        
+        // Clear progress after 5 seconds
+        setTimeout(() => {
+          setSyncProgress(prev => {
+            const newState = { ...prev }
+            delete newState[mailboxId]
+            return newState
+          })
+        }, 5000)
+        
       } else {
         const err = await res.json()
+        setSyncProgress(prev => ({
+          ...prev,
+          [mailboxId]: { 
+            status: "error", 
+            total: totalMessages, 
+            synced: 0, 
+            percent: 0,
+            message: `❌ ${err.detail || "Sync failed"}` 
+          }
+        }))
         setMessage({ type: "error", text: err.detail || "Sync failed" })
       }
     } catch (err) {
       console.error("Error:", err)
+      setSyncProgress(prev => ({
+        ...prev,
+        [mailboxId]: { 
+          status: "error", 
+          total: 0, 
+          synced: 0, 
+          percent: 0,
+          message: "❌ Sync error - check connection" 
+        }
+      }))
       setMessage({ type: "error", text: "Sync error" })
     }
+  }
+
+  // Wrapper for manual sync (without auto-classify)
+  const handleSync = (mailboxId) => {
+    handleSyncWithProgress(mailboxId, false)
+  }
+
+  // Sync all mailboxes
+  const handleSyncAll = async () => {
+    for (const mailbox of mailboxes) {
+      await handleSyncWithProgress(mailbox.id, false)
+    }
+    // Classify all after all syncs complete
+    runAutoClassification()
   }
 
   // Test connection
@@ -256,8 +435,8 @@ function GmailSetup() {
         {message && (
           <div style={{
             ...styles.message,
-            backgroundColor: message.type === "success" ? "#d1fae5" : "#fee2e2",
-            color: message.type === "success" ? "#065f46" : "#991b1b"
+            backgroundColor: message.type === "success" ? "#d1fae5" : message.type === "info" ? "#dbeafe" : "#fee2e2",
+            color: message.type === "success" ? "#065f46" : message.type === "info" ? "#1e40af" : "#991b1b"
           }}>
             {message.text}
             <button 
@@ -372,7 +551,27 @@ function GmailSetup() {
 
         {/* Connected Mailboxes */}
         <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>📬 Connected Mailboxes</h2>
+          <div style={styles.sectionHeader}>
+            <h2 style={styles.sectionTitle}>📬 Connected Mailboxes</h2>
+            {mailboxes.length > 0 && configStatus?.configured && (
+              <div style={styles.sectionActions}>
+                <button
+                  style={styles.syncAllBtn}
+                  onClick={handleSyncAll}
+                  disabled={Object.keys(syncProgress).length > 0}
+                >
+                  🔄 Sync All
+                </button>
+                <button
+                  style={styles.classifyBtn}
+                  onClick={runAutoClassification}
+                  disabled={classifying}
+                >
+                  {classifying ? "⏳ Classifying..." : "🤖 Classify All"}
+                </button>
+              </div>
+            )}
+          </div>
           
           {loading ? (
             <div style={styles.loading}>Loading...</div>
@@ -389,7 +588,12 @@ function GmailSetup() {
             </div>
           ) : (
             <div style={styles.mailboxList}>
-              {mailboxes.map((mailbox) => (
+              {mailboxes.map((mailbox) => {
+                const progress = syncProgress[mailbox.id]
+                const isSyncing = progress && progress.status === "syncing"
+                const isChecking = progress && progress.status === "checking"
+                
+                return (
                 <div key={mailbox.id} style={styles.mailboxCard}>
                   <div style={styles.mailboxInfo}>
                     <div style={styles.mailboxEmail}>
@@ -401,7 +605,7 @@ function GmailSetup() {
                     </div>
                     <div style={styles.mailboxMeta}>
                       <span style={styles.metaItem}>
-                        📊 {mailbox.email_count || 0} emails
+                        📊 {(mailbox.email_count || 0).toLocaleString()} emails
                       </span>
                       {mailbox.last_sync_at && (
                         <span style={styles.metaItem}>
@@ -421,30 +625,62 @@ function GmailSetup() {
                         {mailbox.is_active ? "Active" : "Inactive"}
                       </span>
                     </div>
+                    
+                    {/* Progress Bar */}
+                    {progress && (
+                      <div style={styles.progressContainer}>
+                        <div style={styles.progressInfo}>
+                          <span style={styles.progressMessage}>
+                            {progress.message}
+                          </span>
+                          {progress.total > 0 && (
+                            <span style={styles.progressStats}>
+                              {progress.synced.toLocaleString()} / {progress.total.toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+                        <div style={styles.progressBarOuter}>
+                          <div 
+                            style={{
+                              ...styles.progressBarInner,
+                              width: `${progress.percent}%`,
+                              backgroundColor: progress.status === "error" ? "#ef4444" : 
+                                             progress.status === "complete" ? "#22c55e" : "#3b82f6"
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div style={styles.mailboxActions}>
                     <button
                       style={styles.testBtn}
                       onClick={() => handleTestConnection(mailbox.id)}
                       title="Test connection"
+                      disabled={isSyncing || isChecking}
                     >
                       🔌 Test
                     </button>
                     <button
-                      style={styles.syncBtn}
+                      style={{
+                        ...styles.syncBtn,
+                        opacity: (isSyncing || isChecking) ? 0.7 : 1
+                      }}
                       onClick={() => handleSync(mailbox.id)}
+                      disabled={isSyncing || isChecking}
                     >
-                      🔄 Sync
+                      {isSyncing ? "⏳ Syncing..." : isChecking ? "⏳ Checking..." : "🔄 Sync"}
                     </button>
                     <button
                       style={styles.disconnectBtn}
                       onClick={() => handleDisconnect(mailbox.id)}
+                      disabled={isSyncing || isChecking}
                     >
                       ❌
                     </button>
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </div>
@@ -921,6 +1157,71 @@ const styles = {
     borderRadius: "8px",
     cursor: "pointer",
     fontSize: "1rem"
+  },
+  // Section header with actions
+  sectionHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "1rem",
+    flexWrap: "wrap",
+    gap: "0.5rem"
+  },
+  sectionActions: {
+    display: "flex",
+    gap: "0.5rem"
+  },
+  syncAllBtn: {
+    padding: "0.5rem 1rem",
+    backgroundColor: "#3b82f6",
+    color: "white",
+    border: "none",
+    borderRadius: "6px",
+    cursor: "pointer",
+    fontSize: "0.875rem",
+    fontWeight: "500"
+  },
+  classifyBtn: {
+    padding: "0.5rem 1rem",
+    backgroundColor: "#8b5cf6",
+    color: "white",
+    border: "none",
+    borderRadius: "6px",
+    cursor: "pointer",
+    fontSize: "0.875rem",
+    fontWeight: "500"
+  },
+  // Progress bar styles
+  progressContainer: {
+    marginTop: "0.75rem",
+    padding: "0.5rem 0"
+  },
+  progressInfo: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "0.375rem"
+  },
+  progressMessage: {
+    fontSize: "0.813rem",
+    color: "#374151"
+  },
+  progressStats: {
+    fontSize: "0.813rem",
+    color: "#6b7280",
+    fontWeight: "500"
+  },
+  progressBarOuter: {
+    width: "100%",
+    height: "8px",
+    backgroundColor: "#e5e7eb",
+    borderRadius: "9999px",
+    overflow: "hidden"
+  },
+  progressBarInner: {
+    height: "100%",
+    borderRadius: "9999px",
+    transition: "width 0.3s ease-in-out"
   }
 }
 

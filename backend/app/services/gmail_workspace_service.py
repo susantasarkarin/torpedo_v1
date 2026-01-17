@@ -265,24 +265,42 @@ class GmailWorkspaceService:
             if "403" in error_msg:
                 return {
                     "success": False,
-                    "error": "Access denied. Check domain-wide delegation setup.",
+                    "error": "Access denied. Please verify: 1) Domain-wide delegation is enabled for the service account. 2) The service account is added in Google Workspace Admin Console. 3) Required scopes are authorized.",
                     "details": error_msg
                 }
             elif "404" in error_msg:
                 return {
                     "success": False,
-                    "error": "User not found in domain.",
+                    "error": "User not found. The email address may not exist in this domain.",
+                    "details": error_msg
+                }
+            elif "400" in error_msg:
+                return {
+                    "success": False,
+                    "error": "Invalid request. Please check the email address format.",
                     "details": error_msg
                 }
             return {
                 "success": False,
-                "error": "Gmail API error",
+                "error": f"Gmail API error: {error_msg}",
                 "details": error_msg
             }
         except Exception as e:
+            error_str = str(e)
+            # Handle common service account issues
+            if "invalid_grant" in error_str.lower():
+                return {
+                    "success": False,
+                    "error": "Service account authorization failed. Check domain-wide delegation settings in Google Workspace Admin Console."
+                }
+            if "unauthorized" in error_str.lower():
+                return {
+                    "success": False,
+                    "error": "Unauthorized. The service account may not have permission to access this mailbox."
+                }
             return {
                 "success": False,
-                "error": str(e)
+                "error": f"Connection failed: {error_str}"
             }
     
     # =========================================================================
