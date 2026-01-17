@@ -303,14 +303,14 @@ function GmailSetup() {
         }
       }
       
-      // Start the sync
+      // Start the sync (use full_sync for reliable download)
       const res = await fetch(`${API_BASE_URL}/gmail-ws/mailboxes/${mailboxId}/sync`, {
         method: "POST",
         headers: { 
           Authorization: auth,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ full_sync: false, max_results: 50000 })
+        body: JSON.stringify({ full_sync: true, max_results: 50000 })
       })
       
       if (res.ok) {
@@ -393,13 +393,22 @@ function GmailSetup() {
     handleSyncWithProgress(mailboxId, false)
   }
 
-  // Sync all mailboxes
+  // Sync all mailboxes with auto-classification
   const handleSyncAll = async () => {
+    setMessage({ type: "info", text: "🔄 Starting sync of all mailboxes..." })
+    
+    let totalNewEmails = 0
     for (const mailbox of mailboxes) {
       await handleSyncWithProgress(mailbox.id, false)
+      const progress = syncProgress[mailbox.id]
+      if (progress?.synced) {
+        totalNewEmails += progress.synced
+      }
     }
-    // Classify all after all syncs complete
-    runAutoClassification()
+    
+    // Always run classification after sync (creates AI summaries and classifies)
+    setMessage({ type: "info", text: "🤖 Sync complete! Now creating AI summaries and classifying emails..." })
+    await runAutoClassification()
   }
 
   // Test connection
@@ -564,16 +573,9 @@ function GmailSetup() {
                 <button
                   style={styles.syncAllBtn}
                   onClick={handleSyncAll}
-                  disabled={Object.keys(syncProgress).length > 0}
+                  disabled={Object.keys(syncProgress).length > 0 || classifying}
                 >
-                  🔄 Sync All
-                </button>
-                <button
-                  style={styles.classifyBtn}
-                  onClick={runAutoClassification}
-                  disabled={classifying}
-                >
-                  {classifying ? "⏳ Classifying..." : "🤖 Classify All"}
+                  {classifying ? "⏳ Classifying..." : "🔄 Sync & Classify All"}
                 </button>
               </div>
             )}
