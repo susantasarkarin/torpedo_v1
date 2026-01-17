@@ -148,7 +148,6 @@ async def classify_batch_emails(
             classify_all_pending_emails,
             batch_size=min(request.limit, 100),  # Process in batches of up to 100
             max_batches=None,  # No limit - process ALL
-            run_tier2=True,
             delay_between_batches=2.0,
             source="api"
         )

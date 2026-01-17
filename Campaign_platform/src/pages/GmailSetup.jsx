@@ -310,7 +310,7 @@ function GmailSetup() {
           Authorization: auth,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ full_sync: false, max_results: 1000000 })
+        body: JSON.stringify({ full_sync: false, max_results: 50000 })
       })
       
       if (res.ok) {
@@ -354,6 +354,12 @@ function GmailSetup() {
         
       } else {
         const err = await res.json()
+        // Handle both string and object error details
+        const errorMessage = typeof err.detail === 'string' 
+          ? err.detail 
+          : (Array.isArray(err.detail) 
+              ? err.detail.map(e => e.msg || e.message || JSON.stringify(e)).join(', ')
+              : JSON.stringify(err.detail) || "Sync failed")
         setSyncProgress(prev => ({
           ...prev,
           [mailboxId]: { 
@@ -361,10 +367,10 @@ function GmailSetup() {
             total: totalMessages, 
             synced: 0, 
             percent: 0,
-            message: `❌ ${err.detail || "Sync failed"}` 
+            message: `❌ ${errorMessage}` 
           }
         }))
-        setMessage({ type: "error", text: err.detail || "Sync failed" })
+        setMessage({ type: "error", text: errorMessage })
       }
     } catch (err) {
       console.error("Error:", err)
