@@ -343,7 +343,21 @@ export function SyncStatusProvider({ children }) {
 export function useSyncStatus() {
   const context = useContext(SyncStatusContext);
   if (!context) {
-    throw new Error('useSyncStatus must be used within a SyncStatusProvider');
+    // Return default values instead of throwing - allows use outside provider (e.g., during SSR or lazy loading)
+    return {
+      activeSyncs: {},
+      isSyncActive: false,
+      isConnected: false,
+      connectionError: null,
+      lastUpdated: null,
+      addSync: () => {},
+      updateSync: () => {},
+      removeSync: () => {},
+      clearAllSyncs: () => {},
+      cancelSync: async () => false,
+      connectSSE: () => {},
+      disconnectSSE: () => {},
+    };
   }
   return context;
 }
