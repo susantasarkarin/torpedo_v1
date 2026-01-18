@@ -990,8 +990,10 @@ async def list_active_async_operations(
         result = list_ops(type)
         return result
         
-    except ImportError:
-        return {"operations": [], "count": 0, "message": "Async task system not configured"}
+    except ImportError as e:
+        import traceback
+        error_details = traceback.format_exc()
+        return {"operations": [], "count": 0, "message": f"Import error: {str(e)}", "details": error_details}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
