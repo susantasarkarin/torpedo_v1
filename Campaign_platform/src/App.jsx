@@ -12,6 +12,22 @@ import Login from "./pages/Login"
 import TrafficFlowParser from "./pages/user/TrafficFlowParser"
 import SurveyError from "./pages/user/SurveyError"
 
+// ============== PANEL MODULE (Lazy Loaded) ==============
+import PanelProtectedRoute from "./panel/components/PanelProtectedRoute"
+
+const PanelLogin = lazy(() => import("./panel/pages/PanelLogin"))
+const PanelSignup = lazy(() => import("./panel/pages/PanelSignup"))
+const PanelForgotPassword = lazy(() => import("./panel/pages/PanelForgotPassword"))
+const PanelLayout = lazy(() => import("./panel/components/layout/PanelLayout"))
+const PanelDashboard = lazy(() => import("./panel/pages/PanelDashboard"))
+const PanelProfile = lazy(() => import("./panel/pages/PanelProfile"))
+const PanelRewards = lazy(() => import("./panel/pages/PanelRewards"))
+const WhyJoin = lazy(() => import("./panel/pages/WhyJoin"))
+const RewardsInfo = lazy(() => import("./panel/pages/RewardsInfo"))
+const Terms = lazy(() => import("./panel/pages/Terms"))
+const Privacy = lazy(() => import("./panel/pages/Privacy"))
+const FAQ = lazy(() => import("./panel/pages/FAQ"))
+
 // ============== LAZY LOADED PAGES ==============
 // Main Pages
 const Dashboard = lazy(() => import("./pages/Dashboard"))
@@ -110,6 +126,32 @@ function App() {
       {/* Public user pages */}
       <Route path="/takesurvey" element={<TrafficFlowParser />} />
       <Route path="/survey-error" element={<SurveyError />} />
+
+      {/* ============== SURVEY PANEL ROUTES ============== */}
+      {/* Panel Public Pages (no auth required) */}
+      <Route path="/panel/login" element={<LazyPage><PanelLogin /></LazyPage>} />
+      <Route path="/panel/signup" element={<LazyPage><PanelSignup /></LazyPage>} />
+      <Route path="/panel/forgot-password" element={<LazyPage><PanelForgotPassword /></LazyPage>} />
+      <Route path="/panel/why-join" element={<LazyPage><WhyJoin /></LazyPage>} />
+      <Route path="/panel/rewards-info" element={<LazyPage><RewardsInfo /></LazyPage>} />
+      <Route path="/panel/terms" element={<LazyPage><Terms /></LazyPage>} />
+      <Route path="/panel/privacy" element={<LazyPage><Privacy /></LazyPage>} />
+      <Route path="/panel/faq" element={<LazyPage><FAQ /></LazyPage>} />
+
+      {/* Panel Protected Routes (auth required) */}
+      <Route
+        path="/panel"
+        element={
+          <PanelProtectedRoute>
+            <LazyPage><PanelLayout /></LazyPage>
+          </PanelProtectedRoute>
+        }
+      >
+        <Route index element={<Navigate to="/panel/dashboard" replace />} />
+        <Route path="dashboard" element={<LazyPage><PanelDashboard /></LazyPage>} />
+        <Route path="profile" element={<LazyPage><PanelProfile /></LazyPage>} />
+        <Route path="rewards" element={<LazyPage><PanelRewards /></LazyPage>} />
+      </Route>
 
       {/* Admin login page */}
       <Route path="/admin/login" element={<Login />} />

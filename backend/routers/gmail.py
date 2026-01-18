@@ -72,6 +72,10 @@ rate_limits_collection = gmail_db["rate_limits"]
 email_cache_collection = gmail_db["email_cache"]
 settings_collection = gmail_db["settings"]
 
+# Email automation database for leads
+email_automation_db = mongo_client["email_automation"]
+email_leads_collection = email_automation_db["email_leads"]
+
 # In-memory cache for authenticated services
 _gmail_services: Dict[str, Any] = {}
 _authenticators: Dict[str, Any] = {}  # Changed type hint to Any since GmailAuthenticator might be None
@@ -3176,4 +3180,388 @@ async def get_classification_stats(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================
+# PARALLEL EMAIL SYNC ENDPOINTS
+# ============================================
+
+try:
+    from leads.parallel_email_sync import (
+        parallel_sync_all_accounts,
+        get_total_email_count,
+        get_all_accounts_email_count,
+        get_parallel_sync_status,
+        start_background_parallel_sync,
+        IMAPAccountConfig
+    )
+    PARALLEL_SYNC_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Parallel sync module not available: {e}")
+    PARALLEL_SYNC_AVAILABLE = False
+
+
+@router.get("/parallel-sync/email-counts")
+async def get_email_counts(
+    since_days: int = Query(0, ge=0, description="Only count emails from last N days (0 = all)")
+):
+    """
+    Get total email count for all active accounts.
+    Returns count per folder per account WITHOUT downloading.
+    """
+    if not PARALLEL_SYNC_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Parallel sync service not available")
+    
+    try:
+        counts = get_all_accounts_email_count(since_days)
+        
+        # Calculate totals
+        total_emails = 0
+        for account_counts in counts.values():
+            if isinstance(account_counts, dict) and "error" not in account_counts:
+                total_emails += sum(account_counts.values())
+        
+        return {
+            "success": True,
+            "total_emails": total_emails,
+            "since_days": since_days if since_days > 0 else "all",
+            "accounts": counts
+        }
+    except Exception as e:
+        logger.error(f"Error getting email counts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/parallel-sync/start")
+async def start_parallel_sync(
+    background_tasks: BackgroundTasks,
+    account_emails: Optional[List[str]] = Body(None),
+    since_days: int = Query(0, ge=0, description="Only fetch from last N days (0 = all)"),
+    max_parallel: int = Query(5, ge=1, le=10)
+):
+    """
+    Start parallel email download for all accounts using Celery background tasks.
+    
+    Downloads ALL emails (no 50,000 limit) across multiple accounts in parallel.
+    Returns an operation_id for tracking progress via polling.
+    Progress can be tracked via /operations/{operation_id}/status endpoint.
+    """
+    if not PARALLEL_SYNC_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Parallel sync service not available")
+    
+    try:
+        # Try using Celery tasks first (preferred for non-blocking)
+        try:
+            from backend.tasks.api_tasks import start_async_email_sync
+            
+            if account_emails and len(account_emails) == 1:
+                # Single account sync
+                result = start_async_email_sync(
+                    account_email=account_emails[0],
+                    since_days=since_days
+                )
+            else:
+                # All accounts sync (or specific list)
+                result = start_async_email_sync(
+                    account_email=None,
+                    since_days=since_days
+                )
+            
+            return {
+                "success": True,
+                "message": "Parallel sync started via background workers",
+                "operation_id": result['operation_id'],
+                "poll_url": f"/operations/async/{result['operation_id']}/status",
+                "async": True
+            }
+            
+        except ImportError:
+            # Celery not available, fall back to thread-based sync
+            logger.warning("Celery not configured, falling back to thread-based sync")
+            result = start_background_parallel_sync(
+                account_emails=account_emails,
+                since_days=since_days
+            )
+            return {
+                **result,
+                "async": False,
+                "message": "Sync started (Celery not configured, using thread-based sync)"
+            }
+        
+    except Exception as e:
+        logger.error(f"Error starting parallel sync: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/parallel-sync/status")
+async def get_sync_status():
+    """
+    Get status of all parallel sync operations.
+    Shows progress per account including downloaded/total counts.
+    """
+    if not PARALLEL_SYNC_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Parallel sync service not available")
+    
+    try:
+        status = get_parallel_sync_status()
+        return status
+    except Exception as e:
+        logger.error(f"Error getting sync status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# AI EMAIL AGENTS ENDPOINTS
+# ============================================
+
+try:
+    from leads.ai_email_agents import (
+        agent1_process_email_thread,
+        agent1_batch_process,
+        agent2_categorize_batch,
+        run_batch_categorization,
+        get_uncategorized_leads,
+        get_category_statistics,
+        get_agents_status,
+        process_new_emails_pipeline
+    )
+    AI_AGENTS_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"AI agents module not available: {e}")
+    AI_AGENTS_AVAILABLE = False
+
+
+@router.get("/ai-agents/status")
+async def get_ai_agents_status():
+    """
+    Get status of AI email agents including:
+    - Gemini API key status
+    - Agent 1 (Summary & Contact) stats
+    - Agent 2 (Categorization) stats
+    """
+    if not AI_AGENTS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="AI agents not available")
+    
+    try:
+        status = get_agents_status()
+        return {"success": True, **status}
+    except Exception as e:
+        logger.error(f"Error getting agents status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ai-agents/agent1/process")
+async def run_agent1_on_lead(
+    contact_email: str = Body(..., description="Contact email to process"),
+    background_tasks: BackgroundTasks = None
+):
+    """
+    Run Agent 1 (Summary & Contact Extraction) on a specific lead.
+    
+    Agent 1 will:
+    - Fetch all emails for this contact (full thread/trail)
+    - Create a 500-word max AI summary
+    - Extract: first name, last name, email, company domain
+    """
+    if not AI_AGENTS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="AI agents not available")
+    
+    try:
+        # Get emails for this contact
+        lead = email_leads_collection.find_one({"email": contact_email})
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        
+        emails = lead.get("email_threads", [])
+        if not emails:
+            return {
+                "success": False,
+                "message": "No emails found for this contact"
+            }
+        
+        result = agent1_process_email_thread(
+            emails=emails,
+            contact_email=contact_email,
+            source="api"
+        )
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running Agent 1: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ai-agents/agent1/batch")
+async def run_agent1_batch(
+    background_tasks: BackgroundTasks,
+    limit: int = Query(50, ge=1, le=500),
+    skip_existing: bool = Query(True)
+):
+    """
+    Run Agent 1 on a batch of leads (background task).
+    
+    Processes leads that haven't been summarized yet.
+    """
+    if not AI_AGENTS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="AI agents not available")
+    
+    try:
+        # Find leads needing summaries
+        query = {"email_threads.0": {"$exists": True}}
+        if skip_existing:
+            query["conversation_summary"] = {"$exists": False}
+        
+        leads = list(email_leads_collection.find(query).limit(limit))
+        
+        if not leads:
+            return {
+                "success": True,
+                "message": "No leads to process"
+            }
+        
+        # Prepare for batch processing
+        leads_to_process = [
+            {"contact_email": lead["email"], "emails": lead.get("email_threads", [])}
+            for lead in leads
+        ]
+        
+        def process_batch():
+            results = agent1_batch_process(leads_to_process)
+            logger.info(f"Agent 1 batch complete: {len(results)} leads processed")
+        
+        background_tasks.add_task(process_batch)
+        
+        return {
+            "success": True,
+            "message": f"Agent 1 batch started for {len(leads_to_process)} leads",
+            "leads_count": len(leads_to_process)
+        }
+    except Exception as e:
+        logger.error(f"Error starting Agent 1 batch: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ai-agents/agent2/categorize")
+async def run_agent2_categorization(
+    background_tasks: BackgroundTasks,
+    limit: int = Query(500, ge=50, le=1000)
+):
+    """
+    Run Agent 2 (Bulk Categorization) on uncategorized leads.
+    
+    Agent 2 will:
+    - Take up to 500 AI summaries
+    - Dynamically determine categories based on the data
+    - Assign each lead to a category
+    """
+    if not AI_AGENTS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="AI agents not available")
+    
+    try:
+        # Get uncategorized leads count first
+        summaries = get_uncategorized_leads(limit)
+        
+        if not summaries:
+            return {
+                "success": True,
+                "message": "No uncategorized leads found"
+            }
+        
+        def run_categorization():
+            result = agent2_categorize_batch(summaries)
+            logger.info(f"Agent 2 complete: {len(result.get('categories', []))} categories, {len(result.get('categorized_leads', []))} leads")
+        
+        background_tasks.add_task(run_categorization)
+        
+        return {
+            "success": True,
+            "message": f"Agent 2 categorization started for {len(summaries)} leads",
+            "leads_count": len(summaries)
+        }
+    except Exception as e:
+        logger.error(f"Error starting Agent 2: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/ai-agents/categories")
+async def get_ai_categories():
+    """
+    Get all AI-generated categories and their statistics.
+    """
+    if not AI_AGENTS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="AI agents not available")
+    
+    try:
+        stats = get_category_statistics()
+        return {"success": True, **stats}
+    except Exception as e:
+        logger.error(f"Error getting categories: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ai-agents/full-pipeline")
+async def run_full_ai_pipeline(
+    background_tasks: BackgroundTasks,
+    run_sync: bool = Query(True, description="Run parallel sync first"),
+    since_days: int = Query(30, ge=0),
+    agent1_limit: int = Query(100, ge=1, le=500),
+    agent2_limit: int = Query(500, ge=50, le=1000)
+):
+    """
+    Run the complete AI pipeline:
+    1. Parallel email sync (optional)
+    2. Agent 1: Generate summaries for new leads
+    3. Agent 2: Categorize leads with summaries
+    """
+    if not AI_AGENTS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="AI agents not available")
+    
+    try:
+        def run_pipeline():
+            import time
+            
+            # Step 1: Sync emails if requested
+            if run_sync and PARALLEL_SYNC_AVAILABLE:
+                logger.info("Pipeline: Starting parallel email sync...")
+                from leads.parallel_email_sync import parallel_sync_all_accounts
+                sync_result = parallel_sync_all_accounts(since_days=since_days)
+                logger.info(f"Pipeline: Sync complete - {sync_result.get('total_emails', 0)} emails")
+                time.sleep(2)
+            
+            # Step 2: Run Agent 1
+            logger.info(f"Pipeline: Running Agent 1 on up to {agent1_limit} leads...")
+            query = {
+                "email_threads.0": {"$exists": True},
+                "conversation_summary": {"$exists": False}
+            }
+            leads = list(email_leads_collection.find(query).limit(agent1_limit))
+            
+            if leads:
+                leads_to_process = [
+                    {"contact_email": lead["email"], "emails": lead.get("email_threads", [])}
+                    for lead in leads
+                ]
+                results = agent1_batch_process(leads_to_process)
+                logger.info(f"Pipeline: Agent 1 complete - {len(results)} leads processed")
+                time.sleep(2)
+            
+            # Step 3: Run Agent 2
+            logger.info(f"Pipeline: Running Agent 2 categorization...")
+            summaries = get_uncategorized_leads(agent2_limit)
+            if summaries:
+                result = agent2_categorize_batch(summaries)
+                logger.info(f"Pipeline: Agent 2 complete - {len(result.get('categories', []))} categories")
+            
+            logger.info("Pipeline: Complete!")
+        
+        background_tasks.add_task(run_pipeline)
+        
+        return {
+            "success": True,
+            "message": "Full AI pipeline started in background",
+            "steps": ["parallel_sync", "agent1_summaries", "agent2_categorization"] if run_sync else ["agent1_summaries", "agent2_categorization"]
+        }
+    except Exception as e:
+        logger.error(f"Error starting pipeline: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 

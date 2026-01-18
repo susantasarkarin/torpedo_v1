@@ -3434,3 +3434,148 @@ async def get_dashboard_summary():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching dashboard data: {str(e)}")
+
+
+# ============================================
+# ASYNC BACKGROUND TASK ENDPOINTS
+# ============================================
+
+@router.post("/async/export/{export_type}")
+async def start_async_export(
+    export_type: str = Path(..., description="Type: customers, invoices, bills"),
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)")
+):
+    """
+    Start an async export task. Returns operation_id for polling.
+    Supported types: customers, invoices, bills
+    """
+    try:
+        from backend.tasks.async_helpers import start_finance_export
+        
+        result = start_finance_export(export_type, start_date, end_date)
+        return {
+            "success": True,
+            "message": f"Export started for {export_type}",
+            **result
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ImportError:
+        raise HTTPException(status_code=503, detail="Async task system not configured")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/async/import/{import_type}")
+async def start_async_import(
+    import_type: str = Path(..., description="Type: customers, invoices"),
+    file: UploadFile = File(...)
+):
+    """
+    Start an async import task from CSV file. Returns operation_id for polling.
+    Supported types: customers, invoices
+    """
+    try:
+        from backend.tasks.async_helpers import start_finance_import
+        
+        # Read file content
+        csv_content = (await file.read()).decode('utf-8')
+        
+        result = start_finance_import(import_type, csv_content)
+        return {
+            "success": True,
+            "message": f"Import started for {import_type}",
+            "filename": file.filename,
+            **result
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ImportError:
+        raise HTTPException(status_code=503, detail="Async task system not configured")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/async/summary")
+async def start_async_finance_summary(
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)")
+):
+    """
+    Generate comprehensive finance summary report in background.
+    Returns operation_id for polling progress.
+    """
+    try:
+        from backend.tasks.async_helpers import start_finance_summary
+        
+        result = start_finance_summary(start_date, end_date)
+        return {
+            "success": True,
+            "message": "Finance summary generation started",
+            **result
+        }
+    except ImportError:
+        raise HTTPException(status_code=503, detail="Async task system not configured")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/async/customers/bulk-delete")
+async def start_async_bulk_delete_customers(
+    data: Dict[str, Any] = Body(...)
+):
+    """
+    Bulk delete customers in background with dependency checking.
+    Returns operation_id for polling progress.
+    """
+    try:
+        from backend.tasks.async_helpers import start_bulk_delete_customers
+        
+        customer_ids = data.get("customer_ids", [])
+        if not customer_ids:
+            raise HTTPException(status_code=400, detail="No customer_ids provided")
+        
+        result = start_bulk_delete_customers(customer_ids)
+        return {
+            "success": True,
+            "message": f"Bulk delete started for {len(customer_ids)} customers",
+            **result
+        }
+    except HTTPException:
+        raise
+    except ImportError:
+        raise HTTPException(status_code=503, detail="Async task system not configured")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/async/exports/{export_id}")
+async def get_export_file(export_id: str):
+    """
+    Download a completed export file.
+    """
+    try:
+        from backend.db_pools import get_api_collection
+        from bson import ObjectId
+        
+        exports_collection = get_api_collection('export_files')
+        export = exports_collection.find_one({'_id': ObjectId(export_id)})
+        
+        if not export:
+            raise HTTPException(status_code=404, detail="Export not found")
+        
+        content = export.get('content', '')
+        export_type = export.get('type', 'export')
+        
+        return StreamingResponse(
+            io.StringIO(content),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename={export_type}_{export_id}.csv"
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -326,3 +326,187 @@ async def unsubscribe(
         return {"message": "Already unsubscribed or recipient not found"}
     
     return {"message": "Successfully unsubscribed"}
+
+
+# ============================================================================
+# ASYNC CAMPAIGN ENDPOINTS
+# ============================================================================
+# These endpoints return immediately with operation_id for long-running tasks
+
+@router.post("/{campaign_id}/async/recipients/bulk-add", response_model=Dict[str, Any])
+async def start_async_bulk_add_recipients(
+    campaign_id: str,
+    recipients: List[Dict[str, Any]] = Body(...),
+    db = Depends(get_db)
+):
+    """
+    Start async bulk addition of recipients to campaign
+    Returns operation_id immediately, poll for status
+    
+    Body:
+    [
+        {"email": "user1@example.com", "name": "User 1", "custom_fields": {...}},
+        {"email": "user2@example.com", "name": "User 2", "custom_fields": {...}},
+        ...
+    ]
+    """
+    try:
+        # Verify campaign exists
+        campaign = db["campaigns"].find_one({"_id": ObjectId(campaign_id)})
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        
+        if not recipients or len(recipients) == 0:
+            raise HTTPException(status_code=400, detail="No recipients provided")
+        
+        # Start async task
+        try:
+            from ..tasks.async_helpers import start_campaign_recipients_add
+            operation_id = start_campaign_recipients_add(campaign_id, recipients)
+            
+            return {
+                "status": "started",
+                "operation_id": operation_id,
+                "poll_url": f"/operations/async/{operation_id}/status",
+                "message": f"Bulk add started for {len(recipients)} recipients"
+            }
+        except ImportError:
+            raise HTTPException(status_code=503, detail="Async tasks not configured")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error starting async bulk add: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{campaign_id}/async/recipients/import-csv", response_model=Dict[str, Any])
+async def start_async_import_csv(
+    campaign_id: str,
+    data: Dict[str, Any] = Body(...),
+    db = Depends(get_db)
+):
+    """
+    Start async CSV import of recipients
+    Returns operation_id immediately, poll for status
+    
+    Body:
+    {
+        "csv_data": "base64_encoded_csv_content",
+        "column_mapping": {"email_column": "email", "name_column": "name"},
+        "skip_duplicates": true
+    }
+    """
+    try:
+        # Verify campaign exists
+        campaign = db["campaigns"].find_one({"_id": ObjectId(campaign_id)})
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        
+        csv_data = data.get('csv_data')
+        column_mapping = data.get('column_mapping', {})
+        skip_duplicates = data.get('skip_duplicates', True)
+        
+        if not csv_data:
+            raise HTTPException(status_code=400, detail="No CSV data provided")
+        
+        try:
+            from ..tasks.async_helpers import start_campaign_csv_import
+            operation_id = start_campaign_csv_import(
+                campaign_id, 
+                csv_data, 
+                column_mapping,
+                skip_duplicates
+            )
+            
+            return {
+                "status": "started",
+                "operation_id": operation_id,
+                "poll_url": f"/operations/async/{operation_id}/status",
+                "message": "CSV import started"
+            }
+        except ImportError:
+            raise HTTPException(status_code=503, detail="Async tasks not configured")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error starting async CSV import: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{campaign_id}/async/analytics", response_model=Dict[str, Any])
+async def start_async_generate_analytics(
+    campaign_id: str,
+    data: Dict[str, Any] = Body(default={}),
+    db = Depends(get_db)
+):
+    """
+    Start async generation of comprehensive campaign analytics
+    Returns operation_id immediately, poll for status
+    
+    Body (optional):
+    {
+        "include_recipient_details": false,
+        "group_by_day": true
+    }
+    """
+    try:
+        # Verify campaign exists
+        campaign = db["campaigns"].find_one({"_id": ObjectId(campaign_id)})
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        
+        include_details = data.get('include_recipient_details', False)
+        group_by_day = data.get('group_by_day', True)
+        
+        try:
+            from ..tasks.async_helpers import start_campaign_analytics_generation
+            operation_id = start_campaign_analytics_generation(
+                campaign_id,
+                include_details,
+                group_by_day
+            )
+            
+            return {
+                "status": "started",
+                "operation_id": operation_id,
+                "poll_url": f"/operations/async/{operation_id}/status",
+                "message": "Analytics generation started"
+            }
+        except ImportError:
+            raise HTTPException(status_code=503, detail="Async tasks not configured")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error starting async analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/async/reports/{report_id}", response_model=Dict[str, Any])
+async def get_campaign_report(
+    report_id: str,
+    db = Depends(get_db)
+):
+    """
+    Retrieve a generated campaign report by ID
+    """
+    try:
+        report = db["campaign_reports"].find_one({"_id": ObjectId(report_id)})
+        
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        # Convert ObjectId to string
+        report["_id"] = str(report["_id"])
+        if "campaign_id" in report:
+            report["campaign_id"] = str(report["campaign_id"])
+        
+        return report
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error retrieving campaign report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

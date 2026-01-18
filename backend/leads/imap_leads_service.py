@@ -1792,3 +1792,211 @@ def add_detected_aliases(email_address: str, aliases_to_add: List[Dict] = None) 
         "total_aliases": len(existing_aliases)
     }
 
+
+# ============================================================================
+# PARALLEL SYNC & AI AGENTS INTEGRATION
+# ============================================================================
+
+def run_parallel_import_with_ai(
+    account_emails: List[str] = None,
+    since_days: int = 0,
+    run_agent1: bool = True,
+    run_agent2: bool = True,
+    max_parallel_accounts: int = 5
+) -> Dict[str, Any]:
+    """
+    Complete email import pipeline with parallel downloads and AI agents.
+    
+    This is the RECOMMENDED way to import emails:
+    1. Parallel download from all accounts (no limits)
+    2. Process emails into leads
+    3. Run Agent 1 to create summaries
+    4. Run Agent 2 to categorize leads
+    
+    Args:
+        account_emails: List of specific accounts (None = all active)
+        since_days: Only fetch emails from last N days (0 = all)
+        run_agent1: Run AI summary generation
+        run_agent2: Run AI categorization
+        max_parallel_accounts: Max concurrent downloads
+        
+    Returns:
+        Complete import statistics
+    """
+    import time
+    
+    results = {
+        "sync": None,
+        "leads_processed": 0,
+        "agent1": None,
+        "agent2": None,
+        "success": True
+    }
+    
+    try:
+        # Import parallel sync module
+        from .parallel_email_sync import parallel_sync_all_accounts
+        
+        logger.info("🚀 [Full Pipeline] Starting parallel email import with AI agents...")
+        
+        # Step 1: Parallel sync all accounts
+        logger.info("📥 [Step 1] Running parallel email download...")
+        sync_result = parallel_sync_all_accounts(
+            account_emails=account_emails,
+            since_days=since_days,
+            max_parallel=max_parallel_accounts
+        )
+        results["sync"] = {
+            "total_accounts": sync_result.get("total_accounts", 0),
+            "successful_accounts": sync_result.get("successful_accounts", 0),
+            "total_emails": sync_result.get("total_emails", 0)
+        }
+        
+        # Step 2: Process downloaded emails into leads
+        all_emails = sync_result.get("all_emails", [])
+        if all_emails:
+            logger.info(f"📧 [Step 2] Processing {len(all_emails)} emails into leads...")
+            
+            # Group emails by contact
+            emails_by_contact = {}
+            for email_data in all_emails:
+                contact_email = email_data.get("contact_email", "")
+                if contact_email:
+                    if contact_email not in emails_by_contact:
+                        emails_by_contact[contact_email] = []
+                    emails_by_contact[contact_email].append(email_data)
+            
+            # Process each contact's emails
+            for contact_email, emails in emails_by_contact.items():
+                try:
+                    process_email_for_lead(emails[0], emails[0].get("account_email", ""))
+                    
+                    # Add to email_threads for AI processing
+                    email_leads_collection.update_one(
+                        {"email": contact_email},
+                        {"$addToSet": {"email_threads": {"$each": emails}}}
+                    )
+                    results["leads_processed"] += 1
+                except Exception as e:
+                    logger.warning(f"Error processing lead {contact_email}: {e}")
+            
+            logger.info(f"✅ [Step 2] Processed {results['leads_processed']} leads")
+        
+        # Step 3: Run Agent 1 (AI Summaries)
+        if run_agent1 and results["leads_processed"] > 0:
+            try:
+                from .ai_email_agents import agent1_batch_process
+                
+                logger.info("🤖 [Step 3] Running Agent 1 - AI Summaries...")
+                
+                # Get leads that need summaries
+                leads = list(email_leads_collection.find({
+                    "email_threads.0": {"$exists": True},
+                    "$or": [
+                        {"conversation_summary": {"$exists": False}},
+                        {"conversation_summary": ""}
+                    ]
+                }).limit(100))
+                
+                if leads:
+                    leads_to_process = [
+                        {"contact_email": lead["email"], "emails": lead.get("email_threads", [])}
+                        for lead in leads
+                    ]
+                    
+                    agent1_results = agent1_batch_process(leads_to_process)
+                    successful = sum(1 for r in agent1_results if r.get("success"))
+                    
+                    results["agent1"] = {
+                        "processed": len(agent1_results),
+                        "successful": successful
+                    }
+                    logger.info(f"✅ [Step 3] Agent 1 complete: {successful}/{len(agent1_results)} summaries generated")
+                
+            except ImportError as e:
+                logger.warning(f"Agent 1 not available: {e}")
+                results["agent1"] = {"error": str(e)}
+        
+        # Step 4: Run Agent 2 (Categorization)
+        if run_agent2:
+            try:
+                from .ai_email_agents import run_batch_categorization
+                
+                logger.info("🏷️ [Step 4] Running Agent 2 - Categorization...")
+                
+                agent2_result = run_batch_categorization(limit=500)
+                
+                results["agent2"] = {
+                    "categories": len(agent2_result.get("categories", [])),
+                    "categorized": len(agent2_result.get("categorized_leads", []))
+                }
+                
+                logger.info(f"✅ [Step 4] Agent 2 complete: {results['agent2']['categorized']} leads categorized")
+                
+            except ImportError as e:
+                logger.warning(f"Agent 2 not available: {e}")
+                results["agent2"] = {"error": str(e)}
+        
+        logger.info("🏁 [Full Pipeline] Complete!")
+        
+    except ImportError as e:
+        logger.error(f"Parallel sync module not available: {e}")
+        results["success"] = False
+        results["error"] = str(e)
+    except Exception as e:
+        logger.error(f"Pipeline error: {e}")
+        results["success"] = False
+        results["error"] = str(e)
+    
+    return results
+
+
+def get_pipeline_status() -> Dict[str, Any]:
+    """
+    Get status of parallel sync and AI agents.
+    """
+    status = {
+        "parallel_sync": {"available": False},
+        "ai_agents": {"available": False},
+        "accounts": [],
+        "summary": {}
+    }
+    
+    # Check parallel sync
+    try:
+        from .parallel_email_sync import get_parallel_sync_status
+        sync_status = get_parallel_sync_status()
+        status["parallel_sync"] = {
+            "available": True,
+            **sync_status
+        }
+    except ImportError:
+        pass
+    
+    # Check AI agents
+    try:
+        from .ai_email_agents import get_agents_status
+        agent_status = get_agents_status()
+        status["ai_agents"] = {
+            "available": True,
+            **agent_status
+        }
+    except ImportError:
+        pass
+    
+    # Get account info
+    accounts = list(imap_accounts_collection.find({"is_active": True}, {"password": 0}))
+    for acc in accounts:
+        acc["_id"] = str(acc["_id"])
+    status["accounts"] = accounts
+    
+    # Summary stats
+    status["summary"] = {
+        "total_accounts": len(accounts),
+        "total_leads": email_leads_collection.count_documents({}),
+        "leads_with_threads": email_leads_collection.count_documents({"email_threads.0": {"$exists": True}}),
+        "leads_with_summaries": email_leads_collection.count_documents({"conversation_summary": {"$exists": True, "$ne": ""}}),
+        "categorized_leads": email_leads_collection.count_documents({"ai_category_id": {"$exists": True}})
+    }
+    
+    return status

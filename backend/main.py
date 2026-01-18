@@ -52,6 +52,7 @@ try:
     from .app.routers import cint as cint_router
     from .app.integrations.cint_integration import CintIntegration
     from .leads import router as leads_router
+    from .routers import panel as panel_router
 except Exception:
     # Fallback to absolute import for other runtimes
     from routers import traffic as traffic_router
@@ -68,6 +69,7 @@ except Exception:
     from routers import approvals as approvals_router
     from app.services.cpx_service import CPXService
     from app.routers import survey_allocation as survey_allocation_router
+    from routers import panel as panel_router
     from app.routers import cint as cint_router
     from app.integrations.cint_integration import CintIntegration
     from leads import router as leads_router
@@ -526,6 +528,13 @@ try:
     print("✅ Leads AI Classification router included")
 except Exception as e:
     print(f"⚠️ Leads router not included: {e}")
+
+# Panel (Survey Panel User Portal) router
+try:
+    app.include_router(panel_router.router)
+    print("✅ Panel (Survey Panel) router included")
+except Exception as e:
+    print(f"⚠️ Panel router not included: {e}")
 
 # Clay-Level Features router (List building, enrichment, workbooks)
 try:

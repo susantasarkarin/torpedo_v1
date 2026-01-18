@@ -888,3 +888,87 @@ async def get_funnel_stage_details(
         return {"stage": stage, "count": len(rfqs), "records": rfqs}
     
     return {"stage": stage, "count": 0, "records": []}
+
+
+# ============================================
+# ASYNC BACKGROUND TASK ENDPOINTS
+# ============================================
+
+@router.post("/async/dashboard")
+async def start_async_dashboard_generation(
+    date_range: str = Query("30d", description="Date range: 7d, 30d, 90d"),
+    force_refresh: bool = Query(False, description="Force cache refresh")
+):
+    """
+    Generate sales dashboard data in background.
+    Returns operation_id for polling progress.
+    Useful for heavy aggregations that may timeout.
+    """
+    try:
+        from backend.tasks.async_helpers import start_sales_dashboard
+        
+        result = start_sales_dashboard(date_range, force_refresh)
+        return {
+            "success": True,
+            "message": f"Dashboard generation started for {date_range}",
+            **result
+        }
+    except ImportError:
+        raise HTTPException(status_code=503, detail="Async task system not configured")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/async/pipeline-report")
+async def start_async_pipeline_report(
+    date_range: str = Query("30d", description="Date range: 7d, 30d, 90d")
+):
+    """
+    Generate sales pipeline report in background.
+    Returns operation_id for polling progress.
+    """
+    try:
+        from backend.tasks.async_helpers import start_pipeline_report
+        
+        result = start_pipeline_report(date_range)
+        return {
+            "success": True,
+            "message": f"Pipeline report generation started for {date_range}",
+            **result
+        }
+    except ImportError:
+        raise HTTPException(status_code=503, detail="Async task system not configured")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/async/reports/{report_id}")
+async def get_sales_report(report_id: str):
+    """
+    Get a generated sales report by ID.
+    """
+    try:
+        from backend.db_pools import get_api_collection
+        from bson import ObjectId
+        
+        # Check dashboards collection
+        dashboards_coll = get_api_collection('sales_dashboards')
+        dashboard = dashboards_coll.find_one({'_id': ObjectId(report_id)})
+        
+        if dashboard:
+            dashboard['_id'] = str(dashboard['_id'])
+            return dashboard
+        
+        # Check reports collection
+        reports_coll = get_api_collection('sales_reports')
+        report = reports_coll.find_one({'_id': ObjectId(report_id)})
+        
+        if report:
+            report['_id'] = str(report['_id'])
+            return report
+        
+        raise HTTPException(status_code=404, detail="Report not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

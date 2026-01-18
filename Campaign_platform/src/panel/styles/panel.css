@@ -1,0 +1,314 @@
+/* Panel-specific styles for Survey Panel module */
+
+/* ============== HERO BACKGROUNDS ============== */
+.panel-hero-bg {
+  background: linear-gradient(135deg, #1a237e 0%, #3f51b5 50%, #7986cb 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.panel-hero-bg::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+.panel-hero-leaves {
+  background: 
+    linear-gradient(135deg, rgba(26, 35, 126, 0.9) 0%, rgba(63, 81, 181, 0.8) 100%),
+    url('/images/leaves-bg.jpg');
+  background-size: cover;
+  background-position: center;
+}
+
+/* ============== CIRCULAR PROGRESS ============== */
+.profile-progress-ring {
+  transform: rotate(-90deg);
+}
+
+.profile-progress-ring circle {
+  transition: stroke-dashoffset 0.5s ease;
+}
+
+/* ============== AUTH PAGES ============== */
+.panel-auth-page {
+  min-height: 100vh;
+  display: flex;
+}
+
+.panel-auth-left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 2rem 3rem;
+  background: #ffffff;
+}
+
+.panel-auth-right {
+  flex: 1;
+  display: none;
+  position: relative;
+}
+
+@media (min-width: 1024px) {
+  .panel-auth-right {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+.panel-auth-form {
+  max-width: 400px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* ============== STAT BADGES ============== */
+.panel-stat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+  backdrop-filter: blur(10px);
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.panel-stat-badge svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+/* ============== DASHBOARD ============== */
+.panel-dashboard {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+  padding: 1.5rem;
+}
+
+@media (min-width: 1024px) {
+  .panel-dashboard {
+    grid-template-columns: 2fr 1fr;
+  }
+}
+
+.panel-survey-card {
+  background: white;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s ease;
+}
+
+.panel-survey-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-color: #3f51b5;
+}
+
+/* ============== HEADER ============== */
+.panel-header {
+  background: linear-gradient(90deg, #3f51b5 0%, #5c6bc0 100%);
+  padding: 1rem 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.panel-header-nav {
+  display: flex;
+  gap: 2rem;
+}
+
+.panel-header-nav a {
+  color: rgba(255, 255, 255, 0.8);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.875rem;
+  letter-spacing: 0.5px;
+  transition: color 0.2s ease;
+}
+
+.panel-header-nav a:hover,
+.panel-header-nav a.active {
+  color: white;
+}
+
+.panel-header-user {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.panel-points-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: #ff9800;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+/* ============== PROFILE SIDEBAR ============== */
+.panel-profile-sidebar {
+  background: white;
+  border-radius: 0.75rem;
+  padding: 2rem;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #e2e8f0;
+}
+
+/* ============== BUTTONS ============== */
+.panel-btn-primary {
+  background: linear-gradient(135deg, #3f51b5 0%, #5c6bc0 100%);
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.panel-btn-primary:hover {
+  background: linear-gradient(135deg, #303f9f 0%, #3f51b5 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(63, 81, 181, 0.3);
+}
+
+.panel-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.panel-btn-accent {
+  background: linear-gradient(135deg, #ff9800 0%, #ffa726 100%);
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.panel-btn-accent:hover {
+  background: linear-gradient(135deg, #f57c00 0%, #ff9800 100%);
+  transform: translateY(-1px);
+}
+
+/* ============== EMPTY STATE ============== */
+.panel-empty-state {
+  text-align: center;
+  padding: 3rem 2rem;
+  color: #64748b;
+}
+
+.panel-empty-state svg {
+  width: 4rem;
+  height: 4rem;
+  margin: 0 auto 1rem;
+  color: #cbd5e1;
+}
+
+/* ============== FOOTER ============== */
+.panel-footer {
+  background: #1a237e;
+  color: white;
+  padding: 2rem;
+  text-align: center;
+}
+
+.panel-footer a {
+  color: rgba(255, 255, 255, 0.7);
+  text-decoration: none;
+  margin: 0 1rem;
+  font-size: 0.875rem;
+  transition: color 0.2s ease;
+}
+
+.panel-footer a:hover {
+  color: white;
+}
+
+/* ============== ANIMATIONS ============== */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.panel-animate-in {
+  animation: fadeInUp 0.4s ease forwards;
+}
+
+/* ============== FORM STYLES ============== */
+.panel-form-group {
+  margin-bottom: 1.25rem;
+}
+
+.panel-form-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #334155;
+  font-size: 0.875rem;
+}
+
+.panel-form-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+  background: white;
+}
+
+.panel-form-input:focus {
+  outline: none;
+  border-color: #3f51b5;
+  box-shadow: 0 0 0 3px rgba(63, 81, 181, 0.1);
+}
+
+.panel-form-input.error {
+  border-color: #ef4444;
+}
+
+.panel-form-error {
+  color: #ef4444;
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.panel-form-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1rem;
+  padding-right: 2.5rem;
+}

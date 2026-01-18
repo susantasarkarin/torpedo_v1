@@ -921,3 +921,95 @@ async def get_recent_activity(limit: int = Query(10, ge=1, le=50)):
         return {"activities": activities[:limit]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching recent activity: {str(e)}")
+
+
+# ============================================================================
+# ASYNC TASK MANAGEMENT ENDPOINTS
+# For tracking long-running operations like email sync and AI processing
+# ============================================================================
+
+@router.get("/async/{operation_id}/status")
+async def get_async_operation_status(operation_id: str = Path(..., description="Operation ID")):
+    """
+    Get the status of an async operation.
+    Used by frontend polling to track progress of email sync, AI processing, etc.
+    """
+    try:
+        from backend.tasks.api_tasks import get_operation_status as get_status
+        from backend.celery_app import get_task_status
+        
+        # Try Redis status store first
+        result = get_status(operation_id)
+        
+        if result.get('status') == 'not_found':
+            # Also check Celery task status
+            celery_result = get_task_status(operation_id)
+            if celery_result and celery_result.get('status') != 'PENDING':
+                return celery_result
+            
+            raise HTTPException(status_code=404, detail="Operation not found")
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except ImportError:
+        # Celery not yet configured - return placeholder
+        raise HTTPException(status_code=503, detail="Async task system not configured")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/async/{operation_id}/cancel")
+async def cancel_async_operation(operation_id: str = Path(..., description="Operation ID")):
+    """
+    Cancel a running async operation.
+    """
+    try:
+        from backend.tasks.api_tasks import cancel_operation as do_cancel
+        
+        result = do_cancel(operation_id)
+        return result
+        
+    except ImportError:
+        raise HTTPException(status_code=503, detail="Async task system not configured")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/async/active")
+async def list_active_async_operations(
+    type: Optional[str] = Query(None, description="Filter by operation type (email_sync, ai_processing)")
+):
+    """
+    List all active (running) async operations.
+    """
+    try:
+        from backend.tasks.api_tasks import list_active_operations as list_ops
+        
+        result = list_ops(type)
+        return result
+        
+    except ImportError:
+        return {"operations": [], "count": 0, "message": "Async task system not configured"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/async/cleanup")
+async def cleanup_old_async_operations(
+    max_age_hours: int = Query(24, ge=1, le=168, description="Max age in hours for completed operations")
+):
+    """
+    Clean up old completed async operations from status store.
+    """
+    try:
+        from backend.tasks.api_tasks import cleanup_old_operations as do_cleanup
+        
+        result = do_cleanup(max_age_hours)
+        return result
+        
+    except ImportError:
+        raise HTTPException(status_code=503, detail="Async task system not configured")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -957,3 +957,184 @@ async def delete_traffic_records(
         print(f"Error deleting traffic records: {e}")
         raise HTTPException(status_code=500, detail=f"Delete error: {str(e)}")
 
+
+# ============================================================================
+# ASYNC TRAFFIC ENDPOINTS
+# ============================================================================
+# These endpoints return immediately with operation_id for long-running tasks
+
+@router.post("/api/traffic/async/batch-assign")
+async def start_async_batch_assign(
+    request: Request,
+    data: Dict[str, Any] = Body(...)
+):
+    """
+    Start async batch survey assignment for traffic records
+    Returns operation_id immediately, poll for status
+    
+    Body:
+    {
+        "traffic_ids": ["id1", "id2", ...],
+        "survey_id": "survey_id"
+    }
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        traffic_ids = data.get('traffic_ids', [])
+        survey_id = data.get('survey_id')
+        
+        if not traffic_ids:
+            raise HTTPException(status_code=400, detail="No traffic IDs provided")
+        if not survey_id:
+            raise HTTPException(status_code=400, detail="No survey ID provided")
+        
+        # Start async task
+        try:
+            from ..tasks.async_helpers import start_batch_assign_surveys
+            operation_id = start_batch_assign_surveys(traffic_ids, survey_id)
+            
+            return {
+                "status": "started",
+                "operation_id": operation_id,
+                "poll_url": f"/operations/async/{operation_id}/status",
+                "message": f"Batch assignment started for {len(traffic_ids)} records"
+            }
+        except ImportError:
+            raise HTTPException(status_code=503, detail="Async tasks not configured")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error starting async batch assign: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/traffic/async/bulk-delete")
+async def start_async_bulk_delete(
+    request: Request,
+    data: Dict[str, Any] = Body(...)
+):
+    """
+    Start async bulk delete of traffic records
+    Returns operation_id immediately, poll for status
+    
+    Body:
+    {
+        "filter": {"status": "complete", "created_before": "2024-01-01"}
+    }
+    or
+    {
+        "ids": ["id1", "id2", ...]
+    }
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        filter_criteria = data.get('filter', {})
+        ids = data.get('ids', [])
+        
+        if not filter_criteria and not ids:
+            raise HTTPException(status_code=400, detail="Provide either filter or ids")
+        
+        try:
+            from ..tasks.async_helpers import start_bulk_delete_traffic
+            operation_id = start_bulk_delete_traffic(filter_criteria if filter_criteria else {"ids": ids})
+            
+            return {
+                "status": "started",
+                "operation_id": operation_id,
+                "poll_url": f"/operations/async/{operation_id}/status",
+                "message": "Bulk delete operation started"
+            }
+        except ImportError:
+            raise HTTPException(status_code=503, detail="Async tasks not configured")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error starting async bulk delete: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/traffic/async/generate-stats")
+async def start_async_generate_stats(
+    request: Request,
+    data: Dict[str, Any] = Body(default={})
+):
+    """
+    Start async generation of comprehensive traffic statistics
+    Returns operation_id immediately, poll for status
+    
+    Body (optional):
+    {
+        "date_range": {"start": "2024-01-01", "end": "2024-12-31"},
+        "group_by": ["survey_id", "vendor", "status"]
+    }
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        date_range = data.get('date_range', {})
+        group_by = data.get('group_by', ['status'])
+        
+        try:
+            from ..tasks.async_helpers import start_traffic_stats_generation
+            operation_id = start_traffic_stats_generation(date_range, group_by)
+            
+            return {
+                "status": "started",
+                "operation_id": operation_id,
+                "poll_url": f"/operations/async/{operation_id}/status",
+                "message": "Statistics generation started"
+            }
+        except ImportError:
+            raise HTTPException(status_code=503, detail="Async tasks not configured")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error starting async stats generation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/traffic/async/reports/{report_id}")
+async def get_traffic_report(
+    request: Request,
+    report_id: str
+):
+    """
+    Retrieve a generated traffic report by ID
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        if traffic_service is None:
+            raise HTTPException(status_code=503, detail="Traffic service not initialized")
+        
+        # Look up report in database
+        db = traffic_service.traffic_collection.database
+        report = db.traffic_reports.find_one({"_id": ObjectId(report_id)})
+        
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        # Convert ObjectId to string
+        report["_id"] = str(report["_id"])
+        
+        return report
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error retrieving traffic report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
