@@ -4,8 +4,9 @@ import { Routes, Route, Navigate } from "react-router-dom"
 import ProtectedRoute from "./components/ProtectedRoute"
 import Layout from "./components/Layout"
 import { PageLoading } from "./components/ui/PageLayout"
-import { SyncStatusProvider } from "./contexts/SyncStatusContext"
-import GlobalSyncStatus from "./components/GlobalSyncStatus"
+// Temporarily disabled for debugging login issue
+// import { SyncStatusProvider } from "./contexts/SyncStatusContext"
+// import GlobalSyncStatus from "./components/GlobalSyncStatus"
 
 // Auth - Keep non-lazy for fast initial load
 import Login from "./pages/Login"
@@ -121,7 +122,7 @@ const LazyPage = ({ children }) => (
 
 function App() {
   return (
-    <SyncStatusProvider>
+    // <SyncStatusProvider>
       <Routes>
         {/* Default: when you run app locally, go to admin login */}
         <Route path="/" element={<Navigate to="/admin/login" replace />} />
@@ -263,8 +264,8 @@ function App() {
       {/* Catch all */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
-    <GlobalSyncStatus />
-    </SyncStatusProvider>
+    {/* <GlobalSyncStatus /> */}
+    {/* </SyncStatusProvider> */}
   )
 }
 

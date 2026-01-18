@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../../hooks/useAuth';
 import { API_BASE_URL } from '../../../config';
-import useSurveyWebSocket from '../../../hooks/useSurveyWebSocket';
+// Temporarily disabled for debugging
+// import useSurveyWebSocket from '../../../hooks/useSurveyWebSocket';
 import './SurveyPool.css';
 
 // Cint country_language ID to country code mapping
@@ -30,16 +31,22 @@ export default function SurveyPool() {
   const [clients, setClients] = useState([]); // List of clients for client name lookup
   const [totalSurveys, setTotalSurveys] = useState(0); // Total surveys count
 
-  // WebSocket hooks for real-time survey updates
-  const { 
-    surveys: cintSurveys, 
-    isConnected: cintConnected 
-  } = useSurveyWebSocket('cint');
+  // WebSocket hooks temporarily disabled for debugging
+  // const { 
+  //   surveys: cintSurveys, 
+  //   isConnected: cintConnected 
+  // } = useSurveyWebSocket('cint');
   
-  const { 
-    surveys: cpxSurveys, 
-    isConnected: cpxConnected 
-  } = useSurveyWebSocket('cpx');
+  // const { 
+  //   surveys: cpxSurveys, 
+  //   isConnected: cpxConnected 
+  // } = useSurveyWebSocket('cpx');
+  
+  // Temporary fallback values
+  const cintSurveys = [];
+  const cpxSurveys = [];
+  const cintConnected = false;
+  const cpxConnected = false;
 
   // Merge WebSocket surveys with existing state
   useEffect(() => {

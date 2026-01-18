@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react"
 import { API_BASE_URL } from "../config"
-import { useSyncStatus } from "../contexts/SyncStatusContext"
+// Temporarily disabled for debugging
+// import { useSyncStatus } from "../contexts/SyncStatusContext"
 import "./Settings.css"
 
 // Helper to get auth token - handles both storage methods
@@ -35,8 +36,9 @@ const getErrorMessage = (error, fallback = "An error occurred") => {
 }
 
 function Settings() {
-  // Global sync status - used to prevent refreshing Gmail settings during active sync
-  const { isSyncActive } = useSyncStatus()
+  // Global sync status - temporarily disabled for debugging
+  // const { isSyncActive } = useSyncStatus()
+  const isSyncActive = false; // Temporary fallback
   
   // App Settings state
   const [appSettings, setAppSettings] = useState({
