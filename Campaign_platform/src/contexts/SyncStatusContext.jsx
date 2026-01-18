@@ -76,6 +76,13 @@ export function SyncStatusProvider({ children }) {
 
   // Connect to SSE endpoint
   const connectSSE = useCallback(() => {
+    // Don't connect if not authenticated
+    const isAuthenticated = localStorage.getItem('auth') === 'true' || 
+                            localStorage.getItem('session_id');
+    if (!isAuthenticated) {
+      return;
+    }
+    
     // Don't reconnect if already connected
     if (eventSourceRef.current && eventSourceRef.current.readyState !== EventSource.CLOSED) {
       return;
@@ -219,9 +226,16 @@ export function SyncStatusProvider({ children }) {
     }));
   }, []);
 
-  // Auto-connect when component mounts
+  // Auto-connect when component mounts - only if user is authenticated
   useEffect(() => {
-    connectSSE();
+    // Check if user is authenticated before connecting
+    const isAuthenticated = localStorage.getItem('auth') === 'true' || 
+                            localStorage.getItem('session_id');
+    
+    if (isAuthenticated) {
+      connectSSE();
+    }
+    
     return () => disconnectSSE();
   }, [connectSSE, disconnectSSE]);
 
