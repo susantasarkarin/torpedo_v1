@@ -442,22 +442,112 @@ class GmailSyncer:
             logger.warning(f"Failed to get message {message_id}: {e}")
             return None
     
-    def get_messages_batch(self, message_ids: List[str]) -> List[GmailMessage]:
+    def get_messages_batch(
+        self, 
+        message_ids: List[str],
+        progress_callback: Optional[callable] = None
+    ) -> List[GmailMessage]:
         """
-        Get multiple messages efficiently.
+        Get multiple messages efficiently using Gmail BatchHttpRequest.
+        
+        This fetches 10-20 emails in parallel per batch request, significantly
+        faster than sequential fetching while respecting Gmail API limits.
         
         Args:
             message_ids: List of message IDs
+            progress_callback: Optional callback(current_id, subject, index, total)
             
         Returns:
             List of parsed messages
         """
-        messages = []
+        from googleapiclient.http import BatchHttpRequest
         
-        for msg_id in message_ids:
-            msg = self.get_message(msg_id)
-            if msg:
-                messages.append(msg)
+        messages = []
+        errors = []
+        total = len(message_ids)
+        
+        # Process in chunks of 20 (Gmail batch limit is 100, but 20 is safer)
+        BATCH_CHUNK_SIZE = 20
+        
+        for chunk_start in range(0, len(message_ids), BATCH_CHUNK_SIZE):
+            chunk_ids = message_ids[chunk_start:chunk_start + BATCH_CHUNK_SIZE]
+            chunk_messages = []
+            chunk_index = chunk_start
+            
+            def create_callback(msg_id, idx):
+                """Create a callback for this specific message"""
+                def callback(request_id, response, exception):
+                    nonlocal chunk_messages, errors, chunk_index
+                    if exception:
+                        logger.warning(f"Batch request failed for {msg_id}: {exception}")
+                        errors.append({"id": msg_id, "error": str(exception)})
+                    else:
+                        try:
+                            parsed = self._parse_message(response)
+                            chunk_messages.append(parsed)
+                            
+                            # Call progress callback if provided
+                            if progress_callback:
+                                try:
+                                    progress_callback(
+                                        msg_id, 
+                                        parsed.subject[:50] if parsed.subject else "",
+                                        chunk_index + idx,
+                                        total
+                                    )
+                                except Exception as cb_err:
+                                    logger.debug(f"Progress callback error: {cb_err}")
+                                    
+                        except Exception as parse_err:
+                            logger.warning(f"Failed to parse message {msg_id}: {parse_err}")
+                            errors.append({"id": msg_id, "error": str(parse_err)})
+                return callback
+            
+            # Check rate limit before batch
+            if not self._check_rate_limit():
+                time.sleep(1)
+                continue
+            
+            # Create batch request
+            batch = self.service.new_batch_http_request()
+            
+            for idx, msg_id in enumerate(chunk_ids):
+                request = self.service.users().messages().get(
+                    userId=self.user_id,
+                    id=msg_id,
+                    format="full"
+                )
+                batch.add(request, callback=create_callback(msg_id, idx))
+            
+            # Execute batch with retry
+            for attempt in range(self.MAX_RETRIES):
+                try:
+                    batch.execute()
+                    self._record_request()
+                    break
+                except HttpError as e:
+                    if e.resp.status == 429:
+                        logger.warning("Rate limit hit on batch request")
+                        self._handle_rate_limit_error(e)
+                    elif attempt == self.MAX_RETRIES - 1:
+                        logger.error(f"Batch request failed after {self.MAX_RETRIES} attempts: {e}")
+                        raise
+                    else:
+                        time.sleep(self.RETRY_DELAY * (attempt + 1))
+                except Exception as e:
+                    if attempt == self.MAX_RETRIES - 1:
+                        logger.error(f"Batch request failed: {e}")
+                        raise
+                    time.sleep(self.RETRY_DELAY)
+            
+            messages.extend(chunk_messages)
+            
+            # Small delay between batches to avoid overwhelming the API
+            if chunk_start + BATCH_CHUNK_SIZE < len(message_ids):
+                time.sleep(0.1)
+        
+        if errors:
+            logger.info(f"Batch fetch completed: {len(messages)} success, {len(errors)} errors")
         
         return messages
     

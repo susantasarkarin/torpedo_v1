@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../../hooks/useAuth';
 import { API_BASE_URL } from '../../../config';
+import useSurveyWebSocket from '../../../hooks/useSurveyWebSocket';
 import './SurveyPool.css';
 
 // Cint country_language ID to country code mapping
@@ -29,6 +30,44 @@ export default function SurveyPool() {
   const [clients, setClients] = useState([]); // List of clients for client name lookup
   const [totalSurveys, setTotalSurveys] = useState(0); // Total surveys count
 
+  // WebSocket hooks for real-time survey updates
+  const { 
+    surveys: cintSurveys, 
+    isConnected: cintConnected 
+  } = useSurveyWebSocket('cint');
+  
+  const { 
+    surveys: cpxSurveys, 
+    isConnected: cpxConnected 
+  } = useSurveyWebSocket('cpx');
+
+  // Merge WebSocket surveys with existing state
+  useEffect(() => {
+    if (cintSurveys.length > 0 || cpxSurveys.length > 0) {
+      setSurveys(prev => {
+        // Create a map of existing surveys by id
+        const surveyMap = new Map(prev.map(s => [s.id || s.survey_id, s]));
+        
+        // Update/add CINT surveys
+        cintSurveys.forEach(s => {
+          const id = s.id || s.survey_id;
+          surveyMap.set(id, { ...s, source: 'CINT' });
+        });
+        
+        // Update/add CPX surveys
+        cpxSurveys.forEach(s => {
+          const id = s.id || s.survey_id;
+          surveyMap.set(id, { ...s, source: 'CPX' });
+        });
+        
+        const merged = Array.from(surveyMap.values());
+        setTotalSurveys(merged.length);
+        return merged;
+      });
+      setLastUpdated(new Date().toISOString());
+    }
+  }, [cintSurveys, cpxSurveys]);
+
   // Fetch surveys on mount
   useEffect(() => {
     if (token) {
@@ -38,15 +77,18 @@ export default function SurveyPool() {
     }
   }, [token]);
 
-  // Auto-refresh every 30 seconds
+  // Auto-refresh every 2 minutes as fallback (WebSocket is primary)
   useEffect(() => {
     if (!token) return;
     const interval = setInterval(() => {
-      fetchAllSurveys();
-      fetchTrafficStats();
-    }, 30000); // 30 seconds
+      // Only fetch if WebSocket is not connected
+      if (!cintConnected && !cpxConnected) {
+        fetchAllSurveys();
+      }
+      fetchTrafficStats(); // Always refresh traffic stats
+    }, 120000); // 2 minutes fallback
     return () => clearInterval(interval);
-  }, [token]);
+  }, [token, cintConnected, cpxConnected]);
 
   // Fetch all surveys from both CPX and CINT, combine into unified pool
   const fetchAllSurveys = async () => {

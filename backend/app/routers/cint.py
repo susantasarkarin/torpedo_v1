@@ -6,8 +6,9 @@ Endpoints for:
 - Entry link CRUD operations
 - Settings management
 - Subscription management
+- WebSocket for real-time survey updates
 """
-from fastapi import APIRouter, HTTPException, Header, Body, Depends, Query, Request
+from fastapi import APIRouter, HTTPException, Header, Body, Depends, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -16,6 +17,7 @@ import os
 import json
 import hmac
 import hashlib
+import asyncio
 
 from app.models.cint import (
     CintOpportunity,
@@ -30,6 +32,14 @@ from app.models.cint import (
     SettingsResponse,
     RespondentOutcome,
 )
+
+# Import WebSocket manager
+try:
+    from websocket_manager import connection_manager
+    WEBSOCKET_AVAILABLE = True
+except ImportError:
+    WEBSOCKET_AVAILABLE = False
+    connection_manager = None
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +141,28 @@ async def handle_opportunities_webhook(
                     opp.survey_id,
                     opp.dict()
                 )
+        
+        # Broadcast to WebSocket clients
+        if WEBSOCKET_AVAILABLE and connection_manager and processed:
+            try:
+                # Convert processed opportunities to serializable format
+                surveys_data = []
+                for opp in processed:
+                    opp_dict = opp.dict() if hasattr(opp, 'dict') else opp
+                    surveys_data.append(opp_dict)
+                
+                await connection_manager.broadcast(
+                    "cint_surveys",
+                    {
+                        "type": "surveys_update",
+                        "surveys": surveys_data,
+                        "count": len(surveys_data),
+                        "source": "webhook"
+                    }
+                )
+                logger.info(f"Broadcast {len(surveys_data)} surveys to WebSocket clients")
+            except Exception as ws_err:
+                logger.warning(f"Failed to broadcast to WebSocket: {ws_err}")
         
         return {
             "success": True,
@@ -832,3 +864,116 @@ async def get_surveys(
     except Exception as e:
         logger.error(f"Error fetching surveys: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# WebSocket - Real-time Survey Updates
+# ============================================
+
+@router.websocket("/ws/surveys")
+async def cint_surveys_websocket(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time CINT survey updates.
+    
+    Clients connect to receive instant notifications when:
+    - New surveys are received via webhook
+    - Survey quotas or status change
+    - Surveys are deactivated
+    
+    Messages sent to client:
+    - connected: Connection confirmation
+    - surveys_update: New/updated surveys data
+    - heartbeat: Keep-alive ping every 30 seconds
+    
+    Example client usage (JavaScript):
+    ```javascript
+    const ws = new WebSocket('ws://localhost:8000/api/cint/ws/surveys');
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'surveys_update') {
+            // Handle new surveys
+            console.log('New surveys:', data.surveys);
+        }
+    };
+    ```
+    """
+    if not WEBSOCKET_AVAILABLE or not connection_manager:
+        await websocket.close(code=1011, reason="WebSocket manager not available")
+        return
+    
+    try:
+        # Connect to the cint_surveys channel
+        connected = await connection_manager.connect(
+            websocket, 
+            channel="cint_surveys",
+            metadata={"connected_from": "cint_router"}
+        )
+        
+        if not connected:
+            return
+        
+        logger.info("CINT WebSocket client connected")
+        
+        # Keep connection alive and handle incoming messages
+        while True:
+            try:
+                # Wait for messages from client (with timeout for heartbeat)
+                data = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=35.0  # Slightly longer than heartbeat interval
+                )
+                
+                # Handle client messages if needed
+                try:
+                    message = json.loads(data)
+                    if message.get("type") == "ping":
+                        await websocket.send_json({
+                            "type": "pong",
+                            "timestamp": datetime.utcnow().isoformat()
+                        })
+                except json.JSONDecodeError:
+                    pass
+                    
+            except asyncio.TimeoutError:
+                # Send heartbeat
+                try:
+                    await websocket.send_json({
+                        "type": "heartbeat",
+                        "timestamp": datetime.utcnow().isoformat()
+                    })
+                except:
+                    break
+                    
+    except WebSocketDisconnect:
+        logger.info("CINT WebSocket client disconnected")
+    except Exception as e:
+        logger.error(f"CINT WebSocket error: {e}")
+    finally:
+        connection_manager.disconnect(websocket, "cint_surveys")
+
+
+@router.get("/ws/status")
+async def get_websocket_status():
+    """
+    Get WebSocket connection status for CINT surveys.
+    
+    Returns:
+        {
+            "available": true,
+            "connected_clients": 5,
+            "channel": "cint_surveys"
+        }
+    """
+    if not WEBSOCKET_AVAILABLE or not connection_manager:
+        return {
+            "available": False,
+            "connected_clients": 0,
+            "channel": "cint_surveys",
+            "message": "WebSocket manager not initialized"
+        }
+    
+    return {
+        "available": True,
+        "connected_clients": connection_manager.get_connection_count("cint_surveys"),
+        "channel": "cint_surveys"
+    }

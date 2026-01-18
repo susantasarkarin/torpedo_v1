@@ -3309,6 +3309,189 @@ async def get_sync_status():
 
 
 # ============================================
+# SYNC PROGRESS SSE & CANCELLATION ENDPOINTS
+# ============================================
+
+from fastapi.responses import StreamingResponse
+import asyncio
+import redis
+
+# Redis connection for sync cancellation flags
+try:
+    _sync_redis = redis.Redis(host='localhost', port=6379, db=3, decode_responses=True)
+    SYNC_REDIS_AVAILABLE = True
+except Exception as e:
+    logger.warning(f"Redis not available for sync control: {e}")
+    SYNC_REDIS_AVAILABLE = False
+    _sync_redis = None
+
+
+def get_sync_cancellation_key(mailbox_id: str) -> str:
+    """Get Redis key for sync cancellation flag"""
+    return f"sync:cancel:{mailbox_id}"
+
+
+@router.post("/sync/{mailbox_id}/cancel")
+async def cancel_sync_operation(mailbox_id: str):
+    """
+    Cancel an active sync operation for a specific mailbox.
+    
+    Sets a cancellation flag that the sync process checks periodically.
+    The sync will stop gracefully after completing the current batch.
+    """
+    if not SYNC_REDIS_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Sync cancellation not available (Redis required)")
+    
+    try:
+        # Set cancellation flag with 5 minute TTL
+        cancel_key = get_sync_cancellation_key(mailbox_id)
+        _sync_redis.setex(cancel_key, 300, "1")
+        
+        # Also update MongoDB progress
+        from leads.parallel_email_sync import parallel_sync_progress
+        result = parallel_sync_progress.update_one(
+            {"email": mailbox_id},
+            {"$set": {"status": "cancelling", "updated_at": datetime.utcnow()}}
+        )
+        
+        return {
+            "success": True,
+            "message": f"Cancellation requested for {mailbox_id}",
+            "mailbox_id": mailbox_id
+        }
+    except Exception as e:
+        logger.error(f"Error cancelling sync: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def is_sync_cancelled(mailbox_id: str) -> bool:
+    """Check if sync is cancelled for a mailbox"""
+    if not SYNC_REDIS_AVAILABLE or not _sync_redis:
+        return False
+    try:
+        cancel_key = get_sync_cancellation_key(mailbox_id)
+        return _sync_redis.get(cancel_key) == "1"
+    except:
+        return False
+
+
+def clear_sync_cancellation(mailbox_id: str):
+    """Clear the cancellation flag after sync stops"""
+    if SYNC_REDIS_AVAILABLE and _sync_redis:
+        try:
+            cancel_key = get_sync_cancellation_key(mailbox_id)
+            _sync_redis.delete(cancel_key)
+        except:
+            pass
+
+
+async def sync_progress_event_generator():
+    """
+    Generator for SSE sync progress events.
+    
+    Yields JSON events with sync progress for all active mailboxes:
+    - mailbox_id: The mailbox email address
+    - current_email_id: ID of email currently being synced
+    - current_subject: Subject preview of current email
+    - synced_count: Number of emails synced so far
+    - total_count: Total emails to sync
+    - status: Current status (connecting, counting, downloading, completed, error)
+    - percentage: Progress percentage
+    """
+    from leads.parallel_email_sync import parallel_sync_progress
+    
+    last_states = {}
+    
+    while True:
+        try:
+            # Get all active sync operations
+            progress_docs = list(parallel_sync_progress.find({
+                "status": {"$in": ["pending", "connecting", "counting", "downloading", "processing"]}
+            }))
+            
+            # Also include recently completed (within last 30 seconds)
+            recent_threshold = datetime.utcnow() - timedelta(seconds=30)
+            completed_docs = list(parallel_sync_progress.find({
+                "status": {"$in": ["completed", "error", "cancelled"]},
+                "updated_at": {"$gte": recent_threshold}
+            }))
+            
+            all_docs = progress_docs + completed_docs
+            
+            if all_docs:
+                events = []
+                for doc in all_docs:
+                    mailbox_id = doc.get("email", "unknown")
+                    total = doc.get("total_emails", 0)
+                    downloaded = doc.get("downloaded", 0)
+                    percentage = round((downloaded / total * 100), 1) if total > 0 else 0
+                    
+                    event_data = {
+                        "mailbox_id": mailbox_id,
+                        "current_email_id": doc.get("current_email_id", ""),
+                        "current_subject": doc.get("current_subject", "")[:50] if doc.get("current_subject") else "",
+                        "synced_count": downloaded,
+                        "total_count": total,
+                        "status": doc.get("status", "unknown"),
+                        "percentage": percentage,
+                        "current_folder": doc.get("current_folder", ""),
+                        "errors": doc.get("errors", [])[:3],  # Last 3 errors only
+                    }
+                    
+                    # Only emit if state changed
+                    state_key = f"{mailbox_id}:{downloaded}:{doc.get('status')}"
+                    if state_key != last_states.get(mailbox_id):
+                        last_states[mailbox_id] = state_key
+                        events.append(event_data)
+                
+                if events:
+                    data = json.dumps({"type": "sync_progress", "mailboxes": events, "timestamp": datetime.utcnow().isoformat()})
+                    yield f"data: {data}\n\n"
+            else:
+                # No active syncs - send heartbeat
+                yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.utcnow().isoformat()})}\n\n"
+            
+            # Wait before next check (500ms for responsive updates)
+            await asyncio.sleep(0.5)
+            
+        except Exception as e:
+            logger.error(f"SSE generator error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            await asyncio.sleep(2)
+
+
+@router.get("/sync/stream")
+async def sync_progress_stream():
+    """
+    Server-Sent Events (SSE) stream for real-time sync progress.
+    
+    Connect to this endpoint to receive live updates on email sync progress.
+    Events include:
+    - sync_progress: Progress update for one or more mailboxes
+    - heartbeat: Keep-alive message when no syncs are active
+    - error: Error notification
+    
+    Example usage (JavaScript):
+    ```javascript
+    const eventSource = new EventSource('/api/gmail/sync/stream');
+    eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        console.log(data);
+    };
+    ```
+    """
+    return StreamingResponse(
+        sync_progress_event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )
+
+
+# ============================================
 # AI EMAIL AGENTS ENDPOINTS
 # ============================================
 

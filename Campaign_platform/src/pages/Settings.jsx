@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { API_BASE_URL } from "../config"
+import { useSyncStatus } from "../contexts/SyncStatusContext"
 import "./Settings.css"
 
 // Helper to get auth token - handles both storage methods
@@ -34,6 +35,9 @@ const getErrorMessage = (error, fallback = "An error occurred") => {
 }
 
 function Settings() {
+  // Global sync status - used to prevent refreshing Gmail settings during active sync
+  const { isSyncActive } = useSyncStatus()
+  
   // App Settings state
   const [appSettings, setAppSettings] = useState({
     mongo_uri: "",
@@ -618,7 +622,14 @@ function Settings() {
     }
   }
 
-  const loadGmailSettings = async () => {
+  const loadGmailSettings = async (force = false) => {
+    // Skip loading if syncs are active to prevent frontend slowdown
+    // Allow force refresh when explicitly requested by user action
+    if (!force && isSyncActive) {
+      console.log("Skipping Gmail settings refresh - sync in progress")
+      return
+    }
+    
     setGmailLoading(true)
     try {
       const token = getAuthToken()

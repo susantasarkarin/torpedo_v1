@@ -174,6 +174,28 @@ def update_progress(email_address: str, updates: Dict[str, Any]):
     )
 
 
+def is_sync_cancelled(email_address: str) -> bool:
+    """Check if sync has been cancelled for this mailbox"""
+    try:
+        import redis
+        r = redis.Redis(host='localhost', port=6379, db=3, decode_responses=True)
+        cancel_key = f"sync:cancel:{email_address}"
+        return r.get(cancel_key) == "1"
+    except:
+        return False
+
+
+def clear_sync_cancellation(email_address: str):
+    """Clear the cancellation flag"""
+    try:
+        import redis
+        r = redis.Redis(host='localhost', port=6379, db=3, decode_responses=True)
+        cancel_key = f"sync:cancel:{email_address}"
+        r.delete(cancel_key)
+    except:
+        pass
+
+
 # ============== EMAIL COUNT FUNCTIONS ==============
 
 def get_total_email_count(account: IMAPAccountConfig, since_days: int = 0) -> Dict[str, int]:
@@ -370,6 +392,18 @@ def download_all_emails_for_account(
                 
                 # Download in batches
                 for i in range(0, len(message_ids), BATCH_SIZE):
+                    # Check for cancellation before each batch
+                    if is_sync_cancelled(account.email):
+                        logger.info(f"🛑 [{account.email}] Sync cancelled by user")
+                        update_progress(account.email, {
+                            "status": "cancelled",
+                            "downloaded": downloaded_count,
+                            "completed_at": datetime.utcnow()
+                        })
+                        clear_sync_cancellation(account.email)
+                        imap.logout()
+                        return all_emails
+                    
                     batch_ids = message_ids[i:i + BATCH_SIZE]
                     
                     for msg_id in batch_ids:
@@ -426,11 +460,18 @@ def download_all_emails_for_account(
                             all_emails.append(email_data)
                             downloaded_count += 1
                             
+                            # Update progress with current email details for SSE
+                            update_progress(account.email, {
+                                "downloaded": downloaded_count,
+                                "current_email_id": str(message_id)[:50],
+                                "current_subject": subject[:100] if subject else ""
+                            })
+                            
                         except Exception as e:
                             logger.warning(f"Error parsing email {msg_id}: {e}")
                             continue
                     
-                    # Update progress after each batch
+                    # Update progress after each batch (redundant but ensures consistency)
                     update_progress(account.email, {"downloaded": downloaded_count})
                     
                     if progress_callback:

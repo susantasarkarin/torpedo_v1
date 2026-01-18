@@ -1,7 +1,18 @@
 import os
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Body
+import json
+import asyncio
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Body, WebSocket, WebSocketDisconnect
 from typing import Optional, Dict, Any
 from app.services.cpx_service import CPXService
+
+# Import WebSocket manager
+try:
+    from websocket_manager import connection_manager
+    WEBSOCKET_AVAILABLE = True
+except ImportError:
+    WEBSOCKET_AVAILABLE = False
+    connection_manager = None
 
 router = APIRouter(prefix="/cpx", tags=["cpx"])
 
@@ -198,3 +209,133 @@ async def assign_traffic_to_survey(
     except Exception as e:
         print(f"Error assigning traffic to survey: {e}")
         raise HTTPException(status_code=500, detail=f"Assignment error: {str(e)}")
+
+
+# ============================================
+# WebSocket - Real-time Survey Updates
+# ============================================
+
+@router.websocket("/ws/surveys")
+async def cpx_surveys_websocket(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time CPX survey updates.
+    
+    Clients connect to receive instant notifications when:
+    - New surveys are fetched via background task
+    - Survey data is refreshed
+    
+    Messages sent to client:
+    - connected: Connection confirmation
+    - surveys_update: New/updated surveys data
+    - heartbeat: Keep-alive ping every 30 seconds
+    
+    Example client usage (JavaScript):
+    ```javascript
+    const ws = new WebSocket('ws://localhost:8000/api/cpx/ws/surveys');
+    ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'surveys_update') {
+            // Handle new surveys
+            console.log('New surveys:', data.surveys);
+        }
+    };
+    ```
+    """
+    if not WEBSOCKET_AVAILABLE or not connection_manager:
+        await websocket.close(code=1011, reason="WebSocket manager not available")
+        return
+    
+    try:
+        # Connect to the cpx_surveys channel
+        connected = await connection_manager.connect(
+            websocket, 
+            channel="cpx_surveys",
+            metadata={"connected_from": "cpx_router"}
+        )
+        
+        if not connected:
+            return
+        
+        # Keep connection alive and handle incoming messages
+        while True:
+            try:
+                # Wait for messages from client (with timeout for heartbeat)
+                data = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=35.0  # Slightly longer than heartbeat interval
+                )
+                
+                # Handle client messages if needed
+                try:
+                    message = json.loads(data)
+                    if message.get("type") == "ping":
+                        await websocket.send_json({
+                            "type": "pong",
+                            "timestamp": datetime.utcnow().isoformat()
+                        })
+                except json.JSONDecodeError:
+                    pass
+                    
+            except asyncio.TimeoutError:
+                # Send heartbeat
+                try:
+                    await websocket.send_json({
+                        "type": "heartbeat",
+                        "timestamp": datetime.utcnow().isoformat()
+                    })
+                except:
+                    break
+                    
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"CPX WebSocket error: {e}")
+    finally:
+        connection_manager.disconnect(websocket, "cpx_surveys")
+
+
+@router.get("/ws/status")
+async def get_websocket_status():
+    """
+    Get WebSocket connection status for CPX surveys.
+    
+    Returns:
+        {
+            "available": true,
+            "connected_clients": 5,
+            "channel": "cpx_surveys"
+        }
+    """
+    if not WEBSOCKET_AVAILABLE or not connection_manager:
+        return {
+            "available": False,
+            "connected_clients": 0,
+            "channel": "cpx_surveys",
+            "message": "WebSocket manager not initialized"
+        }
+    
+    return {
+        "available": True,
+        "connected_clients": connection_manager.get_connection_count("cpx_surveys"),
+        "channel": "cpx_surveys"
+    }
+
+
+async def broadcast_cpx_surveys(surveys: list):
+    """
+    Helper function to broadcast CPX surveys to WebSocket clients.
+    Call this from CPX service or Celery task after fetching new surveys.
+    """
+    if WEBSOCKET_AVAILABLE and connection_manager:
+        try:
+            await connection_manager.broadcast(
+                "cpx_surveys",
+                {
+                    "type": "surveys_update",
+                    "surveys": surveys,
+                    "count": len(surveys),
+                    "source": "fetch"
+                }
+            )
+        except Exception as e:
+            print(f"Failed to broadcast CPX surveys: {e}")
