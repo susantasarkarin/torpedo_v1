@@ -8,8 +8,8 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
-from backend.celery_app import celery_app
-from backend.db_pools import get_ai_db, get_ai_collection
+from celery_app import celery_app
+from db_pools import get_ai_db, get_ai_collection
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ def process_email_with_agent1(
         Processing result with summary and extracted contact info
     """
     from bson import ObjectId
-    from backend.leads.ai_email_agents import (
+    from leads.ai_email_agents import (
         agent1_process_email_thread,
         email_leads_collection as default_leads_collection
     )
@@ -177,7 +177,7 @@ def categorize_batch_with_agent2(
         Categorization results with assigned buckets
     """
     from bson import ObjectId
-    from backend.leads.ai_email_agents import agent2_categorize_batch
+    from leads.ai_email_agents import agent2_categorize_batch
     
     task_id = self.request.id
     

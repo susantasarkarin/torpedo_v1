@@ -18,12 +18,12 @@ celery_app = Celery(
     broker=CELERY_BROKER_URL,
     backend=CELERY_RESULT_BACKEND,
     include=[
-        'backend.tasks.email_tasks',
-        'backend.tasks.ai_tasks',
-        'backend.tasks.api_tasks',
-        'backend.tasks.finance_tasks',
-        'backend.tasks.sales_tasks',
-        'backend.tasks.traffic_tasks',
+        'tasks.email_tasks',
+        'tasks.ai_tasks',
+        'tasks.api_tasks',
+        'tasks.finance_tasks',
+        'tasks.sales_tasks',
+        'tasks.traffic_tasks',
     ]
 )
 

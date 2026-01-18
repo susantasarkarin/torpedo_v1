@@ -9,8 +9,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 
-from backend.celery_app import celery_app, get_task_status, revoke_task
-from backend.db_pools import get_api_db, get_api_collection
+from celery_app import celery_app, get_task_status, revoke_task
+from db_pools import get_api_db, get_api_collection
 
 logger = logging.getLogger(__name__)
 
@@ -329,7 +329,7 @@ def start_async_email_sync(
     
     This function is called from API routes.
     """
-    from backend.tasks.email_tasks import sync_account_emails, sync_all_accounts
+    from tasks.email_tasks import sync_account_emails, sync_all_accounts
     import uuid
     
     operation_id = str(uuid.uuid4())
@@ -374,7 +374,7 @@ def start_async_ai_processing(
     
     This function is called from API routes.
     """
-    from backend.tasks.ai_tasks import process_new_leads_pipeline
+    from tasks.ai_tasks import process_new_leads_pipeline
     import uuid
     
     operation_id = str(uuid.uuid4())

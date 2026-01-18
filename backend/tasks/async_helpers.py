@@ -12,7 +12,7 @@ def _start_task(task_func, *args, operation_type: str = 'generic', metadata: Opt
     """
     Generic helper to start a Celery task and register it for tracking.
     """
-    from backend.tasks.api_tasks import start_operation
+    from tasks.api_tasks import start_operation
     
     operation_id = str(uuid.uuid4())
     
@@ -38,7 +38,7 @@ def _start_task(task_func, *args, operation_type: str = 'generic', metadata: Opt
 
 def start_email_sync(account_email: Optional[str] = None, since_days: int = 0) -> Dict[str, Any]:
     """Start email sync for one or all accounts."""
-    from backend.tasks.email_tasks import sync_account_emails, sync_all_accounts
+    from tasks.email_tasks import sync_account_emails, sync_all_accounts
     
     if account_email:
         return _start_task(
@@ -58,7 +58,7 @@ def start_email_sync(account_email: Optional[str] = None, since_days: int = 0) -
 
 def start_email_counts() -> Dict[str, Any]:
     """Get email counts for all accounts."""
-    from backend.tasks.email_tasks import get_email_counts
+    from tasks.email_tasks import get_email_counts
     
     return _start_task(
         get_email_counts,
@@ -71,7 +71,7 @@ def start_email_counts() -> Dict[str, Any]:
 
 def start_ai_processing(account_email: Optional[str] = None, limit: int = 100) -> Dict[str, Any]:
     """Start AI processing pipeline for new leads."""
-    from backend.tasks.ai_tasks import process_new_leads_pipeline
+    from tasks.ai_tasks import process_new_leads_pipeline
     
     return _start_task(
         process_new_leads_pipeline,
@@ -83,7 +83,7 @@ def start_ai_processing(account_email: Optional[str] = None, limit: int = 100) -
 
 def start_ai_categorization(summary_ids: List[str], batch_name: Optional[str] = None) -> Dict[str, Any]:
     """Start AI categorization for a batch of summaries."""
-    from backend.tasks.ai_tasks import categorize_batch_with_agent2
+    from tasks.ai_tasks import categorize_batch_with_agent2
     
     return _start_task(
         categorize_batch_with_agent2,
@@ -97,7 +97,7 @@ def start_ai_categorization(summary_ids: List[str], batch_name: Optional[str] = 
 
 def start_finance_export(export_type: str, start_date: Optional[str] = None, end_date: Optional[str] = None) -> Dict[str, Any]:
     """Start a finance export task."""
-    from backend.tasks.finance_tasks import (
+    from tasks.finance_tasks import (
         export_customers_csv,
         export_invoices_csv,
         export_bills_csv
@@ -130,7 +130,7 @@ def start_finance_export(export_type: str, start_date: Optional[str] = None, end
 
 def start_finance_import(import_type: str, csv_content: str) -> Dict[str, Any]:
     """Start a finance import task."""
-    from backend.tasks.finance_tasks import (
+    from tasks.finance_tasks import (
         import_customers_csv,
         import_invoices_csv
     )
@@ -154,7 +154,7 @@ def start_finance_import(import_type: str, csv_content: str) -> Dict[str, Any]:
 
 def start_finance_summary(start_date: Optional[str] = None, end_date: Optional[str] = None) -> Dict[str, Any]:
     """Generate finance summary report."""
-    from backend.tasks.finance_tasks import generate_finance_summary
+    from tasks.finance_tasks import generate_finance_summary
     
     return _start_task(
         generate_finance_summary,
@@ -166,7 +166,7 @@ def start_finance_summary(start_date: Optional[str] = None, end_date: Optional[s
 
 def start_bulk_delete_customers(customer_ids: List[str]) -> Dict[str, Any]:
     """Bulk delete customers."""
-    from backend.tasks.finance_tasks import bulk_delete_customers
+    from tasks.finance_tasks import bulk_delete_customers
     
     return _start_task(
         bulk_delete_customers,
@@ -180,7 +180,7 @@ def start_bulk_delete_customers(customer_ids: List[str]) -> Dict[str, Any]:
 
 def start_sales_dashboard(date_range: str = '30d', force_refresh: bool = False) -> Dict[str, Any]:
     """Generate sales dashboard data."""
-    from backend.tasks.sales_tasks import generate_sales_dashboard
+    from tasks.sales_tasks import generate_sales_dashboard
     
     return _start_task(
         generate_sales_dashboard,
@@ -192,7 +192,7 @@ def start_sales_dashboard(date_range: str = '30d', force_refresh: bool = False) 
 
 def start_enrich_contacts(contact_ids: List[str]) -> Dict[str, Any]:
     """Batch enrich contacts."""
-    from backend.tasks.sales_tasks import enrich_contacts_batch
+    from tasks.sales_tasks import enrich_contacts_batch
     
     return _start_task(
         enrich_contacts_batch,
@@ -204,7 +204,7 @@ def start_enrich_contacts(contact_ids: List[str]) -> Dict[str, Any]:
 
 def start_sync_account_contacts(account_id: str) -> Dict[str, Any]:
     """Sync contacts from a sales account."""
-    from backend.tasks.sales_tasks import sync_account_contacts
+    from tasks.sales_tasks import sync_account_contacts
     
     return _start_task(
         sync_account_contacts,
@@ -216,7 +216,7 @@ def start_sync_account_contacts(account_id: str) -> Dict[str, Any]:
 
 def start_pipeline_report(date_range: str = '30d') -> Dict[str, Any]:
     """Generate sales pipeline report."""
-    from backend.tasks.sales_tasks import generate_pipeline_report
+    from tasks.sales_tasks import generate_pipeline_report
     
     return _start_task(
         generate_pipeline_report,
@@ -230,7 +230,7 @@ def start_pipeline_report(date_range: str = '30d') -> Dict[str, Any]:
 
 def start_batch_assign_surveys(traffic_ids: List[str], survey_id: Optional[str] = None) -> str:
     """Batch assign surveys to traffic records. Returns operation_id."""
-    from backend.tasks.traffic_tasks import batch_assign_surveys
+    from tasks.traffic_tasks import batch_assign_surveys
     
     result = _start_task(
         batch_assign_surveys,
@@ -243,7 +243,7 @@ def start_batch_assign_surveys(traffic_ids: List[str], survey_id: Optional[str] 
 
 def start_bulk_delete_traffic(filter_or_ids: Any) -> str:
     """Bulk delete traffic records. Accepts filter dict or list of IDs. Returns operation_id."""
-    from backend.tasks.traffic_tasks import bulk_delete_traffic
+    from tasks.traffic_tasks import bulk_delete_traffic
     
     # Handle both filter dict and ID list
     if isinstance(filter_or_ids, dict):
@@ -264,7 +264,7 @@ def start_bulk_delete_traffic(filter_or_ids: Any) -> str:
 
 def start_traffic_stats_generation(date_range: Dict[str, str], group_by: List[str]) -> str:
     """Generate traffic statistics. Returns operation_id."""
-    from backend.tasks.traffic_tasks import generate_traffic_stats
+    from tasks.traffic_tasks import generate_traffic_stats
     
     # Convert date_range dict to string format
     date_range_str = f"{date_range.get('start', '')}_{date_range.get('end', '')}" if date_range else '7d'
@@ -280,7 +280,7 @@ def start_traffic_stats_generation(date_range: Dict[str, str], group_by: List[st
 
 def start_traffic_stats(date_range: str = '7d') -> Dict[str, Any]:
     """Generate traffic statistics."""
-    from backend.tasks.traffic_tasks import generate_traffic_stats
+    from tasks.traffic_tasks import generate_traffic_stats
     
     return _start_task(
         generate_traffic_stats,
@@ -294,7 +294,7 @@ def start_traffic_stats(date_range: str = '7d') -> Dict[str, Any]:
 
 def start_add_campaign_recipients(campaign_id: str, recipients: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Add recipients to a campaign."""
-    from backend.tasks.traffic_tasks import add_campaign_recipients_batch
+    from tasks.traffic_tasks import add_campaign_recipients_batch
     
     return _start_task(
         add_campaign_recipients_batch,
@@ -306,7 +306,7 @@ def start_add_campaign_recipients(campaign_id: str, recipients: List[Dict[str, A
 
 def start_campaign_recipients_add(campaign_id: str, recipients: List[Dict[str, Any]]) -> str:
     """Add recipients to a campaign. Returns operation_id."""
-    from backend.tasks.traffic_tasks import add_campaign_recipients_batch
+    from tasks.traffic_tasks import add_campaign_recipients_batch
     
     result = _start_task(
         add_campaign_recipients_batch,
@@ -319,7 +319,7 @@ def start_campaign_recipients_add(campaign_id: str, recipients: List[Dict[str, A
 
 def start_import_campaign_recipients(campaign_id: str, csv_content: str) -> Dict[str, Any]:
     """Import recipients from CSV."""
-    from backend.tasks.traffic_tasks import import_campaign_recipients_csv
+    from tasks.traffic_tasks import import_campaign_recipients_csv
     
     return _start_task(
         import_campaign_recipients_csv,
@@ -331,7 +331,7 @@ def start_import_campaign_recipients(campaign_id: str, csv_content: str) -> Dict
 
 def start_campaign_csv_import(campaign_id: str, csv_data: str, column_mapping: Dict[str, str], skip_duplicates: bool = True) -> str:
     """Import recipients from CSV. Returns operation_id."""
-    from backend.tasks.traffic_tasks import import_campaign_recipients_csv
+    from tasks.traffic_tasks import import_campaign_recipients_csv
     
     result = _start_task(
         import_campaign_recipients_csv,
@@ -348,7 +348,7 @@ def start_campaign_csv_import(campaign_id: str, csv_data: str, column_mapping: D
 
 def start_campaign_analytics(campaign_id: str) -> Dict[str, Any]:
     """Generate campaign analytics."""
-    from backend.tasks.traffic_tasks import generate_campaign_analytics
+    from tasks.traffic_tasks import generate_campaign_analytics
     
     return _start_task(
         generate_campaign_analytics,
@@ -360,7 +360,7 @@ def start_campaign_analytics(campaign_id: str) -> Dict[str, Any]:
 
 def start_campaign_analytics_generation(campaign_id: str, include_details: bool = False, group_by_day: bool = True) -> str:
     """Generate campaign analytics. Returns operation_id."""
-    from backend.tasks.traffic_tasks import generate_campaign_analytics
+    from tasks.traffic_tasks import generate_campaign_analytics
     
     result = _start_task(
         generate_campaign_analytics,
@@ -379,7 +379,7 @@ def start_campaign_analytics_generation(campaign_id: str, include_details: bool 
 
 def start_bulk_inbox_operation(email_ids: List[str], operation: str, params: Optional[Dict] = None) -> Dict[str, Any]:
     """Perform bulk inbox operation."""
-    from backend.tasks.traffic_tasks import bulk_inbox_operation
+    from tasks.traffic_tasks import bulk_inbox_operation
     
     return _start_task(
         bulk_inbox_operation,

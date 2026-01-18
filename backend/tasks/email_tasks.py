@@ -9,8 +9,8 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 from celery import shared_task, current_task
 
-from backend.celery_app import celery_app
-from backend.db_pools import get_background_db, get_background_collection
+from celery_app import celery_app
+from db_pools import get_background_db, get_background_collection
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ def sync_account_emails(
     Returns:
         Sync result with counts and status
     """
-    from backend.leads.parallel_email_sync import (
+    from leads.parallel_email_sync import (
         IMAPAccountConfig,
         download_all_emails_for_account,
         update_progress
@@ -205,7 +205,7 @@ def get_email_counts(since_days: int = 0) -> Dict[str, Any]:
     Returns:
         Dictionary of account -> folder counts
     """
-    from backend.leads.parallel_email_sync import get_all_accounts_email_count
+    from leads.parallel_email_sync import get_all_accounts_email_count
     
     return get_all_accounts_email_count(since_days)
 
@@ -224,7 +224,7 @@ def stop_sync(self, account_email: Optional[str] = None) -> Dict[str, Any]:
     Returns:
         Status of the stop operation
     """
-    from backend.celery_app import celery_app
+    from celery_app import celery_app
     
     # Get running email sync tasks
     inspector = celery_app.control.inspect()

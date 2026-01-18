@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import random
 
-from backend.celery_app import celery_app
-from backend.db_pools import get_background_db, get_background_collection
+from celery_app import celery_app
+from db_pools import get_background_db, get_background_collection
 
 logger = logging.getLogger(__name__)
 
