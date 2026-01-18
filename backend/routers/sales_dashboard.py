@@ -905,7 +905,7 @@ async def start_async_dashboard_generation(
     Useful for heavy aggregations that may timeout.
     """
     try:
-        from backend.tasks.async_helpers import start_sales_dashboard
+        from tasks.async_helpers import start_sales_dashboard
         
         result = start_sales_dashboard(date_range, force_refresh)
         return {
@@ -928,7 +928,7 @@ async def start_async_pipeline_report(
     Returns operation_id for polling progress.
     """
     try:
-        from backend.tasks.async_helpers import start_pipeline_report
+        from tasks.async_helpers import start_pipeline_report
         
         result = start_pipeline_report(date_range)
         return {

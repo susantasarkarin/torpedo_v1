@@ -3250,7 +3250,7 @@ async def start_parallel_sync(
     try:
         # Try using Celery tasks first (preferred for non-blocking)
         try:
-            from backend.tasks.api_tasks import start_async_email_sync
+            from tasks.api_tasks import start_async_email_sync
             
             if account_emails and len(account_emails) == 1:
                 # Single account sync

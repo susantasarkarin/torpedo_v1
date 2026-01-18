@@ -3451,7 +3451,7 @@ async def start_async_export(
     Supported types: customers, invoices, bills
     """
     try:
-        from backend.tasks.async_helpers import start_finance_export
+        from tasks.async_helpers import start_finance_export
         
         result = start_finance_export(export_type, start_date, end_date)
         return {
@@ -3477,7 +3477,7 @@ async def start_async_import(
     Supported types: customers, invoices
     """
     try:
-        from backend.tasks.async_helpers import start_finance_import
+        from tasks.async_helpers import start_finance_import
         
         # Read file content
         csv_content = (await file.read()).decode('utf-8')
@@ -3507,7 +3507,7 @@ async def start_async_finance_summary(
     Returns operation_id for polling progress.
     """
     try:
-        from backend.tasks.async_helpers import start_finance_summary
+        from tasks.async_helpers import start_finance_summary
         
         result = start_finance_summary(start_date, end_date)
         return {
@@ -3530,7 +3530,7 @@ async def start_async_bulk_delete_customers(
     Returns operation_id for polling progress.
     """
     try:
-        from backend.tasks.async_helpers import start_bulk_delete_customers
+        from tasks.async_helpers import start_bulk_delete_customers
         
         customer_ids = data.get("customer_ids", [])
         if not customer_ids:

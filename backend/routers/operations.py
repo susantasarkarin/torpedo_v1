@@ -935,8 +935,8 @@ async def get_async_operation_status(operation_id: str = Path(..., description="
     Used by frontend polling to track progress of email sync, AI processing, etc.
     """
     try:
-        from backend.tasks.api_tasks import get_operation_status as get_status
-        from backend.celery_app import get_task_status
+        from tasks.api_tasks import get_operation_status as get_status
+        from celery_app import get_task_status
         
         # Try Redis status store first
         result = get_status(operation_id)
@@ -966,7 +966,7 @@ async def cancel_async_operation(operation_id: str = Path(..., description="Oper
     Cancel a running async operation.
     """
     try:
-        from backend.tasks.api_tasks import cancel_operation as do_cancel
+        from tasks.api_tasks import cancel_operation as do_cancel
         
         result = do_cancel(operation_id)
         return result
@@ -985,7 +985,7 @@ async def list_active_async_operations(
     List all active (running) async operations.
     """
     try:
-        from backend.tasks.api_tasks import list_active_operations as list_ops
+        from tasks.api_tasks import list_active_operations as list_ops
         
         result = list_ops(type)
         return result
@@ -1004,7 +1004,7 @@ async def cleanup_old_async_operations(
     Clean up old completed async operations from status store.
     """
     try:
-        from backend.tasks.api_tasks import cleanup_old_operations as do_cleanup
+        from tasks.api_tasks import cleanup_old_operations as do_cleanup
         
         result = do_cleanup(max_age_hours)
         return result

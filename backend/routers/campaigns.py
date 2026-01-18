@@ -361,7 +361,7 @@ async def start_async_bulk_add_recipients(
         
         # Start async task
         try:
-            from ..tasks.async_helpers import start_campaign_recipients_add
+            from tasks.async_helpers import start_campaign_recipients_add
             operation_id = start_campaign_recipients_add(campaign_id, recipients)
             
             return {
@@ -411,7 +411,7 @@ async def start_async_import_csv(
             raise HTTPException(status_code=400, detail="No CSV data provided")
         
         try:
-            from ..tasks.async_helpers import start_campaign_csv_import
+            from tasks.async_helpers import start_campaign_csv_import
             operation_id = start_campaign_csv_import(
                 campaign_id, 
                 csv_data, 
@@ -461,7 +461,7 @@ async def start_async_generate_analytics(
         group_by_day = data.get('group_by_day', True)
         
         try:
-            from ..tasks.async_helpers import start_campaign_analytics_generation
+            from tasks.async_helpers import start_campaign_analytics_generation
             operation_id = start_campaign_analytics_generation(
                 campaign_id,
                 include_details,
