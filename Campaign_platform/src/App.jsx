@@ -122,10 +122,9 @@ const LazyPage = ({ children }) => (
 
 function App() {
   return (
-    // <SyncStatusProvider>
-      <Routes>
-        {/* Default: when you run app locally, go to admin login */}
-        <Route path="/" element={<Navigate to="/admin/login" replace />} />
+    <Routes>
+      {/* Default: when you run app locally, go to admin login */}
+      <Route path="/" element={<Navigate to="/admin/login" replace />} />
 
       {/* Public user pages */}
       <Route path="/takesurvey" element={<TrafficFlowParser />} />
@@ -264,8 +263,6 @@ function App() {
       {/* Catch all */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
-    {/* <GlobalSyncStatus /> */}
-    {/* </SyncStatusProvider> */}
   )
 }
 
