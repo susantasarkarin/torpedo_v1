@@ -189,17 +189,13 @@ export default function CompanyUpload() {
 
   // Step 1: Upload
   const renderStep1 = () => (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+    <Card padding="none">
+      <div className="p-6">
+        <div className="flex items-center gap-2 mb-1">
           <Upload className="w-5 h-5" />
-          Upload Company List
-        </CardTitle>
-        <CardDescription>
-          Upload a CSV file with company information to find contacts
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+          <h3 className="text-base font-semibold text-gray-900">Upload Company List</h3>
+        </div>
+        <p className="text-sm text-gray-500 mb-4">Upload a CSV file with company information to find contacts</p>
         <div
           onClick={() => fileInputRef.current?.click()}
           onDrop={handleDrop}
@@ -230,7 +226,7 @@ export default function CompanyUpload() {
             Beta Inc,beta.io,SaaS,50-100,New York
           </code>
         </div>
-      </CardContent>
+      </div>
     </Card>
   );
 

@@ -63,6 +63,22 @@ export function CardContent({ children, className = '' }) {
   );
 }
 
+export function CardTitle({ children, className = '' }) {
+  return (
+    <h3 className={clsx('text-base font-semibold text-text-primary', className)}>
+      {children}
+    </h3>
+  );
+}
+
+export function CardDescription({ children, className = '' }) {
+  return (
+    <p className={clsx('text-sm text-text-muted mt-0.5', className)}>
+      {children}
+    </p>
+  );
+}
+
 export function CardFooter({ children, className = '' }) {
   return (
     <div className={clsx('mt-4 pt-4 border-t border-slate-100', className)}>
