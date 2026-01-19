@@ -71,14 +71,20 @@ def verify_password(password: str, hashed: str) -> bool:
         # This is a plaintext password - direct comparison (INSECURE - for migration only)
         return password == hashed
     
-    if BCRYPT_AVAILABLE and hashed.startswith('$2'):
-        # Bcrypt hash
+    # Handle bcrypt hashes (start with $2a$, $2b$, $2y$)
+    if hashed.startswith('$2'):
+        if not BCRYPT_AVAILABLE:
+            print("⚠️ Cannot verify bcrypt hash - bcrypt not installed on this system!")
+            print("   Install bcrypt with: pip install bcrypt")
+            return False
         try:
             return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
-        except Exception:
+        except Exception as e:
+            print(f"⚠️ Bcrypt verification error: {e}")
             return False
-    elif hashed.startswith('pbkdf2:'):
-        # PBKDF2 hash
+    
+    # Handle PBKDF2 hashes
+    if hashed.startswith('pbkdf2:'):
         try:
             parts = hashed.split('$')
             if len(parts) != 3:
@@ -91,9 +97,12 @@ def verify_password(password: str, hashed: str) -> bool:
                 260000
             )
             return secrets.compare_digest(hash_obj.hex(), stored_hash)
-        except Exception:
+        except Exception as e:
+            print(f"⚠️ PBKDF2 verification error: {e}")
             return False
     
+    # Unknown hash format
+    print(f"⚠️ Unknown password hash format: {hashed[:20]}...")
     return False
 
 

@@ -9,12 +9,17 @@
  * - Per-mailbox progress with current email details
  * - Automatic SSE connection management
  * - localStorage persistence
+ * - Debounced state updates to prevent UI lag during high-frequency updates
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import debounce from 'lodash/debounce';
 
 // Storage key for localStorage
 const STORAGE_KEY = 'torpedo_sync_status';
+
+// Debounce delay for state updates (ms)
+const STATE_UPDATE_DEBOUNCE_MS = 500;
 
 // Initial state
 const initialState = {
@@ -113,63 +118,94 @@ export function SyncStatusProvider({ children }) {
         }));
       };
 
+      // Buffer for accumulating mailbox updates before debounced flush
+      const pendingUpdatesRef = { current: {} };
+      
+      // Debounced function to flush accumulated updates to state
+      // This prevents excessive React re-renders during high-frequency sync updates
+      const flushUpdates = debounce(() => {
+        const updates = pendingUpdatesRef.current;
+        if (Object.keys(updates).length === 0) return;
+        
+        setState(prev => {
+          const newActiveSyncs = { ...prev.activeSyncs };
+          
+          for (const [mailboxId, mailbox] of Object.entries(updates)) {
+            if (mailbox.status === 'completed' || mailbox.status === 'error' || mailbox.status === 'cancelled') {
+              // Keep completed syncs for a moment then remove
+              newActiveSyncs[mailboxId] = {
+                ...mailbox,
+                completedAt: new Date().toISOString(),
+              };
+              
+              // Schedule removal after 5 seconds
+              setTimeout(() => {
+                setState(p => {
+                  const updated = { ...p.activeSyncs };
+                  if (updated[mailboxId]?.status === 'completed' ||
+                      updated[mailboxId]?.status === 'error' ||
+                      updated[mailboxId]?.status === 'cancelled') {
+                    delete updated[mailboxId];
+                  }
+                  return {
+                    ...p,
+                    activeSyncs: updated,
+                    isSyncActive: Object.values(updated).some(
+                      s => !['completed', 'error', 'cancelled'].includes(s.status)
+                    ),
+                  };
+                });
+              }, 5000);
+            } else {
+              newActiveSyncs[mailboxId] = {
+                email_id: mailbox.current_email_id,
+                subject: mailbox.current_subject,
+                progress: mailbox.percentage,
+                status: mailbox.status,
+                total: mailbox.total_count,
+                synced: mailbox.synced_count,
+                folder: mailbox.current_folder,
+                errors: mailbox.errors,
+              };
+            }
+          }
+          
+          // Clear pending updates after flush
+          pendingUpdatesRef.current = {};
+          
+          return {
+            ...prev,
+            activeSyncs: newActiveSyncs,
+            isSyncActive: Object.values(newActiveSyncs).some(
+              s => !['completed', 'error', 'cancelled'].includes(s.status)
+            ),
+            lastUpdated: new Date().toISOString(),
+          };
+        });
+      }, STATE_UPDATE_DEBOUNCE_MS);
+
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           
           if (data.type === 'sync_progress' && data.mailboxes) {
-            setState(prev => {
-              const newActiveSyncs = { ...prev.activeSyncs };
-              
-              for (const mailbox of data.mailboxes) {
-                if (mailbox.status === 'completed' || mailbox.status === 'error' || mailbox.status === 'cancelled') {
-                  // Keep completed syncs for a moment then remove
-                  newActiveSyncs[mailbox.mailbox_id] = {
-                    ...mailbox,
-                    completedAt: new Date().toISOString(),
-                  };
-                  
-                  // Schedule removal after 5 seconds
-                  setTimeout(() => {
-                    setState(p => {
-                      const updated = { ...p.activeSyncs };
-                      if (updated[mailbox.mailbox_id]?.status === 'completed' ||
-                          updated[mailbox.mailbox_id]?.status === 'error' ||
-                          updated[mailbox.mailbox_id]?.status === 'cancelled') {
-                        delete updated[mailbox.mailbox_id];
-                      }
-                      return {
-                        ...p,
-                        activeSyncs: updated,
-                        isSyncActive: Object.values(updated).some(
-                          s => !['completed', 'error', 'cancelled'].includes(s.status)
-                        ),
-                      };
-                    });
-                  }, 5000);
-                } else {
-                  newActiveSyncs[mailbox.mailbox_id] = {
-                    email_id: mailbox.current_email_id,
-                    subject: mailbox.current_subject,
-                    progress: mailbox.percentage,
-                    status: mailbox.status,
-                    total: mailbox.total_count,
-                    synced: mailbox.synced_count,
-                    folder: mailbox.current_folder,
-                    errors: mailbox.errors,
-                  };
-                }
-              }
-              
-              return {
-                ...prev,
-                activeSyncs: newActiveSyncs,
-                isSyncActive: Object.values(newActiveSyncs).some(
-                  s => !['completed', 'error', 'cancelled'].includes(s.status)
-                ),
-                lastUpdated: new Date().toISOString(),
-              };
-            });
+            // Accumulate updates in buffer
+            for (const mailbox of data.mailboxes) {
+              pendingUpdatesRef.current[mailbox.mailbox_id] = mailbox;
+            }
+            
+            // Check if any mailbox has a terminal status - flush immediately
+            const hasTerminalStatus = data.mailboxes.some(
+              m => ['completed', 'error', 'cancelled'].includes(m.status)
+            );
+            
+            if (hasTerminalStatus) {
+              // Flush immediately for status changes
+              flushUpdates.flush();
+            } else {
+              // Debounced update for progress
+              flushUpdates();
+            }
           }
           // Heartbeat messages just confirm connection is alive
         } catch (e) {

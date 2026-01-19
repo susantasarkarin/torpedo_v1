@@ -253,6 +253,38 @@ def setup_indexes(db_manager=None):
     cpx_filters = cpx_db["cpx_filters"]
     create_index_safe(cpx_filters, "name")
     
+    # ============== TORPEDO GMAIL DATABASE ==============
+    # Indexes for email sync performance
+    gmail_db = client["torpedo_gmail"]
+    
+    # Email Metadata collection (AI classification)
+    email_metadata = gmail_db["email_metadata"]
+    create_index_safe(email_metadata, "gmail_message_id", unique=True)
+    create_index_safe(email_metadata, "mailbox_id")
+    create_index_safe(email_metadata, "from_email")
+    create_index_safe(email_metadata, "ai_category", sparse=True)
+    create_index_safe(email_metadata, [("mailbox_id", ASCENDING), ("timestamp", DESCENDING)])
+    create_index_safe(email_metadata, [("ai_category", ASCENDING), ("ai_confidence", DESCENDING)])
+    # For unclassified emails query
+    create_index_safe(email_metadata, [("ai_category", ASCENDING), ("mailbox_id", ASCENDING)])
+    
+    # Parallel Sync Progress collection - critical for sync status updates
+    parallel_sync_progress = gmail_db["parallel_sync_progress"]
+    create_index_safe(parallel_sync_progress, "email", unique=True)
+    create_index_safe(parallel_sync_progress, "status")
+    create_index_safe(parallel_sync_progress, [("status", ASCENDING), ("updated_at", DESCENDING)])
+    
+    # IMAP Accounts collection
+    imap_accounts = gmail_db["imap_accounts"]
+    create_index_safe(imap_accounts, "email", unique=True)
+    create_index_safe(imap_accounts, "is_active")
+    
+    # Email Sync Log
+    email_sync_log = gmail_db["email_sync_log"]
+    create_index_safe(email_sync_log, "account_email")
+    create_index_safe(email_sync_log, "started_at")
+    create_index_safe(email_sync_log, [("account_email", ASCENDING), ("started_at", DESCENDING)])
+    
     # ============== SETTINGS DATABASE ==============
     settings_db = client["torpedo_settings"]
     

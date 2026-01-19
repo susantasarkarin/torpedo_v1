@@ -61,6 +61,7 @@ celery_app.conf.update(
         Queue('finance', routing_key='finance.#'),
         Queue('sales', routing_key='sales.#'),
         Queue('traffic', routing_key='traffic.#'),
+        Queue('surveys', routing_key='surveys.#'),  # Dedicated queue for CPX/CINT - never blocked by email sync
     ),
     
     # Task routing
@@ -71,6 +72,9 @@ celery_app.conf.update(
         'backend.tasks.finance_tasks.*': {'queue': 'finance', 'routing_key': 'finance.task'},
         'backend.tasks.sales_tasks.*': {'queue': 'sales', 'routing_key': 'sales.task'},
         'backend.tasks.traffic_tasks.*': {'queue': 'traffic', 'routing_key': 'traffic.task'},
+        # Route survey tasks to dedicated queue
+        'backend.tasks.traffic_tasks.fetch_and_broadcast_cpx_surveys': {'queue': 'surveys', 'routing_key': 'surveys.cpx'},
+        'backend.tasks.survey_tasks.*': {'queue': 'surveys', 'routing_key': 'surveys.task'},
     },
     
     # Beat scheduler (for periodic tasks)
@@ -88,7 +92,10 @@ celery_app.conf.update(
             'rate_limit': '100/m',  # Max 100 tasks per minute
         },
         'backend.tasks.ai_tasks.*': {
-            'rate_limit': '10/m',  # AI tasks limited due to API quotas
+            'rate_limit': '20/m',  # Increased from 10/m - AI tasks for classification
+        },
+        'backend.tasks.survey_tasks.*': {
+            'rate_limit': '60/m',  # Survey tasks should be fast
         },
     },
 )

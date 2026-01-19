@@ -246,6 +246,7 @@ function MailPool() {
   // Stats & Accounts
   const [stats, setStats] = useState({
     total_emails: 0,
+    gmail_total: 0,
     emails_today: 0,
     segments: {},
     ai_categories: {},
@@ -1009,6 +1010,9 @@ function MailPool() {
             else if (folder.id === "drafts") folderCount = stats.drafts_count || 0;
             else if (folder.id === "all") folderCount = stats.total_emails || 0;
             
+            // For "All Mail", show both gmail_total and synced if available
+            const showGmailTotal = folder.id === "all" && stats.gmail_total && stats.gmail_total > stats.total_emails;
+            
             return (
               <div
                 key={folder.id}
@@ -1022,7 +1026,9 @@ function MailPool() {
                 <span style={styles.sidebarIcon}>{folder.icon}</span>
                 <span style={styles.sidebarLabel}>{folder.name}</span>
                 {folderCount > 0 && (
-                  <span style={styles.sidebarBadge}>{folderCount.toLocaleString()}</span>
+                  <span style={styles.sidebarBadge} title={showGmailTotal ? `${stats.gmail_total.toLocaleString()} total in Gmail` : ''}>
+                    {showGmailTotal ? `${folderCount.toLocaleString()}/${stats.gmail_total.toLocaleString()}` : folderCount.toLocaleString()}
+                  </span>
                 )}
               </div>
             );

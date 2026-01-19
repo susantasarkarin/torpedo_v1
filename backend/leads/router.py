@@ -52,7 +52,9 @@ router = APIRouter(prefix="/leads", tags=["Leads"])
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 _mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 _jobs_db = _mongo_client['email_automation']
+_torpedo_gmail_db = _mongo_client['torpedo_gmail']  # Gmail OAuth emails database
 web_search_jobs_collection = _jobs_db['web_search_jobs']
+email_metadata_collection = _torpedo_gmail_db['email_metadata']
 
 # Create indexes for jobs
 try:
@@ -1404,14 +1406,64 @@ class IMAPAccountCreate(BaseModel):
     skip_validation: bool = False  # Skip IMAP connection test if True
 
 
+def get_mailboxes_from_stored_emails() -> List[Dict[str, Any]]:
+    """
+    Get mailbox accounts from stored emails in torpedo_gmail.email_metadata.
+    Discovers mailboxes by analyzing sent emails (outbound direction).
+    """
+    pipeline = [
+        {"$match": {"direction": "outbound"}},
+        {"$group": {
+            "_id": "$mailbox_id",
+            "from_email": {"$first": "$from_email"},
+            "from_name": {"$first": "$from_name"},
+            "email_count": {"$sum": 1},
+            "last_email": {"$max": "$timestamp"}
+        }},
+        {"$sort": {"email_count": -1}}
+    ]
+    
+    results = list(email_metadata_collection.aggregate(pipeline))
+    
+    mailboxes = []
+    for r in results:
+        # Get total email count (inbound + outbound)
+        total_count = email_metadata_collection.count_documents({"mailbox_id": r["_id"]})
+        
+        mailboxes.append({
+            "email": r["from_email"],
+            "display_name": r.get("from_name") or r["from_email"].split("@")[0],
+            "mailbox_id": r["_id"],
+            "email_count": total_count,
+            "sent_count": r["email_count"],
+            "last_email": r.get("last_email"),
+            "source": "stored_emails"
+        })
+    
+    return mailboxes
+
+
 @router.get("/gmail/accounts")
 async def get_email_accounts_endpoint():
     """
     GET /leads/gmail/accounts
-    Get all configured IMAP email accounts.
+    Get all available email accounts (IMAP + stored emails).
     """
-    accounts = get_imap_accounts()
-    return {"accounts": accounts, "total": len(accounts)}
+    # Get IMAP accounts
+    imap_accounts = get_imap_accounts()
+    
+    # Get mailboxes from stored emails
+    stored_mailboxes = get_mailboxes_from_stored_emails()
+    
+    # Merge accounts, preferring IMAP if both exist
+    imap_emails = {a["email"].lower() for a in imap_accounts}
+    
+    all_accounts = imap_accounts.copy()
+    for mailbox in stored_mailboxes:
+        if mailbox["email"].lower() not in imap_emails:
+            all_accounts.append(mailbox)
+    
+    return {"accounts": all_accounts, "total": len(all_accounts)}
 
 
 @router.post("/gmail/accounts")
@@ -1567,7 +1619,7 @@ def extract_name_from_email_header(from_header: str) -> tuple:
 async def extract_leads_from_stored_emails(request: EmailExtractRequest):
     """
     POST /leads/emails/extract
-    Extract leads from emails already stored in MongoDB.
+    Extract leads from emails already stored in MongoDB (torpedo_gmail.email_metadata).
     Performs phased enrichment:
     - Basic: Email, Full Name
     - Names: First Name, Last Name (split from full name)
@@ -1575,25 +1627,27 @@ async def extract_leads_from_stored_emails(request: EmailExtractRequest):
     - Domain: Domain extracted from email
     """
     try:
-        # Get emails collection
-        emails_collection = _jobs_db['emails']
+        # Use torpedo_gmail.email_metadata for stored emails
         leads_collection = _jobs_db['leads_raw']
         
-        # Build query
-        query = {}
+        # Build query for torpedo_gmail.email_metadata
+        query = {"direction": "inbound"}  # Only get inbound emails (from external contacts)
+        
         if request.account_emails:
-            query["$or"] = [
-                {"mailbox_email": {"$in": request.account_emails}},
-                {"account_email": {"$in": request.account_emails}}
+            # Find mailbox_ids for the given email addresses
+            mailbox_pipeline = [
+                {"$match": {"direction": "outbound", "from_email": {"$in": request.account_emails}}},
+                {"$group": {"_id": "$mailbox_id"}}
             ]
+            mailbox_ids = [r["_id"] for r in email_metadata_collection.aggregate(mailbox_pipeline)]
+            if mailbox_ids:
+                query["mailbox_id"] = {"$in": mailbox_ids}
+        
         if request.segments:
-            query["category"] = {"$in": request.segments}
+            query["ai_category"] = {"$in": request.segments}
         
-        # Only get inbound emails (from external contacts)
-        query["direction"] = "inbound"
-        
-        # Fetch emails
-        emails = list(emails_collection.find(query).limit(request.max_emails))
+        # Fetch emails from torpedo_gmail.email_metadata
+        emails = list(email_metadata_collection.find(query).limit(request.max_emails))
         
         phases = request.enrichment_phases or {
             "basic": True,
@@ -1606,42 +1660,56 @@ async def extract_leads_from_stored_emails(request: EmailExtractRequest):
         enriched = 0
         duplicates = 0
         
+        # Track seen emails to avoid duplicates within this batch
+        seen_emails = set()
+        
         for email_doc in emails:
             try:
-                # Get from address
-                from_addr = email_doc.get("from_address") or email_doc.get("from") or {}
-                if isinstance(from_addr, dict):
-                    email_addr = from_addr.get("email", "")
-                    name = from_addr.get("name", "")
-                elif isinstance(from_addr, str):
-                    name, email_addr = extract_name_from_email_header(from_addr)
-                else:
-                    continue
+                # Get from address - torpedo_gmail uses from_email and from_name fields
+                email_addr = email_doc.get("from_email", "")
+                name = email_doc.get("from_name", "")
                 
                 if not email_addr or "@" not in email_addr:
                     continue
                 
-                # Skip internal emails (same domain as account)
-                account_email = email_doc.get("mailbox_email", "")
-                if account_email:
-                    account_domain = extract_domain_from_email(account_email)
-                    sender_domain = extract_domain_from_email(email_addr)
-                    if account_domain and sender_domain and account_domain == sender_domain:
-                        continue
+                # Normalize email
+                email_addr = email_addr.lower().strip()
                 
-                # Check for duplicate
-                existing = leads_collection.find_one({"email": email_addr.lower()})
+                # Skip if already seen in this batch
+                if email_addr in seen_emails:
+                    duplicates += 1
+                    continue
+                seen_emails.add(email_addr)
+                
+                # Skip common no-reply and system emails
+                skip_patterns = ['noreply', 'no-reply', 'donotreply', 'mailer-daemon', 'postmaster', 
+                                'bounce', 'notifications', 'alert', 'system', 'auto', 'newsletter']
+                if any(p in email_addr.lower() for p in skip_patterns):
+                    continue
+                
+                # Get domain to check if internal
+                sender_domain = extract_domain_from_email(email_addr)
+                
+                # Skip internal domains (our own company emails)
+                internal_domains = ['surveyfieldwork.com', 'cogentixresearch.com']
+                if sender_domain in internal_domains:
+                    continue
+                
+                # Check for duplicate in leads_raw
+                existing = leads_collection.find_one({"email": email_addr})
                 if existing:
                     duplicates += 1
                     continue
                 
                 # Build lead document with phased enrichment
                 lead_doc = {
-                    "email": email_addr.lower(),
-                    "source": "email_extraction",
+                    "email": email_addr,
+                    "source": "gmail",
+                    "source_detail": "email_extraction",
                     "created_at": datetime.utcnow(),
                     "source_email_id": str(email_doc.get("_id", "")),
-                    "segment": email_doc.get("category"),
+                    "segment": email_doc.get("ai_category"),
+                    "classification_status": "pending"
                 }
                 
                 # Phase 1: Basic info
@@ -1657,17 +1725,15 @@ async def extract_leads_from_stored_emails(request: EmailExtractRequest):
                 
                 # Phase 3: Domain
                 if phases.get("domain", True):
-                    domain = extract_domain_from_email(email_addr)
-                    lead_doc["company_domain"] = domain
+                    lead_doc["company_domain"] = sender_domain
                 
                 # Phase 4: Company (from domain or signature)
                 if phases.get("company", True):
-                    domain = lead_doc.get("company_domain") or extract_domain_from_email(email_addr)
-                    company = extract_company_from_domain(domain)
+                    company = extract_company_from_domain(sender_domain)
                     lead_doc["company_name"] = company
                     
                     # Try to extract from email body signature (basic extraction)
-                    body = email_doc.get("body_plain", "") or email_doc.get("body", "")
+                    body = email_doc.get("body_plain", "") or ""
                     if body and not company:
                         # Simple signature detection - look for company patterns
                         import re

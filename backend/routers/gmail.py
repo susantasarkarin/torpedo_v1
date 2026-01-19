@@ -1715,6 +1715,14 @@ async def update_imap_account_settings(
 # MAIL POOL - Consolidated Email Activity Tracking
 # ============================================
 
+# In-memory cache for Mail Pool stats (reduces database load during heavy background processing)
+import time as _time
+_mail_pool_stats_cache = {
+    "data": None,
+    "timestamp": 0,
+    "ttl": 10  # Cache for 10 seconds
+}
+
 # Primary email collection - use torpedo_gmail (Gmail Workspace sync system)
 # This contains all synced emails with full metadata
 torpedo_gmail_db = mongo_client["torpedo_gmail"]
@@ -1820,11 +1828,20 @@ async def get_mail_pool_stats(
     """
     Get consolidated statistics for the Mail Pool - overview of all email activity
     Uses email_automation.emails collection (new sync system)
+    Includes caching to reduce database load during background processing.
     """
+    global _mail_pool_stats_cache
+    
     try:
         session_id = request.headers.get("Authorization")
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
+        
+        # Check cache first (reduces DB load during heavy background processing)
+        current_time = _time.time()
+        if (_mail_pool_stats_cache["data"] is not None and 
+            current_time - _mail_pool_stats_cache["timestamp"] < _mail_pool_stats_cache["ttl"]):
+            return _mail_pool_stats_cache["data"]
         
         # Get all mailbox accounts from both collections
         # 1. Old IMAP mailboxes (mailboxes collection)
@@ -1847,14 +1864,17 @@ async def get_mail_pool_stats(
                 seen_emails.add(email)
                 accounts.append(acc)
         
-        # Total emails from email_automation.emails
-        total_emails = mail_pool_emails.count_documents({})
+        # Use estimated_document_count for fast total (doesn't scan collection)
+        # Falls back to count_documents if estimated returns 0
+        total_emails = mail_pool_emails.estimated_document_count()
+        if total_emails == 0:
+            total_emails = mail_pool_emails.count_documents({})
         
-        # Count by direction for inbox/sent breakdown (new schema uses 'direction' field)
+        # Count by direction - these use indexes now
         inbox_count = mail_pool_emails.count_documents({"direction": "inbound"})
         sent_count = mail_pool_emails.count_documents({"direction": "outbound"})
         
-        # Count drafts
+        # Count drafts - uses labels index
         drafts_count = mail_pool_emails.count_documents({"labels": {"$regex": "DRAFT", "$options": "i"}})
         
         # Get category breakdown (acts as segments) - new schema uses 'category' field
@@ -1949,6 +1969,7 @@ async def get_mail_pool_stats(
                 "email": acc["email"],
                 "display_name": acc.get("display_name", acc["email"].split("@")[0]),
                 "total_emails": count,
+                "gmail_total": acc.get("gmail_total", 0),  # Total emails in Gmail account
                 "today": 0,  # Would need date parsing
                 "last_sync": acc.get("last_sync_at"),
                 "aliases": normalized_aliases,
@@ -1956,10 +1977,14 @@ async def get_mail_pool_stats(
                 "is_default": acc.get("is_default", False)
             })
         
-        return {
+        # Calculate total gmail_total across all accounts
+        total_gmail_total = sum(acc.get("gmail_total", 0) for acc in accounts)
+        
+        response_data = {
             "success": True,
             "stats": {
                 "total_emails": total_emails,
+                "gmail_total": total_gmail_total,  # Total emails across all Gmail accounts
                 "emails_today": inbox_count,  # Using inbox count as "today" indicator
                 "emails_this_week": total_emails,
                 "total_accounts": len(accounts),
@@ -1972,6 +1997,12 @@ async def get_mail_pool_stats(
                 "accounts": account_stats
             }
         }
+        
+        # Update cache
+        _mail_pool_stats_cache["data"] = response_data
+        _mail_pool_stats_cache["timestamp"] = current_time
+        
+        return response_data
     
     except HTTPException:
         raise
@@ -3309,12 +3340,25 @@ async def get_sync_status():
 
 
 # ============================================
-# SYNC PROGRESS SSE & CANCELLATION ENDPOINTS
+# SYNC PROGRESS SSE, WEBSOCKET & CANCELLATION ENDPOINTS
 # ============================================
 
 from fastapi.responses import StreamingResponse
+from fastapi import WebSocket, WebSocketDisconnect
 import asyncio
 import redis
+
+# Import WebSocket connection manager
+try:
+    from websocket_manager import connection_manager, BroadcastPriority
+    WEBSOCKET_AVAILABLE = True
+except ImportError:
+    try:
+        from backend.websocket_manager import connection_manager, BroadcastPriority
+        WEBSOCKET_AVAILABLE = True
+    except ImportError:
+        WEBSOCKET_AVAILABLE = False
+        logger.warning("WebSocket manager not available")
 
 # Redis connection for sync cancellation flags
 try:
@@ -3329,6 +3373,133 @@ except Exception as e:
 def get_sync_cancellation_key(mailbox_id: str) -> str:
     """Get Redis key for sync cancellation flag"""
     return f"sync:cancel:{mailbox_id}"
+
+
+@router.websocket("/ws/sync")
+async def websocket_sync_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time sync progress updates.
+    
+    This is the preferred method over SSE for sync progress as it:
+    - Supports bidirectional communication
+    - Has lower priority than survey updates (CPX/CINT)
+    - Includes server-side throttling to prevent flooding
+    
+    Messages received:
+    - {"type": "sync_progress", "mailboxes": [...]} - Progress updates
+    - {"type": "heartbeat"} - Keep-alive ping
+    - {"type": "connected", "channel": "sync_progress"} - Connection confirmation
+    
+    The client can send:
+    - {"type": "ping"} - Heartbeat response
+    """
+    # Import parallel_sync_progress collection at module scope for static analysis
+    from leads.parallel_email_sync import parallel_sync_progress as sync_progress_coll
+    
+    if not WEBSOCKET_AVAILABLE:
+        await websocket.close(code=1011, reason="WebSocket manager not available")
+        return
+    
+    connected = await connection_manager.connect(websocket, "sync_progress")
+    if not connected:
+        return
+    
+    try:
+        # Start background task to poll progress and broadcast
+        async def progress_broadcaster():
+            """Background task to fetch and broadcast sync progress."""
+            last_states = {}
+            
+            while True:
+                try:
+                    # Fetch current progress from MongoDB
+                    progress_docs = list(sync_progress_coll.find({
+                        "status": {"$in": ["pending", "connecting", "counting", "downloading", "processing"]}
+                    }))
+                    
+                    # Also fetch recently completed (last 30 seconds)
+                    recent_threshold = datetime.utcnow() - timedelta(seconds=30)
+                    completed_docs = list(sync_progress_coll.find({
+                        "status": {"$in": ["completed", "error", "cancelled"]},
+                        "updated_at": {"$gte": recent_threshold}
+                    }))
+                    
+                    all_docs = progress_docs + completed_docs
+                    
+                    if all_docs:
+                        mailboxes = []
+                        for doc in all_docs:
+                            mailbox_id = doc.get("email", "")
+                            downloaded = doc.get("downloaded", 0)
+                            total = doc.get("total_emails", 0)
+                            status = doc.get("status", "unknown")
+                            
+                            # Only send if state changed
+                            state_key = f"{mailbox_id}:{downloaded}:{status}"
+                            if state_key != last_states.get(mailbox_id):
+                                last_states[mailbox_id] = state_key
+                                
+                                percentage = round((downloaded / total) * 100, 1) if total > 0 else 0
+                                
+                                mailboxes.append({
+                                    "mailbox_id": mailbox_id,
+                                    "status": status,
+                                    "synced_count": downloaded,
+                                    "total_count": total,
+                                    "percentage": percentage,
+                                    "current_folder": doc.get("current_folder", ""),
+                                    "current_email_id": doc.get("current_email_id", ""),
+                                    "current_subject": doc.get("current_subject", ""),
+                                    "errors": doc.get("errors", 0),
+                                })
+                        
+                        if mailboxes:
+                            # Use priority broadcast - sync has lowest priority
+                            await connection_manager.broadcast(
+                                channel="sync_progress",
+                                message={
+                                    "type": "sync_progress",
+                                    "mailboxes": mailboxes
+                                },
+                                priority=BroadcastPriority.SYNC_PROGRESS
+                            )
+                    
+                    # Wait before next poll (throttled on WebSocket manager side too)
+                    await asyncio.sleep(1.0)
+                    
+                except Exception as e:
+                    logger.error(f"WebSocket progress broadcaster error: {e}")
+                    await asyncio.sleep(2.0)
+        
+        # Start broadcaster in background
+        broadcaster_task = asyncio.create_task(progress_broadcaster())
+        
+        # Handle incoming messages from client
+        while True:
+            try:
+                data = await websocket.receive_json()
+                
+                if data.get("type") == "ping":
+                    await connection_manager.send_personal(websocket, {
+                        "type": "pong",
+                        "timestamp": datetime.utcnow().isoformat()
+                    })
+                    
+            except WebSocketDisconnect:
+                break
+            except Exception as e:
+                logger.warning(f"WebSocket receive error: {e}")
+                break
+        
+        # Cancel broadcaster on disconnect
+        broadcaster_task.cancel()
+        
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error(f"WebSocket sync endpoint error: {e}")
+    finally:
+        connection_manager.disconnect(websocket, "sync_progress")
 
 
 @router.post("/sync/{mailbox_id}/cancel")
@@ -3479,7 +3650,15 @@ async def sync_progress_stream():
         console.log(data);
     };
     ```
+    
+    **DEPRECATED**: This SSE endpoint is deprecated in favor of the WebSocket endpoint
+    at `/gmail/ws/sync`. The WebSocket endpoint provides better performance with
+    priority-based broadcasting that ensures survey updates (CPX/CINT) are not
+    blocked by sync progress updates. This endpoint will be removed in a future release.
     """
+    # Log deprecation usage for monitoring
+    logger.info("DEPRECATED: SSE sync/stream endpoint accessed - migrate to WebSocket /ws/sync")
+    
     return StreamingResponse(
         sync_progress_event_generator(),
         media_type="text/event-stream",
@@ -3487,6 +3666,8 @@ async def sync_progress_stream():
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",  # Disable nginx buffering
+            "X-Deprecated": "true",  # Signal deprecation to clients
+            "X-Deprecated-Message": "Use WebSocket endpoint /gmail/ws/sync instead",
         }
     )
 

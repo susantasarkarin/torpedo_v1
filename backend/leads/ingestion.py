@@ -1,9 +1,9 @@
 """
 LEAD INGESTION SERVICE
-Multiple data sources: Google Custom Search, CSV, Google Sheets
+Multiple data sources: OpenAI Web Search, CSV, Google Sheets
 
 Cost Optimization:
-    - Cache-first approach reduces Google CSE API calls by 70%+
+    - Cache-first approach reduces API calls by 70%+
     - Deduplication prevents duplicate leads from entering the database
 """
 
@@ -17,6 +17,9 @@ from typing import List, Optional, Tuple
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import httpx
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Cost optimization modules
 from .search_cache import (
@@ -42,8 +45,25 @@ db = client['email_automation']
 leads_raw_collection = db['leads_raw']
 
 
+def get_openai_api_key() -> Optional[str]:
+    """Get OpenAI API key from database or environment"""
+    try:
+        settings_db = client["torpedo_settings"]
+        app_settings = settings_db["app_settings"]
+        stored = app_settings.find_one({"_id": "app_config"})
+        
+        if stored and stored.get("openai_api_key"):
+            return stored["openai_api_key"]
+        
+        # Fallback to env var
+        return os.getenv("OPENAI_API_KEY")
+    except Exception as e:
+        logger.error(f"Error fetching OpenAI key: {e}")
+        return os.getenv("OPENAI_API_KEY")
+
+
 def get_google_api_credentials() -> Tuple[Optional[str], Optional[str]]:
-    """Get Google API key and Custom Search Engine ID from database or env"""
+    """Get Google API key and Custom Search Engine ID from database or env (legacy)"""
     try:
         settings_db = client["torpedo_settings"]
         app_settings = settings_db["app_settings"]
@@ -68,7 +88,7 @@ def get_google_api_credentials() -> Tuple[Optional[str], Optional[str]]:
         return os.getenv("GOOGLE_API_KEY"), os.getenv("GOOGLE_CSE_ID")
 
 
-# ============== GOOGLE CUSTOM SEARCH ==============
+# ============== OPENAI WEB SEARCH FOR LINKEDIN ==============
 
 async def search_linkedin_leads(
     query: str,
@@ -78,7 +98,7 @@ async def search_linkedin_leads(
     deduplicate: bool = True
 ) -> List[dict]:
     """
-    Search LinkedIn profiles using Google Custom Search API.
+    Search LinkedIn profiles using OpenAI with web search capability.
     
     COST OPTIMIZATION:
         - Checks cache first (70%+ hit rate target)
@@ -87,8 +107,8 @@ async def search_linkedin_leads(
     
     Args:
         query: Search query (e.g., "CEO automotive industry")
-        num_results: Number of results to fetch (max 10 per request)
-        start: Starting index for pagination
+        num_results: Number of results to fetch
+        start: Starting index for pagination (not used with OpenAI)
         skip_cache: Force fresh API call (bypass cache)
         deduplicate: Filter out leads that already exist in database
         
@@ -99,11 +119,11 @@ async def search_linkedin_leads(
     clean_query = re.sub(r'site:linkedin\.com[^\s]*\s*', '', query, flags=re.IGNORECASE).strip()
     
     # Construct LinkedIn-specific search query
-    search_query = f"site:linkedin.com/in/ {clean_query}"
+    search_query = f"LinkedIn profiles: {clean_query}"
     
     # ===== CACHE CHECK =====
     if not skip_cache:
-        cached = get_cached_response(search_query, provider="google_cse")
+        cached = get_cached_response(search_query, provider="openai_web")
         if cached:
             leads = cached
             # Apply deduplication to cached results
@@ -114,80 +134,151 @@ async def search_linkedin_leads(
                 return unique_leads
             return leads
     
-    # ===== API CALL =====
-    api_key, cse_id = get_google_api_credentials()
+    # ===== OPENAI API CALL =====
+    api_key = get_openai_api_key()
     
-    if not api_key or not cse_id:
-        raise ValueError("Google API Key and CSE ID are required. Configure in Settings.")
+    if not api_key:
+        raise ValueError("OpenAI API Key is required. Configure in Settings.")
     
-    # Validate API key format (should start with AIza)
-    if not api_key.startswith("AIza"):
-        raise ValueError(
-            "Invalid Google API Key format. API keys start with 'AIza...'. "
-            "You may have entered an OAuth client secret (GOCSPX-...) instead. "
-            "Get your API key from Google Cloud Console > APIs & Services > Credentials."
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise ValueError("OpenAI package not installed. Run: pip install openai")
+    
+    client_ai = OpenAI(api_key=api_key)
+    
+    # Construct the search prompt
+    search_prompt = f"""Search for LinkedIn profiles matching this criteria: {clean_query}
+
+Find up to {num_results} LinkedIn profiles. For each profile found, provide:
+1. Full name
+2. Job title/position
+3. LinkedIn profile URL (must be linkedin.com/in/...)
+4. Brief professional description
+
+Format the response as a JSON array with objects containing:
+- name: Full name
+- title: Job title
+- linkedin_url: Full LinkedIn profile URL
+- snippet: Brief professional description
+
+Only include profiles with valid linkedin.com/in/ URLs."""
+
+    try:
+        # Use GPT-4o with web search tool
+        response = client_ai.responses.create(
+            model="gpt-4o",
+            tools=[{"type": "web_search_preview"}],
+            input=search_prompt,
         )
-    
-    url = "https://www.googleapis.com/customsearch/v1"
-    params = {
-        "key": api_key,
-        "cx": cse_id,
-        "q": search_query,
-        "num": min(num_results, 10),  # Google CSE max is 10 per request
-        "start": start
-    }
-    
-    async with httpx.AsyncClient() as http_client:
+        
+        # Extract the text response
+        response_text = ""
+        for output in response.output:
+            if hasattr(output, 'content'):
+                for content in output.content:
+                    if hasattr(content, 'text'):
+                        response_text += content.text
+        
+    except Exception as e:
+        error_str = str(e)
+        logger.error(f"OpenAI API error: {error_str}")
+        
+        # Fallback to chat completions if responses API not available
         try:
-            response = await http_client.get(url, params=params, timeout=15.0)  # Reduced timeout
-        except httpx.TimeoutException:
-            raise ValueError("Google API request timed out. Check your network connection.")
-        except httpx.ConnectError:
-            raise ValueError("Could not connect to Google API. Check network connectivity.")
-        
-        # Handle specific error responses with clear messages
-        if response.status_code == 400:
-            try:
-                error_data = response.json()
-                error_msg = error_data.get("error", {}).get("message", "Bad Request")
-            except:
-                error_msg = response.text[:200]
-            raise ValueError(f"Google API Error (400): {error_msg}")
-        elif response.status_code == 401:
-            raise ValueError("Google API key is invalid or expired. Update your API key in Settings.")
-        elif response.status_code == 403:
-            try:
-                error_data = response.json()
-                error_msg = error_data.get("error", {}).get("message", "Access denied")
-            except:
-                error_msg = "Access denied"
-            raise ValueError(f"Google API access denied (403): {error_msg}. Check your API key and ensure Custom Search API is enabled.")
-        elif response.status_code == 429:
-            raise ValueError("Google API rate limit exceeded. Wait and retry later.")
-        elif response.status_code >= 500:
-            raise ValueError(f"Google API server error ({response.status_code}). Try again later.")
-        
-        response.raise_for_status()
-        data = response.json()
+            chat_response = client_ai.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a professional recruiter assistant that helps find LinkedIn profiles. Always return valid JSON."},
+                    {"role": "user", "content": search_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=2000
+            )
+            response_text = chat_response.choices[0].message.content
+        except Exception as e2:
+            raise ValueError(f"OpenAI API error: {str(e2)}")
     
-    leads = []
-    items = data.get("items", [])
-    
-    for item in items:
-        lead = parse_google_search_result(item)
-        if lead:
-            leads.append(lead)
+    # Parse the JSON response
+    leads = parse_openai_linkedin_response(response_text, num_results)
     
     # ===== CACHE RESPONSE =====
     if leads:
-        cache_response(search_query, leads, provider="google_cse")
+        cache_response(search_query, leads, provider="openai_web")
     
     # ===== DEDUPLICATION =====
     if deduplicate and leads:
         unique_leads, duplicates = check_duplicates_batch(leads)
         for dup in duplicates:
-            log_rejected_duplicate(dup, dup.get("_dedup_reason", "Duplicate"), "google_cse")
+            log_rejected_duplicate(dup, dup.get("_dedup_reason", "Duplicate"), "openai_web")
         return unique_leads
+    
+    return leads
+
+
+def parse_openai_linkedin_response(response_text: str, max_results: int = 10) -> List[dict]:
+    """
+    Parse OpenAI response to extract LinkedIn leads.
+    
+    Args:
+        response_text: Raw text response from OpenAI
+        max_results: Maximum number of results to return
+        
+    Returns:
+        List of parsed lead dictionaries
+    """
+    leads = []
+    
+    if not response_text:
+        return leads
+    
+    # Try to extract JSON from the response
+    try:
+        # Look for JSON array in the response
+        json_match = re.search(r'\[[\s\S]*?\]', response_text)
+        if json_match:
+            data = json.loads(json_match.group())
+            if isinstance(data, list):
+                for item in data[:max_results]:
+                    lead = {
+                        "name": item.get("name", "").strip(),
+                        "title": item.get("title", "").strip(),
+                        "linkedin_url": item.get("linkedin_url", "").strip(),
+                        "snippet": item.get("snippet", item.get("description", "")).strip(),
+                        "source": "openai_search"
+                    }
+                    # Validate LinkedIn URL
+                    if lead["name"] and "linkedin.com/in/" in lead.get("linkedin_url", ""):
+                        leads.append(lead)
+                    elif lead["name"]:
+                        # Try to accept leads without URL but with valid name
+                        leads.append(lead)
+    except json.JSONDecodeError:
+        pass
+    
+    # If JSON parsing failed, try to extract structured data manually
+    if not leads:
+        # Look for name patterns like "1. John Doe - CEO"
+        pattern = r'(?:\d+\.?\s*)?([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+)\s*[-–]\s*([^|\n]+)'
+        matches = re.findall(pattern, response_text)
+        
+        for name, title in matches[:max_results]:
+            lead = {
+                "name": name.strip(),
+                "title": title.strip(),
+                "linkedin_url": "",
+                "snippet": "",
+                "source": "openai_search"
+            }
+            leads.append(lead)
+        
+        # Try to find LinkedIn URLs and associate them
+        url_pattern = r'linkedin\.com/in/([a-zA-Z0-9\-]+)'
+        urls = re.findall(url_pattern, response_text)
+        
+        for i, url_slug in enumerate(urls):
+            if i < len(leads):
+                leads[i]["linkedin_url"] = f"https://www.linkedin.com/in/{url_slug}"
     
     return leads
 
@@ -220,9 +311,9 @@ async def search_linkedin_leads_batch(
     for query in queries:
         # Check cache first
         clean_query = re.sub(r'site:linkedin\.com[^\s]*\s*', '', query, flags=re.IGNORECASE).strip()
-        search_query = f"site:linkedin.com/in/ {clean_query}"
+        search_query = f"LinkedIn profiles: {clean_query}"
         
-        cached = get_cached_response(search_query, provider="google_cse")
+        cached = get_cached_response(search_query, provider="openai_web")
         
         if cached:
             stats["cache_hits"] += 1
@@ -247,8 +338,6 @@ async def search_linkedin_leads_batch(
     
     stats["leads_found"] = len(all_leads)
     return all_leads, stats
-    
-    return leads
 
 
 async def search_linkedin_leads_discovery(
@@ -257,16 +346,15 @@ async def search_linkedin_leads_discovery(
     skip_cache: bool = False
 ) -> List[dict]:
     """
-    Search LinkedIn using discovery template (broader search, no /in/ restriction).
+    Search LinkedIn using OpenAI for discovery (broader search).
     
     Used for AI Discovery flow:
-    - Template: site:linkedin.com "{designation}" "{company_name}"
-    - No /in/ prefix for broader results
+    - Broader search for professionals
     - No designation blocklist (per user requirement)
     
     Args:
-        query: Full search query (already formatted with site:linkedin.com)
-        num_results: Number of results to fetch (max 10 per request)
+        query: Full search query
+        num_results: Number of results to fetch
         skip_cache: Force fresh API call
         
     Returns:
@@ -276,58 +364,68 @@ async def search_linkedin_leads_discovery(
     
     # ===== CACHE CHECK =====
     if not skip_cache:
-        cached = get_cached_response(query, provider="google_cse")
+        cached = get_cached_response(query, provider="openai_web")
         if cached:
             return cached
     
-    # ===== API CALL =====
-    api_key, cse_id = get_google_api_credentials()
+    # ===== OPENAI API CALL =====
+    api_key = get_openai_api_key()
     
-    if not api_key or not cse_id:
-        raise ValueError("Google API Key and CSE ID are required. Configure in Settings.")
+    if not api_key:
+        raise ValueError("OpenAI API Key is required. Configure in Settings.")
     
-    if not api_key.startswith("AIza"):
-        raise ValueError("Invalid Google API Key format.")
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise ValueError("OpenAI package not installed.")
     
-    url = "https://www.googleapis.com/customsearch/v1"
-    params = {
-        "key": api_key,
-        "cx": cse_id,
-        "q": query,  # Use query as-is (already includes site:linkedin.com)
-        "num": min(num_results, 10)
-    }
+    client_ai = OpenAI(api_key=api_key)
     
-    async with httpx.AsyncClient() as http_client:
-        response = await http_client.get(url, params=params, timeout=30.0)
-        
-        if response.status_code == 400:
-            error_data = response.json()
-            error_msg = error_data.get("error", {}).get("message", "Bad Request")
-            raise ValueError(f"Google API Error: {error_msg}")
-        elif response.status_code == 403:
-            raise ValueError("Google API access denied.")
-        
-        response.raise_for_status()
-        data = response.json()
+    # Extract search criteria from the query
+    clean_query = re.sub(r'site:linkedin\.com[^\s]*\s*', '', query, flags=re.IGNORECASE).strip()
     
-    leads = []
-    items = data.get("items", [])
+    search_prompt = f"""Search for LinkedIn profiles matching: {clean_query}
+
+Find up to {num_results} relevant professionals on LinkedIn. For each profile:
+1. Full name
+2. Job title
+3. Company name
+4. LinkedIn profile URL
+5. Brief description
+
+Return as JSON array with: name, title, linkedin_url, company_name, snippet"""
+
+    try:
+        response = client_ai.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a professional recruiter finding LinkedIn profiles. Return valid JSON arrays only."},
+                {"role": "user", "content": search_prompt}
+            ],
+            temperature=0.3,
+            max_tokens=2000
+        )
+        response_text = response.choices[0].message.content
+    except Exception as e:
+        raise ValueError(f"OpenAI API error: {str(e)}")
     
-    for item in items:
-        lead = parse_google_search_result_discovery(item)
-        if lead:
-            leads.append(lead)
+    # Parse response
+    leads = parse_openai_linkedin_response(response_text, num_results)
+    
+    # Update source to discovery
+    for lead in leads:
+        lead["source"] = "ai_discovery"
     
     # ===== CACHE RESPONSE =====
     if leads:
-        cache_response(query, leads, provider="google_cse")
+        cache_response(query, leads, provider="openai_web")
     
     return leads
 
 
 def parse_google_search_result_discovery(item: dict) -> Optional[dict]:
     """
-    Parse a Google Custom Search result for discovery mode.
+    Parse a Google Custom Search result for discovery mode (legacy).
     More lenient than standard parser - accepts any LinkedIn URL.
     """
     link = item.get("link", "")

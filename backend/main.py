@@ -529,6 +529,14 @@ try:
 except Exception as e:
     print(f"⚠️ Leads router not included: {e}")
 
+# Lead Generation Agents router
+try:
+    from leads.agent_router import router as agent_router
+    app.include_router(agent_router)
+    print("✅ Lead Generation Agents router included")
+except Exception as e:
+    print(f"⚠️ Lead Agents router not included: {e}")
+
 # Panel (Survey Panel User Portal) router
 try:
     app.include_router(panel_router.router)
@@ -1161,12 +1169,25 @@ async def login(credentials: Dict[str, str] = Body(...)):
         # Find user by username only
         user = users_collection.find_one({"username": username})
         if not user:
+            print(f"❌ Login failed: User '{username}' not found")
             raise HTTPException(status_code=401, detail="Invalid username or password")
         
         # Verify password using secure comparison
         stored_password = user.get("password", "")
+        
+        # Debug: Log hash type for troubleshooting (don't log actual password)
+        if stored_password.startswith('$2'):
+            print(f"🔐 User '{username}' has bcrypt hash")
+        elif stored_password.startswith('pbkdf2:'):
+            print(f"🔐 User '{username}' has PBKDF2 hash")
+        else:
+            print(f"⚠️ User '{username}' has plaintext/unknown password format")
+        
         if not verify_password(password, stored_password):
+            print(f"❌ Login failed: Password verification failed for '{username}'")
             raise HTTPException(status_code=401, detail="Invalid username or password")
+        
+        print(f"✅ Password verified for user '{username}'")
         
         # Migrate plaintext password to hash if needed (one-time migration)
         if needs_rehash(stored_password):

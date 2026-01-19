@@ -615,7 +615,11 @@ function GmailSetup() {
                     </div>
                     <div style={styles.mailboxMeta}>
                       <span style={styles.metaItem}>
-                        📊 {(mailbox.email_count || 0).toLocaleString()} emails
+                        📊 {mailbox.gmail_total ? (
+                          <>{(mailbox.gmail_total).toLocaleString()} total in Gmail, {(mailbox.email_count || 0).toLocaleString()} synced</>
+                        ) : (
+                          <>{(mailbox.email_count || 0).toLocaleString()} emails</>
+                        )}
                       </span>
                       {mailbox.last_sync_at && (
                         <span style={styles.metaItem}>

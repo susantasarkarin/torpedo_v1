@@ -39,6 +39,7 @@ db = client['email_automation']
 # Collections
 leads_raw_collection = db['leads_raw']
 leads_enriched_collection = db['leads_enriched']
+leads_collection = db['leads']  # Legacy leads collection (used by main.py)
 classification_logs_collection = db['lead_ai_classification_logs']
 campaigns_collection = db['campaigns']
 
@@ -472,6 +473,11 @@ def attach_leads_to_campaign(campaign_id: str, lead_ids: List[str]) -> Tuple[int
 
 # ============== STATISTICS SERVICE ==============
 
+# Source groupings for statistics
+CSV_SOURCES = ["csv", "csv_import", "google_sheets", "json_import"]
+WEBSEARCH_SOURCES = ["web_search", "google_search", "linkedin"]
+GMAIL_SOURCES = ["gmail", "email", "imap"]
+
 def get_lead_statistics() -> dict:
     """Get overview statistics for dashboard"""
     raw_total = leads_raw_collection.count_documents({})
@@ -480,9 +486,36 @@ def get_lead_statistics() -> dict:
     classified = leads_raw_collection.count_documents({"classification_status": ClassificationStatus.CLASSIFIED.value})
     failed = leads_raw_collection.count_documents({"classification_status": ClassificationStatus.FAILED.value})
     
+    # Failed leads that can be retried (< 3 attempts)
+    failed_retryable = leads_raw_collection.count_documents({
+        "classification_status": ClassificationStatus.FAILED.value,
+        "classification_attempts": {"$lt": 3}
+    })
+    # Failed leads that have exhausted retries (>= 3 attempts)
+    failed_permanent = leads_raw_collection.count_documents({
+        "classification_status": ClassificationStatus.FAILED.value,
+        "classification_attempts": {"$gte": 3}
+    })
+    
     enriched_total = leads_enriched_collection.count_documents({})
     high_confidence = leads_enriched_collection.count_documents({"confidence_score": {"$gte": 0.8}})
     low_confidence = leads_enriched_collection.count_documents({"confidence_score": {"$lt": 0.5}})
+    
+    # Source-based counts for raw leads
+    raw_csv = leads_raw_collection.count_documents({"source": {"$in": CSV_SOURCES}})
+    raw_websearch = leads_raw_collection.count_documents({"source": {"$in": WEBSEARCH_SOURCES}})
+    raw_gmail = leads_raw_collection.count_documents({"source": {"$in": GMAIL_SOURCES}})
+    
+    # CSV with email (auto-classified)
+    raw_csv_with_email = leads_raw_collection.count_documents({
+        "source": {"$in": CSV_SOURCES},
+        "email": {"$exists": True, "$ne": "", "$ne": None}
+    })
+    
+    # Source-based counts for enriched leads
+    enriched_csv = leads_enriched_collection.count_documents({"source": {"$in": CSV_SOURCES}})
+    enriched_websearch = leads_enriched_collection.count_documents({"source": {"$in": WEBSEARCH_SOURCES}})
+    enriched_gmail = leads_enriched_collection.count_documents({"source": {"$in": GMAIL_SOURCES}})
     
     # Department breakdown
     department_pipeline = [
@@ -504,7 +537,27 @@ def get_lead_statistics() -> dict:
             "pending": pending,
             "processing": processing,
             "classified": classified,
-            "failed": failed
+            "failed": failed,
+            "failed_retryable": failed_retryable,
+            "failed_permanent": failed_permanent
+        },
+        "by_source": {
+            "csv": {
+                "raw": raw_csv,
+                "raw_with_email": raw_csv_with_email,
+                "enriched": enriched_csv,
+                "classified_count": enriched_csv + raw_csv_with_email  # CSV with email = auto-classified
+            },
+            "websearch": {
+                "raw": raw_websearch,
+                "enriched": enriched_websearch,
+                "classified_count": enriched_websearch
+            },
+            "gmail": {
+                "raw": raw_gmail,
+                "enriched": enriched_gmail,
+                "classified_count": enriched_gmail
+            }
         },
         "enriched": {
             "total": enriched_total,
@@ -591,17 +644,47 @@ def delete_all_leads() -> dict:
 
 def get_enriched_lead_by_id(lead_id: str) -> Optional[dict]:
     """
-    Get a single enriched lead by ID.
+    Get a single lead by ID.
+    Searches in multiple collections with fallback:
+    1. leads_enriched (primary for AI-classified leads)
+    2. leads (legacy collection from main.py)
+    3. leads_raw (raw imported leads)
     """
     try:
-        lead = leads_enriched_collection.find_one({"_id": ObjectId(lead_id)})
+        # Validate ObjectId format first
+        try:
+            obj_id = ObjectId(lead_id)
+        except Exception as e:
+            print(f"Invalid ObjectId format '{lead_id}': {e}")
+            return None
+        
+        # 1. Try leads_enriched first (primary collection for AI Database)
+        lead = leads_enriched_collection.find_one({"_id": obj_id})
         if lead:
             lead["_id"] = str(lead["_id"])
             if "raw_lead_id" in lead:
                 lead["raw_lead_id"] = str(lead["raw_lead_id"])
-        return lead
+            lead["_source_collection"] = "leads_enriched"
+            return lead
+        
+        # 2. Fallback to legacy leads collection (used by main.py)
+        lead = leads_collection.find_one({"_id": obj_id})
+        if lead:
+            lead["_id"] = str(lead["_id"])
+            lead["_source_collection"] = "leads"
+            return lead
+        
+        # 3. Fallback to leads_raw collection
+        lead = leads_raw_collection.find_one({"_id": obj_id})
+        if lead:
+            lead["_id"] = str(lead["_id"])
+            lead["_source_collection"] = "leads_raw"
+            return lead
+        
+        print(f"Lead not found in any collection: {lead_id}")
+        return None
     except Exception as e:
-        print(f"Error getting enriched lead {lead_id}: {e}")
+        print(f"Error getting lead {lead_id}: {e}")
         return None
 
 

@@ -1,45 +1,43 @@
+#!/usr/bin/env python3
+"""Check email body structure - find conversation threads"""
+
 from database import get_database
-import json
+import re
 
-db = get_database("email_automation")
+db = get_database('torpedo_gmail')
 
-# Check mailboxes collection
-print("Mailboxes Collection:")
-for m in db.mailboxes.find():
-    print(f"  - {m}")
+# Find emails with quoted content (conversation threads)
+quoted_markers = ['wrote:', '-----Original Message-----', 'From:', 'On ']
 
-# Check accounts collection
-print()
-print("Accounts Collection:")
-for a in db.accounts.find():
-    print(f"  - {a}")
+# Search for emails with quoted content
+sample = db.email_metadata.find_one({
+    'body_plain': {'$regex': 'wrote:|-----Original Message-----|On .* wrote'}
+})
 
-# Get gmail settings
-settings = db.settings.find_one({"type": "gmail_settings"})
-if settings:
-    accounts = settings.get("accounts", [])
-    print("Gmail Accounts Configured:")
-    for acc in accounts:
-        email = acc.get("email", "unknown")
-        print(f"  - {email}")
+if sample:
+    body = sample.get('body_plain', '')
+    print(f"SUBJECT: {sample.get('subject', 'N/A')}")
+    print(f"FROM: {sample.get('from_email', 'N/A')}")
+    print(f"BODY LENGTH: {len(body)} characters")
+    print()
+    print("=" * 60)
+    print("FULL BODY (first 3000 chars):")
+    print("=" * 60)
+    print(body[:3000])
 else:
-    print("No gmail settings found")
-
-# Check for old IMAP/SMTP emails vs Gmail API emails
-print()
-print("Email sources:")
-imap_count = db.emails.count_documents({"source": "imap"})
-smtp_count = db.emails.count_documents({"source": "smtp"})
-gmail_count = db.emails.count_documents({"source": "gmail_api"})
-no_source = db.emails.count_documents({"source": {"$exists": False}})
-print(f"  IMAP emails: {imap_count}")
-print(f"  SMTP emails: {smtp_count}")
-print(f"  Gmail API emails: {gmail_count}")
-print(f"  No source field: {no_source}")
-
-# Count by account
-print()
-print("Emails by account:")
-pipeline = [{"$group": {"_id": "$account_email", "count": {"$sum": 1}}}]
-for doc in db.emails.aggregate(pipeline):
-    print(f"  {doc['_id']}: {doc['count']}")
+    # Try another pattern
+    sample = db.email_metadata.find_one({
+        'body_plain': {'$regex': '>'}
+    })
+    if sample:
+        body = sample.get('body_plain', '')
+        print(f"SUBJECT: {sample.get('subject', 'N/A')}")
+        print(f"FROM: {sample.get('from_email', 'N/A')}")
+        print(f"BODY LENGTH: {len(body)} characters")
+        print()
+        print("=" * 60)
+        print("FULL BODY (first 3000 chars):")
+        print("=" * 60)
+        print(body[:3000])
+    else:
+        print("No conversation threads found")

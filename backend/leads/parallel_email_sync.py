@@ -7,12 +7,13 @@ Parallel email download for all accounts with:
 - Dynamic email count detection (no fixed limits)
 - Progress tracking per account
 - Resume capability for interrupted downloads
+- Batched progress updates to reduce MongoDB write load
 
 Key Features:
 1. Gets total email count before download starts
 2. Downloads ALL emails (no 50,000 limit)
 3. Parallel processing across multiple accounts
-4. Real-time progress updates to MongoDB
+4. Real-time progress updates to MongoDB (batched every 50 emails or 2 seconds)
 """
 
 import os
@@ -26,6 +27,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from email.header import decode_header
 from email.utils import parseaddr, parsedate_to_datetime
+from time import time as get_time
 
 from pymongo import MongoClient
 from dotenv import load_dotenv
@@ -34,16 +36,35 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-gmail_db = client['torpedo_gmail']
-email_db = client['email_automation']
+# Use shared connection pools instead of creating standalone MongoClient
+# This prevents connection exhaustion and ensures proper resource sharing
+try:
+    from db_pools import pool_manager, get_background_collection
+    
+    # Get collections from the background pool (optimized for sync operations)
+    gmail_db = pool_manager.get_client('background')['torpedo_gmail']
+    email_db = pool_manager.get_client('background')['email_automation']
+    
+    imap_accounts_collection = gmail_db['imap_accounts']
+    parallel_sync_progress = gmail_db['parallel_sync_progress']
+    email_sync_log = gmail_db['email_sync_log']
+    email_leads_collection = email_db['email_leads']
+    
+    logger.info("Using shared MongoDB connection pool for email sync")
+except ImportError:
+    # Fallback to direct connection if db_pools not available
+    MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
+    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    gmail_db = client['torpedo_gmail']
+    email_db = client['email_automation']
 
-# Collections
-imap_accounts_collection = gmail_db['imap_accounts']
-parallel_sync_progress = gmail_db['parallel_sync_progress']
-email_sync_log = gmail_db['email_sync_log']
-email_leads_collection = email_db['email_leads']
+    # Collections
+    imap_accounts_collection = gmail_db['imap_accounts']
+    parallel_sync_progress = gmail_db['parallel_sync_progress']
+    email_sync_log = gmail_db['email_sync_log']
+    email_leads_collection = email_db['email_leads']
+    
+    logger.warning("db_pools not available, using standalone MongoDB client")
 
 
 # ============== CONFIGURATION ==============
@@ -51,6 +72,110 @@ email_leads_collection = email_db['email_leads']
 MAX_PARALLEL_ACCOUNTS = 5  # Max accounts to sync in parallel
 BATCH_SIZE = 100  # Emails to fetch per batch within an account
 CONNECTION_TIMEOUT = 60  # IMAP connection timeout
+PROGRESS_BATCH_SIZE = 50  # Update MongoDB every N emails
+PROGRESS_BATCH_INTERVAL = 2.0  # Or every N seconds, whichever comes first
+
+
+# ============== PROGRESS BUFFER ==============
+
+class ProgressBuffer:
+    """
+    Buffers progress updates to reduce MongoDB write frequency.
+    Flushes every PROGRESS_BATCH_SIZE emails or PROGRESS_BATCH_INTERVAL seconds.
+    """
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
+    
+    def __init__(self):
+        if self._initialized:
+            return
+        self._buffer: Dict[str, Dict[str, Any]] = {}  # email -> pending updates
+        self._last_flush: Dict[str, float] = {}  # email -> last flush time
+        self._email_counts: Dict[str, int] = {}  # email -> emails since last flush
+        self._initialized = True
+    
+    def add_update(self, email_address: str, updates: Dict[str, Any], force: bool = False) -> bool:
+        """
+        Buffer an update. Returns True if buffer was flushed.
+        
+        Args:
+            email_address: Account email
+            updates: Dict of fields to update
+            force: Force immediate flush (for status changes)
+        """
+        with self._lock:
+            # Merge with existing pending updates
+            if email_address not in self._buffer:
+                self._buffer[email_address] = {}
+                self._last_flush[email_address] = get_time()
+                self._email_counts[email_address] = 0
+            
+            self._buffer[email_address].update(updates)
+            self._email_counts[email_address] += 1
+            
+            # Check if we should flush
+            should_flush = force
+            if not should_flush:
+                # Flush on status changes (important events)
+                status = updates.get("status")
+                if status in ("completed", "error", "cancelled", "connecting", "counting", "downloading"):
+                    should_flush = True
+            
+            if not should_flush:
+                # Flush every PROGRESS_BATCH_SIZE emails
+                if self._email_counts[email_address] >= PROGRESS_BATCH_SIZE:
+                    should_flush = True
+            
+            if not should_flush:
+                # Flush every PROGRESS_BATCH_INTERVAL seconds
+                if get_time() - self._last_flush.get(email_address, 0) >= PROGRESS_BATCH_INTERVAL:
+                    should_flush = True
+            
+            if should_flush:
+                self._flush_one(email_address)
+                return True
+            
+            return False
+    
+    def _flush_one(self, email_address: str):
+        """Flush buffered updates for one account."""
+        if email_address not in self._buffer or not self._buffer[email_address]:
+            return
+        
+        updates = self._buffer[email_address]
+        updates["updated_at"] = datetime.utcnow()
+        
+        try:
+            parallel_sync_progress.update_one(
+                {"email": email_address},
+                {"$set": updates},
+                upsert=True
+            )
+        except Exception as e:
+            logger.error(f"Error flushing progress for {email_address}: {e}")
+        
+        # Reset buffer for this account
+        self._buffer[email_address] = {}
+        self._last_flush[email_address] = get_time()
+        self._email_counts[email_address] = 0
+    
+    def flush_all(self):
+        """Flush all pending updates."""
+        with self._lock:
+            for email_address in list(self._buffer.keys()):
+                self._flush_one(email_address)
+
+
+# Global progress buffer instance
+_progress_buffer = ProgressBuffer()
 
 
 @dataclass
@@ -165,13 +290,30 @@ def connect_imap(account: IMAPAccountConfig) -> imaplib.IMAP4:
         raise
 
 
-def update_progress(email_address: str, updates: Dict[str, Any]):
-    """Update sync progress in MongoDB"""
-    parallel_sync_progress.update_one(
-        {"email": email_address},
-        {"$set": {**updates, "updated_at": datetime.utcnow()}},
-        upsert=True
-    )
+def update_progress(email_address: str, updates: Dict[str, Any], force: bool = False):
+    """
+    Update sync progress in MongoDB using buffered writes.
+    
+    Updates are batched to reduce MongoDB write load:
+    - Writes every 50 emails OR every 2 seconds, whichever comes first
+    - Status changes (completed, error, etc.) are written immediately
+    
+    Args:
+        email_address: Account email
+        updates: Dict of fields to update
+        force: Force immediate write to MongoDB
+    """
+    # Status changes should always flush immediately
+    status = updates.get("status")
+    if status in ("completed", "error", "cancelled"):
+        force = True
+    
+    _progress_buffer.add_update(email_address, updates, force=force)
+
+
+def flush_all_progress():
+    """Flush all pending progress updates to MongoDB."""
+    _progress_buffer.flush_all()
 
 
 def is_sync_cancelled(email_address: str) -> bool:

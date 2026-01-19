@@ -411,3 +411,213 @@ def get_ai_processing_stats() -> Dict[str, Any]:
     }
     
     return stats
+
+
+# ============================================
+# GEMINI EMAIL CLASSIFICATION TASK
+# ============================================
+
+@celery_app.task(
+    bind=True,
+    name='backend.tasks.ai_tasks.classify_pending_emails_task',
+    max_retries=2,
+    default_retry_delay=60,
+    rate_limit='20/m',  # Allow more throughput - actual API calls are rate-limited internally
+    time_limit=1800,  # 30 minute max
+    soft_time_limit=1700,  # Soft limit at 28 minutes
+)
+def classify_pending_emails_task(
+    self,
+    limit: int = 100,
+    internal_domains: Optional[List[str]] = None,
+    source: str = "celery"
+) -> Dict[str, Any]:
+    """
+    Celery task for classifying pending emails with Gemini.
+    
+    This task runs in a dedicated Celery worker on the 'ai_processing' queue,
+    completely isolated from the main API server. This prevents email 
+    classification from blocking the frontend or other API operations.
+    
+    Args:
+        limit: Maximum number of emails to process in this batch
+        internal_domains: List of internal domain patterns to filter out
+        source: Source identifier for logging
+        
+    Returns:
+        Classification summary with success/error counts and category breakdown
+    """
+    task_id = self.request.id
+    started_at = datetime.utcnow()
+    
+    logger.info(f"[{task_id}] Starting email classification task (limit={limit})")
+    
+    try:
+        # Import the classifier
+        from leads.gemini_email_classifier import classify_pending_emails
+        
+        # Update task state to show progress
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'task_id': task_id,
+                'stage': 'classifying',
+                'started_at': started_at.isoformat(),
+                'limit': limit
+            }
+        )
+        
+        # Run the classification (internal rate limiting handled by the classifier)
+        result = classify_pending_emails(
+            limit=limit,
+            internal_domains=internal_domains,
+            source=source
+        )
+        
+        # Add task metadata to result
+        result['task_id'] = task_id
+        result['started_at'] = started_at.isoformat()
+        result['completed_at'] = datetime.utcnow().isoformat()
+        result['duration_seconds'] = (datetime.utcnow() - started_at).total_seconds()
+        
+        logger.info(
+            f"[{task_id}] Classification complete: "
+            f"processed={result.get('processed', 0)}, "
+            f"classified={result.get('classified', 0)}, "
+            f"errors={result.get('errors', 0)}"
+        )
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"[{task_id}] Classification task failed: {e}")
+        raise
+
+
+@celery_app.task(
+    bind=True,
+    name='backend.tasks.ai_tasks.classify_all_pending_batch',
+    max_retries=1,
+    time_limit=7200,  # 2 hour max for full batch
+    soft_time_limit=7000,
+)
+def classify_all_pending_batch(
+    self,
+    batch_size: int = 50,
+    max_batches: Optional[int] = None,
+    internal_domains: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """
+    Process all pending emails in batches.
+    
+    This is a long-running task that processes all unclassified emails
+    by splitting them into smaller batches with proper rate limiting.
+    
+    Args:
+        batch_size: Number of emails per batch
+        max_batches: Maximum number of batches (None = process all)
+        internal_domains: List of internal domain patterns
+        
+    Returns:
+        Aggregate results across all batches
+    """
+    import time
+    task_id = self.request.id
+    started_at = datetime.utcnow()
+    
+    logger.info(f"[{task_id}] Starting full batch classification (batch_size={batch_size})")
+    
+    try:
+        from leads.gemini_email_classifier import classify_pending_emails, email_metadata
+        
+        # Count total pending
+        total_pending = email_metadata.count_documents({
+            "$or": [
+                {"gemini_category": {"$exists": False}},
+                {"gemini_category": None},
+                {"gemini_category": ""}
+            ]
+        })
+        
+        if total_pending == 0:
+            return {
+                'task_id': task_id,
+                'status': 'complete',
+                'message': 'No pending emails to classify',
+                'batches_processed': 0,
+                'total_processed': 0
+            }
+        
+        aggregate_results = {
+            'task_id': task_id,
+            'status': 'complete',
+            'batches_processed': 0,
+            'total_processed': 0,
+            'total_classified': 0,
+            'total_errors': 0,
+            'total_leads_extracted': 0,
+            'categories': {},
+            'started_at': started_at.isoformat()
+        }
+        
+        batches_run = 0
+        
+        while True:
+            # Check if we've hit max batches
+            if max_batches and batches_run >= max_batches:
+                break
+            
+            # Update progress
+            self.update_state(
+                state='PROGRESS',
+                meta={
+                    'task_id': task_id,
+                    'batch': batches_run + 1,
+                    'total_processed': aggregate_results['total_processed'],
+                    'total_pending': total_pending
+                }
+            )
+            
+            # Run one batch
+            batch_result = classify_pending_emails(
+                limit=batch_size,
+                internal_domains=internal_domains,
+                source="celery_batch"
+            )
+            
+            processed = batch_result.get('processed', 0)
+            
+            if processed == 0:
+                # No more emails to process
+                break
+            
+            # Aggregate results
+            aggregate_results['batches_processed'] += 1
+            aggregate_results['total_processed'] += processed
+            aggregate_results['total_classified'] += batch_result.get('classified', 0)
+            aggregate_results['total_errors'] += batch_result.get('errors', 0)
+            aggregate_results['total_leads_extracted'] += batch_result.get('leads_extracted', 0)
+            
+            # Merge category counts
+            for cat, count in batch_result.get('categories', {}).items():
+                aggregate_results['categories'][cat] = aggregate_results['categories'].get(cat, 0) + count
+            
+            batches_run += 1
+            
+            # Brief pause between batches
+            time.sleep(2.0)
+        
+        aggregate_results['completed_at'] = datetime.utcnow().isoformat()
+        aggregate_results['duration_seconds'] = (datetime.utcnow() - started_at).total_seconds()
+        
+        logger.info(
+            f"[{task_id}] Batch classification complete: "
+            f"batches={aggregate_results['batches_processed']}, "
+            f"processed={aggregate_results['total_processed']}"
+        )
+        
+        return aggregate_results
+        
+    except Exception as e:
+        logger.error(f"[{task_id}] Batch classification failed: {e}")
+        raise

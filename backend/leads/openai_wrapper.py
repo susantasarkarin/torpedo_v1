@@ -240,15 +240,22 @@ class OpenAIRateLimiter:
     """
     Rate limiter with separate limits for different sources.
     Prevents runaway costs from cron jobs or background workers.
+    Supports per-worker rate limiting for parallel classification workers.
     """
     
     def __init__(self):
         self.limits = {
             "cron": {"max_per_minute": 10, "max_per_hour": 100},
-            "background": {"max_per_minute": 20, "max_per_hour": 300},
+            "background": {"max_per_minute": 100, "max_per_hour": 1500},  # Increased for 5 workers
             "api": {"max_per_minute": 30, "max_per_hour": 500},
             "user": {"max_per_minute": 60, "max_per_hour": 1000},
-            "internal": {"max_per_minute": 20, "max_per_hour": 200}
+            "internal": {"max_per_minute": 20, "max_per_hour": 200},
+            # Per-worker limits for auto-classifier (20/min each = 100/min total)
+            "worker_1": {"max_per_minute": 20, "max_per_hour": 300},
+            "worker_2": {"max_per_minute": 20, "max_per_hour": 300},
+            "worker_3": {"max_per_minute": 20, "max_per_hour": 300},
+            "worker_4": {"max_per_minute": 20, "max_per_hour": 300},
+            "worker_5": {"max_per_minute": 20, "max_per_hour": 300},
         }
         self.request_times: Dict[str, List[datetime]] = {}
     

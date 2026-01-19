@@ -1236,19 +1236,19 @@ function AILeads() {
           className={`tab-btn ${activeTab === "classified-websearch" ? "active" : ""}`}
           onClick={() => setActiveTab("classified-websearch")}
         >
-          Classified (Web Search) ({leads.filter(l => l.source === "web_search" || l.source === "google_search" || l.source === "linkedin").length})
+          Classified (Web Search) ({statistics?.by_source?.websearch?.classified_count || leads.filter(l => l.source === "web_search" || l.source === "google_search" || l.source === "linkedin").length})
         </button>
         <button 
           className={`tab-btn ${activeTab === "classified-csv" ? "active" : ""}`}
           onClick={() => setActiveTab("classified-csv")}
         >
-          Classified (CSV Upload) ({getCsvCount()})
+          Classified (CSV Upload) ({statistics?.by_source?.csv?.classified_count || getCsvCount()})
         </button>
         <button 
           className={`tab-btn ${activeTab === "classified-gmail" ? "active" : ""}`}
           onClick={() => setActiveTab("classified-gmail")}
         >
-          Classified (Gmail) ({leads.filter(l => l.source === "gmail" || l.source === "gmail_archive" || l.source === "email" || l.source === "imap").length})
+          Classified (Gmail) ({statistics?.by_source?.gmail?.classified_count || leads.filter(l => l.source === "gmail" || l.source === "gmail_archive" || l.source === "email" || l.source === "imap").length})
         </button>
       </div>
 
@@ -2278,14 +2278,19 @@ function AILeads() {
                   <div className="form-group">
                     <label>Select Email Accounts</label>
                     <div className="multi-select-container">
-                      <div className="multi-select-options" style={{ maxHeight: "120px", overflowY: "auto" }}>
+                      <div className="multi-select-options" style={{ maxHeight: "180px", overflowY: "auto" }}>
                         {gmailAccounts.length === 0 ? (
                           <div style={{ padding: "10px", color: "#888" }}>
                             No email accounts found. Add accounts in Settings.
                           </div>
                         ) : (
                           gmailAccounts.map(account => (
-                            <label key={account.email} className="checkbox-option">
+                            <label key={account.email} className="checkbox-option" style={{ 
+                              display: "flex", 
+                              alignItems: "center", 
+                              padding: "8px 12px",
+                              borderBottom: "1px solid #eee"
+                            }}>
                               <input
                                 type="checkbox"
                                 checked={selectedGmailAccounts.includes(account.email)}
@@ -2297,130 +2302,28 @@ function AILeads() {
                                   }
                                 }}
                               />
-                              <span>{account.email}</span>
+                              <span style={{ flex: 1, marginLeft: "8px" }}>
+                                <strong>{account.email}</strong>
+                                {account.display_name && account.display_name !== account.email.split("@")[0] && (
+                                  <span style={{ color: "#666", marginLeft: "8px" }}>({account.display_name})</span>
+                                )}
+                              </span>
+                              {account.email_count && (
+                                <span style={{ 
+                                  backgroundColor: "#e8f4fd", 
+                                  color: "#1976d2", 
+                                  padding: "2px 8px", 
+                                  borderRadius: "12px", 
+                                  fontSize: "12px" 
+                                }}>
+                                  {account.email_count.toLocaleString()} emails
+                                </span>
+                              )}
                             </label>
                           ))
                         )}
                       </div>
                     </div>
-                  </div>
-
-                  {/* Segment Filter */}
-                  <div className="form-group">
-                    <label>Filter by Email Segments</label>
-                    <div className="multi-select-container">
-                      <div className="multi-select-header" style={{ marginBottom: "8px" }}>
-                        <button 
-                          type="button" 
-                          className="btn btn-sm"
-                          onClick={() => setSelectedGmailSegments(GMAIL_SEGMENT_OPTIONS.map(s => s.id))}
-                        >
-                          Select All
-                        </button>
-                        <button 
-                          type="button" 
-                          className="btn btn-sm"
-                          onClick={() => setSelectedGmailSegments([])}
-                          style={{ marginLeft: "8px" }}
-                        >
-                          Clear All
-                        </button>
-                      </div>
-                      <div className="multi-select-options" style={{ maxHeight: "150px", overflowY: "auto" }}>
-                        {GMAIL_SEGMENT_OPTIONS.map(segment => (
-                          <label key={segment.id} className="checkbox-option">
-                            <input
-                              type="checkbox"
-                              checked={selectedGmailSegments.includes(segment.id)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedGmailSegments([...selectedGmailSegments, segment.id]);
-                                } else {
-                                  setSelectedGmailSegments(selectedGmailSegments.filter(s => s !== segment.id));
-                                }
-                              }}
-                            />
-                            <span>{segment.name}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Enrichment Phases */}
-                  <div className="form-group">
-                    <label>Data Enrichment Phases</label>
-                    <p className="form-hint-small" style={{ marginBottom: "8px", color: "#6b7280" }}>
-                      Select which data fields to extract and enrich
-                    </p>
-                    <div className="enrichment-phases" style={{ 
-                      display: "grid", 
-                      gridTemplateColumns: "1fr 1fr", 
-                      gap: "0.75rem",
-                      padding: "1rem",
-                      backgroundColor: "#f9fafb",
-                      borderRadius: "8px",
-                      border: "1px solid #e5e7eb"
-                    }}>
-                      <label className="checkbox-option" style={{ padding: "0.5rem", backgroundColor: "#fff", borderRadius: "6px" }}>
-                        <input
-                          type="checkbox"
-                          checked={enrichmentPhases?.basic !== false}
-                          onChange={(e) => setEnrichmentPhases({...enrichmentPhases, basic: e.target.checked})}
-                        />
-                        <span style={{ marginLeft: "0.5rem" }}>
-                          <strong>Basic Info</strong>
-                          <small style={{ display: "block", color: "#6b7280" }}>Email, Full Name</small>
-                        </span>
-                      </label>
-                      <label className="checkbox-option" style={{ padding: "0.5rem", backgroundColor: "#fff", borderRadius: "6px" }}>
-                        <input
-                          type="checkbox"
-                          checked={enrichmentPhases?.names !== false}
-                          onChange={(e) => setEnrichmentPhases({...enrichmentPhases, names: e.target.checked})}
-                        />
-                        <span style={{ marginLeft: "0.5rem" }}>
-                          <strong>Name Split</strong>
-                          <small style={{ display: "block", color: "#6b7280" }}>First Name, Last Name</small>
-                        </span>
-                      </label>
-                      <label className="checkbox-option" style={{ padding: "0.5rem", backgroundColor: "#fff", borderRadius: "6px" }}>
-                        <input
-                          type="checkbox"
-                          checked={enrichmentPhases?.company !== false}
-                          onChange={(e) => setEnrichmentPhases({...enrichmentPhases, company: e.target.checked})}
-                        />
-                        <span style={{ marginLeft: "0.5rem" }}>
-                          <strong>Company</strong>
-                          <small style={{ display: "block", color: "#6b7280" }}>Company Name from signature/domain</small>
-                        </span>
-                      </label>
-                      <label className="checkbox-option" style={{ padding: "0.5rem", backgroundColor: "#fff", borderRadius: "6px" }}>
-                        <input
-                          type="checkbox"
-                          checked={enrichmentPhases?.domain !== false}
-                          onChange={(e) => setEnrichmentPhases({...enrichmentPhases, domain: e.target.checked})}
-                        />
-                        <span style={{ marginLeft: "0.5rem" }}>
-                          <strong>Domain</strong>
-                          <small style={{ display: "block", color: "#6b7280" }}>Extract domain from email</small>
-                        </span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Max Emails */}
-                  <div className="form-group">
-                    <label>Max Emails to Process</label>
-                    <input
-                      type="number"
-                      className="form-input"
-                      value={gmailMaxEmails}
-                      onChange={(e) => setGmailMaxEmails(parseInt(e.target.value) || 100)}
-                      min={1}
-                      max={10000}
-                    />
-                    <small style={{ color: "#888" }}>Maximum number of emails to scan for leads</small>
                   </div>
 
                   {/* Import Progress */}
@@ -2461,13 +2364,13 @@ function AILeads() {
                       className="btn btn-primary" 
                       onClick={handleGmailImport} 
                       disabled={gmailImporting || selectedGmailAccounts.length === 0}
-                      style={{ width: "100%" }}
+                      style={{ width: "100%", padding: "12px", fontSize: "16px" }}
                     >
-                      {gmailImporting ? "⏳ Extracting & Enriching Leads..." : "📧 Extract Leads from Emails"}
+                      {gmailImporting ? "⏳ Extracting Leads..." : "📧 Extract Leads from Emails"}
                     </button>
-                    {selectedGmailAccounts.length === 0 && (
-                      <small style={{ color: "#ff6b6b", display: "block", marginTop: "5px" }}>
-                        Please select at least one email account
+                    {selectedGmailAccounts.length === 0 && !gmailImporting && (
+                      <small style={{ color: "#ff6b6b", display: "block", marginTop: "8px", textAlign: "center" }}>
+                        ⚠️ Please select at least one email account above
                       </small>
                     )}
                   </div>

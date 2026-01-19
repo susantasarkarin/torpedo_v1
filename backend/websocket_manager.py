@@ -4,16 +4,51 @@ WebSocket Connection Manager
 Singleton class for managing WebSocket connections across the application.
 Supports multiple channels (cint_surveys, cpx_surveys, sync_progress) and
 provides broadcast and personal messaging capabilities.
+
+Priority-based broadcasting ensures critical survey updates (CPX/CINT) are
+never blocked by high-volume sync progress updates.
 """
 
 from typing import Dict, List, Set, Optional, Any
 from fastapi import WebSocket
 import asyncio
+from asyncio import PriorityQueue
 import json
 import logging
 from datetime import datetime
+from enum import IntEnum
+from dataclasses import dataclass, field
+from time import time
 
 logger = logging.getLogger(__name__)
+
+
+class BroadcastPriority(IntEnum):
+    """
+    Priority levels for WebSocket broadcasts.
+    Lower numbers = higher priority (processed first).
+    """
+    SURVEY_UPDATE = 1    # CPX/CINT survey updates - highest priority
+    HEARTBEAT = 2        # Keep-alive pings
+    SYNC_PROGRESS = 3    # Email sync progress - lowest priority (high volume)
+
+
+@dataclass(order=True)
+class PrioritizedBroadcast:
+    """A broadcast message with priority for queue ordering."""
+    priority: int
+    timestamp: float = field(compare=True)
+    channel: str = field(compare=False)
+    message: Any = field(compare=False)
+    exclude: Set[WebSocket] = field(compare=False, default_factory=set)
+
+
+# Channel to priority mapping
+CHANNEL_PRIORITIES = {
+    "cint_surveys": BroadcastPriority.SURVEY_UPDATE,
+    "cpx_surveys": BroadcastPriority.SURVEY_UPDATE,
+    "sync_progress": BroadcastPriority.SYNC_PROGRESS,
+}
 
 
 class ConnectionManager:
@@ -23,10 +58,23 @@ class ConnectionManager:
     Manages WebSocket connections organized by channels.
     Supports broadcasting to all clients on a channel or sending
     personal messages to specific connections.
+    
+    Features:
+    - Priority-based broadcasting (survey updates > sync progress)
+    - Connection limits per channel to prevent resource exhaustion
+    - Async broadcast queue for non-blocking operation
     """
     
     _instance: Optional['ConnectionManager'] = None
     _lock = asyncio.Lock()
+    
+    # Connection limits per channel
+    MAX_CONNECTIONS_PER_CHANNEL = {
+        "cint_surveys": 100,
+        "cpx_surveys": 100,
+        "sync_progress": 50,  # Lower limit for high-volume channel
+    }
+    DEFAULT_MAX_CONNECTIONS = 100
     
     def __new__(cls):
         if cls._instance is None:
@@ -44,6 +92,14 @@ class ConnectionManager:
         # WebSocket -> metadata (user_id, connected_at, etc.)
         self._metadata: Dict[WebSocket, Dict[str, Any]] = {}
         
+        # Priority broadcast queue
+        self._broadcast_queue: PriorityQueue = PriorityQueue()
+        self._queue_processor_task: Optional[asyncio.Task] = None
+        
+        # Sync progress throttling: mailbox_id -> last_broadcast_time
+        self._sync_throttle: Dict[str, float] = {}
+        self.SYNC_THROTTLE_SECONDS = 2.0  # Minimum seconds between sync updates per mailbox
+        
         # Supported channels
         self.CHANNELS = {
             "cint_surveys": "CINT survey updates",
@@ -55,7 +111,7 @@ class ConnectionManager:
         self.HEARTBEAT_INTERVAL = 30
         
         self._initialized = True
-        logger.info("WebSocket ConnectionManager initialized")
+        logger.info("WebSocket ConnectionManager initialized with priority broadcasting")
     
     async def connect(
         self, 
@@ -79,6 +135,17 @@ class ConnectionManager:
         if channel not in self.CHANNELS:
             logger.warning(f"Attempted connection to unknown channel: {channel}")
             # Still allow connection for flexibility
+        
+        # Check connection limits per channel
+        max_conns = self.MAX_CONNECTIONS_PER_CHANNEL.get(channel, self.DEFAULT_MAX_CONNECTIONS)
+        current_conns = len(self._connections.get(channel, set()))
+        if current_conns >= max_conns:
+            logger.warning(f"Channel '{channel}' at capacity ({current_conns}/{max_conns}), rejecting connection")
+            try:
+                await websocket.close(code=1013, reason="Channel at capacity")
+            except:
+                pass
+            return False
         
         try:
             await websocket.accept()
@@ -159,24 +226,74 @@ class ConnectionManager:
             logger.error(f"Error sending personal message: {e}")
             return False
     
+    def _should_throttle_sync(self, message: Any) -> bool:
+        """
+        Check if a sync progress message should be throttled.
+        Allows updates through if:
+        - It's been > SYNC_THROTTLE_SECONDS since last update for this mailbox
+        - Status changed to completed/error/cancelled
+        - It's a percentage milestone (every 5%)
+        """
+        if not isinstance(message, dict):
+            return False
+        
+        mailbox_id = message.get("mailbox_id") or message.get("email")
+        if not mailbox_id:
+            return False
+        
+        now = time()
+        last_broadcast = self._sync_throttle.get(mailbox_id, 0)
+        
+        # Always allow status change messages
+        status = message.get("status", "")
+        if status in ("completed", "error", "cancelled", "connecting", "counting"):
+            self._sync_throttle[mailbox_id] = now
+            # Clean up throttle entry on completion
+            if status in ("completed", "error", "cancelled"):
+                self._sync_throttle.pop(mailbox_id, None)
+            return False
+        
+        # Allow milestone percentages (every 5%)
+        percentage = message.get("percentage", 0)
+        if percentage > 0 and percentage % 5 == 0:
+            self._sync_throttle[mailbox_id] = now
+            return False
+        
+        # Throttle if too soon
+        if now - last_broadcast < self.SYNC_THROTTLE_SECONDS:
+            return True
+        
+        self._sync_throttle[mailbox_id] = now
+        return False
+    
     async def broadcast(
         self, 
         channel: str, 
         message: Any,
-        exclude: Optional[Set[WebSocket]] = None
+        exclude: Optional[Set[WebSocket]] = None,
+        priority: Optional[BroadcastPriority] = None
     ) -> int:
         """
         Broadcast a message to all connections on a channel.
+        
+        For sync_progress channel, messages are automatically throttled
+        to prevent flooding (max 1 update per mailbox every 2 seconds,
+        unless it's a status change or milestone).
         
         Args:
             channel: Channel to broadcast to
             message: Message to send (will be JSON encoded if dict/list)
             exclude: Optional set of WebSockets to exclude from broadcast
+            priority: Optional broadcast priority (defaults based on channel)
             
         Returns:
             Number of clients that received the message
         """
         if channel not in self._connections:
+            return 0
+        
+        # Apply throttling for sync_progress channel
+        if channel == "sync_progress" and self._should_throttle_sync(message):
             return 0
         
         exclude = exclude or set()
@@ -215,6 +332,58 @@ class ConnectionManager:
             logger.debug(f"Broadcast to {sent_count} clients on channel '{channel}'")
         
         return sent_count
+    
+    async def broadcast_with_priority(
+        self,
+        channel: str,
+        message: Any,
+        priority: Optional[BroadcastPriority] = None,
+        exclude: Optional[Set[WebSocket]] = None
+    ) -> None:
+        """
+        Queue a broadcast with priority. Higher priority messages (lower numbers)
+        are processed first, ensuring CPX/CINT updates are never blocked by sync progress.
+        
+        Args:
+            channel: Channel to broadcast to
+            message: Message to send
+            priority: Broadcast priority (defaults based on channel)
+            exclude: Optional set of WebSockets to exclude
+        """
+        if priority is None:
+            priority = CHANNEL_PRIORITIES.get(channel, BroadcastPriority.SYNC_PROGRESS)
+        
+        broadcast = PrioritizedBroadcast(
+            priority=priority,
+            timestamp=time(),
+            channel=channel,
+            message=message,
+            exclude=exclude or set()
+        )
+        
+        await self._broadcast_queue.put(broadcast)
+        
+        # Start queue processor if not running
+        if self._queue_processor_task is None or self._queue_processor_task.done():
+            self._queue_processor_task = asyncio.create_task(self._process_broadcast_queue())
+    
+    async def _process_broadcast_queue(self):
+        """Process queued broadcasts in priority order."""
+        while not self._broadcast_queue.empty():
+            try:
+                broadcast: PrioritizedBroadcast = await asyncio.wait_for(
+                    self._broadcast_queue.get(), timeout=0.1
+                )
+                await self.broadcast(
+                    channel=broadcast.channel,
+                    message=broadcast.message,
+                    exclude=broadcast.exclude,
+                    priority=BroadcastPriority(broadcast.priority)
+                )
+            except asyncio.TimeoutError:
+                break
+            except Exception as e:
+                logger.error(f"Error processing broadcast queue: {e}")
     
     async def broadcast_to_user(
         self, 

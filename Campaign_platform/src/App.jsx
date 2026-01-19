@@ -4,6 +4,8 @@ import { Routes, Route, Navigate } from "react-router-dom"
 import ProtectedRoute from "./components/ProtectedRoute"
 import Layout from "./components/Layout"
 import { PageLoading } from "./components/ui/PageLayout"
+import { LeadAgentProvider } from "./contexts/LeadAgentContext"
+import AgentProgress from "./components/AgentProgress"
 // Temporarily disabled for debugging login issue
 // import { SyncStatusProvider } from "./contexts/SyncStatusContext"
 // import GlobalSyncStatus from "./components/GlobalSyncStatus"
@@ -56,6 +58,11 @@ const Reports = lazy(() => import("./pages/sales/campaign/Reports"))
 const AILeads = lazy(() => import("./pages/sales/campaign/AILeads"))
 const AILeadDetail = lazy(() => import("./pages/sales/campaign/AILeadDetail"))
 const SalesDashboard = lazy(() => import("./pages/sales/SalesDashboard"))
+
+// AI Agent Pages
+const CompanyUpload = lazy(() => import("./pages/sales/CompanyUpload"))
+const AgentDashboard = lazy(() => import("./pages/sales/AgentDashboard"))
+const AgentSettings = lazy(() => import("./pages/sales/AgentSettings"))
 
 // Operations Pages
 const ClientsPage = lazy(() => import("./pages/operations/ClientsPage"))
@@ -183,8 +190,7 @@ function App() {
         <Route path="sales/account/:companyName" element={<LazyPage><CompanyDetail /></LazyPage>} />
         <Route path="sales/rfq" element={<LazyPage><RFQ /></LazyPage>} />
         <Route path="sales/campaign/list" element={<LazyPage><List /></LazyPage>} />
-        <Route path="sales/campaign/ai-leads" element={<LazyPage><AIDatabase /></LazyPage>} />
-        <Route path="sales/campaign/ai-leads/manage" element={<LazyPage><AILeads /></LazyPage>} />
+        <Route path="sales/campaign/ai-leads" element={<LazyPage><AILeads /></LazyPage>} />
         <Route path="sales/campaign/ai-leads/:leadId" element={<LazyPage><AILeadDetail /></LazyPage>} />
         <Route path="sales/campaign/templates" element={<LazyPage><Templates /></LazyPage>} />
         <Route path="sales/campaign/workflow" element={<LazyPage><Workflow /></LazyPage>} />
