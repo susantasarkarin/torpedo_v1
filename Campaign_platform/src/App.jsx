@@ -171,7 +171,10 @@ function App() {
         path="/admin"
         element={
           <ProtectedRoute>
-            <Layout />
+            <LeadAgentProvider>
+              <Layout />
+              <AgentProgress />
+            </LeadAgentProvider>
           </ProtectedRoute>
         }
       >
@@ -195,6 +198,11 @@ function App() {
         <Route path="sales/campaign/templates" element={<LazyPage><Templates /></LazyPage>} />
         <Route path="sales/campaign/workflow" element={<LazyPage><Workflow /></LazyPage>} />
         <Route path="sales/campaign/reports" element={<LazyPage><Reports /></LazyPage>} />
+
+        {/* AI Agent Routes */}
+        <Route path="sales/company-upload" element={<LazyPage><CompanyUpload /></LazyPage>} />
+        <Route path="sales/agent-dashboard" element={<LazyPage><AgentDashboard /></LazyPage>} />
+        <Route path="sales/agent-settings" element={<LazyPage><AgentSettings /></LazyPage>} />
 
         {/* Marketing */}
         <Route path="marketing" element={<LazyPage><Marketing /></LazyPage>} />
