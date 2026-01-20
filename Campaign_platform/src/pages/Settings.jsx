@@ -47,22 +47,8 @@ function Settings() {
     cpx_ext_user_id: "",
     cpx_secure_hash_key: "",
     cpx_api_timeout: 30,
-    gemini_api_key_1: "",
-    gemini_api_key_2: "",
-    gemini_api_key_3: "",
-    gemini_api_key_4: "",
-    gemini_api_key_5: "",
-    gemini_api_key_6: "",
-    gemini_api_key_7: "",
-    gemini_api_key_8: "",
-    gemini_api_key_9: "",
-    gemini_api_key_10: "",
-    openai_api_key: "",   // Fallback
-    anthropic_api_key: "", // Premium
-    perplexity_api_key: "",
-    perplexity_enabled: false,
-    perplexity_daily_limit: 200,
-    perplexity_hourly_limit: 50,
+    deepseek_api_key: "",  // PRIMARY - cheap, no daily limit
+    openai_api_key: "",      // PREMIUM - web search, tier 2
     google_sheets_service_account: "",
   })
   const [maskedSettings, setMaskedSettings] = useState({})
@@ -1456,87 +1442,44 @@ function Settings() {
 
               <div className="settings-group">
                 <h3>🤖 AI / LLM Settings</h3>
+                <p className="setting-hint" style={{ marginBottom: '1rem', padding: '0.75rem', background: '#f0fdf4', borderRadius: '6px', border: '1px solid #86efac' }}>
+                  <strong>2-Provider Architecture:</strong> DeepSeek (PRIMARY - bulk tasks, $0.14/1M tokens) + OpenAI (PREMIUM - web search, tier 2)
+                </p>
                 <div className="setting-row">
-                  <label>Gemini API Keys (FREE - Recommended)</label>
-                  <p className="setting-hint" style={{ marginBottom: '0.75rem' }}>
-                    <strong>FREE tier:</strong> Add up to 10 keys for ~10,000 requests/day. 
-                    Get from <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
+                  <label>🚀 DeepSeek API Key (PRIMARY)</label>
+                  <input
+                    type="password"
+                    placeholder={maskedSettings.deepseek_api_key_masked || "sk-..."}
+                    value={appSettings.deepseek_api_key}
+                    onChange={(e) => handleAppSettingChange("deepseek_api_key", e.target.value)}
+                  />
+                  <p className="setting-hint">
+                    <strong>Primary provider</strong> for all bulk tasks. ~$0.14/1M tokens, 60 RPM (86,400/day). 
+                    Model: <code>deepseek-chat</code>. Get from <a href="https://platform.deepseek.com/" target="_blank" rel="noopener noreferrer">DeepSeek Platform</a>
                   </p>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
-                      <div key={num} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ minWidth: '24px', fontSize: '12px', color: '#6b7280' }}>{num}.</span>
-                        <input
-                          type="password"
-                          placeholder={maskedSettings[`gemini_api_key_${num}_masked`] || "AIza..."}
-                          value={appSettings[`gemini_api_key_${num}`] || ""}
-                          onChange={(e) => handleAppSettingChange(`gemini_api_key_${num}`, e.target.value)}
-                          style={{ flex: 1 }}
-                        />
-                      </div>
-                    ))}
-                  </div>
                 </div>
                 <div className="setting-row">
-                  <label>OpenAI API Key (Fallback)</label>
+                  <label>⭐ OpenAI API Key (PREMIUM)</label>
                   <input
                     type="password"
                     placeholder={maskedSettings.openai_api_key_masked || "sk-..."}
                     value={appSettings.openai_api_key}
                     onChange={(e) => handleAppSettingChange("openai_api_key", e.target.value)}
                   />
-                  <p className="setting-hint">Fallback if Gemini fails. Costs ~$0.15/1K requests. Get from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a></p>
+                  <p className="setting-hint">
+                    For <strong>web search discovery</strong> and <strong>tier 2 analysis</strong>. 
+                    Models: <code>gpt-4o-mini</code> (default), <code>gpt-4o</code> (premium). Get from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>
+                  </p>
                 </div>
-                <div className="setting-row">
-                  <label>Anthropic API Key (Premium)</label>
-                  <input
-                    type="password"
-                    placeholder={maskedSettings.anthropic_api_key_masked || "sk-ant-..."}
-                    value={appSettings.anthropic_api_key}
-                    onChange={(e) => handleAppSettingChange("anthropic_api_key", e.target.value)}
-                  />
-                  <p className="setting-hint">For premium AI tasks only. Costs ~$3/1K requests. Get from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Anthropic Console</a></p>
-                </div>
-                <div className="setting-row">
-                  <label>Perplexity API Key</label>
-                  <input
-                    type="password"
-                    placeholder={maskedSettings.perplexity_api_key_masked || "pplx-..."}
-                    value={appSettings.perplexity_api_key}
-                    onChange={(e) => handleAppSettingChange("perplexity_api_key", e.target.value)}
-                  />
-                  <p className="setting-hint">For AI company discovery. Get from <a href="https://www.perplexity.ai/settings/api" target="_blank" rel="noopener noreferrer">Perplexity Settings</a></p>
-                </div>
-                <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <input
-                    type="checkbox"
-                    checked={appSettings.perplexity_enabled === true}
-                    onChange={(e) => handleAppSettingChange("perplexity_enabled", e.target.checked)}
-                    style={{ width: '18px', height: '18px' }}
-                  />
-                  <label style={{ margin: 0 }}>Enable Perplexity Discovery</label>
-                </div>
-                <div className="setting-row">
-                  <label>Perplexity Hourly Limit</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="500"
-                    value={appSettings.perplexity_hourly_limit || 50}
-                    onChange={(e) => handleAppSettingChange("perplexity_hourly_limit", parseInt(e.target.value) || 50)}
-                    style={{ width: '100px' }}
-                  />
-                </div>
-                <div className="setting-row">
-                  <label>Perplexity Daily Limit</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="2000"
-                    value={appSettings.perplexity_daily_limit || 200}
-                    onChange={(e) => handleAppSettingChange("perplexity_daily_limit", parseInt(e.target.value) || 200)}
-                    style={{ width: '100px' }}
-                  />
+                <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#f8fafc', borderRadius: '6px', fontSize: '13px' }}>
+                  <strong>Task Routing:</strong>
+                  <ul style={{ margin: '0.5rem 0 0 1.5rem', padding: 0 }}>
+                    <li>Email Classification → DeepSeek (10/batch)</li>
+                    <li>Lead Classification → DeepSeek (20/batch)</li>
+                    <li>Company Enrichment → DeepSeek (10/batch)</li>
+                    <li>Web Search Discovery → OpenAI (with web_search tool)</li>
+                    <li>Tier 2 Analysis → OpenAI GPT-4o</li>
+                  </ul>
                 </div>
               </div>
 

@@ -88,34 +88,17 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
             "cpx_ext_user_id": stored.get("cpx_ext_user_id", os.getenv("CPX_EXT_USER_ID", "")),
             "cpx_secure_hash_key": stored.get("cpx_secure_hash_key", os.getenv("CPX_SECURE_HASH_KEY", "")),
             "cpx_api_timeout": stored.get("cpx_api_timeout", int(os.getenv("CPX_API_TIMEOUT", "30"))),
-            # AI Providers - Gemini is FREE and default (10 individual key slots)
-            "gemini_api_key_1": stored.get("gemini_api_key_1", os.getenv("GEMINI_API_KEY_1", "")),
-            "gemini_api_key_2": stored.get("gemini_api_key_2", os.getenv("GEMINI_API_KEY_2", "")),
-            "gemini_api_key_3": stored.get("gemini_api_key_3", os.getenv("GEMINI_API_KEY_3", "")),
-            "gemini_api_key_4": stored.get("gemini_api_key_4", os.getenv("GEMINI_API_KEY_4", "")),
-            "gemini_api_key_5": stored.get("gemini_api_key_5", os.getenv("GEMINI_API_KEY_5", "")),
-            "gemini_api_key_6": stored.get("gemini_api_key_6", os.getenv("GEMINI_API_KEY_6", "")),
-            "gemini_api_key_7": stored.get("gemini_api_key_7", os.getenv("GEMINI_API_KEY_7", "")),
-            "gemini_api_key_8": stored.get("gemini_api_key_8", os.getenv("GEMINI_API_KEY_8", "")),
-            "gemini_api_key_9": stored.get("gemini_api_key_9", os.getenv("GEMINI_API_KEY_9", "")),
-            "gemini_api_key_10": stored.get("gemini_api_key_10", os.getenv("GEMINI_API_KEY_10", "")),
+            # AI Providers - DeepSeek (PRIMARY, cheap) + OpenAI (PREMIUM, web search)
+            "deepseek_api_key": stored.get("deepseek_api_key", os.getenv("DEEPSEEK_API_KEY", "")),
             "openai_api_key": stored.get("openai_api_key", os.getenv("OPENAI_API_KEY", "")),
-            "anthropic_api_key": stored.get("anthropic_api_key", os.getenv("ANTHROPIC_API_KEY", "")),
             "google_sheets_service_account": stored.get("google_sheets_service_account", os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT", "")),
-            # Perplexity Discovery settings
-            "perplexity_api_key": stored.get("perplexity_api_key", os.getenv("PERPLEXITY_API_KEY", "")),
-            "perplexity_enabled": stored.get("perplexity_enabled", False),
-            "perplexity_daily_limit": stored.get("perplexity_daily_limit", 200),
-            "perplexity_hourly_limit": stored.get("perplexity_hourly_limit", 50),
         }
         
         # Mask sensitive fields for display
         masked_settings = {**settings}
         sensitive_fields = [
             "cpx_secure_hash_key",
-            "gemini_api_key_1", "gemini_api_key_2", "gemini_api_key_3", "gemini_api_key_4", "gemini_api_key_5",
-            "gemini_api_key_6", "gemini_api_key_7", "gemini_api_key_8", "gemini_api_key_9", "gemini_api_key_10",
-            "openai_api_key", "anthropic_api_key", "google_sheets_service_account", "perplexity_api_key"
+            "deepseek_api_key", "openai_api_key", "google_sheets_service_account"
         ]
         for field in sensitive_fields:
             if masked_settings.get(field):
@@ -161,13 +144,9 @@ async def save_app_settings(
         allowed_keys = [
             "mongo_uri",
             "cpx_app_id", "cpx_ext_user_id", "cpx_secure_hash_key", "cpx_api_timeout",
-            "gemini_api_key_1", "gemini_api_key_2", "gemini_api_key_3", "gemini_api_key_4", "gemini_api_key_5",
-            "gemini_api_key_6", "gemini_api_key_7", "gemini_api_key_8", "gemini_api_key_9", "gemini_api_key_10",
-            "openai_api_key", "anthropic_api_key",
-            "google_sheets_service_account",
-            # Perplexity Discovery settings
-            "perplexity_api_key", "perplexity_enabled",
-            "perplexity_daily_limit", "perplexity_hourly_limit"
+            # AI Providers - DeepSeek (PRIMARY) + OpenAI (PREMIUM)
+            "deepseek_api_key", "openai_api_key",
+            "google_sheets_service_account"
         ]
         
         filtered_settings = {k: v for k, v in settings.items() if k in allowed_keys and v is not None}

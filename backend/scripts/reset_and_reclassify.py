@@ -6,7 +6,7 @@ RESET AND RECLASSIFY ALL EMAILS
 This script:
 1. Clears all previous AI classifications from emails
 2. Syncs any new emails via Google Workspace API
-3. Re-classifies all emails using Gemini AI
+3. Re-classifies all emails using DeepSeek AI (via openai_wrapper)
 4. Generates a summary report
 
 Usage:
@@ -195,11 +195,10 @@ def classify_all_emails(
     """
     db = get_database('torpedo_gmail')
     
-    # Import classification function
+    # Import classification function (now uses DeepSeek via openai_wrapper)
     try:
-        from leads.gemini_email_classifier import (
-            classify_email_with_gemini,
-            get_gemini_status,
+        from leads.email_classifier import (
+            classify_and_summarize,
             email_metadata
         )
     except ImportError as e:
@@ -209,23 +208,27 @@ def classify_all_emails(
             "error": f"Import error: {e}"
         }
     
-    # Check Gemini status
-    gemini_status = get_gemini_status()
-    logger.info(f"Gemini API Status: {gemini_status}")
-    
-    if not gemini_status.get("available", False):
-        return {
-            "success": False,
-            "error": "Gemini API not available",
-            "status": gemini_status
-        }
+    # Check DeepSeek/OpenAI availability
+    try:
+        from leads.openai_wrapper import get_deepseek_api_key, get_openai_api_key
+        has_deepseek = bool(get_deepseek_api_key())
+        has_openai = bool(get_openai_api_key())
+        if not has_deepseek and not has_openai:
+            return {
+                "success": False,
+                "error": "No AI API key configured (DeepSeek or OpenAI)",
+                "status": {"deepseek": has_deepseek, "openai": has_openai}
+            }
+        logger.info(f"AI Status: DeepSeek={has_deepseek}, OpenAI={has_openai}")
+    except Exception as e:
+        logger.warning(f"Could not check AI status: {e}")
     
     # Count unclassified emails
     unclassified_query = {
         "$or": [
-            {"gemini_category": {"$exists": False}},
-            {"gemini_category": None},
-            {"gemini_category": ""}
+            {"ai_category": {"$exists": False}},
+            {"ai_category": None},
+            {"ai_category": ""}
         ]
     }
     
@@ -278,14 +281,13 @@ def classify_all_emails(
             to_email = to_emails[0] if to_emails else ""
             
             try:
-                classification = classify_email_with_gemini(
+                classification = classify_and_summarize(
                     email_id=email_id,
                     subject=subject,
                     body=body[:5000] if body else "",  # Limit body size
                     from_email=from_email,
+                    from_name=email_doc.get("from_name", ""),
                     to_email=to_email,
-                    internal_domains=["surveyfieldwork.com", "cogentixresearch.com"],
-                    extract_leads=True,
                     source="reset_reclassify"
                 )
                 
@@ -327,7 +329,7 @@ def generate_summary_report() -> Dict[str, Any]:
     
     # Get category distribution
     pipeline = [
-        {"$group": {"_id": "$gemini_category", "count": {"$sum": 1}}},
+        {"$group": {"_id": "$ai_category", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}}
     ]
     categories = list(db.email_metadata.aggregate(pipeline))

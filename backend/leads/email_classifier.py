@@ -469,6 +469,32 @@ def classify_email_batch(*args, **kwargs):
     return {"stats": classify_batch(*args, **kwargs), "results": []}
 
 
+def classify_pending_emails(
+    limit: int = 100,
+    internal_domains: Optional[List[str]] = None,
+    source: str = "background"
+) -> Dict[str, Any]:
+    """
+    Legacy alias for classify_batch.
+    Used by ai_tasks.py and other legacy code.
+    Now uses DeepSeek as the default AI provider via openai_wrapper.
+    """
+    global INTERNAL_DOMAINS
+    if internal_domains:
+        INTERNAL_DOMAINS = internal_domains
+    
+    stats = classify_batch(batch_size=limit, source=source)
+    
+    # Return in format expected by legacy callers
+    return {
+        "processed": stats.get("processed", 0),
+        "classified": stats.get("success", 0),
+        "errors": stats.get("errors", 0),
+        "categories": stats.get("categories", {}),
+        "success": True
+    }
+
+
 def get_emails_needing_classification(limit: int = 100) -> List[str]:
     """Get email IDs that haven't been classified yet"""
     emails = email_metadata.find(
@@ -476,3 +502,4 @@ def get_emails_needing_classification(limit: int = 100) -> List[str]:
         {"_id": 1}
     ).limit(limit)
     return [str(e["_id"]) for e in emails]
+

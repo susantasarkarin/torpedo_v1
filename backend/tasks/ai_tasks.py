@@ -453,8 +453,8 @@ def classify_pending_emails_task(
     logger.info(f"[{task_id}] Starting email classification task (limit={limit})")
     
     try:
-        # Import the classifier
-        from leads.gemini_email_classifier import classify_pending_emails
+        # Import the classifier (using DeepSeek via openai_wrapper)
+        from leads.email_classifier import classify_pending_emails
         
         # Update task state to show progress
         self.update_state(
@@ -528,7 +528,7 @@ def classify_all_pending_batch(
     logger.info(f"[{task_id}] Starting full batch classification (batch_size={batch_size})")
     
     try:
-        from leads.gemini_email_classifier import classify_pending_emails, email_metadata
+        from leads.email_classifier import classify_pending_emails, email_metadata
         
         # Count total pending
         total_pending = email_metadata.count_documents({

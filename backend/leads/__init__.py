@@ -60,15 +60,6 @@ from .query_generator import (
     get_query_generation_stats
 )
 
-# Perplexity Client - AI discovery (for research, NOT URL sourcing)
-from .perplexity_client import (
-    perplexity_query,
-    discover_companies,
-    discover_roles,
-    research_company,
-    get_perplexity_usage_stats
-)
-
 # URL Validator - validate LinkedIn URLs before enrichment
 from .url_validator import (
     validate_linkedin_url,

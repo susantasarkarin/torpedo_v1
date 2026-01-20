@@ -1,7 +1,26 @@
 """
-LEAD INGESTION SCHEDULER
-Automated lead search and validation loop
-Target: 500 leads/hour (10,000 leads/day)
+PARALLEL LEAD INGESTION & AI PROCESSING SCHEDULER
+==================================================
+ALL tasks run in PARALLEL - never blocking each other.
+
+Architecture:
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         MASTER SCHEDULER                                     │
+│                        (asyncio.gather)                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+     │         │         │         │         │         │
+     ▼         ▼         ▼         ▼         ▼         ▼
+┌─────────┬─────────┬─────────┬─────────┬─────────┬─────────┐
+│ WEB     │ LEAD    │ EMAIL   │ COMPANY │ EMAIL   │ LEAD    │
+│ SEARCH  │ CLASS.  │ CLASS.  │ ENRICH  │ SUMMARY │ SCORING │
+│         │         │         │         │         │         │
+│ Google  │DeepSeek │DeepSeek │DeepSeek │DeepSeek │DeepSeek │
+│ CSE     │20/batch │10/batch │10/batch │5/batch  │50/batch │
+└─────────┴─────────┴─────────┴─────────┴─────────┴─────────┘
+
+Provider Routing:
+- DeepSeek (PRIMARY): All bulk classification, enrichment, scoring
+- OpenAI (PREMIUM): Web search discovery, tier 2 analysis (escalation only)
 """
 
 import os
@@ -351,7 +370,7 @@ async def run_search_batch(queries: List[str], state: LeadSchedulerState) -> int
 
 async def run_classification_batch(state: LeadSchedulerState) -> tuple:
     """
-    Classify pending leads in batch.
+    Classify pending leads in batch using DeepSeek.
     
     Returns:
         (success_count, failure_count)
@@ -363,10 +382,11 @@ async def run_classification_batch(state: LeadSchedulerState) -> tuple:
         
         state.log_activity("classification_batch", {
             "success": success,
-            "failure": failure
+            "failure": failure,
+            "provider": "deepseek"
         })
         
-        print(f"[Scheduler] Classified {success} leads, {failure} failures")
+        print(f"[Scheduler] Lead Classification: {success} success, {failure} failures (DeepSeek)")
         
         return success, failure
     
@@ -375,20 +395,224 @@ async def run_classification_batch(state: LeadSchedulerState) -> tuple:
         state.last_error = str(e)
         state.save_state()
         
-        print(f"[Scheduler] Classification error: {e}")
+        print(f"[Scheduler] Lead Classification error: {e}")
         return 0, 0
 
+
+# ============== EMAIL CLASSIFICATION BATCH ==============
+
+async def run_email_classification_batch() -> dict:
+    """
+    Classify pending emails in batch using DeepSeek.
+    Batch size: 10 emails per API call
+    """
+    try:
+        from .email_classifier import classify_batch
+        
+        result = classify_batch(batch_size=10, source="scheduler")
+        
+        processed = result.get("processed", 0)
+        success = result.get("success", 0)
+        errors = result.get("errors", 0)
+        
+        print(f"[Scheduler] Email Classification: {success}/{processed} (DeepSeek, 10/batch)")
+        
+        return {"processed": processed, "success": success, "errors": errors}
+    
+    except Exception as e:
+        print(f"[Scheduler] Email Classification error: {e}")
+        return {"processed": 0, "success": 0, "errors": 1, "error": str(e)}
+
+
+# ============== COMPANY ENRICHMENT BATCH ==============
+
+async def run_company_enrichment_batch() -> dict:
+    """
+    Enrich companies in batch using DeepSeek.
+    Batch size: 10 companies per API call
+    """
+    try:
+        from .openai_wrapper import batch_chat_completion
+        
+        # Get companies needing enrichment
+        companies_needing_enrichment = list(db['leads_enriched'].find(
+            {"company_enriched": {"$ne": True}, "company_name": {"$exists": True, "$ne": ""}},
+            {"_id": 1, "company_name": 1, "company_domain": 1}
+        ).limit(10))
+        
+        if not companies_needing_enrichment:
+            return {"processed": 0, "message": "No companies to enrich"}
+        
+        # Build batch prompt
+        def prompt_generator(batch):
+            companies = [f"- {c.get('company_name', 'Unknown')} ({c.get('company_domain', 'N/A')})" for c in batch]
+            return f"""Enrich these companies with industry, size, type, headquarters:
+{chr(10).join(companies)}
+
+Return JSON: {{"results": [{{"company_name": "...", "industry": "...", "company_size": "Startup|SMB|Mid-Market|Enterprise", "company_type": "Public|Private|Startup", "headquarters": "City, Country"}}]}}"""
+        
+        results = batch_chat_completion(
+            items=companies_needing_enrichment,
+            prompt_generator=prompt_generator,
+            source="scheduler",
+            batch_size=10,
+            max_output_tokens=800,
+            system_prompt="You are a B2B company research expert. Return accurate company data in JSON format."
+        )
+        
+        # Update companies
+        enriched_count = 0
+        for i, company in enumerate(companies_needing_enrichment):
+            if i < len(results) and not results[i].get("error"):
+                db['leads_enriched'].update_one(
+                    {"_id": company["_id"]},
+                    {"$set": {
+                        "company_enriched": True,
+                        "company_industry": results[i].get("industry", ""),
+                        "company_size": results[i].get("company_size", ""),
+                        "company_type": results[i].get("company_type", ""),
+                        "company_headquarters": results[i].get("headquarters", ""),
+                        "enriched_at": datetime.utcnow()
+                    }}
+                )
+                enriched_count += 1
+        
+        print(f"[Scheduler] Company Enrichment: {enriched_count}/{len(companies_needing_enrichment)} (DeepSeek, 10/batch)")
+        
+        return {"processed": len(companies_needing_enrichment), "enriched": enriched_count}
+    
+    except Exception as e:
+        print(f"[Scheduler] Company Enrichment error: {e}")
+        return {"processed": 0, "enriched": 0, "error": str(e)}
+
+
+# ============== EMAIL SUMMARY BATCH ==============
+
+async def run_email_summary_batch() -> dict:
+    """
+    Summarize emails in batch using DeepSeek.
+    Batch size: 5 emails per API call
+    """
+    try:
+        # Get emails needing summary
+        torpedo_gmail = client['torpedo_gmail']
+        emails_needing_summary = list(torpedo_gmail['email_metadata'].find(
+            {"ai_summary": {"$exists": False}, "body_plain": {"$exists": True, "$ne": ""}},
+            {"_id": 1, "subject": 1, "body_plain": 1, "from_email": 1}
+        ).limit(5))
+        
+        if not emails_needing_summary:
+            return {"processed": 0, "message": "No emails to summarize"}
+        
+        from .openai_wrapper import chat_completion
+        
+        summarized_count = 0
+        for email in emails_needing_summary:
+            body = (email.get("body_plain", "") or "")[:2000]
+            subject = email.get("subject", "")
+            
+            result = chat_completion(
+                messages=[
+                    {"role": "system", "content": "Summarize this email in 2-3 sentences. Include key actions if any."},
+                    {"role": "user", "content": f"Subject: {subject}\n\nBody:\n{body}"}
+                ],
+                source="scheduler",
+                max_output_tokens=150,
+                provider="deepseek"
+            )
+            
+            if result.get("success"):
+                torpedo_gmail['email_metadata'].update_one(
+                    {"_id": email["_id"]},
+                    {"$set": {"ai_summary": result["content"], "summarized_at": datetime.utcnow()}}
+                )
+                summarized_count += 1
+        
+        print(f"[Scheduler] Email Summary: {summarized_count}/{len(emails_needing_summary)} (DeepSeek, 5/batch)")
+        
+        return {"processed": len(emails_needing_summary), "summarized": summarized_count}
+    
+    except Exception as e:
+        print(f"[Scheduler] Email Summary error: {e}")
+        return {"processed": 0, "summarized": 0, "error": str(e)}
+
+
+# ============== LEAD SCORING BATCH ==============
+
+async def run_lead_scoring_batch() -> dict:
+    """
+    Score leads in batch using DeepSeek.
+    Batch size: 50 leads per API call
+    """
+    try:
+        from .openai_wrapper import batch_chat_completion
+        
+        # Get leads needing scoring
+        leads_needing_scoring = list(db['leads_enriched'].find(
+            {"lead_score": {"$exists": False}, "status": "classified"},
+            {"_id": 1, "full_name": 1, "title": 1, "company_name": 1, "seniority_level": 1, "department": 1}
+        ).limit(50))
+        
+        if not leads_needing_scoring:
+            return {"processed": 0, "message": "No leads to score"}
+        
+        def prompt_generator(batch):
+            leads = [f"- {l.get('full_name', 'Unknown')}, {l.get('title', 'N/A')} at {l.get('company_name', 'N/A')} ({l.get('seniority_level', 'Unknown')})" for l in batch]
+            return f"""Score these B2B leads from 1-100 based on decision-making authority and fit for market research services:
+{chr(10).join(leads)}
+
+Return JSON: {{"results": [{{"name": "...", "score": 1-100, "reason": "1 sentence"}}]}}"""
+        
+        results = batch_chat_completion(
+            items=leads_needing_scoring,
+            prompt_generator=prompt_generator,
+            source="scheduler",
+            batch_size=50,
+            max_output_tokens=2000,
+            system_prompt="You are a B2B lead scoring expert. Score leads based on title, seniority, and company fit."
+        )
+        
+        scored_count = 0
+        for i, lead in enumerate(leads_needing_scoring):
+            if i < len(results) and not results[i].get("error"):
+                score = results[i].get("score", 50)
+                db['leads_enriched'].update_one(
+                    {"_id": lead["_id"]},
+                    {"$set": {
+                        "lead_score": score,
+                        "score_reason": results[i].get("reason", ""),
+                        "scored_at": datetime.utcnow()
+                    }}
+                )
+                scored_count += 1
+        
+        print(f"[Scheduler] Lead Scoring: {scored_count}/{len(leads_needing_scoring)} (DeepSeek, 50/batch)")
+        
+        return {"processed": len(leads_needing_scoring), "scored": scored_count}
+    
+    except Exception as e:
+        print(f"[Scheduler] Lead Scoring error: {e}")
+        return {"processed": 0, "scored": 0, "error": str(e)}
+
+
+# ============== MASTER SCHEDULER LOOP ==============
 
 async def scheduler_loop():
     """
     Main scheduler loop - runs continuously until stopped.
-    Runs ALL tasks in PARALLEL: web search, lead classification, email sync.
+    Runs ALL 6 tasks in PARALLEL using asyncio.gather:
+    - Web Search (Google CSE)
+    - Lead Classification (DeepSeek)
+    - Email Classification (DeepSeek)
+    - Company Enrichment (DeepSeek)
+    - Email Summary (DeepSeek)
+    - Lead Scoring (DeepSeek)
     """
     global scheduler_state
     
-    print("[Scheduler] Starting PARALLEL lead ingestion scheduler...")
+    print("[Scheduler] Starting FULL PARALLEL lead ingestion scheduler...")
     print(f"[Scheduler] Targets: {HOURLY_TARGET}/hour, {DAILY_TARGET}/day")
-    print("[Scheduler] Mode: Web Search + Lead Classification running in PARALLEL")
+    print("[Scheduler] Mode: 6 tasks running in PARALLEL (DeepSeek + Google CSE)")
     
     scheduler_state.is_running = True
     scheduler_state.started_at = datetime.utcnow()
@@ -432,32 +656,53 @@ async def scheduler_loop():
             # Generate search queries for this batch
             queries = generate_search_queries(scheduler_state.search_config, QUERIES_PER_BATCH)
             
-            # RUN ALL TASKS IN PARALLEL using asyncio.gather
-            print("[Scheduler] 🚀 Starting parallel execution: Web Search + Classification")
+            # ================================================================
+            # RUN ALL 6 TASKS IN PARALLEL using asyncio.gather
+            # ================================================================
+            print("[Scheduler] 🚀 Starting FULL parallel execution: 6 concurrent tasks")
+            print("[Scheduler] Tasks: Search | Lead Class | Email Class | Company Enrich | Email Summary | Lead Scoring")
             
             results = await asyncio.gather(
-                # Task 1: Web Search for new leads
+                # Task 1: Web Search for new leads (Google CSE)
                 run_search_batch(queries, scheduler_state),
-                # Task 2: Classify pending leads
+                # Task 2: Classify pending leads (DeepSeek, 20/batch)
                 run_classification_batch(scheduler_state),
+                # Task 3: Classify emails (DeepSeek, 10/batch)
+                run_email_classification_batch(),
+                # Task 4: Enrich company data (DeepSeek, 10/batch)
+                run_company_enrichment_batch(),
+                # Task 5: Summarize emails (DeepSeek, 5/batch)
+                run_email_summary_batch(),
+                # Task 6: Score leads (DeepSeek, 50/batch)
+                run_lead_scoring_batch(),
                 # Return exceptions instead of raising them
                 return_exceptions=True
             )
             
-            # Process results
-            search_result = results[0]
-            classify_result = results[1]
+            # ================================================================
+            # PROCESS ALL 6 RESULTS
+            # ================================================================
+            task_names = ["Search", "Lead Classification", "Email Classification", 
+                          "Company Enrichment", "Email Summary", "Lead Scoring"]
             
-            if isinstance(search_result, Exception):
-                print(f"[Scheduler] ⚠️ Search error: {search_result}")
-            else:
-                print(f"[Scheduler] ✅ Search imported: {search_result} leads")
-                
-            if isinstance(classify_result, Exception):
-                print(f"[Scheduler] ⚠️ Classification error: {classify_result}")
-            else:
-                success, failure = classify_result if isinstance(classify_result, tuple) else (0, 0)
-                print(f"[Scheduler] ✅ Classification: {success} success, {failure} failed")
+            for i, (name, result) in enumerate(zip(task_names, results)):
+                if isinstance(result, Exception):
+                    print(f"[Scheduler] ⚠️ {name} error: {result}")
+                elif isinstance(result, dict):
+                    # Handle dict results from batch functions
+                    if result.get("error"):
+                        print(f"[Scheduler] ⚠️ {name}: {result.get('error')}")
+                    else:
+                        processed = result.get("processed", result.get("found", 0))
+                        success_key = next((k for k in ["classified", "enriched", "summarized", "scored", "success"] if k in result), None)
+                        success_val = result.get(success_key, processed) if success_key else processed
+                        print(f"[Scheduler] ✅ {name}: {success_val}/{processed}")
+                elif isinstance(result, tuple):
+                    # Handle tuple results (success, failure)
+                    success, failure = result
+                    print(f"[Scheduler] ✅ {name}: {success} success, {failure} failed")
+                elif isinstance(result, int):
+                    print(f"[Scheduler] ✅ {name}: {result} leads")
             
             if stop_event.is_set():
                 break
