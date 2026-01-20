@@ -42,8 +42,10 @@ load_dotenv()
 
 # ============== CONFIGURATION ==============
 
-# Worker settings
-NUM_WORKERS = 5  # Number of parallel classification workers
+# Worker settings - BULK MODE (10 leads per API call)
+USE_BULK_MODE = True  # Set to True for 10x efficiency
+BULK_BATCH_SIZE = 10  # Leads per API call in bulk mode
+NUM_WORKERS = 5  # Number of parallel classification workers (legacy mode)
 BATCH_SIZE = 50  # Fetch 50 leads at a time (10 per worker)
 POLL_INTERVAL = 3  # Check for new leads every 3 seconds
 RATE_LIMIT_DELAY = 0.5  # Delay between API calls per worker (seconds)
@@ -93,7 +95,7 @@ signal.signal(signal.SIGTERM, signal_handler)
 # ============== IMPORTS (after path setup) ==============
 
 from leads.models import LeadRaw, ClassificationStatus
-from leads.ai_classifier import classify_lead as ai_classify_lead
+from leads.ai_classifier import classify_lead as ai_classify_lead, classify_leads_bulk
 
 # ============== CLASSIFICATION LOGIC ==============
 
@@ -255,36 +257,6 @@ def get_pending_leads(batch_size: int = BATCH_SIZE) -> list:
     return leads
 
 
-def process_batch() -> dict:
-    """Process a batch of pending leads"""
-    leads = get_pending_leads()
-    
-    if not leads:
-        return {'processed': 0, 'success': 0, 'failed': 0}
-    
-    success = 0
-    failed = 0
-    
-    for lead in leads:
-        if shutdown_event.is_set():
-            logger.info("Shutdown requested, stopping batch processing")
-            break
-        
-        result = classify_lead(lead)
-        
-        if result['success']:
-            success += 1
-            logger.info(f"✅ Classified lead: {lead.get('email', lead.get('name', 'unknown'))}")
-        else:
-            failed += 1
-            logger.warning(f"❌ Failed to classify lead: {lead.get('email', 'unknown')} - {result.get('error', 'Unknown')}")
-        
-        # Rate limiting per worker
-        time.sleep(RATE_LIMIT_DELAY)
-    
-    return {'success': False, 'lead_id': lead_id, 'error': str(e)}
-
-
 def get_pending_leads(batch_size: int = BATCH_SIZE) -> list:
     """
     Get pending leads that need classification.
@@ -382,6 +354,122 @@ def process_batch_parallel() -> dict:
     return {'processed': len(leads), 'success': success, 'failed': failed}
 
 
+def process_batch_bulk(batch_size: int = 10) -> dict:
+    """
+    Process a batch using BULK classification (10 leads per API call).
+    Much more efficient - reduces API calls by 10x.
+    """
+    leads = get_pending_leads(batch_size=batch_size)
+    
+    if not leads:
+        return {'processed': 0, 'success': 0, 'failed': 0}
+    
+    success = 0
+    failed = 0
+    
+    try:
+        # Convert MongoDB docs to LeadRaw objects
+        lead_objects = [dict_to_lead_raw(doc) for doc in leads]
+        lead_id_map = {str(i): leads[i] for i in range(len(leads))}
+        
+        # Call bulk classification (10 leads per API call)
+        logger.info(f"🚀 Bulk classifying {len(lead_objects)} leads in single API call...")
+        results = classify_leads_bulk(lead_objects, source="bulk_agent", max_per_call=10)
+        
+        # Process results
+        for i, (lead_raw, classification_result, classification_log) in enumerate(results):
+            lead_doc = leads[i]
+            lead_id = str(lead_doc['_id'])
+            
+            try:
+                if classification_result and classification_log.success:
+                    # Update raw lead status
+                    leads_raw_collection.update_one(
+                        {'_id': lead_doc['_id']},
+                        {
+                            '$set': {
+                                'classification_status': ClassificationStatus.CLASSIFIED.value,
+                                'classified_at': datetime.utcnow(),
+                                'classification_attempts': lead_doc.get('classification_attempts', 0) + 1
+                            }
+                        }
+                    )
+                    
+                    # Create enriched lead document
+                    enriched_data = {
+                        'raw_lead_id': lead_id,
+                        'linkedin_url': lead_raw.linkedin_url,
+                        'name': lead_raw.name,
+                        'first_name': classification_result.first_name,
+                        'last_name': classification_result.last_name,
+                        'email': lead_raw.email,
+                        'title': lead_raw.title,
+                        'company_name': classification_result.company_name or lead_raw.company_name,
+                        'company_domain': classification_result.company_domain or lead_raw.company_domain,
+                        'company_industry': classification_result.company_industry,
+                        'location': classification_result.inferred_location or lead_raw.location,
+                        'seniority_level': classification_result.seniority_level.value if hasattr(classification_result.seniority_level, 'value') else str(classification_result.seniority_level),
+                        'department': classification_result.department.value if hasattr(classification_result.department, 'value') else str(classification_result.department),
+                        'persona': classification_result.persona.value if hasattr(classification_result.persona, 'value') else str(classification_result.persona),
+                        'company_size': classification_result.company_size.value if hasattr(classification_result.company_size, 'value') else str(classification_result.company_size),
+                        'region': classification_result.region.value if hasattr(classification_result.region, 'value') else str(classification_result.region),
+                        'buying_role': classification_result.buying_role.value if hasattr(classification_result.buying_role, 'value') else str(classification_result.buying_role),
+                        'confidence_score': classification_result.confidence_score,
+                        'classified_at': datetime.utcnow(),
+                        'source': lead_doc.get('source'),
+                        'stage': 'new'
+                    }
+                    
+                    leads_enriched_collection.update_one(
+                        {'raw_lead_id': lead_id},
+                        {'$set': enriched_data},
+                        upsert=True
+                    )
+                    
+                    success += 1
+                    logger.debug(f"✅ Bulk classified: {lead_raw.email or lead_raw.name}")
+                else:
+                    # Classification failed
+                    attempts = lead_doc.get('classification_attempts', 0) + 1
+                    new_status = ClassificationStatus.FAILED.value if attempts >= MAX_RETRIES else ClassificationStatus.PENDING.value
+                    
+                    leads_raw_collection.update_one(
+                        {'_id': lead_doc['_id']},
+                        {
+                            '$set': {
+                                'classification_status': new_status,
+                                'classification_attempts': attempts,
+                                'last_error': classification_log.error_message if classification_log else 'Unknown error',
+                                'last_attempt_at': datetime.utcnow()
+                            }
+                        }
+                    )
+                    failed += 1
+            finally:
+                release_lead(lead_doc['_id'])
+        
+        logger.info(f"✅ Bulk batch complete: {success} success, {failed} failed")
+        
+    except Exception as e:
+        logger.error(f"Bulk classification error: {e}")
+        # Release all leads and mark as failed
+        for lead_doc in leads:
+            release_lead(lead_doc['_id'])
+            leads_raw_collection.update_one(
+                {'_id': lead_doc['_id']},
+                {
+                    '$set': {
+                        'classification_status': 'pending',
+                        'last_error': str(e),
+                        'last_attempt_at': datetime.utcnow()
+                    }
+                }
+            )
+        failed = len(leads)
+    
+    return {'processed': len(leads), 'success': success, 'failed': failed}
+
+
 def update_stats(stats: dict):
     """Update agent statistics in database"""
     with stats_lock:
@@ -421,17 +509,24 @@ def get_queue_status() -> dict:
 # ============== MAIN AGENT LOOP ==============
 
 def run_agent():
-    """Main agent loop - runs continuously with parallel workers"""
+    """Main agent loop - runs continuously with parallel workers or bulk mode"""
     logger.info("=" * 60)
-    logger.info("🚀 AUTO-CLASSIFICATION AGENT STARTED (Multi-Worker)")
+    logger.info("🚀 AUTO-CLASSIFICATION AGENT STARTED")
     logger.info("=" * 60)
-    logger.info(f"Configuration:")
-    logger.info(f"  - Workers: {NUM_WORKERS} parallel")
-    logger.info(f"  - Batch size: {BATCH_SIZE}")
-    logger.info(f"  - Poll interval: {POLL_INTERVAL}s")
-    logger.info(f"  - Rate limit delay: {RATE_LIMIT_DELAY}s per worker")
+    
+    if USE_BULK_MODE:
+        logger.info(f"Mode: BULK (10 leads per API call)")
+        logger.info(f"  - Batch size: {BULK_BATCH_SIZE} leads per API call")
+        logger.info(f"  - Poll interval: {POLL_INTERVAL}s")
+        logger.info(f"  - Effective throughput: ~{BULK_BATCH_SIZE * 60 / POLL_INTERVAL:.0f} leads/min")
+    else:
+        logger.info(f"Mode: Multi-Worker (1 lead per API call)")
+        logger.info(f"  - Workers: {NUM_WORKERS} parallel")
+        logger.info(f"  - Batch size: {BATCH_SIZE}")
+        logger.info(f"  - Rate limit delay: {RATE_LIMIT_DELAY}s per worker")
+        logger.info(f"  - Effective throughput: ~{NUM_WORKERS / RATE_LIMIT_DELAY:.1f} leads/sec")
+    
     logger.info(f"  - Max retries: {MAX_RETRIES}")
-    logger.info(f"  - Effective throughput: ~{NUM_WORKERS / RATE_LIMIT_DELAY:.1f} leads/sec")
     
     # Initial queue status
     status = get_queue_status()
@@ -441,12 +536,16 @@ def run_agent():
     
     while not shutdown_event.is_set():
         try:
-            # Process a batch with parallel workers
-            stats = process_batch_parallel()
+            # Process batch - use bulk mode if enabled
+            if USE_BULK_MODE:
+                stats = process_batch_bulk(batch_size=BULK_BATCH_SIZE)
+            else:
+                stats = process_batch_parallel()
             
             if stats['processed'] > 0:
                 idle_count = 0
-                logger.info(f"📊 Batch complete: {stats['success']} success, {stats['failed']} failed (using {NUM_WORKERS} workers)")
+                mode_str = "BULK" if USE_BULK_MODE else f"{NUM_WORKERS} workers"
+                logger.info(f"📊 Batch complete: {stats['success']} success, {stats['failed']} failed ({mode_str})")
                 update_stats(stats)
                 
                 # Log queue status periodically

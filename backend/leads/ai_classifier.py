@@ -278,11 +278,265 @@ def classify_lead(lead: LeadRaw, source: str = "api") -> Tuple[Optional[AIClassi
         return None, log
 
 
-# ============== BATCH CLASSIFICATION ==============
+# ============== BULK CLASSIFICATION (10 leads per API call) ==============
+
+BULK_SYSTEM_PROMPT = """B2B lead enrichment expert. Respond with JSON array only.
+
+For EACH lead in the input array, return a classification object:
+{"id":"str","first_name":"str","last_name":"str","predicted_email":"firstname.lastname@domain.com","seniority_level":"C-Level|VP|Director|Manager|IC|Unknown","department":"Sales|Marketing|Engineering|Operations|Finance|HR|Product|Other","persona":"Decision Maker|Influencer|Gatekeeper|Practitioner","buying_role":"Economic Buyer|Technical Buyer|User Buyer|Champion|Influencer|Unknown","gender":"Male|Female|Unknown","company_size":"Startup|SMB|Mid-Market|Enterprise","region":"US|EU|APAC|LATAM|Other","inferred_location":"str","company_name":"str","company_domain":"str","company_industry":"str","confidence_score":0.0-1.0}
+
+Rules: C-Level=CEO/CTO/CFO/Founder. Startup=1-50,SMB=51-200,Mid-Market=201-1000,Enterprise=1000+.
+Return a JSON array with one object per lead, preserving the "id" field to match input."""
+
+
+def classify_leads_bulk(
+    leads: List[LeadRaw], 
+    source: str = "background",
+    max_per_call: int = 10
+) -> List[Tuple[LeadRaw, Optional[AIClassificationOutput], AIClassificationLog]]:
+    """
+    Classify multiple leads in a SINGLE API call (10 leads per call).
+    Much more efficient than one-by-one classification.
+    
+    Args:
+        leads: List of LeadRaw objects to classify
+        source: Request source for rate limiting
+        max_per_call: Maximum leads per API call (default 10)
+    
+    Returns:
+        List of (lead, classification_result, log) tuples
+    """
+    if not leads:
+        return []
+    
+    start_time = time.time()
+    results = []
+    
+    # Process in chunks of max_per_call
+    for chunk_start in range(0, len(leads), max_per_call):
+        chunk = leads[chunk_start:chunk_start + max_per_call]
+        chunk_results = _classify_chunk(chunk, source, start_time)
+        results.extend(chunk_results)
+        
+        # Rate limiting between chunks
+        if chunk_start + max_per_call < len(leads):
+            time.sleep(0.5)
+    
+    return results
+
+
+def _classify_chunk(
+    leads: List[LeadRaw], 
+    source: str, 
+    start_time: float
+) -> List[Tuple[LeadRaw, Optional[AIClassificationOutput], AIClassificationLog]]:
+    """
+    Classify a chunk of leads (up to 10) in a single API call.
+    """
+    results = []
+    
+    # Build input array
+    leads_input = []
+    for i, lead in enumerate(leads):
+        leads_input.append({
+            "id": str(i),
+            "name": lead.name,
+            "title": lead.title,
+            "linkedin_url": lead.linkedin_url,
+            "snippet": lead.snippet or "-",
+            "location": lead.location or "-",
+            "company_name": lead.company_name or "-",
+            "email": lead.email or "-"
+        })
+    
+    user_prompt = f"""Classify these {len(leads)} leads. Return JSON array with one object per lead.
+
+{json.dumps(leads_input, indent=2)}"""
+
+    try:
+        # Call OpenAI with larger token limit for bulk response
+        result = chat_completion(
+            messages=[
+                {"role": "system", "content": BULK_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt}
+            ],
+            source=source,
+            endpoint="bulk_classify",
+            model=MODEL,
+            max_output_tokens=300 * len(leads),  # ~300 tokens per lead
+            temperature=TEMPERATURE,
+            response_format={"type": "json_object"}
+        )
+        
+        latency_ms = int((time.time() - start_time) * 1000)
+        
+        if not result.get("success"):
+            # Return failure logs for all leads in chunk
+            for lead in leads:
+                log = AIClassificationLog(
+                    raw_lead_id=str(lead.linkedin_url),
+                    linkedin_url=lead.linkedin_url,
+                    prompt_used="[BULK]",
+                    model_used=MODEL,
+                    raw_response=result.get("error", "API error"),
+                    success=False,
+                    error_message=result.get("error"),
+                    latency_ms=latency_ms
+                )
+                results.append((lead, None, log))
+            return results
+        
+        # Parse the bulk response
+        content = result.get("content", "")
+        try:
+            parsed = json.loads(content)
+            # Handle both {"results": [...]} and direct [...] formats
+            if isinstance(parsed, dict):
+                classifications = parsed.get("results", parsed.get("leads", list(parsed.values())[0] if parsed else []))
+            else:
+                classifications = parsed
+            
+            if not isinstance(classifications, list):
+                classifications = [classifications]
+            
+        except json.JSONDecodeError:
+            # JSON parsing failed - return failures
+            for lead in leads:
+                log = AIClassificationLog(
+                    raw_lead_id=str(lead.linkedin_url),
+                    linkedin_url=lead.linkedin_url,
+                    prompt_used="[BULK]",
+                    model_used=MODEL,
+                    raw_response=content,
+                    success=False,
+                    error_message="JSON parse error",
+                    latency_ms=latency_ms
+                )
+                results.append((lead, None, log))
+            return results
+        
+        # Map classifications back to leads
+        usage = result.get("usage", {})
+        tokens_used = usage.get("total_tokens", 0)
+        tokens_per_lead = tokens_used // len(leads) if leads else 0
+        
+        for i, lead in enumerate(leads):
+            # Find matching classification by id
+            classification_data = None
+            for c in classifications:
+                if str(c.get("id")) == str(i):
+                    classification_data = c
+                    break
+            
+            if not classification_data and i < len(classifications):
+                classification_data = classifications[i]
+            
+            if classification_data:
+                try:
+                    # Parse into AIClassificationOutput
+                    output = _parse_bulk_classification(classification_data, lead)
+                    log = AIClassificationLog(
+                        raw_lead_id=str(lead.linkedin_url),
+                        linkedin_url=lead.linkedin_url,
+                        prompt_used="[BULK]",
+                        model_used=MODEL,
+                        raw_response=json.dumps(classification_data),
+                        parsed_output=output.model_dump() if output else None,
+                        success=True,
+                        confidence_score=output.confidence_score if output else 0,
+                        tokens_used=tokens_per_lead,
+                        latency_ms=latency_ms // len(leads)
+                    )
+                    results.append((lead, output, log))
+                    
+                    # Cache the result
+                    if output:
+                        cache_classification(lead, output)
+                        
+                except Exception as e:
+                    log = AIClassificationLog(
+                        raw_lead_id=str(lead.linkedin_url),
+                        linkedin_url=lead.linkedin_url,
+                        prompt_used="[BULK]",
+                        model_used=MODEL,
+                        raw_response=json.dumps(classification_data),
+                        success=False,
+                        error_message=f"Parse error: {e}",
+                        latency_ms=latency_ms // len(leads)
+                    )
+                    results.append((lead, None, log))
+            else:
+                log = AIClassificationLog(
+                    raw_lead_id=str(lead.linkedin_url),
+                    linkedin_url=lead.linkedin_url,
+                    prompt_used="[BULK]",
+                    model_used=MODEL,
+                    raw_response="",
+                    success=False,
+                    error_message="No classification returned for this lead",
+                    latency_ms=latency_ms // len(leads)
+                )
+                results.append((lead, None, log))
+        
+        return results
+        
+    except Exception as e:
+        latency_ms = int((time.time() - start_time) * 1000)
+        for lead in leads:
+            log = AIClassificationLog(
+                raw_lead_id=str(lead.linkedin_url),
+                linkedin_url=lead.linkedin_url,
+                prompt_used="[BULK]",
+                model_used=MODEL,
+                raw_response="",
+                success=False,
+                error_message=f"Exception: {e}",
+                latency_ms=latency_ms
+            )
+            results.append((lead, None, log))
+        return results
+
+
+def _parse_bulk_classification(data: dict, lead: LeadRaw) -> AIClassificationOutput:
+    """
+    Parse bulk classification response into AIClassificationOutput.
+    """
+    def safe_enum(enum_class, value, default):
+        try:
+            if hasattr(enum_class, value):
+                return getattr(enum_class, value.upper().replace("-", "_").replace(" ", "_"))
+            for member in enum_class:
+                if member.value.lower() == str(value).lower():
+                    return member
+            return default
+        except:
+            return default
+    
+    return AIClassificationOutput(
+        first_name=data.get("first_name") or lead.first_name or "",
+        last_name=data.get("last_name") or lead.last_name or "",
+        predicted_email=data.get("predicted_email") or lead.email or "",
+        seniority_level=safe_enum(SeniorityLevel, data.get("seniority_level", "Unknown"), SeniorityLevel.UNKNOWN),
+        department=safe_enum(Department, data.get("department", "Other"), Department.OTHER),
+        persona=safe_enum(Persona, data.get("persona", "Practitioner"), Persona.PRACTITIONER),
+        buying_role=safe_enum(BuyingRole, data.get("buying_role", "Unknown"), BuyingRole.UNKNOWN),
+        gender=safe_enum(Gender, data.get("gender", "Unknown"), Gender.UNKNOWN),
+        company_size=safe_enum(CompanySize, data.get("company_size", "SMB"), CompanySize.SMB),
+        region=safe_enum(Region, data.get("region", "Other"), Region.OTHER),
+        inferred_location=data.get("inferred_location") or lead.location or "",
+        company_name=data.get("company_name") or lead.company_name or "",
+        company_domain=data.get("company_domain") or lead.company_domain or "",
+        company_industry=data.get("company_industry") or "",
+        confidence_score=float(data.get("confidence_score", 0.7))
+    )
+
+
+# ============== BATCH CLASSIFICATION (Legacy - one by one) ==============
 
 async def classify_leads_batch(leads: list[LeadRaw], batch_size: int = 5) -> list[Tuple[LeadRaw, Optional[AIClassificationOutput], AIClassificationLog]]:
     """
     Classify multiple leads with rate limiting and batching.
+    DEPRECATED: Use classify_leads_bulk() for 10x efficiency.
     """
     results = []
     
