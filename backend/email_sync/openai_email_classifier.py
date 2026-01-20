@@ -121,7 +121,7 @@ class OpenAIEmailClassifier:
     def __init__(
         self,
         db: MongoClient = None,
-        emails_collection: str = "gmail_messages",
+        emails_collection: str = "email_metadata",
         emails_db: str = "torpedo_gmail",
         review_queue_collection: str = "ai_review_queue"
     ):
@@ -160,7 +160,8 @@ class OpenAIEmailClassifier:
             leads_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
             self.leads_collection = leads_client["torpedo_settings"]["leads"]
         else:
-            self.leads_collection = client["torpedo_settings"]["leads"]
+            # When db is provided, use db.client to access other databases
+            self.leads_collection = db.client["torpedo_settings"]["leads"]
         
         self._setup_indexes()
     
