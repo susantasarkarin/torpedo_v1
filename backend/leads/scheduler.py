@@ -595,6 +595,286 @@ Return JSON: {{"results": [{{"name": "...", "score": 1-100, "reason": "1 sentenc
         return {"processed": 0, "scored": 0, "error": str(e)}
 
 
+# ============== GMAIL SYNC BATCH ==============
+
+async def run_gmail_sync_batch() -> dict:
+    """
+    Sync Gmail mailboxes in batch.
+    Uses Gmail API - syncs all active mailboxes.
+    """
+    try:
+        torpedo_gmail = client['torpedo_gmail']
+        
+        # Get active Gmail accounts
+        active_accounts = list(torpedo_gmail['gmail_accounts'].find(
+            {"is_active": True},
+            {"_id": 1, "email": 1}
+        ))
+        
+        if not active_accounts:
+            return {"processed": 0, "message": "No active Gmail accounts"}
+        
+        synced_count = 0
+        for account in active_accounts:
+            try:
+                # Import and run the sync function
+                from ..routers.gmail import sync_mailbox_internal
+                result = await sync_mailbox_internal(str(account["_id"]))
+                if result.get("success"):
+                    synced_count += 1
+            except Exception as e:
+                print(f"[Scheduler] Gmail sync error for {account.get('email')}: {e}")
+        
+        print(f"[Scheduler] Gmail Sync: {synced_count}/{len(active_accounts)} accounts")
+        
+        return {"processed": len(active_accounts), "synced": synced_count}
+    
+    except Exception as e:
+        print(f"[Scheduler] Gmail Sync error: {e}")
+        return {"processed": 0, "synced": 0, "error": str(e)}
+
+
+# ============== CINT HEALTH CHECK ==============
+
+async def run_cint_health_check() -> dict:
+    """
+    Check Cint subscription and resubscribe if needed.
+    Uses Cint API.
+    """
+    try:
+        from ..app.integrations.cint_integration import CintIntegration
+        from ..app.models.cint import OpportunitiesSubscriptionConfig
+        
+        cint = CintIntegration()
+        await cint.initialize()
+        
+        if not cint.cint_service:
+            return {"healthy": False, "message": "Cint service not available"}
+        
+        # Check subscription status
+        status = await cint.cint_service.get_opportunities_subscription()
+        
+        if status.get("success"):
+            print("[Scheduler] Cint Health: ✅ Subscription active")
+            return {"healthy": True, "status": "active"}
+        else:
+            # Attempt to resubscribe
+            print("[Scheduler] Cint Health: ⚠️ Subscription inactive, resubscribing...")
+            
+            # Get callback URL from settings
+            settings = db_torpedo_settings['app_settings'].find_one({"key": "app_settings"}) or {}
+            callback_url = settings.get("cint_callback_url", "")
+            
+            if not callback_url:
+                return {"healthy": False, "message": "No Cint callback URL configured"}
+            
+            config = OpportunitiesSubscriptionConfig(
+                callback_url=callback_url,
+                include_quotas=True,
+                payload_max_size_mb=10,
+                payload_max_survey_count=1000,
+                send_interval_seconds=30,
+                opportunities_filters=[],
+            )
+            
+            result = await cint.cint_service.create_opportunities_subscription(config)
+            
+            if result.get("success"):
+                print("[Scheduler] Cint Health: ✅ Resubscribed successfully")
+                return {"healthy": True, "status": "resubscribed"}
+            else:
+                print(f"[Scheduler] Cint Health: ❌ Resubscribe failed: {result.get('error')}")
+                return {"healthy": False, "error": result.get('error')}
+                
+    except ImportError:
+        return {"healthy": False, "message": "Cint integration not installed"}
+    except Exception as e:
+        print(f"[Scheduler] Cint Health error: {e}")
+        return {"healthy": False, "error": str(e)}
+
+
+# ============== CPX SURVEY REFRESH ==============
+
+async def run_cpx_refresh() -> dict:
+    """
+    Refresh CPX survey inventory.
+    Uses CPX API.
+    """
+    try:
+        from ..routers.traffic import refresh_cpx_surveys_internal
+        
+        result = await refresh_cpx_surveys_internal()
+        
+        if result.get("success"):
+            count = result.get("survey_count", 0)
+            print(f"[Scheduler] CPX Refresh: ✅ {count} surveys")
+            return {"processed": 1, "surveys": count}
+        else:
+            print(f"[Scheduler] CPX Refresh: ❌ {result.get('error')}")
+            return {"processed": 0, "error": result.get('error')}
+            
+    except ImportError:
+        # Try alternative method
+        try:
+            cpx_db = client['cpx_db']
+            surveys = cpx_db['cpx_surveys']
+            count = surveys.count_documents({})
+            print(f"[Scheduler] CPX Refresh: ✅ {count} surveys in DB")
+            return {"processed": 1, "surveys": count}
+        except:
+            return {"processed": 0, "message": "CPX integration not available"}
+    except Exception as e:
+        print(f"[Scheduler] CPX Refresh error: {e}")
+        return {"processed": 0, "error": str(e)}
+
+
+# ============== TIER 2 ANALYSIS (OpenAI GPT-4o) ==============
+
+async def run_tier2_analysis_batch() -> dict:
+    """
+    Process high-value leads with GPT-4o for deeper analysis.
+    Uses OpenAI (premium tier) - 1 lead at a time for quality.
+    """
+    try:
+        from .openai_wrapper import chat_completion
+        
+        # Get high-score leads needing tier 2 analysis
+        leads_needing_analysis = list(db['leads_enriched'].find(
+            {
+                "lead_score": {"$gte": 80},  # Only high-value leads
+                "tier2_analysis": {"$exists": False},
+                "status": "classified"
+            },
+            {"_id": 1, "full_name": 1, "title": 1, "company_name": 1, "email": 1, 
+             "linkedin_url": 1, "seniority_level": 1, "department": 1}
+        ).limit(5))
+        
+        if not leads_needing_analysis:
+            return {"processed": 0, "message": "No leads need tier 2 analysis"}
+        
+        analyzed_count = 0
+        for lead in leads_needing_analysis:
+            prompt = f"""Provide a detailed B2B outreach strategy for this lead:
+
+Name: {lead.get('full_name', 'Unknown')}
+Title: {lead.get('title', 'N/A')}
+Company: {lead.get('company_name', 'N/A')}
+Seniority: {lead.get('seniority_level', 'Unknown')}
+Department: {lead.get('department', 'Unknown')}
+
+Provide:
+1. Pain points this person likely faces
+2. Best outreach approach
+3. Suggested value proposition
+4. Optimal contact timing
+5. Risk assessment (low/medium/high)
+
+Return as JSON with these keys: pain_points, outreach_approach, value_prop, timing, risk_level"""
+
+            result = chat_completion(
+                messages=[
+                    {"role": "system", "content": "You are a B2B sales strategy expert. Provide actionable insights."},
+                    {"role": "user", "content": prompt}
+                ],
+                source="scheduler_tier2",
+                max_output_tokens=500,
+                provider="openai"  # Use OpenAI GPT-4o for premium analysis
+            )
+            
+            if result.get("success"):
+                db['leads_enriched'].update_one(
+                    {"_id": lead["_id"]},
+                    {"$set": {
+                        "tier2_analysis": result["content"],
+                        "tier2_analyzed_at": datetime.utcnow(),
+                        "tier2_provider": "openai"
+                    }}
+                )
+                analyzed_count += 1
+        
+        print(f"[Scheduler] Tier 2 Analysis: {analyzed_count}/{len(leads_needing_analysis)} (OpenAI GPT-4o)")
+        
+        return {"processed": len(leads_needing_analysis), "analyzed": analyzed_count}
+    
+    except Exception as e:
+        print(f"[Scheduler] Tier 2 Analysis error: {e}")
+        return {"processed": 0, "analyzed": 0, "error": str(e)}
+
+
+# ============== OUTREACH EMAIL GENERATION (OpenAI) ==============
+
+async def run_outreach_email_batch() -> dict:
+    """
+    Generate personalized outreach emails using OpenAI.
+    Uses OpenAI GPT-4o - 5 leads per batch for quality.
+    """
+    try:
+        from .openai_wrapper import chat_completion
+        
+        # Get leads with tier2 analysis but no outreach email
+        leads_needing_outreach = list(db['leads_enriched'].find(
+            {
+                "tier2_analysis": {"$exists": True},
+                "outreach_email": {"$exists": False},
+                "email": {"$exists": True, "$ne": ""}
+            },
+            {"_id": 1, "full_name": 1, "title": 1, "company_name": 1, "tier2_analysis": 1}
+        ).limit(5))
+        
+        if not leads_needing_outreach:
+            return {"processed": 0, "message": "No leads need outreach emails"}
+        
+        generated_count = 0
+        for lead in leads_needing_outreach:
+            analysis = lead.get('tier2_analysis', '')
+            
+            prompt = f"""Write a personalized cold outreach email for:
+
+Name: {lead.get('full_name', 'Unknown')}
+Title: {lead.get('title', 'N/A')}
+Company: {lead.get('company_name', 'N/A')}
+
+Analysis insights:
+{analysis[:500] if analysis else 'N/A'}
+
+Requirements:
+- Subject line under 50 characters
+- Email body under 150 words
+- Personal, not salesy
+- Clear CTA for a quick call
+
+Return JSON: {{"subject": "...", "body": "...", "cta": "..."}}"""
+
+            result = chat_completion(
+                messages=[
+                    {"role": "system", "content": "You are a B2B cold email expert. Write concise, personalized emails."},
+                    {"role": "user", "content": prompt}
+                ],
+                source="scheduler_outreach",
+                max_output_tokens=400,
+                provider="openai"  # Use OpenAI for quality
+            )
+            
+            if result.get("success"):
+                db['leads_enriched'].update_one(
+                    {"_id": lead["_id"]},
+                    {"$set": {
+                        "outreach_email": result["content"],
+                        "outreach_generated_at": datetime.utcnow(),
+                        "outreach_provider": "openai"
+                    }}
+                )
+                generated_count += 1
+        
+        print(f"[Scheduler] Outreach Emails: {generated_count}/{len(leads_needing_outreach)} (OpenAI)")
+        
+        return {"processed": len(leads_needing_outreach), "generated": generated_count}
+    
+    except Exception as e:
+        print(f"[Scheduler] Outreach Email error: {e}")
+        return {"processed": 0, "generated": 0, "error": str(e)}
+
+
 # ============== MASTER SCHEDULER LOOP ==============
 
 async def scheduler_loop():

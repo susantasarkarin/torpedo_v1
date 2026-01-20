@@ -1,8 +1,14 @@
 """
-TWO-AGENT EMAIL CLASSIFIER
-===========================
-Agent 1: Creates comprehensive 500-word summary of email thread (including trail mails) + sender details
-Agent 2: Categorizes email based on the AI summary from Agent 1
+UNIFIED SINGLE-AGENT EMAIL CLASSIFIER
+=====================================
+Single API call for: Summary + Classification + Sender extraction
+
+Previously used 2-agent system (deprecated):
+- Agent 1: Creates 500-word summary of email thread + sender details
+- Agent 2: Categorizes email based on the AI summary
+
+Now uses UNIFIED approach (50% fewer API calls, lower cost, no RPD issues):
+- One prompt that does summarization, classification, and sender extraction together
 
 Categories:
 - client: Business inquiries FROM prospects/customers
@@ -143,6 +149,68 @@ CLASSIFICATION HINTS:
 - Vendor asking about THEIR unpaid invoice = vendor (not invoice)
 - Invoice WITH numbers for US to pay = invoice
 - "noreply@", system-generated = automated"""
+
+
+# ============================================================================
+# UNIFIED SINGLE-AGENT SYSTEM (Merged Agent 1 + Agent 2 into one API call)
+# ============================================================================
+
+UNIFIED_CLASSIFICATION_PROMPT = """You are an expert email analyst for Survey Fieldwork / Cogentix Research (B2B survey/market research company).
+
+Analyze the email thread and return a JSON with comprehensive summary, classification, and sender extraction - ALL IN ONE RESPONSE.
+
+**SUMMARY REQUIREMENTS:**
+- Create a 2-4 sentence summary covering the email's purpose, key points, and required actions
+- Include context from the full email thread/trail
+- Capture: purpose, key requests, important details (pricing, dates, specs), action items
+
+**CATEGORIES (pick ONE):**
+- client: Business inquiry FROM prospects/customers seeking OUR research/survey services (RFQ, project inquiry, meeting request)
+- vendor: FROM external suppliers/service providers contacting US (sales pitch, partnership, software vendor, vendor following up on THEIR invoice)
+- invoice: Invoice/bill attached or referenced, billing statement, payment request WITH specific invoice numbers
+- banking: FROM bank domains (axisbank, hdfcbank, icici, sbi, kotak, etc) - statements, transactions, OTPs
+- internal: Communications between @surveyfieldwork.com or @cogentixresearch.com team members
+- newsletter: Marketing newsletters with "unsubscribe", regular publications, industry digests
+- bounce: Delivery failure, "undeliverable", "mailer-daemon", NDR, returned mail
+- promotional: One-off marketing/sales email, ads, offers, cold outreach, webinar invites
+- automated: System notifications, noreply@, auto-replies, calendar invites, password resets, confirmations
+- others: ONLY if absolutely cannot determine
+
+**CLASSIFICATION HINTS:**
+- "mailer-daemon", "postmaster", "Undeliverable" = bounce
+- Bank domain emails = banking
+- Internal company domains communicating = internal
+- "Unsubscribe" + regular sender = newsletter
+- Vendor asking about THEIR unpaid invoice = vendor (not invoice)
+- Invoice WITH numbers for US to pay = invoice
+- "noreply@", system-generated = automated
+
+**SENDER INFO TO EXTRACT:**
+Extract from signatures, headers, and email content: name, email, title, company, phone, LinkedIn, location.
+
+**OUTPUT FORMAT (valid JSON only):**
+{
+  "summary": "2-4 sentence summary of email purpose and key points",
+  "category": "one of the 10 categories above",
+  "confidence": 0.85,
+  "reasoning": "Brief explanation for category choice",
+  "urgency": "critical|high|medium|low|none",
+  "action_required": true,
+  "action_items": ["action item 1", "action item 2"],
+  "key_points": ["key point 1", "key point 2"],
+  "sender_info": {
+    "name": "Full Name",
+    "first_name": "First",
+    "last_name": "Last",
+    "email": "sender@email.com",
+    "title": "Job Title if found",
+    "company_name": "Company Name",
+    "company_domain": "company.com",
+    "phone": "Phone if found",
+    "linkedin": "LinkedIn URL if found",
+    "location": "City, Country if found"
+  }
+}"""
 
 
 def get_thread_emails(thread_id: str, primary_email_id: str) -> List[Dict[str, Any]]:
@@ -327,6 +395,7 @@ def agent2_categorize(
 ) -> Dict[str, Any]:
     """
     AGENT 2: Categorize email based on Agent 1's summary
+    DEPRECATED: Use classify_email_unified() instead for single API call.
     """
     if not summary:
         return {
@@ -410,15 +479,138 @@ Determine the most appropriate category for this email."""
         return {"success": False, "error": str(e), "category": "others", "confidence": 0.0}
 
 
+def classify_email_unified(
+    emails: List[Dict[str, Any]],
+    primary_from_email: str,
+    primary_from_name: str = "",
+    source: str = "background"
+) -> Dict[str, Any]:
+    """
+    UNIFIED SINGLE-AGENT: Summary + Classification + Sender extraction in ONE API call.
+    Reduces API calls by 50% compared to the two-agent system.
+    """
+    if not emails:
+        return {"success": False, "error": "No emails provided"}
+    
+    # Build thread text
+    thread_text = build_thread_text(emails)
+    
+    # Extract sender info from header as fallback
+    first_name, last_name, full_name = extract_sender_name(primary_from_name or primary_from_email)
+    from_domain = primary_from_email.split("@")[-1].lower() if "@" in primary_from_email else ""
+    
+    user_prompt = f"""Analyze this email thread and provide summary, classification, and sender extraction in ONE JSON response.
+
+Primary Sender: {primary_from_name} <{primary_from_email}>
+Company Domain: {from_domain or 'Unknown'}
+Number of Emails in Thread: {len(emails)}
+Internal Company Domains: {', '.join(INTERNAL_DOMAINS)}
+
+=== EMAIL THREAD START ===
+{thread_text}
+=== EMAIL THREAD END ===
+
+Provide comprehensive analysis with category, summary, key points, action items, and sender details."""
+
+    try:
+        response = chat_completion(
+            messages=[
+                {"role": "system", "content": UNIFIED_CLASSIFICATION_PROMPT},
+                {"role": "user", "content": user_prompt}
+            ],
+            model=DEFAULT_MODEL,
+            temperature=0.15,
+            max_output_tokens=1000,  # Single call covers all outputs
+            response_format={"type": "json_object"},
+            source=source
+        )
+        
+        if not response or not response.get("success"):
+            logger.warning(f"Unified classifier failed: {response.get('error') if response else 'No response'}")
+            return {
+                "success": False,
+                "error": response.get("error") if response else "No response",
+                "category": "others",
+                "confidence": 0.0,
+                "summary": "",
+                "sender_info": {
+                    "name": full_name,
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "email": primary_from_email,
+                    "company_domain": from_domain
+                }
+            }
+        
+        content = response.get("content", "")
+        if not content:
+            return {"success": False, "error": "Empty response", "category": "others", "confidence": 0.0}
+        
+        # Parse JSON response
+        try:
+            clean_response = content.strip()
+            if clean_response.startswith("```"):
+                clean_response = re.sub(r'^```json?\s*', '', clean_response)
+                clean_response = re.sub(r'\s*```$', '', clean_response)
+            result = json.loads(clean_response)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Unified classifier JSON error: {e}")
+            return {"success": False, "error": f"JSON parse error: {e}", "category": "others", "confidence": 0.0}
+        
+        # Normalize category
+        category = result.get("category", "others").lower().strip()
+        if category not in CATEGORIES:
+            category = "others"
+        
+        # Ensure sender_info has all required fields
+        sender_info = result.get("sender_info", {})
+        sender_info.setdefault("email", primary_from_email)
+        sender_info.setdefault("name", full_name)
+        sender_info.setdefault("first_name", first_name)
+        sender_info.setdefault("last_name", last_name)
+        sender_info.setdefault("company_domain", from_domain)
+        sender_info.setdefault("title", "")
+        sender_info.setdefault("company_name", "")
+        sender_info.setdefault("phone", "")
+        sender_info.setdefault("linkedin", "")
+        sender_info.setdefault("location", "")
+        
+        return {
+            "success": True,
+            # Summary outputs
+            "summary": result.get("summary", ""),
+            "key_points": result.get("key_points", []),
+            "action_items": result.get("action_items", []),
+            "urgency": result.get("urgency", "none"),
+            "sender_info": sender_info,
+            # Classification outputs
+            "category": category,
+            "confidence": float(result.get("confidence", 0.8)),
+            "reasoning": result.get("reasoning", ""),
+            "action_required": result.get("action_required", False),
+            # Metadata
+            "model": DEFAULT_MODEL,
+            "method": "unified_single_agent"
+        }
+        
+    except Exception as e:
+        logger.error(f"Unified classifier error: {e}")
+        return {"success": False, "error": str(e), "category": "others", "confidence": 0.0}
+
+
 def classify_email_with_agents(
     email_id: str,
     include_thread: bool = True,
     source: str = "background"
 ) -> Dict[str, Any]:
     """
-    Main classification function using the 2-agent system:
-    Agent 1: Create 500-word summary (including thread/trail) + sender extraction
-    Agent 2: Categorize based on the summary
+    Main classification function using UNIFIED SINGLE-AGENT system.
+    Uses ONE API call instead of two, reducing costs and RPD usage by 50%.
+    
+    Previously used 2-agent system (deprecated):
+    - Agent 1: Summary + sender extraction
+    - Agent 2: Categorization
+    Now uses classify_email_unified() for everything in one call.
     """
     # Get the email
     try:
@@ -439,56 +631,61 @@ def classify_email_with_agents(
     primary_from_email = email_doc.get("from_email", "")
     primary_from_name = email_doc.get("from_name", "")
     
-    # AGENT 1: Generate summary
-    agent1_result = agent1_summarize(
+    # UNIFIED SINGLE-AGENT: Summary + Classification in ONE API call
+    unified_result = classify_email_unified(
         emails=emails,
         primary_from_email=primary_from_email,
         primary_from_name=primary_from_name,
         source=source
     )
     
-    if not agent1_result.get("success"):
-        # Fallback: still try to categorize with basic info
-        agent1_result = {
+    if not unified_result.get("success"):
+        # Fallback: return result with defaults
+        from_domain = primary_from_email.split("@")[-1] if "@" in primary_from_email else ""
+        first_name, last_name, full_name = extract_sender_name(primary_from_name or primary_from_email)
+        
+        return {
+            "email_id": email_id,
             "success": False,
+            "error": unified_result.get("error", "Classification failed"),
             "summary": f"Email from {primary_from_email}. Subject: {email_doc.get('subject', '')}",
+            "category": "others",
+            "confidence": 0.0,
+            "reasoning": "",
+            "urgency": "none",
+            "action_required": False,
+            "action_items": [],
+            "key_points": [],
             "sender_info": {
                 "email": primary_from_email,
-                "name": primary_from_name,
-                "company_domain": primary_from_email.split("@")[-1] if "@" in primary_from_email else ""
+                "name": full_name,
+                "first_name": first_name,
+                "last_name": last_name,
+                "company_domain": from_domain
             },
-            "key_points": [],
-            "action_items": [],
-            "urgency": "none"
+            "classified_at": datetime.utcnow(),
+            "method": "unified_single_agent_fallback",
+            "model": DEFAULT_MODEL,
+            "thread_email_count": len(emails)
         }
     
-    # AGENT 2: Categorize based on summary
-    agent2_result = agent2_categorize(
-        summary=agent1_result.get("summary", ""),
-        sender_info=agent1_result.get("sender_info", {}),
-        key_points=agent1_result.get("key_points", []),
-        source=source
-    )
-    
-    # Combine results
+    # Return unified result with email metadata
     final_result = {
         "email_id": email_id,
-        "success": agent1_result.get("success", False) and agent2_result.get("success", False),
-        # Agent 1 outputs
-        "summary": agent1_result.get("summary", ""),
-        "thread_summary": agent1_result.get("thread_summary", {}),
-        "key_points": agent1_result.get("key_points", []),
-        "action_items": agent1_result.get("action_items", []),
-        "urgency": agent1_result.get("urgency") or agent2_result.get("priority", "none"),
-        "sender_info": agent1_result.get("sender_info", {}),
-        # Agent 2 outputs
-        "category": agent2_result.get("category", "others"),
-        "confidence": agent2_result.get("confidence", 0.0),
-        "reasoning": agent2_result.get("reasoning", ""),
-        "action_required": agent2_result.get("action_required", False),
+        "success": True,
+        # Unified outputs
+        "summary": unified_result.get("summary", ""),
+        "key_points": unified_result.get("key_points", []),
+        "action_items": unified_result.get("action_items", []),
+        "urgency": unified_result.get("urgency", "none"),
+        "sender_info": unified_result.get("sender_info", {}),
+        "category": unified_result.get("category", "others"),
+        "confidence": unified_result.get("confidence", 0.0),
+        "reasoning": unified_result.get("reasoning", ""),
+        "action_required": unified_result.get("action_required", False),
         # Metadata
         "classified_at": datetime.utcnow(),
-        "method": "two_agent_system",
+        "method": "unified_single_agent",
         "model": DEFAULT_MODEL,
         "thread_email_count": len(emails)
     }
@@ -643,7 +840,7 @@ def classify_batch(
             cat = result["category"]
             stats["categories"][cat] = stats["categories"].get(cat, 0) + 1
 
-            # Delay between emails (2-agent system makes 2 API calls)
+            # Delay between emails (unified single-agent makes 1 API call)
             if delay_between_emails > 0:
                 time.sleep(delay_between_emails)
 
@@ -671,7 +868,7 @@ def classify_all_pending_emails(
         "batches": 0,
         "categories": {},
         "started_at": datetime.utcnow().isoformat(),
-        "method": "two_agent_system"
+        "method": "unified_single_agent"
     }
 
     batch_num = 0
@@ -682,7 +879,7 @@ def classify_all_pending_emails(
             logger.info(f"Reached max batches limit: {max_batches}")
             break
 
-        logger.info(f"Processing batch {batch_num} with {batch_size} emails (2-agent system)")
+        logger.info(f"Processing batch {batch_num} with {batch_size} emails (unified single-agent)")
 
         batch_stats = classify_batch(
             batch_size=batch_size,
@@ -729,7 +926,7 @@ def get_classification_stats() -> Dict[str, Any]:
         "classified": classified,
         "unclassified": total - classified,
         "categories": {r["_id"]: r["count"] for r in results if r["_id"]},
-        "method": "two_agent_system"
+        "method": "unified_single_agent"
     }
 
 

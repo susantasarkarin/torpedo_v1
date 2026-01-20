@@ -2532,6 +2532,263 @@ async def import_discovered_contacts_endpoint(request: ImportDiscoveredContactsR
         raise HTTPException(status_code=500, detail=f"Import error: {str(e)}")
 
 
+# ============== TWO-PHASE COMPANY DISCOVERY ENDPOINTS ==============
+
+class CompanyDiscoveryRequest(BaseModel):
+    """Request for Phase 1: Company Discovery"""
+    industries: Optional[List[str]] = None  # None = all industries
+    regions: Optional[List[str]] = None  # None = all regions
+    companies_per_segment: int = 50
+
+
+class ContactDiscoveryRequest(BaseModel):
+    """Request for Phase 2: Contact Discovery"""
+    companies: List[dict]  # Companies from Phase 1
+    contacts_per_company: int = 5
+
+
+class FullDiscoveryRequest(BaseModel):
+    """Request for full two-phase discovery"""
+    industries: Optional[List[str]] = None
+    regions: Optional[List[str]] = None
+    companies_per_segment: int = 50
+    contacts_per_company: int = 5
+    skip_cache: bool = False
+
+
+@router.get("/discover/industries")
+async def get_target_industries():
+    """
+    GET /leads/discover/industries
+    Get list of target industries for company discovery.
+    """
+    from .ingestion import TARGET_INDUSTRIES
+    return {
+        "industries": TARGET_INDUSTRIES,
+        "total": len(TARGET_INDUSTRIES)
+    }
+
+
+@router.get("/discover/regions")
+async def get_target_regions():
+    """
+    GET /leads/discover/regions
+    Get list of target regions for company discovery.
+    """
+    from .ingestion import TARGET_REGIONS
+    return {
+        "regions": TARGET_REGIONS,
+        "total": len(TARGET_REGIONS)
+    }
+
+
+@router.post("/discover/companies")
+async def discover_companies_endpoint(request: CompanyDiscoveryRequest):
+    """
+    POST /leads/discover/companies
+    Phase 1: Discover top companies in specified industries and regions.
+    
+    This finds top 50 companies per industry/region segment.
+    Returns companies for selection before Phase 2 (contact discovery).
+    """
+    try:
+        from .ingestion import discover_top_companies, TARGET_INDUSTRIES, TARGET_REGIONS
+        
+        industries = request.industries or TARGET_INDUSTRIES
+        regions = request.regions or list(TARGET_REGIONS.keys())
+        
+        all_companies = []
+        stats = {
+            "industries_searched": len(industries),
+            "regions_searched": len(regions),
+            "total_companies": 0,
+            "research_companies": 0,
+            "end_client_companies": 0,
+            "errors": []
+        }
+        
+        for industry in industries:
+            for region in regions:
+                try:
+                    companies = await discover_top_companies(
+                        industry=industry,
+                        region=region,
+                        num_companies=request.companies_per_segment
+                    )
+                    
+                    # Add selection flag for UI
+                    for company in companies:
+                        company["selected"] = True  # Default selected
+                        company["industry_segment"] = industry
+                        if company.get("is_research_company"):
+                            stats["research_companies"] += 1
+                        else:
+                            stats["end_client_companies"] += 1
+                    
+                    all_companies.extend(companies)
+                    stats["total_companies"] += len(companies)
+                    
+                except Exception as e:
+                    stats["errors"].append(f"{industry} - {region}: {str(e)}")
+        
+        return {
+            "success": True,
+            "companies": all_companies,
+            "stats": stats,
+            "message": f"Found {stats['total_companies']} companies ({stats['research_companies']} research/panel, {stats['end_client_companies']} end-clients)"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Company discovery error: {str(e)}")
+
+
+@router.post("/discover/company-contacts")
+async def discover_company_contacts_endpoint(request: ContactDiscoveryRequest):
+    """
+    POST /leads/discover/company-contacts
+    Phase 2: Find decision makers in selected companies.
+    
+    For end-client companies: Finds Consumer Insights/Market Research buyers
+    For research companies: Finds Operations/Field managers (pitch panel + scripting)
+    """
+    try:
+        from .ingestion import find_decision_makers_in_company
+        
+        all_leads = []
+        stats = {
+            "companies_searched": 0,
+            "total_contacts": 0,
+            "errors": []
+        }
+        
+        for company in request.companies:
+            if not company.get("company_name"):
+                continue
+                
+            stats["companies_searched"] += 1
+            
+            try:
+                leads = await find_decision_makers_in_company(
+                    company=company,
+                    num_contacts=request.contacts_per_company
+                )
+                
+                # Add selection flag for UI
+                for lead in leads:
+                    lead["selected"] = True
+                
+                all_leads.extend(leads)
+                stats["total_contacts"] += len(leads)
+                
+            except Exception as e:
+                stats["errors"].append(f"{company.get('company_name')}: {str(e)}")
+        
+        return {
+            "success": True,
+            "leads": all_leads,
+            "stats": stats,
+            "message": f"Found {stats['total_contacts']} decision makers across {stats['companies_searched']} companies"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Contact discovery error: {str(e)}")
+
+
+@router.post("/discover/full-discovery")
+async def run_full_discovery_endpoint(request: FullDiscoveryRequest):
+    """
+    POST /leads/discover/full-discovery
+    Run complete two-phase discovery:
+    1. Find top companies per industry/region
+    2. Find decision makers in each company
+    
+    This is the automated version that runs both phases.
+    """
+    try:
+        from .ingestion import run_full_company_discovery
+        
+        leads, stats = await run_full_company_discovery(
+            industries=request.industries,
+            regions=request.regions,
+            companies_per_segment=request.companies_per_segment,
+            contacts_per_company=request.contacts_per_company,
+            skip_cache=request.skip_cache
+        )
+        
+        return {
+            "success": True,
+            "leads": leads,
+            "total_leads": len(leads),
+            "stats": stats,
+            "message": f"Discovery complete: {stats.get('total_companies_found', 0)} companies, {len(leads)} decision makers"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Full discovery error: {str(e)}")
+
+
+@router.post("/discover/import-leads")
+async def import_discovered_leads_endpoint(request: dict):
+    """
+    POST /leads/discover/import-leads
+    Import leads from two-phase discovery into the database.
+    """
+    try:
+        from .models import LeadRaw
+        from .service import import_leads
+        
+        leads_data = request.get("leads", [])
+        if not leads_data:
+            raise HTTPException(status_code=400, detail="No leads provided")
+        
+        batch_id = f"company_discovery_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        
+        # Convert to LeadRaw format
+        leads_to_import = []
+        for lead in leads_data:
+            lead_raw = LeadRaw(
+                name=lead.get("name", ""),
+                title=lead.get("title", ""),
+                company_name=lead.get("company_name", ""),
+                linkedin_url=lead.get("linkedin_url", ""),
+                email=lead.get("email", ""),
+                location=lead.get("location", ""),
+                snippet=lead.get("snippet", ""),
+                source="openai_company_search",
+                import_batch_id=batch_id,
+                # Additional enrichment fields
+                seniority_level=lead.get("seniority_level", ""),
+                department=lead.get("department", ""),
+                buying_role=lead.get("buying_role", ""),
+                company_industry=lead.get("company_industry", ""),
+                company_size=lead.get("company_size", ""),
+                company_domain=lead.get("company_domain", ""),
+                company_linkedin_url=lead.get("company_linkedin_url", ""),
+                company_headquarters=lead.get("company_headquarters", ""),
+                # Service pitch context
+                is_research_company=lead.get("is_research_company", False),
+                service_pitch=lead.get("service_pitch", ""),
+                region=lead.get("region", "")
+            )
+            leads_to_import.append(lead_raw)
+        
+        # Import leads
+        result = import_leads(leads_to_import, auto_classify=True)
+        
+        return {
+            "success": True,
+            "imported": result.get("imported", len(leads_to_import)),
+            "duplicates": result.get("duplicates", 0),
+            "classified": result.get("classified", 0),
+            "batch_id": batch_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import error: {str(e)}")
+
+
 # ============== AI COMPANY DATABASE ENDPOINTS ==============
 
 class CompanyStatus:
