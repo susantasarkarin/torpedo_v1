@@ -382,12 +382,13 @@ async def run_classification_batch(state: LeadSchedulerState) -> tuple:
 async def scheduler_loop():
     """
     Main scheduler loop - runs continuously until stopped.
-    Alternates between search and classification.
+    Runs ALL tasks in PARALLEL: web search, lead classification, email sync.
     """
     global scheduler_state
     
-    print("[Scheduler] Starting lead ingestion scheduler...")
+    print("[Scheduler] Starting PARALLEL lead ingestion scheduler...")
     print(f"[Scheduler] Targets: {HOURLY_TARGET}/hour, {DAILY_TARGET}/day")
+    print("[Scheduler] Mode: Web Search + Lead Classification running in PARALLEL")
     
     scheduler_state.is_running = True
     scheduler_state.started_at = datetime.utcnow()
@@ -403,12 +404,10 @@ async def scheduler_loop():
             # Check if we've reached daily target
             if scheduler_state.leads_today >= DAILY_TARGET:
                 print(f"[Scheduler] Daily target reached. Waiting until midnight...")
-                # Calculate time until midnight UTC
                 now = datetime.utcnow()
                 tomorrow = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
                 wait_seconds = (tomorrow - now).total_seconds()
                 
-                # Wait in chunks to allow stopping
                 while wait_seconds > 0 and not stop_event.is_set():
                     await asyncio.sleep(min(60, wait_seconds))
                     wait_seconds -= 60
@@ -417,7 +416,6 @@ async def scheduler_loop():
             # Check if we've reached hourly target
             if scheduler_state.leads_this_hour >= HOURLY_TARGET:
                 print(f"[Scheduler] Hourly target reached. Waiting for next hour...")
-                # Wait until next hour
                 now = datetime.utcnow()
                 next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
                 wait_seconds = (next_hour - now).total_seconds()
@@ -428,24 +426,44 @@ async def scheduler_loop():
                 continue
             
             cycle_count += 1
-            print(f"\n[Scheduler] === Cycle {cycle_count} ===")
+            print(f"\n[Scheduler] === PARALLEL Cycle {cycle_count} ===")
             print(f"[Scheduler] Today: {scheduler_state.leads_today}/{DAILY_TARGET}, This hour: {scheduler_state.leads_this_hour}/{HOURLY_TARGET}")
             
-            # Phase 1: Search for new leads
+            # Generate search queries for this batch
             queries = generate_search_queries(scheduler_state.search_config, QUERIES_PER_BATCH)
-            imported = await run_search_batch(queries, scheduler_state)
             
-            if stop_event.is_set():
-                break
+            # RUN ALL TASKS IN PARALLEL using asyncio.gather
+            print("[Scheduler] 🚀 Starting parallel execution: Web Search + Classification")
             
-            # Phase 2: Classify pending leads
-            await run_classification_batch(scheduler_state)
+            results = await asyncio.gather(
+                # Task 1: Web Search for new leads
+                run_search_batch(queries, scheduler_state),
+                # Task 2: Classify pending leads
+                run_classification_batch(scheduler_state),
+                # Return exceptions instead of raising them
+                return_exceptions=True
+            )
+            
+            # Process results
+            search_result = results[0]
+            classify_result = results[1]
+            
+            if isinstance(search_result, Exception):
+                print(f"[Scheduler] ⚠️ Search error: {search_result}")
+            else:
+                print(f"[Scheduler] ✅ Search imported: {search_result} leads")
+                
+            if isinstance(classify_result, Exception):
+                print(f"[Scheduler] ⚠️ Classification error: {classify_result}")
+            else:
+                success, failure = classify_result if isinstance(classify_result, tuple) else (0, 0)
+                print(f"[Scheduler] ✅ Classification: {success} success, {failure} failed")
             
             if stop_event.is_set():
                 break
             
             # Pause between cycles
-            print(f"[Scheduler] Cycle complete. Pausing for {BATCH_DELAY_SECONDS}s...")
+            print(f"[Scheduler] Parallel cycle complete. Pausing for {BATCH_DELAY_SECONDS}s...")
             await asyncio.sleep(BATCH_DELAY_SECONDS)
             
         except Exception as e:

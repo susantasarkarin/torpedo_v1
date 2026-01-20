@@ -31,12 +31,11 @@ from concurrent.futures import ThreadPoolExecutor
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
-# Import Gemini wrapper for API calls
-from .gemini_wrapper import (
-    gemini_generate, 
-    get_key_manager,
-    GEMINI_FLASH_MODEL,
-    get_gemini_status
+# Import OpenAI wrapper for API calls (replaced Gemini)
+from .openai_wrapper import (
+    chat_completion,
+    DEFAULT_MODEL,
+    token_logger
 )
 
 load_dotenv()
@@ -180,15 +179,20 @@ Number of Emails in Thread: {len(emails)}
 Provide a thorough summary (max 500 words) covering the entire conversation flow, key points, and extract all contact information you can find."""
 
     try:
-        result = gemini_generate(
-            prompt=user_prompt,
-            system_instruction=AGENT1_SYSTEM_PROMPT,
-            model=GEMINI_FLASH_MODEL,
+        # Build messages for chat_completion
+        messages = [
+            {"role": "system", "content": AGENT1_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        result = chat_completion(
+            messages=messages,
+            source=source,
+            endpoint="agent1_summary",
+            model=DEFAULT_MODEL,
             max_output_tokens=800,  # Allow for full 500-word summary + contact info
             temperature=0.2,
-            response_format="json",
-            source=source,
-            endpoint="agent1_summary"
+            response_format={"type": "json_object"}
         )
         
         if not result.get("success"):
@@ -198,7 +202,11 @@ Provide a thorough summary (max 500 words) covering the entire conversation flow
                 "contact_email": contact_email
             }
         
-        parsed = result.get("parsed", {})
+        # Parse the JSON response
+        try:
+            parsed = json.loads(result.get("content", "{}"))
+        except json.JSONDecodeError:
+            parsed = {}
         
         # Ensure contact has the email we're tracking
         if parsed.get("contact"):
@@ -228,8 +236,8 @@ Provide a thorough summary (max 500 words) covering the entire conversation flow
             "confidence_score": parsed.get("confidence_score", 0.5),
             "email_count": len(emails),
             "created_at": datetime.utcnow(),
-            "tokens_used": result.get("tokens", {}),
-            "model": result.get("model")
+            "tokens_used": result.get("usage", {}),
+            "model": result.get("model", DEFAULT_MODEL)
         }
         
         # Upsert to avoid duplicates
@@ -422,15 +430,20 @@ Create appropriate categories based on the data patterns and assign each lead to
 Focus on actionable segmentation that helps sales and marketing teams prioritize their efforts."""
 
     try:
-        result = gemini_generate(
-            prompt=user_prompt,
-            system_instruction=AGENT2_SYSTEM_PROMPT,
-            model=GEMINI_FLASH_MODEL,
+        # Build messages for chat_completion
+        messages = [
+            {"role": "system", "content": AGENT2_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        result = chat_completion(
+            messages=messages,
+            source=source,
+            endpoint="agent2_categorize",
+            model=DEFAULT_MODEL,
             max_output_tokens=2000,  # Need more tokens for batch categorization
             temperature=0.3,
-            response_format="json",
-            source=source,
-            endpoint="agent2_categorize"
+            response_format={"type": "json_object"}
         )
         
         if not result.get("success"):
@@ -440,7 +453,11 @@ Focus on actionable segmentation that helps sales and marketing teams prioritize
                 "batch_id": batch_id
             }
         
-        parsed = result.get("parsed", {})
+        # Parse the JSON response
+        try:
+            parsed = json.loads(result.get("content", "{}"))
+        except json.JSONDecodeError:
+            parsed = {}
         
         # Store categorization run
         run_doc = {
@@ -450,8 +467,8 @@ Focus on actionable segmentation that helps sales and marketing teams prioritize
             "summary": parsed.get("summary", {}),
             "lead_count": len(summaries),
             "created_at": datetime.utcnow(),
-            "tokens_used": result.get("tokens", {}),
-            "model": result.get("model")
+            "tokens_used": result.get("usage", {}),
+            "model": result.get("model", DEFAULT_MODEL)
         }
         
         categorization_runs_collection.insert_one(run_doc)

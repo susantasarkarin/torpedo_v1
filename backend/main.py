@@ -647,16 +647,7 @@ try:
 except Exception as e:
     print(f"⚠️ Email Classification router not included: {e}")
 
-# Gemini Email Classification router (free tier with multi-key rotation)
-try:
-    try:
-        from .routers import gemini_classification as gemini_classification_router
-    except ImportError:
-        from routers import gemini_classification as gemini_classification_router
-    app.include_router(gemini_classification_router.router)
-    print("✅ Gemini Email Classification router included")
-except Exception as e:
-    print(f"⚠️ Gemini Email Classification router not included: {e}")
+# Gemini router removed - using OpenAI for all AI tasks
 
 # Audit Trail router
 try:
@@ -767,7 +758,7 @@ def background_gmail_sync():
     """
     Background job to sync emails for all registered mailboxes.
     Runs every 5 minutes to pull new emails without human intervention.
-    Also auto-classifies new emails using Gemini and extracts leads.
+    Also auto-classifies new emails using OpenAI and extracts leads.
     """
     try:
         print(f"🔄 [Gmail] Starting background sync at {datetime.utcnow().isoformat()}")
@@ -795,21 +786,18 @@ def background_gmail_sync():
             
             print(f"✅ [Gmail] Background sync complete: {total_synced} new emails across {len(mailboxes)} mailboxes")
             
-            # Auto-classify new emails if any were synced
+            # Auto-classify new emails using OpenAI if any were synced
             if total_synced > 0:
                 try:
-                    from leads.gemini_email_classifier import classify_pending_emails
-                    print(f"🤖 [AI] Starting auto-classification of {min(total_synced, 100)} emails...")
-                    classify_result = classify_pending_emails(
-                        limit=min(total_synced, 100),  # Limit to 100 per batch
-                        source="background"
+                    from leads.email_classifier import classify_all_pending_emails
+                    print(f"🤖 [AI] Starting OpenAI auto-classification of {min(total_synced, 100)} emails...")
+                    classify_result = classify_all_pending_emails(
+                        limit=min(total_synced, 100)  # Limit to 100 per batch
                     )
-                    if classify_result.get("success"):
-                        print(f"✅ [AI] Classified {classify_result.get('classified', 0)} emails, extracted {classify_result.get('leads_extracted', 0)} leads")
-                    else:
-                        print(f"⚠️ [AI] Classification: {classify_result.get('error', 'Unknown error')}")
-                except ImportError:
-                    print("⚠️ [AI] Gemini classifier not available")
+                    success_count = classify_result.get('classified', 0)
+                    print(f"✅ [AI] Classified {success_count} emails using OpenAI")
+                except ImportError as ie:
+                    print(f"⚠️ [AI] Email classifier not available: {ie}")
                 except Exception as classify_err:
                     print(f"⚠️ [AI] Classification error: {classify_err}")
                     

@@ -509,7 +509,7 @@ def chat_completion(
         )
 
 
-# ============== GEMINI IMPLEMENTATION (FREE TIER) ==============
+# ============== GEMINI IMPLEMENTATION (DEPRECATED - FORWARDS TO OPENAI) ==============
 
 def _gemini_chat_completion(
     messages: List[Dict[str, str]],
@@ -522,128 +522,20 @@ def _gemini_chat_completion(
     response_format: Optional[Dict] = None
 ) -> Dict[str, Any]:
     """
-    Internal Gemini implementation using FREE tier with multi-key rotation.
+    Gemini has been deprecated. All calls now forward to OpenAI.
+    Kept for backwards compatibility with existing code.
     """
-    try:
-        from .gemini_wrapper import gemini_generate, GEMINI_AVAILABLE
-        
-        if not GEMINI_AVAILABLE:
-            logger.warning("Gemini not available, falling back to OpenAI")
-            return _openai_chat_completion(
-                messages=messages,
-                model=DEFAULT_MODEL,
-                max_output_tokens=max_output_tokens,
-                temperature=temperature,
-                response_format=response_format,
-                source=source,
-                endpoint=endpoint,
-                start_time=start_time
-            )
-        
-        # Convert messages to prompt format
-        system_instruction = None
-        prompt_parts = []
-        
-        for msg in messages:
-            role = msg.get("role", "user")
-            content = msg.get("content", "")
-            
-            if role == "system":
-                system_instruction = content
-            elif role == "user":
-                prompt_parts.append(f"User: {content}")
-            elif role == "assistant":
-                prompt_parts.append(f"Assistant: {content}")
-        
-        prompt = "\n\n".join(prompt_parts)
-        
-        # Determine response format
-        resp_format = "json" if response_format and response_format.get("type") == "json_object" else "text"
-        
-        # Call Gemini
-        result = gemini_generate(
-            prompt=prompt,
-            system_instruction=system_instruction,
-            model=model,
-            max_output_tokens=max_output_tokens,
-            temperature=temperature,
-            response_format=resp_format,
-            source=source,
-            endpoint=endpoint
-        )
-        
-        latency_ms = int((time.time() - start_time) * 1000)
-        
-        if result["success"]:
-            tokens = result.get("tokens", {})
-            
-            # Log usage (cost is $0 for Gemini free tier)
-            token_logger.log_usage(
-                input_tokens=tokens.get("input", 0),
-                output_tokens=tokens.get("output", 0),
-                total_tokens=tokens.get("total", 0),
-                model=model,
-                source=source,
-                provider="gemini",
-                endpoint=endpoint,
-                latency_ms=latency_ms,
-                success=True,
-                input_data=prompt[:500],
-                output_response=result.get("content", "")[:500]
-            )
-            
-            return {
-                "content": result.get("content", ""),
-                "usage": {
-                    "input_tokens": tokens.get("input", 0),
-                    "output_tokens": tokens.get("output", 0),
-                    "total_tokens": tokens.get("total", 0)
-                },
-                "model": model,
-                "provider": "gemini",
-                "success": True,
-                "error": None
-            }
-        else:
-            error_msg = result.get("error", "Unknown Gemini error")
-            logger.warning(f"Gemini failed: {error_msg}, falling back to OpenAI")
-            
-            # Fallback to OpenAI if Gemini fails
-            return _openai_chat_completion(
-                messages=messages,
-                model=DEFAULT_MODEL,
-                max_output_tokens=max_output_tokens,
-                temperature=temperature,
-                response_format=response_format,
-                source=source,
-                endpoint=endpoint,
-                start_time=start_time
-            )
-    
-    except ImportError:
-        logger.warning("Gemini wrapper not available, falling back to OpenAI")
-        return _openai_chat_completion(
-            messages=messages,
-            model=DEFAULT_MODEL,
-            max_output_tokens=max_output_tokens,
-            temperature=temperature,
-            response_format=response_format,
-            source=source,
-            endpoint=endpoint,
-            start_time=start_time
-        )
-    except Exception as e:
-        logger.error(f"Gemini error: {e}, falling back to OpenAI")
-        return _openai_chat_completion(
-            messages=messages,
-            model=DEFAULT_MODEL,
-            max_output_tokens=max_output_tokens,
-            temperature=temperature,
-            response_format=response_format,
-            source=source,
-            endpoint=endpoint,
-            start_time=start_time
-        )
+    logger.info("Gemini deprecated - forwarding to OpenAI")
+    return _openai_chat_completion(
+        messages=messages,
+        model=DEFAULT_MODEL,
+        max_output_tokens=max_output_tokens,
+        temperature=temperature,
+        response_format=response_format,
+        source=source,
+        endpoint=endpoint,
+        start_time=start_time
+    )
 
 
 def _openai_chat_completion(
