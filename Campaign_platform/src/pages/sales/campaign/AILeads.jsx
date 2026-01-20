@@ -237,6 +237,20 @@ function AILeads() {
 
   // ============== FETCH DATA ==============
 
+  // Helper to get source filter for current tab
+  const getSourceFilterForTab = useCallback(() => {
+    switch (activeTab) {
+      case "classified-websearch":
+        return "web_search,google_search,linkedin";
+      case "classified-csv":
+        return "csv,csv_import,google_sheets,json_import";
+      case "classified-gmail":
+        return "email_import,gmail,imap";
+      default:
+        return null; // No source filter for "all" or "classified"
+    }
+  }, [activeTab]);
+
   const fetchLeads = useCallback(async () => {
     try {
       const params = new URLSearchParams();
@@ -246,6 +260,11 @@ function AILeads() {
       if (filters.persona) params.append("persona", filters.persona);
       if (filters.company_size) params.append("company_size", filters.company_size);
       if (filters.min_confidence) params.append("min_confidence", filters.min_confidence);
+      
+      // Add source filter based on active tab
+      const sourceFilter = getSourceFilterForTab();
+      if (sourceFilter) params.append("source", sourceFilter);
+      
       params.append("page", currentPage);
       params.append("limit", 50);
 
@@ -260,7 +279,7 @@ function AILeads() {
     } catch (err) {
       console.error("Error fetching leads:", err);
     }
-  }, [filters, currentPage, searchQuery, sessionId]);
+  }, [filters, currentPage, searchQuery, sessionId, getSourceFilterForTab]);
 
   const fetchRawLeads = useCallback(async () => {
     try {
@@ -439,10 +458,13 @@ function AILeads() {
     loadPhase2();
   }, []);
 
-  // Refetch leads when filters change
+  // Refetch leads when filters or active tab change
   useEffect(() => {
-    if (!loading) fetchLeads();
-  }, [filters, currentPage, searchQuery]);
+    if (!loading) {
+      setCurrentPage(1); // Reset to page 1 when tab changes
+      fetchLeads();
+    }
+  }, [filters, currentPage, searchQuery, activeTab]);
 
   // ============== IMPORT HANDLER ==============
 
@@ -1117,29 +1139,13 @@ function AILeads() {
         if (isCsv && hasEmail) return false;
         return l.classification_status === "Pending";
       });
-    } else if (activeTab === "classified-websearch") {
-      // Matches backend valid_sources for web search
-      return leads.filter(l => isInAIDatabase(l) && (l.source === "web_search" || l.source === "google_search" || l.source === "linkedin"));
-    } else if (activeTab === "classified-csv") {
-      // Matches backend valid_sources for CSV/file imports
-      // Include enriched leads with CSV source
-      const enrichedCsv = leads.filter(l => isInAIDatabase(l) && (l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import"));
-      // Also include raw leads with CSV source that have email (auto-classified)
-      const rawCsvWithEmail = rawLeads.filter(l => {
-        if (!isInAIDatabase(l)) return false; // Exclude leads moved to other stages
-        const isCsv = l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import";
-        const hasEmail = l.email && l.email.trim() !== "";
-        // Only include raw leads that aren't already in enriched
-        const notEnriched = !leads.some(e => e._id === l._id || e.email === l.email);
-        return isCsv && hasEmail && notEnriched;
-      });
-      return [...enrichedCsv, ...rawCsvWithEmail];
-    } else if (activeTab === "classified-gmail") {
-      // Matches backend source for email imports (IMAP)
-      return leads.filter(l => isInAIDatabase(l) && (l.source === "email_import" || l.source === "gmail" || l.source === "imap"));
+    } else if (activeTab === "classified-websearch" || activeTab === "classified-csv" || activeTab === "classified-gmail") {
+      // Backend already filters by source for these tabs, just filter by stage
+      return leads.filter(l => isInAIDatabase(l));
     } else if (activeTab === "classified") {
       return leads.filter(l => isInAIDatabase(l));
     }
+    // "all" tab - show raw leads
     return rawLeads.filter(l => isInAIDatabase(l));
   };
 

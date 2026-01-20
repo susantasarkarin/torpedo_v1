@@ -414,6 +414,14 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
     if filters.min_confidence:
         query["confidence_score"] = {"$gte": filters.min_confidence}
     
+    if filters.source:
+        # Support comma-separated sources for multi-source filtering
+        sources = [s.strip() for s in filters.source.split(",")]
+        if len(sources) == 1:
+            query["source"] = sources[0]
+        else:
+            query["source"] = {"$in": sources}
+    
     if filters.search:
         query["$or"] = [
             {"name": {"$regex": filters.search, "$options": "i"}},

@@ -1262,6 +1262,7 @@ async def get_leads_endpoint(
     region: Optional[Region] = None,
     min_confidence: Optional[float] = None,
     lead_stage: Optional[str] = None,
+    source: Optional[str] = None,
     search: Optional[str] = None,
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200)
@@ -1269,6 +1270,10 @@ async def get_leads_endpoint(
     """
     GET /leads
     Retrieve enriched leads with filtering and pagination.
+    
+    Args:
+        source: Filter by source (google_search, csv_import, gmail, etc.). 
+                Supports comma-separated values for multiple sources.
     """
     filters = LeadFilterParams(
         seniority_level=seniority_level,
@@ -1279,6 +1284,7 @@ async def get_leads_endpoint(
         region=region,
         min_confidence=min_confidence,
         lead_stage=lead_stage,
+        source=source,
         search=search,
         page=page,
         limit=limit
