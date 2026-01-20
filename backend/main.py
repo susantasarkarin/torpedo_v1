@@ -1556,6 +1556,54 @@ async def get_templates(
 # ----------------------------
 # Send Emails
 # ----------------------------
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+# SMTP Configuration (can be overridden via environment variables)
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Cogentix Research")
+
+
+def send_email_html(to_email: str, subject: str, html_content: str) -> bool:
+    """
+    Send an HTML email via SMTP.
+    
+    Args:
+        to_email: Recipient email address
+        subject: Email subject
+        html_content: HTML body of the email
+        
+    Returns:
+        True if email was sent successfully, False otherwise
+        
+    Raises:
+        Exception if SMTP is not configured or sending fails
+    """
+    if not SMTP_USER or not SMTP_PASSWORD:
+        raise Exception("SMTP credentials not configured. Set SMTP_USER and SMTP_PASSWORD environment variables.")
+    
+    # Create the email message
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_USER}>"
+    msg["To"] = to_email
+    
+    # Attach HTML content
+    msg.attach(MIMEText(html_content, "html"))
+    
+    # Send the email
+    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASSWORD)
+        server.sendmail(SMTP_USER, [to_email], msg.as_string())
+    
+    return True
+
+
 @app.post("/send-emails/")
 async def send_emails(data: Dict[str, Any] = Body(...)):
     contacts = data.get("contacts", [])

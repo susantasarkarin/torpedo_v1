@@ -350,6 +350,9 @@ export function LeadAgentProvider({ children }) {
     // State
     ...state,
     
+    // Alias for backward compatibility (components use 'jobs' but state has 'activeJobs')
+    jobs: state.activeJobs || [],
+    
     // API functions
     fetchQuota,
     fetchJobs,
@@ -369,7 +372,7 @@ export function LeadAgentProvider({ children }) {
     
     // Computed
     isQuotaExhausted: state.quota.is_limit_reached,
-    hasActiveJobs: state.activeJobs.some(j => j.status === 'running' || j.status === 'pending'),
+    hasActiveJobs: (state.activeJobs || []).some(j => j.status === 'running' || j.status === 'pending'),
   };
 
   return (

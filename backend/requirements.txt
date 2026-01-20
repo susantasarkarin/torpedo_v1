@@ -13,6 +13,9 @@ anthropic==0.40.0
 bcrypt==4.2.0
 redis>=5.0.0
 
+# Rate limiting
+slowapi>=0.1.9
+
 # Celery for background tasks
 celery>=5.3.0
 kombu>=5.3.0

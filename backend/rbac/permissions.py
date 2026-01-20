@@ -23,6 +23,7 @@ class PermissionCategory(str, Enum):
     OPS = "ops"
     ADMIN = "admin"
     SYSTEM = "system"
+    MARKETING = "marketing"
 
 
 class Permissions:
@@ -182,6 +183,45 @@ class Permissions:
     SYSTEM_APPROVAL_MANAGE = "system.approval.manage"
     
     # ========================================
+    # MARKETING MODULE (Website CMS)
+    # ========================================
+    
+    # Dashboard
+    MARKETING_DASHBOARD_VIEW = "marketing.dashboard.view"
+    
+    # Websites
+    MARKETING_WEBSITE_READ = "marketing.website.read"
+    MARKETING_WEBSITE_CREATE = "marketing.website.create"
+    MARKETING_WEBSITE_UPDATE = "marketing.website.update"
+    MARKETING_WEBSITE_DELETE = "marketing.website.delete"
+    
+    # Pages
+    MARKETING_PAGE_READ = "marketing.page.read"
+    MARKETING_PAGE_CREATE = "marketing.page.create"
+    MARKETING_PAGE_UPDATE = "marketing.page.update"
+    MARKETING_PAGE_DELETE = "marketing.page.delete"
+    MARKETING_PAGE_PUBLISH = "marketing.page.publish"
+    
+    # Blog Posts
+    MARKETING_BLOG_READ = "marketing.blog.read"
+    MARKETING_BLOG_CREATE = "marketing.blog.create"
+    MARKETING_BLOG_UPDATE = "marketing.blog.update"
+    MARKETING_BLOG_DELETE = "marketing.blog.delete"
+    MARKETING_BLOG_PUBLISH = "marketing.blog.publish"
+    
+    # Navigation
+    MARKETING_NAVIGATION_READ = "marketing.navigation.read"
+    MARKETING_NAVIGATION_UPDATE = "marketing.navigation.update"
+    
+    # Media Library
+    MARKETING_MEDIA_READ = "marketing.media.read"
+    MARKETING_MEDIA_UPLOAD = "marketing.media.upload"
+    MARKETING_MEDIA_DELETE = "marketing.media.delete"
+    
+    # Analytics
+    MARKETING_ANALYTICS_VIEW = "marketing.analytics.view"
+    
+    # ========================================
     # Helper Methods
     # ========================================
     
@@ -297,6 +337,34 @@ ROLE_TEMPLATES: Dict[str, Dict[str, any]] = {
             Permissions.SALES_RFQ_READ,
             Permissions.FINANCE_INVOICE_READ,
             Permissions.FINANCE_BILL_READ,
+        ],
+        "is_system_role": True,
+    },
+    "marketing_manager": {
+        "name": "Marketing Manager",
+        "description": "Full marketing access with website CMS management",
+        "permissions": [
+            *Permissions.by_category(PermissionCategory.MARKETING),
+            Permissions.ADMIN_AUDIT_READ,
+        ],
+        "is_system_role": True,
+    },
+    "marketing_user": {
+        "name": "Marketing User",
+        "description": "Create/edit marketing content, no publishing",
+        "permissions": [
+            Permissions.MARKETING_DASHBOARD_VIEW,
+            Permissions.MARKETING_WEBSITE_READ,
+            Permissions.MARKETING_PAGE_READ,
+            Permissions.MARKETING_PAGE_CREATE,
+            Permissions.MARKETING_PAGE_UPDATE,
+            Permissions.MARKETING_BLOG_READ,
+            Permissions.MARKETING_BLOG_CREATE,
+            Permissions.MARKETING_BLOG_UPDATE,
+            Permissions.MARKETING_NAVIGATION_READ,
+            Permissions.MARKETING_MEDIA_READ,
+            Permissions.MARKETING_MEDIA_UPLOAD,
+            Permissions.MARKETING_ANALYTICS_VIEW,
         ],
         "is_system_role": True,
     },

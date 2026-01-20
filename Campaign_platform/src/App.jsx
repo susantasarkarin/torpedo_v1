@@ -92,6 +92,12 @@ const PurchaseOrdersPage = lazy(() => import("./pages/finance/PurchaseOrdersPage
 const PurchaseOrdersImport = lazy(() => import("./pages/finance/PurchaseOrdersImport"))
 const ReportsPage = lazy(() => import("./pages/finance/ReportsPage"))
 
+// Marketing Pages (Website CMS)
+const MarketingWebsites = lazy(() => import("./pages/marketing/WebsitesPage"))
+const MarketingPages = lazy(() => import("./pages/marketing/PagesPage"))
+const MarketingBlog = lazy(() => import("./pages/marketing/BlogPage"))
+const MarketingMedia = lazy(() => import("./pages/marketing/MediaPage"))
+
 // Vendor Pages
 const VendorDashboard = lazy(() => import("./pages/vendor/VendorDashboard"))
 const UnifiedVendorsPage = lazy(() => import("./pages/vendor/UnifiedVendorsPage"))
@@ -206,6 +212,11 @@ function App() {
 
         {/* Marketing */}
         <Route path="marketing" element={<LazyPage><Marketing /></LazyPage>} />
+        <Route path="marketing/websites" element={<LazyPage><MarketingWebsites /></LazyPage>} />
+        <Route path="marketing/websites/:websiteId/pages" element={<LazyPage><MarketingPages /></LazyPage>} />
+        <Route path="marketing/websites/:websiteId/blog" element={<LazyPage><MarketingBlog /></LazyPage>} />
+        <Route path="marketing/websites/:websiteId/media" element={<LazyPage><MarketingMedia /></LazyPage>} />
+        <Route path="marketing/media" element={<LazyPage><MarketingMedia /></LazyPage>} />
 
         {/* Finance Routes - Flat structure like Operations */}
         <Route path="finance" element={<LazyPage><Finance /></LazyPage>} />

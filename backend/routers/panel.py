@@ -19,12 +19,17 @@ Endpoints:
 import os
 import secrets
 import re
+import logging
 from datetime import datetime, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, EmailStr, Field, validator
 from bson import ObjectId
 from pymongo import MongoClient
+
+# Rate limiting
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 # Auth utilities
 try:
@@ -33,6 +38,13 @@ try:
 except ImportError:
     from auth import hash_password, verify_password
     from session_store import get_session_store
+
+# ============== LOGGING ==============
+logger = logging.getLogger(__name__)
+
+# ============== RATE LIMITING ==============
+# Create limiter instance - uses client IP for rate limiting
+limiter = Limiter(key_func=get_remote_address)
 
 # ============== CONFIGURATION ==============
 
@@ -226,8 +238,12 @@ async def get_current_panelist(request: Request) -> dict:
 # ============== AUTH ENDPOINTS ==============
 
 @router.post("/signup", response_model=dict)
-async def signup(data: PanelistSignupRequest):
-    """Register a new panelist account"""
+@limiter.limit("3/hour")  # Rate limit: 3 signups per hour per IP
+async def signup(request: Request, data: PanelistSignupRequest):
+    """Register a new panelist account
+    
+    Rate limited to 3 requests per hour per IP to prevent abuse.
+    """
     
     # Check if email already exists
     existing = panelists_collection.find_one({"email": data.email.lower()})
@@ -273,8 +289,12 @@ async def signup(data: PanelistSignupRequest):
 
 
 @router.post("/login", response_model=PanelistLoginResponse)
-async def login(data: PanelistLoginRequest):
-    """Authenticate panelist and create session"""
+@limiter.limit("5/minute")  # Rate limit: 5 login attempts per minute per IP
+async def login(request: Request, data: PanelistLoginRequest):
+    """Authenticate panelist and create session
+    
+    Rate limited to 5 requests per minute per IP to prevent brute force attacks.
+    """
     
     panelist = panelists_collection.find_one({"email": data.email.lower()})
     
@@ -325,8 +345,12 @@ async def logout(request: Request):
 
 
 @router.post("/forgot-password")
-async def forgot_password(data: ForgotPasswordRequest):
-    """Request password reset email"""
+@limiter.limit("3/hour")  # Rate limit: 3 password reset requests per hour per IP
+async def forgot_password(request: Request, data: ForgotPasswordRequest):
+    """Request password reset email
+    
+    Rate limited to 3 requests per hour per IP to prevent abuse.
+    """
     panelist = panelists_collection.find_one({"email": data.email.lower()})
     
     # Always return success to prevent email enumeration
@@ -345,8 +369,11 @@ async def forgot_password(data: ForgotPasswordRequest):
     )
     
     # TODO: Send email with reset link
-    # For now, just log the token (in production, send email)
-    print(f"Password reset token for {data.email}: {reset_token}")
+    # In production, integrate with email service (SendGrid, AWS SES, etc.)
+    # SECURITY: Never log tokens in production
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Password reset requested for email: {data.email[:3]}***")
     
     return {"message": "If the email exists, a password reset link will be sent"}
 

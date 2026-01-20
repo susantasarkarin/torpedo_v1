@@ -289,7 +289,7 @@ def record_email_sent(account_id: str):
     )
 
 
-def get_authenticator(account_id: str) -> GmailAuthenticator:
+def get_authenticator(account_id: str):
     """Get or create authenticator for account"""
     if account_id not in _authenticators:
         config_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'gmail_config', account_id)
@@ -1904,7 +1904,7 @@ async def get_mail_pool_stats(
         
         # Get pending review count from ai_review_queue
         try:
-            review_queue = mail_pool_client["email_automation"]["ai_review_queue"]
+            review_queue = mongo_client["email_automation"]["ai_review_queue"]
             pending_review_count = review_queue.count_documents({"status": "pending"})
         except Exception as e:
             logger.debug(f"Could not get review queue count: {e}")
