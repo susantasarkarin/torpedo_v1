@@ -1076,8 +1076,10 @@ function AILeads() {
   
   // Helper to check if a lead belongs to AI Database stage
   const isInAIDatabase = (lead) => {
-    // A lead is in AI Database if lead_stage is 'ai_database', undefined, null, or empty
-    return !lead.lead_stage || lead.lead_stage === 'ai_database';
+    // A lead is in AI Database if stage is 'ai_database', undefined, null, or empty
+    // Backend uses 'stage' field, not 'lead_stage'
+    const stage = lead.stage || lead.lead_stage;
+    return !stage || stage === 'ai_database' || stage === '';
   };
 
   const getPendingCount = () => {
