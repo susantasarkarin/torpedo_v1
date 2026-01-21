@@ -189,6 +189,11 @@ class RFQUpdate(BaseModel):
     ir: Optional[float] = None
     country: Optional[str] = None
     sample_size: Optional[int] = None
+    target_audience: Optional[str] = None
+    timeline: Optional[str] = None
+    study_type: Optional[str] = None
+    budget: Optional[float] = None
+    additional_requirements: Optional[str] = None
 
 
 class RFQResponse(BaseModel):
@@ -213,12 +218,18 @@ class RFQResponse(BaseModel):
     summary: str = ""
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
-    # New fields for enhanced RFQ
+    # New fields for enhanced RFQ (AI extracted)
     methodology: Optional[str] = None
     loi: Optional[int] = None
     ir: Optional[float] = None
     country: Optional[str] = None
     sample_size: Optional[int] = None
+    target_audience: Optional[str] = None
+    timeline: Optional[str] = None
+    study_type: Optional[str] = None
+    budget: Optional[float] = None
+    additional_requirements: Optional[str] = None
+    ai_summary: Optional[str] = None
     # Email body and sender details
     email_body: Optional[str] = None
     sender_name: Optional[str] = None
@@ -296,12 +307,18 @@ def rfq_to_response(rfq: Dict[str, Any]) -> Dict[str, Any]:
         "created_at": rfq.get("created_at").isoformat() if rfq.get("created_at") else None,
         "updated_at": rfq.get("updated_at").isoformat() if rfq.get("updated_at") else None,
         "created_by": rfq.get("created_by", "auto"),
-        # New enhanced RFQ fields
+        # New enhanced RFQ fields from AI extraction
         "methodology": rfq.get("methodology"),
         "loi": rfq.get("loi"),
         "ir": rfq.get("ir"),
         "country": rfq.get("country"),
         "sample_size": rfq.get("sample_size"),
+        "target_audience": rfq.get("target_audience"),
+        "timeline": rfq.get("timeline"),
+        "study_type": rfq.get("study_type"),
+        "budget": rfq.get("budget"),
+        "additional_requirements": rfq.get("additional_requirements"),
+        "ai_summary": rfq.get("ai_summary"),
         # Email body and sender details (for RFQ detail view)
         "email_body": rfq.get("email_body"),
         "sender_name": rfq.get("sender_name"),
@@ -560,6 +577,16 @@ async def update_rfq(rfq_id: str, rfq_data: RFQUpdate) -> Dict[str, Any]:
         update_doc["country"] = rfq_data.country
     if rfq_data.sample_size is not None:
         update_doc["sample_size"] = rfq_data.sample_size
+    if rfq_data.target_audience is not None:
+        update_doc["target_audience"] = rfq_data.target_audience
+    if rfq_data.timeline is not None:
+        update_doc["timeline"] = rfq_data.timeline
+    if rfq_data.study_type is not None:
+        update_doc["study_type"] = rfq_data.study_type
+    if rfq_data.budget is not None:
+        update_doc["budget"] = rfq_data.budget
+    if rfq_data.additional_requirements is not None:
+        update_doc["additional_requirements"] = rfq_data.additional_requirements
     
     if rfq_data.status is not None:
         update_doc["status"] = rfq_data.status

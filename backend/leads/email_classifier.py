@@ -51,10 +51,10 @@ CATEGORIES = [
 # Unified system prompt for classification + summarization + lead extraction
 UNIFIED_SYSTEM_PROMPT = """You are an email analyzer for a B2B survey/market research company (Survey Fieldwork / Cogentix Research).
 
-Analyze the email and return JSON with summary, classification, and sender information.
+Analyze the email and return JSON with summary, classification, sender information, and RFQ details if applicable.
 
 CATEGORIES (pick ONE most appropriate):
-- client: Business inquiry FROM prospects/customers seeking OUR research/survey services (RFQ, project inquiry, meeting request about their needs)
+- client: Business inquiry FROM prospects/customers seeking OUR research/survey services (RFQ, project inquiry, meeting request about their needs, pricing request, feasibility check)
 - vendor: FROM external suppliers/service providers contacting US (sales pitch, partnership offer, software vendor, payment followup FROM vendor about THEIR invoice)
 - invoice: Invoice/bill attached or referenced, billing statement, payment request WITH specific invoice details/numbers
 - banking: FROM bank domains (axisbank, hdfcbank, icici, sbi, kotak, etc) - statements, transactions, OTPs, KYC, alerts
@@ -73,6 +73,21 @@ OUTPUT FORMAT (valid JSON only, no markdown):
   "urgency": "critical|high|medium|low|none",
   "action_required": true/false,
   "action_items": ["list of specific action items if any"],
+  "is_rfq": true/false,
+  "rfq_details": {
+    "title": "Brief title for the RFQ/project (e.g., 'Healthcare Survey - US')",
+    "methodology": "CATI|CAWI|F2F|IDI|Focus Group|Mixed|Online Panel|null",
+    "loi": null or number (Length of Interview in minutes, extract from 'LOI', '15 min survey', etc.),
+    "ir": null or number (Incidence Rate percentage, extract from 'IR', '50% incidence', etc.),
+    "sample_size": null or number (n=500, 'need 500 completes', 'sample of 1000', etc.),
+    "country": "Target country/countries (US, UK, India, Global, etc.)",
+    "target_audience": "Description of who needs to be surveyed",
+    "timeline": "Project timeline or deadline if mentioned",
+    "budget": null or number (estimated budget/CPI if mentioned),
+    "currency": "USD|EUR|GBP|INR|null",
+    "study_type": "B2B|B2C|Healthcare|IT|Consumer|Other",
+    "additional_requirements": "Any special requirements mentioned"
+  },
   "sender_info": {
     "name": "Full name of sender (extract from signature or From header)",
     "first_name": "First name only",
@@ -102,7 +117,20 @@ CLASSIFICATION HINTS:
 - "noreply@", "no-reply@", system-generated = automated
 - Research/survey project inquiry from external company = client
 
-IMPORTANT: Extract as much sender information as possible from the email signature, headers, and content."""
+RFQ DETECTION HINTS (set is_rfq=true if ANY of these):
+- Mentions "feasibility", "pricing", "quote", "RFQ", "proposal", "bid"
+- Asks about sample availability, field capacity, panel size
+- Mentions LOI (Length of Interview), IR (Incidence Rate), CPI (Cost Per Interview)
+- Requests survey/research services with specific requirements
+- Asks for timeline or availability for a project
+- Contains project specifications (n=, completes, respondents)
+
+IMPORTANT: 
+- Extract as much sender information as possible from the email signature, headers, and content.
+- For RFQ emails, extract ALL available project details even if partial.
+- LOI is usually in minutes (e.g., "15 min LOI" = 15)
+- IR is usually a percentage (e.g., "IR: 25%" = 25)
+- Sample size often mentioned as "n=500" or "500 completes" = 500"""
 
 
 def extract_sender_name(from_header: str) -> tuple:
@@ -202,6 +230,16 @@ Analyze this email. Return valid JSON only, no markdown formatting."""
         # Extract sender info with fallbacks
         sender_info = result.get("sender_info", {})
         
+        # Extract RFQ details if available
+        is_rfq = result.get("is_rfq", False)
+        rfq_details = result.get("rfq_details", {})
+        
+        # Auto-detect RFQ if category is client and has project details
+        if category == "client" and not is_rfq:
+            # Check if there are meaningful RFQ details
+            if rfq_details.get("loi") or rfq_details.get("sample_size") or rfq_details.get("methodology"):
+                is_rfq = True
+        
         return {
             "email_id": email_id,
             "success": True,
@@ -211,6 +249,21 @@ Analyze this email. Return valid JSON only, no markdown formatting."""
             "urgency": result.get("urgency", "none"),
             "action_required": result.get("action_required", False),
             "action_items": result.get("action_items", []),
+            "is_rfq": is_rfq,
+            "rfq_details": {
+                "title": rfq_details.get("title", ""),
+                "methodology": rfq_details.get("methodology"),
+                "loi": rfq_details.get("loi"),
+                "ir": rfq_details.get("ir"),
+                "sample_size": rfq_details.get("sample_size"),
+                "country": rfq_details.get("country"),
+                "target_audience": rfq_details.get("target_audience"),
+                "timeline": rfq_details.get("timeline"),
+                "budget": rfq_details.get("budget"),
+                "currency": rfq_details.get("currency"),
+                "study_type": rfq_details.get("study_type"),
+                "additional_requirements": rfq_details.get("additional_requirements")
+            },
             "sender_info": {
                 "name": sender_info.get("name") or full_name,
                 "first_name": sender_info.get("first_name") or first_name,
@@ -249,6 +302,21 @@ def _default_result(email_id: str, from_email: str, first_name: str, last_name: 
         "urgency": "none",
         "action_required": False,
         "action_items": [],
+        "is_rfq": False,
+        "rfq_details": {
+            "title": "",
+            "methodology": None,
+            "loi": None,
+            "ir": None,
+            "sample_size": None,
+            "country": None,
+            "target_audience": None,
+            "timeline": None,
+            "budget": None,
+            "currency": None,
+            "study_type": None,
+            "additional_requirements": None
+        },
         "sender_info": {
             "name": full_name,
             "first_name": first_name,

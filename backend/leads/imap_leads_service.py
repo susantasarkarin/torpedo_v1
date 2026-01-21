@@ -784,10 +784,15 @@ def extract_rfq_value(body: str, subject: str = "") -> Tuple[Optional[float], st
     return max_value, detected_currency
 
 
-def create_or_update_rfq(email_data: Dict[str, Any], lead_id: str = None) -> Optional[str]:
+def create_or_update_rfq(email_data: Dict[str, Any], lead_id: str = None, rfq_details: Dict[str, Any] = None) -> Optional[str]:
     """
-    Create or update an RFQ from email data.
+    Create or update an RFQ from email data with AI-extracted details.
     Returns the RFQ ID if created/updated, None otherwise.
+    
+    Args:
+        email_data: Email information (contact_email, subject, body, etc.)
+        lead_id: Optional lead ID to link
+        rfq_details: AI-extracted RFQ details (loi, ir, country, sample_size, etc.)
     """
     contact_email = email_data.get("contact_email", "")
     if not contact_email:
@@ -798,6 +803,9 @@ def create_or_update_rfq(email_data: Dict[str, Any], lead_id: str = None) -> Opt
         email_data.get("body", ""),
         email_data.get("subject", "")
     )
+    
+    # Use AI-extracted details if available
+    rfq_details = rfq_details or {}
     
     # Check if RFQ already exists for this contact
     existing_rfq = rfqs_collection.find_one({"contact_email": contact_email})
@@ -822,6 +830,23 @@ def create_or_update_rfq(email_data: Dict[str, Any], lead_id: str = None) -> Opt
             update_data["$set"]["extracted_value"] = extracted_value
             update_data["$set"]["extracted_currency"] = currency
         
+        # Update AI-extracted fields if not already set
+        if rfq_details:
+            if rfq_details.get("loi") and not existing_rfq.get("loi"):
+                update_data["$set"]["loi"] = rfq_details.get("loi")
+            if rfq_details.get("ir") and not existing_rfq.get("ir"):
+                update_data["$set"]["ir"] = rfq_details.get("ir")
+            if rfq_details.get("country") and not existing_rfq.get("country"):
+                update_data["$set"]["country"] = rfq_details.get("country")
+            if rfq_details.get("sample_size") and not existing_rfq.get("sample_size"):
+                update_data["$set"]["sample_size"] = rfq_details.get("sample_size")
+            if rfq_details.get("methodology") and not existing_rfq.get("methodology"):
+                update_data["$set"]["methodology"] = rfq_details.get("methodology")
+            if rfq_details.get("target_audience") and not existing_rfq.get("target_audience"):
+                update_data["$set"]["target_audience"] = rfq_details.get("target_audience")
+            if rfq_details.get("study_type") and not existing_rfq.get("study_type"):
+                update_data["$set"]["study_type"] = rfq_details.get("study_type")
+        
         rfqs_collection.update_one(
             {"_id": existing_rfq["_id"]},
             update_data
@@ -829,34 +854,55 @@ def create_or_update_rfq(email_data: Dict[str, Any], lead_id: str = None) -> Opt
         
         return existing_rfq["rfq_id"]
     else:
-        # Create new RFQ
+        # Create new RFQ with AI-extracted details
         rfq_id = generate_rfq_id()
+        
+        # Determine priority based on urgency indicators
+        priority = "medium"
+        subject = email_data.get("subject", "").lower()
+        if any(word in subject for word in ["urgent", "asap", "rush", "priority"]):
+            priority = "high"
         
         rfq_doc = {
             "rfq_id": rfq_id,
             "contact_email": contact_email,
             "lead_id": lead_id,
-            "title": email_data.get("subject", "RFQ Request"),
+            "title": rfq_details.get("title") or email_data.get("subject", "RFQ Request"),
             "description": email_data.get("body_preview", ""),
             "extracted_value": extracted_value,
-            "extracted_currency": currency,
+            "extracted_currency": rfq_details.get("currency") or currency,
             "manual_value": None,
             "manual_currency": None,
+            # AI-extracted RFQ fields
+            "methodology": rfq_details.get("methodology"),
+            "loi": rfq_details.get("loi"),
+            "ir": rfq_details.get("ir"),
+            "sample_size": rfq_details.get("sample_size"),
+            "country": rfq_details.get("country"),
+            "target_audience": rfq_details.get("target_audience"),
+            "timeline": rfq_details.get("timeline"),
+            "study_type": rfq_details.get("study_type"),
+            "additional_requirements": rfq_details.get("additional_requirements"),
+            # Sender info
+            "sender_name": email_data.get("sender_name", ""),
+            "sender_company": email_data.get("sender_company", ""),
+            "sender_title": email_data.get("sender_title", ""),
+            # Standard fields
             "source_emails": [source_email],
             "status": "pending",
-            "priority": "medium",
+            "priority": priority,
             "received_date": email_data.get("date", datetime.utcnow()),
             "due_date": None,
             "quoted_date": None,
             "closed_date": None,
-            "summary": "",
+            "summary": email_data.get("ai_summary", ""),
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
             "created_by": "auto"
         }
         
         rfqs_collection.insert_one(rfq_doc)
-        logger.info(f"Created RFQ {rfq_id} for {contact_email}")
+        logger.info(f"Created RFQ {rfq_id} for {contact_email} - LOI: {rfq_details.get('loi')}, IR: {rfq_details.get('ir')}, Country: {rfq_details.get('country')}, N: {rfq_details.get('sample_size')}")
         
         return rfq_id
 
@@ -1096,9 +1142,27 @@ def process_email_for_lead(email_data: Dict[str, Any], inbox: str) -> Dict[str, 
         # Mark email as processed
         mark_email_processed(message_id, inbox, contact_email)
         
-        # Auto-create RFQ if segment is rfq_pricing
-        if email_data.get("segment") == "rfq_pricing":
-            rfq_id = create_or_update_rfq(email_data, lead_id)
+        # Auto-create RFQ if:
+        # 1. Segment is rfq_pricing (keyword-based), OR
+        # 2. AI detected is_rfq=true, OR
+        # 3. Category is 'client' (business inquiry)
+        should_create_rfq = (
+            email_data.get("segment") == "rfq_pricing" or
+            email_data.get("is_rfq") == True or
+            email_data.get("category") == "client"
+        )
+        
+        if should_create_rfq:
+            # Get AI-extracted RFQ details if available
+            rfq_details = email_data.get("rfq_details", {})
+            
+            # Add sender info to email_data for RFQ
+            email_data["sender_name"] = email_data.get("contact_name", "") or email_data.get("from_name", "")
+            email_data["sender_company"] = email_data.get("company_name", "")
+            email_data["sender_title"] = email_data.get("title", "")
+            email_data["ai_summary"] = email_data.get("summary", "")
+            
+            rfq_id = create_or_update_rfq(email_data, lead_id, rfq_details)
             if rfq_id:
                 # Link RFQ to lead
                 email_leads_collection.update_one(

@@ -524,12 +524,12 @@ function RFQ() {
                   </th>
                   <th>Title / Subject</th>
                   <th>Lead</th>
-                  <th>Value</th>
-                  <th>Currency</th>
                   <th>Country</th>
-                  <th>Priority</th>
+                  <th>LOI</th>
+                  <th>IR</th>
+                  <th>N</th>
+                  <th>Value</th>
                   <th>Status</th>
-                  <th>Documents</th>
                   <th>Detected</th>
                   <th>Actions</th>
                 </tr>
@@ -549,7 +549,7 @@ function RFQ() {
                       <div className="rfq-title">{rfq.title || "Untitled RFQ"}</div>
                       {rfq.methodology && (
                         <div className="rfq-subtitle" style={{ color: '#6b7280', fontSize: '0.75rem' }}>
-                          {rfq.methodology} {rfq.loi && `• ${rfq.loi} min`} {rfq.ir && `• ${rfq.ir}% IR`}
+                          {rfq.methodology} {rfq.study_type && `• ${rfq.study_type}`}
                         </div>
                       )}
                     </td>
@@ -562,6 +562,30 @@ function RFQ() {
                           <div className="rfq-company">{rfq.sender_company}</div>
                         )}
                       </div>
+                    </td>
+                    <td>
+                      <span style={{ fontSize: '0.85rem' }}>{rfq.country || "—"}</span>
+                    </td>
+                    <td>
+                      {rfq.loi ? (
+                        <span style={{ fontSize: '0.85rem', color: '#3b82f6', fontWeight: '500' }}>{rfq.loi} min</span>
+                      ) : (
+                        <span style={{ color: '#9ca3af' }}>—</span>
+                      )}
+                    </td>
+                    <td>
+                      {rfq.ir ? (
+                        <span style={{ fontSize: '0.85rem', color: '#10b981', fontWeight: '500' }}>{rfq.ir}%</span>
+                      ) : (
+                        <span style={{ color: '#9ca3af' }}>—</span>
+                      )}
+                    </td>
+                    <td>
+                      {rfq.sample_size ? (
+                        <span style={{ fontSize: '0.85rem', color: '#8b5cf6', fontWeight: '500' }}>{rfq.sample_size.toLocaleString()}</span>
+                      ) : (
+                        <span style={{ color: '#9ca3af' }}>—</span>
+                      )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       {editingValue?.rfq_id === rfq.rfq_id ? (
@@ -600,29 +624,6 @@ function RFQ() {
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <select
-                        value={rfq.manual_currency || rfq.extracted_currency || "USD"}
-                        onChange={(e) => updateRfqField(rfq.rfq_id, "manual_currency", e.target.value)}
-                        className="currency-select"
-                        style={{ padding: '4px 8px', fontSize: '0.8rem', borderRadius: '4px', border: '1px solid #d1d5db' }}
-                      >
-                        {CURRENCIES.map(c => (
-                          <option key={c.code} value={c.code}>{c.code}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <span style={{ fontSize: '0.85rem' }}>{rfq.country || "—"}</span>
-                    </td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <span 
-                        className="priority-badge"
-                        style={getPriorityColor(rfq.priority)}
-                      >
-                        {rfq.priority || "medium"}
-                      </span>
-                    </td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <select
                         value={rfq.status}
                         onChange={(e) => updateRFQStatus(rfq.rfq_id, e.target.value)}
                         className="status-select"
@@ -639,43 +640,6 @@ function RFQ() {
                         <option value="lost">Lost</option>
                         <option value="cancelled">Cancelled</option>
                       </select>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                        {rfq.estimate_number && (
-                          <span 
-                            style={{ 
-                              backgroundColor: '#dbeafe', 
-                              color: '#1d4ed8', 
-                              padding: '2px 6px', 
-                              borderRadius: '4px', 
-                              fontSize: '0.7rem',
-                              fontWeight: '500'
-                            }}
-                            title={`Estimate: ${rfq.estimate_number}`}
-                          >
-                            📋 EST
-                          </span>
-                        )}
-                        {rfq.invoice_number && (
-                          <span 
-                            style={{ 
-                              backgroundColor: '#dcfce7', 
-                              color: '#166534', 
-                              padding: '2px 6px', 
-                              borderRadius: '4px', 
-                              fontSize: '0.7rem',
-                              fontWeight: '500'
-                            }}
-                            title={`Invoice: ${rfq.invoice_number}`}
-                          >
-                            💰 INV
-                          </span>
-                        )}
-                        {!rfq.estimate_number && !rfq.invoice_number && (
-                          <span style={{ color: '#9ca3af', fontSize: '0.8rem' }}>—</span>
-                        )}
-                      </div>
                     </td>
                     <td className="rfq-date">{formatDate(rfq.received_date || rfq.created_at)}</td>
                     <td onClick={(e) => e.stopPropagation()}>
@@ -852,6 +816,49 @@ function RFQ() {
                       style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db', width: '100px' }}
                     />
                   </div>
+                  <div className="detail-item">
+                    <label>Study Type</label>
+                    <select
+                      value={selectedRfq.study_type || ""}
+                      onChange={(e) => updateRfqField(selectedRfq.rfq_id, "study_type", e.target.value)}
+                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
+                    >
+                      <option value="">Select...</option>
+                      <option value="B2B">B2B</option>
+                      <option value="B2C">B2C</option>
+                      <option value="Healthcare">Healthcare</option>
+                      <option value="IT">IT Decision Makers</option>
+                      <option value="Consumer">Consumer</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                  <div className="detail-item">
+                    <label>Timeline</label>
+                    <input
+                      type="text"
+                      value={selectedRfq.timeline || ""}
+                      onChange={(e) => updateRfqField(selectedRfq.rfq_id, "timeline", e.target.value)}
+                      placeholder="Project timeline"
+                      style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
+                    />
+                  </div>
+                </div>
+                {/* Target Audience - Full width */}
+                <div style={{ marginTop: '12px' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: '#6b7280', marginBottom: '4px' }}>Target Audience</label>
+                  <textarea
+                    value={selectedRfq.target_audience || ""}
+                    onChange={(e) => updateRfqField(selectedRfq.rfq_id, "target_audience", e.target.value)}
+                    placeholder="Describe the target audience/respondent profile..."
+                    style={{ 
+                      width: '100%', 
+                      minHeight: '60px', 
+                      padding: '8px', 
+                      borderRadius: '4px', 
+                      border: '1px solid #d1d5db',
+                      fontSize: '0.9rem'
+                    }}
+                  />
                 </div>
               </div>
 
