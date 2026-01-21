@@ -553,8 +553,16 @@ export default function SurveyPool() {
     return survey.received_at || survey.last_updated_at || survey.last_updated || survey.inserted_at;
   };
 
-  // Get survey status - determines if survey is active/live
+  // Get survey status - determines if survey is active/live based on filter criteria
   const getSurveyStatus = (survey) => {
+    // First check is_active_in_pool which is set by sync-active-status based on filter criteria
+    if (survey.is_active_in_pool === true) {
+      return 'ACTIVE';
+    }
+    if (survey.is_active_in_pool === false) {
+      return 'INACTIVE';
+    }
+    
     const source = survey.source || survey.provider || '';
     
     // For CINT surveys, check is_active and is_live fields
