@@ -677,3 +677,137 @@ async def get_auth_url_legacy():
 async def get_accounts_legacy():
     """Legacy endpoint - redirects to new mailboxes list"""
     return await list_mailboxes()
+
+
+# ============================================
+# Historic Email Sync
+# ============================================
+
+@router.get("/historic-sync/status")
+async def get_historic_sync_status(mailbox_id: Optional[str] = Query(None)):
+    """
+    Get historic email sync status.
+    
+    Returns status for a specific mailbox or all mailboxes.
+    Shows progress, completion status, and any errors.
+    """
+    try:
+        service = get_gmail_service()
+        
+        if not service.is_configured():
+            raise HTTPException(
+                status_code=400,
+                detail="Service account not configured"
+            )
+        
+        status = service.get_historic_sync_status(mailbox_id)
+        
+        if "error" in status:
+            raise HTTPException(status_code=404, detail=status["error"])
+        
+        return status
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting historic sync status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/mailboxes/{mailbox_id}/historic-check")
+async def check_mailbox_historic_emails(mailbox_id: str):
+    """
+    Check if a mailbox has historic emails that need to be downloaded.
+    
+    Compares local email count vs Gmail's total message count.
+    If there are pending emails, marks the mailbox for historic sync.
+    """
+    try:
+        service = get_gmail_service()
+        
+        if not service.is_configured():
+            raise HTTPException(
+                status_code=400,
+                detail="Service account not configured"
+            )
+        
+        result = service.check_has_historic_emails(mailbox_id)
+        
+        if "error" in result and result.get("has_historic") == False:
+            raise HTTPException(status_code=404, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking historic emails: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/mailboxes/{mailbox_id}/historic-sync")
+async def trigger_historic_sync_batch(
+    mailbox_id: str,
+    batch_size: int = Query(100, ge=10, le=500),
+    background_tasks: BackgroundTasks = None
+):
+    """
+    Manually trigger a historic sync batch for a mailbox.
+    
+    Downloads a batch of historic emails. Call repeatedly until
+    'has_more' is False to complete the full historic sync.
+    
+    This runs in the foreground and returns progress info.
+    For automatic background sync, the scheduled job runs every 30 minutes.
+    """
+    try:
+        service = get_gmail_service()
+        
+        if not service.is_configured():
+            raise HTTPException(
+                status_code=400,
+                detail="Service account not configured"
+            )
+        
+        mailbox = service.get_mailbox(mailbox_id)
+        if not mailbox:
+            raise HTTPException(status_code=404, detail="Mailbox not found")
+        
+        result = service.historic_sync_batch(mailbox_id, batch_size=batch_size)
+        
+        return result
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error running historic sync batch: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/historic-sync/pending")
+async def get_pending_historic_syncs():
+    """
+    Get all mailboxes that need historic email sync.
+    
+    Returns mailboxes with status 'pending' or 'not_started' that have
+    historic emails waiting to be downloaded.
+    """
+    try:
+        service = get_gmail_service()
+        
+        if not service.is_configured():
+            raise HTTPException(
+                status_code=400,
+                detail="Service account not configured"
+            )
+        
+        pending = service.get_mailboxes_needing_historic_sync()
+        
+        return {
+            "pending_count": len(pending),
+            "mailboxes": pending
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting pending historic syncs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

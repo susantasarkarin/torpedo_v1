@@ -350,6 +350,14 @@ class GmailWorkspaceService:
             "email_count": 0,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
+            # Historic sync tracking fields
+            "historic_sync_status": "not_started",  # not_started, pending, in_progress, completed
+            "historic_sync_progress": 0,            # emails downloaded so far
+            "historic_sync_total": test_result.get("messages_total", 0),  # total in Gmail
+            "historic_sync_cursor": None,           # page_token for resume
+            "historic_sync_started_at": None,
+            "historic_sync_completed_at": None,
+            "historic_sync_error": None,
         }
         
         result = self.mailboxes.insert_one(doc)
@@ -1137,3 +1145,371 @@ class GmailWorkspaceService:
                 "success": False,
                 "error": str(e)
             }
+
+    # =========================================================================
+    # HISTORIC EMAIL SYNC (Background - Low Priority)
+    # =========================================================================
+    
+    # Configuration for historic sync
+    HISTORIC_BATCH_SIZE = 100  # Emails per batch
+    HISTORIC_BATCH_DELAY = 2.0  # Seconds between batches (throttling)
+    
+    def check_has_historic_emails(self, mailbox_id: str) -> Dict[str, Any]:
+        """
+        Check if a mailbox has historic emails that haven't been downloaded yet.
+        Compares local email count vs Gmail's total message count.
+        
+        Returns:
+            Dict with has_historic, local_count, gmail_total, pending_count
+        """
+        mailbox = self.get_mailbox(mailbox_id)
+        if not mailbox:
+            return {"error": "Mailbox not found", "has_historic": False}
+        
+        email = mailbox["email"]
+        historic_status = mailbox.get("historic_sync_status", "not_started")
+        
+        # If already completed, no need to check again
+        if historic_status == "completed":
+            return {
+                "has_historic": False,
+                "status": "completed",
+                "local_count": mailbox.get("email_count", 0),
+                "message": "Historic sync already completed"
+            }
+        
+        try:
+            service = self._get_service(email)
+            profile = service.users().getProfile(userId="me").execute()
+            gmail_total = profile.get("messagesTotal", 0)
+            
+            # Count local emails for this mailbox
+            local_count = self.emails.count_documents({"mailbox_id": mailbox_id})
+            
+            # Calculate pending
+            pending_count = max(0, gmail_total - local_count)
+            has_historic = pending_count > 0
+            
+            # If has historic and status is not_started, mark as pending
+            if has_historic and historic_status == "not_started":
+                self.mailboxes.update_one(
+                    {"_id": ObjectId(mailbox_id)},
+                    {
+                        "$set": {
+                            "historic_sync_status": "pending",
+                            "historic_sync_total": gmail_total,
+                            "updated_at": datetime.utcnow()
+                        }
+                    }
+                )
+            
+            return {
+                "has_historic": has_historic,
+                "status": historic_status if not has_historic else "pending",
+                "local_count": local_count,
+                "gmail_total": gmail_total,
+                "pending_count": pending_count
+            }
+            
+        except Exception as e:
+            logger.error(f"Error checking historic emails for {email}: {e}")
+            return {
+                "has_historic": False,
+                "error": str(e)
+            }
+    
+    def get_mailboxes_needing_historic_sync(self) -> List[Dict]:
+        """
+        Get all mailboxes that need historic email sync.
+        Returns mailboxes with status 'pending' or 'not_started' (needs check).
+        """
+        # Get mailboxes with pending status
+        pending = list(self.mailboxes.find({
+            "is_active": True,
+            "historic_sync_status": "pending"
+        }))
+        
+        # Also get not_started to check if they need sync
+        not_started = list(self.mailboxes.find({
+            "is_active": True,
+            "$or": [
+                {"historic_sync_status": "not_started"},
+                {"historic_sync_status": {"$exists": False}}
+            ]
+        }))
+        
+        result = []
+        
+        # Add pending mailboxes
+        for m in pending:
+            m["id"] = str(m.pop("_id"))
+            result.append(_serialize_doc(m))
+        
+        # Check not_started mailboxes and add if they have pending emails
+        for m in not_started:
+            mailbox_id = str(m["_id"])
+            check_result = self.check_has_historic_emails(mailbox_id)
+            if check_result.get("has_historic"):
+                m["id"] = mailbox_id
+                del m["_id"]
+                m["historic_sync_status"] = "pending"
+                m["historic_sync_total"] = check_result.get("gmail_total", 0)
+                result.append(_serialize_doc(m))
+        
+        return result
+    
+    def historic_sync_batch(
+        self,
+        mailbox_id: str,
+        batch_size: int = None
+    ) -> Dict[str, Any]:
+        """
+        Sync a batch of historic emails for a mailbox.
+        Uses pagination with cursor persistence for resumability.
+        
+        This method is designed to be called repeatedly until completion,
+        with small batches to avoid blocking the main app.
+        
+        Args:
+            mailbox_id: Mailbox ID to sync
+            batch_size: Number of emails to fetch in this batch
+            
+        Returns:
+            Dict with progress info and whether more emails remain
+        """
+        import time
+        
+        if batch_size is None:
+            batch_size = self.HISTORIC_BATCH_SIZE
+        
+        mailbox = self.get_mailbox(mailbox_id)
+        if not mailbox:
+            return {"success": False, "error": "Mailbox not found"}
+        
+        email = mailbox["email"]
+        historic_status = mailbox.get("historic_sync_status", "not_started")
+        
+        # Skip if already completed
+        if historic_status == "completed":
+            return {
+                "success": True,
+                "status": "completed",
+                "message": "Historic sync already completed",
+                "has_more": False
+            }
+        
+        # Get resume cursor if exists
+        page_token = mailbox.get("historic_sync_cursor")
+        current_progress = mailbox.get("historic_sync_progress", 0)
+        
+        try:
+            service = self._get_service(email)
+            
+            # Mark as in_progress if just starting
+            if historic_status in ("not_started", "pending"):
+                self.mailboxes.update_one(
+                    {"_id": ObjectId(mailbox_id)},
+                    {
+                        "$set": {
+                            "historic_sync_status": "in_progress",
+                            "historic_sync_started_at": datetime.utcnow(),
+                            "historic_sync_error": None,
+                            "updated_at": datetime.utcnow()
+                        }
+                    }
+                )
+            
+            # List messages with pagination
+            list_params = {
+                "userId": "me",
+                "maxResults": batch_size,
+            }
+            if page_token:
+                list_params["pageToken"] = page_token
+            
+            results = service.users().messages().list(**list_params).execute()
+            
+            messages = results.get("messages", [])
+            next_page_token = results.get("nextPageToken")
+            
+            fetched_count = 0
+            errors = 0
+            
+            # Fetch message details
+            for msg in messages:
+                try:
+                    # Check if already exists (skip if so)
+                    existing = self.emails.find_one({
+                        "mailbox_id": mailbox_id,
+                        "gmail_message_id": msg["id"]
+                    })
+                    
+                    if existing:
+                        # Already have this email, skip
+                        fetched_count += 1
+                        continue
+                    
+                    msg_data = service.users().messages().get(
+                        userId="me",
+                        id=msg["id"],
+                        format="full"
+                    ).execute()
+                    
+                    self._save_email_metadata(mailbox_id, email, msg_data)
+                    fetched_count += 1
+                    
+                except Exception as e:
+                    logger.warning(f"Error fetching historic message {msg['id']}: {e}")
+                    errors += 1
+            
+            # Update progress and cursor
+            new_progress = current_progress + fetched_count
+            has_more = next_page_token is not None
+            
+            update_fields = {
+                "historic_sync_progress": new_progress,
+                "historic_sync_cursor": next_page_token,
+                "email_count": self.emails.count_documents({"mailbox_id": mailbox_id}),
+                "updated_at": datetime.utcnow()
+            }
+            
+            # If no more pages, mark as completed
+            if not has_more:
+                update_fields["historic_sync_status"] = "completed"
+                update_fields["historic_sync_completed_at"] = datetime.utcnow()
+                update_fields["historic_sync_cursor"] = None
+            
+            self.mailboxes.update_one(
+                {"_id": ObjectId(mailbox_id)},
+                {"$set": update_fields}
+            )
+            
+            logger.info(f"Historic sync batch for {email}: +{fetched_count} emails, progress: {new_progress}, has_more: {has_more}")
+            
+            return {
+                "success": True,
+                "status": "completed" if not has_more else "in_progress",
+                "fetched": fetched_count,
+                "errors": errors,
+                "progress": new_progress,
+                "has_more": has_more,
+                "next_cursor": next_page_token
+            }
+            
+        except HttpError as e:
+            error_msg = str(e)
+            logger.error(f"Gmail API error in historic sync for {email}: {error_msg}")
+            
+            # Handle rate limiting
+            if "429" in error_msg or "rateLimitExceeded" in error_msg.lower():
+                # Pause for rate limit
+                self.mailboxes.update_one(
+                    {"_id": ObjectId(mailbox_id)},
+                    {
+                        "$set": {
+                            "historic_sync_status": "pending",  # Will retry later
+                            "historic_sync_error": "Rate limited - will retry",
+                            "updated_at": datetime.utcnow()
+                        }
+                    }
+                )
+                return {
+                    "success": False,
+                    "error": "Rate limited",
+                    "retry_after": 60,
+                    "has_more": True
+                }
+            
+            self.mailboxes.update_one(
+                {"_id": ObjectId(mailbox_id)},
+                {
+                    "$set": {
+                        "historic_sync_error": error_msg,
+                        "updated_at": datetime.utcnow()
+                    }
+                }
+            )
+            
+            return {
+                "success": False,
+                "error": error_msg,
+                "has_more": True
+            }
+            
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Historic sync error for {email}: {error_msg}")
+            
+            self.mailboxes.update_one(
+                {"_id": ObjectId(mailbox_id)},
+                {
+                    "$set": {
+                        "historic_sync_error": error_msg,
+                        "updated_at": datetime.utcnow()
+                    }
+                }
+            )
+            
+            return {
+                "success": False,
+                "error": error_msg,
+                "has_more": True
+            }
+    
+    def get_historic_sync_status(self, mailbox_id: str = None) -> Dict[str, Any]:
+        """
+        Get historic sync status for a mailbox or all mailboxes.
+        
+        Args:
+            mailbox_id: Optional specific mailbox, or None for all
+            
+        Returns:
+            Status dict with progress info
+        """
+        if mailbox_id:
+            mailbox = self.get_mailbox(mailbox_id)
+            if not mailbox:
+                return {"error": "Mailbox not found"}
+            
+            return {
+                "mailbox_id": mailbox_id,
+                "email": mailbox["email"],
+                "status": mailbox.get("historic_sync_status", "not_started"),
+                "progress": mailbox.get("historic_sync_progress", 0),
+                "total": mailbox.get("historic_sync_total", 0),
+                "started_at": mailbox.get("historic_sync_started_at"),
+                "completed_at": mailbox.get("historic_sync_completed_at"),
+                "error": mailbox.get("historic_sync_error"),
+                "local_email_count": mailbox.get("email_count", 0)
+            }
+        
+        # Get all mailboxes status
+        mailboxes = list(self.mailboxes.find({"is_active": True}))
+        
+        statuses = []
+        for m in mailboxes:
+            statuses.append({
+                "mailbox_id": str(m["_id"]),
+                "email": m["email"],
+                "status": m.get("historic_sync_status", "not_started"),
+                "progress": m.get("historic_sync_progress", 0),
+                "total": m.get("historic_sync_total", 0),
+                "error": m.get("historic_sync_error")
+            })
+        
+        # Summary
+        total_pending = sum(1 for s in statuses if s["status"] == "pending")
+        total_in_progress = sum(1 for s in statuses if s["status"] == "in_progress")
+        total_completed = sum(1 for s in statuses if s["status"] == "completed")
+        total_not_started = sum(1 for s in statuses if s["status"] == "not_started")
+        
+        return {
+            "summary": {
+                "total_mailboxes": len(statuses),
+                "not_started": total_not_started,
+                "pending": total_pending,
+                "in_progress": total_in_progress,
+                "completed": total_completed
+            },
+            "mailboxes": statuses
+        }

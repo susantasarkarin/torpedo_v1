@@ -486,7 +486,7 @@ def attach_leads_to_campaign(campaign_id: str, lead_ids: List[str]) -> Tuple[int
 # Source groupings for statistics
 CSV_SOURCES = ["csv", "csv_import", "google_sheets", "json_import"]
 WEBSEARCH_SOURCES = ["web_search", "google_search", "linkedin"]
-GMAIL_SOURCES = ["gmail", "email", "imap"]
+GMAIL_SOURCES = ["gmail", "gmail_workspace", "email_sync", "email_import", "email_classification", "gmail_api", "gmail_archive"]
 
 def get_lead_statistics() -> dict:
     """Get overview statistics for dashboard"""
