@@ -799,6 +799,65 @@ async def health_check():
 
 
 # ============================================
+# Legacy Fulcrum API - Survey Sync
+# ============================================
+
+@router.post("/sync-offerwall")
+async def sync_surveys_from_offerwall(
+    apply_filters: bool = Query(True, description="Apply filter criteria to surveys"),
+    cint_service = Depends(get_cint_service),
+):
+    """
+    Sync surveys from legacy Fulcrum/Samplicio AllOfferwall API.
+    
+    Use this endpoint when webhooks are not available (legacy accounts).
+    This fetches all available surveys and stores them in MongoDB.
+    
+    Args:
+        apply_filters: If True, only store surveys passing filter criteria
+        
+    Returns:
+        {
+            "success": true,
+            "stats": {"fetched": 1000, "stored": 500, "filtered_out": 500}
+        }
+    """
+    try:
+        logger.info("Starting Fulcrum offerwall sync...")
+        result = await cint_service.sync_surveys_from_offerwall(apply_filters=apply_filters)
+        return result
+    except Exception as e:
+        logger.error(f"Fulcrum sync failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/fetch-offerwall")
+async def fetch_surveys_from_offerwall(
+    cint_service = Depends(get_cint_service),
+):
+    """
+    Fetch surveys from legacy Fulcrum API without storing (preview only).
+    
+    Returns:
+        {
+            "success": true,
+            "surveys": [...],
+            "total": 1000
+        }
+    """
+    try:
+        result = await cint_service.fetch_surveys_from_offerwall()
+        # Limit response size for preview
+        if result.get("success") and len(result.get("surveys", [])) > 10:
+            result["surveys"] = result["surveys"][:10]
+            result["note"] = "Showing first 10 surveys only. Use /sync-offerwall to store all."
+        return result
+    except Exception as e:
+        logger.error(f"Fulcrum fetch failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
 # Survey Pool - Filtered Surveys
 # ============================================
 

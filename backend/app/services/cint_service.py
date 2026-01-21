@@ -44,6 +44,10 @@ class CintService:
     OPPORTUNITIES_ENDPOINT = "supply/opportunities/v1/subscriptions/{supplier_code}"
     ENTRY_LINKS_ENDPOINT = "Supply/v1/SupplierLinks"
     
+    # Legacy Fulcrum/Samplicio API Endpoints (for polling)
+    LEGACY_OFFERWALL_ENDPOINT = "Supply/v1/Surveys/AllOfferwall/{supplier_code}"
+    LEGACY_SURVEY_DETAIL_ENDPOINT = "Supply/v1/Surveys/BySurveyNumber/{survey_number}/{supplier_code}"
+    
     def __init__(
         self,
         api_key: str,
@@ -188,6 +192,162 @@ class CintService:
             return False
         
         return True
+
+    # ============================================
+    # Legacy Fulcrum API (Polling)
+    # ============================================
+
+    async def fetch_surveys_from_offerwall(self) -> Dict[str, Any]:
+        """
+        Fetch surveys from legacy Fulcrum/Samplicio AllOfferwall API.
+        
+        This is used when the newer Opportunities webhook API is not available.
+        API: GET /Supply/v1/Surveys/AllOfferwall/{SupplierCode}?key={APIKey}
+        
+        Returns:
+            Dict with success status and list of surveys
+        """
+        url = f"{self.PRODUCTION_BASE_URL}{self.LEGACY_OFFERWALL_ENDPOINT.format(supplier_code=self.supplier_code)}"
+        url_with_key = f"{url}?key={self.api_key}"
+        
+        try:
+            logger.info(f"Fetching surveys from legacy Fulcrum API for supplier {self.supplier_code}")
+            
+            response = await self.client.get(url_with_key)
+            response.raise_for_status()
+            
+            data = response.json()
+            surveys = data.get("Surveys", [])
+            
+            logger.info(f"Fetched {len(surveys)} surveys from Fulcrum AllOfferwall API")
+            
+            return {
+                "success": True,
+                "surveys": surveys,
+                "total": len(surveys),
+                "source": "fulcrum_offerwall"
+            }
+        
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Fulcrum API error: {e.response.status_code} - {e.response.text[:200]}")
+            return {"success": False, "error": str(e), "status_code": e.response.status_code}
+        except Exception as e:
+            logger.error(f"Fulcrum API fetch failed: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    async def sync_surveys_from_offerwall(self, apply_filters: bool = True) -> Dict[str, Any]:
+        """
+        Fetch surveys from legacy API and upsert to MongoDB.
+        
+        Args:
+            apply_filters: If True, only store surveys that pass filter criteria
+            
+        Returns:
+            Dict with sync stats
+        """
+        result = await self.fetch_surveys_from_offerwall()
+        
+        if not result.get("success"):
+            return result
+        
+        surveys = result.get("surveys", [])
+        stats = {
+            "fetched": len(surveys),
+            "stored": 0,
+            "filtered_out": 0,
+            "errors": 0
+        }
+        
+        if self.cint_surveys_collection is None:
+            return {"success": False, "error": "MongoDB collection not configured"}
+        
+        for survey in surveys:
+            try:
+                # Map Fulcrum fields to our internal format
+                survey_data = self._map_fulcrum_survey(survey)
+                
+                # Apply filters if enabled
+                if apply_filters and not self._apply_filters(survey_data):
+                    stats["filtered_out"] += 1
+                    continue
+                
+                # Upsert to MongoDB
+                self._upsert_fulcrum_survey(survey_data)
+                stats["stored"] += 1
+                
+            except Exception as e:
+                logger.error(f"Error processing Fulcrum survey {survey.get('SurveyNumber')}: {e}")
+                stats["errors"] += 1
+        
+        logger.info(f"Fulcrum sync complete: {stats['stored']} stored, {stats['filtered_out']} filtered, {stats['errors']} errors")
+        
+        return {
+            "success": True,
+            "stats": stats,
+            "source": "fulcrum_offerwall"
+        }
+
+    def _map_fulcrum_survey(self, survey: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Map Fulcrum API survey fields to our internal format.
+        
+        Fulcrum fields: SurveyNumber, SurveyName, CountryLanguageID, BidLengthOfInterview,
+                        BidIncidence, CPI, Conversion, EPC, etc.
+        """
+        # Get payout - Fulcrum uses CPI or QuotaCPI
+        cpi = survey.get("CPI") or survey.get("QuotaCPI") or 0
+        if isinstance(cpi, str):
+            try:
+                cpi = float(cpi)
+            except:
+                cpi = 0
+        
+        # Get LOI
+        loi = survey.get("BidLengthOfInterview") or survey.get("LengthOfInterview") or 0
+        
+        # Get incidence/conversion
+        incidence = survey.get("BidIncidence") or survey.get("Conversion") or 0
+        
+        # Get entry link
+        live_link = survey.get("LiveLink") or survey.get("SurveyLink") or ""
+        
+        return {
+            "survey_id": survey.get("SurveyNumber"),
+            "survey_name": survey.get("SurveyName") or f"Survey {survey.get('SurveyNumber')}",
+            "country_language": survey.get("CountryLanguageID") or survey.get("Country"),
+            "length_of_interview": loi,
+            "payout": cpi,
+            "bid_incidence": incidence,
+            "epc": survey.get("EPC") or 0,
+            "conversion": survey.get("Conversion") or 0,
+            "is_live": True,
+            "live_link": live_link,
+            "test_link": survey.get("TestLink") or "",
+            "study_type": survey.get("StudyType"),
+            "industry": survey.get("Industry"),
+            "quota_remaining": survey.get("Quota", {}).get("TotalRemaining") if isinstance(survey.get("Quota"), dict) else survey.get("TotalRemaining") or 1000,
+            "source_api": "fulcrum_offerwall",
+            "raw_data": survey,  # Store original for debugging
+            "updated_at": datetime.now(timezone.utc),
+        }
+
+    def _upsert_fulcrum_survey(self, survey_data: Dict[str, Any]) -> None:
+        """Insert or update Fulcrum survey in MongoDB"""
+        if self.cint_surveys_collection is None:
+            return
+        
+        query = {"survey_id": survey_data["survey_id"]}
+        update = {
+            "$set": survey_data,
+            "$setOnInsert": {
+                "created_at": datetime.now(timezone.utc),
+                "click_count": 0,
+                "last_clicked_at": None,
+                "is_active_in_pool": False
+            },
+        }
+        
+        self.cint_surveys_collection.update_one(query, update, upsert=True)
 
     # ============================================
     # Authentication & Headers
