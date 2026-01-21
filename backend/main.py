@@ -786,20 +786,21 @@ def background_gmail_sync():
             
             print(f"✅ [Gmail] Background sync complete: {total_synced} new emails across {len(mailboxes)} mailboxes")
             
-            # Auto-classify new emails using OpenAI if any were synced
-            if total_synced > 0:
-                try:
-                    from leads.email_classifier import classify_all_pending_emails
-                    print(f"🤖 [AI] Starting OpenAI auto-classification of {min(total_synced, 100)} emails...")
-                    classify_result = classify_all_pending_emails(
-                        limit=min(total_synced, 100)  # Limit to 100 per batch
-                    )
-                    success_count = classify_result.get('classified', 0)
-                    print(f"✅ [AI] Classified {success_count} emails using OpenAI")
-                except ImportError as ie:
-                    print(f"⚠️ [AI] Email classifier not available: {ie}")
-                except Exception as classify_err:
-                    print(f"⚠️ [AI] Classification error: {classify_err}")
+            # DISABLED: Auto-classification causes rate limit issues (runs every 5 min)
+            # To re-enable, use manual trigger or scheduled job (once per hour)
+            # 
+            # Original code (commented out):
+            # if total_synced > 0:
+            #     try:
+            #         from leads.email_classifier import classify_all_pending_emails
+            #         print(f"🤖 [AI] Starting OpenAI auto-classification of {min(total_synced, 100)} emails...")
+            #         classify_result = classify_all_pending_emails(limit=min(total_synced, 100))
+            #         success_count = classify_result.get('classified', 0)
+            #         print(f"✅ [AI] Classified {success_count} emails using OpenAI")
+            #     except ImportError as ie:
+            #         print(f"⚠️ [AI] Email classifier not available: {ie}")
+            #     except Exception as classify_err:
+            #         print(f"⚠️ [AI] Classification error: {classify_err}")
                     
         except ImportError:
             print("⚠️ [Gmail] Gmail Workspace Service not available")

@@ -78,6 +78,69 @@ MAX_RETRY_DELAY = 30.0
 # Request source types for logging
 RequestSource = Literal["api", "cron", "background", "user", "internal"]
 
+# Task types for model routing
+TaskType = Literal[
+    # DeepSeek tasks (99% of calls)
+    "email_classification",
+    "lead_classification", 
+    "email_summary",
+    "email_thread_summary",
+    "contact_extraction",
+    "lead_scoring",
+    "bulk_categorization",
+    "conversation_summary",
+    "outreach_composition",  # DeepSeek with tone examples
+    "personalization",       # DeepSeek with context
+    # GPT-4o-mini tasks (only web search)
+    "web_search",
+    "company_discovery",
+    "web_enrichment",
+    # Default
+    "default"
+]
+
+# Tasks that REQUIRE GPT-4o-mini (web search capability)
+OPENAI_REQUIRED_TASKS = frozenset({
+    "web_search",
+    "company_discovery", 
+    "web_enrichment",
+})
+
+# All other tasks use DeepSeek
+DEEPSEEK_TASKS = frozenset({
+    "email_classification",
+    "lead_classification",
+    "email_summary",
+    "email_thread_summary", 
+    "contact_extraction",
+    "lead_scoring",
+    "bulk_categorization",
+    "conversation_summary",
+    "outreach_composition",
+    "personalization",
+    "default",
+})
+
+
+def get_model_for_task(task_type: str = "default") -> tuple:
+    """
+    Get the optimal (provider, model) for a given task type.
+    
+    Strategy:
+    - 99% of tasks use DeepSeek (cheap, no rate limit issues)
+    - Only web search tasks use GPT-4o-mini (requires OpenAI web_search tool)
+    
+    Args:
+        task_type: Type of task (see TaskType literals)
+        
+    Returns:
+        Tuple of (provider, model)
+    """
+    if task_type in OPENAI_REQUIRED_TASKS:
+        return ("openai", OPENAI_DEFAULT_MODEL)
+    else:
+        return ("deepseek", DEEPSEEK_DEFAULT_MODEL)
+
 
 # ============== GLOBAL KILL SWITCH ==============
 
@@ -204,11 +267,11 @@ class RateLimiter:
     
     def __init__(self):
         self.limits = {
-            "cron": {"max_per_minute": 20, "max_per_hour": 500},
-            "background": {"max_per_minute": 50, "max_per_hour": 2000},
-            "api": {"max_per_minute": 30, "max_per_hour": 500},
-            "user": {"max_per_minute": 60, "max_per_hour": 1000},
-            "internal": {"max_per_minute": 20, "max_per_hour": 200},
+            "cron": {"max_per_minute": 10, "max_per_hour": 200},
+            "background": {"max_per_minute": 10, "max_per_hour": 300},
+            "api": {"max_per_minute": 20, "max_per_hour": 400},
+            "user": {"max_per_minute": 30, "max_per_hour": 500},
+            "internal": {"max_per_minute": 10, "max_per_hour": 150},
         }
         self.request_times: Dict[str, List[datetime]] = {}
     

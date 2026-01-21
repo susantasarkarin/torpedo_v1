@@ -188,8 +188,9 @@ Provide a thorough summary (max 500 words) covering the entire conversation flow
         result = chat_completion(
             messages=messages,
             source=source,
-            endpoint="agent1_summary",
-            model=DEFAULT_MODEL,
+            endpoint="email_thread_summary",
+            model="deepseek-chat",  # Explicit DeepSeek
+            provider="deepseek",
             max_output_tokens=800,  # Allow for full 500-word summary + contact info
             temperature=0.2,
             response_format={"type": "json_object"}
@@ -439,8 +440,9 @@ Focus on actionable segmentation that helps sales and marketing teams prioritize
         result = chat_completion(
             messages=messages,
             source=source,
-            endpoint="agent2_categorize",
-            model=DEFAULT_MODEL,
+            endpoint="bulk_categorization",
+            model="deepseek-chat",  # Explicit DeepSeek
+            provider="deepseek",
             max_output_tokens=2000,  # Need more tokens for batch categorization
             temperature=0.3,
             response_format={"type": "json_object"}

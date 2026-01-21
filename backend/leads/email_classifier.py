@@ -163,11 +163,13 @@ Analyze this email. Return valid JSON only, no markdown formatting."""
                 {"role": "system", "content": UNIFIED_SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt}
             ],
-            model=DEFAULT_MODEL,  # gpt-4o-mini
+            model="deepseek-chat",  # Explicit DeepSeek for email classification
+            provider="deepseek",    # Force DeepSeek provider
             temperature=0.1,
             max_output_tokens=1200,
             response_format={"type": "json_object"},
-            source=source
+            source=source,
+            endpoint="email_classification"  # Task tracking
         )
         
         if not response or not response.get("success"):
@@ -299,7 +301,8 @@ def clear_all_classifications():
 def classify_batch(
     batch_size: int = 50,
     source: str = "background",
-    delay_between_emails: float = 0.05
+    delay_between_emails: float = 2.0
+    # OPTIMIZED: Increased from 0.05s to stay within rate limits
 ) -> Dict[str, Any]:
     """
     Classify a batch of unclassified emails.

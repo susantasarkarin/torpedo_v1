@@ -194,15 +194,16 @@ def classify_lead(lead: LeadRaw, source: str = "api") -> Tuple[Optional[AIClassi
     )
     
     try:
-        # COST CONTROL: Use centralized wrapper with enforced max_output_tokens
+        # COST CONTROL: Use DeepSeek for lead classification
         result = chat_completion(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
             source=source,
-            endpoint="classify_lead",
-            model=MODEL,
+            endpoint="lead_classification",
+            model="deepseek-chat",  # Explicit DeepSeek
+            provider="deepseek",
             max_output_tokens=300,  # COST CONTROL: Strict limit (was 1000)
             temperature=TEMPERATURE,
             response_format={"type": "json_object"}
@@ -343,15 +344,16 @@ def enrich_company_via_websearch(domain: str, source: str = "background") -> Dic
             return cached.get("data", {})
     
     try:
-        # COST CONTROL: Use centralized wrapper with gpt-4o-mini (not gpt-4o)
+        # WEB SEARCH: MUST use OpenAI for web_search tool capability
         result = chat_completion(
             messages=[
                 {"role": "system", "content": "Business research assistant. JSON only."},
                 {"role": "user", "content": COMPANY_ENRICHMENT_PROMPT.format(domain=domain)}
             ],
             source=source,
-            endpoint="enrich_company",
-            model=DEFAULT_MODEL,  # COST CONTROL: gpt-4o-mini instead of gpt-4o
+            endpoint="web_enrichment",
+            model="gpt-4o-mini",  # GPT-4o-mini for web search
+            provider="openai",
             max_output_tokens=300,  # COST CONTROL: Reduced from 1500
             temperature=0.1,
             response_format={"type": "json_object"},
@@ -422,15 +424,16 @@ def extract_contact_from_signature(email_body: str, source: str = "background") 
         # Only send last 500 chars (signature is at end) - COST CONTROL: Reduce input tokens
         signature_text = email_body[-500:] if len(email_body) > 500 else email_body
         
-        # COST CONTROL: Use centralized wrapper
+        # COST CONTROL: Use DeepSeek for signature extraction
         result = chat_completion(
             messages=[
                 {"role": "system", "content": "Extract contact from signature. JSON only."},
                 {"role": "user", "content": SIGNATURE_EXTRACTION_PROMPT.format(email_body=signature_text)}
             ],
             source=source,
-            endpoint="extract_signature",
-            model=DEFAULT_MODEL,
+            endpoint="contact_extraction",
+            model="deepseek-chat",  # Explicit DeepSeek
+            provider="deepseek",
             max_output_tokens=150,  # COST CONTROL: Reduced from 500
             temperature=0.1,
             response_format={"type": "json_object"}
@@ -534,7 +537,8 @@ def generate_single_email_summary(
             ],
             source=source,
             endpoint="email_summary",
-            model=DEFAULT_MODEL,
+            model="deepseek-chat",  # Explicit DeepSeek
+            provider="deepseek",
             max_output_tokens=150,  # COST CONTROL: Reduced from 500
             temperature=0.2
         )
@@ -586,7 +590,6 @@ def generate_conversation_summary(email_threads: List[Dict[str, Any]], source: s
             preview = email.get("body_preview", email.get("body_full", "")[:150])
             emails_text += f"{i}.{direction} {date_str}: {email.get('subject', '')} | {preview}\n"
         
-        # COST CONTROL: Use centralized wrapper
         result = chat_completion(
             messages=[
                 {"role": "system", "content": "Sales email summarizer. Be concise."},
@@ -594,7 +597,8 @@ def generate_conversation_summary(email_threads: List[Dict[str, Any]], source: s
             ],
             source=source,
             endpoint="conversation_summary",
-            model=DEFAULT_MODEL,
+            model="deepseek-chat",  # Explicit DeepSeek
+            provider="deepseek",
             max_output_tokens=150,  # COST CONTROL: Reduced from 300
             temperature=0.3
         )

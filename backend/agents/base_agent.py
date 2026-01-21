@@ -22,8 +22,13 @@ T = TypeVar('T', bound=BaseModel)
 LEADS_PER_BATCH = 10
 MAX_RETRIES = 3
 RETRY_DELAY_BASE = 2.0  # seconds
-DEFAULT_MODEL = "gpt-4o-mini"
-WEB_SEARCH_MODEL = "gpt-4o-mini"  # Model for web search queries
+
+# MODEL CONFIGURATION: DeepSeek for most tasks, OpenAI only for web search
+DEFAULT_MODEL = "deepseek-chat"         # DeepSeek for 99% of tasks
+DEFAULT_PROVIDER = "deepseek"
+WEB_SEARCH_MODEL = "gpt-4o-mini"        # OpenAI for web search (required)
+WEB_SEARCH_PROVIDER = "openai"
+DEEPSEEK_API_BASE = "https://api.deepseek.com"
 
 
 class AgentResult(BaseModel):
@@ -63,21 +68,55 @@ class BaseAgent(ABC, Generic[T]):
             config: Agent-specific configuration dict
         """
         self.config = config or {}
-        self._client: Optional[OpenAI] = None
+        self._deepseek_client: Optional[OpenAI] = None
+        self._openai_client: Optional[OpenAI] = None
         self._mongo_client = None
         self._db = None
     
     @property
     def client(self) -> OpenAI:
-        """Lazy initialization of OpenAI client."""
-        if self._client is None:
-            api_key = self._get_api_key()
+        """Default client (DeepSeek for cost savings)."""
+        return self._get_deepseek_client()
+    
+    def _get_deepseek_client(self) -> OpenAI:
+        """Get DeepSeek client for most tasks."""
+        if self._deepseek_client is None:
+            api_key = self._get_deepseek_api_key()
+            if not api_key:
+                # Fallback to OpenAI if no DeepSeek key
+                logger.warning("DeepSeek API key not found, falling back to OpenAI")
+                return self._get_openai_client()
+            self._deepseek_client = OpenAI(
+                api_key=api_key,
+                base_url=DEEPSEEK_API_BASE
+            )
+        return self._deepseek_client
+    
+    def _get_openai_client(self) -> OpenAI:
+        """Get OpenAI client for web search tasks."""
+        if self._openai_client is None:
+            api_key = self._get_openai_api_key()
             if not api_key:
                 raise ValueError("OPENAI_API_KEY not configured")
-            self._client = OpenAI(api_key=api_key)
-        return self._client
+            self._openai_client = OpenAI(api_key=api_key)
+        return self._openai_client
     
-    def _get_api_key(self) -> Optional[str]:
+    def _get_deepseek_api_key(self) -> Optional[str]:
+        """Get DeepSeek API key from DB or environment."""
+        try:
+            from pymongo import MongoClient
+            mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
+            client = MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
+            settings_db = client["torpedo_settings"]
+            app_settings = settings_db["app_settings"]
+            stored = app_settings.find_one({"_id": "app_config"})
+            if stored and stored.get("deepseek_api_key"):
+                return stored["deepseek_api_key"]
+        except Exception as e:
+            logger.debug(f"Could not fetch DeepSeek key from DB: {e}")
+        return os.getenv("DEEPSEEK_API_KEY")
+    
+    def _get_openai_api_key(self) -> Optional[str]:
         """Get OpenAI API key from DB or environment."""
         try:
             from pymongo import MongoClient
@@ -91,6 +130,11 @@ class BaseAgent(ABC, Generic[T]):
         except Exception as e:
             logger.debug(f"Could not fetch OpenAI key from DB: {e}")
         return os.getenv("OPENAI_API_KEY")
+    
+    # Legacy compatibility
+    def _get_api_key(self) -> Optional[str]:
+        """Legacy method - returns DeepSeek key (or OpenAI fallback)."""
+        return self._get_deepseek_api_key() or self._get_openai_api_key()
     
     def _get_db(self):
         """Get MongoDB database connection."""
@@ -229,9 +273,9 @@ class BaseAgent(ABC, Generic[T]):
         )
     
     def _call_chat_completion(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
-        """Make a standard chat completion call."""
+        """Make a chat completion call using DeepSeek (default)."""
         response = self.client.chat.completions.create(
-            model=DEFAULT_MODEL,
+            model=DEFAULT_MODEL,  # deepseek-chat
             messages=messages,
             temperature=0.1,
             max_tokens=2000,
@@ -244,6 +288,7 @@ class BaseAgent(ABC, Generic[T]):
         return {
             "content": message.content,
             "model": response.model,
+            "provider": "deepseek",
             "input_tokens": usage.prompt_tokens if usage else 0,
             "output_tokens": usage.completion_tokens if usage else 0,
             "total_tokens": usage.total_tokens if usage else 0
@@ -253,8 +298,11 @@ class BaseAgent(ABC, Generic[T]):
         """
         Make a chat completion call with web search tool.
         Uses OpenAI's Responses API with web_search_preview tool.
+        NOTE: This MUST use OpenAI - DeepSeek doesn't have web search.
         """
         try:
+            openai_client = self._get_openai_client()
+            
             # Convert messages to single input for Responses API
             system_content = ""
             user_content = ""
@@ -266,9 +314,9 @@ class BaseAgent(ABC, Generic[T]):
             
             full_prompt = f"{system_content}\n\n{user_content}"
             
-            # Use Responses API with web search
-            response = self.client.responses.create(
-                model=WEB_SEARCH_MODEL,
+            # Use Responses API with web search (OpenAI only)
+            response = openai_client.responses.create(
+                model=WEB_SEARCH_MODEL,  # gpt-4o-mini
                 tools=[{"type": "web_search_preview"}],
                 input=full_prompt
             )
@@ -289,23 +337,25 @@ class BaseAgent(ABC, Generic[T]):
             return {
                 "content": content,
                 "model": WEB_SEARCH_MODEL,
+                "provider": "openai",
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
                 "total_tokens": input_tokens + output_tokens
             }
             
         except Exception as e:
-            logger.warning(f"Web search failed, falling back to regular completion: {e}")
-            # Fallback to regular chat completion
+            logger.warning(f"Web search failed, falling back to DeepSeek: {e}")
+            # Fallback to regular DeepSeek completion
             return self._call_chat_completion(messages)
     
     def _calculate_cost(self, input_tokens: int, output_tokens: int, model: str) -> float:
         """Calculate cost in USD based on token usage."""
         costs = {
+            "deepseek-chat": {"input": 0.00014, "output": 0.00028},
             "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
             "gpt-4o": {"input": 0.005, "output": 0.015},
         }
-        model_costs = costs.get(model, costs["gpt-4o-mini"])
+        model_costs = costs.get(model, costs["deepseek-chat"])
         return (input_tokens / 1000 * model_costs["input"]) + (output_tokens / 1000 * model_costs["output"])
     
     def _log_usage(
@@ -323,15 +373,19 @@ class BaseAgent(ABC, Generic[T]):
             collection = db['ai_usage_logs']
             
             costs = {
+                "deepseek-chat": {"input": 0.00014, "output": 0.00028},
                 "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
                 "gpt-4o": {"input": 0.005, "output": 0.015},
             }
-            model_costs = costs.get(model, costs["gpt-4o-mini"])
+            model_costs = costs.get(model, costs["deepseek-chat"])
             cost_usd = (input_tokens / 1000 * model_costs["input"]) + (output_tokens / 1000 * model_costs["output"])
+            
+            # Determine provider from model
+            provider = "deepseek" if "deepseek" in model else "openai"
             
             doc = {
                 "timestamp": datetime.utcnow(),
-                "provider": "openai",
+                "provider": provider,
                 "model": model,
                 "source": "lead_agent",
                 "endpoint": self.agent_name,
