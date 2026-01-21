@@ -16,6 +16,10 @@ function VendorLeadsPage() {
   const [selectedIds, setSelectedIds] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [editingLead, setEditingLead] = useState(null)
+  const [showConvertModal, setShowConvertModal] = useState(false)
+  const [convertingLead, setConvertingLead] = useState(null)
+  const [convertType, setConvertType] = useState("panel")
+  const [stats, setStats] = useState({ total: 0, new: 0, contacted: 0, qualified: 0, rejected: 0, converted: 0 })
 
   const emptyForm = {
     name: "",
@@ -30,7 +34,23 @@ function VendorLeadsPage() {
 
   useEffect(() => {
     fetchLeads()
+    fetchStats()
   }, [])
+
+  const fetchStats = async () => {
+    try {
+      const sessionId = localStorage.getItem("session_id")
+      const res = await fetch(`${API_BASE_URL}/vendor-leads/stats`, {
+        headers: { Authorization: sessionId || "" }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setStats(data)
+      }
+    } catch (err) {
+      console.error("Error fetching stats:", err)
+    }
+  }
 
   const fetchLeads = async () => {
     try {
@@ -84,14 +104,6 @@ function VendorLeadsPage() {
   const totalPages = Math.ceil(filteredLeads.length / recordsPerPage)
   const startIndex = (currentPage - 1) * recordsPerPage
   const paginatedLeads = filteredLeads.slice(startIndex, startIndex + recordsPerPage)
-
-  // Stats
-  const stats = {
-    total: leads.length,
-    new: leads.filter(l => l.status === "new").length,
-    contacted: leads.filter(l => l.status === "contacted").length,
-    qualified: leads.filter(l => l.status === "qualified").length
-  }
 
   // Select handlers
   const toggleSelectAll = () => {
@@ -150,8 +162,77 @@ function VendorLeadsPage() {
         headers: { Authorization: sessionId || "" }
       })
       setLeads(leads.filter(l => l._id !== id))
+      fetchStats()
     } catch (err) {
       console.error("Error deleting lead:", err)
+    }
+  }
+
+  const saveLead = async () => {
+    try {
+      const sessionId = localStorage.getItem("session_id")
+      const url = editingLead 
+        ? `${API_BASE_URL}/vendor-leads/${editingLead._id}`
+        : `${API_BASE_URL}/vendor-leads`
+      const method = editingLead ? "PUT" : "POST"
+      
+      const res = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId || ""
+        },
+        body: JSON.stringify(formData)
+      })
+      
+      if (res.ok) {
+        setShowForm(false)
+        fetchLeads()
+        fetchStats()
+      } else {
+        const err = await res.json()
+        alert(err.detail || "Failed to save lead")
+      }
+    } catch (err) {
+      console.error("Error saving lead:", err)
+      alert("Failed to save lead")
+    }
+  }
+
+  const openConvertModal = (lead) => {
+    setConvertingLead(lead)
+    setConvertType("panel")
+    setShowConvertModal(true)
+  }
+
+  const convertToVendor = async () => {
+    if (!convertingLead) return
+    
+    try {
+      const sessionId = localStorage.getItem("session_id")
+      const res = await fetch(`${API_BASE_URL}/vendor-leads/${convertingLead._id}/convert-to-vendor`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId || ""
+        },
+        body: JSON.stringify({ vendor_type: convertType })
+      })
+      
+      if (res.ok) {
+        const data = await res.json()
+        alert(`✅ Successfully converted to ${convertType === 'panel' ? 'Panel Vendor' : 'Billing Vendor'}!`)
+        setShowConvertModal(false)
+        setConvertingLead(null)
+        fetchLeads()
+        fetchStats()
+      } else {
+        const err = await res.json()
+        alert(err.detail || "Failed to convert lead")
+      }
+    } catch (err) {
+      console.error("Error converting lead:", err)
+      alert("Failed to convert lead")
     }
   }
 
@@ -205,6 +286,10 @@ function VendorLeadsPage() {
         <div className="stat-card success">
           <div className="stat-value">{stats.qualified}</div>
           <div className="stat-label">✅ Qualified</div>
+        </div>
+        <div className="stat-card" style={{ backgroundColor: "#f3e8ff" }}>
+          <div className="stat-value" style={{ color: "#7c3aed" }}>{stats.converted}</div>
+          <div className="stat-label">🎉 Converted</div>
         </div>
       </div>
 
@@ -287,7 +372,16 @@ function VendorLeadsPage() {
                   </td>
                   <td>
                     <div className="actions-cell">
-                      <button className="action-btn" title="View">→</button>
+                      {lead.status === "qualified" && (
+                        <button 
+                          className="action-btn" 
+                          style={{ backgroundColor: "#dcfce7", color: "#166534" }}
+                          onClick={() => openConvertModal(lead)} 
+                          title="Convert to Vendor"
+                        >
+                          🎯
+                        </button>
+                      )}
                       <button className="action-btn edit" onClick={() => openEdit(lead)} title="Edit">✏️</button>
                       <button className="action-btn delete" onClick={() => deleteLead(lead._id)} title="Delete">🗑️</button>
                     </div>
@@ -370,10 +464,61 @@ function VendorLeadsPage() {
                 <button className="btn btn-outline" onClick={() => setShowForm(false)}>
                   Cancel
                 </button>
-                <button className="btn btn-primary" onClick={() => setShowForm(false)}>
+                <button className="btn btn-primary" onClick={saveLead}>
                   {editingLead ? "Update" : "Create"}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Convert to Vendor Modal */}
+      {showConvertModal && convertingLead && (
+        <div className="modal-overlay" onClick={() => setShowConvertModal(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: "450px", padding: "24px" }}>
+            <h2 style={{ marginBottom: "8px" }}>🎯 Convert to Vendor</h2>
+            <p style={{ color: "#666", marginBottom: "20px" }}>
+              Convert <strong>{convertingLead.name}</strong> ({convertingLead.email}) to a full vendor
+            </p>
+            
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "12px", padding: "16px", border: convertType === "panel" ? "2px solid #3b82f6" : "1px solid #e5e7eb", borderRadius: "12px", cursor: "pointer", backgroundColor: convertType === "panel" ? "#eff6ff" : "white" }}>
+                <input 
+                  type="radio" 
+                  name="vendorType" 
+                  value="panel" 
+                  checked={convertType === "panel"}
+                  onChange={() => setConvertType("panel")}
+                />
+                <div>
+                  <strong>🎯 Panel Vendor</strong>
+                  <p style={{ margin: 0, fontSize: "13px", color: "#666" }}>For survey panels & traffic operations</p>
+                </div>
+              </label>
+              
+              <label style={{ display: "flex", alignItems: "center", gap: "12px", padding: "16px", border: convertType === "billing" ? "2px solid #3b82f6" : "1px solid #e5e7eb", borderRadius: "12px", cursor: "pointer", backgroundColor: convertType === "billing" ? "#eff6ff" : "white" }}>
+                <input 
+                  type="radio" 
+                  name="vendorType" 
+                  value="billing" 
+                  checked={convertType === "billing"}
+                  onChange={() => setConvertType("billing")}
+                />
+                <div>
+                  <strong>💰 Billing Vendor</strong>
+                  <p style={{ margin: 0, fontSize: "13px", color: "#666" }}>For invoicing & financial transactions</p>
+                </div>
+              </label>
+            </div>
+            
+            <div style={{ display: "flex", gap: "12px" }}>
+              <button className="btn btn-outline" onClick={() => setShowConvertModal(false)}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={convertToVendor}>
+                Convert to {convertType === "panel" ? "Panel Vendor" : "Billing Vendor"}
+              </button>
             </div>
           </div>
         </div>

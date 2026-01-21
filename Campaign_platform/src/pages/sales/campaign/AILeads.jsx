@@ -245,7 +245,7 @@ function AILeads() {
       case "classified-csv":
         return "csv,csv_import,google_sheets,json_import";
       case "classified-gmail":
-        return "email_import,gmail,imap";
+        return "gmail,gmail_workspace,email_sync,email_import,email_classification,gmail_api,gmail_archive";
       default:
         return null; // No source filter for "all" or "classified"
     }
@@ -464,7 +464,7 @@ function AILeads() {
       setCurrentPage(1); // Reset to page 1 when tab changes
       fetchLeads();
     }
-  }, [filters, currentPage, searchQuery, activeTab]);
+  }, [filters, currentPage, searchQuery, activeTab, fetchLeads]);
 
   // ============== IMPORT HANDLER ==============
 
@@ -765,6 +765,71 @@ function AILeads() {
     setGmailImporting(false);
     setGmailImportProgress(null);
     setEnrichmentPhases({ basic: true, names: true, company: true, domain: true });
+  };
+
+  // Transfer lead to Vendor Leads
+  const handleTransferToVendorLeads = async (leadId) => {
+    if (!window.confirm("Transfer this lead to Vendor Leads for qualification?")) {
+      return;
+    }
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/vendor-leads/transfer-from-ai-database`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+        body: JSON.stringify({ lead_id: leadId }),
+      });
+      
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || "Transfer failed");
+      }
+      
+      const result = await res.json();
+      alert(`✅ Lead transferred to Vendor Leads successfully!`);
+      fetchLeads();
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
+  };
+
+  // Bulk transfer selected leads to Vendor Leads
+  const handleBulkTransferToVendorLeads = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) {
+      alert("Please select leads to transfer");
+      return;
+    }
+    
+    if (!window.confirm(`Transfer ${ids.length} lead(s) to Vendor Leads for qualification?`)) {
+      return;
+    }
+    
+    try {
+      const res = await fetch(`${API_BASE_URL}/vendor-leads/bulk-transfer-from-ai-database`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+        body: JSON.stringify({ lead_ids: ids }),
+      });
+      
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || "Transfer failed");
+      }
+      
+      const result = await res.json();
+      alert(`✅ ${result.transferred_count} lead(s) transferred to Vendor Leads!`);
+      setSelectedIds(new Set());
+      fetchLeads();
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
   };
 
   // Delete all leads
@@ -1256,7 +1321,7 @@ function AILeads() {
           className={`tab-btn ${activeTab === "classified-gmail" ? "active" : ""}`}
           onClick={() => setActiveTab("classified-gmail")}
         >
-          Classified (Gmail) ({statistics?.by_source?.gmail?.classified_count || leads.filter(l => l.source === "gmail" || l.source === "gmail_archive" || l.source === "email" || l.source === "imap").length})
+          Classified (Gmail) ({statistics?.by_source?.gmail?.classified_count || leads.filter(l => ["gmail", "gmail_workspace", "email_sync", "email_import", "email_classification", "gmail_api", "gmail_archive"].includes(l.source)).length})
         </button>
       </div>
 
@@ -1340,6 +1405,9 @@ function AILeads() {
           <span>{selectedIds.size} lead(s) selected</span>
           <button className="btn btn-sm btn-primary" onClick={() => handleClassify(Array.from(selectedIds))}>
             🤖 Classify Selected
+          </button>
+          <button className="btn btn-sm btn-success" onClick={handleBulkTransferToVendorLeads} style={{ backgroundColor: "#22c55e", borderColor: "#22c55e" }}>
+            🎯 Transfer to Vendor Leads
           </button>
           <button className="btn btn-sm btn-outline" onClick={() => setSelectedIds(new Set())}>
             ✕ Clear
@@ -1481,6 +1549,14 @@ function AILeads() {
                         <button className="action-btn" onClick={() => handleClassify([lead._id])}>
                           Re
                         </button>
+                        <button 
+                          className="action-btn" 
+                          onClick={() => handleTransferToVendorLeads(lead._id)}
+                          title="Transfer to Vendor Leads"
+                          style={{ backgroundColor: "#dcfce7", color: "#166534" }}
+                        >
+                          🎯
+                        </button>
                       </td>
                     </tr>
                     {/* Expandable Details Row in Compact Mode */}
@@ -1586,6 +1662,14 @@ function AILeads() {
                         Classify
                       </button>
                     )}
+                    <button 
+                      className="action-btn" 
+                      onClick={() => handleTransferToVendorLeads(lead._id)}
+                      title="Transfer to Vendor Leads"
+                      style={{ backgroundColor: "#dcfce7", color: "#166534" }}
+                    >
+                      🎯
+                    </button>
                   </td>
                 </tr>
               ))}
