@@ -93,8 +93,7 @@ load_dotenv()
 #changes 4
 API_BASE = os.getenv("API_BASE", "http://139.59.32.72:8000")
 # CINT webhook callback URL (must be publicly accessible for CINT servers)
-# Use torpedo.cogentixresearch.com as the production domain
-CINT_WEBHOOK_CALLBACK_URL = os.getenv("CINT_WEBHOOK_CALLBACK_URL", "https://torpedo.cogentixresearch.com/api/cint/webhooks/opportunities") 
+CINT_WEBHOOK_CALLBACK_URL = os.getenv("CINT_WEBHOOK_CALLBACK_URL", "http://139.59.32.72:8000/api/cint/webhooks/opportunities") 
 
 # MONGO_URI can be set via .env or configured via Settings UI (profile > settings)
 # Default to localhost if not provided
