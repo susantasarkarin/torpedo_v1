@@ -1,0 +1,452 @@
+/**
+ * Vendor Pages CSS - Compact Layout
+ * Fixes dead space issues and provides tighter, more efficient layouts
+ */
+
+/* ============== PAGE CONTAINER ============== */
+.vendor-page {
+  padding: 20px 24px;
+  background: #f8fafc;
+  min-height: calc(100vh - 60px);
+}
+
+/* ============== PAGE HEADER ============== */
+.vendor-page .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.vendor-page .header-left h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0 0 2px;
+}
+
+.vendor-page .header-left .subtitle {
+  color: #6b7280;
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.vendor-page .header-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ============== BUTTONS ============== */
+.vendor-page .btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+  text-decoration: none;
+}
+
+.vendor-page .btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.vendor-page .btn-primary {
+  background: #2563eb;
+  color: white;
+}
+
+.vendor-page .btn-primary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.vendor-page .btn-outline {
+  background: white;
+  border: 1px solid #e5e7eb;
+  color: #374151;
+}
+
+.vendor-page .btn-outline:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+.vendor-page .btn-danger {
+  background: #ef4444;
+  color: white;
+}
+
+.vendor-page .btn-danger:hover {
+  background: #dc2626;
+}
+
+.vendor-page .btn-success {
+  background: #10b981;
+  color: white;
+}
+
+.vendor-page .btn-success:hover {
+  background: #059669;
+}
+
+/* ============== STATS ROW - COMPACT ============== */
+.vendor-page .stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.vendor-page .stat-card {
+  background: white;
+  border-radius: 8px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  border-left: 3px solid #3b82f6;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vendor-page .stat-card.warning { border-left-color: #f59e0b; }
+.vendor-page .stat-card.success { border-left-color: #10b981; }
+.vendor-page .stat-card.danger { border-left-color: #ef4444; }
+.vendor-page .stat-card.primary { border-left-color: #2563eb; }
+
+.vendor-page .stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #1f2937;
+  line-height: 1.2;
+}
+
+.vendor-page .stat-label {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+/* ============== FILTERS BAR - COMPACT ============== */
+.vendor-page .filters-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  background: white;
+  padding: 12px 16px;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.vendor-page .search-input {
+  flex: 1;
+  min-width: 200px;
+  max-width: 400px;
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.vendor-page .search-input:focus {
+  border-color: #2563eb;
+}
+
+.vendor-page .filter-select,
+.vendor-page .records-select {
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  background: white;
+  cursor: pointer;
+}
+
+/* ============== DATA TABLE - COMPACT ============== */
+.vendor-page .table-container {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.vendor-page .data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.vendor-page .data-table thead {
+  background: #f8fafc;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.vendor-page .data-table th {
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.vendor-page .data-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 0.875rem;
+  color: #374151;
+}
+
+.vendor-page .data-table tr:hover {
+  background: #f8fafc;
+}
+
+.vendor-page .data-table tr.selected {
+  background: #eff6ff;
+}
+
+.vendor-page .checkbox-col {
+  width: 36px;
+  text-align: center;
+}
+
+.vendor-page .name-cell {
+  font-weight: 500;
+}
+
+.vendor-page .name-cell .name-link {
+  color: #2563eb;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.vendor-page .name-cell .name-link:hover {
+  text-decoration: underline;
+}
+
+/* ============== BADGES - COMPACT ============== */
+.vendor-page .badge,
+.vendor-page .stage-badge,
+.vendor-page .status-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+/* ============== ACTIONS CELL ============== */
+.vendor-page .actions-cell {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.vendor-page .action-btn {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  border: 1px solid #e5e7eb;
+  background: white;
+  color: #374151;
+  transition: all 0.2s;
+}
+
+.vendor-page .action-btn:hover {
+  background: #f9fafb;
+  border-color: #9ca3af;
+}
+
+.vendor-page .action-btn.edit {
+  border-color: #3b82f6;
+  color: #3b82f6;
+}
+
+.vendor-page .action-btn.delete {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+/* ============== PAGINATION - COMPACT ============== */
+.vendor-page .pagination-bar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.vendor-page .page-info {
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+/* ============== LOADING ============== */
+.vendor-page .loading-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+/* ============== ERROR ALERT ============== */
+.vendor-page .error-alert {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 0.875rem;
+}
+
+/* ============== MODAL - COMPACT ============== */
+.vendor-page .modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.vendor-page .modal-content {
+  background: white;
+  border-radius: 10px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 85vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.25);
+}
+
+.vendor-page .modal-content h2 {
+  font-size: 1.25rem;
+  margin: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+/* ============== QUICK ACTIONS GRID ============== */
+.vendor-page .quick-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.vendor-page .action-card {
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid #e5e7eb;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.vendor-page .action-card:hover {
+  border-color: #2563eb;
+  background: #f0f7ff;
+}
+
+.vendor-page .action-card .icon {
+  font-size: 1.5rem;
+  margin-bottom: 8px;
+}
+
+.vendor-page .action-card h3 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin: 0 0 4px;
+  color: #1f2937;
+}
+
+.vendor-page .action-card p {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin: 0;
+}
+
+/* ============== DASHBOARD STATS GRID ============== */
+.vendor-page .dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.vendor-page .dashboard-stat-card {
+  background: white;
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.vendor-page .dashboard-stat-card .stat-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: #f0f7ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+}
+
+.vendor-page .dashboard-stat-card .stat-content h3 {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin: 0 0 2px;
+  font-weight: 500;
+}
+
+.vendor-page .dashboard-stat-card .stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+/* ============== SECTION CARD ============== */
+.vendor-page .section-card {
+  background: white;
+  border-radius: 10px;
+  padding: 16px 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  margin-bottom: 16px;
+}
+
+.vendor-page .section-card h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 12px;
+}

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
-import "../../styles/SalesPages.css"
+import "./VendorPages.css"
 
 function VendorBillingPage() {
   const navigate = useNavigate()
@@ -152,14 +152,14 @@ function VendorBillingPage() {
 
   if (loading) {
     return (
-      <div className="sales-page">
+      <div className="vendor-page">
         <div className="loading-spinner">Loading billing data...</div>
       </div>
     )
   }
 
   return (
-    <div className="sales-page">
+    <div className="vendor-page">
       {/* Page Header */}
       <div className="page-header">
         <div className="header-left">
