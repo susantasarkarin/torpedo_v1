@@ -248,21 +248,29 @@ class SurveyActivationService:
         external_id = str(survey_doc.get("survey_id") or survey_doc.get("_id"))
         
         # Handle payouts/LOI normalization
-        loi = float(survey_doc.get("loi") or survey_doc.get("length_of_interview") or 0)
+        loi = int(float(survey_doc.get("loi") or survey_doc.get("length_of_interview") or 0))
         payout = float(survey_doc.get("payout") or survey_doc.get("cpi") or 0)
         ir = float(survey_doc.get("conversion_rate") or survey_doc.get("incidence_rate") or 0)
         
-        # Default Country to specific list or "GLOBAL"
-        country_codes = survey_doc.get("country") or survey_doc.get("country_language") or "US" # Normalize logic needed
-        # CPX: "country" like "IN", "US"
-        # Cint: "country_language" like "eng_us" -> needs mapping? or just store as is and handle in frontend?
-        # Allocation engine expects standard codes?
+        # Country codes must be a list
+        # CPX: "country" is a string like "IN", "US"
+        # Cint: "country_language" is like "eng_us"
+        country_raw = survey_doc.get("country") or survey_doc.get("country_language") or "US"
+        if isinstance(country_raw, list):
+            country_codes = country_raw
+        else:
+            # Convert string to list
+            country_codes = [str(country_raw).upper()]
         
         # Name
         name = survey_doc.get("title") or survey_doc.get("survey_name") or f"{provider} Survey {external_id}"
         
         # URLs
         entry_link = survey_doc.get("entry_link") or survey_doc.get("live_link") or ""
+
+        # Quota - both remaining_quota and total_quota are required
+        remaining_quota = int(survey_doc.get("remaining_quota") or survey_doc.get("total_remaining") or 1000)
+        total_quota = int(survey_doc.get("total_quota") or survey_doc.get("total_n") or remaining_quota or 1000)
 
         # Create model
         survey_create = SurveyCreate(
@@ -274,7 +282,8 @@ class SurveyActivationService:
             cpi=payout,
             ir=ir,
             entry_url=entry_link,
-            remaining_quota=int(survey_doc.get("remaining_quota") or survey_doc.get("total_remaining") or 1000) # Default quota
+            remaining_quota=remaining_quota,
+            total_quota=total_quota
         )
         
         self.allocation_service.upsert_survey(survey_create)
