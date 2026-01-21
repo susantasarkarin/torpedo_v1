@@ -42,6 +42,7 @@ async def get_surveys(
     category: Optional[str] = Query(None, description="Category filter"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    active_only: bool = Query(False, description="Only return surveys active in the pool (for traffic routing)"),
     request: Request = None,
 ) -> Dict[str, Any]:
     """
@@ -55,6 +56,7 @@ async def get_surveys(
     - category: Filter by category
     - page: Page number (default: 1)
     - page_size: Items per page (default: 20, max: 100)
+    - active_only: If true, only return surveys that are active in the pool (default: false)
     """
     try:
         # Verify session
@@ -72,6 +74,7 @@ async def get_surveys(
             category=category,
             page=page,
             page_size=page_size,
+            active_only=active_only,
         )
         
         return result

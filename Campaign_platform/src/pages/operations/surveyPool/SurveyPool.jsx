@@ -30,6 +30,12 @@ export default function SurveyPool() {
   const [trafficStats, setTrafficStats] = useState({}); // survey_id -> {clicks, completes}
   const [clients, setClients] = useState([]); // List of clients for client name lookup
   const [totalSurveys, setTotalSurveys] = useState(0); // Total surveys count
+  
+  // Pool management state
+  const [poolStats, setPoolStats] = useState(null); // Survey pool statistics
+  const [syncing, setSyncing] = useState(false); // Sync in progress
+  const [showActiveOnly, setShowActiveOnly] = useState(false); // Filter to show only active surveys
+  const [showPoolPanel, setShowPoolPanel] = useState(false); // Toggle pool management panel
 
   // WebSocket hooks temporarily disabled for debugging
   // const { 
@@ -182,6 +188,93 @@ export default function SurveyPool() {
     }
   };
 
+  // Fetch pool statistics
+  const fetchPoolStats = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/survey-pool/stats`, {
+        headers: {
+          'Authorization': token,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setPoolStats(data.data || null);
+      }
+    } catch (err) {
+      console.error('Error fetching pool stats:', err);
+    }
+  };
+
+  // Sync and activate surveys based on filters
+  const syncSurveys = async () => {
+    setSyncing(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/survey-pool/sync`, {
+        method: 'POST',
+        headers: {
+          'Authorization': token,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Survey sync complete:', data);
+        // Refresh pool stats and surveys after sync
+        await fetchPoolStats();
+        await fetchAllSurveys();
+      } else {
+        const errorData = await response.json();
+        setError(errorData.detail || 'Failed to sync surveys');
+      }
+    } catch (err) {
+      console.error('Error syncing surveys:', err);
+      setError(err.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // Toggle a survey's active status in the pool
+  const toggleSurveyActive = async (survey, activate) => {
+    const provider = survey.source || survey.provider || 'CPX';
+    const surveyId = survey.survey_id || survey.id || survey._id;
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/survey-pool/toggle/${provider}/${surveyId}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ activate }),
+      });
+
+      if (response.ok) {
+        // Update local state
+        setSurveys(prev => prev.map(s => {
+          const id = s.survey_id || s.id || s._id;
+          if (id === surveyId) {
+            return { ...s, is_active_in_pool: activate };
+          }
+          return s;
+        }));
+        await fetchPoolStats();
+      }
+    } catch (err) {
+      console.error('Error toggling survey:', err);
+    }
+  };
+
+  // Fetch pool stats on mount
+  useEffect(() => {
+    if (token) {
+      fetchPoolStats();
+    }
+  }, [token]);
+
   // Get client by provider/source name (e.g., "CPX" matches client "CPX Research")
   const getClientByProvider = (survey) => {
     const source = survey.provider || survey.source || 'CPX';
@@ -274,14 +367,20 @@ export default function SurveyPool() {
     return 'Online';
   };
 
+  // Filter surveys based on active_only toggle
+  const filteredSurveys = useMemo(() => {
+    if (!showActiveOnly) return surveys;
+    return surveys.filter(survey => survey.is_active_in_pool === true);
+  }, [surveys, showActiveOnly]);
+
   // Client-side pagination
   const paginatedSurveys = useMemo(() => {
     const startIndex = (currentPage - 1) * recordsPerPage;
     const endIndex = startIndex + recordsPerPage;
-    return surveys.slice(startIndex, endIndex);
-  }, [surveys, currentPage, recordsPerPage]);
+    return filteredSurveys.slice(startIndex, endIndex);
+  }, [filteredSurveys, currentPage, recordsPerPage]);
 
-  const totalPages = Math.ceil(surveys.length / recordsPerPage);
+  const totalPages = Math.ceil(filteredSurveys.length / recordsPerPage);
 
   // Handle survey click to show details
   const handleSurveyClick = (survey) => {
@@ -469,7 +568,80 @@ export default function SurveyPool() {
 
   return (
     <div className="survey-pool-container">
-      {/* Header hidden per user request */}
+      {/* Pool Management Panel */}
+      <div className="pool-management-panel">
+        <div className="pool-stats-header">
+          <h3>📊 Survey Pool Management</h3>
+          <button 
+            className="toggle-panel-btn"
+            onClick={() => setShowPoolPanel(!showPoolPanel)}
+          >
+            {showPoolPanel ? '▲ Hide' : '▼ Show'}
+          </button>
+        </div>
+        
+        {showPoolPanel && (
+          <div className="pool-stats-content">
+            {/* Pool Statistics */}
+            {poolStats && (
+              <div className="pool-stats-grid">
+                <div className="stat-card cpx">
+                  <h4>CPX Research</h4>
+                  <div className="stat-numbers">
+                    <span className="active">{poolStats.cpx?.active || 0} Active</span>
+                    <span className="total">/ {poolStats.cpx?.total || 0} Total</span>
+                  </div>
+                </div>
+                <div className="stat-card cint">
+                  <h4>CINT Research</h4>
+                  <div className="stat-numbers">
+                    <span className="active">{poolStats.cint?.active || 0} Active</span>
+                    <span className="total">/ {poolStats.cint?.total || 0} Total</span>
+                  </div>
+                </div>
+                <div className="stat-card total">
+                  <h4>Total Pool</h4>
+                  <div className="stat-numbers">
+                    <span className="active">{poolStats.total?.active || 0} Active</span>
+                    <span className="total">/ {poolStats.total?.total || 0} Total</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Sync Controls */}
+            <div className="pool-controls">
+              <button 
+                className={`sync-btn ${syncing ? 'syncing' : ''}`}
+                onClick={syncSurveys}
+                disabled={syncing}
+              >
+                {syncing ? '🔄 Syncing...' : '🔄 Sync & Activate Surveys'}
+              </button>
+              <p className="sync-info">
+                Syncs all surveys from CPX/CINT and activates those matching filter criteria.
+                {poolStats?.last_sync && (
+                  <span className="last-sync">
+                    Last sync: {new Date(poolStats.last_sync).toLocaleString()}
+                  </span>
+                )}
+              </p>
+            </div>
+            
+            {/* Filter Toggle */}
+            <div className="filter-toggle">
+              <label>
+                <input 
+                  type="checkbox"
+                  checked={showActiveOnly}
+                  onChange={(e) => setShowActiveOnly(e.target.checked)}
+                />
+                Show only active surveys (for traffic routing)
+              </label>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Loading State */}
       {loading && paginatedSurveys.length === 0 && !error && (
@@ -509,6 +681,7 @@ export default function SurveyPool() {
                   <th>Completes</th>
                   <th>Date/Time</th>
                   <th>Status</th>
+                  <th>Pool Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -557,6 +730,15 @@ export default function SurveyPool() {
                         {getSurveyStatus(survey)}
                       </span>
                     </td>
+                    <td>
+                      <button
+                        className={`pool-toggle-btn ${survey.is_active_in_pool ? 'active' : 'inactive'}`}
+                        onClick={() => toggleSurveyActive(survey, !survey.is_active_in_pool)}
+                        title={survey.is_active_in_pool ? 'Click to deactivate from traffic routing' : 'Click to activate for traffic routing'}
+                      >
+                        {survey.is_active_in_pool ? '✅ Active' : '⏸️ Inactive'}
+                      </button>
+                    </td>
                   </tr>
                   );
                 })}
@@ -565,11 +747,12 @@ export default function SurveyPool() {
           </div>
 
           {/* Pagination Controls */}
-          {surveys.length > recordsPerPage && (
+          {filteredSurveys.length > recordsPerPage && (
             <div className="survey-pool-pagination">
               <div className="pagination-info">
                 Showing {(currentPage - 1) * recordsPerPage + 1} to{' '}
-                {Math.min(currentPage * recordsPerPage, surveys.length)} of {surveys.length} surveys
+                {Math.min(currentPage * recordsPerPage, filteredSurveys.length)} of {filteredSurveys.length} surveys
+                {showActiveOnly && <span className="filter-note"> (Active Only)</span>}
               </div>
 
               <div className="pagination-controls">

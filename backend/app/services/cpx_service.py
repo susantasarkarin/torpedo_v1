@@ -450,7 +450,8 @@ class CPXService:
                         "$setOnInsert": {
                             "created_at": datetime.utcnow(),
                             "click_count": 0,
-                            "last_clicked_at": None
+                            "last_clicked_at": None,
+                            "is_active_in_pool": False  # Default to inactive, must be activated by sync job
                         }
                     },
                     upsert=True
@@ -476,6 +477,7 @@ class CPXService:
         page: int = 1,
         page_size: int = 20,
         apply_default_filters: bool = True,
+        active_only: bool = False,
     ) -> Dict[str, Any]:
         """
         Get surveys from MongoDB with optional filters and pagination.
@@ -492,6 +494,7 @@ class CPXService:
             page: Page number (1-indexed)
             page_size: Number of surveys per page
             apply_default_filters: If True, apply saved filter settings as defaults
+            active_only: If True, only return surveys that are active in the pool
             
         Returns:
             Dictionary with surveys and pagination info
@@ -506,6 +509,10 @@ class CPXService:
         
         # Build filter query
         query = {}
+        
+        # Filter by active status if requested
+        if active_only:
+            query["is_active_in_pool"] = True
         
         if min_loi is not None:
             query["loi"] = {"$gte": min_loi}

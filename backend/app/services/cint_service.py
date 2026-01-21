@@ -421,7 +421,8 @@ class CintService:
             "$setOnInsert": {
                 "created_at": datetime.now(timezone.utc),
                 "click_count": 0,
-                "last_clicked_at": None
+                "last_clicked_at": None,
+                "is_active_in_pool": False  # Default to inactive, must be activated by sync job
             },
         }
         
@@ -749,6 +750,7 @@ class CintService:
         page: int = 1,
         page_size: int = 20,
         apply_default_filters: bool = True,
+        active_only: bool = False,
     ) -> Dict[str, Any]:
         """
         Get filtered Cint surveys from MongoDB cache.
@@ -764,6 +766,7 @@ class CintService:
             page: Page number (1-indexed)
             page_size: Results per page
             apply_default_filters: If True, apply saved filter settings as defaults
+            active_only: If True, only return surveys that are active in the pool
 
         Returns:
             Dict with surveys list, total count, and metadata
@@ -794,6 +797,10 @@ class CintService:
                     {"is_live": True, "message_reason": {"$ne": "deactivated"}}
                 ]
             }
+            
+            # Filter by pool activation status if requested
+            if active_only:
+                filter_query["is_active_in_pool"] = True
             
             # Apply LOI filters - check both normalized and original fields
             if max_loi is not None or min_loi is not None:

@@ -522,6 +522,14 @@ try:
 except Exception as e:
     print(f"⚠️ Survey Allocation router not included: {e}")
 
+# Survey Pool Management router (sync/activate surveys from CPX/CINT)
+try:
+    from app.routers import survey_pool as survey_pool_router
+    app.include_router(survey_pool_router.router)
+    print("✅ Survey Pool router included")
+except Exception as e:
+    print(f"⚠️ Survey Pool router not included: {e}")
+
 # Leads AI Classification router
 try:
     app.include_router(leads_router.router)
@@ -786,18 +794,19 @@ def background_gmail_sync():
             
             print(f"✅ [Gmail] Background sync complete: {total_synced} new emails across {len(mailboxes)} mailboxes")
             
-            # DISABLED: Auto-classification causes rate limit issues (runs every 5 min)
-            # To re-enable, use manual trigger or scheduled job (once per hour)
-            # 
-            # Original code (commented out):
-            # if total_synced > 0:
-            #     try:
-            #         from leads.email_classifier import classify_all_pending_emails
-            #         print(f"🤖 [AI] Starting OpenAI auto-classification of {min(total_synced, 100)} emails...")
-            #         classify_result = classify_all_pending_emails(limit=min(total_synced, 100))
-            #         success_count = classify_result.get('classified', 0)
-            #         print(f"✅ [AI] Classified {success_count} emails using OpenAI")
-            #     except ImportError as ie:
+            # Re-enabled: Auto-classification using DeepSeek (cheaper & faster)
+            if total_synced > 0:
+                try:
+                    from leads.email_classifier import classify_all_pending_emails
+                    print(f"🤖 [AI] Starting AI auto-classification of {min(total_synced, 100)} emails...")
+                    # Use 'background' source for higher rate limits
+                    classify_result = classify_all_pending_emails(batch_size=20, max_batches=5, source="background")
+                    success_count = classify_result.get('total_success', 0)
+                    print(f"✅ [AI] Classified {success_count} emails using AI")
+                except ImportError as ie:
+                    print(f"⚠️ Could not import classifier: {ie}")
+                except Exception as e:
+                    print(f"⚠️ Auto-classification failed: {e}")
             #         print(f"⚠️ [AI] Email classifier not available: {ie}")
             #     except Exception as classify_err:
             #         print(f"⚠️ [AI] Classification error: {classify_err}")

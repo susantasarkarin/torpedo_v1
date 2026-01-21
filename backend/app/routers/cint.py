@@ -810,6 +810,7 @@ async def get_surveys(
     country: Optional[str] = Query(None, description="Filter by country code (e.g., US, CA, GB)"),
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=1000, description="Items per page (max 1000)"),
+    active_only: bool = Query(False, description="Only return surveys active in the pool (for traffic routing)"),
     cint_service = Depends(get_cint_service),
 ) -> Dict[str, Any]:
     """
@@ -825,6 +826,7 @@ async def get_surveys(
         country: Country code filter (e.g., "US")
         page: Page number (1-indexed)
         page_size: Results per page (max 100)
+        active_only: If true, only return surveys that are active in the pool
         cint_service: CintService instance
     
     Returns:
@@ -838,6 +840,7 @@ async def get_surveys(
                     "payout": 1.50,
                     "conversion_rate": 0.45,
                     "is_active": true,
+                    "is_active_in_pool": true,
                     ...
                 }
             ],
@@ -848,7 +851,7 @@ async def get_surveys(
         }
     """
     try:
-        logger.info(f"Fetching Cint surveys - page {page}, filters: LOI={min_loi}-{max_loi}, CPI={min_cpi}, Country={country}")
+        logger.info(f"Fetching Cint surveys - page {page}, filters: LOI={min_loi}-{max_loi}, CPI={min_cpi}, Country={country}, active_only={active_only}")
         
         result = cint_service.get_surveys(
             min_loi=min_loi,
@@ -857,6 +860,7 @@ async def get_surveys(
             country=country,
             page=page,
             page_size=page_size,
+            active_only=active_only,
         )
         
         return result
