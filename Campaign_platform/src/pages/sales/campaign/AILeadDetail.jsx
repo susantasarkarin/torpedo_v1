@@ -741,9 +741,30 @@ function AILeadDetail() {
           {/* Timeline Tab */}
           {activeTab === "timeline" && (
             <div className="timeline-content">
-              <div className="timeline-empty">
-                <p>No timeline events yet</p>
-              </div>
+              {lead.timeline && lead.timeline.length > 0 ? (
+                <div className="timeline-list">
+                  {lead.timeline.map((event, idx) => (
+                    <div key={idx} className={`timeline-item ${event.type}`}>
+                      <div className="timeline-icon">{event.icon}</div>
+                      <div className="timeline-connector"></div>
+                      <div className="timeline-details">
+                        <div className="timeline-header">
+                          <span className="timeline-title">{event.title}</span>
+                          <span className="timeline-date">{formatDate(event.date)}</span>
+                        </div>
+                        <div className="timeline-description">
+                          {event.subject && <strong>{event.subject}</strong>}
+                          <p>{event.description}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="timeline-empty">
+                  <p>No timeline events yet</p>
+                </div>
+              )}
             </div>
           )}
         </main>

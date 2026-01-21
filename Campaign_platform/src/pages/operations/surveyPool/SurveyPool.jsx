@@ -109,8 +109,9 @@ export default function SurveyPool() {
     setError(null);
     
     try {
-      // Fetch CPX surveys
-      const cpxResponse = await fetch(`${API_BASE_URL}/cpx/surveys?page=1&page_size=100`, {
+      // Fetch CPX surveys with show_all=true to get ALL surveys (not just filtered ones)
+      // Use large page_size to get all surveys at once
+      const cpxResponse = await fetch(`${API_BASE_URL}/cpx/surveys?page=1&page_size=1000&show_all=true`, {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
@@ -118,7 +119,7 @@ export default function SurveyPool() {
       });
 
       // Fetch CINT surveys (mounted at /api/cint in backend)
-      const cintResponse = await fetch(`${API_BASE_URL}/api/cint/surveys?page=1&page_size=100`, {
+      const cintResponse = await fetch(`${API_BASE_URL}/api/cint/surveys?page=1&page_size=1000&show_all=true`, {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
@@ -211,7 +212,8 @@ export default function SurveyPool() {
   const syncSurveys = async () => {
     setSyncing(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/survey-pool/sync`, {
+      // Call CPX sync-active-status to mark surveys as active/inactive based on filter criteria
+      const cpxSyncResponse = await fetch(`${API_BASE_URL}/cpx/sync-active-status`, {
         method: 'POST',
         headers: {
           'Authorization': token,
@@ -219,14 +221,37 @@ export default function SurveyPool() {
         },
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Survey sync complete:', data);
-        // Refresh pool stats and surveys after sync
-        await fetchPoolStats();
+      if (cpxSyncResponse.ok) {
+        const cpxData = await cpxSyncResponse.json();
+        console.log('CPX Survey sync complete:', cpxData);
+        
+        // Show summary of sync results
+        if (cpxData.success) {
+          alert(`Sync Complete!\n\nTotal surveys: ${cpxData.total}\nActive (pass filters): ${cpxData.active}\nInactive (fail filters): ${cpxData.inactive}\n\nFilter criteria:\n- Max LOI: ${cpxData.filters_applied?.max_loi} mins\n- Min Payout: $${cpxData.filters_applied?.min_cpi}`);
+        }
+        
+        // Also try CINT sync if available (optional)
+        try {
+          const cintSyncResponse = await fetch(`${API_BASE_URL}/api/cint/sync-active-status`, {
+            method: 'POST',
+            headers: {
+              'Authorization': token,
+              'Content-Type': 'application/json',
+            },
+          });
+          if (cintSyncResponse.ok) {
+            const cintData = await cintSyncResponse.json();
+            console.log('CINT Survey sync complete:', cintData);
+          }
+        } catch (cintErr) {
+          console.log('CINT sync not available:', cintErr);
+        }
+        
+        // Refresh surveys after sync
         await fetchAllSurveys();
+        await fetchPoolStats();
       } else {
-        const errorData = await response.json();
+        const errorData = await cpxSyncResponse.json();
         setError(errorData.detail || 'Failed to sync surveys');
       }
     } catch (err) {

@@ -41,8 +41,9 @@ async def get_surveys(
     country: Optional[str] = Query(None, description="Country filter"),
     category: Optional[str] = Query(None, description="Category filter"),
     page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    page_size: int = Query(20, ge=1, le=1000, description="Items per page (max 1000 for show_all)"),
     active_only: bool = Query(False, description="Only return surveys active in the pool (for traffic routing)"),
+    show_all: bool = Query(False, description="Show ALL surveys without applying default filters"),
     request: Request = None,
 ) -> Dict[str, Any]:
     """
@@ -75,6 +76,7 @@ async def get_surveys(
             page=page,
             page_size=page_size,
             active_only=active_only,
+            apply_default_filters=not show_all,  # Bypass default filters when show_all=true
         )
         
         return result
@@ -142,6 +144,30 @@ async def get_filter_settings(request: Request = None) -> Dict[str, Any]:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching filter settings: {str(e)}")
+
+
+@router.post("/sync-active-status")
+async def sync_active_status(request: Request = None) -> Dict[str, Any]:
+    """
+    Apply filter settings to ALL surveys and mark them as active/inactive.
+    Surveys that pass the filter criteria get is_active_in_pool=true,
+    others get is_active_in_pool=false.
+    """
+    try:
+        # Verify session
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        service = get_cpx_service()
+        result = service.sync_active_status_by_filters()
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error syncing active status: {str(e)}")
 
 
 @router.post("/assign-traffic")

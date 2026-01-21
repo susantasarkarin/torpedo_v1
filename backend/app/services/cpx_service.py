@@ -724,6 +724,84 @@ class CPXService:
         
         return defaults
     
+    def sync_active_status_by_filters(self) -> Dict[str, Any]:
+        """
+        Apply filter settings to ALL surveys and mark them as active/inactive.
+        Surveys that pass the filter criteria get is_active_in_pool=true,
+        others get is_active_in_pool=false.
+        
+        Returns:
+            Dictionary with counts of active/inactive surveys
+        """
+        try:
+            # Get current filter settings
+            filter_settings = self.get_filter_settings()
+            max_loi = filter_settings.get("max_loi", 20)
+            min_cpi = filter_settings.get("min_cpi", 1.0)
+            
+            print(f"📊 Syncing active status with filters: max_loi={max_loi}, min_cpi={min_cpi}")
+            
+            # Count ALL surveys first
+            total_surveys = self.cpx_surveys_collection.count_documents({})
+            
+            # Build query for surveys that PASS the filters (active surveys)
+            active_query = {
+                "$and": [
+                    {"$or": [
+                        {"loi": {"$lte": max_loi}},
+                        {"loi": {"$exists": False}},
+                        {"loi": None}
+                    ]},
+                    {"$or": [
+                        {"payout": {"$gte": min_cpi}},
+                        {"payout": {"$exists": False}},
+                        {"payout": None}
+                    ]}
+                ]
+            }
+            
+            # Mark all surveys matching active_query as is_active_in_pool=true
+            active_result = self.cpx_surveys_collection.update_many(
+                active_query,
+                {"$set": {"is_active_in_pool": True}}
+            )
+            active_count = active_result.modified_count
+            
+            # Mark all OTHER surveys as is_active_in_pool=false
+            inactive_result = self.cpx_surveys_collection.update_many(
+                {"$nor": [active_query]},
+                {"$set": {"is_active_in_pool": False}}
+            )
+            inactive_count = inactive_result.modified_count
+            
+            # Get actual counts after update
+            actual_active = self.cpx_surveys_collection.count_documents({"is_active_in_pool": True})
+            actual_inactive = self.cpx_surveys_collection.count_documents({"is_active_in_pool": False})
+            
+            print(f"✅ Active status synced: {actual_active} active, {actual_inactive} inactive (total: {total_surveys})")
+            
+            return {
+                "success": True,
+                "message": f"Synced active status for {total_surveys} surveys",
+                "total": total_surveys,
+                "active": actual_active,
+                "inactive": actual_inactive,
+                "filters_applied": {
+                    "max_loi": max_loi,
+                    "min_cpi": min_cpi
+                }
+            }
+            
+        except Exception as e:
+            print(f"❌ Error syncing active status: {e}")
+            return {
+                "success": False,
+                "message": f"Error: {str(e)}",
+                "total": 0,
+                "active": 0,
+                "inactive": 0
+            }
+    
     def cleanup_old_surveys(self, days: int = 3) -> int:
         """
         Delete surveys that have received 0 clicks and are older than specified days.

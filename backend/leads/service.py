@@ -35,6 +35,7 @@ load_dotenv()
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 db = client['email_automation']
+torpedo_gmail_db = client['torpedo_gmail']  # Gmail Workspace emails database
 
 # Collections
 leads_raw_collection = db['leads_raw']
@@ -42,6 +43,7 @@ leads_enriched_collection = db['leads_enriched']
 leads_collection = db['leads']  # Legacy leads collection (used by main.py)
 classification_logs_collection = db['lead_ai_classification_logs']
 campaigns_collection = db['campaigns']
+email_metadata_collection = torpedo_gmail_db['email_metadata']  # Synced emails
 
 # ============== ENSURE INDEXES ==============
 
@@ -650,13 +652,197 @@ def delete_all_leads() -> dict:
 
 # ============== GET SINGLE ENRICHED LEAD ==============
 
-def get_enriched_lead_by_id(lead_id: str) -> Optional[dict]:
+def get_emails_for_lead(email_address: str, limit: int = 50) -> List[dict]:
     """
-    Get a single lead by ID.
+    Fetch emails from email_metadata collection for a specific lead email address.
+    Returns emails where the lead's email appears in from_email or to_emails.
+    """
+    if not email_address:
+        return []
+    
+    try:
+        # Find emails where this email is sender or recipient
+        emails = list(email_metadata_collection.find({
+            "$or": [
+                {"from_email": {"$regex": email_address, "$options": "i"}},
+                {"to_emails": {"$regex": email_address, "$options": "i"}}
+            ]
+        }).sort("timestamp", -1).limit(limit))
+        
+        formatted_emails = []
+        for e in emails:
+            # Determine direction relative to lead
+            from_email = e.get("from_email", "")
+            to_emails = e.get("to_emails", [])
+            
+            # Check if lead sent the email
+            is_from_lead = email_address.lower() in from_email.lower()
+            direction = "outbox" if is_from_lead else "inbox"
+            
+            timestamp = e.get("timestamp")
+            
+            formatted_emails.append({
+                "id": str(e["_id"]),
+                "subject": e.get("subject", "(no subject)"),
+                "from": from_email,
+                "from_name": e.get("from_name", ""),
+                "to": to_emails if isinstance(to_emails, list) else [to_emails] if to_emails else [],
+                "recipients": ", ".join(to_emails) if isinstance(to_emails, list) else to_emails,
+                "snippet": e.get("snippet", ""),
+                "body_plain": e.get("body_plain", ""),
+                "body_html": e.get("body_html", ""),
+                "date": timestamp.isoformat() if timestamp else "",
+                "timestamp": timestamp,
+                "direction": direction,
+                "status": "Received" if direction == "inbox" else "Sent",
+                "source": "IMAP",
+                "sent_by": from_email,
+                "has_reply": "RE:" in str(e.get("subject", "")).upper() or "FWD:" in str(e.get("subject", "")).upper(),
+                "has_attachment": e.get("has_attachments", False),
+                "ai_category": e.get("ai_category"),
+                "ai_summary": e.get("ai_summary"),
+                "thread_id": e.get("gmail_thread_id"),
+                "message_id": e.get("gmail_message_id"),
+            })
+        
+        return formatted_emails
+    except Exception as e:
+        print(f"Error fetching emails for lead {email_address}: {e}")
+        return []
+
+
+def generate_conversation_summary(emails: List[dict]) -> str:
+    """
+    Generate a summary of the email conversation for the lead.
+    This provides a high-level overview of the communication history.
+    """
+    if not emails:
+        return ""
+    
+    # Group by thread
+    threads = {}
+    for email in emails:
+        thread_id = email.get("thread_id") or email.get("id")
+        if thread_id not in threads:
+            threads[thread_id] = []
+        threads[thread_id].append(email)
+    
+    # Build summary
+    sent_count = sum(1 for e in emails if e.get("direction") == "outbox")
+    received_count = sum(1 for e in emails if e.get("direction") == "inbox")
+    
+    # Get date range
+    dates = [e.get("timestamp") for e in emails if e.get("timestamp")]
+    if dates:
+        dates.sort()
+        first_date = dates[0].strftime("%b %d, %Y") if hasattr(dates[0], 'strftime') else str(dates[0])[:10]
+        last_date = dates[-1].strftime("%b %d, %Y") if hasattr(dates[-1], 'strftime') else str(dates[-1])[:10]
+        date_range = f" from {first_date} to {last_date}" if first_date != last_date else f" on {first_date}"
+    else:
+        date_range = ""
+    
+    # Get unique subjects
+    subjects = list(set(e.get("subject", "") for e in emails if e.get("subject")))
+    subject_summary = subjects[0] if len(subjects) == 1 else f"{len(subjects)} different conversations"
+    
+    summary = f"Total {len(emails)} emails ({received_count} received, {sent_count} sent){date_range}. "
+    summary += f"Topics: {subject_summary}. "
+    
+    # Check for RFQ-related emails
+    rfq_emails = [e for e in emails if "RFQ" in str(e.get("subject", "")).upper() or "QUOTE" in str(e.get("subject", "")).upper()]
+    if rfq_emails:
+        summary += f"Contains {len(rfq_emails)} RFQ/quote related emails. "
+    
+    return summary.strip()
+
+
+def build_timeline(lead: dict, emails: List[dict]) -> List[dict]:
+    """
+    Build a timeline of all activities for the lead.
+    Includes: email dates, creation date, updates, etc.
+    """
+    timeline = []
+    
+    # Add lead creation event
+    if lead.get("created_at"):
+        created_at = lead["created_at"]
+        timeline.append({
+            "type": "lead_created",
+            "icon": "🎯",
+            "title": "Lead Created",
+            "description": f"Lead was added to the system from {lead.get('source', 'unknown source')}",
+            "date": created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at),
+            "timestamp": created_at
+        })
+    
+    # Add classification event
+    if lead.get("classified_at"):
+        classified_at = lead["classified_at"]
+        timeline.append({
+            "type": "ai_classified",
+            "icon": "🤖",
+            "title": "AI Classification",
+            "description": f"Classified as {lead.get('persona', 'Unknown')} with {int((lead.get('confidence_score', 0) or 0) * 100)}% confidence",
+            "date": classified_at.isoformat() if hasattr(classified_at, 'isoformat') else str(classified_at),
+            "timestamp": classified_at
+        })
+    
+    # Add email events
+    for email in emails:
+        timestamp = email.get("timestamp")
+        direction = email.get("direction", "inbox")
+        
+        if direction == "inbox":
+            icon = "📩"
+            title = "Email Received"
+            desc = f"From: {email.get('from', 'Unknown')}"
+        else:
+            icon = "📤"
+            title = "Email Sent"
+            desc = f"To: {email.get('recipients', 'Unknown')}"
+        
+        timeline.append({
+            "type": "email",
+            "icon": icon,
+            "title": title,
+            "description": f"{desc}\nSubject: {email.get('subject', 'No subject')}",
+            "subject": email.get("subject"),
+            "date": timestamp.isoformat() if hasattr(timestamp, 'isoformat') else str(timestamp),
+            "timestamp": timestamp,
+            "email_id": email.get("id"),
+            "direction": direction
+        })
+    
+    # Add lead stage change if exists
+    if lead.get("lead_stage") and lead.get("updated_at") != lead.get("created_at"):
+        updated_at = lead.get("updated_at")
+        if updated_at:
+            timeline.append({
+                "type": "stage_change",
+                "icon": "📊",
+                "title": "Stage Updated",
+                "description": f"Lead moved to {lead.get('lead_stage', 'unknown')} stage",
+                "date": updated_at.isoformat() if hasattr(updated_at, 'isoformat') else str(updated_at),
+                "timestamp": updated_at
+            })
+    
+    # Sort timeline by date (most recent first)
+    timeline.sort(key=lambda x: x.get("timestamp") or datetime.min, reverse=True)
+    
+    return timeline
+
+
+def get_enriched_lead_by_id(lead_id: str, include_emails: bool = True) -> Optional[dict]:
+    """
+    Get a single lead by ID with emails, timeline, and conversation summary.
     Searches in multiple collections with fallback:
     1. leads_enriched (primary for AI-classified leads)
     2. leads (legacy collection from main.py)
     3. leads_raw (raw imported leads)
+    
+    Args:
+        lead_id: The lead's ObjectId as string
+        include_emails: Whether to fetch emails and build timeline (default True)
     """
     try:
         # Validate ObjectId format first
@@ -666,31 +852,56 @@ def get_enriched_lead_by_id(lead_id: str) -> Optional[dict]:
             print(f"Invalid ObjectId format '{lead_id}': {e}")
             return None
         
+        lead = None
+        source_collection = None
+        
         # 1. Try leads_enriched first (primary collection for AI Database)
         lead = leads_enriched_collection.find_one({"_id": obj_id})
         if lead:
-            lead["_id"] = str(lead["_id"])
-            if "raw_lead_id" in lead:
-                lead["raw_lead_id"] = str(lead["raw_lead_id"])
-            lead["_source_collection"] = "leads_enriched"
-            return lead
+            source_collection = "leads_enriched"
         
         # 2. Fallback to legacy leads collection (used by main.py)
-        lead = leads_collection.find_one({"_id": obj_id})
-        if lead:
-            lead["_id"] = str(lead["_id"])
-            lead["_source_collection"] = "leads"
-            return lead
+        if not lead:
+            lead = leads_collection.find_one({"_id": obj_id})
+            if lead:
+                source_collection = "leads"
         
         # 3. Fallback to leads_raw collection
-        lead = leads_raw_collection.find_one({"_id": obj_id})
-        if lead:
-            lead["_id"] = str(lead["_id"])
-            lead["_source_collection"] = "leads_raw"
-            return lead
+        if not lead:
+            lead = leads_raw_collection.find_one({"_id": obj_id})
+            if lead:
+                source_collection = "leads_raw"
         
-        print(f"Lead not found in any collection: {lead_id}")
-        return None
+        if not lead:
+            print(f"Lead not found in any collection: {lead_id}")
+            return None
+        
+        # Convert ObjectId to string
+        lead["_id"] = str(lead["_id"])
+        if "raw_lead_id" in lead:
+            lead["raw_lead_id"] = str(lead["raw_lead_id"])
+        lead["_source_collection"] = source_collection
+        
+        # Fetch emails from email_metadata if lead has an email address
+        if include_emails and lead.get("email"):
+            emails = get_emails_for_lead(lead["email"])
+            lead["emails"] = emails
+            lead["email_count"] = len(emails)
+            
+            # Generate conversation summary if not already present or if we have new emails
+            if emails and not lead.get("conversation_summary"):
+                lead["conversation_summary"] = generate_conversation_summary(emails)
+                lead["summary_updated_at"] = datetime.utcnow().isoformat()
+            
+            # Build timeline
+            lead["timeline"] = build_timeline(lead, emails)
+        else:
+            if "emails" not in lead:
+                lead["emails"] = []
+            if "timeline" not in lead:
+                lead["timeline"] = []
+        
+        return lead
     except Exception as e:
         print(f"Error getting lead {lead_id}: {e}")
         return None
