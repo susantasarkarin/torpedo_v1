@@ -20,24 +20,24 @@ function VendorSidebar() {
               <span className="sidebar-icon">📊</span> Dashboard
             </Link>
           </li>
-          <li className={`sidebar-item ${isActive("/admin/vendor/all") ? "active" : ""}`}>
-            <Link to="/admin/vendor/all" className="sidebar-link">
-              <span className="sidebar-icon">📋</span> All Vendors
+          <li className={`sidebar-item ${isActive("/admin/vendor/leads") ? "active" : ""}`}>
+            <Link to="/admin/vendor/leads" className="sidebar-link">
+              <span className="sidebar-icon">👥</span> Vendor Leads
             </Link>
           </li>
-          <li className={`sidebar-item ${isActive("/admin/vendor/panel") ? "active" : ""}`}>
-            <Link to="/admin/vendor/panel" className="sidebar-link">
-              <span className="sidebar-icon">🎯</span> Panel Vendors
+          <li className={`sidebar-item ${isActive("/admin/vendor/all") ? "active" : ""}`}>
+            <Link to="/admin/vendor/all" className="sidebar-link">
+              <span className="sidebar-icon">🏢</span> Vendors
             </Link>
           </li>
           <li className={`sidebar-item ${isActive("/admin/vendor/billing") ? "active" : ""}`}>
             <Link to="/admin/vendor/billing" className="sidebar-link">
-              <span className="sidebar-icon">💰</span> Billing Vendors
+              <span className="sidebar-icon">💰</span> Billing
             </Link>
           </li>
           <li className={`sidebar-item ${isActive("/admin/vendor/payments") ? "active" : ""}`}>
             <Link to="/admin/vendor/payments" className="sidebar-link">
-              <span className="sidebar-icon">💳</span> Vendor Payments
+              <span className="sidebar-icon">💳</span> Payment
             </Link>
           </li>
           <li className={`sidebar-item ${isActive("/admin/vendor/reports") ? "active" : ""}`}>
