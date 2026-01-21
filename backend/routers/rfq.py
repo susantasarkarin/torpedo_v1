@@ -39,6 +39,10 @@ db = mongo_client["email_automation"]
 rfqs_collection = db["rfqs"]
 email_leads_collection = db["email_leads"]
 
+# Gmail API database (torpedo_gmail)
+gmail_db = mongo_client["torpedo_gmail"]
+email_metadata_collection = gmail_db["email_metadata"]
+
 # Finance database for estimates and invoices
 finance_db = mongo_client["finance_db"]
 customers_collection = finance_db["customers"]
@@ -1303,3 +1307,324 @@ async def convert_estimate_to_invoice(
         rfq_id=estimate.get("rfq_id", ""),
         total_amount=round(total, 2)
     )
+
+
+# =============================================================================
+# Gmail Email to RFQ Sync - Convert classified Gmail emails to RFQs
+# =============================================================================
+
+def generate_rfq_id_for_sync() -> str:
+    """Generate a unique RFQ ID in format RFQ-YYYY-NNNN"""
+    year = datetime.utcnow().year
+    
+    # Find the highest RFQ number for this year
+    latest = rfqs_collection.find_one(
+        {"rfq_id": {"$regex": f"^RFQ-{year}-"}},
+        sort=[("rfq_id", DESCENDING)]
+    )
+    
+    if latest:
+        try:
+            last_num = int(latest["rfq_id"].split("-")[-1])
+            new_num = last_num + 1
+        except:
+            new_num = 1
+    else:
+        new_num = 1
+    
+    return f"RFQ-{year}-{new_num:04d}"
+
+
+def extract_rfq_details_from_summary(summary: str, subject: str) -> Dict[str, Any]:
+    """Extract RFQ details from AI summary and subject"""
+    import re
+    
+    details = {
+        "loi": None,
+        "ir": None,
+        "sample_size": None,
+        "country": None,
+        "methodology": None,
+        "study_type": None
+    }
+    
+    text = f"{subject} {summary}".lower()
+    
+    # Extract LOI
+    loi_patterns = [
+        r'(\d+)\s*(?:min(?:ute)?s?)\s*(?:loi|interview)',
+        r'loi[:\s]+(\d+)',
+        r'(\d+)\s*min\b'
+    ]
+    for pattern in loi_patterns:
+        match = re.search(pattern, text)
+        if match:
+            details["loi"] = int(match.group(1))
+            break
+    
+    # Extract IR
+    ir_patterns = [
+        r'(\d+(?:\.\d+)?)\s*%\s*(?:ir|incidence)',
+        r'ir[:\s]+(\d+(?:\.\d+)?)',
+        r'incidence[:\s]+(\d+(?:\.\d+)?)'
+    ]
+    for pattern in ir_patterns:
+        match = re.search(pattern, text)
+        if match:
+            details["ir"] = float(match.group(1))
+            break
+    
+    # Extract sample size
+    n_patterns = [
+        r'n\s*[=:]\s*(\d+)',
+        r'(\d+)\s*(?:completes?|respondents?|sample)',
+        r'sample\s*(?:size)?[:\s]*(\d+)'
+    ]
+    for pattern in n_patterns:
+        match = re.search(pattern, text)
+        if match:
+            details["sample_size"] = int(match.group(1))
+            break
+    
+    # Extract country
+    countries = ["us", "usa", "uk", "india", "germany", "france", "brazil", "canada", "australia", "japan", "china", "global", "multi-country", "apac", "emea", "latam"]
+    for country in countries:
+        if country in text:
+            details["country"] = country.upper()
+            break
+    
+    # Extract methodology
+    methodologies = ["cati", "cawi", "f2f", "face to face", "online", "phone", "web", "panel", "idi", "focus group"]
+    for method in methodologies:
+        if method in text:
+            details["methodology"] = method.upper()
+            break
+    
+    # Extract study type
+    if "healthcare" in text or "hcp" in text or "physician" in text:
+        details["study_type"] = "Healthcare"
+    elif "b2b" in text or "business" in text:
+        details["study_type"] = "B2B"
+    elif "it " in text or "technology" in text:
+        details["study_type"] = "IT"
+    elif "consumer" in text or "b2c" in text:
+        details["study_type"] = "Consumer"
+    
+    return details
+
+
+@router.post("/sync-from-gmail")
+async def sync_rfqs_from_gmail(
+    limit: int = Query(100, description="Maximum emails to process"),
+    categories: List[str] = Query(["client", "rfq"], description="AI categories to include")
+) -> Dict[str, Any]:
+    """
+    Sync classified Gmail emails to RFQs.
+    
+    Converts emails with ai_category='client' or 'rfq' from torpedo_gmail.email_metadata
+    to RFQs in email_automation.rfqs collection.
+    """
+    try:
+        # Find classified emails that haven't been synced to RFQs yet
+        query = {
+            "ai_category": {"$in": categories},
+            "rfq_synced": {"$ne": True}  # Not already synced
+        }
+        
+        emails = list(email_metadata_collection.find(query).limit(limit))
+        
+        if not emails:
+            return {
+                "success": True,
+                "message": "No new emails to sync",
+                "synced": 0,
+                "skipped": 0
+            }
+        
+        synced = 0
+        skipped = 0
+        errors = []
+        
+        for email in emails:
+            try:
+                # Get sender email (external party)
+                from_email = email.get("from_email", "")
+                to_emails = email.get("to_emails", [])
+                
+                # Determine the client email (the external party)
+                # If from_email is internal, use to_email as contact
+                internal_domains = ["cogentixresearch.com", "surveyfieldwork.com"]
+                from_domain = from_email.split("@")[-1].lower() if "@" in from_email else ""
+                
+                if from_domain in internal_domains:
+                    # Outbound email - find external recipient
+                    contact_email = None
+                    for to_email in to_emails:
+                        to_domain = to_email.split("@")[-1].lower() if "@" in to_email else ""
+                        if to_domain not in internal_domains:
+                            contact_email = to_email
+                            break
+                    if not contact_email:
+                        skipped += 1
+                        continue
+                else:
+                    # Inbound email - sender is the client
+                    contact_email = from_email
+                
+                if not contact_email:
+                    skipped += 1
+                    continue
+                
+                # Skip noreply, bounce, etc.
+                skip_patterns = ["noreply", "no-reply", "mailer-daemon", "postmaster", "bounce"]
+                if any(p in contact_email.lower() for p in skip_patterns):
+                    skipped += 1
+                    continue
+                
+                # Check if RFQ already exists for this thread
+                thread_id = email.get("gmail_thread_id", "")
+                if thread_id:
+                    existing = rfqs_collection.find_one({"gmail_thread_id": thread_id})
+                    if existing:
+                        # Mark as synced but skip
+                        email_metadata_collection.update_one(
+                            {"_id": email["_id"]},
+                            {"$set": {"rfq_synced": True, "rfq_id": existing["rfq_id"]}}
+                        )
+                        skipped += 1
+                        continue
+                
+                # Extract RFQ details from AI summary
+                summary = email.get("ai_summary", "")
+                subject = email.get("subject", "")
+                rfq_details = extract_rfq_details_from_summary(summary, subject)
+                
+                # Get sender info
+                sender_info = email.get("sender_info", {})
+                
+                # Generate RFQ ID
+                rfq_id = generate_rfq_id_for_sync()
+                
+                # Create RFQ document
+                rfq_doc = {
+                    "rfq_id": rfq_id,
+                    "contact_email": contact_email,
+                    "title": subject or "RFQ Request",
+                    "description": summary[:2000] if summary else "",
+                    "extracted_value": None,
+                    "extracted_currency": "USD",
+                    "manual_value": None,
+                    "manual_currency": None,
+                    # AI-extracted fields
+                    "methodology": rfq_details.get("methodology"),
+                    "loi": rfq_details.get("loi"),
+                    "ir": rfq_details.get("ir"),
+                    "sample_size": rfq_details.get("sample_size"),
+                    "country": rfq_details.get("country"),
+                    "study_type": rfq_details.get("study_type"),
+                    "target_audience": None,
+                    "timeline": None,
+                    # Sender info
+                    "sender_name": sender_info.get("name", email.get("from_name", "")),
+                    "sender_company": sender_info.get("company_name", ""),
+                    "sender_title": sender_info.get("title", ""),
+                    # AI summary
+                    "ai_summary": summary,
+                    # Source tracking
+                    "gmail_thread_id": thread_id,
+                    "gmail_message_id": email.get("gmail_message_id", ""),
+                    "source_emails": [{
+                        "message_id": email.get("gmail_message_id", ""),
+                        "subject": subject,
+                        "date": email.get("timestamp"),
+                        "from": from_email
+                    }],
+                    # Standard fields
+                    "status": "pending",
+                    "priority": "high" if email.get("ai_urgency") == "high" else "medium",
+                    "received_date": email.get("timestamp", datetime.utcnow()),
+                    "due_date": None,
+                    "summary": "",
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                    "created_by": "gmail_sync"
+                }
+                
+                rfqs_collection.insert_one(rfq_doc)
+                
+                # Mark email as synced
+                email_metadata_collection.update_one(
+                    {"_id": email["_id"]},
+                    {"$set": {"rfq_synced": True, "rfq_id": rfq_id}}
+                )
+                
+                synced += 1
+                logger.info(f"Created RFQ {rfq_id} from Gmail thread {thread_id}")
+                
+            except Exception as e:
+                errors.append(str(e))
+                logger.error(f"Error syncing email {email.get('_id')}: {e}")
+        
+        return {
+            "success": True,
+            "message": f"Synced {synced} emails to RFQs, skipped {skipped}",
+            "synced": synced,
+            "skipped": skipped,
+            "errors": errors[:10] if errors else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Error syncing Gmail to RFQs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sync-status")
+async def get_sync_status() -> Dict[str, Any]:
+    """Get Gmail to RFQ sync status"""
+    try:
+        # Count emails by category
+        pipeline = [
+            {"$match": {"ai_category": {"$in": ["client", "rfq"]}}},
+            {"$group": {
+                "_id": {
+                    "category": "$ai_category",
+                    "synced": {"$ifNull": ["$rfq_synced", False]}
+                },
+                "count": {"$sum": 1}
+            }}
+        ]
+        
+        results = list(email_metadata_collection.aggregate(pipeline))
+        
+        stats = {
+            "client_total": 0,
+            "client_synced": 0,
+            "rfq_total": 0,
+            "rfq_synced": 0,
+            "total_rfqs": rfqs_collection.count_documents({"is_deleted": {"$ne": True}})
+        }
+        
+        for r in results:
+            cat = r["_id"]["category"]
+            synced = r["_id"]["synced"]
+            count = r["count"]
+            
+            if cat == "client":
+                stats["client_total"] += count
+                if synced:
+                    stats["client_synced"] = count
+            elif cat == "rfq":
+                stats["rfq_total"] += count
+                if synced:
+                    stats["rfq_synced"] = count
+        
+        stats["pending_sync"] = (stats["client_total"] - stats["client_synced"]) + (stats["rfq_total"] - stats["rfq_synced"])
+        
+        return {
+            "success": True,
+            "stats": stats
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting sync status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
