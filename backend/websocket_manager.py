@@ -197,11 +197,11 @@ class ConnectionManager:
                 # Remove from all channels
                 for ch in self._connections.values():
                     ch.discard(websocket)
-            
+
             # Clean up metadata
             if websocket in self._metadata:
                 del self._metadata[websocket]
-                
+
         except Exception as e:
             logger.error(f"Error disconnecting WebSocket: {e}")
     
