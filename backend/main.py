@@ -610,6 +610,17 @@ try:
 except Exception as e:
     print(f"⚠️ Unified Vendors router not included: {e}")
 
+# Vendor Leads router (for vendor qualification workflow)
+try:
+    try:
+        from .routers import vendor_leads as vendor_leads_router
+    except ImportError:
+        from routers import vendor_leads as vendor_leads_router
+    app.include_router(vendor_leads_router.router)
+    print("✅ Vendor Leads router included")
+except Exception as e:
+    print(f"⚠️ Vendor Leads router not included: {e}")
+
 # Email Sync router
 try:
     try:
@@ -887,6 +898,111 @@ def cint_health_check():
         asyncio.run(_check_and_resubscribe())
 
 
+def background_historic_email_sync():
+    """
+    Background job to download historic emails for all mailboxes.
+    Runs in parallel without affecting app performance.
+    
+    - First checks if there are historic emails to download
+    - Only processes one mailbox at a time to avoid rate limits
+    - Uses small batches with delays to prevent API throttling
+    - Saves cursor after each batch for crash recovery
+    """
+    import time
+    import threading
+    
+    def _run_historic_sync():
+        try:
+            print(f"📜 [Historic] Starting historic email sync check at {datetime.utcnow().isoformat()}")
+            
+            # Import the Gmail Workspace Service
+            try:
+                # Try to use the standalone service file first
+                import sys
+                import os
+                # Add parent directory to path for standalone service file
+                parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                if parent_dir not in sys.path:
+                    sys.path.insert(0, parent_dir)
+                
+                from gmail_workspace_service_vm import GmailWorkspaceService
+            except ImportError:
+                try:
+                    from app.services.gmail_workspace_service import GmailWorkspaceService
+                except ImportError:
+                    print("⚠️ [Historic] Gmail Workspace Service not available")
+                    return
+            
+            # Initialize service
+            ws_service = GmailWorkspaceService(mongo_uri=MONGO_URI)
+            ws_service.load_service_account()
+            
+            if not ws_service.is_configured():
+                print("⚠️ [Historic] Service account not configured, skipping historic sync")
+                return
+            
+            # Get mailboxes needing historic sync
+            pending_mailboxes = ws_service.get_mailboxes_needing_historic_sync()
+            
+            if not pending_mailboxes:
+                print("✅ [Historic] No mailboxes need historic sync")
+                return
+            
+            print(f"📬 [Historic] Found {len(pending_mailboxes)} mailbox(es) needing historic sync")
+            
+            # Process one mailbox at a time (to avoid overwhelming the API)
+            for mailbox in pending_mailboxes[:1]:  # Only process 1 per run
+                mailbox_id = mailbox["id"]
+                email = mailbox["email"]
+                
+                print(f"   📧 [Historic] Processing {email}...")
+                
+                # Run multiple batches with delays
+                max_batches_per_run = 5  # Limit batches per scheduled run
+                batches_run = 0
+                
+                while batches_run < max_batches_per_run:
+                    result = ws_service.historic_sync_batch(mailbox_id, batch_size=100)
+                    
+                    if not result.get("success"):
+                        error = result.get("error", "Unknown error")
+                        print(f"   ⚠️ [Historic] Batch failed for {email}: {error}")
+                        
+                        # If rate limited, stop processing
+                        if "rate" in error.lower():
+                            print(f"   ⏸️ [Historic] Rate limited, will retry next run")
+                            return
+                        break
+                    
+                    fetched = result.get("fetched", 0)
+                    progress = result.get("progress", 0)
+                    has_more = result.get("has_more", False)
+                    
+                    print(f"   📥 [Historic] Batch done: +{fetched} emails, total progress: {progress}")
+                    
+                    batches_run += 1
+                    
+                    if not has_more:
+                        print(f"   ✅ [Historic] Completed historic sync for {email}")
+                        break
+                    
+                    # Delay between batches to avoid rate limits
+                    time.sleep(2)
+                
+                if batches_run >= max_batches_per_run:
+                    print(f"   ⏸️ [Historic] Reached batch limit for this run, will continue next cycle")
+            
+            print(f"✅ [Historic] Historic sync run completed")
+            
+        except Exception as e:
+            print(f"❌ [Historic] Historic email sync failed: {str(e)}")
+            traceback.print_exc()
+    
+    # Run in a separate thread to not block the scheduler
+    thread = threading.Thread(target=_run_historic_sync, daemon=True)
+    thread.start()
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize scheduler and start background jobs"""
@@ -1062,6 +1178,22 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️ Could not schedule Cint health check job: {e}")
     
+    # ----------------------------
+    # Historic Email Download (every 30 minutes, runs in parallel thread)
+    # ----------------------------
+    try:
+        if scheduler.running:
+            scheduler.add_job(
+                background_historic_email_sync,
+                IntervalTrigger(seconds=1800),  # Every 30 minutes
+                id="historic_email_sync",
+                name="Historic Email Download (Background)",
+                replace_existing=True
+            )
+            print("✅ Historic email download job scheduled (every 30 minutes, runs in parallel)")
+    except Exception as e:
+        print(f"⚠️ Could not schedule historic email sync job: {e}")
+    
     # ============== STARTUP SUMMARY BANNER ==============
     print("\n" + "=" * 60)
     print(f"🚀 {APP_NAME} v{APP_VERSION} STARTED SUCCESSFULLY")
@@ -1079,6 +1211,8 @@ async def startup_event():
     print("🔄 BACKGROUND JOBS:")
     if scheduler.running:
         print(f"   • CPX Survey Refresh: Active (every {filter_settings.get('refresh_interval_seconds', 60)}s)")
+        print("   • Gmail Background Sync: Active (every 5 minutes)")
+        print("   • Historic Email Download: Active (every 30 minutes, parallel)")
     else:
         print("   • CPX Survey Refresh: Inactive")
     # Check email sync workers status
