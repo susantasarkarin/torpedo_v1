@@ -114,9 +114,15 @@ class CintService:
                 settings_db = mongo_client["torpedo_settings"]
                 app_settings = settings_db["app_settings"]
                 
+                # Settings are stored directly at _id='survey_filters' without data wrapper
                 stored = app_settings.find_one({"_id": "survey_filters"})
-                if stored and "data" in stored:
-                    return stored["data"]
+                if stored:
+                    return {
+                        "max_loi": stored.get("max_loi", 20),
+                        "min_cpi": stored.get("min_cpi", 1.0),
+                        "min_incidence": stored.get("min_incidence", 60),
+                        "deletion_period_days": stored.get("deletion_period_days", 7),
+                    }
         except Exception as e:
             logger.warning(f"Could not read survey filter settings: {e}")
         
@@ -1085,15 +1091,19 @@ class CintService:
                     filter_query["$and"] = []
                 filter_query["$and"].append({"$or": loi_conditions})
             
-            # Apply CPI filter
-            effective_min_cpi = min_cpi if min_cpi is not None else filter_settings.get("min_cpi", 1.0)
-            cpi_conditions = [
-                {"payout": {"$gte": effective_min_cpi}},
-                {"revenue_per_interview.value": {"$gte": effective_min_cpi}}
-            ]
-            if "$and" not in filter_query:
-                filter_query["$and"] = []
-            filter_query["$and"].append({"$or": cpi_conditions})
+            # Apply CPI filter only if explicitly provided or apply_default_filters is True
+            effective_min_cpi = min_cpi  # Use explicitly passed value first
+            if effective_min_cpi is None and apply_default_filters:
+                effective_min_cpi = filter_settings.get("min_cpi", 1.0)
+            
+            if effective_min_cpi is not None:
+                cpi_conditions = [
+                    {"payout": {"$gte": effective_min_cpi}},
+                    {"revenue_per_interview.value": {"$gte": effective_min_cpi}}
+                ]
+                if "$and" not in filter_query:
+                    filter_query["$and"] = []
+                filter_query["$and"].append({"$or": cpi_conditions})
             
             # Apply country filter
             if country:

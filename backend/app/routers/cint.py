@@ -862,6 +862,7 @@ async def fetch_surveys_from_offerwall(
 # ============================================
 
 @router.post("/sync-active")
+@router.post("/sync-active-status")  # Alias for frontend compatibility (matches CPX endpoint name)
 async def sync_active_status(
     cint_service = Depends(get_cint_service),
 ) -> Dict[str, Any]:
@@ -907,6 +908,7 @@ async def get_surveys(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=1000, description="Items per page (max 1000)"),
     active_only: bool = Query(False, description="Only return surveys active in the pool (for traffic routing)"),
+    show_all: bool = Query(False, description="Show ALL surveys without applying default filters"),
     cint_service = Depends(get_cint_service),
 ) -> Dict[str, Any]:
     """
@@ -923,6 +925,7 @@ async def get_surveys(
         page: Page number (1-indexed)
         page_size: Results per page (max 100)
         active_only: If true, only return surveys that are active in the pool
+        show_all: If true, bypass default filters and show all surveys
         cint_service: CintService instance
     
     Returns:
@@ -947,7 +950,7 @@ async def get_surveys(
         }
     """
     try:
-        logger.info(f"Fetching Cint surveys - page {page}, filters: LOI={min_loi}-{max_loi}, CPI={min_cpi}, Country={country}, active_only={active_only}")
+        logger.info(f"Fetching Cint surveys - page {page}, filters: LOI={min_loi}-{max_loi}, CPI={min_cpi}, Country={country}, active_only={active_only}, show_all={show_all}")
         
         result = cint_service.get_surveys(
             min_loi=min_loi,
@@ -957,6 +960,7 @@ async def get_surveys(
             page=page,
             page_size=page_size,
             active_only=active_only,
+            apply_default_filters=not show_all,  # Bypass default filters when show_all=true
         )
         
         return result

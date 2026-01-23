@@ -35,7 +35,7 @@ export default function SurveyPool() {
   const [poolStats, setPoolStats] = useState(null); // Survey pool statistics
   const [syncing, setSyncing] = useState(false); // Sync in progress
   const [showActiveOnly, setShowActiveOnly] = useState(false); // Filter to show only active surveys
-  const [showPoolPanel, setShowPoolPanel] = useState(false); // Toggle pool management panel
+  const [showPoolPanel, setShowPoolPanel] = useState(true); // Toggle pool management panel (expanded by default)
 
   // WebSocket hooks temporarily disabled for debugging
   // const { 
@@ -211,49 +211,85 @@ export default function SurveyPool() {
   // Sync and activate surveys based on filters
   const syncSurveys = async () => {
     setSyncing(true);
+    let cpxResult = null;
+    let cintResult = null;
+    
     try {
-      // Call CPX sync-active-status to mark surveys as active/inactive based on filter criteria
-      const cpxSyncResponse = await fetch(`${API_BASE_URL}/cpx/sync-active-status`, {
-        method: 'POST',
-        headers: {
-          'Authorization': token,
-          'Content-Type': 'application/json',
-        },
-      });
+      // Sync both CPX and CINT in parallel
+      const [cpxSyncResponse, cintSyncResponse] = await Promise.all([
+        // CPX sync
+        fetch(`${API_BASE_URL}/cpx/sync-active-status`, {
+          method: 'POST',
+          headers: {
+            'Authorization': token,
+            'Content-Type': 'application/json',
+          },
+        }),
+        // CINT sync
+        fetch(`${API_BASE_URL}/api/cint/sync-active-status`, {
+          method: 'POST',
+          headers: {
+            'Authorization': token,
+            'Content-Type': 'application/json',
+          },
+        }).catch(err => {
+          console.log('CINT sync not available:', err);
+          return null;
+        })
+      ]);
 
-      if (cpxSyncResponse.ok) {
-        const cpxData = await cpxSyncResponse.json();
-        console.log('CPX Survey sync complete:', cpxData);
-        
-        // Show summary of sync results
-        if (cpxData.success) {
-          alert(`Sync Complete!\n\nTotal surveys: ${cpxData.total}\nActive (pass filters): ${cpxData.active}\nInactive (fail filters): ${cpxData.inactive}\n\nFilter criteria:\n- Max LOI: ${cpxData.filters_applied?.max_loi} mins\n- Min Payout: $${cpxData.filters_applied?.min_cpi}`);
-        }
-        
-        // Also try CINT sync if available (optional)
-        try {
-          const cintSyncResponse = await fetch(`${API_BASE_URL}/api/cint/sync-active-status`, {
-            method: 'POST',
-            headers: {
-              'Authorization': token,
-              'Content-Type': 'application/json',
-            },
-          });
-          if (cintSyncResponse.ok) {
-            const cintData = await cintSyncResponse.json();
-            console.log('CINT Survey sync complete:', cintData);
-          }
-        } catch (cintErr) {
-          console.log('CINT sync not available:', cintErr);
-        }
-        
-        // Refresh surveys after sync
-        await fetchAllSurveys();
-        await fetchPoolStats();
-      } else {
-        const errorData = await cpxSyncResponse.json();
-        setError(errorData.detail || 'Failed to sync surveys');
+      // Process CPX result
+      if (cpxSyncResponse && cpxSyncResponse.ok) {
+        cpxResult = await cpxSyncResponse.json();
+        console.log('CPX Survey sync complete:', cpxResult);
       }
+
+      // Process CINT result
+      if (cintSyncResponse && cintSyncResponse.ok) {
+        cintResult = await cintSyncResponse.json();
+        console.log('CINT Survey sync complete:', cintResult);
+      }
+
+      // Build combined summary message
+      let summaryLines = ['✅ Sync Complete!\n'];
+      
+      if (cpxResult && cpxResult.success) {
+        summaryLines.push('📊 CPX Research:');
+        summaryLines.push(`   • Total: ${cpxResult.total}`);
+        summaryLines.push(`   • Active: ${cpxResult.active}`);
+        summaryLines.push(`   • Inactive: ${cpxResult.inactive}`);
+        summaryLines.push('');
+      }
+      
+      if (cintResult && cintResult.success) {
+        summaryLines.push('🎯 CINT Research:');
+        summaryLines.push(`   • Total: ${cintResult.total}`);
+        summaryLines.push(`   • Active: ${cintResult.active}`);
+        summaryLines.push(`   • Inactive: ${cintResult.inactive}`);
+        summaryLines.push('');
+      }
+      
+      // Show filter criteria from whichever sync returned filters
+      const filters = cpxResult?.filters_applied || cintResult?.filters_applied;
+      if (filters) {
+        summaryLines.push('⚙️ Filter Criteria:');
+        summaryLines.push(`   • Max LOI: ${filters.max_loi} mins`);
+        summaryLines.push(`   • Min Payout: $${filters.min_cpi}`);
+        if (filters.min_incidence) {
+          summaryLines.push(`   • Min Incidence: ${filters.min_incidence}%`);
+        }
+      }
+
+      if (cpxResult?.success || cintResult?.success) {
+        alert(summaryLines.join('\n'));
+      } else if (!cpxResult && !cintResult) {
+        setError('Failed to sync surveys from both providers');
+      }
+      
+      // Refresh surveys after sync
+      await fetchAllSurveys();
+      await fetchPoolStats();
+      
     } catch (err) {
       console.error('Error syncing surveys:', err);
       setError(err.message);
@@ -644,15 +680,24 @@ export default function SurveyPool() {
             
             {/* Sync Controls */}
             <div className="pool-controls">
-              <button 
-                className={`sync-btn ${syncing ? 'syncing' : ''}`}
-                onClick={syncSurveys}
-                disabled={syncing}
-              >
-                {syncing ? '🔄 Syncing...' : '🔄 Sync & Activate Surveys'}
-              </button>
+              <div className="sync-actions">
+                <button 
+                  className={`sync-btn ${syncing ? 'syncing' : ''}`}
+                  onClick={syncSurveys}
+                  disabled={syncing}
+                >
+                  {syncing ? '🔄 Syncing...' : '🔄 Sync & Activate Surveys'}
+                </button>
+                <a 
+                  href="/admin/settings" 
+                  className="settings-link"
+                  title="Configure survey filter criteria"
+                >
+                  ⚙️ Filter Settings
+                </a>
+              </div>
               <p className="sync-info">
-                Syncs all surveys from CPX/CINT and activates those matching filter criteria.
+                Syncs all surveys from CPX/CINT and activates those matching filter criteria from <a href="/admin/settings" style={{ color: '#667eea' }}>Settings</a>.
                 {poolStats?.last_sync && (
                   <span className="last-sync">
                     Last sync: {new Date(poolStats.last_sync).toLocaleString()}
