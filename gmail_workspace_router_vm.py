@@ -491,7 +491,8 @@ async def sync_mailbox(
 async def get_sync_status(mailbox_id: str):
     """
     Get sync progress for a mailbox.
-    Returns syncing status, progress, and total counts.
+    Returns unified progress combining both regular sync and historic backfill.
+    The progress bar in the UI uses this endpoint.
     """
     try:
         service = get_gmail_service()
@@ -500,16 +501,69 @@ async def get_sync_status(mailbox_id: str):
         if not mailbox:
             raise HTTPException(status_code=404, detail="Mailbox not found")
         
+        # Check if regular sync is in progress
+        regular_syncing = mailbox.get("syncing", False)
+        regular_progress = mailbox.get("sync_progress", 0)
+        regular_total = mailbox.get("sync_total", 0)
+        
+        # Check historic backfill status
+        historic_status = mailbox.get("historic_sync_status", "not_started")
+        historic_progress = mailbox.get("historic_sync_progress", 0)
+        historic_total = mailbox.get("historic_sync_total", 0)
+        
+        # Determine unified status and progress for UI
+        # Priority: regular sync > historic backfill
+        if regular_syncing:
+            status = "syncing"
+            progress = regular_progress
+            total = regular_total
+            message = f"Syncing emails: {progress:,} / {total:,}"
+        elif historic_status == "in_progress":
+            status = "syncing"
+            progress = historic_progress
+            total = historic_total
+            message = f"Background sync: {progress:,} / {total:,}"
+        elif historic_status == "pending":
+            status = "pending"
+            progress = historic_progress
+            total = historic_total
+            error = mailbox.get("historic_sync_error", "")
+            message = f"Waiting to resume... {error}" if error else "Queued for sync"
+        elif historic_status == "completed":
+            status = "complete"
+            progress = historic_progress
+            total = historic_total
+            message = f"✅ Synced {progress:,} emails"
+        else:
+            status = "idle"
+            progress = 0
+            total = 0
+            message = "Ready to sync"
+        
+        # Calculate percentage
+        percent = round((progress / total * 100), 1) if total > 0 else 0
+        
         return {
             "mailbox_id": mailbox_id,
             "email": mailbox.get("email"),
-            "syncing": mailbox.get("syncing", False),
-            "sync_progress": mailbox.get("sync_progress", 0),
-            "sync_total": mailbox.get("sync_total", 0),
-            "sync_started_at": mailbox.get("sync_started_at"),
-            "sync_completed_at": mailbox.get("sync_completed_at"),
+            # Legacy fields for backward compatibility
+            "syncing": regular_syncing or historic_status == "in_progress",
+            "sync_progress": progress,
+            "sync_total": total,
+            "sync_started_at": mailbox.get("sync_started_at") or mailbox.get("historic_sync_started_at"),
+            "sync_completed_at": mailbox.get("sync_completed_at") or mailbox.get("historic_sync_completed_at"),
             "email_count": mailbox.get("email_count", 0),
-            "sync_error": mailbox.get("sync_error")
+            "sync_error": mailbox.get("sync_error") or mailbox.get("historic_sync_error"),
+            # New unified fields for progress bar
+            "status": status,
+            "progress": progress,
+            "total": total,
+            "percent": percent,
+            "message": message,
+            # Historic backfill specific fields
+            "historic_sync_status": historic_status,
+            "historic_sync_progress": historic_progress,
+            "historic_sync_total": historic_total
         }
     except HTTPException:
         raise
@@ -645,6 +699,152 @@ async def get_stats():
         return stats
     except Exception as e:
         logger.error(f"Error getting stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# BACKFILL CONTROL ENDPOINTS
+# ============================================
+
+class BackfillConfigUpdate(BaseModel):
+    """Update backfill configuration"""
+    enabled: Optional[bool] = Field(None, description="Enable/disable backfill")
+    max_emails_per_minute: Optional[int] = Field(None, ge=10, le=1000, description="Rate limit")
+    batch_size: Optional[int] = Field(None, ge=10, le=200, description="Emails per batch")
+    batch_delay_seconds: Optional[float] = Field(None, ge=1, le=60, description="Delay between batches")
+    skip_classification: Optional[bool] = Field(None, description="Skip AI classification for historic emails")
+
+
+@router.get("/backfill/status")
+async def get_backfill_status():
+    """
+    Get comprehensive backfill status and statistics.
+    
+    Returns:
+        - enabled: Whether backfill is enabled
+        - config: Current backfill configuration
+        - overall_progress: Aggregate progress across all mailboxes
+        - mailboxes: Per-mailbox status
+    """
+    try:
+        service = get_gmail_service()
+        
+        if not service.is_configured():
+            return {
+                "configured": False,
+                "message": "Service account not configured"
+            }
+        
+        stats = service.get_backfill_stats()
+        stats["configured"] = True
+        
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting backfill status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/backfill/pause")
+async def pause_backfill():
+    """
+    Pause background email backfill.
+    
+    Stops the scheduler from processing new batches.
+    In-progress batches will complete.
+    """
+    try:
+        service = get_gmail_service()
+        
+        if not service.is_configured():
+            raise HTTPException(status_code=400, detail="Service account not configured")
+        
+        config = service.pause_backfill()
+        
+        return {
+            "success": True,
+            "message": "Backfill paused",
+            "config": config
+        }
+    except Exception as e:
+        logger.error(f"Error pausing backfill: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/backfill/resume")
+async def resume_backfill():
+    """
+    Resume background email backfill.
+    
+    Restarts the scheduler to continue processing batches.
+    """
+    try:
+        service = get_gmail_service()
+        
+        if not service.is_configured():
+            raise HTTPException(status_code=400, detail="Service account not configured")
+        
+        config = service.resume_backfill()
+        
+        return {
+            "success": True,
+            "message": "Backfill resumed",
+            "config": config
+        }
+    except Exception as e:
+        logger.error(f"Error resuming backfill: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/backfill/config")
+async def update_backfill_config(data: BackfillConfigUpdate):
+    """
+    Update backfill configuration.
+    
+    Allows adjusting rate limits, batch sizes, and other settings.
+    """
+    try:
+        service = get_gmail_service()
+        
+        if not service.is_configured():
+            raise HTTPException(status_code=400, detail="Service account not configured")
+        
+        updates = data.dict(exclude_none=True)
+        if not updates:
+            raise HTTPException(status_code=400, detail="No updates provided")
+        
+        config = service.update_backfill_config(updates)
+        
+        return {
+            "success": True,
+            "message": "Configuration updated",
+            "config": config
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating backfill config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/backfill/trigger")
+async def trigger_backfill_cycle():
+    """
+    Manually trigger one backfill cycle.
+    
+    Useful for testing or manually advancing the backfill process.
+    This runs synchronously and may take several seconds.
+    """
+    try:
+        service = get_gmail_service()
+        
+        if not service.is_configured():
+            raise HTTPException(status_code=400, detail="Service account not configured")
+        
+        result = service.run_backfill_cycle()
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error triggering backfill cycle: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

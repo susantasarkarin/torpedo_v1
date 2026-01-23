@@ -25,6 +25,7 @@ Usage:
 import os
 import json
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 from dataclasses import dataclass, field
@@ -36,6 +37,20 @@ from pymongo import MongoClient
 from bson import ObjectId
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# BACKFILL CONFIGURATION DEFAULTS
+# =============================================================================
+DEFAULT_BACKFILL_CONFIG = {
+    "enabled": True,
+    "max_emails_per_minute": 500,
+    "batch_size": 50,
+    "batch_delay_seconds": 6.0,  # 50 emails * 10 batches/min = 500/min
+    "skip_classification": True,
+    "max_retries": 5,
+    "base_retry_delay_seconds": 30,
+    "max_retry_delay_seconds": 300,
+}
 
 # Gmail API scopes for domain-wide delegation
 GMAIL_SCOPES = [
@@ -138,6 +153,90 @@ class GmailWorkspaceService:
         self.emails.create_index([("mailbox_id", 1), ("direction", 1)])
         self.emails.create_index("gmail_thread_id")
     
+    # =========================================================================
+    # BACKFILL CONFIGURATION
+    # =========================================================================
+    
+    def get_backfill_config(self) -> Dict[str, Any]:
+        """
+        Get backfill configuration from database with defaults.
+        
+        Returns:
+            Dict with backfill settings (enabled, max_emails_per_minute, batch_size, etc.)
+        """
+        try:
+            stored = self.config.find_one({"_id": "backfill_config"})
+            if stored:
+                # Merge with defaults to ensure all fields exist
+                config = DEFAULT_BACKFILL_CONFIG.copy()
+                for key in DEFAULT_BACKFILL_CONFIG:
+                    if key in stored:
+                        config[key] = stored[key]
+                return config
+        except Exception as e:
+            logger.warning(f"Error loading backfill config: {e}")
+        
+        return DEFAULT_BACKFILL_CONFIG.copy()
+    
+    def update_backfill_config(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update backfill configuration in database.
+        
+        Args:
+            updates: Dict with fields to update (enabled, max_emails_per_minute, etc.)
+            
+        Returns:
+            Updated config dict
+        """
+        try:
+            # Validate fields
+            valid_fields = set(DEFAULT_BACKFILL_CONFIG.keys())
+            filtered_updates = {k: v for k, v in updates.items() if k in valid_fields}
+            
+            if not filtered_updates:
+                return self.get_backfill_config()
+            
+            # Validate rate limit calculation
+            if "batch_size" in filtered_updates or "batch_delay_seconds" in filtered_updates:
+                config = self.get_backfill_config()
+                batch_size = filtered_updates.get("batch_size", config["batch_size"])
+                delay = filtered_updates.get("batch_delay_seconds", config["batch_delay_seconds"])
+                max_per_min = filtered_updates.get("max_emails_per_minute", config["max_emails_per_minute"])
+                
+                # Ensure batch_size * (60 / delay) <= max_emails_per_minute
+                effective_rate = batch_size * (60 / delay) if delay > 0 else float('inf')
+                if effective_rate > max_per_min:
+                    # Adjust delay to meet rate limit
+                    filtered_updates["batch_delay_seconds"] = (batch_size * 60) / max_per_min
+                    logger.info(f"Adjusted batch_delay to {filtered_updates['batch_delay_seconds']}s to meet rate limit")
+            
+            filtered_updates["updated_at"] = datetime.utcnow()
+            
+            self.config.update_one(
+                {"_id": "backfill_config"},
+                {"$set": filtered_updates},
+                upsert=True
+            )
+            
+            logger.info(f"Backfill config updated: {filtered_updates}")
+            return self.get_backfill_config()
+            
+        except Exception as e:
+            logger.error(f"Error updating backfill config: {e}")
+            raise
+    
+    def is_backfill_enabled(self) -> bool:
+        """Check if backfill is enabled"""
+        return self.get_backfill_config().get("enabled", True)
+    
+    def pause_backfill(self) -> Dict[str, Any]:
+        """Pause background backfill"""
+        return self.update_backfill_config({"enabled": False})
+    
+    def resume_backfill(self) -> Dict[str, Any]:
+        """Resume background backfill"""
+        return self.update_backfill_config({"enabled": True})
+
     def is_configured(self) -> bool:
         """Check if service account is configured"""
         return self.service_account_info is not None
@@ -695,8 +794,15 @@ class GmailWorkspaceService:
         
         return stats
     
-    def _save_email_metadata(self, mailbox_id: str, mailbox_email: str, msg_data: Dict):
-        """Save email metadata and body to database for AI classification"""
+    def _save_email_metadata(self, mailbox_id: str, mailbox_email: str, msg_data: Dict, is_historic_backfill: bool = False):
+        """Save email metadata and body to database for AI classification
+        
+        Args:
+            mailbox_id: Mailbox ID
+            mailbox_email: Email address of the mailbox
+            msg_data: Gmail message data
+            is_historic_backfill: If True, marks email to skip AI classification
+        """
         headers = {h["name"].lower(): h["value"] for h in msg_data.get("payload", {}).get("headers", [])}
         
         # Parse from
@@ -751,6 +857,7 @@ class GmailWorkspaceService:
             "is_starred": "STARRED" in labels,
             "size_estimate": msg_data.get("sizeEstimate", 0),
             "synced_at": datetime.utcnow(),
+            "is_historic_backfill": is_historic_backfill,  # Skip classification if True
         }
         
         # Upsert
@@ -1355,7 +1462,10 @@ class GmailWorkspaceService:
                         format="full"
                     ).execute()
                     
-                    self._save_email_metadata(mailbox_id, email, msg_data)
+                    # Mark as historic backfill to skip classification
+                    config = self.get_backfill_config()
+                    skip_classification = config.get("skip_classification", True)
+                    self._save_email_metadata(mailbox_id, email, msg_data, is_historic_backfill=skip_classification)
                     fetched_count += 1
                     
                 except Exception as e:
@@ -1400,23 +1510,40 @@ class GmailWorkspaceService:
             error_msg = str(e)
             logger.error(f"Gmail API error in historic sync for {email}: {error_msg}")
             
-            # Handle rate limiting
+            # Handle rate limiting with exponential backoff
             if "429" in error_msg or "rateLimitExceeded" in error_msg.lower():
-                # Pause for rate limit
+                # Get current retry count and calculate backoff
+                retry_count = mailbox.get("backfill_retry_count", 0) + 1
+                config = self.get_backfill_config()
+                base_delay = config.get("base_retry_delay_seconds", 30)
+                max_delay = config.get("max_retry_delay_seconds", 300)
+                max_retries = config.get("max_retries", 5)
+                
+                # Exponential backoff: 30s, 60s, 120s, 240s, 300s (capped)
+                retry_delay = min(base_delay * (2 ** (retry_count - 1)), max_delay)
+                next_retry_at = datetime.utcnow() + timedelta(seconds=retry_delay)
+                
                 self.mailboxes.update_one(
                     {"_id": ObjectId(mailbox_id)},
                     {
                         "$set": {
                             "historic_sync_status": "pending",  # Will retry later
-                            "historic_sync_error": "Rate limited - will retry",
+                            "historic_sync_error": f"Rate limited - retry {retry_count}/{max_retries} in {retry_delay}s",
+                            "backfill_retry_count": retry_count,
+                            "backfill_next_retry_at": next_retry_at,
                             "updated_at": datetime.utcnow()
                         }
                     }
                 )
+                
+                logger.warning(f"Rate limited for {email}, retry {retry_count}/{max_retries} scheduled at {next_retry_at}")
+                
                 return {
                     "success": False,
                     "error": "Rate limited",
-                    "retry_after": 60,
+                    "retry_after": retry_delay,
+                    "retry_count": retry_count,
+                    "next_retry_at": next_retry_at.isoformat(),
                     "has_more": True
                 }
             
@@ -1512,4 +1639,175 @@ class GmailWorkspaceService:
                 "completed": total_completed
             },
             "mailboxes": statuses
+        }
+    
+    def run_backfill_cycle(self) -> Dict[str, Any]:
+        """
+        Run one cycle of the background backfill process.
+        
+        This method:
+        1. Checks if backfill is enabled
+        2. Gets all mailboxes needing historic sync
+        3. Processes each eligible mailbox with rate limiting
+        4. Respects exponential backoff for rate-limited mailboxes
+        5. Returns summary of actions taken
+        
+        Designed to be called by APScheduler every 30 seconds.
+        
+        Returns:
+            Dict with cycle summary (processed, skipped, errors, etc.)
+        """
+        cycle_start = datetime.utcnow()
+        
+        # Check if backfill is enabled
+        if not self.is_backfill_enabled():
+            return {
+                "success": True,
+                "skipped": True,
+                "reason": "Backfill is paused",
+                "timestamp": cycle_start.isoformat()
+            }
+        
+        # Check if service is configured
+        if not self.is_configured():
+            return {
+                "success": False,
+                "error": "Service account not configured",
+                "timestamp": cycle_start.isoformat()
+            }
+        
+        config = self.get_backfill_config()
+        batch_size = config.get("batch_size", 50)
+        batch_delay = config.get("batch_delay_seconds", 6.0)
+        max_emails_per_minute = config.get("max_emails_per_minute", 500)
+        
+        # Get mailboxes needing sync
+        pending_mailboxes = self.get_mailboxes_needing_historic_sync()
+        
+        if not pending_mailboxes:
+            return {
+                "success": True,
+                "message": "No mailboxes need historic sync",
+                "processed": 0,
+                "timestamp": cycle_start.isoformat()
+            }
+        
+        results = []
+        total_fetched = 0
+        emails_this_minute = 0
+        minute_start = time.time()
+        
+        for mailbox in pending_mailboxes:
+            mailbox_id = mailbox["id"]
+            email = mailbox["email"]
+            
+            # Check if mailbox is in backoff cooldown
+            next_retry = mailbox.get("backfill_next_retry_at")
+            if next_retry:
+                if isinstance(next_retry, str):
+                    next_retry = datetime.fromisoformat(next_retry.replace('Z', '+00:00'))
+                if datetime.utcnow() < next_retry:
+                    results.append({
+                        "mailbox_id": mailbox_id,
+                        "email": email,
+                        "skipped": True,
+                        "reason": f"In cooldown until {next_retry.isoformat()}"
+                    })
+                    continue
+            
+            # Reset retry count on successful processing attempt
+            self.mailboxes.update_one(
+                {"_id": ObjectId(mailbox_id)},
+                {"$unset": {"backfill_retry_count": "", "backfill_next_retry_at": ""}}
+            )
+            
+            # Rate limiting: check if we're approaching the limit
+            elapsed = time.time() - minute_start
+            if elapsed >= 60:
+                # Reset minute counter
+                emails_this_minute = 0
+                minute_start = time.time()
+            
+            if emails_this_minute >= max_emails_per_minute:
+                # Wait until the minute resets
+                wait_time = 60 - elapsed
+                if wait_time > 0:
+                    logger.info(f"Rate limit approaching ({emails_this_minute}/{max_emails_per_minute}), waiting {wait_time:.1f}s")
+                    time.sleep(wait_time)
+                    emails_this_minute = 0
+                    minute_start = time.time()
+            
+            # Process batch
+            try:
+                result = self.historic_sync_batch(mailbox_id, batch_size=batch_size)
+                fetched = result.get("fetched", 0)
+                total_fetched += fetched
+                emails_this_minute += fetched
+                
+                results.append({
+                    "mailbox_id": mailbox_id,
+                    "email": email,
+                    "success": result.get("success", False),
+                    "fetched": fetched,
+                    "progress": result.get("progress", 0),
+                    "has_more": result.get("has_more", False),
+                    "error": result.get("error")
+                })
+                
+                # Delay between batches
+                if result.get("has_more") and batch_delay > 0:
+                    time.sleep(batch_delay)
+                    
+            except Exception as e:
+                logger.error(f"Error processing mailbox {email}: {e}")
+                results.append({
+                    "mailbox_id": mailbox_id,
+                    "email": email,
+                    "success": False,
+                    "error": str(e)
+                })
+        
+        cycle_duration = (datetime.utcnow() - cycle_start).total_seconds()
+        
+        return {
+            "success": True,
+            "processed": len(results),
+            "total_fetched": total_fetched,
+            "duration_seconds": cycle_duration,
+            "results": results,
+            "timestamp": cycle_start.isoformat()
+        }
+    
+    def get_backfill_stats(self) -> Dict[str, Any]:
+        """
+        Get comprehensive backfill statistics for monitoring.
+        
+        Returns:
+            Dict with overall stats, per-mailbox progress, and config
+        """
+        config = self.get_backfill_config()
+        status = self.get_historic_sync_status()
+        
+        # Calculate totals
+        total_progress = sum(m.get("progress", 0) for m in status.get("mailboxes", []))
+        total_target = sum(m.get("total", 0) for m in status.get("mailboxes", []))
+        overall_percent = (total_progress / total_target * 100) if total_target > 0 else 0
+        
+        # Estimate time remaining (rough)
+        rate = config.get("max_emails_per_minute", 500)
+        remaining = total_target - total_progress
+        eta_minutes = remaining / rate if rate > 0 else 0
+        
+        return {
+            "enabled": config.get("enabled", True),
+            "config": config,
+            "summary": status.get("summary", {}),
+            "overall_progress": {
+                "synced": total_progress,
+                "total": total_target,
+                "percent": round(overall_percent, 1),
+                "remaining": remaining,
+                "eta_minutes": round(eta_minutes, 1)
+            },
+            "mailboxes": status.get("mailboxes", [])
         }
