@@ -861,6 +861,43 @@ async def fetch_surveys_from_offerwall(
 # Survey Pool - Filtered Surveys
 # ============================================
 
+@router.post("/sync-active")
+async def sync_active_status(
+    cint_service = Depends(get_cint_service),
+) -> Dict[str, Any]:
+    """
+    Sync active status for all CINT surveys based on filter criteria.
+    
+    This endpoint applies the configured filter settings (max_loi, min_cpi, min_incidence)
+    to all surveys in the pool and marks them as:
+    - is_active_in_pool=True: Surveys that match the filter criteria
+    - is_active_in_pool=False: Surveys that don't match
+    
+    Similar to CPX's sync_active_status_by_filters functionality.
+    
+    Returns:
+        {
+            "success": true,
+            "message": "Synced active status for 47000 surveys",
+            "total": 47000,
+            "active": 12500,
+            "inactive": 34500,
+            "filters_applied": {
+                "max_loi": 20,
+                "min_cpi": 1.0,
+                "min_incidence": 60
+            }
+        }
+    """
+    try:
+        logger.info("Syncing CINT survey active status by filter criteria")
+        result = cint_service.sync_active_status_by_filters()
+        return result
+    except Exception as e:
+        logger.error(f"Error syncing active status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/surveys")
 async def get_surveys(
     min_loi: Optional[int] = Query(None, ge=1, le=60, description="Minimum LOI in minutes"),

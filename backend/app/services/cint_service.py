@@ -193,6 +193,112 @@ class CintService:
         
         return True
 
+    def sync_active_status_by_filters(self) -> Dict[str, Any]:
+        """
+        Apply filter settings to ALL surveys and mark them as active/inactive.
+        Surveys that pass the filter criteria get is_active_in_pool=true,
+        others get is_active_in_pool=false.
+        
+        This is similar to CPX's sync_active_status_by_filters method.
+        
+        Returns:
+            Dictionary with counts of active/inactive surveys
+        """
+        if self.cint_surveys_collection is None:
+            return {
+                "success": False,
+                "message": "MongoDB collection not configured",
+                "total": 0,
+                "active": 0,
+                "inactive": 0
+            }
+        
+        try:
+            # Get current filter settings
+            filter_settings = self.get_filter_settings()
+            max_loi = filter_settings.get("max_loi", 20)
+            min_cpi = filter_settings.get("min_cpi", 1.0)
+            min_incidence = filter_settings.get("min_incidence", 60)
+            
+            logger.info(f"📊 Syncing CINT active status with filters: max_loi={max_loi}, min_cpi={min_cpi}, min_incidence={min_incidence}")
+            
+            # Count ALL surveys first
+            total_surveys = self.cint_surveys_collection.count_documents({})
+            
+            # Build query for surveys that PASS the filters (active surveys)
+            # Surveys need: LOI <= max_loi, payout >= min_cpi, incidence >= min_incidence
+            # Also require is_live=True
+            active_query = {
+                "$and": [
+                    {"$or": [
+                        {"is_live": True},
+                        {"is_live": {"$exists": False}}
+                    ]},
+                    {"$or": [
+                        {"length_of_interview": {"$lte": max_loi}},
+                        {"bid_length_of_interview": {"$lte": max_loi}},
+                        {"loi": {"$lte": max_loi}},
+                        {"length_of_interview": {"$exists": False}},
+                        {"length_of_interview": None},
+                        {"length_of_interview": 0}
+                    ]},
+                    {"$or": [
+                        {"payout": {"$gte": min_cpi}},
+                        {"revenue_per_interview.value": {"$gte": str(min_cpi)}},
+                        # Handle numeric revenue_per_interview.value
+                        {"$expr": {"$gte": [{"$toDouble": {"$ifNull": ["$revenue_per_interview.value", "0"]}}, min_cpi]}}
+                    ]},
+                    {"$or": [
+                        {"bid_incidence": {"$gte": min_incidence}},
+                        {"conversion": {"$gte": min_incidence}},
+                        {"bid_incidence": {"$exists": False}},
+                        {"bid_incidence": None},
+                        {"bid_incidence": 0}
+                    ]}
+                ]
+            }
+            
+            # Mark all surveys matching active_query as is_active_in_pool=true
+            active_result = self.cint_surveys_collection.update_many(
+                active_query,
+                {"$set": {"is_active_in_pool": True, "updated_at": datetime.now(timezone.utc)}}
+            )
+            
+            # Mark all OTHER surveys as is_active_in_pool=false
+            inactive_result = self.cint_surveys_collection.update_many(
+                {"$nor": [active_query]},
+                {"$set": {"is_active_in_pool": False, "updated_at": datetime.now(timezone.utc)}}
+            )
+            
+            # Get actual counts after update
+            actual_active = self.cint_surveys_collection.count_documents({"is_active_in_pool": True})
+            actual_inactive = self.cint_surveys_collection.count_documents({"is_active_in_pool": False})
+            
+            logger.info(f"✅ CINT active status synced: {actual_active} active, {actual_inactive} inactive (total: {total_surveys})")
+            
+            return {
+                "success": True,
+                "message": f"Synced active status for {total_surveys} surveys",
+                "total": total_surveys,
+                "active": actual_active,
+                "inactive": actual_inactive,
+                "filters_applied": {
+                    "max_loi": max_loi,
+                    "min_cpi": min_cpi,
+                    "min_incidence": min_incidence
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error syncing CINT active status: {e}")
+            return {
+                "success": False,
+                "message": f"Error: {str(e)}",
+                "total": 0,
+                "active": 0,
+                "inactive": 0
+            }
+
     # ============================================
     # Legacy Fulcrum API (Polling)
     # ============================================
