@@ -545,27 +545,6 @@ export default function SurveyPool() {
 
   const totalPages = Math.ceil(filteredSurveys.length / recordsPerPage);
 
-  // Compute local stats from surveys array to match what's displayed in the table
-  const localStats = useMemo(() => {
-    const cpxSurveys = surveys.filter(s => (s.source || (s.account_name ? 'CINT' : 'CPX')) === 'CPX');
-    const cintSurveys = surveys.filter(s => (s.source || (s.account_name ? 'CINT' : 'CPX')) === 'CINT');
-    
-    return {
-      cpx: {
-        active: cpxSurveys.filter(s => s.is_active_in_pool === true).length,
-        total: cpxSurveys.length
-      },
-      cint: {
-        active: cintSurveys.filter(s => s.is_active_in_pool === true).length,
-        total: cintSurveys.length
-      },
-      total: {
-        active: surveys.filter(s => s.is_active_in_pool === true).length,
-        total: surveys.length
-      }
-    };
-  }, [surveys]);
-
   // Handle survey click to show details
   const handleSurveyClick = (survey) => {
     setSelectedSurvey(survey);
@@ -775,29 +754,31 @@ export default function SurveyPool() {
         {showPoolPanel && (
           <div className="pool-stats-content">
             {/* Pool Statistics */}
-            <div className="pool-stats-grid">
-              <div className="stat-card cpx">
-                <h4>CPX Research</h4>
-                <div className="stat-numbers">
-                  <span className="active">{localStats.cpx.active} Active</span>
-                  <span className="total">/ {localStats.cpx.total} Total</span>
+            {poolStats && (
+              <div className="pool-stats-grid">
+                <div className="stat-card cpx">
+                  <h4>CPX Research</h4>
+                  <div className="stat-numbers">
+                    <span className="active">{poolStats.cpx?.active || 0} Active</span>
+                    <span className="total">/ {poolStats.cpx?.total || 0} Total</span>
+                  </div>
+                </div>
+                <div className="stat-card cint">
+                  <h4>CINT Research</h4>
+                  <div className="stat-numbers">
+                    <span className="active">{poolStats.cint?.active || 0} Active</span>
+                    <span className="total">/ {poolStats.cint?.total || 0} Total</span>
+                  </div>
+                </div>
+                <div className="stat-card total">
+                  <h4>Total Pool</h4>
+                  <div className="stat-numbers">
+                    <span className="active">{poolStats.total?.active || 0} Active</span>
+                    <span className="total">/ {poolStats.total?.total || 0} Total</span>
+                  </div>
                 </div>
               </div>
-              <div className="stat-card cint">
-                <h4>CINT Research</h4>
-                <div className="stat-numbers">
-                  <span className="active">{localStats.cint.active} Active</span>
-                  <span className="total">/ {localStats.cint.total} Total</span>
-                </div>
-              </div>
-              <div className="stat-card total">
-                <h4>Total Pool</h4>
-                <div className="stat-numbers">
-                  <span className="active">{localStats.total.active} Active</span>
-                  <span className="total">/ {localStats.total.total} Total</span>
-                </div>
-              </div>
-            </div>
+            )}
             
             {/* Sync Controls */}
             <div className="pool-controls">
