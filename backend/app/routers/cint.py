@@ -368,6 +368,48 @@ async def update_entry_link(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/auto-create-entry-links")
+async def auto_create_entry_links_for_all(
+    limit: int = Query(100, description="Max surveys to process"),
+    cint_service = Depends(get_cint_service)
+):
+    """Auto-create entry links for active surveys that don't have one."""
+    if cint_service is None:
+        raise HTTPException(status_code=503, detail="Cint service not initialized")
+    
+    # Get active surveys without entry links
+    surveys = list(cint_service.cint_surveys_collection.find(
+        {"is_active": True},
+        {"survey_id": 1}
+    ).limit(limit))
+    
+    created = 0
+    skipped = 0
+    errors = []
+    
+    for survey in surveys:
+        survey_id = survey["survey_id"]
+        try:
+            existing = await cint_service.get_entry_link(survey_id)
+            if existing.get("success") and existing.get("link"):
+                skipped += 1
+                continue
+            
+            result = await cint_service._auto_create_entry_link(survey_id)
+            if result.get("success"):
+                created += 1
+            else:
+                errors.append({"survey_id": survey_id, "error": result.get("message")})
+        except Exception as e:
+            errors.append({"survey_id": survey_id, "error": str(e)})
+    
+    return {
+        "success": True,
+        "created": created,
+        "skipped": skipped,
+        "errors": errors[:10] if errors else []
+    }
+
 
 @router.get("/entry-links/{survey_id}")
 async def get_entry_link(

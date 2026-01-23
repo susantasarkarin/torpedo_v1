@@ -78,6 +78,95 @@ def set_cpx_callback_logs_collection(collection: Collection):
     cpx_callback_logs_collection = collection
 
 
+@router.get("/cint-response")
+async def cint_callback(
+    request: Request,
+    status: str = Query(..., description="Response status: complete, terminate, quota_full, quality_terminate"),
+    mid: str = Query(..., description="Cint session ID (MID)"),
+    revenue: str = Query(None, description="Revenue/payout amount")
+):
+    """
+    Cint Survey Callback Handler
+    
+    URL format: /cint-response?status={status}&mid={mid}&revenue={revenue}
+    
+    - status: complete, terminate, quota_full, quality_terminate
+    - mid: The Cint session ID (MID placeholder replaced by Cint)
+    - revenue: The payout amount (REVENUE placeholder replaced by Cint)
+    """
+    try:
+        print(f"📥 Cint Callback received: status={status}, mid={mid}, revenue={revenue}")
+        print(f"📥 Full callback URL: {request.url}")
+        
+        # Map Cint status to internal status
+        status_mapping = {
+            "complete": "COMPLETE",
+            "terminate": "TERMINATED",
+            "quota_full": "OVERQUOTA",
+            "quality_terminate": "QUALITY_TERM"
+        }
+        new_status = status_mapping.get(status.lower(), "TERMINATED")
+        redirect_type = "completeRD" if new_status == "COMPLETE" else "terminateRD"
+        
+        # Find traffic record by respondentId (which should be the mid)
+        traffic_record = None
+        if url_parameters_collection is not None:
+            # Try ObjectId first
+            try:
+                traffic_record = url_parameters_collection.find_one({"_id": ObjectId(mid)})
+            except:
+                pass
+            
+            # Try as respondentId
+            if not traffic_record:
+                traffic_record = url_parameters_collection.find_one({"respondentId": mid})
+            
+            # Try as string _id
+            if not traffic_record:
+                traffic_record = url_parameters_collection.find_one({"_id": mid})
+        
+        if not traffic_record:
+            print(f"⚠️ Traffic record not found for mid: {mid}")
+            return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=not_found")
+        
+        # Get vendor info
+        vendor_id = traffic_record.get("vendorId")
+        respondent_id = traffic_record.get("respondentId", "")
+        
+        # Update traffic status
+        if url_parameters_collection is not None:
+            url_parameters_collection.update_one(
+                {"_id": traffic_record["_id"]},
+                {"$set": {
+                    "status": new_status,
+                    "cint_revenue": revenue,
+                    "updatedAt": datetime.utcnow(),
+                    "completedAt": datetime.utcnow() if new_status == "COMPLETE" else None
+                }}
+            )
+        
+        # Get vendor redirect URL
+        redirect_url = f"{FRONTEND_URL}/thankyou"
+        if vendor_id and vendors_collection is not None:
+            vendor = vendors_collection.find_one({"vendorId": vendor_id})
+            if vendor:
+                redirect_url = vendor.get(redirect_type, redirect_url)
+        
+        # Append respondent ID
+        if respondent_id:
+            separator = "&" if "?" in redirect_url else "?"
+            redirect_url = f"{redirect_url}{separator}id={respondent_id}"
+        
+        print(f"✅ Cint callback: Redirecting to {redirect_url}")
+        return RedirectResponse(url=redirect_url)
+        
+    except Exception as e:
+        print(f"❌ Cint callback error: {e}")
+        import traceback
+        traceback.print_exc()
+        return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
+
+
 @router.get("/cpx-response")
 async def cpx_callback(
     request: Request,

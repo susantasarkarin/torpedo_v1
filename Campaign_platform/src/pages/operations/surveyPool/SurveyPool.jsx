@@ -104,11 +104,15 @@ export default function SurveyPool() {
     }
   };
 
-  // Create Cint entry link via API
+  // Create Cint entry link via API with proper redirect URLs
   const createCintEntryLink = async (surveyId) => {
     if (!token || !surveyId) return;
     
     setCreatingEntryLink(true);
+    
+    // Backend base URL for callbacks (production)
+    const callbackBase = 'https://torpedo.cogentixresearch.com';
+    const frontendBase = 'https://surveyfieldwork.com';
     
     try {
       const response = await fetch(
@@ -122,6 +126,11 @@ export default function SurveyPool() {
           body: JSON.stringify({
             supplier_link_type_code: 'OWS',
             tracking_type_code: 'NONE',
+            default_link: `${frontendBase}/survey`,
+            success_link: `${callbackBase}/cint-response?status=complete&mid=[%MID%]&revenue=[%REVENUE%]`,
+            failure_link: `${callbackBase}/cint-response?status=terminate&mid=[%MID%]`,
+            over_quota_link: `${callbackBase}/cint-response?status=quota_full&mid=[%MID%]`,
+            quality_termination_link: `${callbackBase}/cint-response?status=quality_terminate&mid=[%MID%]`,
           }),
         }
       );
@@ -1240,24 +1249,30 @@ export default function SurveyPool() {
                       </>
                     ) : (
                       <div style={{ padding: '12px', background: '#fef3c7', borderRadius: '6px', border: '1px solid #fcd34d' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                          <span style={{ color: '#92400e' }}>⚠️ No entry link configured for this survey.</span>
-                          <button
-                            onClick={() => createCintEntryLink(selectedSurvey.survey_id)}
-                            disabled={creatingEntryLink}
-                            style={{
-                              padding: '6px 14px',
-                              background: creatingEntryLink ? '#9ca3af' : '#10b981',
-                              color: 'white',
-                              border: 'none',
-                              borderRadius: '4px',
-                              cursor: creatingEntryLink ? 'not-allowed' : 'pointer',
-                              fontSize: '0.85rem',
-                              fontWeight: '500'
-                            }}
-                          >
-                            {creatingEntryLink ? '⏳ Creating...' : '➕ Create Entry Link'}
-                          </button>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                            <span style={{ color: '#92400e' }}>⚠️ Entry link not yet available.</span>
+                            <button
+                              onClick={() => createCintEntryLink(selectedSurvey.survey_id)}
+                              disabled={creatingEntryLink}
+                              style={{
+                                padding: '6px 14px',
+                                background: creatingEntryLink ? '#9ca3af' : '#10b981',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: creatingEntryLink ? 'not-allowed' : 'pointer',
+                                fontSize: '0.85rem',
+                                fontWeight: '500'
+                              }}
+                            >
+                              {creatingEntryLink ? '⏳ Creating...' : '➕ Create Entry Link'}
+                            </button>
+                          </div>
+                          <p style={{ color: '#78716c', fontSize: '0.8rem', margin: 0, lineHeight: '1.4' }}>
+                            Cint surveys require allocation before entry links can be created. If creation fails with 404, 
+                            the survey may still be in "opportunity" status. Entry links are auto-created when surveys become available.
+                          </p>
                         </div>
                       </div>
                     )}

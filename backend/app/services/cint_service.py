@@ -948,7 +948,7 @@ class CintService:
     # ============================================
 
     async def process_opportunity_webhook(
-        self, payload: Dict[str, Any], check_active: bool = True
+        self, payload: Dict[str, Any], check_active: bool = True, auto_create_entry_links: bool = True
     ) -> List[CintOpportunity]:
         """
         Process incoming opportunities from webhook
@@ -956,6 +956,7 @@ class CintService:
         Args:
             payload: Webhook payload (single opportunity dict or array)
             check_active: If True, deactivate surveys with message_reason="deactivated"
+            auto_create_entry_links: If True, auto-create entry links for new active surveys
 
         Returns:
             List of processed CintOpportunity objects
@@ -964,6 +965,7 @@ class CintService:
         opportunities = payload if isinstance(payload, list) else [payload]
         
         processed = []
+        entry_links_created = 0
         
         for opp_data in opportunities:
             try:
@@ -988,6 +990,12 @@ class CintService:
                 # Determine if survey is active
                 opportunity.is_active = opportunity.is_live and opportunity.message_reason != "deactivated"
                 
+                # Check if this is a new survey (for auto-creating entry links)
+                is_new_survey = False
+                if self.cint_surveys_collection is not None:
+                    existing = self.cint_surveys_collection.find_one({"survey_id": opportunity.survey_id})
+                    is_new_survey = existing is None
+                
                 # Store ALL surveys without filtering during ingestion
                 # Filters are now applied only during display/routing, not during ingestion
                 # This allows us to keep a complete inventory and apply dynamic filters
@@ -996,14 +1004,53 @@ class CintService:
                 if self.cint_surveys_collection is not None:
                     self._upsert_opportunity(opportunity)
                 
+                # Auto-create entry links for new active surveys
+                if auto_create_entry_links and is_new_survey and opportunity.is_active:
+                    try:
+                        result = await self._auto_create_entry_link(opportunity.survey_id)
+                        if result.get("success"):
+                            entry_links_created += 1
+                            logger.info(f"Auto-created entry link for survey {opportunity.survey_id}")
+                    except Exception as link_err:
+                        logger.warning(f"Failed to auto-create entry link for {opportunity.survey_id}: {link_err}")
+                
                 processed.append(opportunity)
                 
             except Exception as e:
                 logger.error(f"Error processing opportunity {opp_data.get('survey_id')}: {str(e)}")
                 continue
         
-        logger.info(f"Processed {len(processed)} opportunities from webhook")
+        logger.info(f"Processed {len(processed)} opportunities (entry links created: {entry_links_created})")
         return processed
+
+    async def _auto_create_entry_link(self, survey_id: int) -> Dict[str, Any]:
+        """Auto-create entry link for a survey with default redirect URLs."""
+        import os
+        
+        api_base = os.getenv("API_BASE", "https://torpedo.cogentixresearch.com")
+        frontend_url = os.getenv("FRONTEND_URL", "https://surveyfieldwork.com")
+        
+        success_url = f"{api_base}/cint-response?status=complete&mid=[%MID%]&revenue=[%REVENUE%]"
+        failure_url = f"{api_base}/cint-response?status=terminate&mid=[%MID%]"
+        over_quota_url = f"{api_base}/cint-response?status=quota_full&mid=[%MID%]"
+        quality_term_url = f"{api_base}/cint-response?status=quality_terminate&mid=[%MID%]"
+        default_url = f"{frontend_url}/survey"
+        
+        link_config = SupplierLinkCreate(
+            supplier_link_type_code="OWS",
+            tracking_type_code="NONE",
+            default_link=default_url,
+            success_link=success_url,
+            failure_link=failure_url,
+            over_quota_link=over_quota_url,
+            quality_termination_link=quality_term_url,
+        )
+        
+        existing = await self.get_entry_link(survey_id)
+        if existing.get("success") and existing.get("link"):
+            return existing
+        
+        return await self.create_entry_link(survey_id, link_config)
 
     def _upsert_opportunity(self, opportunity: CintOpportunity) -> None:
         """
