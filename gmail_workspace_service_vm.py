@@ -1328,12 +1328,12 @@ class GmailWorkspaceService:
     def get_mailboxes_needing_historic_sync(self) -> List[Dict]:
         """
         Get all mailboxes that need historic email sync.
-        Returns mailboxes with status 'pending' or 'not_started' (needs check).
+        Returns mailboxes with status 'pending', 'in_progress', or 'not_started' (needs check).
         """
-        # Get mailboxes with pending status
+        # Get mailboxes with pending or in_progress status (they need to continue)
         pending = list(self.mailboxes.find({
             "is_active": True,
-            "historic_sync_status": "pending"
+            "historic_sync_status": {"$in": ["pending", "in_progress"]}
         }))
         
         # Also get not_started to check if they need sync
