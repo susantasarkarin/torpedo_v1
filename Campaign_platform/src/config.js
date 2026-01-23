@@ -10,11 +10,10 @@ const getApiUrl = () => {
     return "http://localhost:8000";
   }
   
-  // In production, use the same host with API port 8000
+  // In production, use relative URL (reverse proxy handles routing to backend)
+  // This avoids mixed content issues when site is served over HTTPS
   if (typeof window !== 'undefined') {
-    const protocol = window.location.protocol;
-    const host = window.location.hostname;
-    return `${protocol}//${host}:8000`;
+    return "";  // Empty string = relative URL, requests go to same origin
   }
   
   return "http://localhost:8000";
