@@ -1451,7 +1451,7 @@ class CintService:
             if active_only:
                 filter_query["is_active_in_pool"] = True
             
-            # Apply LOI filters - check both normalized and original fields
+            # Apply LOI filters - check both length_of_interview and bid_length_of_interview fields
             if max_loi is not None or min_loi is not None:
                 loi_conditions = []
                 loi_filter = {}
@@ -1474,9 +1474,13 @@ class CintService:
                 effective_min_cpi = filter_settings.get("min_cpi", 1.0)
             
             if effective_min_cpi is not None:
+                # IMPORTANT: revenue_per_interview.value is stored as a STRING in the database
+                # We need to compare as string for proper matching
+                min_cpi_str = str(effective_min_cpi)
                 cpi_conditions = [
                     {"payout": {"$gte": effective_min_cpi}},
-                    {"revenue_per_interview.value": {"$gte": effective_min_cpi}}
+                    # Compare as string since revenue_per_interview.value is stored as string like "1.6975"
+                    {"revenue_per_interview.value": {"$gte": min_cpi_str}},
                 ]
                 if "$and" not in filter_query:
                     filter_query["$and"] = []
