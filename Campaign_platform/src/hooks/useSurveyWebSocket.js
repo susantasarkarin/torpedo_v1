@@ -19,6 +19,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { WS_BASE_URL } from '../config';
 
 // Retry delays in milliseconds: 2s, 5s, 10s, 20s, 30s
 const RETRY_DELAYS = [2000, 5000, 10000, 20000, 30000];
@@ -56,14 +57,10 @@ export function useSurveyWebSocket(channel, options = {}) {
 
   // Build WebSocket URL based on channel
   const getWsUrl = useCallback(() => {
-    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-    // Convert http(s) to ws(s)
-    const wsBase = apiBase.replace(/^http/, 'ws');
-    
     if (channel === 'cint') {
-      return `${wsBase}/api/cint/ws/surveys`;
+      return `${WS_BASE_URL}/api/cint/ws/surveys`;
     } else if (channel === 'cpx') {
-      return `${wsBase}/cpx/ws/surveys`;
+      return `${WS_BASE_URL}/cpx/ws/surveys`;
     } else {
       throw new Error(`Unknown channel: ${channel}`);
     }

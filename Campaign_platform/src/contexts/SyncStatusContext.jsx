@@ -14,6 +14,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import debounce from 'lodash/debounce';
+import { API_BASE_URL } from '../config';
 
 // Storage key for localStorage
 const STORAGE_KEY = 'torpedo_sync_status';
@@ -104,8 +105,7 @@ export function SyncStatusProvider({ children }) {
     }
 
     try {
-      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const eventSource = new EventSource(`${apiBase}/gmail/sync/stream`);
+      const eventSource = new EventSource(`${API_BASE_URL}/gmail/sync/stream`);
       eventSourceRef.current = eventSource;
 
       eventSource.onopen = () => {
@@ -336,8 +336,7 @@ export function SyncStatusProvider({ children }) {
   // Cancel a sync operation
   const cancelSync = useCallback(async (mailboxId) => {
     try {
-      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const response = await fetch(`${apiBase}/gmail/sync/${encodeURIComponent(mailboxId)}/cancel`, {
+      const response = await fetch(`${API_BASE_URL}/gmail/sync/${encodeURIComponent(mailboxId)}/cancel`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -13,6 +13,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import api from '../utils/api';
+import { WS_BASE_URL } from '../config';
 
 // Constants
 const DAILY_LIMIT = 1000;
@@ -240,11 +241,9 @@ export function LeadAgentProvider({ children }) {
     }
 
     try {
-      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-      const wsBase = apiBase.replace(/^http/, 'ws');
       const wsUrl = jobId 
-        ? `${wsBase}/leads/agents/ws/${jobId}`
-        : `${wsBase}/leads/agents/ws/all`;
+        ? `${WS_BASE_URL}/leads/agents/ws/${jobId}`
+        : `${WS_BASE_URL}/leads/agents/ws/all`;
       
       console.log('[LeadAgent] Connecting to WebSocket:', wsUrl);
       

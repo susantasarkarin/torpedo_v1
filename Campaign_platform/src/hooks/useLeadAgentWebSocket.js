@@ -11,6 +11,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { WS_BASE_URL } from '../config';
 
 // Retry delays in milliseconds
 const RETRY_DELAYS = [2000, 5000, 10000, 20000, 30000];
@@ -47,13 +48,10 @@ export function useLeadAgentWebSocket(options = {}) {
 
   // Build WebSocket URL
   const getWsUrl = useCallback(() => {
-    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-    const wsBase = apiBase.replace(/^http/, 'ws');
-    
     if (jobId) {
-      return `${wsBase}/leads/agents/ws/${jobId}`;
+      return `${WS_BASE_URL}/leads/agents/ws/${jobId}`;
     }
-    return `${wsBase}/leads/agents/ws/all`;
+    return `${WS_BASE_URL}/leads/agents/ws/all`;
   }, [jobId]);
 
   // Connect to WebSocket

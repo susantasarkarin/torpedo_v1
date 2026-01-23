@@ -25,6 +25,7 @@ from app.models.cint import (
     SupplierLinkCreate,
     SupplierLinkUpdate,
     OpportunitiesSubscriptionConfig,
+    OutcomeSubscriptionConfig,
     CintSettings,
     WebhookValidationRequest,
     EntryLinkResponse,
@@ -183,8 +184,10 @@ async def handle_opportunities_webhook(
 
 @router.post("/webhooks/respondent-outcomes")
 async def handle_respondent_outcomes_webhook(
-    request_body: dict = Body(...),
+    request: Request,
     x_cint_signature: Optional[str] = Header(None),
+    x_cint_timestamp: Optional[str] = Header(None),
+    cint_service = Depends(get_cint_service),
 ):
     """
     Receive respondent outcome webhook from Cint
@@ -192,38 +195,92 @@ async def handle_respondent_outcomes_webhook(
     This endpoint is called by Cint when respondent sessions complete/terminate
     with status information (completed, terminated, quota_full, etc.)
     
+    Features:
+    - HMAC-SHA256 signature verification
+    - Replay protection (rejects timestamps > 5 minutes old)
+    - Stores latest outcome per session_id
+    
     Args:
-        request_body: Webhook payload with respondent outcome data
+        request: FastAPI request object
         x_cint_signature: HMAC-SHA256 signature for validation
+        x_cint_timestamp: Webhook timestamp for replay protection
+        cint_service: CintService instance
     
     Returns:
         {
             "success": true,
             "message": "Outcomes processed",
-            "respondent_id": "xxx"
+            "count": 5
         }
     """
+    from datetime import timezone
+    
     try:
-        # TODO: Implement webhook signature validation
-        # if x_cint_signature:
-        #     if not validate_signature(request_body, x_cint_signature, webhook_secret):
-        #         raise HTTPException(status_code=401, detail="Invalid signature")
+        # Get raw body for signature validation
+        body = await request.body()
         
-        logger.info(f"Received respondent outcome webhook")
-        logger.debug(f"Outcome: {request_body}")
+        # Validate webhook signature if present
+        if x_cint_signature:
+            webhook_secret = os.getenv("CINT_OUTCOMES_WEBHOOK_SECRET", os.getenv("CINT_WEBHOOK_SECRET", ""))
+            expected_sig = hmac.new(
+                webhook_secret.encode(),
+                body,
+                hashlib.sha256
+            ).hexdigest()
+            
+            if not hmac.compare_digest(x_cint_signature, expected_sig):
+                logger.warning(f"Invalid outcomes webhook signature: {x_cint_signature[:20]}...")
+                raise HTTPException(status_code=401, detail="Invalid webhook signature")
         
-        # TODO: Process through CintService and update respondent status
-        # outcome = RespondentOutcome(**request_body)
-        # await cint_service.process_respondent_outcome(outcome)
+        # Replay protection - reject old timestamps (> 5 minutes)
+        if x_cint_timestamp:
+            try:
+                timestamp = datetime.fromisoformat(x_cint_timestamp.replace("Z", "+00:00"))
+                age_seconds = (datetime.now(timezone.utc) - timestamp).total_seconds()
+                if age_seconds > 300:  # 5 minutes
+                    logger.warning(f"Rejecting stale outcomes webhook (age: {age_seconds:.0f}s)")
+                    raise HTTPException(status_code=401, detail="Webhook timestamp too old (replay protection)")
+            except ValueError:
+                logger.warning(f"Invalid timestamp format in header: {x_cint_timestamp}")
+        
+        # Parse JSON payload
+        request_body = json.loads(body.decode())
+        outcomes = request_body if isinstance(request_body, list) else [request_body]
+        
+        logger.info(f"Received outcomes webhook with {len(outcomes)} outcomes")
+        
+        # Process each outcome through CintService
+        processed_count = 0
+        for outcome_data in outcomes:
+            result = await cint_service.process_respondent_outcome(outcome_data)
+            if result.get("success"):
+                processed_count += 1
+        
+        # Broadcast to WebSocket clients if available
+        if WEBSOCKET_AVAILABLE and connection_manager:
+            try:
+                await connection_manager.broadcast(
+                    "cint_outcomes",
+                    {
+                        "type": "outcomes_update",
+                        "count": processed_count,
+                        "source": "webhook"
+                    }
+                )
+                logger.debug(f"Broadcast {processed_count} outcomes to WebSocket clients")
+            except Exception as ws_err:
+                logger.warning(f"Failed to broadcast outcomes to WebSocket: {ws_err}")
         
         return {
             "success": True,
-            "message": "Outcome processed",
-            "respondent_id": request_body.get("respondent_id")
+            "message": "Outcomes processed",
+            "count": processed_count
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error processing respondent outcome: {str(e)}")
+        logger.error(f"Error processing respondent outcomes webhook: {str(e)}")
         return {
             "success": False,
             "error": str(e)
@@ -717,6 +774,127 @@ async def delete_opportunities_subscription(
         raise
     except Exception as e:
         logger.error(f"Error deleting subscription: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# Respondent Outcomes Subscription
+# ============================================
+
+@router.post("/subscription/outcomes")
+async def create_outcomes_subscription(
+    config: OutcomeSubscriptionConfig,
+    cint_service = Depends(get_cint_service),
+):
+    """
+    Create or update respondent outcomes subscription.
+    
+    Cint will send outcome webhooks when respondent sessions complete/terminate.
+    
+    Args:
+        config: Subscription configuration with callback URL and outcome filters
+            - callback_url: Webhook URL for receiving outcomes
+            - outcome_filters: Optional filters for marketplace_status/client_status
+    
+    Returns:
+        {
+            "success": true,
+            "message": "Outcomes subscription created",
+            "callback_url": "https://..."
+        }
+    """
+    try:
+        logger.info(f"Creating outcomes subscription with callback: {config.callback_url}")
+        result = await cint_service.create_outcomes_subscription(config)
+        
+        if result.get("success"):
+            logger.info("✓ Outcomes subscription created successfully")
+            return {
+                "success": True,
+                "message": "Outcomes subscription created/updated",
+                "callback_url": config.callback_url,
+                "data": result.get("data"),
+            }
+        else:
+            logger.error(f"Outcomes subscription creation failed: {result.get('error')}")
+            raise HTTPException(
+                status_code=result.get("status_code", 500),
+                detail=result.get("error", "Failed to create outcomes subscription"),
+            )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating outcomes subscription: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/subscription/outcomes")
+async def get_outcomes_subscription(
+    cint_service = Depends(get_cint_service),
+):
+    """
+    Get current respondent outcomes subscription status.
+    
+    Returns:
+        Current subscription configuration or error if not found
+    """
+    try:
+        logger.info("Retrieving outcomes subscription status")
+        result = await cint_service.get_outcomes_subscription()
+        
+        if result.get("success"):
+            logger.info("✓ Outcomes subscription status retrieved")
+            return {
+                "success": True,
+                "data": result.get("data"),
+            }
+        else:
+            return {
+                "success": False,
+                "error": result.get("error"),
+                "status_code": result.get("status_code", 404),
+            }
+    
+    except Exception as e:
+        logger.error(f"Error retrieving outcomes subscription: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/subscription/outcomes")
+async def delete_outcomes_subscription(
+    cint_service = Depends(get_cint_service),
+):
+    """
+    Delete respondent outcomes subscription.
+    
+    Returns:
+        {
+            "success": true,
+            "message": "Outcomes subscription deleted"
+        }
+    """
+    try:
+        logger.info("Deleting outcomes subscription")
+        result = await cint_service.delete_outcomes_subscription()
+        
+        if result.get("success"):
+            logger.info("✓ Outcomes subscription deleted")
+            return {
+                "success": True,
+                "message": "Outcomes subscription deleted",
+            }
+        else:
+            logger.error(f"Outcomes subscription deletion failed: {result.get('error')}")
+            raise HTTPException(
+                status_code=result.get("status_code", 500),
+                detail=result.get("error", "Failed to delete outcomes subscription"),
+            )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting outcomes subscription: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

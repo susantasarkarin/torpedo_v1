@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { API_BASE_URL } from "../../config";
 import "./TrafficFlowParser.css";
 
@@ -7,6 +7,7 @@ export default function TrafficFlowParser() {
   const [fullUrl, setFullUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const hasAutoTriggered = useRef(false);
 
   useEffect(() => {
     const currentUrl = window.location.href;
@@ -18,7 +19,7 @@ export default function TrafficFlowParser() {
     setUrlParams(parsedParams);
   }, []);
 
-  const handleStore = async () => {
+  const handleStore = useCallback(async () => {
     // Check for required traffic parameters
     const vid = urlParams.vid;
     const cc = urlParams.cc;
@@ -28,22 +29,28 @@ export default function TrafficFlowParser() {
       alert("Missing required parameters: vid (vendor ID), cc (country code), rid (respondent ID)\nExample: ?vid=123&cc=US&rid=456789");
       return;
     }
-    
 
     setLoading(true);
     setError(null);
 
     try {
+      // Add timeout controller for better error handling
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
       const response = await fetch(`${API_BASE_URL}/api/store`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         mode: "cors",
+        signal: controller.signal,
         body: JSON.stringify({
           url: fullUrl,
           params: urlParams,
           userAgent: navigator.userAgent,
         }),
       });
+
+      clearTimeout(timeoutId);
 
       if (response.ok) {
         const result = await response.json();
@@ -67,12 +74,30 @@ export default function TrafficFlowParser() {
         const errorData = await response.json().catch(() => ({ detail: "Unknown error" }));
         throw new Error(errorData.detail || "Failed to store data");
       }
-    } catch (error) {
-      console.error("Store error:", error);
-      setError(error.message);
+    } catch (err) {
+      console.error("Store error:", err);
+      
+      // Provide user-friendly error messages
+      let errorMessage = err.message;
+      if (err.name === "AbortError") {
+        errorMessage = "Request timed out. Please check your internet connection and try again.";
+      } else if (err.message === "Failed to fetch") {
+        errorMessage = "Network error. Please disable any VPN or ad-blockers and try again, or check your internet connection.";
+      }
+      
+      setError(errorMessage);
       setLoading(false);
     }
-  };
+  }, [urlParams, fullUrl]);
+
+  // Auto-trigger the store when all required parameters are present
+  useEffect(() => {
+    if (hasAutoTriggered.current) return;
+    if (urlParams.vid && urlParams.cc && urlParams.rid && fullUrl) {
+      hasAutoTriggered.current = true;
+      handleStore();
+    }
+  }, [urlParams, fullUrl, handleStore]);
 
   return (
     <div className="survey-container">
@@ -88,10 +113,25 @@ export default function TrafficFlowParser() {
           Your responses will be kept confidential and will be used in aggregate only.
         </p>
         
-        {/* Show error message */}
+        {/* Show error message with retry button */}
         {error && (
-          <div style={{ margin: "10px 0", padding: "10px", backgroundColor: "#fee", color: "#c00", borderRadius: "4px" }}>
+          <div style={{ margin: "10px 0", padding: "15px", backgroundColor: "#fee", color: "#c00", borderRadius: "4px" }}>
             <strong>Error:</strong> {error}
+            <br />
+            <button 
+              onClick={handleStore}
+              style={{ 
+                marginTop: "10px", 
+                padding: "8px 20px", 
+                cursor: "pointer",
+                backgroundColor: "#fff",
+                border: "1px solid #c00",
+                borderRadius: "4px",
+                color: "#c00"
+              }}
+            >
+              Try Again
+            </button>
           </div>
         )}
         

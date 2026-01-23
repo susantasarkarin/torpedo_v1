@@ -33,6 +33,60 @@ from app.models.cint import (
 logger = logging.getLogger(__name__)
 
 
+# ============================================
+# Cint Validation Error Codes (V01-V19)
+# ============================================
+
+CINT_VALIDATION_ERRORS = {
+    "V01": "Invalid survey number - survey does not exist or is not accessible",
+    "V02": "Invalid supplier code - supplier not recognized",
+    "V03": "Invalid API key - authentication failed",
+    "V04": "Survey not live - survey is closed or paused",
+    "V05": "Quota exceeded - no more respondents needed for this quota",
+    "V06": "Survey qualifications not met - respondent does not qualify",
+    "V07": "Quota full - survey has reached maximum completions",
+    "V08": "Invalid respondent ID - PID format not accepted",
+    "V09": "Duplicate respondent - PID has already completed this survey",
+    "V10": "Invalid session - session has expired or is invalid",
+    "V11": "Survey group conflict - respondent already in survey group",
+    "V12": "Invalid country/language - respondent locale not supported",
+    "V13": "Quality termination - respondent failed quality checks",
+    "V14": "Security termination - fraud or bot detection triggered",
+    "V15": "Invalid redirect URL - callback URL format invalid",
+    "V16": "Rate limit exceeded - too many requests, retry later",
+    "V17": "Invalid subscription configuration - missing required fields",
+    "V18": "Webhook delivery failed - callback URL unreachable",
+    "V19": "Internal server error - Cint platform issue, retry later",
+}
+
+
+class CintValidationError(Exception):
+    """
+    Exception for Cint API validation errors (V01-V19).
+    Maps Cint error codes to human-readable messages.
+    """
+    
+    def __init__(self, error_code: str, raw_message: str = None, status_code: int = 400):
+        self.error_code = error_code
+        self.raw_message = raw_message
+        self.status_code = status_code
+        self.message = CINT_VALIDATION_ERRORS.get(
+            error_code, 
+            f"Unknown Cint error ({error_code}): {raw_message or 'No details provided'}"
+        )
+        super().__init__(self.message)
+    
+    def __str__(self):
+        return f"[{self.error_code}] {self.message}"
+    
+    @classmethod
+    def from_response(cls, response_data: dict, status_code: int = 400) -> "CintValidationError":
+        """Create CintValidationError from Cint API response."""
+        error_code = response_data.get("error_code") or response_data.get("ErrorCode") or "V19"
+        raw_message = response_data.get("message") or response_data.get("Message") or str(response_data)
+        return cls(error_code, raw_message, status_code)
+
+
 class CintService:
     """Service to interact with Cint API (Opportunities & Entry Links)"""
     
@@ -43,6 +97,12 @@ class CintService:
     # Supply Integration Endpoints
     OPPORTUNITIES_ENDPOINT = "supply/opportunities/v1/subscriptions/{supplier_code}"
     ENTRY_LINKS_ENDPOINT = "Supply/v1/SupplierLinks"
+    RESPONDENT_OUTCOMES_ENDPOINT = "supply/respondent-outcomes/v2/subscriptions/{supplier_code}"
+    
+    # Retry configuration
+    MAX_RETRIES = 3
+    RETRY_STATUS_CODES = {429, 502, 503, 504}  # Retry on rate limit and server errors
+    NO_RETRY_STATUS_CODES = {400, 401, 403}    # Never retry on client errors
     
     # Legacy Fulcrum/Samplicio API Endpoints (for polling)
     LEGACY_OFFERWALL_ENDPOINT = "Supply/v1/Surveys/AllOfferwall/{supplier_code}"
@@ -56,6 +116,7 @@ class CintService:
         cint_surveys_collection: Optional[Collection] = None,
         cint_entry_links_collection: Optional[Collection] = None,
         cint_settings_collection: Optional[Collection] = None,
+        cint_outcomes_collection: Optional[Collection] = None,
         api_timeout: int = 30,
     ):
         """
@@ -68,6 +129,7 @@ class CintService:
             cint_surveys_collection: MongoDB collection for cint_research.cint_surveys
             cint_entry_links_collection: MongoDB collection for cint_research.cint_entry_links
             cint_settings_collection: MongoDB collection for cint_research.cint_settings
+            cint_outcomes_collection: MongoDB collection for cint_research.cint_respondent_outcomes
             api_timeout: Request timeout in seconds
         """
         self.api_key = api_key
@@ -86,6 +148,7 @@ class CintService:
         self.cint_surveys_collection = cint_surveys_collection
         self.cint_entry_links_collection = cint_entry_links_collection
         self.cint_settings_collection = cint_settings_collection
+        self.cint_outcomes_collection = cint_outcomes_collection
         
         # HTTP client
         self.client = httpx.AsyncClient(timeout=api_timeout)
@@ -93,6 +156,74 @@ class CintService:
     async def close(self):
         """Close HTTP client"""
         await self.client.aclose()
+
+    async def _request_with_retry(
+        self,
+        method: str,
+        url: str,
+        **kwargs
+    ) -> httpx.Response:
+        """
+        Make HTTP request with exponential backoff retry logic.
+        
+        Retries on: 429 (Rate Limited), 502, 503, 504 (Server Errors)
+        Never retries on: 400, 401, 403 (Client Errors)
+        
+        Args:
+            method: HTTP method (GET, POST, PUT, DELETE)
+            url: Request URL
+            **kwargs: Additional arguments for httpx request
+            
+        Returns:
+            httpx.Response object
+            
+        Raises:
+            CintValidationError: For validation errors (V01-V19)
+            httpx.HTTPStatusError: For non-retryable HTTP errors
+        """
+        import asyncio
+        
+        last_exception = None
+        
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                response = await self.client.request(method, url, **kwargs)
+                
+                # Check if we should retry
+                if response.status_code in self.RETRY_STATUS_CODES:
+                    wait_time = (2 ** attempt)  # 1s, 2s, 4s
+                    logger.warning(
+                        f"Cint API returned {response.status_code}, "
+                        f"retrying in {wait_time}s (attempt {attempt + 1}/{self.MAX_RETRIES})"
+                    )
+                    await asyncio.sleep(wait_time)
+                    continue
+                
+                # Check for non-retryable errors
+                if response.status_code in self.NO_RETRY_STATUS_CODES:
+                    try:
+                        error_data = response.json()
+                        raise CintValidationError.from_response(error_data, response.status_code)
+                    except (ValueError, KeyError):
+                        response.raise_for_status()
+                
+                response.raise_for_status()
+                return response
+                
+            except httpx.HTTPStatusError as e:
+                last_exception = e
+                if e.response.status_code in self.NO_RETRY_STATUS_CODES:
+                    raise
+                if e.response.status_code not in self.RETRY_STATUS_CODES:
+                    raise
+                    
+            except Exception as e:
+                last_exception = e
+                logger.error(f"Request error (attempt {attempt + 1}): {str(e)}")
+        
+        if last_exception:
+            raise last_exception
+        raise Exception(f"Request failed after {self.MAX_RETRIES} attempts")
 
     # ============================================
     # Survey Filter Settings (same as CPX)
@@ -611,6 +742,205 @@ class CintService:
             return {"success": False, "error": str(e), "status_code": e.response.status_code}
         except Exception as e:
             logger.error(f"Failed to delete subscription: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    # ============================================
+    # Respondent Outcomes Subscription (v2)
+    # ============================================
+
+    async def create_outcomes_subscription(
+        self, config: OutcomeSubscriptionConfig
+    ) -> Dict[str, Any]:
+        """
+        Create or update respondent outcomes subscription.
+        
+        Cint will send outcome webhooks when respondent sessions complete/terminate.
+        
+        Args:
+            config: Subscription configuration with callback URL and filters
+            
+        Returns:
+            Response from Cint API
+        """
+        url = f"{self.base_url}{self.RESPONDENT_OUTCOMES_ENDPOINT.format(supplier_code=self.supplier_code)}"
+        
+        payload = {
+            "callback": config.callback_url,
+            "outcome_filters": config.outcome_filters if config.outcome_filters else [],
+        }
+        
+        try:
+            response = await self._request_with_retry(
+                "POST",
+                url,
+                json=payload,
+                headers=self._get_headers(),
+            )
+            
+            logger.info(f"Outcomes subscription created for {self.supplier_code}")
+            return {"success": True, "data": response.json()}
+        
+        except CintValidationError as e:
+            logger.error(f"Cint validation error: {e}")
+            return {"success": False, "error": str(e), "error_code": e.error_code}
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Cint outcomes subscription error: {e.response.status_code}")
+            return {"success": False, "error": str(e), "status_code": e.response.status_code}
+        except Exception as e:
+            logger.error(f"Cint outcomes subscription failed: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    async def get_outcomes_subscription(self) -> Dict[str, Any]:
+        """Get current respondent outcomes subscription status."""
+        url = f"{self.base_url}{self.RESPONDENT_OUTCOMES_ENDPOINT.format(supplier_code=self.supplier_code)}"
+        
+        try:
+            response = await self._request_with_retry(
+                "GET",
+                url,
+                headers=self._get_headers(),
+            )
+            
+            logger.info(f"Retrieved outcomes subscription for {self.supplier_code}")
+            return {"success": True, "data": response.json()}
+        
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                logger.debug(f"Outcomes subscription not found for {self.supplier_code}")
+            return {"success": False, "error": str(e), "status_code": e.response.status_code}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def delete_outcomes_subscription(self) -> Dict[str, Any]:
+        """Delete respondent outcomes subscription."""
+        url = f"{self.base_url}{self.RESPONDENT_OUTCOMES_ENDPOINT.format(supplier_code=self.supplier_code)}"
+        
+        try:
+            response = await self._request_with_retry(
+                "DELETE",
+                url,
+                headers=self._get_headers(),
+            )
+            
+            logger.info(f"Outcomes subscription deleted for {self.supplier_code}")
+            return {"success": True}
+        
+        except httpx.HTTPStatusError as e:
+            return {"success": False, "error": str(e), "status_code": e.response.status_code}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    # ============================================
+    # Respondent Outcome Processing
+    # ============================================
+
+    # Status code mappings for marketplace_status and client_status
+    MARKETPLACE_STATUS_MAP = {
+        10: "complete",
+        20: "terminate",
+        30: "over_quota",
+        40: "quality_terminate",
+        50: "survey_closed",
+    }
+    
+    CLIENT_STATUS_MAP = {
+        10: "complete",
+        20: "terminate",
+        30: "over_quota",
+        40: "quality_terminate",
+    }
+
+    async def process_respondent_outcome(
+        self, outcome_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Process respondent outcome from webhook.
+        
+        Per Cint API spec:
+        - Multiple updates may be received per respondent
+        - Always store the LATEST outcome only (by last_date)
+        - Map marketplace_status and client_status to final status
+        
+        Args:
+            outcome_data: Webhook payload with respondent outcome
+            
+        Returns:
+            Processing result with stored outcome details
+        """
+        try:
+            # Parse to Pydantic model for validation
+            outcome = RespondentOutcome(**outcome_data)
+            
+            # Determine final status from marketplace_status
+            final_status = self.MARKETPLACE_STATUS_MAP.get(
+                outcome.marketplace_status, 
+                f"unknown_{outcome.marketplace_status}"
+            )
+            
+            # Build document for storage
+            outcome_doc = {
+                "respondent_id": outcome.respondent_id,
+                "session_id": outcome.session_id,
+                "panelist_id": outcome.panelist_id,
+                "parent_session_id": outcome.parent_session_id,
+                "survey_id": outcome.survey_id,
+                "marketplace_status": outcome.marketplace_status,
+                "client_status": outcome.client_status,
+                "final_status": final_status,
+                "entry_date": outcome.entry_date,
+                "last_date": outcome.last_date,
+                "rpi": outcome.rpi,
+                "payout": outcome.rpi.get("value") if outcome.rpi else None,
+                "currency": outcome.rpi.get("currency_code") if outcome.rpi else "USD",
+                "study_type": outcome.study_type,
+                "received_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+            }
+            
+            # Upsert to MongoDB - use session_id as unique key
+            # Only update if this outcome is newer (by last_date)
+            if self.cint_outcomes_collection is not None:
+                existing = self.cint_outcomes_collection.find_one(
+                    {"session_id": outcome.session_id}
+                )
+                
+                if existing:
+                    # Only update if newer
+                    existing_last_date = existing.get("last_date")
+                    if existing_last_date and outcome.last_date <= existing_last_date:
+                        logger.debug(
+                            f"Skipping older outcome for session {outcome.session_id}"
+                        )
+                        return {
+                            "success": True,
+                            "action": "skipped",
+                            "reason": "older_outcome",
+                            "session_id": outcome.session_id,
+                        }
+                
+                # Upsert the outcome
+                self.cint_outcomes_collection.update_one(
+                    {"session_id": outcome.session_id},
+                    {"$set": outcome_doc, "$setOnInsert": {"created_at": datetime.now(timezone.utc)}},
+                    upsert=True,
+                )
+                
+                logger.info(
+                    f"Stored outcome for session {outcome.session_id}: "
+                    f"status={final_status}, payout={outcome_doc.get('payout')}"
+                )
+            
+            return {
+                "success": True,
+                "action": "stored",
+                "session_id": outcome.session_id,
+                "respondent_id": outcome.respondent_id,
+                "final_status": final_status,
+                "payout": outcome_doc.get("payout"),
+            }
+            
+        except Exception as e:
+            logger.error(f"Error processing respondent outcome: {str(e)}")
             return {"success": False, "error": str(e)}
 
     # ============================================

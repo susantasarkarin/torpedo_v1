@@ -37,6 +37,11 @@ export default function SurveyPool() {
   const [showActiveOnly, setShowActiveOnly] = useState(false); // Filter to show only active surveys
   const [showPoolPanel, setShowPoolPanel] = useState(true); // Toggle pool management panel (expanded by default)
 
+  // Cint entry link state
+  const [cintEntryLink, setCintEntryLink] = useState(null); // Current entry link for selected Cint survey
+  const [loadingEntryLink, setLoadingEntryLink] = useState(false); // Loading state for entry link fetch
+  const [creatingEntryLink, setCreatingEntryLink] = useState(false); // Creating entry link in progress
+
   // WebSocket hooks temporarily disabled for debugging
   // const { 
   //   surveys: cintSurveys, 
@@ -53,6 +58,94 @@ export default function SurveyPool() {
   const cpxSurveys = [];
   const cintConnected = false;
   const cpxConnected = false;
+
+  // Fetch Cint entry link when a Cint survey is selected
+  useEffect(() => {
+    if (selectedSurvey && selectedSurvey.account_name && showDetailsModal) {
+      // This is a Cint survey - fetch its entry link
+      fetchCintEntryLink(selectedSurvey.survey_id);
+    } else {
+      // Clear entry link state when modal closes or CPX survey selected
+      setCintEntryLink(null);
+    }
+  }, [selectedSurvey, showDetailsModal]);
+
+  // Fetch Cint entry link from API
+  const fetchCintEntryLink = async (surveyId) => {
+    if (!token || !surveyId) return;
+    
+    setLoadingEntryLink(true);
+    setCintEntryLink(null);
+    
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/cint/entry-links/${surveyId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data?.link) {
+          setCintEntryLink(data.data.link);
+        }
+      } else if (response.status !== 404) {
+        console.error('Failed to fetch Cint entry link:', response.status);
+      }
+      // 404 is expected if no entry link exists yet
+    } catch (err) {
+      console.error('Error fetching Cint entry link:', err);
+    } finally {
+      setLoadingEntryLink(false);
+    }
+  };
+
+  // Create Cint entry link via API
+  const createCintEntryLink = async (surveyId) => {
+    if (!token || !surveyId) return;
+    
+    setCreatingEntryLink(true);
+    
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/cint/entry-links/${surveyId}`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            supplier_link_type_code: 'OWS',
+            tracking_type_code: 'NONE',
+          }),
+        }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data?.link) {
+          setCintEntryLink(data.data.link);
+        } else {
+          // Refetch to get the created link
+          await fetchCintEntryLink(surveyId);
+        }
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Failed to create Cint entry link:', errorData);
+        alert(`Failed to create entry link: ${errorData.detail || response.statusText}`);
+      }
+    } catch (err) {
+      console.error('Error creating Cint entry link:', err);
+      alert('Error creating entry link. Please try again.');
+    } finally {
+      setCreatingEntryLink(false);
+    }
+  };
 
   // Merge WebSocket surveys with existing state
   useEffect(() => {
@@ -1095,33 +1188,87 @@ export default function SurveyPool() {
                 <div className="detail-item full-width" style={{ marginTop: '16px', padding: '16px', background: '#f8fafc', borderRadius: '8px' }}>
                   <span className="detail-label" style={{ color: '#10b981', fontSize: '1rem' }}>🎯 CINT Entry Link</span>
                   <div style={{ marginTop: '12px' }}>
-                    <div className="entry-link-container">
-                      <input 
-                        type="text" 
-                        readOnly 
-                        value={`https://samplicio.us/s/default.aspx?SID=${selectedSurvey.survey_id}&PID={panelist_id}`}
-                        className="entry-link-input"
-                        onClick={(e) => e.target.select()}
-                      />
-                      <button 
-                        className="copy-link-btn"
-                        onClick={() => navigator.clipboard.writeText(`https://samplicio.us/s/default.aspx?SID=${selectedSurvey.survey_id}&PID={panelist_id}`)}
-                        title="Copy to clipboard"
-                      >
-                        📋 Copy
-                      </button>
-                    </div>
+                    {loadingEntryLink ? (
+                      <div style={{ padding: '12px', color: '#666', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className="loading-spinner" style={{ width: '16px', height: '16px', border: '2px solid #e5e7eb', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></span>
+                        Loading entry link...
+                      </div>
+                    ) : cintEntryLink?.live_link ? (
+                      <>
+                        <div className="entry-link-container">
+                          <input 
+                            type="text" 
+                            readOnly 
+                            value={cintEntryLink.live_link}
+                            className="entry-link-input"
+                            onClick={(e) => e.target.select()}
+                          />
+                          <button 
+                            className="copy-link-btn"
+                            onClick={() => {
+                              navigator.clipboard.writeText(cintEntryLink.live_link);
+                              // Optional: show brief feedback
+                            }}
+                            title="Copy to clipboard"
+                          >
+                            📋 Copy
+                          </button>
+                          <a 
+                            href={cintEntryLink.live_link} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="open-link-btn"
+                            title="Open in new tab (test mode)"
+                            style={{ padding: '8px 12px', background: '#10b981', color: 'white', borderRadius: '4px', textDecoration: 'none', fontSize: '0.85rem' }}
+                          >
+                            🔗 Open
+                          </a>
+                        </div>
+                        {cintEntryLink.test_link && (
+                          <div style={{ marginTop: '8px' }}>
+                            <span style={{ fontSize: '0.8rem', color: '#666' }}>Test Link: </span>
+                            <a 
+                              href={cintEntryLink.test_link} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              style={{ fontSize: '0.8rem', color: '#3b82f6' }}
+                            >
+                              {cintEntryLink.test_link.substring(0, 60)}...
+                            </a>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={{ padding: '12px', background: '#fef3c7', borderRadius: '6px', border: '1px solid #fcd34d' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                          <span style={{ color: '#92400e' }}>⚠️ No entry link configured for this survey.</span>
+                          <button
+                            onClick={() => createCintEntryLink(selectedSurvey.survey_id)}
+                            disabled={creatingEntryLink}
+                            style={{
+                              padding: '6px 14px',
+                              background: creatingEntryLink ? '#9ca3af' : '#10b981',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: creatingEntryLink ? 'not-allowed' : 'pointer',
+                              fontSize: '0.85rem',
+                              fontWeight: '500'
+                            }}
+                          >
+                            {creatingEntryLink ? '⏳ Creating...' : '➕ Create Entry Link'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     <div style={{ color: '#666', marginTop: '12px', fontSize: '0.85rem', lineHeight: '1.6' }}>
                       <strong>CINT/Lucid Parameters:</strong>
                       <ul style={{ margin: '8px 0 0 16px', padding: 0, listStyle: 'none' }}>
                         <li>• <code>SID</code> - Survey ID: <strong>{selectedSurvey.survey_id}</strong></li>
-                        <li>• <code>PID</code> - Replace <code>{'{panelist_id}'}</code> with your unique panelist/respondent ID</li>
+                        <li>• <code>PID</code> - Panelist ID (passed in URL)</li>
                         <li>• <code>[%MID%]</code> - Session ID (auto-replaced by CINT in redirects)</li>
                         <li>• <code>[%REVENUE%]</code> - Payout amount (auto-replaced in success redirects)</li>
                       </ul>
-                      <div style={{ marginTop: '12px', padding: '8px', background: '#e0f2fe', borderRadius: '4px', fontSize: '0.8rem' }}>
-                        💡 <strong>Tip:</strong> Configure redirect URLs via POST /cint/entry-links/{selectedSurvey.survey_id} to set success, failure, and quota-full callbacks.
-                      </div>
                     </div>
                   </div>
                 </div>
