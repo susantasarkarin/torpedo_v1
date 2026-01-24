@@ -184,6 +184,9 @@ class OpenAIEmailClassifier:
         """
         Classify a single email using two-tier OpenAI approach.
         
+        CRITICAL: System emails are short-circuited BEFORE any LLM call.
+        This guarantees zero wasted LLM calls on bounce/OOO/auto-reply.
+        
         Args:
             email: Email document from MongoDB
             force_tier2: Force Tier 2 deep analysis even for non-client/vendor
@@ -191,6 +194,62 @@ class OpenAIEmailClassifier:
         Returns:
             Classification result with category, confidence, tier info
         """
+        from .system_email_detector import (
+            should_skip_llm_classification,
+            detect_system_email,
+            generate_system_email_summary
+        )
+        from .models import EmailType, SystemSubtype
+        
+        # ============================================
+        # HARD SHORT-CIRCUIT: System Email Detection
+        # ============================================
+        # This MUST happen before ANY LLM call to prevent wasted costs
+        should_skip, skip_reason = should_skip_llm_classification(email)
+        if should_skip:
+            logger.info(f"Skipping LLM for email {email.get('_id')}: {skip_reason}")
+            
+            # Get or detect system subtype
+            system_subtype = email.get("system_subtype")
+            if not system_subtype:
+                detection = detect_system_email(email)
+                system_subtype = detection.system_subtype.value if detection.system_subtype else "auto_reply"
+            
+            # Generate deterministic summary for system emails
+            system_summary = email.get("gmail_summary")
+            if not system_summary:
+                subtype_enum = SystemSubtype(system_subtype) if system_subtype else SystemSubtype.AUTO_REPLY
+                system_summary = generate_system_email_summary(email, subtype_enum)
+            
+            # Return deterministic result (NO LLM CALL)
+            system_result = {
+                "success": True,
+                "email_id": str(email.get("_id")),
+                "category": "system",  # Not an AI category, just a marker
+                "email_type": EmailType.SYSTEM.value,
+                "system_subtype": system_subtype,
+                "confidence": 1.0,
+                "reasoning": skip_reason,
+                "model": None,  # No model used
+                "provider": None,  # No provider used
+                "escalated": False,
+                "human_intervention_needed": False,
+                "tier2_analysis": None,
+                "gmail_summary": system_summary,
+                "classified_at": datetime.utcnow(),
+                "llm_skipped": True,  # Explicit flag for audit
+                "skip_reason": skip_reason
+            }
+            
+            # Update email in database with system classification
+            self._update_system_email_classification(email["_id"], system_result)
+            
+            # Do NOT add to review queue (system emails don't need human review)
+            return system_result
+        
+        # ============================================
+        # Normal Path: LLM Classification
+        # ============================================
         from ..leads.openai_wrapper import chat_completion_with_escalation
         
         # Extract email data
@@ -417,6 +476,38 @@ class OpenAIEmailClassifier:
             {"_id": email_id},
             {"$set": update}
         )
+    
+    def _update_system_email_classification(
+        self,
+        email_id: ObjectId,
+        result: Dict[str, Any]
+    ):
+        """
+        Update email document for system emails (no LLM was called).
+        
+        System emails get a deterministic classification and are marked as processed.
+        """
+        update = {
+            "email_type": result.get("email_type"),
+            "system_subtype": result.get("system_subtype"),
+            "gmail_summary": result.get("gmail_summary"),
+            "processed": True,
+            "ai_needs_classification": False,
+            "ai_classified_at": result.get("classified_at"),
+            "ai_llm_skipped": True,
+            "ai_skip_reason": result.get("skip_reason"),
+            # These are explicitly null to indicate no AI was used
+            "ai_tier1_category": None,
+            "ai_model": None,
+            "ai_provider": None,
+            "ai_confidence": None,
+        }
+        
+        self.emails.update_one(
+            {"_id": email_id},
+            {"$set": update}
+        )
+        logger.debug(f"System email {email_id} marked as processed (no LLM)")
     
     def _extract_and_save_lead(
         self,

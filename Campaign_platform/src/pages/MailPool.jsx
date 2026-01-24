@@ -40,6 +40,26 @@ const REVIEW_STATUS_COLORS = {
   modified: { bg: "#dbeafe", text: "#1e40af", icon: "✏️" },
 }
 
+// System email type colors (Phase 3 - UX hardening)
+const SYSTEM_EMAIL_COLORS = {
+  bounce: { bg: "#fee2e2", text: "#dc2626", icon: "🚫", label: "Bounce" },
+  out_of_office: { bg: "#e0e7ff", text: "#4338ca", icon: "🏖️", label: "Out of Office" },
+  auto_reply: { bg: "#e5e7eb", text: "#6b7280", icon: "🤖", label: "Auto-Reply" },
+  unsubscribe_confirmation: { bg: "#fef3c7", text: "#92400e", icon: "📭", label: "Unsubscribe" },
+  delivery_notification: { bg: "#ccfbf1", text: "#0f766e", icon: "📬", label: "Delivery" },
+  read_receipt: { bg: "#dbeafe", text: "#1e40af", icon: "👁️", label: "Read Receipt" },
+  calendar_response: { bg: "#f3e8ff", text: "#6b21a8", icon: "📅", label: "Calendar" },
+  unknown: { bg: "#f3f4f6", text: "#374151", icon: "⚙️", label: "System" },
+}
+
+// Preview source indicators (Phase 3 - UX hardening)
+const PREVIEW_SOURCE_ICONS = {
+  gmail_summary: { icon: "📨", title: "Gmail Summary" },
+  ai_summary: { icon: "✨", title: "AI Generated Summary" },
+  system_summary: { icon: "⚙️", title: "System Generated" },
+  snippet: { icon: "", title: "Email Snippet" },
+}
+
 // AI Urgency colors
 const URGENCY_COLORS = {
   critical: { bg: "#fee2e2", text: "#dc2626" },
@@ -826,6 +846,48 @@ function MailPool() {
     )
   }
 
+  // Get system email badge (Phase 3 - UX hardening)
+  const getSystemEmailBadge = (emailType, systemSubtype) => {
+    if (emailType !== "system") return null
+    const config = SYSTEM_EMAIL_COLORS[systemSubtype] || SYSTEM_EMAIL_COLORS.unknown
+    return (
+      <span style={{
+        backgroundColor: config.bg,
+        color: config.text,
+        padding: "2px 6px",
+        borderRadius: "4px",
+        fontSize: "0.65rem",
+        fontWeight: "600",
+        marginRight: "4px",
+        opacity: 0.9
+      }}>
+        {config.icon} {config.label}
+      </span>
+    )
+  }
+
+  // Get preview source indicator (Phase 3 - UX hardening)
+  const getPreviewSourceIndicator = (previewSource) => {
+    if (!previewSource) return null
+    const config = PREVIEW_SOURCE_ICONS[previewSource]
+    if (!config || !config.icon) return null
+    return (
+      <span 
+        style={{ marginRight: "4px", opacity: 0.7 }}
+        title={config.title}
+      >
+        {config.icon}
+      </span>
+    )
+  }
+
+  // Get display preview - uses resolved_preview or fallback to snippet (Phase 3 - UX hardening)
+  const getDisplayPreview = (email) => {
+    // resolved_preview is the single source of truth from backend
+    // No client-side resolution logic - backend already resolved this
+    return email.resolved_preview || email.snippet || ""
+  }
+
   // Download attachment
   const handleDownloadAttachment = (attachment) => {
     if (!attachment.data) {
@@ -1222,9 +1284,9 @@ function MailPool() {
                         </div>
                       </div>
 
-                      {/* Snippet */}
+                      {/* Snippet - uses resolved_preview (Phase 3) */}
                       <div style={{ fontSize: "0.8rem", color: "#6b7280", lineHeight: "1.4" }}>
-                        {emailSummary.snippet?.slice(0, 150)}...
+                        {(emailSummary.resolved_preview || emailSummary.snippet)?.slice(0, 150)}...
                       </div>
 
                       {/* AI Classification */}
@@ -1368,8 +1430,15 @@ function MailPool() {
                   key={email.id}
                   style={{
                     ...styles.emailRow,
+                    // Standard read/unread styling
                     backgroundColor: email.is_read === false ? "#f2f6fc" : "transparent",
-                    fontWeight: email.is_read === false ? "600" : "400"
+                    fontWeight: email.is_read === false ? "600" : "400",
+                    // System email visual treatment (Phase 3): muted appearance
+                    ...(email.email_type === "system" && {
+                      opacity: 0.7,
+                      backgroundColor: email.is_read === false ? "#f8f9fa" : "#fafafa",
+                      borderLeft: `3px solid ${(SYSTEM_EMAIL_COLORS[email.system_subtype] || SYSTEM_EMAIL_COLORS.unknown).bg}`
+                    })
                   }}
                   onClick={() => fetchEmailThread(email.id)}
                 >
@@ -1408,12 +1477,14 @@ function MailPool() {
 
                   {/* Subject & Snippet */}
                   <div style={styles.emailSubjectLine}>
-                    {/* AI Category Badge (Tier 1) */}
-                    {email.ai_category && getAICategoryBadge(email.ai_category)}
-                    {/* Urgency badge if high/critical */}
-                    {(email.ai_urgency === "critical" || email.ai_urgency === "high") && getUrgencyBadge(email.ai_urgency)}
+                    {/* System Email Badge (Phase 3 - takes precedence) */}
+                    {email.email_type === "system" && getSystemEmailBadge(email.email_type, email.system_subtype)}
+                    {/* AI Category Badge (Tier 1) - only for non-system emails */}
+                    {email.email_type !== "system" && email.ai_category && getAICategoryBadge(email.ai_category)}
+                    {/* Urgency badge if high/critical - only for non-system emails */}
+                    {email.email_type !== "system" && (email.ai_urgency === "critical" || email.ai_urgency === "high") && getUrgencyBadge(email.ai_urgency)}
                     {/* Legacy segment badge */}
-                    {!email.ai_category && email.segment && email.segment !== "others" && getSegmentBadge(email.segment)}
+                    {email.email_type !== "system" && !email.ai_category && email.segment && email.segment !== "others" && getSegmentBadge(email.segment)}
                     {email.has_rfq && (
                       <span style={styles.rfqTag}>RFQ</span>
                     )}
@@ -1425,7 +1496,10 @@ function MailPool() {
                     </span>
                     <span style={styles.emailSnippetSeparator}> - </span>
                     <span style={styles.emailSnippet}>
-                      {stripHtml(email.snippet)?.substring(0, 100) || ""}
+                      {/* Preview source indicator (Phase 3) */}
+                      {getPreviewSourceIndicator(email.preview_source)}
+                      {/* Use resolved_preview as single source of truth (Phase 3) */}
+                      {stripHtml(getDisplayPreview(email))?.substring(0, 100) || ""}
                     </span>
                   </div>
 
@@ -1470,18 +1544,50 @@ function MailPool() {
             <div style={styles.detailSubject}>
               <h2 style={styles.subjectText}>{stripHtml(selectedEmail.subject) || "(no subject)"}</h2>
               <div style={styles.subjectLabels}>
-                {/* AI Category Badge */}
-                {selectedEmail.ai_category && getAICategoryBadge(selectedEmail.ai_category)}
-                {/* Urgency Badge */}
-                {selectedEmail.ai_urgency && selectedEmail.ai_urgency !== "none" && getUrgencyBadge(selectedEmail.ai_urgency)}
+                {/* System Email Badge (Phase 3 - takes precedence) */}
+                {selectedEmail.email_type === "system" && getSystemEmailBadge(selectedEmail.email_type, selectedEmail.system_subtype)}
+                {/* AI Category Badge - only for non-system emails */}
+                {selectedEmail.email_type !== "system" && selectedEmail.ai_category && getAICategoryBadge(selectedEmail.ai_category)}
+                {/* Urgency Badge - only for non-system emails */}
+                {selectedEmail.email_type !== "system" && selectedEmail.ai_urgency && selectedEmail.ai_urgency !== "none" && getUrgencyBadge(selectedEmail.ai_urgency)}
                 {/* Legacy segment */}
-                {!selectedEmail.ai_category && selectedEmail.segment && getSegmentBadge(selectedEmail.segment)}
+                {selectedEmail.email_type !== "system" && !selectedEmail.ai_category && selectedEmail.segment && getSegmentBadge(selectedEmail.segment)}
                 <span style={styles.inboxLabel}>{filterFolder === "sent" ? "Sent" : "Inbox"} ×</span>
               </div>
             </div>
 
-            {/* AI Insights Section (Tier 2) */}
-            {(selectedEmail.ai_intent || selectedEmail.ai_action_items?.length > 0) && (
+            {/* System Email Notice (Phase 3 - UX hardening) */}
+            {selectedEmail.email_type === "system" && (
+              <div style={{
+                margin: "12px 0",
+                padding: "12px 16px",
+                backgroundColor: (SYSTEM_EMAIL_COLORS[selectedEmail.system_subtype] || SYSTEM_EMAIL_COLORS.unknown).bg,
+                borderRadius: "8px",
+                border: `1px solid ${(SYSTEM_EMAIL_COLORS[selectedEmail.system_subtype] || SYSTEM_EMAIL_COLORS.unknown).text}20`,
+                display: "flex",
+                alignItems: "center",
+                gap: "12px"
+              }}>
+                <span style={{ fontSize: "1.5rem" }}>
+                  {(SYSTEM_EMAIL_COLORS[selectedEmail.system_subtype] || SYSTEM_EMAIL_COLORS.unknown).icon}
+                </span>
+                <div>
+                  <div style={{ 
+                    fontWeight: "600", 
+                    color: (SYSTEM_EMAIL_COLORS[selectedEmail.system_subtype] || SYSTEM_EMAIL_COLORS.unknown).text,
+                    marginBottom: "2px"
+                  }}>
+                    {(SYSTEM_EMAIL_COLORS[selectedEmail.system_subtype] || SYSTEM_EMAIL_COLORS.unknown).label} Email
+                  </div>
+                  <div style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+                    This is an automated system email that does not require AI classification.
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* AI Insights Section (Tier 2) - only for non-system emails */}
+            {selectedEmail.email_type !== "system" && (selectedEmail.ai_intent || selectedEmail.ai_action_items?.length > 0) && (
               <div style={{
                 margin: "12px 0",
                 padding: "16px",
@@ -1557,15 +1663,37 @@ function MailPool() {
               </div>
             )}
 
-            {/* AI Summary Section */}
-            {selectedEmail.ai_summary && (
+            {/* Preview Summary Section (Phase 3 - uses resolved_preview as single source of truth) */}
+            {selectedEmail.resolved_preview && (
               <div style={styles.aiSummaryContainer}>
                 <div style={styles.aiSummaryHeader}>
-                  <span style={styles.aiSummaryIcon}>✨</span>
-                  <span style={styles.aiSummaryTitle}>AI Summary</span>
+                  {/* Preview source indicator */}
+                  <span style={styles.aiSummaryIcon}>
+                    {selectedEmail.preview_source === "ai_summary" ? "✨" : 
+                     selectedEmail.preview_source === "gmail_summary" ? "📨" :
+                     selectedEmail.preview_source === "system_summary" ? "⚙️" : "📄"}
+                  </span>
+                  <span style={styles.aiSummaryTitle}>
+                    {selectedEmail.preview_source === "ai_summary" ? "AI Summary" : 
+                     selectedEmail.preview_source === "gmail_summary" ? "Summary" :
+                     selectedEmail.preview_source === "system_summary" ? "System Summary" : "Preview"}
+                  </span>
+                  {/* Preview source badge */}
+                  {selectedEmail.preview_source && selectedEmail.preview_source !== "snippet" && (
+                    <span style={{ 
+                      marginLeft: "auto", 
+                      fontSize: "0.65rem", 
+                      color: "#6b7280",
+                      backgroundColor: "#f3f4f6",
+                      padding: "2px 6px",
+                      borderRadius: "4px"
+                    }}>
+                      {PREVIEW_SOURCE_ICONS[selectedEmail.preview_source]?.title || "Preview"}
+                    </span>
+                  )}
                 </div>
                 <div style={styles.aiSummaryContent}>
-                  {selectedEmail.ai_summary}
+                  {selectedEmail.resolved_preview}
                 </div>
               </div>
             )}

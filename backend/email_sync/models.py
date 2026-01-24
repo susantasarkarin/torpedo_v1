@@ -78,6 +78,101 @@ class CategorizationStatus(str, Enum):
     FAILED = "failed"
 
 
+class EmailType(str, Enum):
+    """
+    Email type classification.
+    
+    System emails are NOT AI categories - they are structural email types
+    that should NEVER be sent to LLM for classification.
+    """
+    NORMAL = "normal"      # Regular email requiring AI classification
+    SYSTEM = "system"      # System-generated email (bounce, OOO, auto-reply)
+
+
+class SystemSubtype(str, Enum):
+    """
+    Subtype for system emails.
+    
+    These are detected via rule-based patterns BEFORE any LLM call.
+    System emails are excluded from AI classification to prevent wasted costs.
+    """
+    BOUNCE = "bounce"              # Delivery failure (mailer-daemon, postmaster)
+    OUT_OF_OFFICE = "out_of_office" # Vacation/OOO auto-responders
+    AUTO_REPLY = "auto_reply"      # Other automated responses
+    UNSUBSCRIBE = "unsubscribe"    # Unsubscribe confirmations
+
+
+class PreviewSource(str, Enum):
+    """
+    Source of the email preview text.
+    
+    Resolution priority (backend-defined contract):
+    1. gmail_summary - Native Gmail summary (highest quality)
+    2. ai_summary - AI-generated summary (for non-Gmail providers)
+    3. snippet - Truncated body preview (fallback)
+    
+    Frontend MUST NOT implement resolution logic - use resolved_preview field.
+    """
+    GMAIL_SUMMARY = "gmail_summary"  # Native Gmail summary
+    AI_SUMMARY = "ai_summary"        # AI-generated summary
+    SYSTEM_SUMMARY = "system_summary"  # Deterministic system email summary
+    SNIPPET = "snippet"              # Truncated body (fallback)
+    NONE = "none"                    # No preview available
+
+
+class SenderSource(str, Enum):
+    """
+    Source of sender metadata.
+    
+    Tracks where sender information was extracted from.
+    """
+    EMAIL_HEADER = "email_header"    # Parsed from email From: header
+    CRM_CONTACT = "crm_contact"      # Matched to existing CRM contact
+    AI_EXTRACTION = "ai_extraction"  # Extracted by AI from email body/signature
+    MANUAL = "manual"                # Manually entered by user
+
+
+# ============== SENDER METADATA MODEL ==============
+
+class SenderMetadata(BaseModel):
+    """
+    Rich sender information with confidence and source tracking.
+    
+    Phase 2 requirement: Sender metadata persistence with confidence and source.
+    This enables the frontend to show sender info with appropriate confidence indicators.
+    """
+    # Core identity
+    email: str = Field(..., description="Sender email address")
+    name: Optional[str] = Field(None, description="Display name from header")
+    domain: Optional[str] = Field(None, description="Email domain for org matching")
+    
+    # CRM linking
+    crm_contact_id: Optional[str] = Field(None, description="Matched CRM contact ID")
+    crm_company_id: Optional[str] = Field(None, description="Matched CRM company ID")
+    
+    # Extracted metadata (from AI or signature parsing)
+    extracted_name: Optional[str] = Field(None, description="Name extracted from signature")
+    extracted_title: Optional[str] = Field(None, description="Job title from signature")
+    extracted_company: Optional[str] = Field(None, description="Company name from signature")
+    extracted_phone: Optional[str] = Field(None, description="Phone from signature")
+    
+    # Confidence and source tracking
+    source: SenderSource = Field(
+        SenderSource.EMAIL_HEADER,
+        description="Where this sender info came from"
+    )
+    confidence: float = Field(
+        0.5,
+        ge=0.0, le=1.0,
+        description="Confidence in sender metadata accuracy (0-1)"
+    )
+    
+    # Historical context
+    first_seen_at: Optional[datetime] = Field(None, description="First email from this sender")
+    email_count: int = Field(0, description="Total emails from this sender")
+    last_email_at: Optional[datetime] = Field(None, description="Most recent email")
+
+
 # ============== MAILBOX MODEL ==============
 
 class MailboxCredentials(BaseModel):
@@ -177,14 +272,33 @@ class EmailDocument(BaseModel):
     Collection: emails
     Indexes:
         - (mailbox_id, provider_message_id) UNIQUE - prevents duplicates
+        - dedupe_hash UNIQUE - global content-based deduplication
         - provider_thread_id
         - alias_id
         - direction
         - timestamp
         - processed (for categorization queue)
         - category
+        - email_type
     """
     id: Optional[str] = Field(None, alias="_id")
+    
+    # Global deduplication hash (content-based, mailbox-agnostic)
+    dedupe_hash: Optional[str] = Field(
+        None, 
+        description="SHA256 hash of normalized(subject) + canonical_sender + body_fingerprint. "
+                    "Used for global idempotency across all mailboxes."
+    )
+    
+    # Email type classification (system vs normal)
+    email_type: EmailType = Field(
+        EmailType.NORMAL,
+        description="Email type: 'normal' requires AI classification, 'system' is skipped"
+    )
+    system_subtype: Optional[SystemSubtype] = Field(
+        None,
+        description="For system emails: bounce, out_of_office, auto_reply, unsubscribe"
+    )
     
     # Provider identifiers
     provider_message_id: str = Field(..., description="Gmail messageId or IMAP Message-ID header")
@@ -210,6 +324,30 @@ class EmailDocument(BaseModel):
     body_plain: str = ""
     body_html: str = ""
     snippet: str = Field("", description="Preview text (first 200 chars)")
+    
+    # Preview fields (Phase 2: Backend-defined preview resolution)
+    gmail_summary: Optional[str] = Field(
+        None, 
+        description="Native Gmail summary (highest priority for preview)"
+    )
+    ai_summary: Optional[str] = Field(
+        None,
+        description="AI-generated summary (used if gmail_summary unavailable)"
+    )
+    resolved_preview: Optional[str] = Field(
+        None,
+        description="Backend-resolved preview text. Frontend MUST use this field."
+    )
+    preview_source: PreviewSource = Field(
+        PreviewSource.NONE,
+        description="Source of resolved_preview for UI hints"
+    )
+    
+    # Sender metadata (Phase 2: Rich sender info with confidence)
+    sender_metadata: Optional[SenderMetadata] = Field(
+        None,
+        description="Rich sender information with source and confidence tracking"
+    )
     
     # Metadata
     timestamp: datetime = Field(default_factory=datetime.utcnow)
