@@ -368,6 +368,140 @@ async def health_check():
     }
 
 
+@app.get("/system/health", tags=["health"])
+async def system_health():
+    """
+    Comprehensive system health check for lead ingestion pipeline.
+    
+    Returns status for all critical components:
+    - Gmail mailboxes configured
+    - Lead ingestion activity (last 24h)
+    - AI classification status
+    - Database connectivity
+    """
+    now = datetime.utcnow()
+    twenty_four_hours_ago = now - timedelta(hours=24)
+    
+    health = {
+        "timestamp": now.isoformat(),
+        "version": APP_VERSION,
+        "status": "healthy",
+        "checks": {},
+        "warnings": [],
+        "errors": []
+    }
+    
+    # Check 1: Gmail Mailboxes Configured
+    try:
+        gmail_db = client['torpedo_gmail']
+        mailboxes_collection = gmail_db['workspace_mailboxes']
+        mailbox_count = mailboxes_collection.count_documents({})
+        health["checks"]["gmail_mailboxes"] = {
+            "count": mailbox_count,
+            "status": "ok" if mailbox_count > 0 else "warning"
+        }
+        if mailbox_count == 0:
+            health["warnings"].append("No Gmail mailboxes configured - Gmail lead source inactive")
+    except Exception as e:
+        health["checks"]["gmail_mailboxes"] = {"status": "error", "error": str(e)}
+        health["errors"].append(f"Gmail mailbox check failed: {e}")
+    
+    # Check 2: Email Sync Activity (last 24h)
+    try:
+        email_metadata = gmail_db.get_collection('email_metadata')
+        recent_emails = email_metadata.count_documents({
+            "internal_date": {"$gte": twenty_four_hours_ago}
+        })
+        health["checks"]["email_sync_24h"] = {
+            "count": recent_emails,
+            "status": "ok" if recent_emails > 0 else "warning"
+        }
+        if recent_emails == 0:
+            health["warnings"].append("No emails synced in last 24 hours")
+    except Exception as e:
+        health["checks"]["email_sync_24h"] = {"status": "error", "error": str(e)}
+    
+    # Check 3: Lead Ingestion Activity (last 24h)
+    try:
+        leads_today = leads_raw_collection.count_documents({
+            "created_at": {"$gte": twenty_four_hours_ago}
+        })
+        total_leads = leads_raw_collection.count_documents({})
+        health["checks"]["lead_ingestion_24h"] = {
+            "new_leads": leads_today,
+            "total_leads": total_leads,
+            "status": "ok" if leads_today > 0 else "warning"
+        }
+        if leads_today == 0:
+            health["warnings"].append("No new leads ingested in last 24 hours")
+    except Exception as e:
+        health["checks"]["lead_ingestion_24h"] = {"status": "error", "error": str(e)}
+        health["errors"].append(f"Lead ingestion check failed: {e}")
+    
+    # Check 4: AI Classification Status
+    try:
+        pending_classification = leads_raw_collection.count_documents({
+            "classification_status": "pending"
+        })
+        classified = leads_raw_collection.count_documents({
+            "classification_status": {"$in": ["completed", "classified"]}
+        })
+        health["checks"]["ai_classification"] = {
+            "pending": pending_classification,
+            "classified": classified,
+            "status": "ok" if pending_classification < 100 else "warning"
+        }
+        if pending_classification > 100:
+            health["warnings"].append(f"{pending_classification} leads awaiting classification")
+    except Exception as e:
+        health["checks"]["ai_classification"] = {"status": "error", "error": str(e)}
+    
+    # Check 5: Lead Sources Distribution
+    try:
+        pipeline = [
+            {"$group": {"_id": "$source", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+        source_dist = list(leads_raw_collection.aggregate(pipeline))
+        health["checks"]["lead_sources"] = {
+            "distribution": {s["_id"] or "unknown": s["count"] for s in source_dist},
+            "status": "ok"
+        }
+    except Exception as e:
+        health["checks"]["lead_sources"] = {"status": "error", "error": str(e)}
+    
+    # Check 6: Enrichment Status
+    try:
+        enriched_count = leads_enriched_collection.count_documents({})
+        health["checks"]["enrichment"] = {
+            "enriched_leads": enriched_count,
+            "status": "ok"
+        }
+    except Exception as e:
+        health["checks"]["enrichment"] = {"status": "error", "error": str(e)}
+    
+    # Check 7: Unique Email Index
+    try:
+        indexes = leads_raw_collection.index_information()
+        has_email_index = any('email' in idx.get('key', [{}])[0] for idx in indexes.values())
+        health["checks"]["email_unique_index"] = {
+            "exists": has_email_index,
+            "status": "ok" if has_email_index else "warning"
+        }
+        if not has_email_index:
+            health["warnings"].append("Email unique index not found - deduplication may be slow")
+    except Exception as e:
+        health["checks"]["email_unique_index"] = {"status": "error", "error": str(e)}
+    
+    # Overall status determination
+    if health["errors"]:
+        health["status"] = "unhealthy"
+    elif len(health["warnings"]) > 2:
+        health["status"] = "degraded"
+    
+    return health
+
+
 # ----------------------------
 # Include Routers
 # ----------------------------
@@ -1166,6 +1300,39 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️ Could not schedule historic email sync job: {e}")
     
+    # ----------------------------
+    # Email Classification Job (every 2 minutes, batch of 10)
+    # Feature flag: EMAIL_CLASSIFICATION_ENABLED=true (default: false for safety)
+    # ----------------------------
+    try:
+        email_classify_enabled = os.getenv("EMAIL_CLASSIFICATION_ENABLED", "false").lower() == "true"
+        if scheduler.running and email_classify_enabled:
+            def background_email_classification():
+                """Classify a small batch of unclassified emails using existing classify_batch."""
+                try:
+                    from leads.email_classifier import classify_batch
+                    result = classify_batch(batch_size=10, source="apscheduler")
+                    processed = result.get("processed", 0)
+                    success = result.get("success", 0)
+                    errors = result.get("errors", 0)
+                    if processed > 0:
+                        print(f"[EmailClassify] Batch complete: {success}/{processed} classified, {errors} errors")
+                except Exception as e:
+                    print(f"[EmailClassify] Error: {e}")
+            
+            scheduler.add_job(
+                background_email_classification,
+                IntervalTrigger(seconds=120),  # Every 2 minutes = 30 batches/hour = 300 emails/hour max
+                id="email_classification",
+                name="Email Classification (Rate-Limited)",
+                replace_existing=True
+            )
+            print("✅ Email classification job scheduled (every 2 min, batch=10, ~300/hour)")
+        elif not email_classify_enabled:
+            print("ℹ️ Email classification disabled (set EMAIL_CLASSIFICATION_ENABLED=true to enable)")
+    except Exception as e:
+        print(f"⚠️ Could not schedule email classification job: {e}")
+    
     # ============== STARTUP SUMMARY BANNER ==============
     print("\n" + "=" * 60)
     print(f"🚀 {APP_NAME} v{APP_VERSION} STARTED SUCCESSFULLY")
@@ -1185,6 +1352,10 @@ async def startup_event():
         print(f"   • CPX Survey Refresh: Active (every {filter_settings.get('refresh_interval_seconds', 60)}s)")
         print("   • Gmail Background Sync: Active (every 5 minutes)")
         print("   • Historic Email Backfill: Active (every 30 seconds, rate-limited)")
+        if email_classify_enabled:
+            print("   • Email Classification: Active (every 2 min, batch=10)")
+        else:
+            print("   • Email Classification: Disabled (EMAIL_CLASSIFICATION_ENABLED=false)")
     else:
         print("   • CPX Survey Refresh: Inactive")
     # Check email sync workers status
@@ -2009,97 +2180,83 @@ async def move_lead_to_contacts(lead_id: str, stage_data: Dict[str, Any] = Body(
         raise HTTPException(status_code=500, detail=f"Move lead error: {str(e)}")
 
 
-# Import leads from CSV
+# Import leads from CSV - USES CANONICAL INGESTION PIPELINE
 @app.post("/leads/import/csv")
 async def import_leads_csv(file: UploadFile = File(...)):
     """
-    Import leads from a CSV file.
+    Import leads from a CSV file using CANONICAL INGESTION PIPELINE.
+    All leads go through the same pipeline as Gmail and Web Search.
+    
     Expected columns: name, firstName, lastName, email, title, linkedin, location,
     companyName, companyDomain, companyWebsite, companyIndustry, companyType, etc.
     """
     import csv
     import io
+    from leads.canonical_ingestion import ingest_lead
     
     try:
         content = await file.read()
         decoded = content.decode("utf-8-sig")  # Handle BOM
         reader = csv.DictReader(io.StringIO(decoded))
         
-        imported = 0
-        skipped = 0
-        errors = []
+        results = {
+            'inserted': 0,
+            'updated': 0,
+            'skipped': 0,
+            'errors': []
+        }
         
         for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
             try:
                 # Skip empty rows
                 if not any(row.values()):
-                    skipped += 1
+                    results['skipped'] += 1
                     continue
                 
-                # Email is required
-                email = row.get("email", "").strip()
-                if not email:
-                    skipped += 1
-                    errors.append(f"Row {row_num}: Missing email")
-                    continue
-                
-                # Build lead data from CSV row
-                lead_data = {
-                    "name": row.get("name", "").strip() or f"{row.get('firstName', '')} {row.get('lastName', '')}".strip(),
-                    "firstName": row.get("firstName", "").strip(),
-                    "lastName": row.get("lastName", "").strip(),
-                    "email": email,
-                    "emailStatus": row.get("emailStatus", "Valid").strip() or "Valid",
-                    "title": row.get("title", "").strip(),
-                    "linkedin": row.get("linkedin", "").strip(),
-                    "location": row.get("location", "").strip(),
-                    "companyName": row.get("companyName", "").strip(),
-                    "companyDomain": row.get("companyDomain", "").strip(),
-                    "companyWebsite": row.get("companyWebsite", "").strip(),
-                    "companyEmployeeCount": row.get("companyEmployeeCount", "").strip(),
-                    "companyEmployeeCountRange": row.get("companyEmployeeCountRange", "").strip(),
-                    "companyFounded": row.get("companyFounded", "").strip(),
-                    "companyIndustry": row.get("companyIndustry", "").strip(),
-                    "companyType": row.get("companyType", "").strip(),
-                    "companyHeadquarters": row.get("companyHeadquarters", "").strip(),
-                    "companyRevenueRange": row.get("companyRevenueRange", "").strip(),
-                    "companyLinkedinUrl": row.get("companyLinkedinUrl", "").strip(),
-                    "companyCrunchbaseUrl": row.get("companyCrunchbaseUrl", "").strip(),
-                    "companyFundingRounds": row.get("companyFundingRounds", "").strip(),
-                    "companyLastFundingRoundAmount": row.get("companyLastFundingRoundAmount", "").strip(),
-                    "companyLogoPrimary": row.get("companyLogoPrimary", "").strip(),
-                    "companyLogoSecondary": row.get("companyLogoSecondary", "").strip(),
-                    "addedOn": datetime.utcnow(),
-                    "createdAt": datetime.utcnow(),
-                    "updatedAt": datetime.utcnow(),
-                    "source": "csv_import",
+                # Build canonical payload from CSV row
+                payload = {
+                    'email': row.get('email', '').strip(),
+                    'name': row.get('name', '').strip() or f"{row.get('firstName', '')} {row.get('lastName', '')}".strip(),
+                    'first_name': row.get('firstName', '').strip(),
+                    'last_name': row.get('lastName', '').strip(),
+                    'title': row.get('title', '').strip(),
+                    'linkedin_url': row.get('linkedin', '').strip(),
+                    'location': row.get('location', '').strip(),
+                    'company': row.get('companyName', '').strip(),
+                    'company_domain': row.get('companyDomain', '').strip(),
+                    'phone': row.get('phone', '').strip(),
                 }
                 
-                # Check for duplicate email
-                existing = leads_collection.find_one({"email": email})
-                if existing:
-                    # Update existing lead
-                    lead_data.pop("addedOn", None)
-                    lead_data.pop("createdAt", None)
-                    leads_collection.update_one(
-                        {"_id": existing["_id"]},
-                        {"$set": lead_data}
-                    )
-                else:
-                    # Insert new lead
-                    leads_collection.insert_one(lead_data)
+                # Use CANONICAL ingestion (same as Gmail and Web Search)
+                result = ingest_lead(
+                    payload=payload,
+                    source='csv',
+                    source_detail=f'csv_import:{file.filename}',
+                    skip_classification=True  # Batch classify after import
+                )
                 
-                imported += 1
+                if result['success']:
+                    if result['action'] == 'inserted':
+                        results['inserted'] += 1
+                    elif result['action'] == 'updated':
+                        results['updated'] += 1
+                    else:
+                        results['skipped'] += 1
+                else:
+                    results['skipped'] += 1
+                    if result['error']:
+                        results['errors'].append(f"Row {row_num}: {result['error']}")
                 
             except Exception as e:
-                skipped += 1
-                errors.append(f"Row {row_num}: {str(e)}")
+                results['skipped'] += 1
+                results['errors'].append(f"Row {row_num}: {str(e)}")
         
         return {
-            "message": f"Import completed: {imported} leads imported, {skipped} skipped",
-            "imported": imported,
-            "skipped": skipped,
-            "errors": errors[:20],  # Limit error list
+            "message": f"Import completed: {results['inserted']} inserted, {results['updated']} updated, {results['skipped']} skipped",
+            "inserted": results['inserted'],
+            "updated": results['updated'],
+            "skipped": results['skipped'],
+            "errors": results['errors'][:20],  # Limit error list
         }
         
     except Exception as e:
