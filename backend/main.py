@@ -493,11 +493,55 @@ async def system_health():
     except Exception as e:
         health["checks"]["email_unique_index"] = {"status": "error", "error": str(e)}
     
-    # Overall status determination
+    # Check 8: Gmail → Lead Pipeline Health (CRITICAL)
+    try:
+        # Get inbound emails in last 24h
+        inbound_emails_24h = email_metadata.count_documents({
+            "direction": "inbound",
+            "internal_date": {"$gte": twenty_four_hours_ago}
+        })
+        # Get leads from gmail source in last 24h
+        gmail_leads_24h = leads_raw_collection.count_documents({
+            "source": "gmail",
+            "created_at": {"$gte": twenty_four_hours_ago}
+        })
+        
+        pipeline_status = "ok"
+        if inbound_emails_24h > 0 and gmail_leads_24h == 0:
+            pipeline_status = "critical"
+            health["errors"].append(f"CRITICAL: {inbound_emails_24h} inbound emails but 0 leads created - pipeline broken")
+        elif inbound_emails_24h > 10 and gmail_leads_24h < (inbound_emails_24h * 0.1):
+            pipeline_status = "warning"
+            health["warnings"].append(f"Low conversion: {inbound_emails_24h} emails → {gmail_leads_24h} leads")
+        
+        health["checks"]["gmail_to_lead_pipeline"] = {
+            "inbound_emails_24h": inbound_emails_24h,
+            "gmail_leads_24h": gmail_leads_24h,
+            "conversion_rate": round(gmail_leads_24h / max(inbound_emails_24h, 1) * 100, 1),
+            "status": pipeline_status
+        }
+    except Exception as e:
+        health["checks"]["gmail_to_lead_pipeline"] = {"status": "error", "error": str(e)}
+    
+    # Check 9: Dedup Collision Count (from ingestion logs)
+    try:
+        ingestion_log = db.get_collection('ingestion_log')
+        dedup_collisions_24h = ingestion_log.count_documents({
+            "action": {"$in": ["skipped", "updated"]},
+            "timestamp": {"$gte": twenty_four_hours_ago}
+        })
+        health["checks"]["dedup_collisions_24h"] = {
+            "count": dedup_collisions_24h,
+            "status": "ok"
+        }
+    except Exception as e:
+        health["checks"]["dedup_collisions_24h"] = {"count": 0, "status": "unavailable"}
+    
+    # Overall status determination (RED conditions)
     if health["errors"]:
-        health["status"] = "unhealthy"
+        health["status"] = "unhealthy"  # RED
     elif len(health["warnings"]) > 2:
-        health["status"] = "degraded"
+        health["status"] = "degraded"   # YELLOW
     
     return health
 
@@ -1308,10 +1352,10 @@ async def startup_event():
         email_classify_enabled = os.getenv("EMAIL_CLASSIFICATION_ENABLED", "false").lower() == "true"
         if scheduler.running and email_classify_enabled:
             def background_email_classification():
-                """Classify a small batch of unclassified emails using existing classify_batch."""
+                """Classify a batch of unclassified emails using existing classify_batch."""
                 try:
                     from leads.email_classifier import classify_batch
-                    result = classify_batch(batch_size=10, source="apscheduler")
+                    result = classify_batch(batch_size=50, source="apscheduler")
                     processed = result.get("processed", 0)
                     success = result.get("success", 0)
                     errors = result.get("errors", 0)
@@ -1322,12 +1366,12 @@ async def startup_event():
             
             scheduler.add_job(
                 background_email_classification,
-                IntervalTrigger(seconds=120),  # Every 2 minutes = 30 batches/hour = 300 emails/hour max
+                IntervalTrigger(seconds=120),  # Every 2 minutes = 30 batches/hour = 1500 emails/hour max
                 id="email_classification",
                 name="Email Classification (Rate-Limited)",
                 replace_existing=True
             )
-            print("✅ Email classification job scheduled (every 2 min, batch=10, ~300/hour)")
+            print("✅ Email classification job scheduled (every 2 min, batch=50, ~1500/hour)")
         elif not email_classify_enabled:
             print("ℹ️ Email classification disabled (set EMAIL_CLASSIFICATION_ENABLED=true to enable)")
     except Exception as e:
