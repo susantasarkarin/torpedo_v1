@@ -717,7 +717,7 @@ def chat_completion_with_escalation(
     messages: List[Dict[str, str]],
     source: RequestSource = "api",
     endpoint: str = "",
-    primary_model: str = DEEPSEEK_DEFAULT_MODEL,
+    primary_model: str = OPENAI_DEFAULT_MODEL,  # Use gpt-4o-mini as primary
     escalation_model: str = OPENAI_PREMIUM_MODEL,
     max_output_tokens: Optional[int] = None,
     temperature: float = 0.1,
@@ -728,7 +728,7 @@ def chat_completion_with_escalation(
     """
     Two-stage chat completion with confidence-based escalation.
     
-    Tier 1: DeepSeek (cheap, fast) for initial classification
+    Tier 1: OpenAI gpt-4o-mini (primary classification)
     Tier 2: OpenAI GPT-4o (better quality) if confidence < 0.7
     """
     
