@@ -189,7 +189,7 @@ Provide a thorough summary (max 500 words) covering the entire conversation flow
             messages=messages,
             source=source,
             endpoint="email_thread_summary",
-            model="gpt-4o-mini",  # OpenAI
+            model="gpt-4o-mini",  # OpenAI gpt-4o-mini
             provider="openai",
             max_output_tokens=800,  # Allow for full 500-word summary + contact info
             temperature=0.2,
@@ -441,7 +441,7 @@ Focus on actionable segmentation that helps sales and marketing teams prioritize
             messages=messages,
             source=source,
             endpoint="bulk_categorization",
-            model="gpt-4o-mini",  # OpenAI
+            model="gpt-4o-mini",  # OpenAI gpt-4o-mini
             provider="openai",
             max_output_tokens=2000,  # Need more tokens for batch categorization
             temperature=0.3,

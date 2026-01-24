@@ -518,7 +518,7 @@ async def run_email_summary_batch() -> dict:
                 ],
                 source="scheduler",
                 max_output_tokens=150,
-                provider="deepseek"
+                provider="openai"
             )
             
             if result.get("success"):
@@ -528,7 +528,7 @@ async def run_email_summary_batch() -> dict:
                 )
                 summarized_count += 1
         
-        print(f"[Scheduler] Email Summary: {summarized_count}/{len(emails_needing_summary)} (DeepSeek, 5/batch)")
+        print(f"[Scheduler] Email Summary: {summarized_count}/{len(emails_needing_summary)} (OpenAI, 5/batch)")
         
         return {"processed": len(emails_needing_summary), "summarized": summarized_count}
     

@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 # AI Provider types
 AIProvider = Literal["openai", "deepseek"]
 
-# DEFAULT PROVIDER: OpenAI for bulk tasks (switched from DeepSeek due to balance issues)
+# DEFAULT PROVIDER: OpenAI for bulk tasks (DeepSeek balance exhausted)
 DEFAULT_PROVIDER = os.getenv("AI_DEFAULT_PROVIDER", "openai")
 
 # Default token limits - COST CONTROL
@@ -185,7 +185,7 @@ class TokenUsageLogger:
         total_tokens: int,
         model: str,
         source: RequestSource,
-        provider: str = "deepseek",
+        provider: str = "openai",
         endpoint: str = "",
         latency_ms: int = 0,
         success: bool = True,

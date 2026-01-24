@@ -23,9 +23,9 @@ LEADS_PER_BATCH = 10
 MAX_RETRIES = 3
 RETRY_DELAY_BASE = 2.0  # seconds
 
-# MODEL CONFIGURATION: DeepSeek for most tasks, OpenAI only for web search
-DEFAULT_MODEL = "deepseek-chat"         # DeepSeek for 99% of tasks
-DEFAULT_PROVIDER = "deepseek"
+# MODEL CONFIGURATION: OpenAI for all tasks (DeepSeek balance exhausted)
+DEFAULT_MODEL = "gpt-4o-mini"           # OpenAI gpt-4o-mini for all tasks
+DEFAULT_PROVIDER = "openai"
 WEB_SEARCH_MODEL = "gpt-4o-mini"        # OpenAI for web search (required)
 WEB_SEARCH_PROVIDER = "openai"
 DEEPSEEK_API_BASE = "https://api.deepseek.com"

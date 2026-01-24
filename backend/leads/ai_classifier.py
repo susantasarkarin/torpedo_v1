@@ -202,7 +202,7 @@ def classify_lead(lead: LeadRaw, source: str = "api") -> Tuple[Optional[AIClassi
             ],
             source=source,
             endpoint="lead_classification",
-            model="gpt-4o-mini",  # OpenAI
+            model="gpt-4o-mini",  # OpenAI gpt-4o-mini
             provider="openai",
             max_output_tokens=300,  # COST CONTROL: Strict limit (was 1000)
             temperature=TEMPERATURE,
@@ -432,7 +432,7 @@ def extract_contact_from_signature(email_body: str, source: str = "background") 
             ],
             source=source,
             endpoint="contact_extraction",
-            model="gpt-4o-mini",  # OpenAI
+            model="gpt-4o-mini",  # OpenAI gpt-4o-mini
             provider="openai",
             max_output_tokens=150,  # COST CONTROL: Reduced from 500
             temperature=0.1,
@@ -537,7 +537,7 @@ def generate_single_email_summary(
             ],
             source=source,
             endpoint="email_summary",
-            model="gpt-4o-mini",  # OpenAI
+            model="gpt-4o-mini",  # OpenAI gpt-4o-mini
             provider="openai",
             max_output_tokens=150,  # COST CONTROL: Reduced from 500
             temperature=0.2
@@ -597,7 +597,7 @@ def generate_conversation_summary(email_threads: List[Dict[str, Any]], source: s
             ],
             source=source,
             endpoint="conversation_summary",
-            model="gpt-4o-mini",  # OpenAI
+            model="gpt-4o-mini",  # OpenAI gpt-4o-mini
             provider="openai",
             max_output_tokens=150,  # COST CONTROL: Reduced from 300
             temperature=0.3
