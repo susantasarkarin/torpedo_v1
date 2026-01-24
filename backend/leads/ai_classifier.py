@@ -194,7 +194,7 @@ def classify_lead(lead: LeadRaw, source: str = "api") -> Tuple[Optional[AIClassi
     )
     
     try:
-        # COST CONTROL: Use DeepSeek for lead classification
+        # Use OpenAI for lead classification
         result = chat_completion(
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -202,8 +202,8 @@ def classify_lead(lead: LeadRaw, source: str = "api") -> Tuple[Optional[AIClassi
             ],
             source=source,
             endpoint="lead_classification",
-            model="deepseek-chat",  # Explicit DeepSeek
-            provider="deepseek",
+            model="gpt-4o-mini",  # OpenAI
+            provider="openai",
             max_output_tokens=300,  # COST CONTROL: Strict limit (was 1000)
             temperature=TEMPERATURE,
             response_format={"type": "json_object"}
@@ -424,7 +424,7 @@ def extract_contact_from_signature(email_body: str, source: str = "background") 
         # Only send last 500 chars (signature is at end) - COST CONTROL: Reduce input tokens
         signature_text = email_body[-500:] if len(email_body) > 500 else email_body
         
-        # COST CONTROL: Use DeepSeek for signature extraction
+        # Use OpenAI for signature extraction
         result = chat_completion(
             messages=[
                 {"role": "system", "content": "Extract contact from signature. JSON only."},
@@ -432,8 +432,8 @@ def extract_contact_from_signature(email_body: str, source: str = "background") 
             ],
             source=source,
             endpoint="contact_extraction",
-            model="deepseek-chat",  # Explicit DeepSeek
-            provider="deepseek",
+            model="gpt-4o-mini",  # OpenAI
+            provider="openai",
             max_output_tokens=150,  # COST CONTROL: Reduced from 500
             temperature=0.1,
             response_format={"type": "json_object"}
@@ -537,8 +537,8 @@ def generate_single_email_summary(
             ],
             source=source,
             endpoint="email_summary",
-            model="deepseek-chat",  # Explicit DeepSeek
-            provider="deepseek",
+            model="gpt-4o-mini",  # OpenAI
+            provider="openai",
             max_output_tokens=150,  # COST CONTROL: Reduced from 500
             temperature=0.2
         )
@@ -597,8 +597,8 @@ def generate_conversation_summary(email_threads: List[Dict[str, Any]], source: s
             ],
             source=source,
             endpoint="conversation_summary",
-            model="deepseek-chat",  # Explicit DeepSeek
-            provider="deepseek",
+            model="gpt-4o-mini",  # OpenAI
+            provider="openai",
             max_output_tokens=150,  # COST CONTROL: Reduced from 300
             temperature=0.3
         )

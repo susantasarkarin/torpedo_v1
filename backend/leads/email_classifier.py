@@ -191,8 +191,8 @@ Analyze this email. Return valid JSON only, no markdown formatting."""
                 {"role": "system", "content": UNIFIED_SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt}
             ],
-            model="deepseek-chat",  # Explicit DeepSeek for email classification
-            provider="deepseek",    # Force DeepSeek provider
+            model="gpt-4o-mini",  # OpenAI for email classification
+            provider="openai",    # Use OpenAI provider
             temperature=0.1,
             max_output_tokens=1200,
             response_format={"type": "json_object"},

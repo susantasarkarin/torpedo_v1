@@ -38,8 +38,8 @@ logger = logging.getLogger(__name__)
 # AI Provider types
 AIProvider = Literal["openai", "deepseek"]
 
-# DEFAULT PROVIDER: DeepSeek for bulk tasks
-DEFAULT_PROVIDER = os.getenv("AI_DEFAULT_PROVIDER", "deepseek")
+# DEFAULT PROVIDER: OpenAI for bulk tasks (switched from DeepSeek due to balance issues)
+DEFAULT_PROVIDER = os.getenv("AI_DEFAULT_PROVIDER", "openai")
 
 # Default token limits - COST CONTROL
 DEFAULT_MAX_OUTPUT_TOKENS = 300       # Standard API responses
