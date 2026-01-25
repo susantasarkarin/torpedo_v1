@@ -658,13 +658,12 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     # Normalize country code to uppercase
                     cc_upper = country_code.upper()
                     
-                    # Query for active CPX surveys matching country
+                    # Query for active CPX surveys (NO country filter - CPX handles routing)
                     cpx_query = {
-                        "is_active_in_pool": True,
-                        "country": cc_upper
+                        "is_active_in_pool": True
                     }
                     cpx_surveys = list(cpx_collection.find(cpx_query).limit(50))
-                    print(f"📊 Found {len(cpx_surveys)} active CPX surveys for country {cc_upper}")
+                    print(f"📊 Found {len(cpx_surveys)} active CPX surveys (all countries - CPX handles routing)")
                     
                     # Query for active CINT surveys matching country
                     # CINT uses country_language field - need to map country code
