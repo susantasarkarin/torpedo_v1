@@ -81,96 +81,90 @@ except Exception as e:
 
 # ============== IMPORT SERVICE ==============
 
-def import_leads(leads: List[LeadInput], skip_dedup_check: bool = False) -> LeadImportResponse:
+def import_leads(leads: List[LeadInput], skip_dedup_check: bool = False, auto_classify: bool = False) -> LeadImportResponse:
     """
-    Import raw leads with idempotent behavior (skip duplicates).
+    Import raw leads using CANONICAL INGESTION PIPELINE.
+    
+    ALL leads pass through the same pipeline:
+    - normalize_payload
+    - deduplicate_by_email (EMAIL is the ONLY dedup key)
+    - validate_fields
+    - conditional_enrichment
+    - AI_classification (if auto_classify=True)
+    - insert_into_leads_raw
     
     Args:
         leads: List of LeadInput objects to import
-        skip_dedup_check: Skip pre-import deduplication check (faster but may hit DB errors)
+        skip_dedup_check: Ignored (canonical pipeline always deduplicates)
+        auto_classify: Run AI classification immediately
         
     Returns:
         LeadImportResponse with import stats
     """
+    from .canonical_ingestion import ingest_lead
+    
     imported = 0
+    updated = 0
     duplicates = 0
     errors = 0
     lead_ids = []
     
     for lead_input in leads:
         try:
-            # Pre-import deduplication check (optional but recommended)
-            if not skip_dedup_check:
-                dedup_result = check_duplicate(
-                    linkedin_url=lead_input.linkedin_url,
-                    email=lead_input.email,
-                    name=lead_input.name,
-                    company_name=lead_input.company_name
-                )
-                if dedup_result.is_duplicate:
-                    log_rejected_duplicate(
-                        lead=lead_input.model_dump() if hasattr(lead_input, 'model_dump') else dict(lead_input),
-                        reason=dedup_result.reason,
-                        source=lead_input.source or "import"
-                    )
-                    if dedup_result.existing_lead_id:
-                        lead_ids.append(dedup_result.existing_lead_id)
+            # Build canonical payload
+            payload = {
+                'email': lead_input.email,
+                'name': lead_input.name,
+                'first_name': lead_input.first_name,
+                'last_name': lead_input.last_name,
+                'title': lead_input.title,
+                'linkedin_url': lead_input.linkedin_url,
+                'location': lead_input.location,
+                'company': lead_input.company_name,
+                'company_domain': lead_input.company_domain,
+                'phone': getattr(lead_input, 'phone', None),
+            }
+            
+            # Determine source
+            source = 'websearch'  # Default for web search leads
+            if hasattr(lead_input, 'source') and lead_input.source:
+                if 'csv' in str(lead_input.source).lower():
+                    source = 'csv'
+                elif 'gmail' in str(lead_input.source).lower():
+                    source = 'gmail'
+            
+            source_detail = lead_input.source or 'openai_search'
+            
+            # Use CANONICAL ingestion
+            result = ingest_lead(
+                payload=payload,
+                source=source,
+                source_detail=source_detail,
+                skip_classification=not auto_classify
+            )
+            
+            if result['success']:
+                if result['lead_id']:
+                    lead_ids.append(result['lead_id'])
+                
+                if result['action'] == 'inserted':
+                    imported += 1
+                elif result['action'] == 'updated':
+                    updated += 1
+                elif result['action'] == 'skipped':
                     duplicates += 1
-                    continue
-            
-            lead_raw = LeadRaw(
-                name=lead_input.name,
-                title=lead_input.title,
-                linkedin_url=lead_input.linkedin_url,
-                snippet=lead_input.snippet or "",
-                source=lead_input.source,
-                first_name=lead_input.first_name,
-                last_name=lead_input.last_name,
-                email=lead_input.email,
-                email_status=lead_input.email_status,
-                location=lead_input.location,
-                company_name=lead_input.company_name,
-                company_domain=lead_input.company_domain,
-                company_website=lead_input.company_website,
-                company_employee_count=lead_input.company_employee_count,
-                company_employee_count_range=lead_input.company_employee_count_range,
-                company_founded=lead_input.company_founded,
-                company_industry=lead_input.company_industry,
-                company_type=lead_input.company_type,
-                company_headquarters=lead_input.company_headquarters,
-                company_revenue_range=lead_input.company_revenue_range,
-                company_linkedin_url=lead_input.company_linkedin_url,
-                created_at=datetime.utcnow(),
-                classification_status=ClassificationStatus.PENDING
-            )
-            
-            result = leads_raw_collection.insert_one(lead_raw.model_dump())
-            lead_id = str(result.inserted_id)
-            lead_ids.append(lead_id)
-            imported += 1
-            
-            # Add to deduplication index for future lookups
-            add_to_dedup_index(
-                lead_id=lead_id,
-                linkedin_url=lead_input.linkedin_url,
-                email=lead_input.email,
-                name=lead_input.name,
-                company_name=lead_input.company_name
-            )
-            
-        except DuplicateKeyError:
-            # Lead already exists - this is expected for idempotent imports
-            existing = leads_raw_collection.find_one({"linkedin_url": lead_input.linkedin_url})
-            if existing:
-                lead_ids.append(str(existing["_id"]))
-            duplicates += 1
+            else:
+                if result.get('error') and 'email' in result['error'].lower():
+                    duplicates += 1  # Treat missing/invalid email as skip
+                else:
+                    errors += 1
             
         except Exception as e:
-            print(f"Error importing lead {lead_input.linkedin_url}: {e}")
+            print(f"Error importing lead: {e}")
             errors += 1
     
     return LeadImportResponse(
-        imported=imported,
+        imported=imported + updated,  # Combine for backwards compatibility
         duplicates=duplicates,
         errors=errors,
         lead_ids=lead_ids
@@ -419,10 +413,20 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
     if filters.source:
         # Support comma-separated sources for multi-source filtering
         sources = [s.strip() for s in filters.source.split(",")]
-        if len(sources) == 1:
-            query["source"] = sources[0]
-        else:
-            query["source"] = {"$in": sources}
+        
+        # Expand known source groups (defined later in file, but available at runtime)
+        expanded_sources = []
+        for s in sources:
+            if s.lower() == 'gmail':
+                expanded_sources.extend(GMAIL_SOURCES)
+            elif s.lower() == 'csv':
+                expanded_sources.extend(CSV_SOURCES)
+            elif s.lower() in ('websearch', 'web_search'):
+                expanded_sources.extend(WEBSEARCH_SOURCES)
+            else:
+                expanded_sources.append(s)
+        
+        query["source"] = {"$in": expanded_sources}
     
     if filters.search:
         query["$or"] = [

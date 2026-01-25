@@ -858,6 +858,7 @@ class GmailWorkspaceService:
             "size_estimate": msg_data.get("sizeEstimate", 0),
             "synced_at": datetime.utcnow(),
             "is_historic_backfill": is_historic_backfill,  # Skip classification if True
+            "lead_extracted": False,  # Track if lead was extracted
         }
         
         # Upsert
@@ -866,6 +867,38 @@ class GmailWorkspaceService:
             {"$set": doc},
             upsert=True
         )
+        
+        # AUTO-INGEST LEAD from inbound emails (CANONICAL PIPELINE)
+        # This is the ONLY place Gmail leads should be created
+        if direction == "inbound" and from_email and not is_historic_backfill:
+            try:
+                from backend.leads.canonical_ingestion import ingest_lead, should_skip_email
+                
+                if not should_skip_email(from_email):
+                    lead_payload = {
+                        'email': from_email,
+                        'name': from_name,
+                        'company_domain': from_email.split('@')[-1] if '@' in from_email else None,
+                        'source_email_id': msg_data["id"],
+                    }
+                    
+                    result = ingest_lead(
+                        payload=lead_payload,
+                        source='gmail',
+                        source_detail=f'email_sync:{mailbox_email}',
+                        skip_classification=True  # Batch classify later for performance
+                    )
+                    
+                    if result['success']:
+                        # Mark email as having lead extracted
+                        self.emails.update_one(
+                            {"mailbox_id": mailbox_id, "gmail_message_id": msg_data["id"]},
+                            {"$set": {"lead_extracted": True, "lead_id": result.get('lead_id')}}
+                        )
+                        logger.debug(f"Lead ingested from email: {from_email}")
+                        
+            except Exception as e:
+                logger.warning(f"Failed to ingest lead from email {from_email}: {e}")
     
     def _extract_body(self, payload: Dict) -> Tuple[str, str]:
         """Extract plain text and HTML body from email payload"""

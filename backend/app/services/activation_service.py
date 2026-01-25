@@ -215,7 +215,7 @@ class SurveyActivationService:
         """
         # Check if survey is live (CINT has is_live, CPX surveys are live if they have a live_link)
         if provider.upper() == "CINT":
-            if not survey.get("is_live", True):
+            if not survey.get("is_live", False):  # Default to False if missing
                 return False
             if survey.get("message_reason") == "deactivated":
                 return False
@@ -224,19 +224,63 @@ class SurveyActivationService:
             if not (survey.get("live_link") or survey.get("entry_link")):
                 return False
 
+        # Get filter thresholds with sensible defaults matching settings UI
+        max_loi = filters.get("max_loi", 20)  # Default 20 minutes
+        min_cpi = filters.get("min_cpi", 1.0)  # Default $1.00
+        min_ir = filters.get("min_ir", filters.get("min_incidence", 5))  # Default 5%
+
         # Filter: LOI (length of interview in minutes)
-        loi = float(survey.get("loi") or survey.get("length_of_interview") or 0)
-        if loi > filters.get("max_loi", 999):
+        # CINT uses length_of_interview or bid_length_of_interview, CPX uses loi
+        loi = 0
+        if provider.upper() == "CINT":
+            loi = survey.get("length_of_interview") or survey.get("bid_length_of_interview") or survey.get("loi") or 0
+        else:
+            loi = survey.get("loi") or survey.get("length_of_interview") or 0
+        
+        try:
+            loi = float(loi) if loi else 0
+        except (ValueError, TypeError):
+            loi = 0
+            
+        if loi > 0 and loi > max_loi:
             return False
             
         # Filter: Payout / CPI
-        payout = float(survey.get("payout") or survey.get("cpi") or 0)
-        if payout < filters.get("min_cpi", 0):
+        # CINT may have payout or revenue_per_interview, CPX uses payout or cpi
+        payout = 0
+        if provider.upper() == "CINT":
+            payout = survey.get("payout", 0)
+            if not payout and "revenue_per_interview" in survey:
+                rpi = survey["revenue_per_interview"]
+                if isinstance(rpi, dict):
+                    payout = rpi.get("value", 0)
+                elif isinstance(rpi, (int, float)):
+                    payout = rpi
+        else:
+            payout = survey.get("payout") or survey.get("cpi") or 0
+            
+        try:
+            payout = float(payout) if payout else 0
+        except (ValueError, TypeError):
+            payout = 0
+            
+        if payout < min_cpi:
             return False
             
-        # Filter: Conversion (Incidence)
-        ir = float(survey.get("conversion_rate") or survey.get("incidence_rate") or 0)
-        if ir < filters.get("min_ir", 0):
+        # Filter: Conversion/Incidence Rate
+        # CINT uses bid_incidence, CPX uses conversion_rate
+        ir = 0
+        if provider.upper() == "CINT":
+            ir = survey.get("bid_incidence") or survey.get("incidence_rate") or survey.get("conversion_rate") or 0
+        else:
+            ir = survey.get("conversion_rate") or survey.get("incidence_rate") or 0
+            
+        try:
+            ir = float(ir) if ir else 0
+        except (ValueError, TypeError):
+            ir = 0
+            
+        if ir > 0 and ir < min_ir:
             return False
             
         return True
@@ -289,22 +333,25 @@ class SurveyActivationService:
         self.allocation_service.upsert_survey(survey_create)
 
     def _get_default_filters(self) -> Dict[str, Any]:
-        """Get filters from DB or defaults"""
+        """Get filters from DB or defaults matching settings UI"""
         try:
             stored = self.settings_collection.find_one({"_id": "survey_filters"})
             if stored:
+                logger.info(f"Loaded filter settings from DB: max_loi={stored.get('max_loi')}, min_cpi={stored.get('min_cpi')}, min_incidence={stored.get('min_incidence')}")
                 return {
-                    "max_loi": stored.get("max_loi", 30),
-                    "min_cpi": stored.get("min_cpi", 0.5),
-                    "min_ir": stored.get("min_incidence", 5)
+                    "max_loi": stored.get("max_loi", 20),
+                    "min_cpi": stored.get("min_cpi", 1.0),
+                    "min_ir": stored.get("min_incidence", 60)  # Match CINT default of 60%
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Could not load filter settings: {e}")
             
+        # Default values matching the settings UI defaults
+        logger.info("Using default filter settings: max_loi=20, min_cpi=1.0, min_ir=60")
         return {
-            "max_loi": 30,
-            "min_cpi": 0.5,
-            "min_ir": 5
+            "max_loi": 20,
+            "min_cpi": 1.0,
+            "min_ir": 60  # 60% minimum incidence - matches CINT default
         }
     
     def get_active_surveys_from_pool(self, provider: str = None, limit: int = 100) -> List[Dict]:

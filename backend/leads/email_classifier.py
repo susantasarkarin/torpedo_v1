@@ -376,9 +376,9 @@ def classify_batch(
     Classify a batch of unclassified emails.
     Returns stats about the batch.
     """
-    # Find unclassified emails
+    # Find unclassified emails (field missing OR null)
     unclassified = list(email_metadata.find(
-        {"ai_category": {"$exists": False}},
+        {"$or": [{"ai_category": {"$exists": False}}, {"ai_category": None}]},
         {
             "_id": 1,
             "gmail_message_id": 1,

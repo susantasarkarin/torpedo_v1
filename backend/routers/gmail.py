@@ -1910,17 +1910,31 @@ async def get_mail_pool_stats(
             logger.debug(f"Could not get review queue count: {e}")
             pending_review_count = 0
         
+        # Optimize: Get all counts in one aggregation
+        # Group by mailbox_id to get counts for all accounts at once
+        pipeline = [
+            {"$match": {"mailbox_id": {"$in": [str(a["_id"]) for a in accounts]}}},
+            {"$group": {"_id": "$mailbox_id", "count": {"$sum": 1}}}
+        ]
+        
+        # Create a map of mailbox_id -> count
+        try:
+            counts_map = {doc["_id"]: doc["count"] for doc in mail_pool_emails.aggregate(pipeline)}
+        except Exception as e:
+            logger.error(f"Error aggregating counts: {e}")
+            counts_map = {}
+
         # Get emails by account (using mailbox_id in new schema)
         account_stats = []
         for acc in accounts:
             acc_email = acc["email"]
             acc_id = str(acc["_id"])
             
-            # Match by mailbox_id for accurate count
-            count = mail_pool_emails.count_documents({"mailbox_id": acc_id})
+            # Match by mailbox_id for accurate count using the pre-fetched map
+            count = counts_map.get(acc_id, 0)
             
-            # Use email_count from the mailbox if available
-            if count == 0:
+            # Use email_count from the mailbox if available and count is 0 (fallback)
+            if count == 0 and "email_count" in acc:
                 count = acc.get("email_count", 0)
             
             # Get aliases for this account - normalize to objects with signatures
@@ -1929,7 +1943,7 @@ async def get_mail_pool_stats(
                 raw_aliases = acc.get("alias_emails", [])
             
             # Also check the separate aliases collection (email_automation.aliases)
-            acc_id = str(acc["_id"])
+            # We can cache this too if needed, but aliases collection is small
             try:
                 from email_sync.storage import EmailStorage
                 storage = EmailStorage()

@@ -57,6 +57,7 @@ function Settings() {
   const [surveyFilters, setSurveyFilters] = useState({
     max_loi: 20,
     min_cpi: 1.0,
+    min_incidence: 60,
     deletion_period_days: 7,
     auto_refresh_enabled: true,
     refresh_interval_seconds: 60,
@@ -1502,7 +1503,7 @@ function Settings() {
               <div className="settings-group">
                 <h3>📋 Survey Filters</h3>
                 <div className="setting-row">
-                  <label>Max LOI / Min CPI</label>
+                  <label>Max LOI / Min CPI / Min Incidence</label>
                   <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
                     <div className="input-with-unit">
                       <input
@@ -1512,7 +1513,7 @@ function Settings() {
                         value={surveyFilters.max_loi}
                         onChange={(e) => handleFilterChange("max_loi", parseInt(e.target.value))}
                       />
-                      <span className="unit">min</span>
+                      <span className="unit">min LOI</span>
                     </div>
                     <div className="input-with-unit">
                       <input
@@ -1525,8 +1526,18 @@ function Settings() {
                       />
                       <span className="unit">$ CPI</span>
                     </div>
+                    <div className="input-with-unit">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={surveyFilters.min_incidence}
+                        onChange={(e) => handleFilterChange("min_incidence", parseInt(e.target.value))}
+                      />
+                      <span className="unit">% IR</span>
+                    </div>
                   </div>
-                  <p className="setting-hint">Filter out surveys exceeding LOI or below CPI</p>
+                  <p className="setting-hint">Filter surveys: Max LOI (minutes), Min Payout ($), Min Incidence Rate (%)</p>
                 </div>
                 <div className="setting-row">
                   <label>Deletion Period</label>

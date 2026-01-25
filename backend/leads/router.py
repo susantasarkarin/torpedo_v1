@@ -1624,149 +1624,79 @@ def extract_name_from_email_header(from_header: str) -> tuple:
 @router.post("/emails/extract")
 async def extract_leads_from_stored_emails(request: EmailExtractRequest):
     """
-    POST /leads/emails/extract
-    Extract leads from emails already stored in MongoDB (torpedo_gmail.email_metadata).
-    Performs phased enrichment:
-    - Basic: Email, Full Name
-    - Names: First Name, Last Name (split from full name)
-    - Company: Company name from signature/domain
-    - Domain: Domain extracted from email
+    DEPRECATED: Manual lead extraction is no longer needed.
+    
+    Leads are now automatically extracted during Gmail sync.
+    See: gmail_workspace_service_vm.py -> _save_email_metadata()
+    
+    This endpoint now triggers a backfill for any emails that weren't
+    processed by the automatic ingestion.
     """
+    from .canonical_ingestion import ingest_lead, extract_lead_from_email
+    
     try:
-        # Use torpedo_gmail.email_metadata for stored emails
-        leads_collection = _jobs_db['leads_raw']
-        
-        # Build query for torpedo_gmail.email_metadata
-        query = {"direction": "inbound"}  # Only get inbound emails (from external contacts)
+        # Build query for unprocessed emails
+        query = {
+            "direction": "inbound",
+            "$or": [
+                {"lead_extracted": {"$exists": False}},
+                {"lead_extracted": False}
+            ]
+        }
         
         if request.account_emails:
-            # Find mailbox_ids for the given email addresses
-            mailbox_pipeline = [
-                {"$match": {"direction": "outbound", "from_email": {"$in": request.account_emails}}},
-                {"$group": {"_id": "$mailbox_id"}}
-            ]
-            mailbox_ids = [r["_id"] for r in email_metadata_collection.aggregate(mailbox_pipeline)]
-            if mailbox_ids:
-                query["mailbox_id"] = {"$in": mailbox_ids}
+            query["to_email"] = {"$in": [e.lower() for e in request.account_emails]}
         
         if request.segments:
             query["ai_category"] = {"$in": request.segments}
         
-        # Fetch emails from torpedo_gmail.email_metadata
+        # Fetch unprocessed emails
         emails = list(email_metadata_collection.find(query).limit(request.max_emails))
         
-        phases = request.enrichment_phases or {
-            "basic": True,
-            "names": True,
-            "company": True,
-            "domain": True
-        }
-        
         extracted = 0
-        enriched = 0
         duplicates = 0
-        
-        # Track seen emails to avoid duplicates within this batch
-        seen_emails = set()
+        errors = 0
         
         for email_doc in emails:
             try:
-                # Get from address - torpedo_gmail uses from_email and from_name fields
-                email_addr = email_doc.get("from_email", "")
-                name = email_doc.get("from_name", "")
-                
-                if not email_addr or "@" not in email_addr:
+                # Use canonical extraction
+                payload = extract_lead_from_email(email_doc)
+                if not payload:
                     continue
                 
-                # Normalize email
-                email_addr = email_addr.lower().strip()
+                # Use canonical ingestion
+                result = ingest_lead(
+                    payload=payload,
+                    source='gmail',
+                    source_detail='backfill_extraction',
+                    skip_classification=False
+                )
                 
-                # Skip if already seen in this batch
-                if email_addr in seen_emails:
-                    duplicates += 1
-                    continue
-                seen_emails.add(email_addr)
-                
-                # Skip common no-reply and system emails
-                skip_patterns = ['noreply', 'no-reply', 'donotreply', 'mailer-daemon', 'postmaster', 
-                                'bounce', 'notifications', 'alert', 'system', 'auto', 'newsletter']
-                if any(p in email_addr.lower() for p in skip_patterns):
-                    continue
-                
-                # Get domain to check if internal
-                sender_domain = extract_domain_from_email(email_addr)
-                
-                # Skip internal domains (our own company emails)
-                internal_domains = ['surveyfieldwork.com', 'cogentixresearch.com']
-                if sender_domain in internal_domains:
-                    continue
-                
-                # Check for duplicate in leads_raw
-                existing = leads_collection.find_one({"email": email_addr})
-                if existing:
-                    duplicates += 1
-                    continue
-                
-                # Build lead document with phased enrichment
-                lead_doc = {
-                    "email": email_addr,
-                    "source": "gmail",
-                    "source_detail": "email_extraction",
-                    "created_at": datetime.utcnow(),
-                    "source_email_id": str(email_doc.get("_id", "")),
-                    "segment": email_doc.get("ai_category"),
-                    "classification_status": "pending"
-                }
-                
-                # Phase 1: Basic info
-                if phases.get("basic", True):
-                    lead_doc["name"] = name if name else None
-                    extracted += 1
-                
-                # Phase 2: Split names
-                if phases.get("names", True) and name:
-                    first_name, last_name = split_name(name)
-                    lead_doc["first_name"] = first_name
-                    lead_doc["last_name"] = last_name
-                
-                # Phase 3: Domain
-                if phases.get("domain", True):
-                    lead_doc["company_domain"] = sender_domain
-                
-                # Phase 4: Company (from domain or signature)
-                if phases.get("company", True):
-                    company = extract_company_from_domain(sender_domain)
-                    lead_doc["company_name"] = company
+                if result['success']:
+                    if result['action'] == 'inserted':
+                        extracted += 1
+                    elif result['action'] in ('skipped', 'updated'):
+                        duplicates += 1
                     
-                    # Try to extract from email body signature (basic extraction)
-                    body = email_doc.get("body_plain", "") or ""
-                    if body and not company:
-                        # Simple signature detection - look for company patterns
-                        import re
-                        lines = body.split('\n')[-20:]  # Last 20 lines
-                        for line in lines:
-                            # Look for patterns like "Company Name" or "| Company"
-                            company_match = re.search(r'(?:^|\|)\s*([A-Z][A-Za-z0-9\s&]+(?:Inc|LLC|Ltd|Corp|Co)\.?)\s*(?:\||$)', line)
-                            if company_match:
-                                lead_doc["company_name"] = company_match.group(1).strip()
-                                break
-                
-                enriched += 1
-                
-                # Insert lead
-                leads_collection.insert_one(lead_doc)
-                
+                    # Mark as processed
+                    email_metadata_collection.update_one(
+                        {"_id": email_doc["_id"]},
+                        {"$set": {"lead_extracted": True, "lead_id": result.get('lead_id')}}
+                    )
+                else:
+                    errors += 1
+                    
             except Exception as e:
-                print(f"Error processing email: {e}")
+                errors += 1
                 continue
         
         return {
             "success": True,
+            "message": "DEPRECATED: Use automatic ingestion. This endpoint backfills missed emails.",
             "emails_processed": len(emails),
             "leads_extracted": extracted,
-            "leads_enriched": enriched,
             "duplicates": duplicates,
-            "message": f"Extracted {extracted} leads from {len(emails)} emails"
+            "errors": errors
         }
         
     except Exception as e:

@@ -977,15 +977,15 @@ td {
 }
 
 .pool-stats-grid .stat-card.cpx {
-  border-left-color: #667eea;
+  border-left-color: #f59e0b;
 }
 
 .pool-stats-grid .stat-card.cint {
-  border-left-color: #10b981;
+  border-left-color: #06b6d4;
 }
 
 .pool-stats-grid .stat-card.total {
-  border-left-color: #f59e0b;
+  border-left-color: #22c55e;
 }
 
 .pool-stats-grid .stat-card h4 {
@@ -1005,6 +1005,19 @@ td {
   font-size: 24px;
   font-weight: 700;
   color: #10b981;
+}
+
+/* Per-card active number colors matching border accent */
+.pool-stats-grid .stat-card.cpx .stat-numbers .active {
+  color: #f59e0b;
+}
+
+.pool-stats-grid .stat-card.cint .stat-numbers .active {
+  color: #06b6d4;
+}
+
+.pool-stats-grid .stat-card.total .stat-numbers .active {
+  color: #22c55e;
 }
 
 .stat-numbers .total {

@@ -192,6 +192,7 @@ async def get_survey_filter_settings(request: Request = None) -> Dict[str, Any]:
         filters = {
             "max_loi": stored.get("max_loi", 20),  # Maximum Length of Interview in minutes
             "min_cpi": stored.get("min_cpi", 1.0),  # Minimum Cost Per Interview in dollars
+            "min_incidence": stored.get("min_incidence", 60),  # Minimum Incidence/Conversion Rate percentage
             "deletion_period_days": stored.get("deletion_period_days", 7),  # Days before surveys are deleted
             "auto_refresh_enabled": stored.get("auto_refresh_enabled", True),
             "refresh_interval_seconds": stored.get("refresh_interval_seconds", 60),
