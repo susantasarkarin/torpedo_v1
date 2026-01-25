@@ -246,10 +246,20 @@ class SurveyActivationService:
             return False
             
         # Filter: Payout / CPI
-        # CINT may have payout or revenue_per_interview, CPX uses payout or cpi
+        # CINT may have payout or RPI in raw_data, CPX uses payout or cpi
         payout = 0
         if provider.upper() == "CINT":
             payout = survey.get("payout", 0)
+            # Check raw_data.RPI.value (main source for CINT payout)
+            if not payout and "raw_data" in survey:
+                raw_data = survey.get("raw_data", {})
+                if isinstance(raw_data, dict):
+                    rpi = raw_data.get("RPI", {})
+                    if isinstance(rpi, dict):
+                        payout = rpi.get("value", 0)
+                    elif isinstance(rpi, (int, float)):
+                        payout = rpi
+            # Fallback to revenue_per_interview
             if not payout and "revenue_per_interview" in survey:
                 rpi = survey["revenue_per_interview"]
                 if isinstance(rpi, dict):
