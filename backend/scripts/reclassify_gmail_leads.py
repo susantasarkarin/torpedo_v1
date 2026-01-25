@@ -44,30 +44,20 @@ GMAIL_SOURCES = ["gmail", "gmail_workspace", "email_sync", "email_import",
 
 
 def find_gmail_leads_with_missing_fields():
-    """Find Gmail leads that are 'classified' but have no enrichment fields."""
+    """Find Gmail leads that need classification or have missing enrichment fields."""
     query = {
         'source': {'$in': GMAIL_SOURCES},
-        '$or': [
-            {'classification_status': 'classified'},
-            {'classification': {'$in': ['client', 'vendor', 'unknown']}}
-        ],
         # Missing any of the key enrichment fields
-        '$and': [
-            {'$or': [
-                {'seniority_level': {'$exists': False}},
-                {'seniority_level': None},
-                {'seniority_level': ''}
-            ]},
-            {'$or': [
-                {'department': {'$exists': False}},
-                {'department': None},
-                {'department': ''}
-            ]},
-            {'$or': [
-                {'persona': {'$exists': False}},
-                {'persona': None},
-                {'persona': ''}
-            ]}
+        '$or': [
+            {'seniority_level': {'$exists': False}},
+            {'seniority_level': None},
+            {'seniority_level': ''},
+            {'department': {'$exists': False}},
+            {'department': None},
+            {'department': ''},
+            {'persona': {'$exists': False}},
+            {'persona': None},
+            {'persona': ''}
         ]
     }
     

@@ -89,101 +89,115 @@ def get_google_api_credentials() -> Tuple[Optional[str], Optional[str]]:
 
 
 # ============== OPENAI WEB SEARCH FOR LINKEDIN ==============
-# Replaced Google CSE with OpenAI's web_search_preview for finding
-# market research and consumer insights professionals
 
-# Target industries for market research leads
-MR_TARGET_INDUSTRIES = [
-    "CPG/FMCG", "Retail", "E-commerce", "Healthcare/Pharma",
-    "Financial Services/Banking", "Insurance", "Telecom",
-    "Media & Entertainment", "Airlines/Travel", "Automotive",
-    "Technology", "Consumer Electronics", "Food & Beverage",
-    "Beauty & Personal Care", "Hospitality", "Gaming"
-]
-
-# Target markets (major regions)
-MR_TARGET_MARKETS = [
-    "United States", "United Kingdom", "Germany", "France",
-    "Canada", "Australia", "Singapore", "India", "Japan",
-    "Brazil", "Mexico", "Netherlands", "UAE", "South Africa"
-]
-
-# Target roles for market research buyers
-MR_TARGET_ROLES = [
-    "Director of Consumer Insights", "VP Consumer Insights",
-    "Head of Market Research", "Director of Research",
-    "Consumer Insights Manager", "Market Research Manager",
-    "Director of Analytics", "VP of Analytics",
-    "Head of Customer Insights", "Research & Insights Lead",
-    "Brand Insights Director", "Shopper Insights Manager",
-    "Category Insights Manager", "Voice of Customer Director"
-]
-
-
-async def perform_openai_web_search(query: str, num_results: int = 10) -> str:
+async def perform_google_search(query: str, num_results: int = 10) -> List[dict]:
     """
-    Perform web search using OpenAI's Responses API with web_search_preview tool.
-    
-    This replaces Google CSE for finding LinkedIn profiles of market research
-    and consumer insights professionals.
+    Perform a Google Custom Search to find LinkedIn profiles.
     
     Args:
-        query: Search query for finding professionals
-        num_results: Number of results to request
+        query: Search query
+        num_results: Number of results to fetch
         
     Returns:
-        Raw text response from OpenAI web search
+        List of Google Search result items
+    """
+    api_key, cse_id = get_google_api_credentials()
+    
+    if not api_key or not cse_id:
+        logger.warning("Google API credentials missing. Automated web search will be limited.")
+        return []
+        
+    results = []
+    
+    # Google API allows max 10 per request
+    # We'll fetch in batches if needed
+    pages = (num_results + 9) // 10
+    
+    async with httpx.AsyncClient() as client:
+        for i in range(pages):
+            start = i * 10 + 1
+            if start > 100: break # Google CSE limit
+            
+            try:
+                url = "https://www.googleapis.com/customsearch/v1"
+                params = {
+                    'q': query,
+                    'key': api_key,
+                    'cx': cse_id,
+                    'num': min(10, num_results - len(results)),
+                    'start': start
+                }
+                
+                response = await client.get(url, params=params, timeout=15.0)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    items = data.get('items', [])
+                    results.extend(items)
+                    if not items:
+                        break
+                elif response.status_code == 429:
+                    logger.warning("Google Search quota exceeded")
+                    break
+                else:
+                    logger.error(f"Google Search error: {response.status_code} - {response.text}")
+                    break
+                    
+                if len(results) >= num_results:
+                    break
+                    
+            except Exception as e:
+                logger.error(f"Google Search exception: {e}")
+                break
+                
+    return results
+
+async def search_linkedin_leads_openai(
+    query: str,
+    num_results: int = 10,
+    deduplicate: bool = True
+) -> List[dict]:
+    """
+    Search LinkedIn profiles using OpenAI's web_search_preview tool.
+    This is the fallback when Google CSE is not configured.
+    
+    Args:
+        query: Search query (e.g., "CEO SaaS San Francisco")
+        num_results: Max number of leads to return
+        deduplicate: Filter out existing leads
+        
+    Returns:
+        List of lead dictionaries
     """
     api_key = get_openai_api_key()
-    
     if not api_key:
-        raise ValueError("OpenAI API key not configured. Please set it in Settings.")
+        logger.error("OpenAI API key not configured")
+        return []
     
     try:
         from openai import OpenAI
         client_ai = OpenAI(api_key=api_key)
         
-        # Use Responses API with web_search_preview tool
-        search_prompt = f"""Search the web and find {num_results} LinkedIn profiles matching this criteria:
+        search_prompt = f"""Search the web for LinkedIn profiles matching this criteria:
+{query}
 
-SEARCH QUERY: {query}
+Find real people on LinkedIn who match these roles/criteria.
+Focus on LinkedIn profile pages (linkedin.com/in/).
 
-TARGET AUDIENCE - Market Research & Consumer Insights Professionals who:
-- Work at major brands, retailers, or consumer companies
-- Purchase market research services, online panels, and consumer insights
-- Hold decision-making authority for research budgets
+Return a JSON object with "leads" array containing up to {num_results} people with:
+- name (full name)
+- title (job title)
+- linkedin_url (their LinkedIn profile URL - must be a real linkedin.com/in/ URL)
+- company_name (current company)
+- location (city/country if known)
+- seniority_level (Entry/Mid/Senior/Director/VP/C-Level)
+- department (Sales/Marketing/Engineering/etc)
+- snippet (brief description from their profile)
 
-PREFERRED JOB TITLES (prioritize these):
-- Director/VP/Head of Consumer Insights
-- Director/VP/Head of Market Research  
-- Research & Analytics Director/Manager
-- Customer Insights Lead/Manager
-- Brand/Shopper Insights Manager
-- Category Insights Director
-- Voice of Customer Manager
+Only include REAL people with valid LinkedIn URLs. Do not make up information.
+Return JSON format: {{"leads": [...]}}"""
 
-INDUSTRIES TO FOCUS ON:
-CPG/FMCG, Retail, E-commerce, Healthcare/Pharma, Financial Services, 
-Insurance, Telecom, Media, Airlines/Travel, Automotive, Technology
-
-EXCLUDE:
-- CEOs, CTOs, CFOs, Founders (unless at research agencies)
-- Software Engineers, Developers
-- Generic Sales/Marketing roles without insights focus
-- Recruiters, HR professionals
-
-For each person found, provide:
-1. Full Name
-2. Job Title (must be insights/research/analytics focused)
-3. Company Name
-4. LinkedIn Profile URL (MUST be real URL from search results)
-5. Location (city, country)
-6. Company Industry
-7. Seniority Level (VP, Director, Senior Manager, Manager)
-
-Return as a structured list with all available information.
-IMPORTANT: Only include REAL LinkedIn URLs found in search results. Never fabricate URLs."""
-
+        # Use OpenAI Responses API with web search
         response = client_ai.responses.create(
             model="gpt-4o-mini",
             tools=[{"type": "web_search_preview"}],
@@ -199,75 +213,27 @@ IMPORTANT: Only include REAL LinkedIn URLs found in search results. Never fabric
                         if hasattr(block, 'text'):
                             content += block.text
         
-        logger.info(f"OpenAI web search completed for query: {query[:50]}...")
-        return content
+        if not content:
+            logger.warning(f"OpenAI web search returned no content for: {query}")
+            return []
+        
+        # Parse the response
+        leads = parse_openai_linkedin_response(content, num_results)
+        
+        # Add source marker
+        for lead in leads:
+            lead["source"] = "openai_search"
+        
+        # Deduplication
+        if deduplicate and leads:
+            unique_leads, duplicates = check_duplicates_batch(leads)
+            return unique_leads
+        
+        return leads
         
     except Exception as e:
-        logger.error(f"OpenAI web search failed: {e}")
-        raise ValueError(f"OpenAI web search error: {str(e)}")
-
-
-async def perform_google_search(query: str, num_results: int = 10) -> List[dict]:
-    """
-    LEGACY: Perform a Google Custom Search to find LinkedIn profiles.
-    Kept for backward compatibility but OpenAI web search is now preferred.
-    
-    Args:
-        query: Search query
-        num_results: Number of results to fetch
-        
-    Returns:
-        List of Google Search result items
-    """
-    api_key, cse_id = get_google_api_credentials()
-    
-    if not api_key or not cse_id:
-        logger.warning("Google API credentials missing. Using OpenAI web search instead.")
+        logger.error(f"OpenAI web search error: {e}")
         return []
-        
-    results = []
-    
-    # Google API allows max 10 per request
-    pages = (num_results + 9) // 10
-    
-    async with httpx.AsyncClient() as http_client:
-        for i in range(pages):
-            start = i * 10 + 1
-            if start > 100: break
-            
-            try:
-                url = "https://www.googleapis.com/customsearch/v1"
-                params = {
-                    'q': query,
-                    'key': api_key,
-                    'cx': cse_id,
-                    'num': min(10, num_results - len(results)),
-                    'start': start
-                }
-                
-                response = await http_client.get(url, params=params, timeout=15.0)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    items = data.get('items', [])
-                    results.extend(items)
-                    if not items:
-                        break
-                elif response.status_code == 429:
-                    logger.warning("Google Search quota exceeded")
-                    break
-                else:
-                    logger.error(f"Google Search error: {response.status_code}")
-                    break
-                    
-                if len(results) >= num_results:
-                    break
-                    
-            except Exception as e:
-                logger.error(f"Google Search exception: {e}")
-                break
-                
-    return results
 
 
 async def search_linkedin_leads(
@@ -275,220 +241,78 @@ async def search_linkedin_leads(
     num_results: int = 10,
     start: int = 1,
     skip_cache: bool = False,
-    deduplicate: bool = True,
-    use_openai_search: bool = True
+    deduplicate: bool = True
 ) -> List[dict]:
     """
-    Search LinkedIn profiles for market research & consumer insights professionals.
+    Search LinkedIn profiles using Google Search -> OpenAI Extraction.
+    Falls back to OpenAI web search if Google CSE is not configured.
     
-    NOW USES OpenAI Web Search (Responses API with web_search_preview tool)
-    instead of Google CSE for better results and no separate API key needed.
-    
-    Args:
-        query: Search query (designation, industry, location, etc.)
-        num_results: Number of results to find
-        start: Pagination start (legacy, ignored for OpenAI search)
-        skip_cache: Force fresh search
-        deduplicate: Remove duplicates from results
-        use_openai_search: Use OpenAI web search (default True)
-        
-    Returns:
-        List of lead dictionaries with LinkedIn profile information
+    COST OPTIMIZATION:
+        - Checks cache first
+        - Uses Google Search (cheaper/reliable) for discovery when available
+        - Falls back to OpenAI web_search_preview if Google is not configured
+        - Uses OpenAI for parsing/structuring
     """
     # Clean query
     clean_query = re.sub(r'site:linkedin\.com[^\s]*\s*', '', query, flags=re.IGNORECASE).strip()
-    cache_key = f"openai_linkedin_search:{clean_query}:{num_results}"
+    
+    # Construct searching query to target LinkedIn profiles
+    # We add site:linkedin.com/in/ to ensure we get profiles
+    search_query = f"{clean_query} site:linkedin.com/in/"
+    cache_key = f"linkedin_search:{clean_query}:{num_results}"
     
     # ===== CACHE CHECK =====
     if not skip_cache:
         cached = get_cached_response(cache_key, provider="openai_web")
         if cached:
+            # Apply deduplication to cached results
             if deduplicate and cached:
                 unique_leads, duplicates = check_duplicates_batch(cached)
                 return unique_leads
             return cached
     
-    # ===== OPENAI WEB SEARCH (PRIMARY) =====
-    if use_openai_search:
-        try:
-            # Construct optimized search query for market research professionals
-            search_query = f"{clean_query} LinkedIn profile market research consumer insights"
-            
-            # Perform OpenAI web search
-            raw_response = await perform_openai_web_search(search_query, num_results)
-            
-            if not raw_response:
-                logger.warning(f"No results from OpenAI web search for: {clean_query}")
-                return []
-            
-            # Parse the response to extract leads
-            leads = parse_openai_web_search_response(raw_response, num_results)
-            
-            if leads:
-                # Set source
-                for lead in leads:
-                    lead["source"] = "openai_search"
-                
-                # Cache results
-                cache_response(cache_key, leads, provider="openai_web")
-                
-                # Deduplicate
-                if deduplicate:
-                    unique_leads, duplicates = check_duplicates_batch(leads)
-                    return unique_leads
-                
-                return leads
-                
-        except Exception as e:
-            logger.error(f"OpenAI web search failed: {e}")
-            # Fall through to Google CSE fallback
+    # ===== CHECK IF GOOGLE CSE IS AVAILABLE =====
+    google_api_key, google_cse_id = get_google_api_credentials()
     
-    # ===== GOOGLE CSE FALLBACK =====
-    search_query = f"{clean_query} site:linkedin.com/in/"
+    if not google_api_key or not google_cse_id:
+        # Fall back to OpenAI web search
+        logger.info(f"Google CSE not configured, using OpenAI web search for: {clean_query}")
+        leads = await search_linkedin_leads_openai(clean_query, num_results, deduplicate)
+        
+        # Cache the results
+        if leads:
+            cache_response(cache_key, leads, provider="openai_web")
+        
+        return leads
+    
+    # ===== GOOGLE SEARCH =====
+    # We perform the search first to get raw data
     search_results = await perform_google_search(search_query, num_results)
     
     if not search_results:
-        logger.warning(f"No results found for query: {clean_query}")
-        return []
-    
-    # Parse Google results with OpenAI
-    leads = await extract_leads_from_google_results(search_results, clean_query)
-    
-    if leads:
-        cache_response(cache_key, leads, provider="openai_web")
+        # Try OpenAI web search as fallback
+        logger.info(f"Google returned no results, trying OpenAI web search for: {clean_query}")
+        leads = await search_linkedin_leads_openai(clean_query, num_results, deduplicate)
         
-        if deduplicate:
-            unique_leads, duplicates = check_duplicates_batch(leads)
-            return unique_leads
-    
-    return leads
-
-
-def parse_openai_web_search_response(response_text: str, max_results: int = 10) -> List[dict]:
-    """
-    Parse OpenAI web search response to extract LinkedIn leads.
-    
-    Handles various response formats from the web_search_preview tool.
-    
-    Args:
-        response_text: Raw text response from OpenAI web search
-        max_results: Maximum number of results to extract
+        if leads:
+            cache_response(cache_key, leads, provider="openai_web")
         
-    Returns:
-        List of parsed lead dictionaries
-    """
-    leads = []
-    
-    if not response_text:
         return leads
     
-    # Try to extract JSON if present
-    try:
-        json_match = re.search(r'\[[\s\S]*?\]', response_text)
-        if json_match:
-            data = json.loads(json_match.group())
-            if isinstance(data, list):
-                for item in data[:max_results]:
-                    lead = normalize_lead_data(item)
-                    if lead.get("name") and lead.get("linkedin_url"):
-                        leads.append(lead)
-                return leads
-    except json.JSONDecodeError:
-        pass
+    # Prepare search results for AI parsing
+    search_context = []
+    for item in search_results:
+        search_context.append({
+            "title": item.get("title", ""),
+            "link": item.get("link", ""),
+            "snippet": item.get("snippet", "")
+        })
     
-    # Parse structured text response
-    # Look for patterns like "Name: John Smith" or "1. John Smith"
-    current_lead = {}
-    
-    for line in response_text.split('\n'):
-        line = line.strip()
-        if not line:
-            if current_lead.get("name"):
-                leads.append(normalize_lead_data(current_lead))
-                current_lead = {}
-            continue
-        
-        # Extract LinkedIn URL
-        linkedin_match = re.search(r'(https?://(?:www\.)?linkedin\.com/in/[a-zA-Z0-9\-]+/?)', line)
-        if linkedin_match:
-            current_lead["linkedin_url"] = linkedin_match.group(1)
-        
-        # Extract name (various patterns)
-        name_patterns = [
-            r'(?:Name|Full Name)[:\s]+([A-Z][a-z]+ [A-Z][a-z]+(?:\s[A-Z][a-z]+)?)',
-            r'^\d+\.\s*\*?\*?([A-Z][a-z]+ [A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\*?\*?',
-            r'^\*\*([A-Z][a-z]+ [A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\*\*',
-        ]
-        for pattern in name_patterns:
-            match = re.search(pattern, line)
-            if match:
-                current_lead["name"] = match.group(1).strip()
-                break
-        
-        # Extract title
-        title_match = re.search(r'(?:Title|Job Title|Position|Role)[:\s]+(.+?)(?:\s+at\s+|$)', line, re.IGNORECASE)
-        if title_match:
-            current_lead["title"] = title_match.group(1).strip()
-        
-        # Extract company
-        company_match = re.search(r'(?:Company|Organization|Employer)[:\s]+(.+?)(?:\s*[,\n]|$)', line, re.IGNORECASE)
-        if company_match:
-            current_lead["company_name"] = company_match.group(1).strip()
-        
-        # Extract "Title at Company" pattern
-        at_pattern = re.search(r'([^,\n]+?)\s+at\s+([^,\n]+)', line, re.IGNORECASE)
-        if at_pattern and not current_lead.get("title"):
-            current_lead["title"] = at_pattern.group(1).strip()
-            current_lead["company_name"] = at_pattern.group(2).strip()
-        
-        # Extract location
-        location_match = re.search(r'(?:Location|Based in|City)[:\s]+(.+?)(?:\s*[,\n]|$)', line, re.IGNORECASE)
-        if location_match:
-            current_lead["location"] = location_match.group(1).strip()
-        
-        # Extract industry
-        industry_match = re.search(r'(?:Industry|Sector)[:\s]+(.+?)(?:\s*[,\n]|$)', line, re.IGNORECASE)
-        if industry_match:
-            current_lead["company_industry"] = industry_match.group(1).strip()
-        
-        # Extract seniority
-        seniority_match = re.search(r'(?:Seniority|Level)[:\s]+(.+?)(?:\s*[,\n]|$)', line, re.IGNORECASE)
-        if seniority_match:
-            current_lead["seniority_level"] = seniority_match.group(1).strip()
-    
-    # Add last lead if present
-    if current_lead.get("name"):
-        leads.append(normalize_lead_data(current_lead))
-    
-    return leads[:max_results]
-
-
-def normalize_lead_data(item: dict) -> dict:
-    """Normalize lead data to standard format."""
-    return {
-        "name": str(item.get("name", item.get("full_name", ""))).strip(),
-        "title": str(item.get("title", item.get("job_title", item.get("position", "")))).strip(),
-        "linkedin_url": str(item.get("linkedin_url", item.get("url", item.get("profile_url", "")))).strip(),
-        "company_name": str(item.get("company_name", item.get("company", item.get("organization", "")))).strip(),
-        "location": str(item.get("location", item.get("city", ""))).strip(),
-        "seniority_level": str(item.get("seniority_level", item.get("seniority", ""))).strip(),
-        "department": str(item.get("department", "Insights")).strip(),
-        "company_industry": str(item.get("company_industry", item.get("industry", ""))).strip(),
-        "company_size": str(item.get("company_size", "")).strip(),
-        "email": str(item.get("email", "")).strip(),
-        "snippet": str(item.get("snippet", item.get("description", ""))).strip(),
-        "source": "openai_search"
-    }
-
-
-async def extract_leads_from_google_results(search_results: List[dict], query: str) -> List[dict]:
-    """
-    Extract leads from Google search results using OpenAI.
-    This is the fallback when OpenAI web search is not available.
-    """
+    # ===== OPENAI EXTRACTION =====
     api_key = get_openai_api_key()
     if not api_key:
-        # Fallback to regex parsing
+        # Fallback to simple regex parsing if no OpenAI key
+        logger.warning("No OpenAI key, using regex parsing")
         leads = [parse_google_search_result(item) for item in search_results]
         return [l for l in leads if l]
     
@@ -496,29 +320,33 @@ async def extract_leads_from_google_results(search_results: List[dict], query: s
         from openai import OpenAI
         client_ai = OpenAI(api_key=api_key)
         
-        search_context = []
-        for item in search_results:
-            search_context.append({
-                "title": item.get("title", ""),
-                "link": item.get("link", ""),
-                "snippet": item.get("snippet", "")
-            })
-        
         extraction_prompt = f"""Extract LinkedIn profile information from these search results:
 {json.dumps(search_context, indent=2)}
 
-Query: {query}
-Target: Market research and consumer insights professionals
+Criteria:
+- Query was: {clean_query}
+- ONLY include people relevant to the query context (e.g. decision makers, specific roles)
+- EXCLUDE generic lists, directories, or irrelevant profiles
+- Extract Company Name from the title/snippet (usually "Title at Company")
+- Infer Seniority and Department from Job Title
 
-Return JSON with "leads" array containing objects with:
-- name, title, linkedin_url, company_name, location, seniority_level, department, snippet
+Return a JSON array of objects with:
+- name
+- title
+- linkedin_url (MUST MATCH the link provided)
+- company_name
+- location (if mentioned)
+- seniority_level
+- department
+- snippet (the search snippet)
 
-Only include real profiles with valid LinkedIn URLs (/in/)."""
+Verify the LinkedIn URL is a profile URL (/in/).
+"""
 
         response = client_ai.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Extract lead data. Return valid JSON only."},
+                {"role": "system", "content": "You are a lead extractor. Return strictly valid JSON."},
                 {"role": "user", "content": extraction_prompt}
             ],
             temperature=0.0,
@@ -527,20 +355,48 @@ Only include real profiles with valid LinkedIn URLs (/in/)."""
         
         content = response.choices[0].message.content
         data = json.loads(content)
-        parsed_leads = data.get("leads", data.get("profiles", []))
+        parsed_leads = data.get("leads", data.get("profiles", [])) 
         
-        leads = []
-        for item in parsed_leads:
-            lead = normalize_lead_data(item)
-            if lead.get("name") and lead.get("linkedin_url"):
-                leads.append(lead)
-        
-        return leads
-        
+        if not isinstance(parsed_leads, list):
+            # Try to handle if it returned just the array
+            if isinstance(data, list):
+                parsed_leads = data
+            else:
+                parsed_leads = []
+
     except Exception as e:
         logger.error(f"OpenAI extraction failed: {e}")
+        # Fallback to regex
         leads = [parse_google_search_result(item) for item in search_results]
         return [l for l in leads if l]
+
+    # Normalize extracted leads
+    leads = []
+    for item in parsed_leads:
+        lead = {
+            "name": item.get("name", "").strip(),
+            "title": item.get("title", "").strip(),
+            "linkedin_url": item.get("linkedin_url", "").strip(),
+            "company_name": item.get("company_name", "").strip(),
+            "location": item.get("location", "").strip(),
+            "seniority_level": item.get("seniority_level", "").strip(),
+            "department": item.get("department", "").strip(),
+            "snippet": item.get("snippet", "").strip(),
+            "source": "openai_search"
+        }
+        if lead["name"] and lead["linkedin_url"]:
+            leads.append(lead)
+            
+    # ===== CACHE RESPONSE =====
+    if leads:
+        cache_response(cache_key, leads, provider="openai_web")
+    
+    # ===== DEDUPLICATION =====
+    if deduplicate and leads:
+        unique_leads, duplicates = check_duplicates_batch(leads)
+        return unique_leads
+    
+    return leads
 
 
 def parse_openai_linkedin_response(response_text: str, max_results: int = 10) -> List[dict]:
@@ -712,10 +568,11 @@ async def search_linkedin_leads_discovery(
     skip_cache: bool = False
 ) -> List[dict]:
     """
-    Search LinkedIn using OpenAI Web Search (Responses API) for discovery.
+    Search LinkedIn using OpenAI for discovery (broader search).
     
-    NOW USES OpenAI's web_search_preview tool for REAL web search results.
-    This finds market research and consumer insights professionals.
+    Used for AI Discovery flow:
+    - Broader search for professionals
+    - No designation blocklist (per user requirement)
     
     Args:
         query: Full search query
@@ -727,15 +584,13 @@ async def search_linkedin_leads_discovery(
     """
     from .search_cache import get_cached_response, cache_response
     
-    cache_key = f"discovery:{query}:{num_results}"
-    
     # ===== CACHE CHECK =====
     if not skip_cache:
-        cached = get_cached_response(cache_key, provider="openai_web")
+        cached = get_cached_response(query, provider="openai_web")
         if cached:
             return cached
     
-    # ===== OPENAI WEB SEARCH =====
+    # ===== OPENAI API CALL =====
     api_key = get_openai_api_key()
     
     if not api_key:
@@ -743,79 +598,79 @@ async def search_linkedin_leads_discovery(
     
     try:
         from openai import OpenAI
-        client_ai = OpenAI(api_key=api_key)
     except ImportError:
         raise ValueError("OpenAI package not installed.")
+    
+    client_ai = OpenAI(api_key=api_key)
     
     # Extract search criteria from the query
     clean_query = re.sub(r'site:linkedin\.com[^\s]*\s*', '', query, flags=re.IGNORECASE).strip()
     
-    search_prompt = f"""Search the web for LinkedIn profiles of market research and consumer insights professionals matching: {clean_query}
+    search_prompt = f"""Search the web for LinkedIn profiles matching: {clean_query}
 
-**TARGET AUDIENCE - Decision makers who purchase:**
-- Market research services and online panels
-- Consumer insights research  
-- Survey fieldwork and data collection
+**TARGET AUDIENCE - Find decision makers who purchase:**
+- Online sample/panel services
+- Consumer insights research
+- Market research services  
 - Analytics and dashboarding solutions
+- Survey fieldwork and data collection
 
-**PREFERRED ROLES (prioritize these):**
-- Director/VP/Head of Consumer Insights
-- Director/VP/Head of Market Research
+**PREFERRED ROLES (prioritize):**
+- Director/VP/Head of Insights, Consumer Insights, Market Research
 - Research & Analytics Director/Manager
-- Customer Insights Lead/Manager
+- Customer Insights Lead
+- Research Operations Manager
+- Analytics Director/Manager
 - Brand/Shopper Insights Manager
-- Category Insights Director
-- Voice of Customer Manager
 
-**TARGET INDUSTRIES:**
-CPG/FMCG, Retail, E-commerce, Healthcare/Pharma, Financial Services/Banking,
-Insurance, Telecom, Media & Entertainment, Airlines/Travel, Automotive, Technology
+**EXCLUDE:** CEO, CTO, CFO, Founders, Software Engineers, generic Sales roles
 
-**EXCLUDE:** CEO, CTO, CFO, Founders, Software Engineers, generic Sales/Marketing roles
+Find up to {num_results} REAL professionals. Extract ALL information:
 
-Find up to {num_results} REAL professionals with LinkedIn profiles.
+**Required:**
+1. Full name
+2. Job title (must be insights/research/analytics focused)
+3. Company name
+4. LinkedIn URL - MUST be REAL URL with random suffix (e.g., john-smith-5a3b2c1d)
 
-For each person, provide:
-1. Full Name
-2. Job Title (must be insights/research/analytics focused)
-3. Company Name
-4. LinkedIn Profile URL (MUST be REAL URL from search results)
-5. Location (city, country)
-6. Company Industry
-7. Seniority Level (VP, Director, Senior Manager, Manager)
+**Additional:**
+5. Location
+6. Email (if visible)
+7. Seniority (VP, Director, Senior Manager, Manager, Lead)
 8. Department (Insights, Research, Analytics)
+9. Company industry (CPG, Retail, FMCG, Healthcare, Financial Services, Tech, Outsourcing, Consulting, E-commerce, Airlines, Banks, Insurance, Telecom, Media)
+10. Company size
+11. Company domain
+12. Company LinkedIn URL
+13. Company headquarters
+14. Buying role (Decision Maker, Budget Holder, Influencer)
+15. Brief description
 
-CRITICAL:
-- ONLY include insights/research/analytics professionals
+Return as JSON array with: name, title, linkedin_url, company_name, location, email, seniority_level, department, company_industry, company_size, company_domain, company_linkedin_url, company_headquarters, buying_role, snippet
+
+CRITICAL: 
+- ONLY include insights/research/analytics professionals - NO generic executives
 - ONLY use LinkedIn URLs actually found in search results
-- NEVER fabricate or guess URLs
-- Real LinkedIn URLs have format: linkedin.com/in/name-randomchars"""
+- NEVER fabricate URLs from names
+- Real LinkedIn URLs have random characters (e.g., john-smith-5a3b2c1d)
+- Use empty string for unavailable fields."""
 
     try:
-        # Use Responses API with web_search_preview tool
-        response = client_ai.responses.create(
+        response = client_ai.chat.completions.create(
             model="gpt-4o-mini",
-            tools=[{"type": "web_search_preview"}],
-            input=search_prompt
+            messages=[
+                {"role": "system", "content": "You find market research, consumer insights, and analytics professionals on LinkedIn. ONLY include people with insights/research/analytics roles - NO CEOs, CTOs, or generic executives. Never fabricate LinkedIn URLs - real URLs have random alphanumeric suffixes. Return valid JSON arrays only."},
+                {"role": "user", "content": search_prompt}
+            ],
+            temperature=0.3,
+            max_tokens=2000
         )
-        
-        # Extract content from response
-        response_text = ""
-        if hasattr(response, 'output'):
-            for item in response.output:
-                if hasattr(item, 'content'):
-                    for block in item.content:
-                        if hasattr(block, 'text'):
-                            response_text += block.text
-        
-        logger.info(f"OpenAI discovery search completed for: {clean_query[:50]}...")
-        
+        response_text = response.choices[0].message.content
     except Exception as e:
-        logger.error(f"OpenAI web search failed: {e}")
         raise ValueError(f"OpenAI API error: {str(e)}")
     
     # Parse response
-    leads = parse_openai_web_search_response(response_text, num_results)
+    leads = parse_openai_linkedin_response(response_text, num_results)
     
     # Update source to discovery
     for lead in leads:
@@ -823,7 +678,7 @@ CRITICAL:
     
     # ===== CACHE RESPONSE =====
     if leads:
-        cache_response(cache_key, leads, provider="openai_web")
+        cache_response(query, leads, provider="openai_web")
     
     return leads
 
@@ -921,7 +776,7 @@ async def discover_top_companies(
 
 {"**NOTE: These are MARKET RESEARCH/PANEL companies - we will pitch Online Panel Services and Questionnaire Programming to them.**" if is_research_company else "**NOTE: These are END-CLIENT companies who need market research services - we will pitch Consumer Insights, Sample/Panel purchasing, Analytics, and Dashboarding.**"}
 
-Format results with:
+Format as JSON array with:
 - company_name: Company name
 - company_linkedin_url: LinkedIn company page URL
 - company_domain: Website domain
@@ -932,29 +787,20 @@ Format results with:
 - is_research_company: true/false (whether they are a market research/panel company)
 - research_needs: Description of likely research/insights needs
 
-CRITICAL: Only include REAL companies with verified information."""
+CRITICAL: Only include REAL companies with verified information. Use empty string for unavailable fields."""
 
     try:
-        # Use Responses API with web_search_preview for real company data
-        response = client_ai.responses.create(
+        response = client_ai.chat.completions.create(
             model="gpt-4o-mini",
-            tools=[{"type": "web_search_preview"}],
-            input=f"You are a B2B market researcher identifying top companies in {industry} in {region_name}.\n\n{search_prompt}"
+            messages=[
+                {"role": "system", "content": f"You are a B2B market researcher identifying top companies in {industry} in {region_name}. Only return real, verifiable companies. Return valid JSON arrays."},
+                {"role": "user", "content": search_prompt}
+            ],
+            temperature=0.3,
+            max_tokens=4000
         )
-        
-        # Extract content from response
-        response_text = ""
-        if hasattr(response, 'output'):
-            for item in response.output:
-                if hasattr(item, 'content'):
-                    for block in item.content:
-                        if hasattr(block, 'text'):
-                            response_text += block.text
-        
-        logger.info(f"Company discovery completed for {industry} in {region_name}")
-        
+        response_text = response.choices[0].message.content
     except Exception as e:
-        logger.error(f"OpenAI web search failed for company discovery: {e}")
         raise ValueError(f"OpenAI API error: {str(e)}")
     
     # Parse response
@@ -966,68 +812,27 @@ CRITICAL: Only include REAL companies with verified information."""
             if isinstance(data, list):
                 for item in data[:num_companies]:
                     company = {
-                        "company_name": str(item.get("company_name", "")).strip(),
-                        "company_linkedin_url": str(item.get("company_linkedin_url", "")).strip(),
-                        "company_domain": str(item.get("company_domain", "")).strip(),
-                        "company_headquarters": str(item.get("company_headquarters", "")).strip(),
-                        "company_size": str(item.get("company_size", "")).strip(),
-                        "company_industry": str(item.get("company_industry", industry)).strip(),
-                        "description": str(item.get("description", "")).strip(),
+                        "company_name": item.get("company_name", "").strip(),
+                        "company_linkedin_url": item.get("company_linkedin_url", "").strip(),
+                        "company_domain": item.get("company_domain", "").strip(),
+                        "company_headquarters": item.get("company_headquarters", "").strip(),
+                        "company_size": item.get("company_size", "").strip(),
+                        "company_industry": item.get("company_industry", industry).strip(),
+                        "description": item.get("description", "").strip(),
                         "is_research_company": item.get("is_research_company", False),
-                        "research_needs": str(item.get("research_needs", "")).strip(),
+                        "research_needs": item.get("research_needs", "").strip(),
                         "region": region
                     }
                     if company["company_name"]:
                         companies.append(company)
     except json.JSONDecodeError:
-        # Try parsing structured text if JSON fails
-        companies = parse_company_list_from_text(response_text, num_companies, industry, region)
+        pass
     
     # ===== CACHE RESPONSE =====
     if companies:
         cache_response(cache_key, companies, provider="openai_companies")
     
     return companies
-
-
-def parse_company_list_from_text(text: str, max_companies: int, industry: str, region: str) -> List[dict]:
-    """Parse company list from structured text response."""
-    companies = []
-    current_company = {}
-    
-    for line in text.split('\n'):
-        line = line.strip()
-        if not line:
-            if current_company.get("company_name"):
-                companies.append(current_company)
-                current_company = {}
-            continue
-        
-        # Extract company name from numbered list
-        name_match = re.match(r'^\d+\.\s*\*?\*?([^*:\n]+)', line)
-        if name_match:
-            if current_company.get("company_name"):
-                companies.append(current_company)
-            current_company = {
-                "company_name": name_match.group(1).strip(),
-                "company_industry": industry,
-                "region": region
-            }
-        
-        # Extract LinkedIn URL
-        linkedin_match = re.search(r'(https?://(?:www\.)?linkedin\.com/company/[a-zA-Z0-9\-]+/?)', line)
-        if linkedin_match:
-            current_company["company_linkedin_url"] = linkedin_match.group(1)
-        
-        # Extract website
-        website_match = re.search(r'(?:website|domain)[:\s]+([a-zA-Z0-9\-\.]+\.[a-z]{2,})', line, re.IGNORECASE)
-        if website_match:
-            current_company["company_domain"] = website_match.group(1)
-    
-    if current_company.get("company_name"):
-        companies.append(current_company)
-    
-    return companies[:max_companies]
 
 
 async def find_decision_makers_in_company(
@@ -1059,7 +864,7 @@ async def find_decision_makers_in_company(
         if cached:
             return cached
     
-    # ===== OPENAI WEB SEARCH =====
+    # ===== OPENAI API CALL =====
     api_key = get_openai_api_key()
     
     if not api_key:
@@ -1067,13 +872,14 @@ async def find_decision_makers_in_company(
     
     try:
         from openai import OpenAI
-        client_ai = OpenAI(api_key=api_key)
     except ImportError:
         raise ValueError("OpenAI package not installed.")
     
+    client_ai = OpenAI(api_key=api_key)
+    
     # Different target roles based on company type
     if is_research_company:
-        target_roles = """**TARGET ROLES for Market Research/Panel Company:**
+        target_roles = """**TARGET ROLES for Market Research/Panel Company (pitch: Online Panel Services, Questionnaire Programming, Survey Scripting):**
 - Director/VP of Operations
 - Director/VP of Field Operations  
 - Head of Sample/Panel Operations
@@ -1081,10 +887,11 @@ async def find_decision_makers_in_company(
 - Project Director/Manager
 - Director of Technology/IT
 - Procurement Manager
-- Vendor Manager"""
+- Vendor Manager
+- COO (for smaller research firms)"""
         service_pitch = "Online Panel Services, Questionnaire Programming, Survey Scripting, Data Collection"
     else:
-        target_roles = """**TARGET ROLES for End-Client Company:**
+        target_roles = """**TARGET ROLES for End-Client Company (pitch: Consumer Insights, Sample Purchasing, Analytics, Dashboarding):**
 - Director/VP/Head of Consumer Insights
 - Director/VP/Head of Market Research
 - Director/VP of Customer Insights
@@ -1093,72 +900,118 @@ async def find_decision_makers_in_company(
 - Brand Insights Manager
 - Shopper Insights Manager
 - Customer Analytics Lead
-- Head of Data & Analytics"""
+- Head of Data & Analytics
+- Research Operations Manager"""
         service_pitch = "Consumer Insights, Online Sample/Panel Purchasing, Market Research, Analytics, Dashboarding"
     
-    search_prompt = f"""Search the web for LinkedIn profiles of decision makers at {company_name} who would purchase: {service_pitch}
+    search_prompt = f"""Search LinkedIn for decision makers at {company_name} who would purchase or influence purchasing of: {service_pitch}
 
 {target_roles}
 
 Find up to {num_contacts} REAL professionals at {company_name}.
+
+**For each person, extract:**
+1. Full name
+2. Job title
+3. LinkedIn profile URL (MUST be REAL URL with random alphanumeric suffix, e.g., john-smith-5a3b2c1d)
+4. Email (if publicly visible)
+5. Location
+6. Seniority level (VP, Director, Senior Manager, Manager, Lead)
+7. Department
 
 **Company Context:**
 - Company: {company_name}
 - Industry: {company.get("company_industry", "")}
 - Company LinkedIn: {company.get("company_linkedin_url", "")}
 - Company Website: {company.get("company_domain", "")}
+- Is Market Research Company: {is_research_company}
+- Service Pitch: {service_pitch}
 
-For each person found, provide:
-1. Full name
-2. Job title
-3. LinkedIn profile URL (MUST be REAL URL from search results)
-4. Location
-5. Seniority level (VP, Director, Senior Manager, Manager)
-6. Department
+Format as JSON array with:
+- name: Full name
+- title: Job title  
+- linkedin_url: REAL LinkedIn URL (NOT fabricated)
+- email: Email if available
+- location: Location
+- seniority_level: Seniority
+- department: Department
+- company_name: "{company_name}"
+- company_industry: "{company.get("company_industry", "")}"
+- company_linkedin_url: "{company.get("company_linkedin_url", "")}"
+- company_domain: "{company.get("company_domain", "")}"
+- company_size: "{company.get("company_size", "")}"
+- company_headquarters: "{company.get("company_headquarters", "")}"
+- is_research_company: {str(is_research_company).lower()}
+- service_pitch: "{service_pitch}"
+- buying_role: Decision Maker/Influencer/Budget Holder
 
 CRITICAL:
 - ONLY include people who work at {company_name}
 - ONLY use REAL LinkedIn URLs from search results
-- NEVER fabricate URLs"""
+- NEVER fabricate URLs - real URLs have random suffixes (e.g., john-smith-5a3b2c1d)
+- Use empty string for unavailable fields"""
 
     try:
-        # Use Responses API with web_search_preview for real profiles
-        response = client_ai.responses.create(
+        response = client_ai.chat.completions.create(
             model="gpt-4o-mini",
-            tools=[{"type": "web_search_preview"}],
-            input=search_prompt
+            messages=[
+                {"role": "system", "content": f"You find decision makers at {company_name} who purchase research/insights services. Only return real LinkedIn profiles with verified URLs. Real LinkedIn URLs have random alphanumeric suffixes. Return valid JSON arrays."},
+                {"role": "user", "content": search_prompt}
+            ],
+            temperature=0.3,
+            max_tokens=3000
         )
-        
-        # Extract content from response
-        response_text = ""
-        if hasattr(response, 'output'):
-            for item in response.output:
-                if hasattr(item, 'content'):
-                    for block in item.content:
-                        if hasattr(block, 'text'):
-                            response_text += block.text
-        
-        logger.info(f"Contact discovery completed for {company_name}")
-        
+        response_text = response.choices[0].message.content
     except Exception as e:
-        logger.error(f"OpenAI web search failed for {company_name}: {e}")
         raise ValueError(f"OpenAI API error: {str(e)}")
     
     # Parse response
-    leads = parse_openai_web_search_response(response_text, num_contacts)
-    
-    # Add company context to each lead
-    for lead in leads:
-        lead["company_name"] = company_name
-        lead["company_industry"] = company.get("company_industry", "")
-        lead["company_size"] = company.get("company_size", "")
-        lead["company_domain"] = company.get("company_domain", "")
-        lead["company_linkedin_url"] = company.get("company_linkedin_url", "")
-        lead["company_headquarters"] = company.get("company_headquarters", "")
-        lead["is_research_company"] = is_research_company
-        lead["service_pitch"] = service_pitch
-        lead["region"] = company.get("region", "")
-        lead["source"] = "ai_discovery"
+    leads = []
+    try:
+        json_match = re.search(r'\[[\s\S]*\]', response_text)
+        if json_match:
+            data = json.loads(json_match.group())
+            if isinstance(data, list):
+                for item in data[:num_contacts]:
+                    # Validate LinkedIn URL
+                    linkedin_url = item.get("linkedin_url", "").strip()
+                    if linkedin_url and "linkedin.com/in/" in linkedin_url:
+                        if not linkedin_url.startswith("http"):
+                            linkedin_url = "https://" + linkedin_url
+                        linkedin_url = linkedin_url.replace("http://", "https://")
+                    
+                    lead = {
+                        # Lead Information
+                        "name": item.get("name", "").strip(),
+                        "title": item.get("title", "").strip(),
+                        "linkedin_url": linkedin_url,
+                        "email": item.get("email", "").strip(),
+                        "location": item.get("location", "").strip(),
+                        "seniority_level": item.get("seniority_level", "").strip(),
+                        "department": item.get("department", "").strip(),
+                        "buying_role": item.get("buying_role", "Decision Maker").strip(),
+                        
+                        # Company Information (from Phase 1)
+                        "company_name": company_name,
+                        "company_industry": company.get("company_industry", ""),
+                        "company_size": company.get("company_size", ""),
+                        "company_domain": company.get("company_domain", ""),
+                        "company_linkedin_url": company.get("company_linkedin_url", ""),
+                        "company_headquarters": company.get("company_headquarters", ""),
+                        
+                        # Service context
+                        "is_research_company": is_research_company,
+                        "service_pitch": service_pitch,
+                        "region": company.get("region", ""),
+                        
+                        # Metadata
+                        "source": "openai_company_search",
+                        "snippet": item.get("snippet", "")
+                    }
+                    if lead["name"]:
+                        leads.append(lead)
+    except json.JSONDecodeError:
+        pass
     
     # ===== CACHE RESPONSE =====
     if leads:
