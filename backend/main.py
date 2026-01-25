@@ -2089,38 +2089,8 @@ async def create_lead(lead_data: Dict[str, Any] = Body(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lead creation error: {str(e)}")
 
-# Get all leads
-@app.get("/leads/", dependencies=[Depends(verify_session)])
-async def get_leads(
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(50, ge=1, le=200, description="Items per page")
-):
-    try:
-        # Calculate skip for pagination
-        skip = (page - 1) * limit
-        
-        # Get total count (use estimated count for large collections - faster)
-        total = leads_collection.estimated_document_count()
-        
-        # Fetch only the requested page
-        leads = list(leads_collection.find().sort("createdAt", -1).skip(skip).limit(limit))
-        
-        for lead in leads:
-            lead["_id"] = str(lead["_id"])
-            # Convert datetime to string for JSON serialization
-            for date_field in ["createdAt", "updatedAt", "addedOn"]:
-                if date_field in lead:
-                    lead[date_field] = lead[date_field].isoformat() if isinstance(lead[date_field], datetime) else str(lead[date_field])
-        
-        return {
-            "leads": leads,
-            "total": total,
-            "page": page,
-            "limit": limit,
-            "pages": (total + limit - 1) // limit if total > 0 else 1
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Fetch leads error: {str(e)}")
+# NOTE: /leads GET endpoint is handled by leads/router.py with full filtering support including source filter
+# Do not add competing /leads/ routes here as it will conflict with the router's implementation
 
 # Get a single lead by ID
 @app.get("/leads/{lead_id}", dependencies=[Depends(verify_session)])
