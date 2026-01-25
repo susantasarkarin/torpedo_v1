@@ -24,6 +24,7 @@ MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 _client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 _db = _client['email_automation']
 leads_raw = _db['leads_raw']
+leads_enriched = _db['leads_enriched']  # Also update enriched collection for full display
 ingestion_log = _db['ingestion_log']
 
 # Ensure unique index on email (THE deduplication key)
@@ -156,13 +157,97 @@ def deduplicate_and_merge(existing: Dict[str, Any], new_data: Dict[str, Any]) ->
 
 
 # =============================================================================
+# SYNC TO LEADS_ENRICHED (For frontend display)
+# =============================================================================
+
+def sync_to_enriched(lead_data: Dict[str, Any], raw_lead_id: str) -> Optional[str]:
+    """
+    Sync a classified lead to leads_enriched collection.
+    This is required because the frontend reads from leads_enriched.
+    
+    Returns the enriched lead ID if successful, None otherwise.
+    """
+    try:
+        # Build enriched lead document
+        enriched_doc = {
+            'raw_lead_id': raw_lead_id,
+            # Personal Info
+            'name': lead_data.get('name') or f"{lead_data.get('first_name', '')} {lead_data.get('last_name', '')}".strip(),
+            'first_name': lead_data.get('first_name'),
+            'last_name': lead_data.get('last_name'),
+            'email': lead_data.get('email'),
+            'email_status': lead_data.get('email_status', 'Unknown'),
+            'title': lead_data.get('title'),
+            'linkedin_url': lead_data.get('linkedin_url'),
+            'location': lead_data.get('location') or lead_data.get('inferred_location'),
+            # Metadata
+            'added_on': lead_data.get('created_at') or datetime.utcnow(),
+            'source': lead_data.get('source'),
+            'snippet': lead_data.get('source_detail'),
+            # AI Classification
+            'seniority_level': lead_data.get('seniority_level'),
+            'buying_role': lead_data.get('buying_role'),
+            'department': lead_data.get('department'),
+            'persona': lead_data.get('persona'),
+            'gender': lead_data.get('gender'),
+            'company_size': lead_data.get('company_size'),
+            'region': lead_data.get('region'),
+            'confidence_score': lead_data.get('confidence_score', 0.0),
+            # Company Info
+            'company_name': lead_data.get('company_name') or lead_data.get('company'),
+            'company_domain': lead_data.get('company_domain'),
+            'company_website': lead_data.get('company_website'),
+            'company_employee_count': lead_data.get('company_employee_count'),
+            'company_employee_count_range': lead_data.get('company_employee_count_range'),
+            'company_founded': lead_data.get('company_founded'),
+            'company_industry': lead_data.get('company_industry'),
+            'company_type': lead_data.get('company_type'),
+            'company_headquarters': lead_data.get('company_headquarters'),
+            'company_revenue_range': lead_data.get('company_revenue_range'),
+            'company_linkedin_url': lead_data.get('company_linkedin_url'),
+            # Timestamps
+            'classified_at': lead_data.get('classified_at') or datetime.utcnow(),
+            'updated_at': datetime.utcnow(),
+        }
+        
+        # Remove None values to avoid overwriting with nulls
+        enriched_doc = {k: v for k, v in enriched_doc.items() if v is not None}
+        
+        # Upsert by email (primary key for leads)
+        result = leads_enriched.update_one(
+            {'email': lead_data.get('email')},
+            {'$set': enriched_doc, '$setOnInsert': {'created_at': datetime.utcnow()}},
+            upsert=True
+        )
+        
+        # Get the enriched lead ID
+        if result.upserted_id:
+            return str(result.upserted_id)
+        else:
+            existing = leads_enriched.find_one({'email': lead_data.get('email')})
+            if existing:
+                return str(existing['_id'])
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Failed to sync to leads_enriched: {e}")
+        return None
+
+
+# =============================================================================
 # AI CLASSIFICATION (Wrapper)
 # =============================================================================
 
-def classify_lead_ai(lead: Dict[str, Any]) -> Tuple[str, float]:
+def classify_lead_ai(lead: Dict[str, Any]) -> Tuple[str, float, Optional[Dict[str, Any]]]:
     """
     Call AI classification for a lead.
-    Returns (classification, confidence).
+    Returns (classification, confidence, full_result_dict).
+    
+    The full_result_dict contains all enrichment fields:
+    - seniority_level, department, persona, buying_role, gender
+    - company_size, region, inferred_location
+    - company_name, company_domain, company_website, etc.
     """
     try:
         from .ai_classifier import classify_lead as ai_classify, LeadRaw
@@ -186,17 +271,46 @@ def classify_lead_ai(lead: Dict[str, Any]) -> Tuple[str, float]:
             # The classifier returns persona/department - we simplify to client/vendor/irrelevant
             persona = getattr(result, 'persona', None)
             if persona and persona.value in ('Decision Maker', 'Champion', 'Influencer'):
-                return 'client', result.confidence_score
+                classification = 'client'
             elif persona and persona.value == 'Blocker':
-                return 'vendor', result.confidence_score
+                classification = 'vendor'
             else:
-                return 'unknown', result.confidence_score
+                classification = 'unknown'
+            
+            # Extract all enrichment fields from the AI result
+            full_result = {
+                'first_name': result.first_name,
+                'last_name': result.last_name,
+                'predicted_email': result.predicted_email,
+                'seniority_level': result.seniority_level.value if result.seniority_level else None,
+                'department': result.department.value if result.department else None,
+                'persona': result.persona.value if result.persona else None,
+                'buying_role': result.buying_role.value if result.buying_role else None,
+                'gender': result.gender.value if result.gender else None,
+                'company_size': result.company_size.value if result.company_size else None,
+                'region': result.region.value if result.region else None,
+                'inferred_location': result.inferred_location,
+                'company_name': result.company_name,
+                'company_domain': result.company_domain,
+                'company_website': result.company_website,
+                'company_employee_count': result.company_employee_count,
+                'company_employee_count_range': result.company_employee_count_range,
+                'company_founded': result.company_founded,
+                'company_industry': result.company_industry,
+                'company_type': result.company_type,
+                'company_headquarters': result.company_headquarters,
+                'company_revenue_range': result.company_revenue_range,
+                'company_linkedin_url': result.company_linkedin_url,
+                'confidence_score': result.confidence_score,
+            }
+            
+            return classification, result.confidence_score, full_result
         
-        return 'unknown', 0.0
+        return 'unknown', 0.0, None
         
     except Exception as e:
         logger.error(f"AI classification failed: {e}")
-        return 'unknown', 0.0
+        return 'unknown', 0.0, None
 
 
 # =============================================================================
@@ -272,15 +386,76 @@ def ingest_lead(
             
             # Step 4: AI classification (if not already classified and not skipped)
             if not skip_classification and merged.get('classification') == 'pending':
-                classification, confidence = classify_lead_ai(merged)
+                classification, confidence, full_result = classify_lead_ai(merged)
                 merged['classification'] = classification
                 merged['classification_confidence'] = confidence
+                
+                # Store all AI enrichment fields if classification succeeded
+                if full_result:
+                    merged['classification_status'] = 'classified'
+                    # Personal enrichment fields
+                    if full_result.get('first_name') and not merged.get('first_name'):
+                        merged['first_name'] = full_result['first_name']
+                    if full_result.get('last_name') and not merged.get('last_name'):
+                        merged['last_name'] = full_result['last_name']
+                    if full_result.get('predicted_email') and not merged.get('email'):
+                        merged['email'] = full_result['predicted_email']
+                    if full_result.get('inferred_location') and not merged.get('location'):
+                        merged['location'] = full_result['inferred_location']
+                    
+                    # AI Classification fields (always update from AI)
+                    merged['seniority_level'] = full_result.get('seniority_level')
+                    merged['department'] = full_result.get('department')
+                    merged['persona'] = full_result.get('persona')
+                    merged['buying_role'] = full_result.get('buying_role')
+                    merged['gender'] = full_result.get('gender')
+                    merged['company_size'] = full_result.get('company_size')
+                    merged['region'] = full_result.get('region')
+                    merged['confidence_score'] = full_result.get('confidence_score', confidence)
+                    
+                    # Company enrichment fields (prefer AI over existing)
+                    if full_result.get('company_name'):
+                        merged['company'] = full_result['company_name']
+                        merged['company_name'] = full_result['company_name']
+                    if full_result.get('company_domain') and not merged.get('company_domain'):
+                        merged['company_domain'] = full_result['company_domain']
+                    if full_result.get('company_website'):
+                        merged['company_website'] = full_result['company_website']
+                    if full_result.get('company_employee_count'):
+                        merged['company_employee_count'] = full_result['company_employee_count']
+                    if full_result.get('company_employee_count_range'):
+                        merged['company_employee_count_range'] = full_result['company_employee_count_range']
+                    if full_result.get('company_founded'):
+                        merged['company_founded'] = full_result['company_founded']
+                    if full_result.get('company_industry'):
+                        merged['company_industry'] = full_result['company_industry']
+                    if full_result.get('company_type'):
+                        merged['company_type'] = full_result['company_type']
+                    if full_result.get('company_headquarters'):
+                        merged['company_headquarters'] = full_result['company_headquarters']
+                    if full_result.get('company_revenue_range'):
+                        merged['company_revenue_range'] = full_result['company_revenue_range']
+                    if full_result.get('company_linkedin_url'):
+                        merged['company_linkedin_url'] = full_result['company_linkedin_url']
+                    
+                    merged['classified_at'] = datetime.utcnow()
+                else:
+                    merged['classification_status'] = 'failed'
             
             # Update existing lead
             leads_raw.update_one(
                 {'_id': existing['_id']},
                 {'$set': merged}
             )
+            
+            # Sync to leads_enriched for frontend display (if classified)
+            if merged.get('classification_status') == 'classified':
+                enriched_id = sync_to_enriched(merged, str(existing['_id']))
+                if enriched_id:
+                    leads_raw.update_one(
+                        {'_id': existing['_id']},
+                        {'$set': {'enriched_lead_id': enriched_id}}
+                    )
             
             result['success'] = True
             result['action'] = 'updated'
@@ -297,12 +472,73 @@ def ingest_lead(
             
             # Step 4: AI classification (if not skipped)
             if not skip_classification:
-                classification, confidence = classify_lead_ai(normalized)
+                classification, confidence, full_result = classify_lead_ai(normalized)
                 normalized['classification'] = classification
                 normalized['classification_confidence'] = confidence
+                
+                # Store all AI enrichment fields if classification succeeded
+                if full_result:
+                    normalized['classification_status'] = 'classified'
+                    # Personal enrichment fields
+                    if full_result.get('first_name') and not normalized.get('first_name'):
+                        normalized['first_name'] = full_result['first_name']
+                    if full_result.get('last_name') and not normalized.get('last_name'):
+                        normalized['last_name'] = full_result['last_name']
+                    if full_result.get('predicted_email') and not normalized.get('email'):
+                        normalized['email'] = full_result['predicted_email']
+                    if full_result.get('inferred_location') and not normalized.get('location'):
+                        normalized['location'] = full_result['inferred_location']
+                    
+                    # AI Classification fields (always update from AI)
+                    normalized['seniority_level'] = full_result.get('seniority_level')
+                    normalized['department'] = full_result.get('department')
+                    normalized['persona'] = full_result.get('persona')
+                    normalized['buying_role'] = full_result.get('buying_role')
+                    normalized['gender'] = full_result.get('gender')
+                    normalized['company_size'] = full_result.get('company_size')
+                    normalized['region'] = full_result.get('region')
+                    normalized['confidence_score'] = full_result.get('confidence_score', confidence)
+                    
+                    # Company enrichment fields (prefer AI over existing)
+                    if full_result.get('company_name'):
+                        normalized['company'] = full_result['company_name']
+                        normalized['company_name'] = full_result['company_name']
+                    if full_result.get('company_domain') and not normalized.get('company_domain'):
+                        normalized['company_domain'] = full_result['company_domain']
+                    if full_result.get('company_website'):
+                        normalized['company_website'] = full_result['company_website']
+                    if full_result.get('company_employee_count'):
+                        normalized['company_employee_count'] = full_result['company_employee_count']
+                    if full_result.get('company_employee_count_range'):
+                        normalized['company_employee_count_range'] = full_result['company_employee_count_range']
+                    if full_result.get('company_founded'):
+                        normalized['company_founded'] = full_result['company_founded']
+                    if full_result.get('company_industry'):
+                        normalized['company_industry'] = full_result['company_industry']
+                    if full_result.get('company_type'):
+                        normalized['company_type'] = full_result['company_type']
+                    if full_result.get('company_headquarters'):
+                        normalized['company_headquarters'] = full_result['company_headquarters']
+                    if full_result.get('company_revenue_range'):
+                        normalized['company_revenue_range'] = full_result['company_revenue_range']
+                    if full_result.get('company_linkedin_url'):
+                        normalized['company_linkedin_url'] = full_result['company_linkedin_url']
+                    
+                    normalized['classified_at'] = datetime.utcnow()
+                else:
+                    normalized['classification_status'] = 'failed'
             
             # Step 5: Insert into leads_raw
             insert_result = leads_raw.insert_one(normalized)
+            
+            # Step 6: Sync to leads_enriched for frontend display (if classified)
+            if normalized.get('classification_status') == 'classified':
+                enriched_id = sync_to_enriched(normalized, str(insert_result.inserted_id))
+                if enriched_id:
+                    leads_raw.update_one(
+                        {'_id': insert_result.inserted_id},
+                        {'$set': {'enriched_lead_id': enriched_id}}
+                    )
             
             result['success'] = True
             result['action'] = 'inserted'
