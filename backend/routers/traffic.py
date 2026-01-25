@@ -637,44 +637,116 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             result = url_parameters_collection.insert_one(data)
             traffic_id = str(result.inserted_id)
         
-        # Try to allocate a survey using CPX service directly
-        if cpx_service and vendor_id and country_code and respondent_id:
+        # Try to allocate a survey from both CPX and CINT pools
+        # Filter by: is_active_in_pool=True AND country code match
+        if vendor_id and country_code and respondent_id:
             try:
-                # Get available CPX surveys and pick one randomly for the respondent
-                surveys_result = cpx_service.get_surveys(page=1, page_size=50)
-                surveys = surveys_result.get('surveys', [])
+                from pymongo import MongoClient
+                import os
                 
-                if surveys:
-                    # Randomly select a survey from available pool
-                    selected_survey = random.choice(surveys)
-                    survey_id = selected_survey.get('survey_id') or selected_survey.get('id')
-                    
-                    # Get the live_link or href_new link (direct survey link)
-                    base_link = selected_survey.get('live_link') or selected_survey.get('href_new') or selected_survey.get('href')
-                    
-                    if base_link:
-                        # Generate entry link with SFWID (traffic_id) as ext_user_id
-                        # This allows us to look up the traffic record when CPX calls back
-                        entry_link = cpx_service.generate_entry_link(
-                            live_link=base_link,
-                            respondent_id=traffic_id  # Use SFWID, not respondent_id
-                        )
-                        allocation_success = True
-                        
-                        # Update the traffic record with the assigned survey
-                        if traffic_service:
-                            traffic_service.assign_survey_to_traffic(
-                                traffic_id=traffic_id,
-                                survey_id=str(survey_id),
-                                redirect_url=entry_link
-                            )
-                        
-                        print(f"✅ Allocated CPX survey {survey_id} to SFWID={traffic_id}, vid={vendor_id}, rid={respondent_id}")
+                # Get MongoDB connection
+                mongo_uri = os.getenv("MONGO_URI")
+                if not mongo_uri:
+                    print("❌ MONGO_URI not configured")
                 else:
-                    print(f"⚠️ No CPX surveys available for allocation")
+                    client = MongoClient(mongo_uri)
+                    
+                    # Get both CPX and CINT survey collections
+                    cpx_collection = client["cpx_research"]["cpx_surveys"]
+                    cint_collection = client["cint_research"]["cint_surveys"]
+                    
+                    # Normalize country code to uppercase
+                    cc_upper = country_code.upper()
+                    
+                    # Query for active CPX surveys matching country
+                    cpx_query = {
+                        "is_active_in_pool": True,
+                        "country": cc_upper
+                    }
+                    cpx_surveys = list(cpx_collection.find(cpx_query).limit(50))
+                    print(f"📊 Found {len(cpx_surveys)} active CPX surveys for country {cc_upper}")
+                    
+                    # Query for active CINT surveys matching country
+                    # CINT uses country_language field - need to map country code
+                    # For now, get all active CINT surveys and filter by country_language mapping
+                    cint_query = {
+                        "is_active_in_pool": True
+                    }
+                    cint_surveys = list(cint_collection.find(cint_query).limit(50))
+                    print(f"📊 Found {len(cint_surveys)} active CINT surveys (before country filter)")
+                    
+                    # Combine both pools
+                    all_surveys = []
+                    
+                    # Add CPX surveys with source tag
+                    for survey in cpx_surveys:
+                        survey['_source'] = 'CPX'
+                        all_surveys.append(survey)
+                    
+                    # Add CINT surveys with source tag
+                    for survey in cint_surveys:
+                        survey['_source'] = 'CINT'
+                        all_surveys.append(survey)
+                    
+                    print(f"📊 Total active surveys in pool: {len(all_surveys)} (CPX: {len(cpx_surveys)}, CINT: {len(cint_surveys)})")
+                    
+                    if all_surveys:
+                        # Randomly select a survey from the combined pool
+                        selected_survey = random.choice(all_surveys)
+                        source = selected_survey.get('_source')
+                        survey_id = selected_survey.get('survey_id') or selected_survey.get('_id')
+                        
+                        print(f"🎯 Selected {source} survey: {survey_id}")
+                        
+                        # Generate entry link based on source
+                        if source == 'CPX':
+                            # Get the live_link for CPX
+                            base_link = selected_survey.get('live_link') or selected_survey.get('href_new') or selected_survey.get('href')
+                            
+                            if base_link and cpx_service:
+                                # Generate CPX entry link with SFWID as ext_user_id
+                                entry_link = cpx_service.generate_entry_link(
+                                    live_link=base_link,
+                                    respondent_id=traffic_id  # Use SFWID, not respondent_id
+                                )
+                                allocation_success = True
+                                
+                                # Update the traffic record
+                                if traffic_service:
+                                    traffic_service.assign_survey_to_traffic(
+                                        traffic_id=traffic_id,
+                                        survey_id=str(survey_id),
+                                        redirect_url=entry_link
+                                    )
+                                
+                                print(f"✅ Allocated CPX survey {survey_id} to SFWID={traffic_id}")
+                        
+                        elif source == 'CINT':
+                            # For CINT, we need to get the entry link from the entry_links collection
+                            # or generate it using CINT service
+                            entry_links_collection = client["cint_research"]["entry_links"]
+                            entry_link_doc = entry_links_collection.find_one({"survey_id": str(survey_id)})
+                            
+                            if entry_link_doc and entry_link_doc.get('link'):
+                                entry_link = entry_link_doc['link']
+                                allocation_success = True
+                                
+                                # Update the traffic record
+                                if traffic_service:
+                                    traffic_service.assign_survey_to_traffic(
+                                        traffic_id=traffic_id,
+                                        survey_id=str(survey_id),
+                                        redirect_url=entry_link
+                                    )
+                                
+                                print(f"✅ Allocated CINT survey {survey_id} to SFWID={traffic_id}")
+                            else:
+                                print(f"⚠️ No entry link found for CINT survey {survey_id}")
+                    else:
+                        print(f"⚠️ No active surveys available for country {cc_upper}")
                     
             except Exception as e:
-                print(f"⚠️ CPX survey allocation error: {e}")
+                print(f"⚠️ Survey allocation error: {e}")
                 import traceback
                 traceback.print_exc()
         

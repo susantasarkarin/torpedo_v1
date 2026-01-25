@@ -76,7 +76,7 @@ export default function TrafficFlowParser() {
       }
     } catch (err) {
       console.error("Store error:", err);
-      
+
       // Provide user-friendly error messages
       let errorMessage = err.message;
       if (err.name === "AbortError") {
@@ -84,20 +84,21 @@ export default function TrafficFlowParser() {
       } else if (err.message === "Failed to fetch") {
         errorMessage = "Network error. Please disable any VPN or ad-blockers and try again, or check your internet connection.";
       }
-      
+
       setError(errorMessage);
       setLoading(false);
     }
   }, [urlParams, fullUrl]);
 
-  // Auto-trigger the store when all required parameters are present
-  useEffect(() => {
-    if (hasAutoTriggered.current) return;
-    if (urlParams.vid && urlParams.cc && urlParams.rid && fullUrl) {
-      hasAutoTriggered.current = true;
-      handleStore();
-    }
-  }, [urlParams, fullUrl, handleStore]);
+  // Auto-trigger removed - user must click the "Next" button manually
+  // This was causing the system to automatically click the button
+  // useEffect(() => {
+  //   if (hasAutoTriggered.current) return;
+  //   if (urlParams.vid && urlParams.cc && urlParams.rid && fullUrl) {
+  //     hasAutoTriggered.current = true;
+  //     handleStore();
+  //   }
+  // }, [urlParams, fullUrl, handleStore]);
 
   return (
     <div className="survey-container">
@@ -112,17 +113,17 @@ export default function TrafficFlowParser() {
         <p className="survey-text highlight">
           Your responses will be kept confidential and will be used in aggregate only.
         </p>
-        
+
         {/* Show error message with retry button */}
         {error && (
           <div style={{ margin: "10px 0", padding: "15px", backgroundColor: "#fee", color: "#c00", borderRadius: "4px" }}>
             <strong>Error:</strong> {error}
             <br />
-            <button 
+            <button
               onClick={handleStore}
-              style={{ 
-                marginTop: "10px", 
-                padding: "8px 20px", 
+              style={{
+                marginTop: "10px",
+                padding: "8px 20px",
                 cursor: "pointer",
                 backgroundColor: "#fff",
                 border: "1px solid #c00",
@@ -134,11 +135,11 @@ export default function TrafficFlowParser() {
             </button>
           </div>
         )}
-        
+
         <hr className="survey-divider" />
         <p className="survey-highlight">Please click below to continue!</p>
-        <button 
-          onClick={handleStore} 
+        <button
+          onClick={handleStore}
           className="survey-button"
           disabled={loading}
         >

@@ -155,11 +155,9 @@ class CPXService:
             f"&secure_hash={secure_hash}"
         )
         
-        # Add recommended parameters if provided
-        if username:
-            additional_params += f"&username={quote(username)}"
-        if email:
-            additional_params += f"&email={quote(email)}"
+        # Add recommended parameters (always include, even if empty, per CPX documentation)
+        additional_params += f"&username={quote(username or '')}"
+        additional_params += f"&email={quote(email or '')}"
         
         # Add optional tracking parameters
         additional_params += f"&subid_1={quote(subid_1 or respondent_id)}"
