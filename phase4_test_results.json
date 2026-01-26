@@ -1,0 +1,135 @@
+{
+  "test_suite": "Phase 4 (Testing & Validation)",
+  "timestamp": "2026-01-26T15:06:02.299562",
+  "api_base": "http://139.59.32.72:8000",
+  "tests": [
+    {
+      "name": "GET /agents/4/stats",
+      "passed": true,
+      "details": {
+        "status_code": 200,
+        "response_keys": [
+          "phase",
+          "agent",
+          "stats",
+          "timestamp"
+        ]
+      }
+    },
+    {
+      "name": "POST /agents/run/4",
+      "passed": true,
+      "details": {
+        "status_code": 200,
+        "response_keys": [
+          "success",
+          "agent_name",
+          "phase",
+          "status",
+          "duration_seconds",
+          "records_processed",
+          "records_success",
+          "errors",
+          "warnings",
+          "metrics",
+          "output"
+        ],
+        "timestamp": "N/A"
+      }
+    },
+    {
+      "name": "Health report structure",
+      "passed": true,
+      "details": {
+        "has_all_required_fields": true,
+        "fields": [
+          "overall_score",
+          "status",
+          "issues",
+          "recommendations"
+        ],
+        "sample_score": 92.8,
+        "sample_status": "healthy"
+      }
+    },
+    {
+      "name": "Endpoint tests section",
+      "passed": true,
+      "details": {
+        "total_expected": 7,
+        "total_actual": 7,
+        "passed": 6,
+        "failed": 1,
+        "success_rate": 85.7,
+        "test_names": [
+          "classified_gmail_stats",
+          "classified_gmail_list",
+          "email_patterns_stats",
+          "email_patterns_list",
+          "company_cache_stats",
+          "health_check",
+          "leads_stats"
+        ],
+        "issues": []
+      }
+    },
+    {
+      "name": "Data validation section",
+      "passed": true,
+      "details": {
+        "collections_expected": 4,
+        "collections_actual": 4,
+        "issues_found": 0,
+        "collection_names": [
+          "classified_gmail",
+          "email_patterns",
+          "company_cache",
+          "leads_raw"
+        ],
+        "validation_issues": []
+      }
+    },
+    {
+      "name": "Performance check",
+      "passed": false,
+      "details": {
+        "status": "healthy",
+        "metrics_found": [
+          "avg_api_response_ms"
+        ],
+        "metrics_expected": [
+          "avg_api_response_ms",
+          "cache_hit_rate",
+          "avg_pattern_confidence"
+        ],
+        "missing_metrics": [
+          "cache_hit_rate",
+          "avg_pattern_confidence"
+        ],
+        "warning_count": 0,
+        "warnings": []
+      }
+    },
+    {
+      "name": "Health score calculation",
+      "passed": true,
+      "details": {
+        "score": 92.8,
+        "score_valid_range": true,
+        "status": "healthy",
+        "status_matches_score": true,
+        "endpoints_passed": 6,
+        "endpoints_tested": 7
+      }
+    },
+    {
+      "name": "Known issue: /leads/stats 404",
+      "passed": true,
+      "details": {
+        "endpoint": "/leads/stats",
+        "response_code": 404,
+        "is_expected_issue": true
+      }
+    }
+  ]
+}

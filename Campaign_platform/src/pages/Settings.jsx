@@ -49,6 +49,7 @@ function Settings() {
     cpx_api_timeout: 30,
     deepseek_api_key: "",  // PRIMARY - cheap, no daily limit
     openai_api_key: "",      // PREMIUM - web search, tier 2
+    gemini_api_keys: "",     // FREE tier - comma-separated keys
     google_sheets_service_account: "",
   })
   const [maskedSettings, setMaskedSettings] = useState({})
@@ -1470,6 +1471,19 @@ function Settings() {
                   <p className="setting-hint">
                     For <strong>web search discovery</strong> and <strong>tier 2 analysis</strong>. 
                     Models: <code>gpt-4o-mini</code> (default), <code>gpt-4o</code> (premium). Get from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>
+                  </p>
+                </div>
+                <div className="setting-row">
+                  <label>💎 Gemini API Keys (FREE TIER)</label>
+                  <input
+                    type="password"
+                    placeholder={maskedSettings.gemini_api_keys_masked || "AIza...,AIza...,AIza..."}
+                    value={appSettings.gemini_api_keys}
+                    onChange={(e) => handleAppSettingChange("gemini_api_keys", e.target.value)}
+                  />
+                  <p className="setting-hint">
+                    <strong>Comma-separated</strong> list of Gemini API keys for FREE tier. Each key = 1000 req/day. 
+                    Use 6-7 keys for ~7000 requests/day. Get from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
                   </p>
                 </div>
                 <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#f8fafc', borderRadius: '6px', fontSize: '13px' }}>

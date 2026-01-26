@@ -1,0 +1,47 @@
+{
+  "timestamp": "2026-01-26T22:38:29.841675",
+  "backend": {
+    "unit_tests": {
+      "total": 9,
+      "passed": 9,
+      "failed": 0,
+      "errors": []
+    },
+    "integration_tests": {
+      "total": 3,
+      "passed": 0,
+      "failed": 3,
+      "errors": [
+        "Phase 3 agent test failed",
+        "Phase 4 agent test failed",
+        "E2E Phase 2-4 test failed"
+      ]
+    },
+    "manual_tests": {
+      "total": 0,
+      "passed": 0,
+      "failed": 0,
+      "errors": []
+    }
+  },
+  "frontend": {
+    "build_test": {
+      "passed": false,
+      "errors": [
+        "Error running command: [WinError 2] The system cannot find the file specified"
+      ]
+    },
+    "lint_test": {
+      "passed": false,
+      "errors": [
+        "Error running command: [WinError 2] The system cannot find the file specified"
+      ]
+    }
+  },
+  "summary": {
+    "total_tests": 14,
+    "passed": 9,
+    "failed": 5,
+    "success_rate": "64.3%"
+  }
+}
