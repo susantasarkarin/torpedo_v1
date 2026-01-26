@@ -714,6 +714,18 @@ try:
 except Exception as e:
     print(f"⚠️ Leads router not included: {e}")
 
+# Classified Gmail router (Email classification and move to leads)
+try:
+    try:
+        from .routers import classified_gmail as classified_gmail_router
+    except ImportError:
+        from routers import classified_gmail as classified_gmail_router
+    
+    app.include_router(classified_gmail_router.router)
+    print("✅ Classified Gmail router included")
+except Exception as e:
+    print(f"⚠️ Classified Gmail router not included: {e}")
+
 # Lead Generation Agents router
 try:
     from leads.agent_router import router as agent_router
