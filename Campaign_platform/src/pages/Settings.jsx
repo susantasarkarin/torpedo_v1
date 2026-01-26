@@ -49,7 +49,13 @@ function Settings() {
     cpx_api_timeout: 30,
     deepseek_api_key: "",  // PRIMARY - cheap, no daily limit
     openai_api_key: "",      // PREMIUM - web search, tier 2
-    gemini_api_keys: "",     // FREE tier - comma-separated keys
+    gemini_api_key_1: "",    // FREE tier keys (1000 req/day each)
+    gemini_api_key_2: "",
+    gemini_api_key_3: "",
+    gemini_api_key_4: "",
+    gemini_api_key_5: "",
+    gemini_api_key_6: "",
+    gemini_api_key_7: "",
     google_sheets_service_account: "",
   })
   const [maskedSettings, setMaskedSettings] = useState({})
@@ -1474,17 +1480,24 @@ function Settings() {
                   </p>
                 </div>
                 <div className="setting-row">
-                  <label>💎 Gemini API Keys (FREE TIER)</label>
-                  <input
-                    type="password"
-                    placeholder={maskedSettings.gemini_api_keys_masked || "AIza...,AIza...,AIza..."}
-                    value={appSettings.gemini_api_keys}
-                    onChange={(e) => handleAppSettingChange("gemini_api_keys", e.target.value)}
-                  />
-                  <p className="setting-hint">
-                    <strong>Comma-separated</strong> list of Gemini API keys for FREE tier. Each key = 1000 req/day. 
-                    Use 6-7 keys for ~7000 requests/day. Get from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
+                  <label>💎 Gemini API Keys (FREE TIER - 1000 req/day each)</label>
+                  <p className="setting-hint" style={{ marginBottom: '0.75rem' }}>
+                    Add up to 7 keys for ~7000 requests/day. Get from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
                   </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.5rem' }}>
+                    {[1, 2, 3, 4, 5, 6, 7].map((num) => (
+                      <div key={num} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ minWidth: '20px', fontSize: '12px', color: '#6b7280' }}>#{num}</span>
+                        <input
+                          type="password"
+                          placeholder={maskedSettings[`gemini_api_key_${num}_masked`] || "AIza..."}
+                          value={appSettings[`gemini_api_key_${num}`] || ""}
+                          onChange={(e) => handleAppSettingChange(`gemini_api_key_${num}`, e.target.value)}
+                          style={{ flex: 1 }}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#f8fafc', borderRadius: '6px', fontSize: '13px' }}>
                   <strong>Task Routing:</strong>

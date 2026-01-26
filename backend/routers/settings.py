@@ -91,7 +91,14 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
             # AI Providers - DeepSeek (PRIMARY, cheap) + OpenAI (PREMIUM, web search) + Gemini (FREE tier)
             "deepseek_api_key": stored.get("deepseek_api_key", os.getenv("DEEPSEEK_API_KEY", "")),
             "openai_api_key": stored.get("openai_api_key", os.getenv("OPENAI_API_KEY", "")),
-            "gemini_api_keys": stored.get("gemini_api_keys", os.getenv("GEMINI_API_KEYS", "")),
+            # Gemini API Keys (7 individual keys for FREE tier - 1000 req/day each)
+            "gemini_api_key_1": stored.get("gemini_api_key_1", os.getenv("GEMINI_API_KEY_1", "")),
+            "gemini_api_key_2": stored.get("gemini_api_key_2", os.getenv("GEMINI_API_KEY_2", "")),
+            "gemini_api_key_3": stored.get("gemini_api_key_3", os.getenv("GEMINI_API_KEY_3", "")),
+            "gemini_api_key_4": stored.get("gemini_api_key_4", os.getenv("GEMINI_API_KEY_4", "")),
+            "gemini_api_key_5": stored.get("gemini_api_key_5", os.getenv("GEMINI_API_KEY_5", "")),
+            "gemini_api_key_6": stored.get("gemini_api_key_6", os.getenv("GEMINI_API_KEY_6", "")),
+            "gemini_api_key_7": stored.get("gemini_api_key_7", os.getenv("GEMINI_API_KEY_7", "")),
             "google_sheets_service_account": stored.get("google_sheets_service_account", os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT", "")),
         }
         
@@ -99,7 +106,10 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
         masked_settings = {**settings}
         sensitive_fields = [
             "cpx_secure_hash_key",
-            "deepseek_api_key", "openai_api_key", "gemini_api_keys", "google_sheets_service_account"
+            "deepseek_api_key", "openai_api_key",
+            "gemini_api_key_1", "gemini_api_key_2", "gemini_api_key_3", "gemini_api_key_4",
+            "gemini_api_key_5", "gemini_api_key_6", "gemini_api_key_7",
+            "google_sheets_service_account"
         ]
         for field in sensitive_fields:
             if masked_settings.get(field):
@@ -145,8 +155,10 @@ async def save_app_settings(
         allowed_keys = [
             "mongo_uri",
             "cpx_app_id", "cpx_ext_user_id", "cpx_secure_hash_key", "cpx_api_timeout",
-            # AI Providers - DeepSeek (PRIMARY) + OpenAI (PREMIUM) + Gemini (FREE)
-            "deepseek_api_key", "openai_api_key", "gemini_api_keys",
+            # AI Providers - DeepSeek (PRIMARY) + OpenAI (PREMIUM) + Gemini (FREE - 7 individual keys)
+            "deepseek_api_key", "openai_api_key",
+            "gemini_api_key_1", "gemini_api_key_2", "gemini_api_key_3", "gemini_api_key_4",
+            "gemini_api_key_5", "gemini_api_key_6", "gemini_api_key_7",
             "google_sheets_service_account"
         ]
         
