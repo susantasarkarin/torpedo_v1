@@ -212,7 +212,7 @@ async def transfer_from_ai_database(data: dict = Body(...)):
     Body:
     {
         "lead_id": "...",  # ObjectId of the lead in AI Database
-        "source_collection": "leads_enriched" | "ai_classified_leads"
+        "source_collection": "leads_enriched" | "ai_classified_leads" (optional)
     }
     """
     lead_id = data.get("lead_id")
@@ -224,7 +224,7 @@ async def transfer_from_ai_database(data: dict = Body(...)):
     try:
         obj_id = ObjectId(lead_id)
     except:
-        raise HTTPException(status_code=400, detail="Invalid lead_id")
+        raise HTTPException(status_code=400, detail="Invalid lead_id format")
     
     # Get source collection
     if source_collection == "ai_classified_leads":
@@ -235,41 +235,57 @@ async def transfer_from_ai_database(data: dict = Body(...)):
     # Find the lead
     lead = source.find_one({"_id": obj_id})
     if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found in AI Database")
+        raise HTTPException(status_code=404, detail=f"Lead not found in {source_collection}")
     
     # Check if already transferred
     if lead.get("transferred_to_vendor_leads"):
         raise HTTPException(status_code=400, detail="Lead already transferred to Vendor Leads")
     
-    # Extract email
-    email = lead.get("email") or lead.get("work_email") or lead.get("personal_email") or ""
+    # Extract email (try multiple field names)
+    email = (lead.get("email") or lead.get("work_email") or 
+            lead.get("personal_email") or "").strip()
+    
+    if not email:
+        raise HTTPException(status_code=400, detail="Lead has no valid email address")
     
     # Check if already exists in vendor leads by email
-    if email:
-        existing = vendor_leads_collection.find_one({"email": email})
-        if existing:
-            raise HTTPException(status_code=400, detail=f"Lead with email {email} already exists in Vendor Leads")
+    existing = vendor_leads_collection.find_one({"email": {"$regex": f"^{email}$", "$options": "i"}})
+    if existing:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Lead with email {email} already exists in Vendor Leads"
+        )
     
     # Map fields from AI Database lead to vendor lead
     vendor_lead = {
-        "name": lead.get("name") or lead.get("full_name") or f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip() or "Unknown",
+        "name": (lead.get("name") or lead.get("full_name") or 
+                f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip() or "Unknown").strip(),
+        "first_name": (lead.get("first_name") or "").strip(),
+        "last_name": (lead.get("last_name") or "").strip(),
         "email": email,
-        "title": lead.get("title") or lead.get("job_title") or "",
-        "company": lead.get("company_name") or lead.get("company") or "",
-        "phone": lead.get("phone") or lead.get("phone_number") or "",
-        "linkedin_url": lead.get("linkedin_url") or "",
-        "website": lead.get("company_website") or lead.get("company_domain") or "",
-        "industry": lead.get("industry") or lead.get("company_industry") or "",
-        "location": lead.get("location") or lead.get("company_headquarters") or "",
+        "title": (lead.get("title") or lead.get("job_title") or "").strip(),
+        "company": (lead.get("company_name") or lead.get("company") or "").strip(),
+        "phone": (lead.get("phone") or lead.get("phone_number") or "").strip(),
+        "linkedin_url": (lead.get("linkedin_url") or "").strip(),
+        "website": (lead.get("company_website") or lead.get("company_domain") or "").strip(),
+        "industry": (lead.get("industry") or lead.get("company_industry") or "").strip(),
+        "location": (lead.get("location") or lead.get("company_headquarters") or "").strip(),
+        "company_employee_count": lead.get("company_employee_count"),
+        "company_revenue_range": lead.get("company_revenue_range"),
+        "seniority_level": lead.get("seniority_level"),
+        "department": lead.get("department"),
+        "buying_role": lead.get("buying_role"),
         "status": "new",
-        "notes": f"Transferred from AI Database on {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
+        "notes": f"Transferred from AI Database ({source_collection}) on {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
         "source": "ai_database",
         "source_lead_id": str(obj_id),
         "source_collection": source_collection,
+        "transferred_from_ai_database": True,
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
     }
     
+    # Insert into vendor leads
     result = vendor_leads_collection.insert_one(vendor_lead)
     vendor_lead["_id"] = str(result.inserted_id)
     
@@ -298,14 +314,20 @@ async def bulk_transfer_from_ai_database(data: dict = Body(...)):
     Body:
     {
         "lead_ids": ["...", "..."],
-        "source_collection": "leads_enriched" | "ai_classified_leads"
+        "source_collection": "leads_enriched" | "ai_classified_leads" (optional, defaults to leads_enriched)
     }
+    
+    Features:
+    - Bulk transfers multiple leads
+    - Prevents duplicate emails
+    - Validates all required fields
+    - Tracks transfer status
     """
     lead_ids = data.get("lead_ids", [])
     source_collection = data.get("source_collection", "leads_enriched")
     
     if not lead_ids:
-        raise HTTPException(status_code=400, detail="lead_ids is required")
+        raise HTTPException(status_code=400, detail="lead_ids array is required and must not be empty")
     
     # Get source collection
     if source_collection == "ai_classified_leads":
@@ -316,15 +338,24 @@ async def bulk_transfer_from_ai_database(data: dict = Body(...)):
     transferred = 0
     skipped = 0
     errors = []
+    duplicate_emails = []
     
     for lead_id in lead_ids:
         try:
-            obj_id = ObjectId(lead_id)
+            # Validate ObjectId format
+            try:
+                obj_id = ObjectId(lead_id)
+            except:
+                skipped += 1
+                errors.append(f"Invalid ObjectId format: {lead_id}")
+                continue
+            
+            # Find lead in source collection
             lead = source.find_one({"_id": obj_id})
             
             if not lead:
                 skipped += 1
-                errors.append(f"Lead {lead_id} not found")
+                errors.append(f"Lead {lead_id} not found in {source_collection}")
                 continue
             
             # Skip if already transferred
@@ -333,33 +364,51 @@ async def bulk_transfer_from_ai_database(data: dict = Body(...)):
                 errors.append(f"Lead {lead_id} already transferred")
                 continue
             
-            email = lead.get("email") or lead.get("work_email") or lead.get("personal_email") or ""
+            # Extract email (try multiple field names)
+            email = (lead.get("email") or lead.get("work_email") or 
+                    lead.get("personal_email") or "").strip()
             
             # Check for duplicates by email
             if email:
-                existing = vendor_leads_collection.find_one({"email": email})
+                existing = vendor_leads_collection.find_one({"email": {"$regex": f"^{email}$", "$options": "i"}})
                 if existing:
                     skipped += 1
-                    errors.append(f"Email {email} already exists")
+                    duplicate_emails.append(email)
+                    errors.append(f"Email {email} already exists in Vendor Leads")
                     continue
+            elif not email:
+                # Email is required
+                skipped += 1
+                errors.append(f"Lead {lead_id} has no valid email address")
+                continue
             
-            # Create vendor lead
+            # Create vendor lead with all available fields
             vendor_lead = {
-                "name": lead.get("name") or lead.get("full_name") or f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip() or "Unknown",
+                "name": (lead.get("name") or lead.get("full_name") or 
+                        f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip() or "Unknown").strip(),
+                "first_name": (lead.get("first_name") or "").strip(),
+                "last_name": (lead.get("last_name") or "").strip(),
                 "email": email,
-                "title": lead.get("title") or lead.get("job_title") or "",
-                "company": lead.get("company_name") or lead.get("company") or "",
-                "phone": lead.get("phone") or lead.get("phone_number") or "",
-                "linkedin_url": lead.get("linkedin_url") or "",
+                "title": (lead.get("title") or lead.get("job_title") or "").strip(),
+                "company": (lead.get("company_name") or lead.get("company") or "").strip(),
+                "phone": (lead.get("phone") or lead.get("phone_number") or "").strip(),
+                "linkedin_url": (lead.get("linkedin_url") or "").strip(),
+                "website": (lead.get("company_website") or lead.get("company_domain") or "").strip(),
+                "industry": (lead.get("industry") or lead.get("company_industry") or "").strip(),
+                "location": (lead.get("location") or lead.get("company_headquarters") or "").strip(),
+                "company_employee_count": lead.get("company_employee_count"),
+                "company_revenue_range": lead.get("company_revenue_range"),
                 "status": "new",
-                "notes": f"Bulk transferred from AI Database on {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
+                "notes": f"Bulk transferred from AI Database ({source_collection}) on {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
                 "source": "ai_database",
                 "source_lead_id": str(obj_id),
                 "source_collection": source_collection,
+                "transferred_from_ai_database": True,
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow()
             }
             
+            # Insert into vendor leads
             result = vendor_leads_collection.insert_one(vendor_lead)
             
             # Mark original as transferred
@@ -382,8 +431,10 @@ async def bulk_transfer_from_ai_database(data: dict = Body(...)):
         "success": True,
         "transferred": transferred,
         "skipped": skipped,
-        "errors": errors[:10],
-        "message": f"Transferred {transferred} leads to Vendor Leads"
+        "total": len(lead_ids),
+        "duplicate_emails": list(set(duplicate_emails)),
+        "errors": errors[:20],  # Return first 20 errors
+        "message": f"Transferred {transferred} leads to Vendor Leads ({skipped} skipped)"
     }
 
 

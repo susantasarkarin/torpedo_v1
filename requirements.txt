@@ -25,3 +25,8 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 urllib3==2.5.0
 uvicorn==0.38.0
+
+# Gemini + OpenAI Integration (Added for hybrid lead generation system)
+google-generativeai>=0.3.0
+beautifulsoup4>=4.12.0
+openai>=1.0.0

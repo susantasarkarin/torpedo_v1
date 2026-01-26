@@ -1226,6 +1226,21 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️ Could not start Email Sync workers: {e}")
     
+    # Initialize background job scheduler for continuous lead generation
+    # This handles automatic resumption of paused web search jobs, daily limit resets, etc.
+    try:
+        try:
+            from .background_job_scheduler import initialize_scheduler
+        except ImportError:
+            from background_job_scheduler import initialize_scheduler
+        
+        initialize_scheduler()
+        print("✅ Background job scheduler initialized (auto-resume web search jobs every 5 min)")
+    except Exception as e:
+        print(f"⚠️ Could not initialize background job scheduler: {e}")
+        import traceback
+        traceback.print_exc()
+    
     # Resume incomplete web search jobs (if auto-resume is enabled)
     try:
         from leads.router import (
@@ -1425,6 +1440,18 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Shutdown scheduler and email sync workers"""
+    # Shutdown background job scheduler (handles web search job resumption)
+    try:
+        try:
+            from .background_job_scheduler import shutdown_scheduler
+        except ImportError:
+            from background_job_scheduler import shutdown_scheduler
+        
+        shutdown_scheduler()
+        print("✅ Background job scheduler shutdown complete")
+    except Exception as e:
+        print(f"⚠️ Could not shutdown background job scheduler: {e}")
+    
     # Shutdown Clay features
     try:
         try:
