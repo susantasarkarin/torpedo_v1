@@ -726,6 +726,30 @@ try:
 except Exception as e:
     print(f"⚠️ Classified Gmail router not included: {e}")
 
+# Email Patterns Discovery router
+try:
+    try:
+        from .routers import email_patterns as email_patterns_router
+    except ImportError:
+        from routers import email_patterns as email_patterns_router
+    
+    app.include_router(email_patterns_router.router)
+    print("✅ Email Patterns router included")
+except Exception as e:
+    print(f"⚠️ Email Patterns router not included: {e}")
+
+# Company Cache router
+try:
+    try:
+        from .routers import company_cache as company_cache_router
+    except ImportError:
+        from routers import company_cache as company_cache_router
+    
+    app.include_router(company_cache_router.router)
+    print("✅ Company Cache router included")
+except Exception as e:
+    print(f"⚠️ Company Cache router not included: {e}")
+
 # Lead Generation Agents router
 try:
     from leads.agent_router import router as agent_router
