@@ -98,7 +98,7 @@ class PipelineResponse(BaseModel):
     pipeline_id: str
     status: str
     phases_executed: int
-    phase_results: Dict[str, Any]
+    phase_results: Dict[Any, Any]  # Can have int or str keys
     validation: Dict[str, Any]
     combined_report: Dict[str, Any]
 
