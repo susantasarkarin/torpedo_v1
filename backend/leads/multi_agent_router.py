@@ -168,6 +168,90 @@ async def list_agents():
     }
 
 
+@router.post("/run/pipeline", response_model=PipelineResponse)
+async def run_pipeline_route(
+    request: RunPipelineRequest,
+    background_tasks: BackgroundTasks
+):
+    """
+    Run the full pipeline via the Orchestrator agent.
+    
+    Modes:
+    - sequential: Run phases one after another
+    - parallel: Run independent phases in parallel
+    - selective: Run only specified phases independently
+    """
+    # This route needs to be BEFORE /run/{phase} to avoid matching "pipeline" as a phase
+    orchestrator = OrchestratorAgent()
+    
+    # Configure orchestrator
+    if request.config:
+        orchestrator.configure(request.config)
+    
+    input_data = request.input_data or {}
+    input_data["mode"] = request.mode
+    input_data["phases"] = request.phases
+    
+    if request.async_mode:
+        # Run in background
+        import uuid
+        job_id = str(uuid.uuid4())[:8]
+        _active_jobs[job_id] = {
+            "status": "running",
+            "type": "pipeline",
+            "phases": request.phases,
+            "started_at": datetime.utcnow().isoformat()
+        }
+        
+        async def run_async():
+            try:
+                result = await orchestrator.run(input_data)
+                _active_jobs[job_id] = {
+                    "status": result.status.value,
+                    "result": result.to_dict(),
+                    "completed_at": datetime.utcnow().isoformat()
+                }
+            except Exception as e:
+                _active_jobs[job_id] = {
+                    "status": "error",
+                    "error": str(e),
+                    "completed_at": datetime.utcnow().isoformat()
+                }
+        
+        background_tasks.add_task(run_async)
+        
+        return PipelineResponse(
+            success=True,
+            pipeline_id=job_id,
+            status="queued",
+            phases_executed=0,
+            phase_results={},
+            validation={},
+            combined_report={"message": f"Pipeline {job_id} queued for execution"}
+        )
+    
+    # Run synchronously
+    try:
+        result = await orchestrator.run(input_data)
+        
+        return PipelineResponse(
+            success=result.status in [AgentStatus.SUCCESS, AgentStatus.PARTIAL],
+            pipeline_id=result.metrics.get("pipeline_id", "unknown"),
+            status=result.status.value,
+            phases_executed=result.metrics.get("phases_completed", 0),
+            phase_results=result.output_data.get("phase_results", {}),
+            validation=result.output_data.get("validation", {}),
+            combined_report=result.output_data.get("combined_report", {})
+        )
+    
+    except Exception as e:
+        logger.error(f"Pipeline execution failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    finally:
+        orchestrator.cleanup()
+
+
 @router.post("/run/{phase}", response_model=AgentResponse)
 async def run_phase_agent(
     phase: int,
@@ -182,7 +266,6 @@ async def run_phase_agent(
     - 4: Testing & Validation
     - 5: Automated Enrichment
     - 6: CRM Integration
-    - 0: Orchestrator (runs all phases)
     """
     if phase == 0:
         raise HTTPException(
@@ -263,93 +346,6 @@ async def run_phase_agent(
     
     finally:
         agent.cleanup()
-
-
-@router.post("/run/pipeline", response_model=PipelineResponse)
-async def run_pipeline(
-    request: RunPipelineRequest,
-    background_tasks: BackgroundTasks
-):
-    """
-    Run the full pipeline via the Orchestrator agent.
-    
-    Modes:
-    - sequential: Run phases one after another
-    - parallel: Run independent phases in parallel
-    - selective: Run only specified phases independently
-    """
-    orchestrator = OrchestratorAgent()
-    
-    # Configure orchestrator
-    if request.config:
-        orchestrator.configure(request.config)
-    
-    input_data = request.input_data or {}
-    input_data["mode"] = request.mode
-    input_data["phases"] = request.phases
-    
-    if request.async_mode:
-        # Run in background
-        import uuid
-        job_id = str(uuid.uuid4())[:8]
-        _active_jobs[job_id] = {
-            "status": "running",
-            "type": "pipeline",
-            "phases": request.phases,
-            "started_at": datetime.utcnow().isoformat()
-        }
-        
-        async def run_async():
-            try:
-                result = await orchestrator.run(input_data)
-                _active_jobs[job_id] = {
-                    "status": result.output_data.get("status", "unknown"),
-                    "result": result.to_dict(),
-                    "pipeline_result": result.output_data,
-                    "completed_at": datetime.utcnow().isoformat()
-                }
-            except Exception as e:
-                _active_jobs[job_id] = {
-                    "status": "error",
-                    "error": str(e),
-                    "completed_at": datetime.utcnow().isoformat()
-                }
-            finally:
-                orchestrator.cleanup()
-        
-        background_tasks.add_task(run_async)
-        
-        return PipelineResponse(
-            success=True,
-            pipeline_id=job_id,
-            status="queued",
-            phases_executed=0,
-            phase_results={},
-            validation={},
-            combined_report={"message": f"Pipeline {job_id} queued for background execution"}
-        )
-    
-    # Run synchronously
-    try:
-        result = await orchestrator.run(input_data)
-        output = result.output_data
-        
-        return PipelineResponse(
-            success=output.get("status") in ["success", "partial"],
-            pipeline_id=output.get("pipeline_id", "unknown"),
-            status=output.get("status", "unknown"),
-            phases_executed=len(output.get("phase_results", {})),
-            phase_results=output.get("phase_results", {}),
-            validation=output.get("validation", {}),
-            combined_report=output.get("combined_report", {})
-        )
-    
-    except Exception as e:
-        logger.error(f"Pipeline execution failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-    
-    finally:
-        orchestrator.cleanup()
 
 
 @router.get("/status")
