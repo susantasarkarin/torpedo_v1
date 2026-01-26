@@ -7,7 +7,7 @@ Write-Host ""
 # VM Configuration
 $VM_IP = "139.59.32.72"
 $VM_USER = "root"
-$PROJECT_PATH = "/home/susanta/campaign_platform"
+$PROJECT_PATH = "/var/www/campaign_platform"
 
 Write-Host "📋 Deployment Configuration:" -ForegroundColor Yellow
 Write-Host "   VM IP: $VM_IP"

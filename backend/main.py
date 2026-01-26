@@ -758,6 +758,18 @@ try:
 except Exception as e:
     print(f"⚠️ Lead Agents router not included: {e}")
 
+# Multi-Agent System router (Phase 3-6 agents + Orchestrator)
+try:
+    try:
+        from .leads.multi_agent_router import router as multi_agent_router
+    except ImportError:
+        from leads.multi_agent_router import router as multi_agent_router
+    
+    app.include_router(multi_agent_router)
+    print("✅ Multi-Agent System router included")
+except Exception as e:
+    print(f"⚠️ Multi-Agent System router not included: {e}")
+
 # Panel (Survey Panel User Portal) router
 try:
     app.include_router(panel_router.router)
