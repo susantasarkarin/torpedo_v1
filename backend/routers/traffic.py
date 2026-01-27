@@ -658,9 +658,13 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                             # Generate CPX entry link with survey_id and SFWID as ext_user_id
                             # Using direct entry URL format per CPX documentation
                             if cpx_service:
+                                # Get href from survey (prefer href_new for mobile optimization)
+                                survey_href = selected_survey.get('href_new') or selected_survey.get('href') or selected_survey.get('live_link')
+                                
                                 entry_link = cpx_service.generate_entry_link(
                                     survey_id=str(survey_id),
-                                    respondent_id=traffic_id  # Use SFWID as ext_user_id
+                                    respondent_id=traffic_id,  # Use SFWID for callback tracking
+                                    href=survey_href  # Use CPX's click-tracking URL
                                 )
                                 allocation_success = True
                                 
@@ -673,6 +677,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                     )
                                 
                                 print(f"✅ Allocated CPX survey {survey_id} to SFWID={traffic_id}")
+                                print(f"   Entry link: {entry_link[:100]}...")
                         
                         elif source == 'CINT':
                             # For CINT, try to get entry link from collection first

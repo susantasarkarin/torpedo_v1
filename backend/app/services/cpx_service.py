@@ -111,68 +111,83 @@ class CPXService:
         respondent_id: str,
         subid_1: Optional[str] = None,
         subid_2: Optional[str] = None,
+        href: Optional[str] = None,  # CPX click-tracking URL from API
         username: Optional[str] = None,
         email: Optional[str] = None,
         live_link: Optional[str] = None,  # Deprecated - kept for backward compatibility
     ) -> str:
         """
-        Generate CPX survey entry link using direct URL format.
+        Generate CPX survey entry link.
         
-        Per CPX documentation, required parameters:
-        - ext_user_id: Mandatory - unique per user (using respondent_id/SFWID)
-        - app_id: Mandatory - 10754
-        - secure_hash: Recommended - md5({ext_user_id}-{app_secure_hash})
-        - username: Recommended - username of user
-        - email: Recommended - CPX will ask user if not provided
-        - subid_1/subid_2: Optional tracking
-        - survey_id: The specific survey to show
+        Per CPX documentation, the API returns href URLs in format:
+        https://click.cpx-research.com/?k=ENCRYPTED_KEY&subid_1=&subid_2=
+        
+        We append our subid_1 (SFWID for callback tracking) to this URL.
         
         Args:
             survey_id: The CPX survey ID
-            respondent_id: The respondent ID to use as ext_user_id (unique per user)
-            subid_1: Optional tracking parameter
+            respondent_id: The respondent ID (SFWID) for tracking
+            subid_1: Optional tracking parameter (defaults to respondent_id)
             subid_2: Optional tracking parameter
-            username: Optional username
-            email: Optional email
-            live_link: Deprecated - not used (kept for backward compatibility)
+            href: CPX click-tracking URL from API response
+            username: Optional username (not used with href approach)
+            email: Optional email (not used with href approach)
+            live_link: Deprecated alias for href
             
         Returns:
-            Direct CPX entry URL with proper authentication
+            CPX entry URL with subid_1/subid_2 populated for callback tracking
         """
         if not survey_id or not respondent_id:
             return ""
         
-        # Generate secure_hash per CPX docs: md5({ext_user_id}-{app_secure_hash})
+        # Use href from API if provided, or live_link as fallback
+        base_url = href or live_link
+        
+        if base_url:
+            # CPX href format: https://click.cpx-research.com/?k=...&subid_1=&subid_2=
+            # We need to populate the empty subid_1 and subid_2 values
+            import re
+            
+            # Get tracking values
+            tracking_subid_1 = subid_1 or respondent_id
+            tracking_subid_2 = subid_2 or ""
+            
+            # Replace empty subid_1 with our value
+            # Pattern: subid_1= followed by & or end of string
+            if "subid_1=" in base_url:
+                # Replace empty subid_1
+                base_url = re.sub(r'subid_1=(&|$)', f'subid_1={tracking_subid_1}\\1', base_url)
+            else:
+                # Append subid_1
+                separator = "&" if "?" in base_url else "?"
+                base_url = f"{base_url}{separator}subid_1={tracking_subid_1}"
+            
+            # Replace empty subid_2 with our value if provided
+            if tracking_subid_2:
+                if "subid_2=" in base_url:
+                    base_url = re.sub(r'subid_2=(&|$)', f'subid_2={tracking_subid_2}\\1', base_url)
+                else:
+                    base_url = f"{base_url}&subid_2={tracking_subid_2}"
+            
+            return base_url
+        
+        # Fallback: Generate direct URL if no href available
+        # This uses the offers.cpx-research.com format
         secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
         
         from urllib.parse import urlencode
         
-        # Build query parameters per CPX documentation
         params = {
-            "app_id": self.app_id,                    # Mandatory
-            "ext_user_id": respondent_id,             # Mandatory - unique per user
-            "secure_hash": secure_hash,               # Recommended - for security
-            "survey_id": survey_id,                   # Specific survey to show
+            "app_id": self.app_id,
+            "ext_user_id": respondent_id,
+            "secure_hash": secure_hash,
+            "survey_id": survey_id,
+            "subid_1": subid_1 or respondent_id,
         }
-        
-        # Add recommended parameters if provided
-        if username:
-            params["username"] = username
-        if email:
-            params["email"] = email
-        
-        # Add optional tracking parameters
-        if subid_1:
-            params["subid_1"] = subid_1
-        else:
-            params["subid_1"] = respondent_id  # Use respondent_id for tracking
         if subid_2:
             params["subid_2"] = subid_2
             
-        # Construct the direct entry URL
-        entry_url = f"{self.ENTRY_URL}?{urlencode(params)}"
-        
-        return entry_url
+        return f"{self.ENTRY_URL}?{urlencode(params)}"
     
     def generate_entry_link_template(self, survey_id: str) -> str:
         """
@@ -356,8 +371,14 @@ class CPXService:
         # The allocation logic should skip country filtering for CPX surveys when country=ALL
         country = survey.get("survey_country") or survey.get("country", "") or "ALL"
         
-        # Get live link from raw survey data if available
-        live_link = survey.get("href") or survey.get("href_new") or survey.get("link") or ""
+        # Get href and href_new from CPX API response
+        # Per CPX docs: "Please always use href_new for the entry link, as its mobile optimized"
+        # href format: https://click.cpx-research.com/?k=ENCRYPTED&subid_1=&subid_2=
+        href = survey.get("href") or ""
+        href_new = survey.get("href_new") or ""
+        
+        # Use href_new if available (mobile optimized), otherwise href
+        live_link = href_new or href or survey.get("link") or ""
         
         # Map CPX field names to internal field names
         normalized = {
@@ -373,7 +394,9 @@ class CPXService:
             "provider": "CPX",
             "source": "CPX",
             "last_updated": datetime.utcnow(),
-            "live_link": live_link,  # Store live link from CPX API (for reference only)
+            "href": href,          # Original href from CPX
+            "href_new": href_new,  # Mobile-optimized href from CPX
+            "live_link": live_link,  # Best available link (prefer href_new)
             "raw_data": survey,  # Store raw data for reference
             # Click tracking fields - used for click-based cleanup
             # click_count and last_clicked_at are set via $setOnInsert to preserve existing values
