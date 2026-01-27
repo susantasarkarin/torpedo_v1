@@ -721,26 +721,30 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 print(f"✅ Allocated CPX survey {survey_id} to SFWID={traffic_id}")
                         
                         elif source == 'CINT':
-                            # For CINT, we need to get the entry link from the entry_links collection
-                            # or generate it using CINT service
+                            # For CINT, try to get entry link from collection first
+                            # If not found, use default Samplicio/Fulcrum URL format
                             entry_links_collection = client["cint_research"]["entry_links"]
                             entry_link_doc = entry_links_collection.find_one({"survey_id": str(survey_id)})
                             
                             if entry_link_doc and entry_link_doc.get('link'):
                                 entry_link = entry_link_doc['link']
-                                allocation_success = True
-                                
-                                # Update the traffic record
-                                if traffic_service:
-                                    traffic_service.assign_survey_to_traffic(
-                                        traffic_id=traffic_id,
-                                        survey_id=str(survey_id),
-                                        redirect_url=entry_link
-                                    )
-                                
-                                print(f"✅ Allocated CINT survey {survey_id} to SFWID={traffic_id}")
                             else:
-                                print(f"⚠️ No entry link found for CINT survey {survey_id}")
+                                # Use default Samplicio/Fulcrum format with respondent tracking
+                                # Format: https://samplicio.us/s/default.aspx?SID={SurveyID}&PID={PanelistID}
+                                entry_link = f"https://samplicio.us/s/default.aspx?SID={survey_id}&PID={traffic_id}"
+                                print(f"ℹ️ Using default Samplicio URL for CINT survey {survey_id}")
+                            
+                            allocation_success = True
+                            
+                            # Update the traffic record
+                            if traffic_service:
+                                traffic_service.assign_survey_to_traffic(
+                                    traffic_id=traffic_id,
+                                    survey_id=str(survey_id),
+                                    redirect_url=entry_link
+                                )
+                            
+                            print(f"✅ Allocated CINT survey {survey_id} to SFWID={traffic_id}")
                     else:
                         print(f"⚠️ No active surveys available for country {cc_upper}")
                     
