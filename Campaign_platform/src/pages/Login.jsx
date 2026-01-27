@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
 import "../styles/login.css"
-import { API_BASE_URL } from "../config"
+import { API_BASE_URL, buildApiUrl } from "../config"
 
 function Login() {
   const [credentials, setCredentials] = useState({ username: "", password: "" })
@@ -16,7 +16,7 @@ function Login() {
     setIsLoading(true)
     
     try {
-      const response = await fetch(`${API_BASE_URL}/login/`, {
+      const response = await fetch(buildApiUrl(`/login/`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(credentials),

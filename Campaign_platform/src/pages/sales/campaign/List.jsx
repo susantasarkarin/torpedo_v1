@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from "react-router-dom"
 import CreateContacts from "./CreateContacts"
 import "./List.css"
 import { API_BASE_URL } from "../../../config"
+import { buildApiUrl } from "../../../config"
 
 
 function List() {
@@ -60,7 +61,7 @@ function List() {
 
     try {
       console.log(`[v0] Connecting to backend at ${API_BASE_URL}/lists/`);
-      const res = await fetch(`${API_BASE_URL}/lists/`, {
+      const res = await fetch(buildApiUrl(`/lists/`), {
         headers: {
           "Content-Type": "application/json",
           "Authorization": sessionId,
@@ -104,7 +105,7 @@ useEffect(() => {
     console.log("[v0] Fetching contacts for list:", selectedList.name, "ID:", selectedList._id);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/contacts/${selectedList._id}`, {
+      const res = await fetch(buildApiUrl(`/contacts/${selectedList._id}`), {
         headers: {
           "Content-Type": "application/json",
           "Authorization": sessionId,
@@ -147,7 +148,7 @@ useEffect(() => {
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}/create-list/`, {
+    const response = await fetch(buildApiUrl(`/create-list/`), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -183,7 +184,7 @@ useEffect(() => {
   }
 
   try {
-    const res = await fetch(`${API_BASE_URL}/delete-list/${id}`, {
+    const res = await fetch(buildApiUrl(`/delete-list/${id}`), {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",

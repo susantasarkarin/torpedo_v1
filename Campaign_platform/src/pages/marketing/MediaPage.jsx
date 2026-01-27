@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { useParams, Link } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { 
+import { buildApiUrl } from "../../config"
   Image as ImageIcon, 
   Upload, 
   Trash2, 
@@ -38,7 +39,7 @@ function MediaPage() {
 
   const fetchWebsite = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/marketing/websites/${websiteId}`)
+      const response = await fetch(buildApiUrl(`/marketing/websites/${websiteId}`))
       if (response.ok) {
         const data = await response.json()
         setWebsite(data)
@@ -50,7 +51,7 @@ function MediaPage() {
 
   const fetchMedia = async () => {
     try {
-      let url = `${API_BASE_URL}/marketing/media/`
+      let url = buildApiUrl(`/marketing/media/`)
       const params = new URLSearchParams()
       
       if (websiteId) {
@@ -90,7 +91,7 @@ function MediaPage() {
           formData.append("website_id", websiteId)
         }
         
-        await fetch(`${API_BASE_URL}/marketing/media/upload`, {
+        await fetch(buildApiUrl(`/marketing/media/upload`), {
           method: "POST",
           body: formData
         })
@@ -114,7 +115,7 @@ function MediaPage() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/marketing/media/${mediaId}`, {
+      const response = await fetch(buildApiUrl(`/marketing/media/${mediaId}`), {
         method: "DELETE"
       })
 

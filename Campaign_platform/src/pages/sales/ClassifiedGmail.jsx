@@ -7,6 +7,7 @@ import { useEffect, useState, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import "./ClassifiedGmail.css"
+import { buildApiUrl } from "../../config"
 
 function ClassifiedGmail() {
   const navigate = useNavigate()
@@ -40,7 +41,7 @@ function ClassifiedGmail() {
 
       setLoading(true)
       try {
-        let url = `${API_BASE_URL}/classified-gmail/list?page=${currentPage}&limit=${limit}`
+        let url = buildApiUrl(`/classified-gmail/list?page=${currentPage}&limit=${limit}`)
         if (filterSegment) url += `&segment=${filterSegment}`
         if (filterMoved !== "") url += `&moved=${filterMoved === "true"}`
 
@@ -76,7 +77,7 @@ function ClassifiedGmail() {
       if (!sessionId) return
 
       try {
-        const res = await fetch(`${API_BASE_URL}/classified-gmail/stats?days=7`, {
+        const res = await fetch(buildApiUrl(`/classified-gmail/stats?days=7`), {
           headers: {
             Authorization: sessionId,
           },
@@ -102,7 +103,7 @@ function ClassifiedGmail() {
 
     setProcessingEmails(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/classified-gmail/batch/process`, {
+      const res = await fetch(buildApiUrl(`/classified-gmail/batch/process`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -142,7 +143,7 @@ function ClassifiedGmail() {
     setLoading(true)
     try {
       const res = await fetch(
-        `${API_BASE_URL}/classified-gmail/${emailId}/move-to-leads`,
+        buildApiUrl(`/classified-gmail/${emailId}/move-to-leads`),
         {
           method: "POST",
           headers: {
@@ -187,7 +188,7 @@ function ClassifiedGmail() {
     setLoading(true)
     try {
       const res = await fetch(
-        `${API_BASE_URL}/classified-gmail/${emailId}/mark-spam`,
+        buildApiUrl(`/classified-gmail/${emailId}/mark-spam`),
         {
           method: "POST",
           headers: {

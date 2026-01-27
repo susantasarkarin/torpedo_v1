@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../../config"; // adjust path if needed
 import "./VendorsPage.css";
+import { buildApiUrl } from "../../config"
 
 function VendorsPage() {
   const navigate = useNavigate(); // ✅ must be defined first
@@ -40,7 +41,7 @@ function VendorsPage() {
 
     const fetchVendors = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/vendors/`, {
+        const res = await fetch(buildApiUrl(`/vendors/`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
@@ -103,8 +104,8 @@ function VendorsPage() {
       delete payload.vid;
 
       const url = editingId
-        ? `${API_BASE_URL}/vendors/${editingId}`
-        : `${API_BASE_URL}/vendors/`;
+        ? buildApiUrl(`/vendors/${editingId}`)
+        : buildApiUrl(`/vendors/`);
       const method = editingId ? "PUT" : "POST";
 
       const res = await fetch(url, {
@@ -154,7 +155,7 @@ function VendorsPage() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/vendors/${id}`, {
+      const res = await fetch(buildApiUrl(`/vendors/${id}`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",

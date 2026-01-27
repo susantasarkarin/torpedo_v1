@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { API_BASE_URL } from "../../config"
 import { Package, Search, Pencil, Trash2, Loader2, Wrench, Upload, Download } from "lucide-react"
+import { buildApiUrl } from "../../config"
 
 function ItemsPage() {
   const [items, setItems] = useState([])
@@ -34,7 +35,7 @@ function ItemsPage() {
 
   const fetchItems = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/items/`)
+      const response = await fetch(buildApiUrl(`/finance/finance/items/`))
       if (response.ok) {
         const data = await response.json()
         setItems(data)
@@ -50,8 +51,8 @@ function ItemsPage() {
     e.preventDefault()
     try {
       const url = editingItem
-        ? `${API_BASE_URL}/finance/finance/items/${editingItem._id}`
-        : `${API_BASE_URL}/finance/finance/items/`
+        ? buildApiUrl(`/finance/finance/items/${editingItem._id}`)
+        : buildApiUrl(`/finance/finance/items/`)
 
       const method = editingItem ? "PUT" : "POST"
 
@@ -74,7 +75,7 @@ function ItemsPage() {
     if (!window.confirm("Are you sure you want to delete this item?")) return
 
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/items/${id}`, {
+      const response = await fetch(buildApiUrl(`/finance/finance/items/${id}`), {
         method: "DELETE",
       })
       if (response.ok) {
@@ -170,7 +171,7 @@ function ItemsPage() {
   const handleExportCSV = async () => {
     setExporting(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/items/export/csv`)
+      const response = await fetch(buildApiUrl(`/finance/finance/items/export/csv`))
       if (response.ok) {
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
@@ -200,7 +201,7 @@ function ItemsPage() {
     formDataUpload.append("file", file)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/items/import/csv`, {
+      const response = await fetch(buildApiUrl(`/finance/finance/items/import/csv`), {
         method: "POST",
         body: formDataUpload,
       })

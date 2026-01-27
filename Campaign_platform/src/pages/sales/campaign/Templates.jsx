@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom"
 import "./Templates.css"
 import { useState, useEffect, useRef } from "react"
 import { API_BASE_URL } from "../../../config"
+import { buildApiUrl } from "../../../config"
 
 function Templates() {
   const navigate = useNavigate()
@@ -31,7 +32,7 @@ function Templates() {
       }
 
       try {
-        const res = await fetch(`${API_BASE_URL}/templates/`, {
+        const res = await fetch(buildApiUrl(`/templates/`), {
           headers: {
             "Content-Type": "application/json",
             "Authorization": sessionId,
@@ -69,7 +70,7 @@ function Templates() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/templates/${id}`, {
+      const res = await fetch(buildApiUrl(`/templates/${id}`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -110,8 +111,8 @@ function Templates() {
     try {
       const isEditing = selectedTemplate && showEditor && selectedTemplate._id
       const url = isEditing
-        ? `${API_BASE_URL}/templates/${selectedTemplate._id}`
-        : `${API_BASE_URL}/templates/`
+        ? buildApiUrl(`/templates/${selectedTemplate._id}`)
+        : buildApiUrl(`/templates/`)
       const method = isEditing ? "PUT" : "POST"
 
       const res = await fetch(url, {
@@ -137,7 +138,7 @@ function Templates() {
       setShowEditor(false)
 
       // Refresh list after save
-      const newRes = await fetch(`${API_BASE_URL}/templates/`, {
+      const newRes = await fetch(buildApiUrl(`/templates/`), {
         headers: {
           "Content-Type": "application/json",
           "Authorization": sessionId,

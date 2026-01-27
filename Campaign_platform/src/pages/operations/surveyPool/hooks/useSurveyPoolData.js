@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { API_BASE_URL } from '../../../../config';
+import { buildApiUrl } from "../../../../config"
 
 /**
  * Custom hook for managing survey pool data
@@ -37,7 +38,7 @@ function useSurveyPoolData(token) {
         queryParams.append('page', page);
         queryParams.append('page_size', page_size);
 
-        const response = await fetch(`${API_BASE_URL}/cpx/surveys?${queryParams}`, {
+        const response = await fetch(buildApiUrl(`/cpx/surveys?${queryParams}`), {
           method: 'GET',
           headers: {
             'Authorization': token,
@@ -78,7 +79,7 @@ function useSurveyPoolData(token) {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/cpx/refresh`, {
+      const response = await fetch(buildApiUrl(`/cpx/refresh`), {
         method: 'POST',
         headers: {
           'Authorization': token,

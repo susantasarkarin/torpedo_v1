@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { API_BASE_URL as API_URL } from "../../config";
 import "./ProjectDetailModal.css";
+import { buildApiUrl } from "../../config"
 
 function ProjectDetailModal({ project, onClose }) {
   const [activeTab, setActiveTab] = useState("study");
@@ -21,7 +22,7 @@ function ProjectDetailModal({ project, onClose }) {
   const fetchFinancials = async () => {
     setLoadingFinancials(true);
     try {
-      const res = await fetch(`${API_URL}/operations/projects/${project._id}/financials`, {
+      const res = await fetch(buildApiUrl(`/operations/projects/${project._id}/financials`), {
         headers: { Authorization: token },
       });
       if (res.ok) {
@@ -41,7 +42,7 @@ function ProjectDetailModal({ project, onClose }) {
     setInvoiceSuccess(null);
     
     try {
-      const res = await fetch(`${API_URL}/operations/projects/${project._id}/invoice`, {
+      const res = await fetch(buildApiUrl(`/operations/projects/${project._id}/invoice`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

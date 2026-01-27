@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { Link } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { 
+import { buildApiUrl } from "../../config"
   Globe, 
   Plus, 
   FileText, 
@@ -43,7 +44,7 @@ function WebsitesPage() {
 
   const fetchWebsites = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/marketing/websites/`)
+      const response = await fetch(buildApiUrl(`/marketing/websites/`))
       if (response.ok) {
         const data = await response.json()
         setWebsites(data)
@@ -57,7 +58,7 @@ function WebsitesPage() {
 
   const fetchDashboard = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/marketing/dashboard`)
+      const response = await fetch(buildApiUrl(`/marketing/dashboard`))
       if (response.ok) {
         const data = await response.json()
         setStats(data)
@@ -72,7 +73,7 @@ function WebsitesPage() {
     setSubmitting(true)
     
     try {
-      const response = await fetch(`${API_BASE_URL}/marketing/websites/`, {
+      const response = await fetch(buildApiUrl(`/marketing/websites/`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData)
@@ -100,7 +101,7 @@ function WebsitesPage() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/marketing/websites/${websiteId}`, {
+      const response = await fetch(buildApiUrl(`/marketing/websites/${websiteId}`), {
         method: "DELETE"
       })
 

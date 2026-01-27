@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { API_BASE_URL as API_URL } from "../config";
+import { API_BASE_URL as API_URL, buildApiUrl } from "../config";
 import "./Operations.css";
 
 const token = () => sessionStorage.getItem("session_token") || localStorage.getItem("session_id");
@@ -47,8 +47,8 @@ function Operations() {
     setError(null);
     try {
       const [kpiRes, activityRes] = await Promise.all([
-        fetch(`${API_URL}/operations/dashboard/kpis`, { headers: { Authorization: token() } }),
-        fetch(`${API_URL}/operations/dashboard/recent-activity?limit=8`, { headers: { Authorization: token() } })
+        fetch(buildApiUrl(`/operations/dashboard/kpis`), { headers: { Authorization: token() } }),
+        fetch(buildApiUrl(`/operations/dashboard/recent-activity?limit=8`), { headers: { Authorization: token() } })
       ]);
 
       if (kpiRes.ok) setKpis(await kpiRes.json());
@@ -66,7 +66,7 @@ function Operations() {
 
   const fetchRFQs = async () => {
     try {
-      const res = await fetch(`${API_URL}/rfq/?limit=100`, { headers: { Authorization: token() } });
+      const res = await fetch(buildApiUrl(`/rfq/?limit=100`), { headers: { Authorization: token() } });
       if (res.ok) {
         const data = await res.json();
         setRfqs(data.rfqs || []);
@@ -83,7 +83,7 @@ function Operations() {
 
   const fetchProjects = async () => {
     try {
-      const res = await fetch(`${API_URL}/operations/projects/?limit=50`, { headers: { Authorization: token() } });
+      const res = await fetch(buildApiUrl(`/operations/projects/?limit=50`), { headers: { Authorization: token() } });
       if (res.ok) {
         const data = await res.json();
         setProjects(data.projects || []);
@@ -95,7 +95,7 @@ function Operations() {
 
   const fetchAccounts = async () => {
     try {
-      const res = await fetch(`${API_URL}/operations/accounts/`, { headers: { Authorization: token() } });
+      const res = await fetch(buildApiUrl(`/operations/accounts/`), { headers: { Authorization: token() } });
       if (res.ok) {
         const data = await res.json();
         setAccounts(data.accounts || []);
@@ -107,7 +107,7 @@ function Operations() {
 
   const fetchVendorEmails = async () => {
     try {
-      const res = await fetch(`${API_URL}/unified-inbox/emails?category=vendor_communication&limit=10`, { headers: { Authorization: token() } });
+      const res = await fetch(buildApiUrl(`/unified-inbox/emails?category=vendor_communication&limit=10`), { headers: { Authorization: token() } });
       if (res.ok) {
         const data = await res.json();
         setVendorEmails(data.emails || []);

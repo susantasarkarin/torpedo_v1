@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { API_BASE_URL } from "../../config"
 import {
+import { buildApiUrl } from "../../config"
   TrendingUp,
   Target,
   Clock,
@@ -584,7 +585,7 @@ export default function SalesDashboard() {
         role: role,
         target: target.toString()
       })
-      const response = await fetch(`${API_BASE_URL}/sales/dashboard?${params}`)
+      const response = await fetch(buildApiUrl(`/sales/dashboard?${params}`))
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       setData(await response.json())
     } catch (err) {

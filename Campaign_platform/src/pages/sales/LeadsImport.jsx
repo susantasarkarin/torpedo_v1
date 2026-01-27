@@ -4,6 +4,7 @@ import { useState, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import Papa from "papaparse"
+import { buildApiUrl } from "../../config"
 
 // Database fields for leads
 const DB_FIELDS = [
@@ -388,7 +389,7 @@ function LeadsImport() {
       formDataUpload.append("file", blob, "import.csv")
       
       const sessionId = localStorage.getItem("session_id")
-      const response = await fetch(`${API_BASE_URL}/leads/import/csv`, {
+      const response = await fetch(buildApiUrl(`/leads/import/csv`), {
         method: "POST",
         headers: {
           Authorization: sessionId,

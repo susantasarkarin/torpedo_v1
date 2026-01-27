@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../../config";
 import "./ProjectDetail.css";
+import { buildApiUrl } from "../../config"
 
 function ProjectDetail() {
   const { projectId } = useParams();
@@ -20,7 +21,7 @@ function ProjectDetail() {
       }
 
       try {
-        const res = await fetch(`${API_BASE_URL}/projects/`, {
+        const res = await fetch(buildApiUrl(`/projects/`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,

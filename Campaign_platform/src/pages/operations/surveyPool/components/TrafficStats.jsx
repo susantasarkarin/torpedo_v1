@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../../../../config';
+import { buildApiUrl } from "../../../../config"
 
 export default function TrafficStats({ token, refreshTrigger }) {
   const [stats, setStats] = useState(null);
@@ -13,7 +14,7 @@ export default function TrafficStats({ token, refreshTrigger }) {
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/traffic/stats`, {
+      const response = await fetch(buildApiUrl(`/api/traffic/stats`), {
         method: 'GET',
         headers: {
           'Authorization': token,

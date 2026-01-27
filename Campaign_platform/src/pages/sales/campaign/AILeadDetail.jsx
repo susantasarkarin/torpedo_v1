@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { API_BASE_URL } from "../../../config";
 import "./AILeadDetail.css";
+import { buildApiUrl } from "../../../config"
 
 function AILeadDetail() {
   const { leadId } = useParams();
@@ -83,7 +84,7 @@ function AILeadDetail() {
     setError(null);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/leads/enriched/${leadId}`, {
+      const res = await fetch(buildApiUrl(`/leads/enriched/${leadId}`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -119,7 +120,7 @@ function AILeadDetail() {
     if (!sessionId) return;
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/v1/email-sync/accounts`, {
+      const res = await fetch(buildApiUrl(`/api/v1/email-sync/accounts`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -143,7 +144,7 @@ function AILeadDetail() {
     if (!sessionId || !email) return;
 
     try {
-      const res = await fetch(`${API_BASE_URL}/settings/email-signature/${encodeURIComponent(email)}`, {
+      const res = await fetch(buildApiUrl(`/settings/email-signature/${encodeURIComponent(email)}`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -172,7 +173,7 @@ function AILeadDetail() {
 
     setSaving(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/leads/enriched/${leadId}`, {
+      const res = await fetch(buildApiUrl(`/leads/enriched/${leadId}`), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -203,7 +204,7 @@ function AILeadDetail() {
 
     setConvertingStage(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/leads/enriched/${leadId}`, {
+      const res = await fetch(buildApiUrl(`/leads/enriched/${leadId}`), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -264,7 +265,7 @@ function AILeadDetail() {
     try {
       const fullBody = signature ? `${emailFormData.body}\n\n${signature}` : emailFormData.body;
 
-      const res = await fetch(`${API_BASE_URL}/api/v1/email-sync/send`, {
+      const res = await fetch(buildApiUrl(`/api/v1/email-sync/send`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

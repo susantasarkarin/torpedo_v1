@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import "./TrafficManagement.css"
+import { buildApiUrl } from "../../config"
 
 // Status badge color mapping
 const statusColors = {
@@ -48,7 +49,7 @@ export default function TrafficManagement() {
       if (statusFilter) params.append("status", statusFilter)
       if (search) params.append("search", search)
 
-      const res = await fetch(`${API_BASE_URL}/api/traffic/list?${params}`, {
+      const res = await fetch(buildApiUrl(`/api/traffic/list?${params}`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -81,7 +82,7 @@ export default function TrafficManagement() {
     if (!sessionId) return
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/traffic/stats`, {
+      const res = await fetch(buildApiUrl(`/api/traffic/stats`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -167,7 +168,7 @@ export default function TrafficManagement() {
 
     setDeleting(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/traffic/delete`, {
+      const res = await fetch(buildApiUrl(`/api/traffic/delete`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",

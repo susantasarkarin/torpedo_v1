@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom"
 import { CreditCard, Plus, Search, X, Loader2, ArrowDownCircle, ArrowUpCircle, TrendingUp, Upload, Download } from "lucide-react"
 import { API_BASE_URL } from "../../config"
 import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "../../utils/currency"
+import { buildApiUrl } from "../../config"
 
 function PaymentsPage() {
   const navigate = useNavigate()
@@ -59,7 +60,7 @@ function PaymentsPage() {
 
   const fetchPaymentsReceived = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/payments/received/`)
+      const response = await fetch(buildApiUrl(`/finance/payments/received/`))
       if (response.ok) {
         const data = await response.json()
         setPaymentsReceived(data)
@@ -71,7 +72,7 @@ function PaymentsPage() {
 
   const fetchPaymentsMade = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/payments/made/`)
+      const response = await fetch(buildApiUrl(`/finance/payments/made/`))
       if (response.ok) {
         const data = await response.json()
         setPaymentsMade(data)
@@ -83,7 +84,7 @@ function PaymentsPage() {
 
   const fetchCustomers = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/customers/`)
+      const response = await fetch(buildApiUrl(`/finance/finance/customers/`))
       if (response.ok) {
         const data = await response.json()
         setCustomers(data)
@@ -95,7 +96,7 @@ function PaymentsPage() {
 
   const fetchVendors = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/vendors/`)
+      const response = await fetch(buildApiUrl(`/finance/finance/vendors/`))
       if (response.ok) {
         const data = await response.json()
         setVendors(data)
@@ -107,7 +108,7 @@ function PaymentsPage() {
 
   const fetchInvoices = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/invoices/`)
+      const response = await fetch(buildApiUrl(`/finance/finance/invoices/`))
       if (response.ok) {
         const data = await response.json()
         // Only show unpaid invoices
@@ -120,7 +121,7 @@ function PaymentsPage() {
 
   const fetchBills = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/bills/`)
+      const response = await fetch(buildApiUrl(`/finance/finance/bills/`))
       if (response.ok) {
         const data = await response.json()
         // Only show unpaid bills
@@ -134,8 +135,8 @@ function PaymentsPage() {
   const handleSubmit = async () => {
     try {
       const endpoint = formData.payment_type === "received"
-        ? `${API_BASE_URL}/finance/payments/received/`
-        : `${API_BASE_URL}/finance/payments/made/`
+        ? buildApiUrl(`/finance/payments/received/`)
+        : buildApiUrl(`/finance/payments/made/`)
 
       const paymentData = {
         ...formData,
@@ -246,7 +247,7 @@ function PaymentsPage() {
     setExporting(true)
     try {
       const endpoint = activeTab === "received" ? "received" : "made"
-      const response = await fetch(`${API_BASE_URL}/finance/payments/${endpoint}/export/csv`)
+      const response = await fetch(buildApiUrl(`/finance/payments/${endpoint}/export/csv`))
       if (response.ok) {
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
@@ -277,7 +278,7 @@ function PaymentsPage() {
 
     try {
       const endpoint = activeTab === "received" ? "received" : "made"
-      const response = await fetch(`${API_BASE_URL}/finance/payments/${endpoint}/import/csv`, {
+      const response = await fetch(buildApiUrl(`/finance/payments/${endpoint}/import/csv`), {
         method: "POST",
         body: formDataUpload,
       })

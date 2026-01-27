@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
-import { API_BASE_URL } from "../config"
+import { API_BASE_URL, buildApiUrl } from "../config"
 
 // Email category colors and icons
 const CATEGORY_STYLES = {
@@ -105,7 +105,7 @@ function MailPool() {
     if (!auth) return
     
     try {
-      const res = await fetch(`${API_BASE_URL}/gmail/mailboxes`, {
+      const res = await fetch(buildApiUrl(`/gmail/mailboxes`), {
         headers: { Authorization: auth }
       })
       if (res.ok) {
@@ -123,7 +123,7 @@ function MailPool() {
     if (!auth) return
     
     try {
-      const res = await fetch(`${API_BASE_URL}/gmail/stats${filters.mailbox_id ? `?mailbox_id=${filters.mailbox_id}` : ''}`, {
+      const res = await fetch(buildApiUrl(`/gmail/stats${filters.mailbox_id ? `)?mailbox_id=${filters.mailbox_id}` : ''}`, {
         headers: { Authorization: auth }
       })
       if (res.ok) {
@@ -151,7 +151,7 @@ function MailPool() {
       params.append("page", filters.page)
       params.append("limit", filters.limit)
       
-      const res = await fetch(`${API_BASE_URL}/gmail/emails?${params}`, {
+      const res = await fetch(buildApiUrl(`/gmail/emails?${params}`), {
         headers: { Authorization: auth }
       })
       
@@ -176,7 +176,7 @@ function MailPool() {
     if (!auth) return
     
     try {
-      const res = await fetch(`${API_BASE_URL}/gmail/emails/${emailId}/content`, {
+      const res = await fetch(buildApiUrl(`/gmail/emails/${emailId}/content`), {
         headers: { Authorization: auth }
       })
       if (res.ok) {
@@ -195,7 +195,7 @@ function MailPool() {
     
     setClassifying(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/gmail/classify/${emailId}`, {
+      const res = await fetch(buildApiUrl(`/gmail/classify/${emailId}`), {
         method: "POST",
         headers: { Authorization: auth }
       })
@@ -219,7 +219,7 @@ function MailPool() {
     
     setClassifying(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/gmail/classify/batch?limit=100`, {
+      const res = await fetch(buildApiUrl(`/gmail/classify/batch?limit=100`), {
         method: "POST",
         headers: { Authorization: auth }
       })
@@ -246,7 +246,7 @@ function MailPool() {
     if (!auth) return
     
     try {
-      const res = await fetch(`${API_BASE_URL}/gmail/mailboxes/${mailboxId}/sync`, {
+      const res = await fetch(buildApiUrl(`/gmail/mailboxes/${mailboxId}/sync`), {
         method: "POST",
         headers: { Authorization: auth }
       })

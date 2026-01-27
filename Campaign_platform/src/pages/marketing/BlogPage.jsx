@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useParams, Link, useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { 
+import { buildApiUrl } from "../../config"
   BookOpen, 
   Plus, 
   Edit, 
@@ -44,7 +45,7 @@ function BlogPage() {
 
   const fetchWebsite = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/marketing/websites/${websiteId}`)
+      const response = await fetch(buildApiUrl(`/marketing/websites/${websiteId}`))
       if (response.ok) {
         const data = await response.json()
         setWebsite(data)
@@ -59,7 +60,7 @@ function BlogPage() {
 
   const fetchPosts = async () => {
     try {
-      let url = `${API_BASE_URL}/marketing/websites/${websiteId}/blog/`
+      let url = buildApiUrl(`/marketing/websites/${websiteId}/blog/`)
       if (filter !== "all") {
         url += `?status=${filter}`
       }
@@ -82,8 +83,8 @@ function BlogPage() {
     
     try {
       const url = editingPost
-        ? `${API_BASE_URL}/marketing/websites/${websiteId}/blog/${editingPost.id}`
-        : `${API_BASE_URL}/marketing/websites/${websiteId}/blog/`
+        ? buildApiUrl(`/marketing/websites/${websiteId}/blog/${editingPost.id}`)
+        : buildApiUrl(`/marketing/websites/${websiteId}/blog/`)
       
       const method = editingPost ? "PUT" : "POST"
 
@@ -127,7 +128,7 @@ function BlogPage() {
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/marketing/websites/${websiteId}/blog/${postId}`,
+        buildApiUrl(`/marketing/websites/${websiteId}/blog/${postId}`),
         { method: "DELETE" }
       )
 
@@ -145,7 +146,7 @@ function BlogPage() {
   const handlePublish = async (postId) => {
     try {
       const response = await fetch(
-        `${API_BASE_URL}/marketing/websites/${websiteId}/blog/${postId}/publish`,
+        buildApiUrl(`/marketing/websites/${websiteId}/blog/${postId}/publish`),
         { method: "POST" }
       )
 

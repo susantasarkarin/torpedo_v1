@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL as API_URL } from "../../config"
 import "./VendorPages.css"
+import { buildApiUrl } from "../../config"
 
 function VendorDashboard() {
   const navigate = useNavigate()
@@ -24,7 +25,7 @@ function VendorDashboard() {
   const fetchStats = async () => {
     try {
       // Fetch unified vendors from the unified vendors endpoint
-      const unifiedRes = await fetch(`${API_URL}/vendors/unified`)
+      const unifiedRes = await fetch(buildApiUrl(`/vendors/unified`))
       const unifiedData = unifiedRes.ok ? await unifiedRes.json() : []
       
       // Count by type

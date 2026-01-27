@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import "./CPXCallbackLogs.css"
+import { buildApiUrl } from "../../config"
 
 export default function CPXCallbackLogs() {
   const navigate = useNavigate()
@@ -39,7 +40,7 @@ export default function CPXCallbackLogs() {
         params.append("success_filter", successFilter)
       }
 
-      const res = await fetch(`${API_BASE_URL}/api/cpx-callback-logs?${params}`, {
+      const res = await fetch(buildApiUrl(`/api/cpx-callback-logs?${params}`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -105,7 +106,7 @@ export default function CPXCallbackLogs() {
 
     setClearing(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/cpx-callback-logs`, {
+      const res = await fetch(buildApiUrl(`/api/cpx-callback-logs`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",

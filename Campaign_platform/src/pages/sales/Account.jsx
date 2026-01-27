@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import "./Account.css"
 import "../../styles/SalesPages.css"
+import { buildApiUrl } from "../../config"
 
 // Helper functions to map between account UI format and sales accounts API format
 const apiAccountToUIAccount = (account) => ({
@@ -67,7 +68,7 @@ function Account() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/sales/accounts`, {
+      const res = await fetch(buildApiUrl(`/sales/accounts`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -165,8 +166,8 @@ function Account() {
       const payload = uiAccountToAPIAccount(formData);
 
       const url = editingId
-        ? `${API_BASE_URL}/sales/accounts/${editingId}`
-        : `${API_BASE_URL}/sales/accounts`;
+        ? buildApiUrl(`/sales/accounts/${editingId}`)
+        : buildApiUrl(`/sales/accounts`);
       const method = editingId ? "PUT" : "POST";
 
       const res = await fetch(url, {
@@ -212,7 +213,7 @@ function Account() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/sales/accounts/${id}`, {
+      const res = await fetch(buildApiUrl(`/sales/accounts/${id}`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -250,7 +251,7 @@ function Account() {
     try {
       let deletedCount = 0;
       for (const id of selectedIds) {
-        const res = await fetch(`${API_BASE_URL}/sales/accounts/${id}`, {
+        const res = await fetch(buildApiUrl(`/sales/accounts/${id}`), {
           method: "DELETE",
           headers: {
             "Content-Type": "application/json",

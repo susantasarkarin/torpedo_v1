@@ -7,6 +7,7 @@ import { PageHeader } from "../../components/ui/PageHeader"
 import { Card, CardContent, CardHeader } from "../../components/ui/Card"
 import { Button } from "../../components/ui/Button"
 import { Badge } from "../../components/ui/Badge"
+import { buildApiUrl } from "../../config"
 
 function ReportsPage() {
   const [activeReport, setActiveReport] = useState("profit-loss")
@@ -118,7 +119,7 @@ function ReportsPage() {
     setLoading(true)
     try {
       const params = new URLSearchParams(dateRange)
-      const response = await fetch(`${API_BASE_URL}/finance/reports/${activeReport}?${params}`)
+      const response = await fetch(buildApiUrl(`/finance/reports/${activeReport}?${params}`))
       if (response.ok) {
         const data = await response.json()
         setReportData(data)

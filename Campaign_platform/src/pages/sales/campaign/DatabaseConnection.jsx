@@ -8,6 +8,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { API_BASE_URL } from "../../../config";
 import "./DatabaseConnection.css";
+import { buildApiUrl } from "../../../config"
 
 // ============== ENUMS (match backend) ==============
 
@@ -75,7 +76,7 @@ function DatabaseConnection() {
       params.append("page", currentPage);
       params.append("limit", 50);
 
-      const res = await fetch(`${API_BASE_URL}/leads?${params.toString()}`, {
+      const res = await fetch(buildApiUrl(`/leads?${params.toString()}`), {
         headers: { Authorization: sessionId },
       });
 
@@ -92,7 +93,7 @@ function DatabaseConnection() {
 
   const fetchRawLeads = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/leads/raw`, {
+      const res = await fetch(buildApiUrl(`/leads/raw`), {
         headers: { Authorization: sessionId },
       });
 
@@ -107,7 +108,7 @@ function DatabaseConnection() {
 
   const fetchStatistics = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/leads/statistics`, {
+      const res = await fetch(buildApiUrl(`/leads/statistics`), {
         headers: { Authorization: sessionId },
       });
 
@@ -170,7 +171,7 @@ function DatabaseConnection() {
             return;
           }
 
-          res = await fetch(`${API_BASE_URL}/leads/import`, {
+          res = await fetch(buildApiUrl(`/leads/import`), {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -190,7 +191,7 @@ function DatabaseConnection() {
           formData.append("file", csvFile);
           formData.append("delimiter", ",");
           
-          res = await fetch(`${API_BASE_URL}/leads/import/csv`, {
+          res = await fetch(buildApiUrl(`/leads/import/csv`), {
             method: "POST",
             headers: { Authorization: sessionId },
             body: formData,
@@ -203,7 +204,7 @@ function DatabaseConnection() {
             setImporting(false);
             return;
           }
-          res = await fetch(`${API_BASE_URL}/leads/import/google-search`, {
+          res = await fetch(buildApiUrl(`/leads/import/google-search`), {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -222,7 +223,7 @@ function DatabaseConnection() {
             setImporting(false);
             return;
           }
-          res = await fetch(`${API_BASE_URL}/leads/import/google-sheets`, {
+          res = await fetch(buildApiUrl(`/leads/import/google-sheets`), {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -271,7 +272,7 @@ function DatabaseConnection() {
     setError(null);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/leads/classify`, {
+      const res = await fetch(buildApiUrl(`/leads/classify`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -315,7 +316,7 @@ function DatabaseConnection() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/leads/campaigns/${campaign._id}/attach`, {
+      const res = await fetch(buildApiUrl(`/leads/campaigns/${campaign._id}/attach`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

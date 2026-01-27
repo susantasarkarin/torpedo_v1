@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import "./VendorPages.css"
+import { buildApiUrl } from "../../config"
 
 function VendorLeadsPage() {
   const navigate = useNavigate()
@@ -40,7 +41,7 @@ function VendorLeadsPage() {
   const fetchStats = async () => {
     try {
       const sessionId = localStorage.getItem("session_id")
-      const res = await fetch(`${API_BASE_URL}/vendor-leads/stats`, {
+      const res = await fetch(buildApiUrl(`/vendor-leads/stats`), {
         headers: { Authorization: sessionId || "" }
       })
       if (res.ok) {
@@ -58,7 +59,7 @@ function VendorLeadsPage() {
       const sessionId = localStorage.getItem("session_id")
       
       // Fetch vendor leads
-      const res = await fetch(`${API_BASE_URL}/vendor-leads`, {
+      const res = await fetch(buildApiUrl(`/vendor-leads`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId || ""
@@ -157,7 +158,7 @@ function VendorLeadsPage() {
     
     try {
       const sessionId = localStorage.getItem("session_id")
-      await fetch(`${API_BASE_URL}/vendor-leads/${id}`, {
+      await fetch(buildApiUrl(`/vendor-leads/${id}`), {
         method: "DELETE",
         headers: { Authorization: sessionId || "" }
       })
@@ -172,8 +173,8 @@ function VendorLeadsPage() {
     try {
       const sessionId = localStorage.getItem("session_id")
       const url = editingLead 
-        ? `${API_BASE_URL}/vendor-leads/${editingLead._id}`
-        : `${API_BASE_URL}/vendor-leads`
+        ? buildApiUrl(`/vendor-leads/${editingLead._id}`)
+        : buildApiUrl(`/vendor-leads`)
       const method = editingLead ? "PUT" : "POST"
       
       const res = await fetch(url, {
@@ -210,7 +211,7 @@ function VendorLeadsPage() {
     
     try {
       const sessionId = localStorage.getItem("session_id")
-      const res = await fetch(`${API_BASE_URL}/vendor-leads/${convertingLead._id}/convert-to-vendor`, {
+      const res = await fetch(buildApiUrl(`/vendor-leads/${convertingLead._id}/convert-to-vendor`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

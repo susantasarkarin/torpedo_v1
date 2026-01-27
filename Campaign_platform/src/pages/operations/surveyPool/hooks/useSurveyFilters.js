@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { API_BASE_URL } from '../../../../config';
+import { buildApiUrl } from "../../../../config"
 
 /**
  * Custom hook for managing survey filter settings
@@ -74,7 +75,7 @@ function useSurveyFilters(token) {
       setError(null);
 
       try {
-        const response = await fetch(`${API_BASE_URL}/cpx/filter-settings`, {
+        const response = await fetch(buildApiUrl(`/cpx/filter-settings`), {
           method: 'POST',
           headers: {
             'Authorization': token,

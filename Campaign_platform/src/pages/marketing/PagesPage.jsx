@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useParams, Link, useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { 
+import { buildApiUrl } from "../../config"
   FileText, 
   Plus, 
   Edit, 
@@ -38,7 +39,7 @@ function PagesPage() {
 
   const fetchWebsite = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/marketing/websites/${websiteId}`)
+      const response = await fetch(buildApiUrl(`/marketing/websites/${websiteId}`))
       if (response.ok) {
         const data = await response.json()
         setWebsite(data)
@@ -53,7 +54,7 @@ function PagesPage() {
 
   const fetchPages = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/marketing/websites/${websiteId}/pages/`)
+      const response = await fetch(buildApiUrl(`/marketing/websites/${websiteId}/pages/`))
       if (response.ok) {
         const data = await response.json()
         setPages(data)
@@ -71,8 +72,8 @@ function PagesPage() {
     
     try {
       const url = editingPage
-        ? `${API_BASE_URL}/marketing/websites/${websiteId}/pages/${editingPage.id}`
-        : `${API_BASE_URL}/marketing/websites/${websiteId}/pages/`
+        ? buildApiUrl(`/marketing/websites/${websiteId}/pages/${editingPage.id}`)
+        : buildApiUrl(`/marketing/websites/${websiteId}/pages/`)
       
       const method = editingPage ? "PUT" : "POST"
 
@@ -104,7 +105,7 @@ function PagesPage() {
 
     try {
       const response = await fetch(
-        `${API_BASE_URL}/marketing/websites/${websiteId}/pages/${pageId}`,
+        buildApiUrl(`/marketing/websites/${websiteId}/pages/${pageId}`),
         { method: "DELETE" }
       )
 
@@ -122,7 +123,7 @@ function PagesPage() {
   const handlePublish = async (pageId) => {
     try {
       const response = await fetch(
-        `${API_BASE_URL}/marketing/websites/${websiteId}/pages/${pageId}/publish`,
+        buildApiUrl(`/marketing/websites/${websiteId}/pages/${pageId}/publish`),
         { method: "POST" }
       )
 

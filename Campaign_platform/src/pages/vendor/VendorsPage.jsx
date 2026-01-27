@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import "./VendorPages.css"
+import { buildApiUrl } from "../../config"
 
 function VendorsPage() {
   const navigate = useNavigate()
@@ -37,7 +38,7 @@ function VendorsPage() {
       setLoading(true)
       
       // Fetch unified vendors
-      const res = await fetch(`${API_BASE_URL}/vendors/unified`)
+      const res = await fetch(buildApiUrl(`/vendors/unified`))
       
       if (res.ok) {
         const data = await res.json()
@@ -143,7 +144,7 @@ function VendorsPage() {
     if (!window.confirm("Are you sure you want to delete this vendor?")) return
     
     try {
-      await fetch(`${API_BASE_URL}/vendors/${id}`, { method: "DELETE" })
+      await fetch(buildApiUrl(`/vendors/${id}`), { method: "DELETE" })
       setVendors(vendors.filter(v => v._id !== id))
     } catch (err) {
       console.error("Error deleting vendor:", err)

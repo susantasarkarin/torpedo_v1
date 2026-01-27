@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useNavigate, useParams, Link } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { getStageById, getStageStyle as getPipelineStageStyle } from "../../utils/salesPipeline"
+import { buildApiUrl } from "../../config"
 
 const styles = {
   container: {
@@ -313,7 +314,7 @@ function LeadDetail() {
     setError(null)
 
     try {
-      const res = await fetch(`${API_BASE_URL}/leads/${leadId}`, {
+      const res = await fetch(buildApiUrl(`/leads/${leadId}`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -346,7 +347,7 @@ function LeadDetail() {
   const fetchRFQs = async () => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(`${API_BASE_URL}/rfq/by-lead/${leadId}`, {
+      const res = await fetch(buildApiUrl(`/rfq/by-lead/${leadId}`), {
         headers: {
           Authorization: sessionId,
         },
@@ -365,7 +366,7 @@ function LeadDetail() {
 
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(`${API_BASE_URL}/leads/${leadId}/move-to-contacts`, {
+      const res = await fetch(buildApiUrl(`/leads/${leadId}/move-to-contacts`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -391,7 +392,7 @@ function LeadDetail() {
 
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(`${API_BASE_URL}/leads/${leadId}`, {
+      const res = await fetch(buildApiUrl(`/leads/${leadId}`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
