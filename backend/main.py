@@ -891,6 +891,17 @@ try:
 except Exception as e:
     print(f"⚠️ Campaigns router not included: {e}")
 
+# Campaign Automation router (automated outreach with tracking)
+try:
+    try:
+        from .routers import campaign_automation as campaign_automation_router
+    except ImportError:
+        from routers import campaign_automation as campaign_automation_router
+    app.include_router(campaign_automation_router.router)
+    print("✅ Campaign Automation router included")
+except Exception as e:
+    print(f"⚠️ Campaign Automation router not included: {e}")
+
 # Email Classification router (AI batch classification)
 try:
     try:

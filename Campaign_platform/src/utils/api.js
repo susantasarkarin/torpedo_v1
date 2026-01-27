@@ -163,27 +163,33 @@ const handleError = (error, response) => {
 
 /**
  * Build URL with query parameters
+ * Robust to SSR and non-http origins (avoids using new URL with invalid base)
  */
 const buildUrl = (endpoint, params = {}) => {
-  // Use buildApiUrl helper for consistent URL construction
   const baseUrl = buildApiUrl(endpoint);
-  
-  // Create URL object - if baseUrl is relative (starts with /), use window.location.origin as base
-  const url = baseUrl.startsWith('/') 
-    ? new URL(baseUrl, window.location.origin)
-    : new URL(baseUrl);
 
+  // Build query string with URLSearchParams
+  const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") {
       if (Array.isArray(value)) {
-        value.forEach((v) => url.searchParams.append(key, v));
+        value.forEach((v) => search.append(key, v));
       } else {
-        url.searchParams.set(key, value);
+        search.set(key, value);
       }
     }
   });
 
-  return url.toString();
+  const qs = search.toString();
+
+  // Absolute URL: starts with http(s)
+  if (/^https?:\/\//i.test(baseUrl)) {
+    return qs ? `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}${qs}` : baseUrl;
+  }
+
+  // Relative URL: ensure leading slash; let fetch resolve against current origin
+  const path = baseUrl.startsWith('/') ? baseUrl : `/${baseUrl}`;
+  return qs ? `${path}${path.includes("?") ? "&" : "?"}${qs}` : path;
 };
 
 /**
