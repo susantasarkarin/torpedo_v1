@@ -53,7 +53,7 @@ const panelRequest = async (endpoint, options = {}) => {
     ...options.headers,
   };
 
-  const response = await fetch(buildApiUrl(`${endpoint}`), {
+  const response = await fetch(buildApiUrl(endpoint), {
     ...options,
     headers,
   });

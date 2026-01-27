@@ -15,7 +15,7 @@
  *   const leads = await api.get('/leads', { skip: 0, limit: 50 });
  */
 
-import { API_BASE_URL } from "../config";
+import { API_BASE_URL, buildApiUrl } from "../config";
 
 // ============== CONFIGURATION ==============
 
@@ -447,9 +447,8 @@ const api = {
       headers["Authorization"] = token;
     }
 
-    // Build full URL properly handling empty API_BASE_URL
-    const baseUrl = API_BASE_URL && API_BASE_URL.trim() !== "" ? API_BASE_URL : window.location.origin;
-    const url = `${baseUrl}${endpoint}`;
+    // Build full URL using buildApiUrl helper
+    const url = buildApiUrl(endpoint);
 
     const response = await fetch(url, {
       method: "POST",

@@ -123,7 +123,7 @@ function MailPool() {
     if (!auth) return
     
     try {
-      const res = await fetch(buildApiUrl(`/gmail/stats${filters.mailbox_id ? `)?mailbox_id=${filters.mailbox_id}` : ''}`, {
+      const res = await fetch(buildApiUrl(`/gmail/stats${filters.mailbox_id ? `?mailbox_id=${filters.mailbox_id}` : ''}`), {
         headers: { Authorization: auth }
       })
       if (res.ok) {
