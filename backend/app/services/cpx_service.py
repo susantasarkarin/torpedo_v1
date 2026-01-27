@@ -118,15 +118,18 @@ class CPXService:
         """
         Generate CPX survey entry link using direct URL format.
         
-        Per CPX documentation, the correct entry URL format is:
-        https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&secure_hash={secure_hash}&offer_id={survey_id}
+        Per CPX API, the href_new format is:
+        https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&survey_id={survey_id}
+        
+        We add secure_hash for authentication:
+        https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&secure_hash={md5}&survey_id={survey_id}
         
         NOTE: We do NOT use the 'href' from API response because that's an encrypted 
         click-tracking URL tied to the ext_user_id used during the API call.
         Instead, we generate fresh entry links for each respondent.
         
         Args:
-            survey_id: The CPX survey ID (offer_id)
+            survey_id: The CPX survey ID
             respondent_id: The respondent ID to use as ext_user_id (unique per user)
             subid_1: Optional tracking parameter
             subid_2: Optional tracking parameter
@@ -146,12 +149,13 @@ class CPXService:
         
         from urllib.parse import quote, urlencode
         
-        # Build query parameters per CPX documentation
+        # Build query parameters matching CPX href_new format exactly:
+        # https://offers.cpx-research.com/index.php?app_id=10754&ext_user_id={ext_user_id}&survey_id={survey_id}
         params = {
             "app_id": self.app_id,
             "ext_user_id": respondent_id,
             "secure_hash": secure_hash,
-            "offer_id": survey_id,
+            "survey_id": survey_id,  # CPX uses survey_id, not offer_id
         }
         
         # Add optional tracking parameters
@@ -170,11 +174,11 @@ class CPXService:
         Generate a template entry link with placeholders for runtime substitution.
         Used for display purposes - actual values should be substituted at allocation time.
         
-        Template format:
-        https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&secure_hash={secure_hash}&offer_id={survey_id}
+        Template format (matching CPX href_new):
+        https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&survey_id={survey_id}
         
         Args:
-            survey_id: The CPX survey ID (offer_id)
+            survey_id: The CPX survey ID
             
         Returns:
             Entry URL template with placeholders for ext_user_id and secure_hash
@@ -187,7 +191,7 @@ class CPXService:
             f"?app_id={self.app_id}"
             f"&ext_user_id={{ext_user_id}}"
             f"&secure_hash={{secure_hash}}"
-            f"&offer_id={survey_id}"
+            f"&survey_id={survey_id}"
         )
         return template
     
