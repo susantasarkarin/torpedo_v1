@@ -172,74 +172,39 @@ async def cpx_callback(
     request: Request,
     msg: str = Query(None, description="Response type: complete or out"),
     message_id: str = Query(None, description="Response type: complete or out (alias)"),
-    rid: str = Query(..., description="CPX message_id (encrypted)"),
-    sfwid: str = Query(None, description="SFWID passed via subid_1 from CPX")
+    rid: str = Query(None, description="CPX message_id (optional, for backwards compatibility)"),
+    sfwid: str = Query(None, description="SFWID passed via subid_1 from CPX - PRIMARY identifier")
 ):
     """
     CPX Survey Callback Handler
     
-    URL format: /cpx-response?msg={msg}&rid={sfwid}
-    or: /cpx-response?message_id={message_id}&rid={sfwid}
+    URL format: /cpx-response?msg={type}&rid={message_id}&sfwid={subid_1}
     
-    - msg/message_id: "complete" or "out"
-    - rid: The SFWID (traffic record _id) - CPX double base64 encodes this value
+    - msg: "complete" or "out" (terminate)
+    - rid: CPX message_id (optional, not used for lookup)
+    - sfwid: The SFWID (traffic record _id) passed via subid_1 - PRIMARY identifier
     
     Logic:
-    1. Decode rid (CPX double base64 encodes the ext_user_id)
-    2. Find the traffic record by _id (SFWID)
-    3. Get the vendorId from the traffic record
-    4. Look up vendor's redirect URL (completeRD or terminateRD)
-    5. Append the original respondentId from the traffic record to vendor's redirect URL
-    6. Update traffic status and redirect to vendor
+    1. Use sfwid (from subid_1) to find the traffic record
+    2. Get the vendorId from the traffic record
+    3. Look up vendor's redirect URL (completeRD or terminateRD)
+    4. Append the original respondentId from the traffic record to vendor's redirect URL
+    5. Update traffic status and redirect to vendor
     """
     try:
-        # Support both 'msg' and 'message_id' parameters
+        # Support both 'msg' and 'message_id' parameters for status
         status_code = msg or message_id or "out"
         
         print(f"📥 CPX Callback received: msg={status_code}, rid={rid}, sfwid={sfwid}")
         print(f"📥 Full callback URL: {request.url}")
         
-        # Prioritize sfwid from subid_1 if provided (CPX passes it unchanged)
-        if sfwid:
-            decoded_sfwid = sfwid
-            print(f"✅ Using sfwid from subid_1: {sfwid}")
-        else:
-            # Fallback: CPX double base64 encodes the ext_user_id, so we need to decode twice
-            decoded_sfwid = rid
+        # sfwid from subid_1 is the PRIMARY identifier - it contains the SFWID (traffic record _id)
+        if not sfwid:
+            print(f"❌ Missing sfwid parameter - cannot identify traffic record")
+            return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
-        def try_base64_decode(value: str) -> str:
-            """Try to base64 decode a value, return original if fails"""
-            try:
-                # Add padding if needed
-                padded = value + '=' * (4 - len(value) % 4) if len(value) % 4 else value
-                decoded = base64.b64decode(padded).decode('utf-8')
-                return decoded
-            except Exception:
-                return value
-        
-        # Try double base64 decoding (CPX encodes twice)
-        if rid and len(rid) > 20:
-            first_decode = try_base64_decode(rid)
-            print(f"🔓 First base64 decode: {rid} -> {first_decode}")
-            
-            if first_decode != rid:
-                # Try second decode
-                second_decode = try_base64_decode(first_decode)
-                print(f"🔓 Second base64 decode: {first_decode} -> {second_decode}")
-                
-                # Use the most decoded version that looks like a MongoDB ObjectId (24 hex chars)
-                if len(second_decode) == 24 and all(c in '0123456789abcdef' for c in second_decode.lower()):
-                    decoded_sfwid = second_decode
-                    print(f"✅ Using double-decoded SFWID: {decoded_sfwid}")
-                elif len(first_decode) == 24 and all(c in '0123456789abcdef' for c in first_decode.lower()):
-                    decoded_sfwid = first_decode
-                    print(f"✅ Using single-decoded SFWID: {decoded_sfwid}")
-                else:
-                    # Try the second decode anyway
-                    decoded_sfwid = second_decode if second_decode != first_decode else first_decode
-                    print(f"⚠️ Using decoded value (not ObjectId format): {decoded_sfwid}")
-            else:
-                print(f"ℹ️ rid is not base64 encoded, using as-is: {rid}")
+        decoded_sfwid = sfwid
+        print(f"✅ Using sfwid from subid_1: {sfwid}")
         
         # Determine status based on msg/message_id ("out" treated as terminate)
         if status_code.lower() == "complete":
@@ -272,18 +237,7 @@ async def cpx_callback(
         traffic_record = None
         search_values = [decoded_sfwid]
         
-        # If sfwid was provided, ensure it's in search list with highest priority
-        if sfwid and sfwid not in search_values:
-            search_values.insert(0, sfwid)
-        
-        # Also try original rid and first decode if different
-        if rid != decoded_sfwid:
-            search_values.append(rid)
-        first_decode_attempt = try_base64_decode(rid)
-        if first_decode_attempt not in search_values:
-            search_values.append(first_decode_attempt)
-        
-        print(f"🔍 Searching for traffic record with values: {search_values}")
+        print(f"🔍 Searching for traffic record with SFWID: {search_values}")
         
         if url_parameters_collection is not None:
             for search_val in search_values:
@@ -311,8 +265,7 @@ async def cpx_callback(
                         print(f"✅ Found traffic record by respondentId: {search_val}")
         
         if not traffic_record:
-            print(f"❌ No traffic record found for any search value: {search_values}")
-            print(f"❌ Original rid: {rid}")
+            print(f"❌ No traffic record found for SFWID: {decoded_sfwid}")
             # Redirect to error page
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
