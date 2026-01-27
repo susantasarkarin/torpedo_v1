@@ -1135,6 +1135,37 @@ def cint_health_check():
         asyncio.run(_check_and_resubscribe())
 
 
+def background_survey_sync():
+    """
+    Background job to sync and activate surveys from CPX/CINT pools.
+    
+    This job evaluates surveys against filter criteria and marks eligible
+    surveys as is_active_in_pool=True, making them available for traffic allocation.
+    
+    Runs every 10 minutes to ensure surveys are properly activated.
+    """
+    try:
+        print(f"🔄 [Survey Pool] Starting sync at {datetime.utcnow().isoformat()}")
+        
+        from app.services.activation_service import get_activation_service
+        
+        service = get_activation_service()
+        stats = service.sync_and_activate_surveys()
+        
+        cpx_activated = stats.get("cpx_activated", 0)
+        cint_activated = stats.get("cint_activated", 0)
+        total_activated = cpx_activated + cint_activated
+        
+        if total_activated > 0:
+            print(f"✅ [Survey Pool] Sync complete: {total_activated} surveys activated (CPX: {cpx_activated}, CINT: {cint_activated})")
+        else:
+            print(f"ℹ️ [Survey Pool] Sync complete: No new surveys to activate")
+            
+    except Exception as e:
+        print(f"❌ [Survey Pool] Sync failed: {str(e)}")
+        traceback.print_exc()
+
+
 def background_historic_email_sync():
     """
     Background job to download historic emails for all mailboxes.
@@ -1401,6 +1432,27 @@ async def startup_event():
             print("✅ Cint health check job scheduled (every 30 minutes)")
     except Exception as e:
         print(f"⚠️ Could not schedule Cint health check job: {e}")
+    
+    # ----------------------------
+    # Survey Pool Sync & Activation (every 10 minutes)
+    # ----------------------------
+    try:
+        if scheduler.running:
+            scheduler.add_job(
+                background_survey_sync,
+                IntervalTrigger(seconds=600),  # Every 10 minutes
+                id="survey_pool_sync",
+                name="Survey Pool Sync & Activation",
+                replace_existing=True
+            )
+            print("✅ Survey pool sync job scheduled (every 10 minutes)")
+            
+            # Run initial sync on startup (non-blocking)
+            import asyncio
+            asyncio.create_task(asyncio.to_thread(background_survey_sync))
+            print("🚀 Initial survey pool sync scheduled (running in background)")
+    except Exception as e:
+        print(f"⚠️ Could not schedule survey pool sync job: {e}")
     
     # ----------------------------
     # Historic Email Backfill (every 30 seconds, rate-limited)
