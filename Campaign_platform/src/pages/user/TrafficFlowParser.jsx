@@ -67,9 +67,10 @@ export default function TrafficFlowParser() {
           console.log(`✅ Survey allocated successfully, redirecting to: ${entryLink}`);
           window.location.href = entryLink;
         } else {
-          // Fallback to Zoho survey if no survey was allocated
-          console.log("⚠️ No survey allocated, redirecting to fallback survey");
-          window.location.href = `https://survey.zohopublic.in/zs/lTCyZz?rid=${objectId}`;
+          // No survey allocated - show error instead of redirecting to wrong survey
+          console.error("❌ No survey allocated from pool. Backend sync may have failed.");
+          setError("No surveys are currently available. Please try again in a few minutes or contact support.");
+          setLoading(false);
         }
       } else {
         const errorData = await response.json().catch(() => ({ detail: "Unknown error" }));
