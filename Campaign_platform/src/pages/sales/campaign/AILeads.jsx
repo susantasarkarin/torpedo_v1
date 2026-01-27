@@ -557,6 +557,15 @@ function AILeads() {
   const handleImport = async () => {
     setImporting(true);
     setImportError("");
+
+    const parseResponse = async (res) => {
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
+        return res.json();
+      }
+      const text = await res.text();
+      return { detail: text || res.statusText };
+    };
     
     try {
       let res;
@@ -636,12 +645,12 @@ function AILeads() {
           }),
         });
         
+        const jobData = await parseResponse(res);
         if (!res.ok) {
-          const error = await res.json();
-          throw new Error(error.detail || "Failed to start search job");
+          throw new Error(jobData.detail || "Failed to start search job");
         }
         
-        const jobResult = await res.json();
+        const jobResult = jobData;
         
         if (jobResult.success && jobResult.job_id) {
           // Store job ID and start polling for status
@@ -721,12 +730,12 @@ function AILeads() {
         }
       }
 
+      const resultData = await parseResponse(res);
       if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.detail || "Import failed");
+        throw new Error(resultData.detail || `Import failed (HTTP ${res.status})`);
       }
 
-      const result = await res.json();
+      const result = resultData;
       alert(result.message || `Imported ${result.imported} leads`);
       resetImportModal();
       fetchRawLeads();
