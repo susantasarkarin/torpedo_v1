@@ -165,7 +165,9 @@ const handleError = (error, response) => {
  * Build URL with query parameters
  */
 const buildUrl = (endpoint, params = {}) => {
-  const url = new URL(`${API_BASE_URL}${endpoint}`);
+  // Handle empty API_BASE_URL (production with relative URLs)
+  const baseUrl = API_BASE_URL || window.location.origin;
+  const url = new URL(`${baseUrl}${endpoint}`);
 
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") {
