@@ -8,6 +8,7 @@ export default function TrafficFlowParser() {
   const [fullUrl, setFullUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
   const hasAutoTriggered = useRef(false);
 
   useEffect(() => {
@@ -20,7 +21,27 @@ export default function TrafficFlowParser() {
     setUrlParams(parsedParams);
   }, []);
 
-  const handleStore = useCallback(async () => {
+  // Function to trigger survey pool sync
+  const triggerSurveySync = async () => {
+    try {
+      console.log("🔄 Triggering survey pool sync...");
+      const syncResponse = await fetch(buildApiUrl(`/survey-pool/sync`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        mode: "cors",
+      });
+      if (syncResponse.ok) {
+        const syncResult = await syncResponse.json();
+        console.log("✅ Survey sync completed:", syncResult);
+        return true;
+      }
+    } catch (err) {
+      console.error("⚠️ Survey sync failed:", err);
+    }
+    return false;
+  };
+
+  const handleStore = useCallback(async (isRetry = false) => {
     // Check for required traffic parameters
     const vid = urlParams.vid;
     const cc = urlParams.cc;
@@ -67,8 +88,20 @@ export default function TrafficFlowParser() {
           console.log(`✅ Survey allocated successfully, redirecting to: ${entryLink}`);
           window.location.href = entryLink;
         } else {
-          // No survey allocated - show error instead of redirecting to wrong survey
-          console.error("❌ No survey allocated from pool. Backend sync may have failed.");
+          // No survey allocated - try to sync and retry once
+          if (!isRetry && retryCount < 1) {
+            console.log("⚠️ No survey allocated, triggering sync and retrying...");
+            setRetryCount(prev => prev + 1);
+            const synced = await triggerSurveySync();
+            if (synced) {
+              // Wait a moment for sync to complete, then retry
+              setTimeout(() => handleStore(true), 2000);
+              return;
+            }
+          }
+          
+          // If retry also failed, show error
+          console.error("❌ No survey allocated from pool after retry. Backend may have no active surveys.");
           setError("No surveys are currently available. Please try again in a few minutes or contact support.");
           setLoading(false);
         }
@@ -90,7 +123,7 @@ export default function TrafficFlowParser() {
       setError(errorMessage);
       setLoading(false);
     }
-  }, [urlParams, fullUrl]);
+  }, [urlParams, fullUrl, retryCount]);
 
   // Auto-trigger removed - user must click the "Next" button manually
   // This was causing the system to automatically click the button
