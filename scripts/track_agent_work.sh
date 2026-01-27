@@ -213,7 +213,7 @@ if [[ $SHOW_STATS -eq 1 ]]; then
     print_info "Most frequently changed files (last 20 commits):"
     git log --name-only --oneline --since="$TIME_FILTER" 2>/dev/null | \
         grep -v '^$' | \
-        grep -v '^[a-f0-9]\{7,\}' | \
+        grep -v '^[a-f0-9]\{7,40\}$' | \
         sort | uniq -c | sort -rn | head -10
 fi
 
@@ -230,7 +230,7 @@ if [[ -f "$PROJECT_DIR/AGENT_WORK_LOG.md" ]]; then
     
     # Try to extract the last session entry
     if [[ $SHOW_TODAY -eq 1 ]]; then
-        TODAY=$(date +$DATE_FORMAT)
+        TODAY=$(date +"$DATE_FORMAT")
         grep -A 20 "Session: $TODAY" "$PROJECT_DIR/AGENT_WORK_LOG.md" || print_info "No entries for today"
     else
         # Show last few session entries
