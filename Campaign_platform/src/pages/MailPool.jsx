@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../config"
 import "./Settings.css"
@@ -91,9 +91,17 @@ const isHtmlContent = (content) => {
   return /<(html|head|body|div|p|span|table|tr|td|br|img|a|ul|ol|li|h[1-6]|strong|em|b|i)[^>]*>/i.test(content)
 }
 
-// Format plain text email body to HTML
+// Format plain text email body to HTML (with caching)
+const emailBodyCache = new Map()
 const formatEmailBody = (body) => {
   if (!body) return ""
+  
+  // Check cache first
+  if (emailBodyCache.has(body)) {
+    return emailBodyCache.get(body)
+  }
+  
+  let result
   
   // Check if it's already HTML
   if (isHtmlContent(body)) {
@@ -103,7 +111,9 @@ const formatEmailBody = (body) => {
       .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
     
     // Add some base styles for better readability
-    return `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${cleaned}</div>`
+    result = `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${cleaned}</div>`
+    emailBodyCache.set(body, result)
+    return result
   }
   
   // It's plain text - need to format properly
@@ -114,7 +124,9 @@ const formatEmailBody = (body) => {
   
   if (isEmailThread) {
     // Parse email thread and format each message separately
-    return formatEmailThread(body)
+    result = formatEmailThread(body)
+    emailBodyCache.set(body, result)
+    return result
   }
   
   // Simple plain text formatting
@@ -172,7 +184,9 @@ const formatEmailBody = (body) => {
     flushQuote()
   }
   
-  return `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${formatted.join('')}</div>`
+  result = `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${formatted.join('')}</div>`
+  emailBodyCache.set(body, result)
+  return result
 }
 
 // Format email thread with multiple messages
@@ -249,14 +263,23 @@ const getInitials = (name, email) => {
   return email ? email.charAt(0).toUpperCase() : "?"
 }
 
-// Get avatar color based on name
+// Get avatar color based on name (with caching)
+const avatarColorCache = new Map()
 const getAvatarColor = (name) => {
+  const key = name || ""
+  if (avatarColorCache.has(key)) {
+    return avatarColorCache.get(key)
+  }
+  
   const colors = [
     "#1a73e8", "#ea4335", "#34a853", "#fbbc04", "#673ab7",
     "#e91e63", "#00bcd4", "#ff5722", "#795548", "#607d8b"
   ]
-  const hash = (name || "").split("").reduce((a, b) => a + b.charCodeAt(0), 0)
-  return colors[hash % colors.length]
+  const hash = key.split("").reduce((a, b) => a + b.charCodeAt(0), 0)
+  const color = colors[hash % colors.length]
+  
+  avatarColorCache.set(key, color)
+  return color
 }
 
 function MailPool() {
@@ -309,6 +332,9 @@ function MailPool() {
   // Signatures & Aliases
   const [signatures, setSignatures] = useState({})
   const [aliases, setAliases] = useState([])
+
+  // Debounce timer ref for filter changes
+  const filterDebounceTimer = useRef(null)
 
   // Fetch stats
   const fetchStats = useCallback(async () => {
@@ -971,10 +997,25 @@ function MailPool() {
     loadData()
   }, [fetchStats, fetchEmails])
 
-  // Reload emails when filters change
+  // Reload emails when filters change (debounced)
   useEffect(() => {
-    if (!showReviewQueue) {
-      fetchEmails(1)
+    // Clear any existing timer
+    if (filterDebounceTimer.current) {
+      clearTimeout(filterDebounceTimer.current)
+    }
+
+    // Set a new timer to delay the API call
+    filterDebounceTimer.current = setTimeout(() => {
+      if (!showReviewQueue) {
+        fetchEmails(1)
+      }
+    }, 300) // 300ms debounce
+
+    // Cleanup function to clear timer on unmount or dependency change
+    return () => {
+      if (filterDebounceTimer.current) {
+        clearTimeout(filterDebounceTimer.current)
+      }
     }
   }, [filterSegment, filterAICategory, filterSearch, filterDirection, filterAccount, filterFolder, fetchEmails, showReviewQueue])
 
