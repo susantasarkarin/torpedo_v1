@@ -16,6 +16,10 @@ NC='\033[0m' # No Color
 # Date format for consistency
 DATE_FORMAT="%Y-%m-%d"
 
+# Constants for statistics
+MIN_COMMITS_FOR_STATS=6
+STATS_COMMIT_RANGE=5
+
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -129,15 +133,15 @@ CURRENT_BRANCH=$(git branch --show-current)
 # Check if the remote branch exists before comparing
 if git show-ref --verify --quiet refs/remotes/origin/$CURRENT_BRANCH; then
     UNPUSHED=$(git log origin/$CURRENT_BRANCH..$CURRENT_BRANCH --oneline 2>/dev/null | wc -l)
+    if [[ $UNPUSHED -gt 0 ]]; then
+        print_info "$UNPUSHED unpushed commit(s) on branch $CURRENT_BRANCH"
+        git log origin/$CURRENT_BRANCH..$CURRENT_BRANCH --oneline
+    else
+        print_success "All commits pushed to remote"
+    fi
 else
     UNPUSHED=0
     print_info "Remote branch not found (new branch or not yet pushed)"
-fi
-if [[ $UNPUSHED -gt 0 ]]; then
-    print_info "$UNPUSHED unpushed commit(s) on branch $CURRENT_BRANCH"
-    git log origin/$CURRENT_BRANCH..$CURRENT_BRANCH --oneline
-else
-    print_success "All commits pushed to remote"
 fi
 
 # Show recent agent work
@@ -198,16 +202,19 @@ if [[ $SHOW_STATS -eq 1 ]]; then
     print_info "Lines changed in recent work:"
     # Check if we have enough commits before running diff
     COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "0")
-    if [[ $COMMIT_COUNT -ge 6 ]]; then
-        git diff --shortstat HEAD~5..HEAD 2>/dev/null || print_info "Unable to compute statistics"
+    if [[ $COMMIT_COUNT -ge $MIN_COMMITS_FOR_STATS ]]; then
+        git diff --shortstat HEAD~${STATS_COMMIT_RANGE}..HEAD 2>/dev/null || print_info "Unable to compute statistics"
     else
-        print_info "Not enough commit history (need at least 6 commits)"
+        print_info "Not enough commit history (need at least $MIN_COMMITS_FOR_STATS commits)"
     fi
     
     # Most changed files
     echo ""
     print_info "Most frequently changed files (last 20 commits):"
-    git log --name-only --oneline --since="$TIME_FILTER" | grep -v '^[a-f0-9]' | grep -v '^$' | sort | uniq -c | sort -rn | head -10
+    git log --name-only --oneline --since="$TIME_FILTER" 2>/dev/null | \
+        grep -v '^$' | \
+        grep -v '^[a-f0-9]\{7,\}' | \
+        sort | uniq -c | sort -rn | head -10
 fi
 
 # Check agent work log
