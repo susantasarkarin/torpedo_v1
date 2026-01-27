@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../config"
 import "./Settings.css"
@@ -93,6 +93,8 @@ const isHtmlContent = (content) => {
 
 // Format plain text email body to HTML (with caching)
 const emailBodyCache = new Map()
+const MAX_EMAIL_CACHE_SIZE = 500 // Limit cache to 500 entries
+
 const formatEmailBody = (body) => {
   if (!body) return ""
   
@@ -112,6 +114,12 @@ const formatEmailBody = (body) => {
     
     // Add some base styles for better readability
     result = `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${cleaned}</div>`
+    
+    // Cache with size limit (LRU-style: remove oldest when full)
+    if (emailBodyCache.size >= MAX_EMAIL_CACHE_SIZE) {
+      const firstKey = emailBodyCache.keys().next().value
+      emailBodyCache.delete(firstKey)
+    }
     emailBodyCache.set(body, result)
     return result
   }
@@ -125,6 +133,12 @@ const formatEmailBody = (body) => {
   if (isEmailThread) {
     // Parse email thread and format each message separately
     result = formatEmailThread(body)
+    
+    // Cache with size limit
+    if (emailBodyCache.size >= MAX_EMAIL_CACHE_SIZE) {
+      const firstKey = emailBodyCache.keys().next().value
+      emailBodyCache.delete(firstKey)
+    }
     emailBodyCache.set(body, result)
     return result
   }
@@ -185,6 +199,12 @@ const formatEmailBody = (body) => {
   }
   
   result = `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${formatted.join('')}</div>`
+  
+  // Cache with size limit
+  if (emailBodyCache.size >= MAX_EMAIL_CACHE_SIZE) {
+    const firstKey = emailBodyCache.keys().next().value
+    emailBodyCache.delete(firstKey)
+  }
   emailBodyCache.set(body, result)
   return result
 }
@@ -265,6 +285,8 @@ const getInitials = (name, email) => {
 
 // Get avatar color based on name (with caching)
 const avatarColorCache = new Map()
+const MAX_AVATAR_CACHE_SIZE = 200 // Limit cache to 200 entries
+
 const getAvatarColor = (name) => {
   const key = name || ""
   if (avatarColorCache.has(key)) {
@@ -278,6 +300,11 @@ const getAvatarColor = (name) => {
   const hash = key.split("").reduce((a, b) => a + b.charCodeAt(0), 0)
   const color = colors[hash % colors.length]
   
+  // Cache with size limit
+  if (avatarColorCache.size >= MAX_AVATAR_CACHE_SIZE) {
+    const firstKey = avatarColorCache.keys().next().value
+    avatarColorCache.delete(firstKey)
+  }
   avatarColorCache.set(key, color)
   return color
 }
