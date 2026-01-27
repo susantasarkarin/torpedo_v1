@@ -13,6 +13,9 @@ RED='\033[0;31m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# Date format for consistency
+DATE_FORMAT="%Y-%m-%d"
+
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -123,7 +126,13 @@ fi
 
 # Check for unpushed commits
 CURRENT_BRANCH=$(git branch --show-current)
-UNPUSHED=$(git log origin/$CURRENT_BRANCH..$CURRENT_BRANCH --oneline 2>/dev/null | wc -l)
+# Check if the remote branch exists before comparing
+if git show-ref --verify --quiet refs/remotes/origin/$CURRENT_BRANCH; then
+    UNPUSHED=$(git log origin/$CURRENT_BRANCH..$CURRENT_BRANCH --oneline 2>/dev/null | wc -l)
+else
+    UNPUSHED=0
+    print_info "Remote branch not found (new branch or not yet pushed)"
+fi
 if [[ $UNPUSHED -gt 0 ]]; then
     print_info "$UNPUSHED unpushed commit(s) on branch $CURRENT_BRANCH"
     git log origin/$CURRENT_BRANCH..$CURRENT_BRANCH --oneline
@@ -187,7 +196,13 @@ if [[ $SHOW_STATS -eq 1 ]]; then
     # Lines changed
     echo ""
     print_info "Lines changed in recent work:"
-    git diff --shortstat HEAD~5..HEAD 2>/dev/null || print_info "Not enough history for statistics"
+    # Check if we have enough commits before running diff
+    COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+    if [[ $COMMIT_COUNT -ge 6 ]]; then
+        git diff --shortstat HEAD~5..HEAD 2>/dev/null || print_info "Unable to compute statistics"
+    else
+        print_info "Not enough commit history (need at least 6 commits)"
+    fi
     
     # Most changed files
     echo ""
@@ -208,7 +223,7 @@ if [[ -f "$PROJECT_DIR/AGENT_WORK_LOG.md" ]]; then
     
     # Try to extract the last session entry
     if [[ $SHOW_TODAY -eq 1 ]]; then
-        TODAY=$(date +%Y-%m-%d)
+        TODAY=$(date +$DATE_FORMAT)
         grep -A 20 "Session: $TODAY" "$PROJECT_DIR/AGENT_WORK_LOG.md" || print_info "No entries for today"
     else
         # Show last few session entries
@@ -223,20 +238,20 @@ fi
 print_header "🔧 Quick Reference Commands"
 
 echo -e "${CYAN}View detailed changes:${NC}"
-echo "  git show HEAD              # Last commit details"
-echo "  git diff main..HEAD        # All changes on current branch"
+echo '  git show HEAD              # Last commit details'
+echo '  git diff main..HEAD        # All changes on current branch'
 echo ""
 echo -e "${CYAN}Find specific work:${NC}"
 echo "  git log --since='today'    # Today's commits"
 echo "  git log --grep='copilot'   # Commits mentioning copilot"
 echo ""
 echo -e "${CYAN}Sync with remote:${NC}"
-echo "  git pull origin \$(git branch --show-current)"
-echo "  git push origin \$(git branch --show-current)"
+echo '  git pull origin $(git branch --show-current)'
+echo '  git push origin $(git branch --show-current)'
 echo ""
 echo -e "${CYAN}View work log:${NC}"
-echo "  cat AGENT_WORK_LOG.md      # Full work log"
-echo "  tail -50 AGENT_WORK_LOG.md # Recent entries"
+echo '  cat AGENT_WORK_LOG.md      # Full work log'
+echo '  tail -50 AGENT_WORK_LOG.md # Recent entries'
 
 # Summary
 print_header "✅ Summary"
