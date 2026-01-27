@@ -682,12 +682,13 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         survey['_source'] = 'CPX'
                         all_surveys.append(survey)
                     
-                    # Add CINT surveys with source tag
-                    for survey in cint_surveys:
-                        survey['_source'] = 'CINT'
-                        all_surveys.append(survey)
+                    # TEMPORARILY DISABLED: CINT surveys not working correctly
+                    # TODO: Re-enable once CINT integration is fixed
+                    # for survey in cint_surveys:
+                    #     survey['_source'] = 'CINT'
+                    #     all_surveys.append(survey)
                     
-                    print(f"📊 Total active surveys in pool: {len(all_surveys)} (CPX: {len(cpx_surveys)}, CINT: {len(cint_surveys)})")
+                    print(f"📊 Total active surveys in pool: {len(all_surveys)} (CPX: {len(cpx_surveys)}, CINT: {len(cint_surveys)} - CINT DISABLED)")
                     
                     if all_surveys:
                         # Randomly select a survey from the combined pool
