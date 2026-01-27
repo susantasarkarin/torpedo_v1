@@ -20,6 +20,13 @@ from apscheduler.triggers.interval import IntervalTrigger
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# Set up basic logging configuration if not already configured
+if not logging.getLogger().hasHandlers():
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
 # Auth utilities for password hashing
 try:
     from .auth import hash_password, verify_password, needs_rehash, migrate_user_password

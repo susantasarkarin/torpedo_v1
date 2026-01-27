@@ -75,22 +75,27 @@ def test_profile_update_field_normalization():
     
     print("✅ Test Case 3: Priority handling (snake_case wins) - PASSED")
     
-    # Test Case 4: Invalid fields should be filtered out
-    invalid_data = {
+    # Test Case 4: Only allowed fields should be processed
+    # Note: The function explicitly handles only display_name/displayName and email
+    # Other fields are naturally ignored (not filtered, just not processed)
+    mixed_data = {
         "email": "valid@example.com",
         "display_name": "Valid Name",
-        "password": "should_not_be_here",  # Not in allowed_fields
-        "role": "admin"  # Not in allowed_fields
+        "password": "should_be_ignored",  # Not processed by function
+        "role": "admin"  # Not processed by function
     }
     
-    result4 = normalize_profile_data(invalid_data)
+    result4 = normalize_profile_data(mixed_data)
     
-    assert "password" not in result4, "password should be filtered out"
-    assert "role" not in result4, "role should be filtered out"
-    assert "email" in result4, "email should be preserved"
-    assert "displayName" in result4, "displayName should be preserved"
+    # Only email and displayName should be in result
+    assert "password" not in result4, "password should not be processed"
+    assert "role" not in result4, "role should not be processed"
+    assert "email" in result4, "email should be processed"
+    assert result4["email"] == "valid@example.com", "email should be preserved"
+    assert "displayName" in result4, "displayName should be processed"
+    assert result4["displayName"] == "Valid Name", "displayName should be preserved"
     
-    print("✅ Test Case 4: Invalid fields filtered - PASSED")
+    print("✅ Test Case 4: Only allowed fields processed - PASSED")
     
     return True
 
