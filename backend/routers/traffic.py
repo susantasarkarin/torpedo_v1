@@ -658,8 +658,10 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                             # Generate CPX entry link with survey_id and SFWID as ext_user_id
                             # Using direct entry URL format per CPX documentation
                             if cpx_service:
-                                # Get href from survey (prefer href_new for mobile optimization)
-                                survey_href = selected_survey.get('href_new') or selected_survey.get('href') or selected_survey.get('live_link')
+                                # Get href from survey (prefer href for click-tracking with subid support)
+                                # href format: https://click.cpx-research.com/?k=ENCRYPTED&subid_1=&subid_2=
+                                # We populate subid_1 with SFWID for callback tracking
+                                survey_href = selected_survey.get('href') or selected_survey.get('href_new') or selected_survey.get('live_link')
                                 
                                 entry_link = cpx_service.generate_entry_link(
                                     survey_id=str(survey_id),

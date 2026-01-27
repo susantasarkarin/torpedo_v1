@@ -111,68 +111,35 @@ class CPXService:
         respondent_id: str,
         subid_1: Optional[str] = None,
         subid_2: Optional[str] = None,
-        href: Optional[str] = None,  # CPX click-tracking URL from API
+        href: Optional[str] = None,  # Not used - kept for backward compatibility
         username: Optional[str] = None,
         email: Optional[str] = None,
-        live_link: Optional[str] = None,  # Deprecated - kept for backward compatibility
+        live_link: Optional[str] = None,  # Not used - kept for backward compatibility
     ) -> str:
         """
-        Generate CPX survey entry link.
+        Generate CPX survey entry link using the offers.cpx-research.com format.
         
-        Per CPX documentation, the API returns href URLs in format:
-        https://click.cpx-research.com/?k=ENCRYPTED_KEY&subid_1=&subid_2=
-        
-        We append our subid_1 (SFWID for callback tracking) to this URL.
+        URL format:
+        https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&secure_hash={secure_hash}&survey_id={survey_id}&subid_1={subid_1}
         
         Args:
             survey_id: The CPX survey ID
-            respondent_id: The respondent ID (SFWID) for tracking
+            respondent_id: The respondent ID (ext_user_id) for tracking
             subid_1: Optional tracking parameter (defaults to respondent_id)
             subid_2: Optional tracking parameter
-            href: CPX click-tracking URL from API response
-            username: Optional username (not used with href approach)
-            email: Optional email (not used with href approach)
-            live_link: Deprecated alias for href
+            href: Not used - kept for backward compatibility
+            username: Optional username (not used)
+            email: Optional email (not used)
+            live_link: Not used - kept for backward compatibility
             
         Returns:
-            CPX entry URL with subid_1/subid_2 populated for callback tracking
+            CPX entry URL in offers.cpx-research.com format
         """
         if not survey_id or not respondent_id:
             return ""
         
-        # Use href from API if provided, or live_link as fallback
-        base_url = href or live_link
-        
-        if base_url:
-            # CPX href format: https://click.cpx-research.com/?k=...&subid_1=&subid_2=
-            # We need to populate the empty subid_1 and subid_2 values
-            import re
-            
-            # Get tracking values
-            tracking_subid_1 = subid_1 or respondent_id
-            tracking_subid_2 = subid_2 or ""
-            
-            # Replace empty subid_1 with our value
-            # Pattern: subid_1= followed by & or end of string
-            if "subid_1=" in base_url:
-                # Replace empty subid_1
-                base_url = re.sub(r'subid_1=(&|$)', f'subid_1={tracking_subid_1}\\1', base_url)
-            else:
-                # Append subid_1
-                separator = "&" if "?" in base_url else "?"
-                base_url = f"{base_url}{separator}subid_1={tracking_subid_1}"
-            
-            # Replace empty subid_2 with our value if provided
-            if tracking_subid_2:
-                if "subid_2=" in base_url:
-                    base_url = re.sub(r'subid_2=(&|$)', f'subid_2={tracking_subid_2}\\1', base_url)
-                else:
-                    base_url = f"{base_url}&subid_2={tracking_subid_2}"
-            
-            return base_url
-        
-        # Fallback: Generate direct URL if no href available
-        # This uses the offers.cpx-research.com format
+        # Always generate the offers.cpx-research.com/index.php format
+        # This is the correct format per CPX documentation
         secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
         
         from urllib.parse import urlencode
@@ -371,18 +338,14 @@ class CPXService:
         # The allocation logic should skip country filtering for CPX surveys when country=ALL
         country = survey.get("survey_country") or survey.get("country", "") or "ALL"
         
-        # Get href and href_new from CPX API response
-        # Per CPX docs: "Please always use href_new for the entry link, as its mobile optimized"
-        # However, href format (click.cpx-research.com) has subid_1/subid_2 params for callback tracking
-        # href format: https://click.cpx-research.com/?k=ENCRYPTED&subid_1=&subid_2=
-        # href_new format: https://offers.cpx-research.com/index.php?app_id=...&ext_user_id=...&survey_id=...
-        # We prefer href because it has empty subid_1/subid_2 that we can populate for callback tracking
+        # Get href and href_new from CPX API response (stored for reference only)
         href = survey.get("href") or ""
         href_new = survey.get("href_new") or ""
         
-        # Use href (click-tracking) for allocation since it supports subid params
-        # href_new is the direct URL but has fixed ext_user_id
-        live_link = href or href_new or survey.get("link") or ""
+        # Generate live_link using the correct offers.cpx-research.com/index.php format
+        # Format: https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&secure_hash={secure_hash}&survey_id={survey_id}&subid_1={subid_1}
+        # Note: The entry_link template uses placeholders, actual values are filled at allocation time
+        live_link = self.generate_entry_link_template(survey_id=str(survey_id))
         
         # Map CPX field names to internal field names
         normalized = {
@@ -398,9 +361,9 @@ class CPXService:
             "provider": "CPX",
             "source": "CPX",
             "last_updated": datetime.utcnow(),
-            "href": href,          # Original href from CPX
-            "href_new": href_new,  # Mobile-optimized href from CPX
-            "live_link": live_link,  # Best available link (prefer href_new)
+            "href": href,          # Original href from CPX (stored for reference)
+            "href_new": href_new,  # Mobile-optimized href from CPX (stored for reference)
+            "live_link": live_link,  # Entry link template in offers.cpx-research.com format
             "raw_data": survey,  # Store raw data for reference
             # Click tracking fields - used for click-based cleanup
             # click_count and last_clicked_at are set via $setOnInsert to preserve existing values

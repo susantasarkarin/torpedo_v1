@@ -196,8 +196,7 @@ export default function SurveyDataTable({ surveys, token, onSurveySelect, select
                               </div>
                             )}
                             
-                            {/* Entry Link Template - Only show when live_link is not available */}
-                            {survey.entry_link && !survey.live_link && (
+                            {survey.entry_link && (
                               <div className="entry-link-section">
                                 <span className="entry-link-label">🎯 Entry Link (Template)</span>
                                 <div className="entry-link-container">

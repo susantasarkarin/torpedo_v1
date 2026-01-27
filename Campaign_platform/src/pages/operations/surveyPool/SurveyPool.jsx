@@ -1144,8 +1144,8 @@ export default function SurveyPool() {
                 </div>
               )}
               
-              {/* CPX Entry Link Template - Only show when live_link (href) is not available */}
-              {selectedSurvey.entry_link && !selectedSurvey.account_name && !selectedSurvey.live_link && (
+              {/* CPX Entry Link Template */}
+              {selectedSurvey.entry_link && !selectedSurvey.account_name && (
                 <div className="detail-item full-width">
                   <span className="detail-label">🎯 Entry Link Template (CPX)</span>
                   <div className="entry-link-container">
