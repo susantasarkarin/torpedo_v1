@@ -10,8 +10,9 @@ import sys
 
 # Configuration
 API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000")
-DEFAULT_USERNAME = os.getenv("DEFAULT_ADMIN_USERNAME", "admin")
-DEFAULT_PASSWORD = os.getenv("DEFAULT_ADMIN_PASSWORD", "password123")
+# Use test-specific credentials or environment variables
+DEFAULT_USERNAME = os.getenv("TEST_ADMIN_USERNAME", os.getenv("DEFAULT_ADMIN_USERNAME", "admin"))
+DEFAULT_PASSWORD = os.getenv("TEST_ADMIN_PASSWORD", os.getenv("DEFAULT_ADMIN_PASSWORD", "password123"))
 
 def test_login(username, password):
     """Test login endpoint"""
