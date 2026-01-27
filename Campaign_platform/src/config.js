@@ -36,14 +36,21 @@ export const WS_BASE_URL = getWsUrl();
 /**
  * Helper function to build full URL from endpoint
  * Handles the case when API_BASE_URL is empty string (production with relative URLs)
- * @param {string} endpoint - The API endpoint (e.g., "/leads", "/projects/")
+ * Properly handles trailing/leading slashes to avoid double slashes or missing slashes
+ * @param {string} endpoint - The API endpoint (e.g., "/leads", "/projects/", "leads")
  * @returns {string} - Full URL or relative URL
  */
 export const buildApiUrl = (endpoint) => {
   // If API_BASE_URL is empty or whitespace, return the endpoint as-is (relative URL)
   if (!API_BASE_URL || API_BASE_URL.trim() === "") {
-    return endpoint;
+    // Ensure endpoint starts with / for relative URLs
+    return endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   }
-  // Otherwise, concatenate base URL with endpoint
-  return `${API_BASE_URL}${endpoint}`;
+  
+  // Remove trailing slash from base URL if present
+  const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+  // Ensure endpoint starts with /
+  const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  
+  return `${base}${path}`;
 };

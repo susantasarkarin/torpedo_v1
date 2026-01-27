@@ -168,9 +168,10 @@ const buildUrl = (endpoint, params = {}) => {
   // Use buildApiUrl helper for consistent URL construction
   const baseUrl = buildApiUrl(endpoint);
   
-  // If buildApiUrl returns relative URL, we need window.location.origin for URL constructor
-  const fullBaseUrl = baseUrl.startsWith('/') ? window.location.origin + baseUrl : baseUrl;
-  const url = new URL(fullBaseUrl);
+  // Create URL object - if baseUrl is relative (starts with /), use window.location.origin as base
+  const url = baseUrl.startsWith('/') 
+    ? new URL(baseUrl, window.location.origin)
+    : new URL(baseUrl);
 
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") {
