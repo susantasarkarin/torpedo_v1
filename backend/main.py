@@ -1448,8 +1448,8 @@ async def startup_event():
             print("✅ Survey pool sync job scheduled (every 10 minutes)")
             
             # Run initial sync on startup (non-blocking)
-            import asyncio
-            asyncio.create_task(asyncio.to_thread(background_survey_sync))
+            import threading
+            threading.Thread(target=background_survey_sync, daemon=True).start()
             print("🚀 Initial survey pool sync scheduled (running in background)")
     except Exception as e:
         print(f"⚠️ Could not schedule survey pool sync job: {e}")
