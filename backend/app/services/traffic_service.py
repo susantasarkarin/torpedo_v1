@@ -275,11 +275,11 @@ class TrafficService:
                     country_code = traffic.get("countryCode", "")
                     respondent_id = traffic.get("respondentId", "")
                     
-                    # Generate unique entry link by appending params to live_link
+                    # Generate unique entry link using direct CPX URL format
                     # Use traffic_id (SFWID) as ext_user_id so we can look up the record on callback
                     entry_link = cpx_service.generate_entry_link(
-                        live_link=live_link,
-                        respondent_id=traffic_id  # Use SFWID, not respondent_id
+                        survey_id=survey_id,
+                        respondent_id=traffic_id  # Use SFWID as ext_user_id
                     )
                     
                     # Build final redirect URL with additional tracking params

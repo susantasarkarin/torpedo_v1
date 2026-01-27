@@ -11,6 +11,7 @@ class CPXService:
     """Service to interact with CPX Research API"""
     
     BASE_URL = "https://live-api.cpx-research.com/api/get-surveys.php"
+    ENTRY_URL = "https://offers.cpx-research.com/index.php"  # Direct entry URL for survey redirects
     
     def __init__(
         self,
@@ -106,99 +107,87 @@ class CPXService:
     
     def generate_entry_link(
         self,
-        live_link: str,
+        survey_id: str,
         respondent_id: str,
-        username: Optional[str] = None,
-        email: Optional[str] = None,
         subid_1: Optional[str] = None,
         subid_2: Optional[str] = None,
+        live_link: Optional[str] = None,  # Deprecated - kept for backward compatibility
+        username: Optional[str] = None,   # Deprecated - not used
+        email: Optional[str] = None,      # Deprecated - not used
     ) -> str:
         """
-        Generate CPX survey entry link by appending required parameters to live_link.
+        Generate CPX survey entry link using direct URL format.
         
-        Per CPX documentation:
-        - ext_user_id: Mandatory - unique user ID (must be unique per user)
-        - app_id: Mandatory - Your App ID (10754)
-        - secure_hash: Recommended - MD5(ext_user_id + "-" + app_secure_hash)
-        - username: Recommended - username of your user
-        - email: Recommended - used to match duplicate users (CPX will ask if not provided)
-        - subid_1/subid_2: Optional - additional tracking info
+        Per CPX documentation, the correct entry URL format is:
+        https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&secure_hash={secure_hash}&offer_id={survey_id}
+        
+        NOTE: We do NOT use the 'href' from API response because that's an encrypted 
+        click-tracking URL tied to the ext_user_id used during the API call.
+        Instead, we generate fresh entry links for each respondent.
         
         Args:
-            live_link: The base live link from CPX API (href or href_new)
+            survey_id: The CPX survey ID (offer_id)
             respondent_id: The respondent ID to use as ext_user_id (unique per user)
-            username: Optional username for the user
-            email: Optional email for duplicate matching
-            subid_1: Optional tracking parameter (defaults to respondent_id)
+            subid_1: Optional tracking parameter
             subid_2: Optional tracking parameter
+            live_link: Deprecated - not used (kept for backward compatibility)
+            username: Deprecated - not used
+            email: Deprecated - not used
             
         Returns:
-            Fully constructed entry URL with required parameters appended
+            Direct CPX entry URL with proper authentication
         """
-        if not live_link:
+        if not survey_id or not respondent_id:
             return ""
-            
+        
         # Generate secure hash using respondent_id as ext_user_id
-        # Formula: md5({unique_user_id}-{app_secure_hash})
+        # Formula: md5({ext_user_id}-{secure_hash_key})
         secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
         
-        # Build additional query parameters to append
-        # Per CPX documentation: https://live-api.cpx-research.com
-        from urllib.parse import quote
+        from urllib.parse import quote, urlencode
         
-        # Use hardcoded app_id=10754 per CPX documentation
-        CPX_APP_ID = "10754"
-        
-        additional_params = (
-            f"&ext_user_id={quote(respondent_id)}"
-            f"&app_id={CPX_APP_ID}"
-            f"&secure_hash={secure_hash}"
-        )
-        
-        # Add recommended parameters (always include, even if empty, per CPX documentation)
-        additional_params += f"&username={quote(username or '')}"
-        additional_params += f"&email={quote(email or '')}"
+        # Build query parameters per CPX documentation
+        params = {
+            "app_id": self.app_id,
+            "ext_user_id": respondent_id,
+            "secure_hash": secure_hash,
+            "offer_id": survey_id,
+        }
         
         # Add optional tracking parameters
-        additional_params += f"&subid_1={quote(subid_1 or respondent_id)}"
-        additional_params += f"&subid_2={quote(subid_2 or '')}"
+        if subid_1:
+            params["subid_1"] = subid_1
+        if subid_2:
+            params["subid_2"] = subid_2
+            
+        # Construct the direct entry URL
+        entry_url = f"{self.ENTRY_URL}?{urlencode(params)}"
         
-        return f"{live_link}{additional_params}"
+        return entry_url
     
-    def generate_entry_link_template(self, live_link: str) -> str:
+    def generate_entry_link_template(self, survey_id: str) -> str:
         """
-        Generate a template entry link by appending placeholders to live_link.
-        Used for display purposes - actual values should be substituted at runtime.
+        Generate a template entry link with placeholders for runtime substitution.
+        Used for display purposes - actual values should be substituted at allocation time.
         
-        Per CPX documentation parameters:
-        - ext_user_id: {ext_user_id} - Mandatory, unique user ID per user
-        - app_id: 10754 - Your App ID (hardcoded)
-        - secure_hash: {secure_hash} - MD5({ext_user_id}-{app_secure_hash})
-        - username: {username} - Recommended, user's username
-        - email: {email} - Recommended, used to match duplicate users
-        - subid_1/subid_2: Optional additional tracking info
+        Template format:
+        https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&secure_hash={secure_hash}&offer_id={survey_id}
         
         Args:
-            live_link: The base live link from CPX API (href or href_new)
+            survey_id: The CPX survey ID (offer_id)
             
         Returns:
-            Entry URL template with placeholders appended to live_link
+            Entry URL template with placeholders for ext_user_id and secure_hash
         """
-        if not live_link:
+        if not survey_id:
             return ""
-        
-        # Use hardcoded app_id=10754 per CPX documentation
-        CPX_APP_ID = "10754"
             
         template = (
-            f"{live_link}"
+            f"{self.ENTRY_URL}"
+            f"?app_id={self.app_id}"
             f"&ext_user_id={{ext_user_id}}"
-            f"&app_id={CPX_APP_ID}"
             f"&secure_hash={{secure_hash}}"
-            f"&username={{username}}"
-            f"&email={{email}}"
-            f"&subid_1={{subid_1}}"
-            f"&subid_2={{subid_2}}"
+            f"&offer_id={survey_id}"
         )
         return template
     
@@ -372,25 +361,24 @@ class CPXService:
             "provider": "CPX",
             "source": "CPX",
             "last_updated": datetime.utcnow(),
-            "live_link": live_link,  # Store live link from CPX API
+            "live_link": live_link,  # Store live link from CPX API (for reference only)
             "raw_data": survey,  # Store raw data for reference
             # Click tracking fields - used for click-based cleanup
             # click_count and last_clicked_at are set via $setOnInsert to preserve existing values
         }
         
-        # Generate entry_link by appending parameters to live_link
-        if respondent_id and live_link:
+        # Generate entry_link using direct URL format (with survey_id)
+        # Note: The actual respondent-specific entry_link is generated at allocation time
+        if respondent_id:
             normalized["entry_link"] = self.generate_entry_link(
-                live_link=live_link,
+                survey_id=str(survey_id),
                 respondent_id=respondent_id
             )
-        elif live_link:
-            # Generate entry_link template with placeholders appended to live_link
-            normalized["entry_link"] = self.generate_entry_link_template(
-                live_link=live_link
-            )
         else:
-            normalized["entry_link"] = ""
+            # Generate entry_link template with placeholders for later substitution
+            normalized["entry_link"] = self.generate_entry_link_template(
+                survey_id=str(survey_id)
+            )
         
         return normalized
     

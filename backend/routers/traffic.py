@@ -700,14 +700,12 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         
                         # Generate entry link based on source
                         if source == 'CPX':
-                            # Get the live_link for CPX
-                            base_link = selected_survey.get('live_link') or selected_survey.get('href_new') or selected_survey.get('href')
-                            
-                            if base_link and cpx_service:
-                                # Generate CPX entry link with SFWID as ext_user_id
+                            # Generate CPX entry link with survey_id and SFWID as ext_user_id
+                            # Using direct entry URL format per CPX documentation
+                            if cpx_service:
                                 entry_link = cpx_service.generate_entry_link(
-                                    live_link=base_link,
-                                    respondent_id=traffic_id  # Use SFWID, not respondent_id
+                                    survey_id=str(survey_id),
+                                    respondent_id=traffic_id  # Use SFWID as ext_user_id
                                 )
                                 allocation_success = True
                                 
