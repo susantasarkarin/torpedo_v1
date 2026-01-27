@@ -143,19 +143,15 @@ class CPXService:
         if not survey_id or not respondent_id:
             return ""
         
-        # Generate secure hash using respondent_id as ext_user_id
-        # Formula: md5({ext_user_id}-{secure_hash_key})
-        secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
-        
         from urllib.parse import quote, urlencode
         
         # Build query parameters matching CPX href_new format exactly:
         # https://offers.cpx-research.com/index.php?app_id=10754&ext_user_id={ext_user_id}&survey_id={survey_id}
+        # Note: secure_hash is optional per CPX docs, and href_new from API doesn't include it
         params = {
             "app_id": self.app_id,
             "ext_user_id": respondent_id,
-            "secure_hash": secure_hash,
-            "survey_id": survey_id,  # CPX uses survey_id, not offer_id
+            "survey_id": survey_id,
         }
         
         # Add optional tracking parameters
@@ -181,7 +177,7 @@ class CPXService:
             survey_id: The CPX survey ID
             
         Returns:
-            Entry URL template with placeholders for ext_user_id and secure_hash
+            Entry URL template with placeholders for ext_user_id
         """
         if not survey_id:
             return ""
@@ -190,7 +186,6 @@ class CPXService:
             f"{self.ENTRY_URL}"
             f"?app_id={self.app_id}"
             f"&ext_user_id={{ext_user_id}}"
-            f"&secure_hash={{secure_hash}}"
             f"&survey_id={survey_id}"
         )
         return template
