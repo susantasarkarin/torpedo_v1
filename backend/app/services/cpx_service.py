@@ -351,8 +351,10 @@ class CPXService:
             0
         )
         
-        # Get country with default to IN if missing
-        country = survey.get("survey_country") or survey.get("country", "") or "IN"
+        # Get country with default to ALL if missing
+        # CPX doesn't provide country code in payload, so we use ALL to indicate no country filter
+        # The allocation logic should skip country filtering for CPX surveys when country=ALL
+        country = survey.get("survey_country") or survey.get("country", "") or "ALL"
         
         # Get live link from raw survey data if available
         live_link = survey.get("href") or survey.get("href_new") or survey.get("link") or ""

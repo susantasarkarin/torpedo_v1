@@ -658,7 +658,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     # Normalize country code to uppercase
                     cc_upper = country_code.upper()
                     
-                    # Query for active CPX surveys (NO country filter - CPX handles routing)
+                    # Query for active CPX surveys (NO country filter - CPX handles routing internally)
+                    # CPX surveys have country="ALL" to indicate they accept all countries
+                    # The CPX platform handles country-based targeting on their end
                     cpx_query = {
                         "is_active_in_pool": True
                     }

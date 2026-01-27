@@ -281,11 +281,19 @@ class SurveyAllocationService:
             return None
     
     def get_active_surveys(self, country_code: str = None) -> List[dict]:
-        """Get all active surveys, optionally filtered by country"""
+        """Get all active surveys, optionally filtered by country
+        
+        Surveys with country_codes containing "ALL" are included for any country
+        (used by CPX which handles country routing internally)
+        """
         query = {"status": SurveyStatus.ACTIVE.value}
         
         if country_code:
-            query["country_codes"] = country_code.upper()
+            # Match either the specific country code OR "ALL" (global surveys)
+            query["$or"] = [
+                {"country_codes": country_code.upper()},
+                {"country_codes": "ALL"}
+            ]
         
         return list(self.surveys.find(query))
     
@@ -323,7 +331,7 @@ class SurveyAllocationService:
         """
         Get surveys eligible for allocation based on:
         - Active status
-        - Country match
+        - Country match (or country_codes contains "ALL" for global surveys like CPX)
         - Remaining quota > 0
         - Batch not full
         """
@@ -332,9 +340,14 @@ class SurveyAllocationService:
         # Calculate max allocations per batch with buffer
         max_batch_allocations = int(settings.batch_size * settings.buffer_multiplier)
         
+        # Query for surveys matching the specific country OR surveys with "ALL" (global surveys)
+        # CPX surveys use "ALL" to indicate they handle country routing internally
         query = {
             "status": SurveyStatus.ACTIVE.value,
-            "country_codes": country_code.upper(),
+            "$or": [
+                {"country_codes": country_code.upper()},
+                {"country_codes": "ALL"}  # Include global surveys (e.g., CPX)
+            ],
             "remaining_quota": {"$gt": 0},
             "current_batch_sent": {"$lt": max_batch_allocations}
         }
