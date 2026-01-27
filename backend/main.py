@@ -1565,10 +1565,14 @@ if not users_collection.find_one({"username": DEFAULT_ADMIN_USERNAME}):
         "createdAt": datetime.utcnow()
     })
     print(f"✅ Default admin user '{DEFAULT_ADMIN_USERNAME}' created with hashed password")
-    logger.warning(
-        "SECURITY: Default admin credentials are being used. "
-        "Please change the password immediately via Profile > Change Password. "
-        "Configure DEFAULT_ADMIN_USERNAME and DEFAULT_ADMIN_PASSWORD in .env for production."
+    
+    # Use ERROR level for security-critical warnings to ensure visibility
+    logger.error(
+        "SECURITY CRITICAL: Default admin credentials are being used! "
+        "This is a security risk in production environments. "
+        "Action required: "
+        "1. Change password immediately via Profile > Change Password, or "
+        "2. Configure DEFAULT_ADMIN_USERNAME and DEFAULT_ADMIN_PASSWORD in .env file"
     )
 
 
