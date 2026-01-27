@@ -1,6 +1,7 @@
 import os
 import traceback
 import re
+import logging
 from fastapi import FastAPI, HTTPException, Body, Path, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -15,6 +16,16 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from fastapi import Request, Depends, APIRouter
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+# Set up basic logging configuration if not already configured
+if not logging.getLogger().hasHandlers():
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
 
 # Auth utilities for password hashing
 try:
@@ -1554,7 +1565,15 @@ if not users_collection.find_one({"username": DEFAULT_ADMIN_USERNAME}):
         "createdAt": datetime.utcnow()
     })
     print(f"✅ Default admin user '{DEFAULT_ADMIN_USERNAME}' created with hashed password")
-    print("⚠️  IMPORTANT: Please change the default password immediately via Profile > Change Password")
+    
+    # Use ERROR level for security-critical warnings to ensure visibility
+    logger.error(
+        "SECURITY CRITICAL: Default admin credentials are being used! "
+        "This is a security risk in production environments. "
+        "Action required: "
+        "1. Change password immediately via Profile > Change Password, or "
+        "2. Configure DEFAULT_ADMIN_USERNAME and DEFAULT_ADMIN_PASSWORD in .env file"
+    )
 
 
 @app.post("/login/")
@@ -1678,16 +1697,18 @@ async def update_profile(request: Request, profile_data: Dict[str, Any] = Body(.
         
         # Only allow updating audit-safe fields
         # Accept both snake_case (from frontend) and camelCase for compatibility
-        allowed_fields = ["email", "display_name", "displayName"]
         update_data = {}
         
-        # Normalize display_name to displayName for MongoDB storage
-        for k, v in profile_data.items():
-            if k in allowed_fields:
-                if k == "display_name":
-                    update_data["displayName"] = v
-                else:
-                    update_data[k] = v
+        # Handle display_name field with priority: snake_case takes precedence
+        # This ensures consistency and prevents ambiguity
+        if "display_name" in profile_data:
+            update_data["displayName"] = profile_data["display_name"]
+        elif "displayName" in profile_data:
+            update_data["displayName"] = profile_data["displayName"]
+        
+        # Handle email field
+        if "email" in profile_data:
+            update_data["email"] = profile_data["email"]
         
         if not update_data:
             raise HTTPException(status_code=400, detail="No valid fields to update")

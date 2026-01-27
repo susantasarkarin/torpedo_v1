@@ -13,19 +13,21 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'backend'))
 def test_profile_update_field_normalization():
     """Test that profile update correctly handles snake_case to camelCase conversion"""
     
-    # Simulate the logic from the updated profile update endpoint
+    # Simulate the improved logic from the updated profile update endpoint
     def normalize_profile_data(profile_data):
-        """Simulates the backend normalization logic"""
-        allowed_fields = ["email", "display_name", "displayName"]
+        """Simulates the backend normalization logic with priority handling"""
         update_data = {}
         
-        # Normalize display_name to displayName for MongoDB storage
-        for k, v in profile_data.items():
-            if k in allowed_fields:
-                if k == "display_name":
-                    update_data["displayName"] = v
-                else:
-                    update_data[k] = v
+        # Handle display_name field with priority: snake_case takes precedence
+        # This ensures consistency and prevents ambiguity
+        if "display_name" in profile_data:
+            update_data["displayName"] = profile_data["display_name"]
+        elif "displayName" in profile_data:
+            update_data["displayName"] = profile_data["displayName"]
+        
+        # Handle email field
+        if "email" in profile_data:
+            update_data["email"] = profile_data["email"]
         
         return update_data
     
@@ -58,7 +60,7 @@ def test_profile_update_field_normalization():
     
     print("✅ Test Case 2: Direct camelCase preservation - PASSED")
     
-    # Test Case 3: Both display_name and displayName (display_name should win)
+    # Test Case 3: Both display_name and displayName (display_name takes priority)
     both_data = {
         "email": "both@example.com",
         "display_name": "Snake Case Name",
@@ -67,28 +69,33 @@ def test_profile_update_field_normalization():
     
     result3 = normalize_profile_data(both_data)
     
-    # The logic processes in order, so whichever comes first in iteration
-    # But display_name will be normalized to displayName, possibly overwriting
+    # display_name should take priority and be normalized to displayName
     assert "displayName" in result3, "displayName should be in result"
+    assert result3["displayName"] == "Snake Case Name", "display_name should take priority"
     
-    print("✅ Test Case 3: Both formats handled - PASSED")
+    print("✅ Test Case 3: Priority handling (snake_case wins) - PASSED")
     
-    # Test Case 4: Invalid fields should be filtered out
-    invalid_data = {
+    # Test Case 4: Only allowed fields should be processed
+    # Note: The function explicitly handles only display_name/displayName and email
+    # Other fields are naturally ignored (not filtered, just not processed)
+    mixed_data = {
         "email": "valid@example.com",
         "display_name": "Valid Name",
-        "password": "should_not_be_here",  # Not in allowed_fields
-        "role": "admin"  # Not in allowed_fields
+        "password": "should_be_ignored",  # Not processed by function
+        "role": "admin"  # Not processed by function
     }
     
-    result4 = normalize_profile_data(invalid_data)
+    result4 = normalize_profile_data(mixed_data)
     
-    assert "password" not in result4, "password should be filtered out"
-    assert "role" not in result4, "role should be filtered out"
-    assert "email" in result4, "email should be preserved"
-    assert "displayName" in result4, "displayName should be preserved"
+    # Only email and displayName should be in result
+    assert "password" not in result4, "password should not be processed"
+    assert "role" not in result4, "role should not be processed"
+    assert "email" in result4, "email should be processed"
+    assert result4["email"] == "valid@example.com", "email should be preserved"
+    assert "displayName" in result4, "displayName should be processed"
+    assert result4["displayName"] == "Valid Name", "displayName should be preserved"
     
-    print("✅ Test Case 4: Invalid fields filtered - PASSED")
+    print("✅ Test Case 4: Only allowed fields processed - PASSED")
     
     return True
 

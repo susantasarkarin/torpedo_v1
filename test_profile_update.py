@@ -2,6 +2,9 @@
 """
 Test script to verify profile update and password change functionality.
 Tests the fix for hardcoded credentials and profile update bug.
+
+SECURITY NOTE: This test requires credentials to be set via environment variables.
+For testing, use test-specific credentials that are different from production defaults.
 """
 
 import requests
@@ -10,8 +13,22 @@ import sys
 
 # Configuration
 API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000")
-DEFAULT_USERNAME = os.getenv("DEFAULT_ADMIN_USERNAME", "admin")
-DEFAULT_PASSWORD = os.getenv("DEFAULT_ADMIN_PASSWORD", "password123")
+
+# Security: Require explicit test credentials, no production-like fallbacks
+# Set these in your test environment:
+#   export TEST_ADMIN_USERNAME=test_admin
+#   export TEST_ADMIN_PASSWORD=test_password_123
+DEFAULT_USERNAME = os.getenv("TEST_ADMIN_USERNAME")
+DEFAULT_PASSWORD = os.getenv("TEST_ADMIN_PASSWORD")
+
+if not DEFAULT_USERNAME or not DEFAULT_PASSWORD:
+    print("ERROR: Test credentials not configured!")
+    print("Please set TEST_ADMIN_USERNAME and TEST_ADMIN_PASSWORD environment variables")
+    print("\nExample:")
+    print("  export TEST_ADMIN_USERNAME=test_admin")
+    print("  export TEST_ADMIN_PASSWORD=test_password_123")
+    print("\nFor production testing, use DEFAULT_ADMIN_USERNAME and DEFAULT_ADMIN_PASSWORD")
+    sys.exit(1)
 
 def test_login(username, password):
     """Test login endpoint"""
