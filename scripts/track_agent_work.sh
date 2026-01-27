@@ -131,11 +131,11 @@ fi
 # Check for unpushed commits
 CURRENT_BRANCH=$(git branch --show-current)
 # Check if the remote branch exists before comparing
-if git show-ref --verify --quiet refs/remotes/origin/$CURRENT_BRANCH; then
-    UNPUSHED=$(git log origin/$CURRENT_BRANCH..$CURRENT_BRANCH --oneline 2>/dev/null | wc -l)
+if git show-ref --verify --quiet "refs/remotes/origin/$CURRENT_BRANCH"; then
+    UNPUSHED=$(git log "origin/$CURRENT_BRANCH..$CURRENT_BRANCH" --oneline 2>/dev/null | wc -l)
     if [[ $UNPUSHED -gt 0 ]]; then
         print_info "$UNPUSHED unpushed commit(s) on branch $CURRENT_BRANCH"
-        git log origin/$CURRENT_BRANCH..$CURRENT_BRANCH --oneline
+        git log "origin/$CURRENT_BRANCH..$CURRENT_BRANCH" --oneline
     else
         print_success "All commits pushed to remote"
     fi
@@ -253,8 +253,8 @@ echo "  git log --since='today'    # Today's commits"
 echo "  git log --grep='copilot'   # Commits mentioning copilot"
 echo ""
 echo -e "${CYAN}Sync with remote:${NC}"
-echo '  git pull origin $(git branch --show-current)'
-echo '  git push origin $(git branch --show-current)'
+echo "  git pull origin \$(git branch --show-current)"
+echo "  git push origin \$(git branch --show-current)"
 echo ""
 echo -e "${CYAN}View work log:${NC}"
 echo '  cat AGENT_WORK_LOG.md      # Full work log'
@@ -265,7 +265,7 @@ print_header "✅ Summary"
 
 print_success "Repository location: $PROJECT_DIR"
 print_success "Current branch: $(git branch --show-current)"
-print_success "Tracking script location: $SCRIPT_DIR/$(basename $0)"
+print_success "Tracking script location: $SCRIPT_DIR/$(basename "$0")"
 
 echo ""
 print_info "For more help, see: .github/COPILOT_AGENTS_README.md"
