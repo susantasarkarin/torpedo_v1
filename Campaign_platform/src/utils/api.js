@@ -165,10 +165,12 @@ const handleError = (error, response) => {
  * Build URL with query parameters
  */
 const buildUrl = (endpoint, params = {}) => {
-  // Handle empty API_BASE_URL (production with relative URLs)
-  // Empty string is falsy but we need to check explicitly since we want window.location.origin as fallback
-  const baseUrl = API_BASE_URL && API_BASE_URL.trim() !== "" ? API_BASE_URL : window.location.origin;
-  const url = new URL(`${baseUrl}${endpoint}`);
+  // Use buildApiUrl helper for consistent URL construction
+  const baseUrl = buildApiUrl(endpoint);
+  
+  // If buildApiUrl returns relative URL, we need window.location.origin for URL constructor
+  const fullBaseUrl = baseUrl.startsWith('/') ? window.location.origin + baseUrl : baseUrl;
+  const url = new URL(fullBaseUrl);
 
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") {
