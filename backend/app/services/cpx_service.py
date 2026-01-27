@@ -111,31 +111,30 @@ class CPXService:
         respondent_id: str,
         subid_1: Optional[str] = None,
         subid_2: Optional[str] = None,
+        username: Optional[str] = None,
+        email: Optional[str] = None,
         live_link: Optional[str] = None,  # Deprecated - kept for backward compatibility
-        username: Optional[str] = None,   # Deprecated - not used
-        email: Optional[str] = None,      # Deprecated - not used
     ) -> str:
         """
         Generate CPX survey entry link using direct URL format.
         
-        Per CPX API, the href_new format is:
-        https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&survey_id={survey_id}
-        
-        We add secure_hash for authentication:
-        https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&secure_hash={md5}&survey_id={survey_id}
-        
-        NOTE: We do NOT use the 'href' from API response because that's an encrypted 
-        click-tracking URL tied to the ext_user_id used during the API call.
-        Instead, we generate fresh entry links for each respondent.
+        Per CPX documentation, required parameters:
+        - ext_user_id: Mandatory - unique per user (using respondent_id/SFWID)
+        - app_id: Mandatory - 10754
+        - secure_hash: Recommended - md5({ext_user_id}-{app_secure_hash})
+        - username: Recommended - username of user
+        - email: Recommended - CPX will ask user if not provided
+        - subid_1/subid_2: Optional tracking
+        - survey_id: The specific survey to show
         
         Args:
             survey_id: The CPX survey ID
             respondent_id: The respondent ID to use as ext_user_id (unique per user)
             subid_1: Optional tracking parameter
             subid_2: Optional tracking parameter
+            username: Optional username
+            email: Optional email
             live_link: Deprecated - not used (kept for backward compatibility)
-            username: Deprecated - not used
-            email: Deprecated - not used
             
         Returns:
             Direct CPX entry URL with proper authentication
@@ -143,20 +142,30 @@ class CPXService:
         if not survey_id or not respondent_id:
             return ""
         
-        from urllib.parse import quote, urlencode
+        # Generate secure_hash per CPX docs: md5({ext_user_id}-{app_secure_hash})
+        secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
         
-        # Build query parameters matching CPX href_new format exactly:
-        # https://offers.cpx-research.com/index.php?app_id=10754&ext_user_id={ext_user_id}&survey_id={survey_id}
-        # Note: secure_hash is optional per CPX docs, and href_new from API doesn't include it
+        from urllib.parse import urlencode
+        
+        # Build query parameters per CPX documentation
         params = {
-            "app_id": self.app_id,
-            "ext_user_id": respondent_id,
-            "survey_id": survey_id,
+            "app_id": self.app_id,                    # Mandatory
+            "ext_user_id": respondent_id,             # Mandatory - unique per user
+            "secure_hash": secure_hash,               # Recommended - for security
+            "survey_id": survey_id,                   # Specific survey to show
         }
+        
+        # Add recommended parameters if provided
+        if username:
+            params["username"] = username
+        if email:
+            params["email"] = email
         
         # Add optional tracking parameters
         if subid_1:
             params["subid_1"] = subid_1
+        else:
+            params["subid_1"] = respondent_id  # Use respondent_id for tracking
         if subid_2:
             params["subid_2"] = subid_2
             
@@ -170,14 +179,14 @@ class CPXService:
         Generate a template entry link with placeholders for runtime substitution.
         Used for display purposes - actual values should be substituted at allocation time.
         
-        Template format (matching CPX href_new):
-        https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&survey_id={survey_id}
+        Template format per CPX documentation:
+        https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&secure_hash={secure_hash}&survey_id={survey_id}
         
         Args:
             survey_id: The CPX survey ID
             
         Returns:
-            Entry URL template with placeholders for ext_user_id
+            Entry URL template with placeholders
         """
         if not survey_id:
             return ""
@@ -186,7 +195,9 @@ class CPXService:
             f"{self.ENTRY_URL}"
             f"?app_id={self.app_id}"
             f"&ext_user_id={{ext_user_id}}"
+            f"&secure_hash={{secure_hash}}"
             f"&survey_id={survey_id}"
+            f"&subid_1={{subid_1}}"
         )
         return template
     
