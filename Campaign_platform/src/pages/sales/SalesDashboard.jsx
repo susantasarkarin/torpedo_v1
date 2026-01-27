@@ -1,9 +1,8 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { API_BASE_URL } from "../../config"
+import { API_BASE_URL, buildApiUrl } from "../../config"
 import {
-import { buildApiUrl } from "../../config"
   TrendingUp,
   Target,
   Clock,

@@ -1,6 +1,6 @@
  import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { API_BASE_URL } from "../config"
+import { buildApiUrl } from "../config"
 
  
  function Dashboard() {
@@ -20,9 +20,8 @@ import { API_BASE_URL } from "../config"
     // ✅ fetch protected data (optional)
     const fetchProjects = async () => {
       try {
-        // Build URL properly handling empty API_BASE_URL
-        const baseUrl = API_BASE_URL && API_BASE_URL.trim() !== "" ? API_BASE_URL : window.location.origin;
-        const url = `${baseUrl}/projects/`;
+        // Use buildApiUrl helper for consistent URL construction
+        const url = buildApiUrl('/projects/');
         
         const res = await fetch(url, {
           headers: {
