@@ -373,12 +373,16 @@ class CPXService:
         
         # Get href and href_new from CPX API response
         # Per CPX docs: "Please always use href_new for the entry link, as its mobile optimized"
+        # However, href format (click.cpx-research.com) has subid_1/subid_2 params for callback tracking
         # href format: https://click.cpx-research.com/?k=ENCRYPTED&subid_1=&subid_2=
+        # href_new format: https://offers.cpx-research.com/index.php?app_id=...&ext_user_id=...&survey_id=...
+        # We prefer href because it has empty subid_1/subid_2 that we can populate for callback tracking
         href = survey.get("href") or ""
         href_new = survey.get("href_new") or ""
         
-        # Use href_new if available (mobile optimized), otherwise href
-        live_link = href_new or href or survey.get("link") or ""
+        # Use href (click-tracking) for allocation since it supports subid params
+        # href_new is the direct URL but has fixed ext_user_id
+        live_link = href or href_new or survey.get("link") or ""
         
         # Map CPX field names to internal field names
         normalized = {

@@ -335,8 +335,8 @@ async def test_cpx_credentials(
         request_id = f"test_{datetime.utcnow().timestamp()}"
         secure_hash = hashlib.md5(f"{ext_user_id}-{secure_hash_key}".encode()).hexdigest()
         
-        # Test API call
-        url = "https://offers.cpx-research.com/api/get-surveys.php"
+        # Test API call - Using live-api per CPX documentation
+        url = "https://live-api.cpx-research.com/api/get-surveys.php"
         params = {
             "app_id": app_id,
             "ext_user_id": ext_user_id,

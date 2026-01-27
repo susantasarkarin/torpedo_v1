@@ -672,7 +672,7 @@ def fetch_cpx_surveys(
         # CPX API settings
         cpx_app_id = os.getenv('CPX_APP_ID', '')
         cpx_hash_key = os.getenv('CPX_HASH_KEY', '')
-        cpx_api_url = os.getenv('CPX_API_URL', 'https://offers.cpx-research.com/api/get-surveys-v2.php')
+        cpx_api_url = os.getenv('CPX_API_URL', 'https://live-api.cpx-research.com/api/get-surveys.php')
         
         if not cpx_app_id or not cpx_hash_key:
             logger.warning("CPX credentials not configured")
