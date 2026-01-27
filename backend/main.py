@@ -1533,21 +1533,28 @@ async def shutdown_event():
 
 
 # ----------------------------
-# Users (Hardcoded for now)
+# Users - Default Admin Configuration
 # ----------------------------
 users_collection = db["users"]
 
 # Create index for faster login queries
 users_collection.create_index("username", unique=True, background=True)
 
+# Get default admin credentials from environment variables
+# This allows customization without hardcoding credentials in source code
+DEFAULT_ADMIN_USERNAME = os.getenv("DEFAULT_ADMIN_USERNAME", "admin")
+DEFAULT_ADMIN_PASSWORD = os.getenv("DEFAULT_ADMIN_PASSWORD", "password123")
+
 # Insert one default user if not exists (with hashed password)
-if not users_collection.find_one({"username": "admin"}):
+# Only creates the default admin if no admin user exists in the database
+if not users_collection.find_one({"username": DEFAULT_ADMIN_USERNAME}):
     users_collection.insert_one({
-        "username": "admin",
-        "password": hash_password("password123"),  # ✅ Securely hashed
+        "username": DEFAULT_ADMIN_USERNAME,
+        "password": hash_password(DEFAULT_ADMIN_PASSWORD),  # ✅ Securely hashed
         "createdAt": datetime.utcnow()
     })
-    print("✅ Default admin user created with hashed password")
+    print(f"✅ Default admin user '{DEFAULT_ADMIN_USERNAME}' created with hashed password")
+    print("⚠️  IMPORTANT: Please change the default password immediately via Profile > Change Password")
 
 
 @app.post("/login/")
@@ -1664,14 +1671,23 @@ async def get_profile(request: Request):
 
 @app.put("/profile/update", dependencies=[Depends(verify_session)])
 async def update_profile(request: Request, profile_data: Dict[str, Any] = Body(...)):
-    """Update user's profile (audit-safe fields only - email)"""
+    """Update user's profile (audit-safe fields only - email and display_name)"""
     try:
         session_id = request.headers.get("Authorization")
         username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
         
         # Only allow updating audit-safe fields
-        allowed_fields = ["email", "displayName"]
-        update_data = {k: v for k, v in profile_data.items() if k in allowed_fields}
+        # Accept both snake_case (from frontend) and camelCase for compatibility
+        allowed_fields = ["email", "display_name", "displayName"]
+        update_data = {}
+        
+        # Normalize display_name to displayName for MongoDB storage
+        for k, v in profile_data.items():
+            if k in allowed_fields:
+                if k == "display_name":
+                    update_data["displayName"] = v
+                else:
+                    update_data[k] = v
         
         if not update_data:
             raise HTTPException(status_code=400, detail="No valid fields to update")
