@@ -124,11 +124,14 @@ async def create_automated_campaign(
     4. Follow-up Week 3 (Day 21) - if no reply
     """
     try:
-        # Validate company
-        if request.company.lower() not in ['surveyfieldwork', 'cogentixresearch']:
+        # Validate company (dynamically check against available companies)
+        from ..campaigns.services_config import get_company_config
+        try:
+            get_company_config(request.company)
+        except ValueError as e:
             raise HTTPException(
                 status_code=400,
-                detail="Company must be 'surveyfieldwork' or 'cogentixresearch'"
+                detail=str(e)
             )
         
         # Convert recipients to dict format
