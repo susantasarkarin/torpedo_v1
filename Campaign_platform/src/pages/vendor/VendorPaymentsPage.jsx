@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import "./VendorPages.css"
+import { buildApiUrl } from "../../config"
 
 function VendorPaymentsPage() {
   const navigate = useNavigate()
@@ -39,7 +40,7 @@ function VendorPaymentsPage() {
       setLoading(true)
       
       // Fetch vendor payments
-      const res = await fetch(`${API_BASE_URL}/vendor-payments`)
+      const res = await fetch(buildApiUrl(`/vendor-payments`))
       
       if (res.ok) {
         const data = await res.json()
@@ -159,7 +160,7 @@ function VendorPaymentsPage() {
     if (!window.confirm("Are you sure you want to delete this payment?")) return
     
     try {
-      await fetch(`${API_BASE_URL}/vendor-payments/${id}`, { method: "DELETE" })
+      await fetch(buildApiUrl(`/vendor-payments/${id}`), { method: "DELETE" })
       setPayments(payments.filter(p => p._id !== id))
     } catch (err) {
       console.error("Error deleting payment:", err)

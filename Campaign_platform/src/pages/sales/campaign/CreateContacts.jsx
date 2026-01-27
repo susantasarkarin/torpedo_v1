@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import "./CreateContacts.css"
 import { API_BASE_URL } from "../../../config"  // ✅ uses env variable
+import { buildApiUrl } from "../../../config"
 
 function CreateContacts({ onBack, listName }) {
   const navigate = useNavigate()
@@ -82,7 +83,7 @@ function CreateContacts({ onBack, listName }) {
       throw new Error("No session")
     }
 
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    const res = await fetch(buildApiUrl(`${path}`), {
       ...options,
       headers: {
         "Content-Type": "application/json",

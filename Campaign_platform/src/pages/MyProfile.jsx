@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { API_BASE_URL } from "../config"
+import { API_BASE_URL, buildApiUrl } from "../config"
 import "./Settings.css"
 
 function MyProfile() {
@@ -42,7 +42,7 @@ function MyProfile() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/profile/`, {
+      const res = await fetch(buildApiUrl(`/profile/`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -98,7 +98,7 @@ function MyProfile() {
     setSuccess(null)
 
     try {
-      const res = await fetch(`${API_BASE_URL}/profile/update`, {
+      const res = await fetch(buildApiUrl(`/profile/update`), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -151,7 +151,7 @@ function MyProfile() {
     setSuccess(null)
 
     try {
-      const res = await fetch(`${API_BASE_URL}/profile/change-password`, {
+      const res = await fetch(buildApiUrl(`/profile/change-password`), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

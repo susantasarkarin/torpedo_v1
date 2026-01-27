@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { API_BASE_URL } from "../../config";
 import "./TrafficFlowParser.css";
+import { buildApiUrl } from "../../config"
 
 export default function TrafficFlowParser() {
   const [urlParams, setUrlParams] = useState({});
@@ -38,7 +39,7 @@ export default function TrafficFlowParser() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
-      const response = await fetch(`${API_BASE_URL}/api/store`, {
+      const response = await fetch(buildApiUrl(`/api/store`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         mode: "cors",

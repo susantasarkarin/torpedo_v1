@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { Package, Plus, Search, Eye, FileText, CheckCircle, X, Loader2, Trash2, Upload, Download } from "lucide-react"
+import { buildApiUrl } from "../../config"
 
 function PurchaseOrdersPage() {
   const navigate = useNavigate()
@@ -37,7 +38,7 @@ function PurchaseOrdersPage() {
 
   const fetchPurchaseOrders = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/purchase-orders/`)
+      const response = await fetch(buildApiUrl(`/finance/purchase-orders/`))
       if (response.ok) {
         const data = await response.json()
         setPurchaseOrders(data)
@@ -51,7 +52,7 @@ function PurchaseOrdersPage() {
 
   const fetchVendors = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/vendors/`)
+      const response = await fetch(buildApiUrl(`/finance/finance/vendors/`))
       if (response.ok) {
         const data = await response.json()
         setVendors(data)
@@ -63,7 +64,7 @@ function PurchaseOrdersPage() {
 
   const fetchItems = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/items/`)
+      const response = await fetch(buildApiUrl(`/finance/finance/items/`))
       if (response.ok) {
         const data = await response.json()
         setItems(data)
@@ -85,7 +86,7 @@ function PurchaseOrdersPage() {
         })),
       }
 
-      const response = await fetch(`${API_BASE_URL}/finance/purchase-orders/`, {
+      const response = await fetch(buildApiUrl(`/finance/purchase-orders/`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(poData),
@@ -228,7 +229,7 @@ function PurchaseOrdersPage() {
   const handleExportCSV = async () => {
     setExporting(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/purchase-orders/export/csv`)
+      const response = await fetch(buildApiUrl(`/finance/purchase-orders/export/csv`))
       if (response.ok) {
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
@@ -258,7 +259,7 @@ function PurchaseOrdersPage() {
     formDataUpload.append("file", file)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/purchase-orders/import/csv`, {
+      const response = await fetch(buildApiUrl(`/finance/purchase-orders/import/csv`), {
         method: "POST",
         body: formDataUpload,
       })

@@ -20,7 +20,11 @@ import { API_BASE_URL } from "../config"
     // ✅ fetch protected data (optional)
     const fetchProjects = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/projects/`, {
+        // Build URL properly handling empty API_BASE_URL
+        const baseUrl = API_BASE_URL && API_BASE_URL.trim() !== "" ? API_BASE_URL : window.location.origin;
+        const url = `${baseUrl}/projects/`;
+        
+        const res = await fetch(url, {
           headers: {
             "Content-Type": "application/json",
             "Authorization": sessionId,

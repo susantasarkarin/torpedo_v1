@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../../config"; // adjust path as per your structure
 import "./ProjectsPage.css";
+import { buildApiUrl } from "../../config"
 
 function ProjectsPage() {
   const navigate = useNavigate(); // ✅ define at top
@@ -60,7 +61,7 @@ function ProjectsPage() {
 
     const fetchProjects = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/projects/`, {
+        const res = await fetch(buildApiUrl(`/projects/`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
@@ -84,7 +85,7 @@ function ProjectsPage() {
 
     const fetchVendors = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/vendors/`, {
+        const res = await fetch(buildApiUrl(`/vendors/`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
@@ -108,7 +109,7 @@ function ProjectsPage() {
 
     const fetchClients = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/finance/finance/customers/`, {
+        const res = await fetch(buildApiUrl(`/finance/finance/customers/`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
@@ -212,8 +213,8 @@ function ProjectsPage() {
       };
 
       const url = editingId
-        ? `${API_BASE_URL}/projects/${editingId}`
-        : `${API_BASE_URL}/projects/`;
+        ? buildApiUrl(`/projects/${editingId}`)
+        : buildApiUrl(`/projects/`);
       const method = editingId ? "PUT" : "POST";
 
       const res = await fetch(url, {
@@ -264,7 +265,7 @@ function ProjectsPage() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/projects/${id}`, {
+      const res = await fetch(buildApiUrl(`/projects/${id}`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",

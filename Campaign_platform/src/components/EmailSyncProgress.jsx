@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { API_BASE_URL } from '../config'
+import { API_BASE_URL, buildApiUrl } from '../config'
 import './EmailSyncProgress.css'
 
 /**
@@ -28,7 +28,7 @@ const EmailSyncProgress = ({ refreshInterval = 3000 }) => {
   const fetchHealth = useCallback(async () => {
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/api/v1/email-sync/health`, {
+      const response = await fetch(buildApiUrl(`/api/v1/email-sync/health`), {
         headers: { Authorization: token }
       })
       if (response.ok) {
@@ -44,7 +44,7 @@ const EmailSyncProgress = ({ refreshInterval = 3000 }) => {
   const fetchMailboxes = useCallback(async () => {
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/api/v1/email-sync/mailboxes?active_only=false`, {
+      const response = await fetch(buildApiUrl(`/api/v1/email-sync/mailboxes?active_only=false`), {
         headers: { Authorization: token }
       })
       if (response.ok) {
@@ -55,7 +55,7 @@ const EmailSyncProgress = ({ refreshInterval = 3000 }) => {
           data.map(async (mb) => {
             try {
               const detailRes = await fetch(
-                `${API_BASE_URL}/api/v1/email-sync/mailboxes/${mb.mailbox_id}`,
+                buildApiUrl(`/api/v1/email-sync/mailboxes/${mb.mailbox_id}`),
                 { headers: { Authorization: token } }
               )
               if (detailRes.ok) {
@@ -82,7 +82,7 @@ const EmailSyncProgress = ({ refreshInterval = 3000 }) => {
   const startWorkers = async () => {
     try {
       const token = getAuthToken()
-      await fetch(`${API_BASE_URL}/api/v1/email-sync/start`, {
+      await fetch(buildApiUrl(`/api/v1/email-sync/start`), {
         method: 'POST',
         headers: { Authorization: token }
       })
@@ -96,7 +96,7 @@ const EmailSyncProgress = ({ refreshInterval = 3000 }) => {
   const stopWorkers = async () => {
     try {
       const token = getAuthToken()
-      await fetch(`${API_BASE_URL}/api/v1/email-sync/stop`, {
+      await fetch(buildApiUrl(`/api/v1/email-sync/stop`), {
         method: 'POST',
         headers: { Authorization: token }
       })
@@ -110,7 +110,7 @@ const EmailSyncProgress = ({ refreshInterval = 3000 }) => {
   const triggerBackfill = async (mailboxId) => {
     try {
       const token = getAuthToken()
-      await fetch(`${API_BASE_URL}/api/v1/email-sync/mailboxes/${mailboxId}/backfill`, {
+      await fetch(buildApiUrl(`/api/v1/email-sync/mailboxes/${mailboxId}/backfill`), {
         method: 'POST',
         headers: { Authorization: token }
       })
@@ -124,7 +124,7 @@ const EmailSyncProgress = ({ refreshInterval = 3000 }) => {
   const triggerSync = async (mailboxId) => {
     try {
       const token = getAuthToken()
-      await fetch(`${API_BASE_URL}/api/v1/email-sync/mailboxes/${mailboxId}/sync`, {
+      await fetch(buildApiUrl(`/api/v1/email-sync/mailboxes/${mailboxId}/sync`), {
         method: 'POST',
         headers: { Authorization: token }
       })

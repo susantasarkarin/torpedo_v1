@@ -9,6 +9,7 @@ import { API_BASE_URL } from "../../config"
 import { SALES_STAGES, getStageStyle as getPipelineStageStyle, getContactStages, getStageById } from "../../utils/salesPipeline"
 import "./Contacts.css"
 import "../../styles/SalesPages.css"
+import { buildApiUrl } from "../../config"
 
 function Contacts() {
   const navigate = useNavigate();
@@ -66,7 +67,7 @@ function Contacts() {
 
       try {
         // Fetch from /leads endpoint with lead_stage=contacts filter
-        const res = await fetch(`${API_BASE_URL}/leads?lead_stage=contacts&limit=200`, {
+        const res = await fetch(buildApiUrl(`/leads?lead_stage=contacts&limit=200`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
@@ -155,8 +156,8 @@ function Contacts() {
       const payload = { ...formData };
 
       const url = editingId
-        ? `${API_BASE_URL}/contacts/${editingId}`
-        : `${API_BASE_URL}/contacts/`;
+        ? buildApiUrl(`/contacts/${editingId}`)
+        : buildApiUrl(`/contacts/`);
       const method = editingId ? "PUT" : "POST";
 
       const res = await fetch(url, {
@@ -208,7 +209,7 @@ function Contacts() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/contacts/${id}`, {
+      const res = await fetch(buildApiUrl(`/contacts/${id}`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -244,7 +245,7 @@ function Contacts() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/contacts/bulk-delete`, {
+      const res = await fetch(buildApiUrl(`/contacts/bulk-delete`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

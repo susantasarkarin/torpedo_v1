@@ -3,7 +3,7 @@
 // Updated Finance.jsx - combines sidebar with your existing dashboard
 import { useState, useEffect } from "react"
 import { Link, Outlet, useLocation } from "react-router-dom"
-import { API_BASE_URL } from "../config"
+import { API_BASE_URL, buildApiUrl } from "../config"
 import "./Finance.css"
 
 // Helper to get auth token - handles both storage methods
@@ -30,7 +30,7 @@ function Finance() {
     try {
       const token = getAuthToken()
 
-      const response = await fetch(`${API_BASE_URL}/finance/dashboard/summary`, {
+      const response = await fetch(buildApiUrl(`/finance/dashboard/summary`), {
         headers: {
           Authorization: token,
           "Content-Type": "application/json",

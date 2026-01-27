@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
-import { API_BASE_URL } from "../config"
+import { API_BASE_URL, buildApiUrl } from "../config"
 import "./AIDatabase.css"
 import Papa from "papaparse"
 
@@ -138,7 +138,7 @@ function AIDatabase() {
   const loadStatus = async () => {
     try {
       const token = getAuthToken()
-      const res = await fetch(`${API_BASE_URL}/leads/ai-database/status`, {
+      const res = await fetch(buildApiUrl(`/leads/ai-database/status`), {
         headers: { Authorization: token }
       })
       if (res.ok) {
@@ -153,7 +153,7 @@ function AIDatabase() {
   const fetchGmailAccounts = async () => {
     try {
       const token = getAuthToken()
-      const res = await fetch(`${API_BASE_URL}/leads/gmail/accounts`, {
+      const res = await fetch(buildApiUrl(`/leads/gmail/accounts`), {
         headers: { Authorization: token }
       })
       if (res.ok) {
@@ -169,7 +169,7 @@ function AIDatabase() {
     setWorkbooksLoading(true)
     try {
       const token = getAuthToken()
-      const res = await fetch(`${API_BASE_URL}/leads/ai-database/workbooks`, {
+      const res = await fetch(buildApiUrl(`/leads/ai-database/workbooks`), {
         headers: { Authorization: token }
       })
       if (res.ok) {
@@ -177,7 +177,7 @@ function AIDatabase() {
         setWorkbooks(data.workbooks || [])
       } else {
         // Fallback: load companies as workbook items
-        const companiesRes = await fetch(`${API_BASE_URL}/leads/ai-database/companies`, {
+        const companiesRes = await fetch(buildApiUrl(`/leads/ai-database/companies`), {
           headers: { Authorization: token }
         })
         if (companiesRes.ok) {
@@ -294,7 +294,7 @@ function AIDatabase() {
       const formData = new FormData()
       formData.append("file", blob, "import.csv")
       
-      const res = await fetch(`${API_BASE_URL}/leads/import/csv`, {
+      const res = await fetch(buildApiUrl(`/leads/import/csv`), {
         method: "POST",
         headers: { Authorization: token },
         body: formData
@@ -329,7 +329,7 @@ function AIDatabase() {
 
     try {
       const token = getAuthToken()
-      const res = await fetch(`${API_BASE_URL}/leads/emails/extract`, {
+      const res = await fetch(buildApiUrl(`/leads/emails/extract`), {
         method: "POST",
         headers: { 
           "Content-Type": "application/json", 
@@ -446,7 +446,7 @@ function AIDatabase() {
           }
       }
       
-      const res = await fetch(`${API_BASE_URL}${endpoint}`, {
+      const res = await fetch(buildApiUrl(`${endpoint}`), {
         method: "POST",
         headers: {
           Authorization: token,
@@ -512,7 +512,7 @@ function AIDatabase() {
         }
       }
       
-      const res = await fetch(`${API_BASE_URL}/leads/ai-database/discover-leads`, {
+      const res = await fetch(buildApiUrl(`/leads/ai-database/discover-leads`), {
         method: "POST",
         headers: {
           Authorization: token,
@@ -550,7 +550,7 @@ function AIDatabase() {
   const createNewWorkbook = async () => {
     try {
       const token = getAuthToken()
-      const res = await fetch(`${API_BASE_URL}/leads/ai-database/workbooks`, {
+      const res = await fetch(buildApiUrl(`/leads/ai-database/workbooks`), {
         method: "POST",
         headers: {
           Authorization: token,

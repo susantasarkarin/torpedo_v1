@@ -4,6 +4,7 @@
  */
 
 import { API_BASE_URL } from '../../config';
+import { buildApiUrl } from "../../config"
 
 // ============== SESSION MANAGEMENT ==============
 
@@ -52,7 +53,7 @@ const panelRequest = async (endpoint, options = {}) => {
     ...options.headers,
   };
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const response = await fetch(buildApiUrl(endpoint), {
     ...options,
     headers,
   });

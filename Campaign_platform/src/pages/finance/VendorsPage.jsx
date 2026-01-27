@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react"
 import { API_BASE_URL } from "../../config"
 import { Building2, Search, Pencil, Trash2, Loader2, Upload, Download, Link2, Unlink } from "lucide-react"
+import { buildApiUrl } from "../../config"
 
 // GST Treatment options
 const GST_TREATMENT_OPTIONS = [
@@ -87,7 +88,7 @@ function VendorsPage() {
 
   const fetchVendors = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/vendors/`)
+      const response = await fetch(buildApiUrl(`/finance/finance/vendors/`))
       if (response.ok) {
         const data = await response.json()
         setVendors(data)
@@ -102,7 +103,7 @@ function VendorsPage() {
   // Fetch available panel vendors for linking
   const fetchPanelVendors = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/vendors/panel-vendors`)
+      const response = await fetch(buildApiUrl(`/finance/finance/vendors/panel-vendors`))
       if (response.ok) {
         const data = await response.json()
         setPanelVendors(data)
@@ -127,7 +128,7 @@ function VendorsPage() {
     setLinking(true)
     try {
       const response = await fetch(
-        `${API_BASE_URL}/finance/finance/vendors/${selectedVendorForLink._id}/link-panel-vendor`,
+        buildApiUrl(`/finance/finance/vendors/${selectedVendorForLink._id}/link-panel-vendor`),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -157,7 +158,7 @@ function VendorsPage() {
     
     try {
       const response = await fetch(
-        `${API_BASE_URL}/finance/finance/vendors/${vendorId}/unlink-panel-vendor`,
+        buildApiUrl(`/finance/finance/vendors/${vendorId}/unlink-panel-vendor`),
         { method: "DELETE" }
       )
       
@@ -250,8 +251,8 @@ function VendorsPage() {
     
     try {
       const url = editingVendor
-        ? `${API_BASE_URL}/finance/finance/vendors/${editingVendor._id}`
-        : `${API_BASE_URL}/finance/finance/vendors/`
+        ? buildApiUrl(`/finance/finance/vendors/${editingVendor._id}`)
+        : buildApiUrl(`/finance/finance/vendors/`)
 
       const method = editingVendor ? "PUT" : "POST"
 
@@ -274,7 +275,7 @@ function VendorsPage() {
     if (!window.confirm("Are you sure you want to delete this vendor?")) return
 
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/vendors/${id}`, {
+      const response = await fetch(buildApiUrl(`/finance/finance/vendors/${id}`), {
         method: "DELETE",
       })
       if (response.ok) {
@@ -363,7 +364,7 @@ function VendorsPage() {
   const handleExportCSV = async () => {
     setExporting(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/vendors/export/csv`)
+      const response = await fetch(buildApiUrl(`/finance/finance/vendors/export/csv`))
       if (response.ok) {
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
@@ -393,7 +394,7 @@ function VendorsPage() {
     formDataUpload.append("file", file)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/vendors/import/csv`, {
+      const response = await fetch(buildApiUrl(`/finance/finance/vendors/import/csv`), {
         method: "POST",
         body: formDataUpload,
       })

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { API_BASE_URL } from '../../../../config';
+import { buildApiUrl } from "../../../../config"
 
 export default function TrafficAssignmentPanel({ survey, token, onAssignmentComplete }) {
   const [batchSize, setBatchSize] = useState(100);
@@ -20,7 +21,7 @@ export default function TrafficAssignmentPanel({ survey, token, onAssignmentComp
 
   const fetchAvailableTraffic = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/traffic/available`, {
+      const response = await fetch(buildApiUrl(`/api/traffic/available`), {
         method: 'GET',
         headers: {
           'Authorization': token,
@@ -80,7 +81,7 @@ export default function TrafficAssignmentPanel({ survey, token, onAssignmentComp
     setError(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/cpx/assign-traffic/preview`, {
+      const response = await fetch(buildApiUrl(`/cpx/assign-traffic/preview`), {
         method: 'POST',
         headers: {
           'Authorization': token,
@@ -123,7 +124,7 @@ export default function TrafficAssignmentPanel({ survey, token, onAssignmentComp
     setPreview(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/cpx/assign-traffic`, {
+      const response = await fetch(buildApiUrl(`/cpx/assign-traffic`), {
         method: 'POST',
         headers: {
           'Authorization': token,

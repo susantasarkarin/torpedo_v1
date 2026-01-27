@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import "./VendorPages.css"
+import { buildApiUrl } from "../../config"
 
 function VendorBillingPage() {
   const navigate = useNavigate()
@@ -37,7 +38,7 @@ function VendorBillingPage() {
       setLoading(true)
       
       // Fetch vendor invoices
-      const res = await fetch(`${API_BASE_URL}/vendor-invoices`)
+      const res = await fetch(buildApiUrl(`/vendor-invoices`))
       
       if (res.ok) {
         const data = await res.json()
@@ -143,7 +144,7 @@ function VendorBillingPage() {
     if (!window.confirm("Are you sure you want to delete this invoice?")) return
     
     try {
-      await fetch(`${API_BASE_URL}/vendor-invoices/${id}`, { method: "DELETE" })
+      await fetch(buildApiUrl(`/vendor-invoices/${id}`), { method: "DELETE" })
       setInvoices(invoices.filter(i => i._id !== id))
     } catch (err) {
       console.error("Error deleting invoice:", err)

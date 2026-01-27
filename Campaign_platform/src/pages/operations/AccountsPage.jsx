@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { API_BASE_URL as API_URL } from "../../config";
 import "./AccountsPage.css";
+import { buildApiUrl } from "../../config"
 
 function AccountsPage() {
   const [accounts, setAccounts] = useState([]);
@@ -35,7 +36,7 @@ function AccountsPage() {
   const fetchAccounts = async () => {
     setLoading(true);
     try {
-      let url = `${API_URL}/operations/accounts/`;
+      let url = buildApiUrl(`/operations/accounts/`);
       const params = new URLSearchParams();
       if (filterType) params.append("account_type", filterType);
       if (params.toString()) url += `?${params.toString()}`;
@@ -57,7 +58,7 @@ function AccountsPage() {
   const handleSyncFromClients = async () => {
     setSyncing(true);
     try {
-      const res = await fetch(`${API_URL}/operations/accounts/sync-from-clients`, {
+      const res = await fetch(buildApiUrl(`/operations/accounts/sync-from-clients`), {
         method: "POST",
         headers: { Authorization: token },
       });
@@ -78,8 +79,8 @@ function AccountsPage() {
     e.preventDefault();
     try {
       const url = editingAccount
-        ? `${API_URL}/operations/accounts/${editingAccount._id}`
-        : `${API_URL}/operations/accounts/`;
+        ? buildApiUrl(`/operations/accounts/${editingAccount._id}`)
+        : buildApiUrl(`/operations/accounts/`);
       const method = editingAccount ? "PUT" : "POST";
 
       const res = await fetch(url, {
@@ -108,7 +109,7 @@ function AccountsPage() {
 
   const handleLinkToCustomer = async (accountId) => {
     try {
-      const res = await fetch(`${API_URL}/operations/accounts/${accountId}/link-customer`, {
+      const res = await fetch(buildApiUrl(`/operations/accounts/${accountId}/link-customer`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

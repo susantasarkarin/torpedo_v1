@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../../hooks/useAuth';
 import { API_BASE_URL } from '../../../config';
+import { buildApiUrl } from "../../../config"
 // Temporarily disabled for debugging
 // import useSurveyWebSocket from '../../../hooks/useSurveyWebSocket';
 import './SurveyPool.css';
@@ -79,7 +80,7 @@ export default function SurveyPool() {
     
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/cint/entry-links/${surveyId}`,
+        buildApiUrl(`/api/cint/entry-links/${surveyId}`),
         {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -116,7 +117,7 @@ export default function SurveyPool() {
     
     try {
       const response = await fetch(
-        `${API_BASE_URL}/api/cint/entry-links/${surveyId}`,
+        buildApiUrl(`/api/cint/entry-links/${surveyId}`),
         {
           method: 'POST',
           headers: {
@@ -213,7 +214,7 @@ export default function SurveyPool() {
     try {
       // Fetch CPX surveys with show_all=true to get ALL surveys (not just filtered ones)
       // Use large page_size to get all surveys at once
-      const cpxResponse = await fetch(`${API_BASE_URL}/cpx/surveys?page=1&page_size=1000&show_all=true`, {
+      const cpxResponse = await fetch(buildApiUrl(`/cpx/surveys?page=1&page_size=1000&show_all=true`), {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
@@ -221,7 +222,7 @@ export default function SurveyPool() {
       });
 
       // Fetch CINT surveys (mounted at /api/cint in backend)
-      const cintResponse = await fetch(`${API_BASE_URL}/api/cint/surveys?page=1&page_size=1000&show_all=true`, {
+      const cintResponse = await fetch(buildApiUrl(`/api/cint/surveys?page=1&page_size=1000&show_all=true`), {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
@@ -256,7 +257,7 @@ export default function SurveyPool() {
   // Fetch traffic stats for all surveys
   const fetchTrafficStats = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/traffic/surveys-stats`, {
+      const response = await fetch(buildApiUrl(`/traffic/surveys-stats`), {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
@@ -275,7 +276,7 @@ export default function SurveyPool() {
   // Fetch clients for client name lookup
   const fetchClients = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/customers/`, {
+      const response = await fetch(buildApiUrl(`/finance/finance/customers/`), {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
@@ -294,7 +295,7 @@ export default function SurveyPool() {
   // Fetch pool statistics
   const fetchPoolStats = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/survey-pool/stats`, {
+      const response = await fetch(buildApiUrl(`/survey-pool/stats`), {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
@@ -320,7 +321,7 @@ export default function SurveyPool() {
       // Sync both CPX and CINT in parallel
       const [cpxSyncResponse, cintSyncResponse] = await Promise.all([
         // CPX sync
-        fetch(`${API_BASE_URL}/cpx/sync-active-status`, {
+        fetch(buildApiUrl(`/cpx/sync-active-status`), {
           method: 'POST',
           headers: {
             'Authorization': token,
@@ -328,7 +329,7 @@ export default function SurveyPool() {
           },
         }),
         // CINT sync
-        fetch(`${API_BASE_URL}/api/cint/sync-active-status`, {
+        fetch(buildApiUrl(`/api/cint/sync-active-status`), {
           method: 'POST',
           headers: {
             'Authorization': token,
@@ -406,7 +407,7 @@ export default function SurveyPool() {
     const surveyId = survey.survey_id || survey.id || survey._id;
     
     try {
-      const response = await fetch(`${API_BASE_URL}/survey-pool/toggle/${provider}/${surveyId}`, {
+      const response = await fetch(buildApiUrl(`/survey-pool/toggle/${provider}/${surveyId}`), {
         method: 'POST',
         headers: {
           'Authorization': token,

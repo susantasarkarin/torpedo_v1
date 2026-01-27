@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../../../../config';
+import { buildApiUrl } from "../../../../config"
 
 export default function SurveyDataTable({ surveys, token, onSurveySelect, selectedSurveyId }) {
   const [expandedSurveyId, setExpandedSurveyId] = useState(null);
@@ -28,7 +29,7 @@ export default function SurveyDataTable({ surveys, token, onSurveySelect, select
       
       try {
         const response = await fetch(
-          `${API_BASE_URL}/api/traffic/stats?survey_id=${surveyId}`,
+          buildApiUrl(`/api/traffic/stats?survey_id=${surveyId}`),
           {
             method: 'GET',
             headers: {

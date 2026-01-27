@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import Papa from "papaparse"
 import { ArrowLeft, Upload, Download, CheckCircle, AlertCircle, ArrowRight, FileSpreadsheet } from "lucide-react"
+import { buildApiUrl } from "../../config"
 
 // Database fields for payments received
 const DB_FIELDS_RECEIVED = [
@@ -440,8 +441,8 @@ function PaymentsImport() {
       formDataUpload.append("file", blob, "import.csv")
       
       const endpoint = paymentType === "received" 
-        ? `${API_BASE_URL}/finance/payments/received/import/csv`
-        : `${API_BASE_URL}/finance/payments/made/import/csv`
+        ? buildApiUrl(`/finance/payments/received/import/csv`)
+        : buildApiUrl(`/finance/payments/made/import/csv`)
       
       const response = await fetch(endpoint, {
         method: "POST",

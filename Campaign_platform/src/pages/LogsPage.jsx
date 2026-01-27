@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react"
-import { API_BASE_URL } from "../config"
+import { API_BASE_URL, buildApiUrl } from "../config"
 import "./LogsPage.css"
 
 // Helper to get auth token - handles both storage methods
@@ -36,7 +36,7 @@ function LogsPage() {
       setError(null)
       const token = getAuthToken()
       
-      const response = await fetch(`${API_BASE_URL}/settings/logs?lines=${lines}`, {
+      const response = await fetch(buildApiUrl(`/settings/logs?lines=${lines}`), {
         headers: { Authorization: token }
       })
       

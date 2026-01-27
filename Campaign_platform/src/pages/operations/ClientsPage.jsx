@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
+import { buildApiUrl } from "../../config"
 
 // Helper functions to map between client UI format and customer API format
 const customerToClient = (customer) => ({
@@ -89,7 +90,7 @@ function ClientsPage() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/finance/finance/customers/`, {
+      const res = await fetch(buildApiUrl(`/finance/finance/customers/`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -122,7 +123,7 @@ function ClientsPage() {
   // Fetch sales accounts for linking dropdown
   const fetchSalesAccounts = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/sales/accounts`);
+      const res = await fetch(buildApiUrl(`/sales/accounts`));
       if (res.ok) {
         const data = await res.json();
         setSalesAccounts(data || []);
@@ -148,7 +149,7 @@ function ClientsPage() {
         // Unlink: find the current sales account and remove the link
         const currentAccountId = clientAccountLinks[clientId];
         if (currentAccountId) {
-          await fetch(`${API_BASE_URL}/sales/accounts/${currentAccountId}/unlink-operations-client`, {
+          await fetch(buildApiUrl(`/sales/accounts/${currentAccountId}/unlink-operations-client`), {
             method: "DELETE"
           });
           setClientAccountLinks(prev => {
@@ -161,13 +162,13 @@ function ClientsPage() {
         // First unlink from any previous account
         const currentAccountId = clientAccountLinks[clientId];
         if (currentAccountId && currentAccountId !== salesAccountId) {
-          await fetch(`${API_BASE_URL}/sales/accounts/${currentAccountId}/unlink-operations-client`, {
+          await fetch(buildApiUrl(`/sales/accounts/${currentAccountId}/unlink-operations-client`), {
             method: "DELETE"
           });
         }
         
         // Link to new account
-        await fetch(`${API_BASE_URL}/sales/accounts/${salesAccountId}/link-operations-client`, {
+        await fetch(buildApiUrl(`/sales/accounts/${salesAccountId}/link-operations-client`), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ client_id: clientId })
@@ -264,8 +265,8 @@ function ClientsPage() {
       const payload = clientToCustomer(formData);
 
       const url = editingId
-        ? `${API_BASE_URL}/finance/finance/customers/${editingId}`
-        : `${API_BASE_URL}/finance/finance/customers/`;
+        ? buildApiUrl(`/finance/finance/customers/${editingId}`)
+        : buildApiUrl(`/finance/finance/customers/`);
       const method = editingId ? "PUT" : "POST";
 
       const res = await fetch(url, {
@@ -312,7 +313,7 @@ function ClientsPage() {
     }
 
     try {
-      const res = await fetch(`${API_BASE_URL}/finance/finance/customers/${id}`, {
+      const res = await fetch(buildApiUrl(`/finance/finance/customers/${id}`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",

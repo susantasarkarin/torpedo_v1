@@ -12,7 +12,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
-import { API_BASE_URL } from "../config"
+import { API_BASE_URL, buildApiUrl } from "../config"
 
 // Simple in-memory cache
 const cache = new Map()
@@ -114,7 +114,7 @@ export function useApi(endpoint, options = {}) {
         headers.Authorization = sessionId
       }
 
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      const response = await fetch(buildApiUrl(`${endpoint}`), {
         headers,
         signal: abortControllerRef.current.signal,
       })
@@ -331,7 +331,7 @@ export function useMutation(options = {}) {
         headers.Authorization = sessionId
       }
 
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      const response = await fetch(buildApiUrl(`${endpoint}`), {
         method,
         headers,
         body: body ? JSON.stringify(body) : undefined,
@@ -422,7 +422,7 @@ export function useMultiApi(endpoints, options = {}) {
           return { key, data: cached }
         }
 
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, { headers })
+        const response = await fetch(buildApiUrl(`${endpoint}`), { headers })
         if (!response.ok) {
           throw new Error(`Failed to fetch ${key}`)
         }

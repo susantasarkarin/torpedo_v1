@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
+import { buildApiUrl } from "../../config"
 
 function CompanyDetail() {
   const navigate = useNavigate();
@@ -21,7 +22,7 @@ function CompanyDetail() {
 
       setLoading(true);
       try {
-        const res = await fetch(`${API_BASE_URL}/contacts/`, {
+        const res = await fetch(buildApiUrl(`/contacts/`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,

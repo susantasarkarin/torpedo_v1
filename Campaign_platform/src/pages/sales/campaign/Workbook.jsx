@@ -13,7 +13,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { API_BASE_URL } from '../../../config';
+import { API_BASE_URL, buildApiUrl } from '../../../config';
 import './Workbook.css';
 
 // ============== COLUMN TYPE ICONS & LABELS ==============
@@ -163,7 +163,7 @@ function Workbook() {
   const fetchWorkbook = useCallback(async () => {
     try {
       const res = await fetch(
-        `${API_BASE_URL}/leads/workbooks/${workbookId}`,
+        buildApiUrl(`/leads/workbooks/${workbookId}`),
         { headers: { Authorization: sessionId } }
       );
       
@@ -191,7 +191,7 @@ function Workbook() {
     
     try {
       const res = await fetch(
-        `${API_BASE_URL}/leads/workbooks/${workbookId}/columns/${columnId}/execute`,
+        buildApiUrl(`/leads/workbooks/${workbookId}/columns/${columnId}/execute`),
         {
           method: 'POST',
           headers: { Authorization: sessionId },
@@ -229,7 +229,7 @@ function Workbook() {
     
     try {
       const res = await fetch(
-        `${API_BASE_URL}/leads/workbooks/${workbookId}/columns/${columnId}/retry`,
+        buildApiUrl(`/leads/workbooks/${workbookId}/columns/${columnId}/retry`),
         {
           method: 'POST',
           headers: { Authorization: sessionId },
@@ -251,7 +251,7 @@ function Workbook() {
   const handleLockColumn = async (columnId) => {
     try {
       const res = await fetch(
-        `${API_BASE_URL}/leads/workbooks/${workbookId}/columns/${columnId}/lock`,
+        buildApiUrl(`/leads/workbooks/${workbookId}/columns/${columnId}/lock`),
         {
           method: 'POST',
           headers: { Authorization: sessionId },
@@ -273,7 +273,7 @@ function Workbook() {
   const handleUnlockColumn = async (columnId) => {
     try {
       const res = await fetch(
-        `${API_BASE_URL}/leads/workbooks/${workbookId}/columns/${columnId}/unlock`,
+        buildApiUrl(`/leads/workbooks/${workbookId}/columns/${columnId}/unlock`),
         {
           method: 'POST',
           headers: { Authorization: sessionId },
@@ -296,7 +296,7 @@ function Workbook() {
   const handleCellOverride = async (rowId, columnId, value) => {
     try {
       const res = await fetch(
-        `${API_BASE_URL}/leads/workbooks/${workbookId}/cells/${rowId}/${columnId}/override`,
+        buildApiUrl(`/leads/workbooks/${workbookId}/cells/${rowId}/${columnId}/override`),
         {
           method: 'POST',
           headers: {

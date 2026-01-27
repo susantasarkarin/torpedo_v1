@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router-dom"
 import { useState, useEffect } from "react"
 import "./Workflow.css"
 import { API_BASE_URL } from "../../../config"  // ✅ env-based URL
+import { buildApiUrl } from "../../../config"
 
 function Workflow() {
   const location = useLocation()
@@ -23,7 +24,7 @@ function Workflow() {
       throw new Error("No session")
     }
 
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    const res = await fetch(buildApiUrl(`${path}`), {
       ...options,
       headers: {
         "Content-Type": "application/json",

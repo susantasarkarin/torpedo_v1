@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../../config"  // adjust path as per your structure
+import { buildApiUrl } from "../../../config"
 
 function Reports() {
   const navigate = useNavigate()
@@ -16,7 +17,7 @@ function Reports() {
       throw new Error("No session")
     }
 
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    const res = await fetch(buildApiUrl(`${path}`), {
       ...options,
       headers: {
         "Content-Type": "application/json",

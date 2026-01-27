@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import Papa from "papaparse"
 import { ArrowLeft, Upload, Download, CheckCircle, AlertCircle, ArrowRight, FileSpreadsheet } from "lucide-react"
+import { buildApiUrl } from "../../config"
 
 // Database fields for invoices
 const DB_FIELDS = [
@@ -394,7 +395,7 @@ function InvoicesImport() {
       const formDataUpload = new FormData()
       formDataUpload.append("file", blob, "import.csv")
       
-      const response = await fetch(`${API_BASE_URL}/finance/finance/invoices/import/csv`, {
+      const response = await fetch(buildApiUrl(`/finance/finance/invoices/import/csv`), {
         method: "POST",
         headers: {
           Authorization: sessionId,

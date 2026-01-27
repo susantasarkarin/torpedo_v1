@@ -2,7 +2,7 @@
 
 import { Link, useNavigate } from "react-router-dom"
 import { useState } from "react"
-import { API_BASE_URL } from "../config"
+import { API_BASE_URL, buildApiUrl } from "../config"
 import "./Navbar.css"
 
 function Navbar({
@@ -38,7 +38,7 @@ function Navbar({
   const handleLogout = async () => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      await fetch(`${API_BASE_URL}/logout/`, {
+      await fetch(buildApiUrl(`/logout/`), {
         method: "POST",
         headers: { Authorization: sessionId },
       })

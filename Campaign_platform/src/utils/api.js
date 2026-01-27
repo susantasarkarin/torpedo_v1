@@ -15,7 +15,7 @@
  *   const leads = await api.get('/leads', { skip: 0, limit: 50 });
  */
 
-import { API_BASE_URL } from "../config";
+import { API_BASE_URL, buildApiUrl } from "../config";
 
 // ============== CONFIGURATION ==============
 
@@ -166,7 +166,8 @@ const handleError = (error, response) => {
  */
 const buildUrl = (endpoint, params = {}) => {
   // Handle empty API_BASE_URL (production with relative URLs)
-  const baseUrl = API_BASE_URL || window.location.origin;
+  // Empty string is falsy but we need to check explicitly since we want window.location.origin as fallback
+  const baseUrl = API_BASE_URL && API_BASE_URL.trim() !== "" ? API_BASE_URL : window.location.origin;
   const url = new URL(`${baseUrl}${endpoint}`);
 
   Object.entries(params).forEach(([key, value]) => {
@@ -446,7 +447,10 @@ const api = {
       headers["Authorization"] = token;
     }
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    // Build full URL using buildApiUrl helper
+    const url = buildApiUrl(endpoint);
+
+    const response = await fetch(url, {
       method: "POST",
       headers,
       body: formData,

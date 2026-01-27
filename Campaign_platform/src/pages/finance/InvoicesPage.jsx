@@ -5,6 +5,7 @@ import { Link } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { CURRENCIES, DEFAULT_CURRENCY, formatCurrency } from "../../utils/currency"
 import { FileText, Search, Eye, Download, Mail, Loader2, Trash2, Upload } from "lucide-react"
+import { buildApiUrl } from "../../config"
 
 // Invoice status options
 const INVOICE_STATUS_OPTIONS = [
@@ -63,7 +64,7 @@ function InvoicesPage() {
 
   const fetchInvoices = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/invoices/`)
+      const response = await fetch(buildApiUrl(`/finance/finance/invoices/`))
       if (response.ok) {
         const data = await response.json()
         setInvoices(data)
@@ -77,7 +78,7 @@ function InvoicesPage() {
 
   const fetchCustomers = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/customers/`)
+      const response = await fetch(buildApiUrl(`/finance/finance/customers/`))
       if (response.ok) {
         const data = await response.json()
         setCustomers(data)
@@ -89,7 +90,7 @@ function InvoicesPage() {
 
   const fetchItems = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/items/`)
+      const response = await fetch(buildApiUrl(`/finance/finance/items/`))
       if (response.ok) {
         const data = await response.json()
         setItems(data)
@@ -111,7 +112,7 @@ function InvoicesPage() {
         })),
       }
 
-      const response = await fetch(`${API_BASE_URL}/finance/finance/invoices/`, {
+      const response = await fetch(buildApiUrl(`/finance/finance/invoices/`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(invoiceData),
@@ -210,7 +211,7 @@ function InvoicesPage() {
   const handleExportCSV = async () => {
     setExporting(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/invoices/export/csv`)
+      const response = await fetch(buildApiUrl(`/finance/finance/invoices/export/csv`))
       if (response.ok) {
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
@@ -240,7 +241,7 @@ function InvoicesPage() {
     formDataUpload.append("file", file)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/finance/finance/invoices/import/csv`, {
+      const response = await fetch(buildApiUrl(`/finance/finance/invoices/import/csv`), {
         method: "POST",
         body: formDataUpload,
       })

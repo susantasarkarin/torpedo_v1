@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { API_BASE_URL } from "../config"
+import { API_BASE_URL, buildApiUrl } from "../config"
 // Temporarily disabled for debugging
 // import { useSyncStatus } from "../contexts/SyncStatusContext"
 import "./Settings.css"
@@ -143,7 +143,7 @@ function Settings() {
     setSignaturesLoading(true)
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/gmail-ws/signatures`, {
+      const response = await fetch(buildApiUrl(`/gmail-ws/signatures`), {
         headers: { Authorization: token }
       })
       if (response.ok) {
@@ -161,7 +161,7 @@ function Settings() {
   const loadRateLimits = async () => {
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/gmail/rate-limits`, {
+      const response = await fetch(buildApiUrl(`/gmail/rate-limits`), {
         headers: { Authorization: token }
       })
       if (response.ok) {
@@ -182,7 +182,7 @@ function Settings() {
     
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/gmail/rate-limits`, {
+      const response = await fetch(buildApiUrl(`/gmail/rate-limits`), {
         method: "POST",
         headers: {
           Authorization: token,
@@ -218,10 +218,10 @@ function Settings() {
       // Load accounts and signatures in parallel for faster loading
       const needsAccounts = gmailAccounts.length === 0
       const requests = [
-        fetch(`${API_BASE_URL}/settings/email-signatures`, { headers: { Authorization: token } })
+        fetch(buildApiUrl(`/settings/email-signatures`), { headers: { Authorization: token } })
       ]
       if (needsAccounts) {
-        requests.unshift(fetch(`${API_BASE_URL}/gmail/accounts`, { headers: { Authorization: token } }))
+        requests.unshift(fetch(buildApiUrl(`/gmail/accounts`), { headers: { Authorization: token } }))
       }
       
       const responses = await Promise.all(requests)
@@ -261,7 +261,7 @@ function Settings() {
     setCostAnalyticsLoading(true)
     try {
       const token = getAuthToken()
-      const res = await fetch(`${API_BASE_URL}/settings/cost-analytics?days=${costAnalyticsDays}`, {
+      const res = await fetch(buildApiUrl(`/settings/cost-analytics?days=${costAnalyticsDays}`), {
         headers: { Authorization: token }
       })
       if (res.ok) {
@@ -283,7 +283,7 @@ function Settings() {
     setAiPromptsLoading(true)
     try {
       const token = getAuthToken()
-      const res = await fetch(`${API_BASE_URL}/settings/ai-prompts`, {
+      const res = await fetch(buildApiUrl(`/settings/ai-prompts`), {
         headers: { Authorization: token }
       })
       if (res.ok) {
@@ -318,7 +318,7 @@ function Settings() {
     setSavingPrompt(true)
     try {
       const token = getAuthToken()
-      const res = await fetch(`${API_BASE_URL}/settings/ai-prompts/${editingPrompt.prompt_key}`, {
+      const res = await fetch(buildApiUrl(`/settings/ai-prompts/${editingPrompt.prompt_key}`), {
         method: "PUT",
         headers: { 
           Authorization: token,
@@ -353,7 +353,7 @@ function Settings() {
     setTestPromptResult(null)
     try {
       const token = getAuthToken()
-      const res = await fetch(`${API_BASE_URL}/settings/ai-prompts/${editingPrompt.prompt_key}/test`, {
+      const res = await fetch(buildApiUrl(`/settings/ai-prompts/${editingPrompt.prompt_key}/test`), {
         method: "POST",
         headers: { 
           Authorization: token,
@@ -382,7 +382,7 @@ function Settings() {
     if (!confirm(`Rollback to version ${version}?`)) return
     try {
       const token = getAuthToken()
-      const res = await fetch(`${API_BASE_URL}/settings/ai-prompts/${promptKey}/rollback/${version}`, {
+      const res = await fetch(buildApiUrl(`/settings/ai-prompts/${promptKey}/rollback/${version}`), {
         method: "POST",
         headers: { Authorization: token }
       })
@@ -410,10 +410,10 @@ function Settings() {
       
       // Load status and companies in parallel for faster loading
       const [statusRes, companiesRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/leads/ai-database/status`, {
+        fetch(buildApiUrl(`/leads/ai-database/status`), {
           headers: { Authorization: token }
         }),
-        fetch(`${API_BASE_URL}/leads/ai-database/companies${filter}`, {
+        fetch(buildApiUrl(`/leads/ai-database/companies${filter}`), {
           headers: { Authorization: token }
         })
       ])
@@ -441,7 +441,7 @@ function Settings() {
     setAiDatabaseRefilling(true)
     try {
       const token = getAuthToken()
-      const res = await fetch(`${API_BASE_URL}/leads/ai-database/discover-leads`, {
+      const res = await fetch(buildApiUrl(`/leads/ai-database/discover-leads`), {
         method: "POST",
         headers: { 
           Authorization: token,
@@ -476,7 +476,7 @@ function Settings() {
     setAiDatabaseProcessing(true)
     try {
       const token = getAuthToken()
-      const res = await fetch(`${API_BASE_URL}/leads/ai-database/process-batch`, {
+      const res = await fetch(buildApiUrl(`/leads/ai-database/process-batch`), {
         method: "POST",
         headers: { 
           Authorization: token,
@@ -506,7 +506,7 @@ function Settings() {
     if (!confirm(`Clear all ${status || 'all'} companies from the database?`)) return
     try {
       const token = getAuthToken()
-      const url = status ? `${API_BASE_URL}/leads/ai-database/clear?status=${status}` : `${API_BASE_URL}/leads/ai-database/clear`
+      const url = status ? buildApiUrl(`/leads/ai-database/clear?status=${status}`) : buildApiUrl(`/leads/ai-database/clear`)
       const res = await fetch(url, {
         method: "DELETE",
         headers: { Authorization: token }
@@ -542,7 +542,7 @@ function Settings() {
       // Fetch from API
       try {
         const token = getAuthToken()
-        const res = await fetch(`${API_BASE_URL}/settings/email-signature/${encodeURIComponent(email)}`, {
+        const res = await fetch(buildApiUrl(`/settings/email-signature/${encodeURIComponent(email)}`), {
           headers: { Authorization: token }
         })
         if (res.ok) {
@@ -563,7 +563,7 @@ function Settings() {
     setSavingSignature(true)
     try {
       const token = getAuthToken()
-      const res = await fetch(`${API_BASE_URL}/settings/email-signature/${encodeURIComponent(selectedSignatureEmail)}`, {
+      const res = await fetch(buildApiUrl(`/settings/email-signature/${encodeURIComponent(selectedSignatureEmail)}`), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -597,7 +597,7 @@ function Settings() {
     setSavingSignature(true)
     try {
       const token = getAuthToken()
-      const res = await fetch(`${API_BASE_URL}/settings/email-signature/${encodeURIComponent(selectedSignatureEmail)}`, {
+      const res = await fetch(buildApiUrl(`/settings/email-signature/${encodeURIComponent(selectedSignatureEmail)}`), {
         method: "DELETE",
         headers: { Authorization: token }
       })
@@ -631,7 +631,7 @@ function Settings() {
       const token = getAuthToken()
       
       // Load Email/IMAP accounts from leads endpoint
-      const accountsRes = await fetch(`${API_BASE_URL}/leads/gmail/accounts`, {
+      const accountsRes = await fetch(buildApiUrl(`/leads/gmail/accounts`), {
         headers: { Authorization: token }
       })
       if (accountsRes.ok) {
@@ -671,7 +671,7 @@ function Settings() {
   const loadIdleStatus = async () => {
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/gmail/idle/status`, {
+      const response = await fetch(buildApiUrl(`/gmail/idle/status`), {
         headers: { Authorization: token }
       })
       if (response.ok) {
@@ -688,7 +688,7 @@ function Settings() {
     try {
       const token = getAuthToken()
       const endpoint = start ? "/gmail/idle/start" : "/gmail/idle/stop"
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      const response = await fetch(buildApiUrl(`${endpoint}`), {
         method: "POST",
         headers: { Authorization: token }
       })
@@ -714,7 +714,7 @@ function Settings() {
       const token = getAuthToken()
       const days = importDays[email] || 30
       
-      const response = await fetch(`${API_BASE_URL}/gmail/import/historical/${encodeURIComponent(email)}`, {
+      const response = await fetch(buildApiUrl(`/gmail/import/historical/${encodeURIComponent(email)}`), {
         method: "POST",
         headers: { 
           Authorization: token,
@@ -742,7 +742,7 @@ function Settings() {
     const checkProgress = async () => {
       try {
         const token = getAuthToken()
-        const response = await fetch(`${API_BASE_URL}/gmail/import/progress/${encodeURIComponent(email)}`, {
+        const response = await fetch(buildApiUrl(`/gmail/import/progress/${encodeURIComponent(email)}`), {
           headers: { Authorization: token }
         })
         
@@ -769,7 +769,7 @@ function Settings() {
     
     try {
       const token = getAuthToken()
-      await fetch(`${API_BASE_URL}/gmail/imap-accounts/${encodeURIComponent(email)}/settings`, {
+      await fetch(buildApiUrl(`/gmail/imap-accounts/${encodeURIComponent(email)}/settings`), {
         method: "PUT",
         headers: { 
           Authorization: token,
@@ -785,7 +785,7 @@ function Settings() {
   const loadAllocationSettings = async () => {
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/survey-allocation/settings`, {
+      const response = await fetch(buildApiUrl(`/survey-allocation/settings`), {
         headers: { Authorization: token }
       })
       if (response.ok) {
@@ -803,7 +803,7 @@ function Settings() {
     
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/survey-allocation/settings`, {
+      const response = await fetch(buildApiUrl(`/survey-allocation/settings`), {
         method: "POST",
         headers: {
           Authorization: token,
@@ -837,10 +837,10 @@ function Settings() {
       
       // Load app settings, survey filters, and rate limits in parallel
       const [appRes, filterRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/settings/app`, {
+        fetch(buildApiUrl(`/settings/app`), {
           headers: { Authorization: token }
         }),
-        fetch(`${API_BASE_URL}/settings/survey-filters`, {
+        fetch(buildApiUrl(`/settings/survey-filters`), {
           headers: { Authorization: token }
         })
       ])
@@ -881,7 +881,7 @@ function Settings() {
         }
       })
       
-      const response = await fetch(`${API_BASE_URL}/settings/app`, {
+      const response = await fetch(buildApiUrl(`/settings/app`), {
         method: "POST",
         headers: {
           Authorization: token,
@@ -912,7 +912,7 @@ function Settings() {
     try {
       const token = getAuthToken()
       
-      const response = await fetch(`${API_BASE_URL}/settings/survey-filters`, {
+      const response = await fetch(buildApiUrl(`/settings/survey-filters`), {
         method: "POST",
         headers: {
           Authorization: token,
@@ -944,7 +944,7 @@ function Settings() {
       const token = getAuthToken()
       
       // Save app settings
-      const appResponse = await fetch(`${API_BASE_URL}/settings/app`, {
+      const appResponse = await fetch(buildApiUrl(`/settings/app`), {
         method: "POST",
         headers: {
           Authorization: token,
@@ -960,7 +960,7 @@ function Settings() {
       }
       
       // Save survey filters
-      const filterResponse = await fetch(`${API_BASE_URL}/settings/survey-filters`, {
+      const filterResponse = await fetch(buildApiUrl(`/settings/survey-filters`), {
         method: "POST",
         headers: {
           Authorization: token,
@@ -991,7 +991,7 @@ function Settings() {
     
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/settings/test-mongo`, {
+      const response = await fetch(buildApiUrl(`/settings/test-mongo`), {
         method: "POST",
         headers: {
           Authorization: token,
@@ -1018,7 +1018,7 @@ function Settings() {
     
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/settings/test-cpx`, {
+      const response = await fetch(buildApiUrl(`/settings/test-cpx`), {
         method: "POST",
         headers: {
           Authorization: token,
@@ -1055,7 +1055,7 @@ function Settings() {
   const initiateGmailAuth = async () => {
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/gmail/auth/url`, {
+      const response = await fetch(buildApiUrl(`/gmail/auth/url`), {
         headers: { Authorization: token }
       })
       if (response.ok) {
@@ -1073,7 +1073,7 @@ function Settings() {
   const authenticateAccount = async (accountId) => {
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/gmail/auth/url?account_id=${accountId}`, {
+      const response = await fetch(buildApiUrl(`/gmail/auth/url?account_id=${accountId}`), {
         headers: { Authorization: token }
       })
       if (response.ok) {
@@ -1102,7 +1102,7 @@ function Settings() {
     setSaving(true)
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/leads/gmail/accounts`, {
+      const response = await fetch(buildApiUrl(`/leads/gmail/accounts`), {
         method: "POST",
         headers: {
           Authorization: token,
@@ -1156,7 +1156,7 @@ function Settings() {
     
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/leads/gmail/accounts/${encodeURIComponent(accountEmail)}`, {
+      const response = await fetch(buildApiUrl(`/leads/gmail/accounts/${encodeURIComponent(accountEmail)}`), {
         method: "DELETE",
         headers: { Authorization: token }
       })
@@ -1175,7 +1175,7 @@ function Settings() {
   const testEmailAccount = async (accountEmail) => {
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/leads/gmail/accounts/${encodeURIComponent(accountEmail)}/test`, {
+      const response = await fetch(buildApiUrl(`/leads/gmail/accounts/${encodeURIComponent(accountEmail)}/test`), {
         method: "POST",
         headers: { Authorization: token }
       })
@@ -1200,7 +1200,7 @@ function Settings() {
     setSaving(true)
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/leads/gmail/accounts/${encodeURIComponent(accountEmail)}/aliases`, {
+      const response = await fetch(buildApiUrl(`/leads/gmail/accounts/${encodeURIComponent(accountEmail)}/aliases`), {
         method: "POST",
         headers: {
           Authorization: token,
@@ -1229,7 +1229,7 @@ function Settings() {
     try {
       const token = getAuthToken()
       const response = await fetch(
-        `${API_BASE_URL}/leads/gmail/accounts/${encodeURIComponent(accountEmail)}/aliases/${encodeURIComponent(aliasEmail)}`,
+        buildApiUrl(`/leads/gmail/accounts/${encodeURIComponent(accountEmail)}/aliases/${encodeURIComponent(aliasEmail)}`),
         {
           method: "DELETE",
           headers: { Authorization: token }
@@ -1253,7 +1253,7 @@ function Settings() {
     
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/leads/gmail/accounts/${encodeURIComponent(accountEmail)}/aliases/sync`, {
+      const response = await fetch(buildApiUrl(`/leads/gmail/accounts/${encodeURIComponent(accountEmail)}/aliases/sync`), {
         method: "POST",
         headers: { Authorization: token }
       })
@@ -1284,7 +1284,7 @@ function Settings() {
     
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/gmail/rate-limits`, {
+      const response = await fetch(buildApiUrl(`/gmail/rate-limits`), {
         method: "POST",
         headers: {
           Authorization: token,
@@ -1309,7 +1309,7 @@ function Settings() {
   const setDefaultAccount = async (accountId) => {
     try {
       const token = getAuthToken()
-      const response = await fetch(`${API_BASE_URL}/gmail/accounts/${accountId}/set-default`, {
+      const response = await fetch(buildApiUrl(`/gmail/accounts/${accountId}/set-default`), {
         method: "POST",
         headers: { Authorization: token }
       })
