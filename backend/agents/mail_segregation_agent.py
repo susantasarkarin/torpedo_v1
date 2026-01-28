@@ -193,8 +193,8 @@ class MailSegregationAgent:
         # Configure genai with the selected key
         self.rotator.configure_genai(key_index)
         
-        # Create model and generate response
-        model = genai.GenerativeModel("gemini-2.0-flash-exp")
+        # Create model and generate response - use stable model name
+        model = genai.GenerativeModel("gemini-1.5-flash")
         response = model.generate_content(prompt)
         
         # Log the request for quota tracking
