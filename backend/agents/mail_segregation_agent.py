@@ -17,7 +17,8 @@ from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from pymongo import MongoClient
 from bson import ObjectId
 from backend.leads.gemini_rotator import get_rotator
@@ -190,12 +191,14 @@ class MailSegregationAgent:
         # Get available key from rotator
         key_index, api_key = self.rotator.get_available_key()
         
-        # Configure genai with the selected key
-        self.rotator.configure_genai(key_index)
+        # Use new google.genai SDK with the API key directly
+        client = genai.Client(api_key=api_key)
         
-        # Create model and generate response - use gemini-pro for v1 API compatibility
-        model = genai.GenerativeModel("gemini-pro")
-        response = model.generate_content(prompt)
+        # Generate response using gemini-2.0-flash model
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
+        )
         
         # Log the request for quota tracking
         # Estimate tokens (rough estimate: 1 token ≈ 4 characters)
