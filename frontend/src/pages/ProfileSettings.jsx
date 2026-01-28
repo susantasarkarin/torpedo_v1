@@ -93,6 +93,18 @@ export default function ProfileSettings() {
     agent_type: 'mail_segregation',
   });
 
+  // Gemini API Keys state
+  const [geminiKeys, setGeminiKeys] = useState({
+    gemini_api_key_1: '',
+    gemini_api_key_2: '',
+    gemini_api_key_3: '',
+    gemini_api_key_4: '',
+    gemini_api_key_5: '',
+    gemini_api_key_6: '',
+    gemini_api_key_7: '',
+  });
+  const [showKeys, setShowKeys] = useState(false);
+
   const agentTypes = [
     { value: 'mail_segregation', label: 'Mail Segregation' },
     { value: 'contact_extraction', label: 'Contact Extraction' },
@@ -316,8 +328,69 @@ export default function ProfileSettings() {
     setMessage({ type: 'success', text: 'Copied to clipboard' });
   };
 
+  // Fetch Gemini API Keys
+  const fetchGeminiKeys = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/settings`, {
+        headers: {
+          'Authorization': localStorage.getItem('sessionToken') || '',
+        },
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch settings');
+      
+      const data = await response.json();
+      setGeminiKeys({
+        gemini_api_key_1: data.gemini_api_key_1 || '',
+        gemini_api_key_2: data.gemini_api_key_2 || '',
+        gemini_api_key_3: data.gemini_api_key_3 || '',
+        gemini_api_key_4: data.gemini_api_key_4 || '',
+        gemini_api_key_5: data.gemini_api_key_5 || '',
+        gemini_api_key_6: data.gemini_api_key_6 || '',
+        gemini_api_key_7: data.gemini_api_key_7 || '',
+      });
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Save Gemini API Keys
+  const handleSaveGeminiKeys = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/settings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': localStorage.getItem('sessionToken') || '',
+        },
+        body: JSON.stringify(geminiKeys),
+      });
+      
+      if (!response.ok) throw new Error('Failed to save Gemini API keys');
+      
+      setMessage({ type: 'success', text: 'Gemini API keys saved successfully' });
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle Gemini key input change
+  const handleGeminiKeyChange = (keyName, value) => {
+    setGeminiKeys(prev => ({
+      ...prev,
+      [keyName]: value
+    }));
+  };
+
   useEffect(() => {
     fetchPrompts();
+    fetchGeminiKeys();
   }, []);
 
   // Clear message after 5 seconds
@@ -356,7 +429,8 @@ export default function ProfileSettings() {
           sx={{ borderBottom: '1px solid #e0e0e0' }}
         >
           <Tab label="Prompt Management" id="tab-0" />
-          <Tab label="Profile Settings" id="tab-1" />
+          <Tab label="Gemini API Keys" id="tab-1" />
+          <Tab label="Profile Settings" id="tab-2" />
         </Tabs>
 
         {/* Prompt Management Tab */}
@@ -464,8 +538,110 @@ export default function ProfileSettings() {
           )}
         </TabPanel>
 
-        {/* Profile Settings Tab */}
+        {/* Gemini API Keys Tab */}
         <TabPanel value={tabValue} index={1}>
+          <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6">Gemini API Keys Configuration</Typography>
+            <Box>
+              <Button
+                variant="outlined"
+                onClick={() => setShowKeys(!showKeys)}
+                sx={{ mr: 1 }}
+              >
+                {showKeys ? 'Hide Keys' : 'Show Keys'}
+              </Button>
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<SaveIcon />}
+                onClick={handleSaveGeminiKeys}
+                disabled={loading}
+              >
+                Save Keys
+              </Button>
+            </Box>
+          </Box>
+
+          <Alert severity="info" sx={{ mb: 3 }}>
+            Configure up to 7 Gemini API keys for automatic rotation. Each free-tier account has 15 RPM and 1,000 requests/day limits. 
+            The system will automatically rotate between keys to maximize throughput (105 RPM, 7,000 requests/day total).
+          </Alert>
+
+          <Grid container spacing={3}>
+            {[1, 2, 3, 4, 5, 6, 7].map((num) => (
+              <Grid item xs={12} md={6} key={num}>
+                <Card variant="outlined">
+                  <CardContent>
+                    <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold' }}>
+                      Gemini API Key {num}
+                    </Typography>
+                    <TextField
+                      fullWidth
+                      type={showKeys ? 'text' : 'password'}
+                      label={`API Key ${num}`}
+                      value={geminiKeys[`gemini_api_key_${num}`]}
+                      onChange={(e) => handleGeminiKeyChange(`gemini_api_key_${num}`, e.target.value)}
+                      placeholder="AIzaSy..."
+                      variant="outlined"
+                      helperText={geminiKeys[`gemini_api_key_${num}`] ? '✓ Key configured' : 'Empty - optional'}
+                      InputProps={{
+                        endAdornment: geminiKeys[`gemini_api_key_${num}`] && (
+                          <IconButton
+                            size="small"
+                            onClick={() => handleCopyContent(geminiKeys[`gemini_api_key_${num}`])}
+                          >
+                            <CopyIcon fontSize="small" />
+                          </IconButton>
+                        ),
+                      }}
+                    />
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+
+          <Box sx={{ mt: 3 }}>
+            <Card variant="outlined">
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  How to Get Gemini API Keys
+                </Typography>
+                <Typography variant="body2" paragraph>
+                  1. Go to <a href="https://makersuite.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
+                </Typography>
+                <Typography variant="body2" paragraph>
+                  2. Sign in with your Google account
+                </Typography>
+                <Typography variant="body2" paragraph>
+                  3. Click "Get API Key" and create a new key
+                </Typography>
+                <Typography variant="body2" paragraph>
+                  4. Copy the key and paste it in one of the fields above
+                </Typography>
+                <Typography variant="body2" paragraph>
+                  5. Repeat with different Google accounts to get up to 7 keys for maximum throughput
+                </Typography>
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="subtitle2" gutterBottom>
+                  Free Tier Limits (per key):
+                </Typography>
+                <Typography variant="body2">
+                  • 15 requests per minute (RPM)
+                </Typography>
+                <Typography variant="body2">
+                  • 1,000 requests per day
+                </Typography>
+                <Typography variant="body2" sx={{ mt: 1, fontWeight: 'bold' }}>
+                  Total Capacity with 7 keys: 105 RPM, 7,000 requests/day
+                </Typography>
+              </CardContent>
+            </Card>
+          </Box>
+        </TabPanel>
+
+        {/* Profile Settings Tab */}
+        <TabPanel value={tabValue} index={2}>
           <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
               <Card>
