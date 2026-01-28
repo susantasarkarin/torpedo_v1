@@ -3,7 +3,7 @@
  * Timeline visualization of all outreach attempts
  */
 import React, { useState } from 'react';
-import { Mail, Linkedin, CheckCircle, Clock, AlertCircle, Eye, Click } from 'lucide-react';
+import { Mail, Linkedin, CheckCircle, Clock, AlertCircle, Eye, MousePointerClick } from 'lucide-react';
 import './OutreachHistory.css';
 
 const CHANNEL_ICONS = {
@@ -16,7 +16,7 @@ const CHANNEL_ICONS = {
 const STATUS_CONFIG = {
   sent: { label: 'Sent', color: '#3b82f6', icon: Clock },
   opened: { label: 'Opened', color: '#8b5cf6', icon: Eye },
-  clicked: { label: 'Clicked', color: '#ec4899', icon: Click },
+  clicked: { label: 'Clicked', color: '#ec4899', icon: MousePointerClick },
   replied: { label: 'Replied', color: '#22c55e', icon: CheckCircle },
   bounced: { label: 'Bounced', color: '#ef4444', icon: AlertCircle },
   failed: { label: 'Failed', color: '#f97316', icon: AlertCircle },
