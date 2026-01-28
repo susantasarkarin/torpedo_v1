@@ -815,6 +815,18 @@ try:
 except Exception as e:
     print(f"⚠️ Campaign Automation router not included: {e}")
 
+# AI Cold Outreach & Re-Engagement router
+try:
+    try:
+        from .outreach.router import router as outreach_router
+    except ImportError:
+        from outreach.router import router as outreach_router
+    
+    app.include_router(outreach_router)
+    print("✅ AI Cold Outreach & Re-Engagement router included")
+except Exception as e:
+    print(f"⚠️ AI Cold Outreach router not included: {e}")
+
 # Operations router (Operations-Finance integration)
 try:
     app.include_router(operations_router.router)
