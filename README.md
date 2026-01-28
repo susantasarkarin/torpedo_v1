@@ -2,7 +2,9 @@
 
 A comprehensive campaign automation and lead management platform.
 
-## 🔍 Can't Find Your Agent Work?
+## 🤖 Agent Tools
+
+### 🔍 Can't Find Your Agent Work?
 
 If you completed work using GitHub Copilot or other AI agents and can't locate it on the VM:
 
@@ -15,6 +17,30 @@ If you completed work using GitHub Copilot or other AI agents and can't locate i
 - 📖 [Agent Work Location Guide](AGENT_WORK_LOCATION_GUIDE.md) - Quick reference
 - 📋 [Agent Work Log](AGENT_WORK_LOG.md) - All agent sessions
 - 📚 [Detailed Tracking Guide](.github/COPILOT_AGENTS_README.md) - Complete documentation
+
+### 🚀 Need to Merge and Deploy?
+
+Automated merge and deployment to VM:
+
+**Quick Merge & Deploy:**
+```bash
+./scripts/merge_and_deploy_agent.sh <branch-name>
+```
+
+**Examples:**
+```bash
+# Standard merge and deploy
+./scripts/merge_and_deploy_agent.sh copilot/feature-branch
+
+# Quick mode (auto-confirm)
+./scripts/merge_and_deploy_agent.sh copilot/feature-branch -y
+
+# Preview mode (dry-run)
+./scripts/merge_and_deploy_agent.sh copilot/feature-branch --dry-run
+```
+
+**Read the guide:**
+- 📚 [Merge and Deploy Agent Guide](MERGE_DEPLOY_AGENT.md) - Complete documentation
 
 ## Quick Start
 
