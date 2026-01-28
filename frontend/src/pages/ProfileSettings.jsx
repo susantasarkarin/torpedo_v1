@@ -44,6 +44,12 @@ import {
   ContentCopy as CopyIcon,
   History as HistoryIcon,
   Refresh as RefreshIcon,
+  Download as DownloadIcon,
+  Email as EmailIcon,
+  Person as PersonIcon,
+  Summary as SummaryIcon,
+  PlayArrow as PlayArrowIcon,
+  Visibility as VisibilityIcon,
 } from '@mui/icons-material';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
@@ -75,6 +81,26 @@ export default function ProfileSettings() {
   const [versions, setVersions] = useState([]);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [testResult, setTestResult] = useState(null);
+
+  // Mail Operations states
+  const [segregationStats, setSegregationStats] = useState(null);
+  const [summaries, setSummaries] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [segregateDialogOpen, setSegregateDialogOpen] = useState(false);
+  const [summaryDialogOpen, setSummaryDialogOpen] = useState(false);
+  const [contactsDialogOpen, setContactsDialogOpen] = useState(false);
+  const [summaryDetailsOpen, setSummaryDetailsOpen] = useState(false);
+  const [selectedSummary, setSelectedSummary] = useState(null);
+  const [segregateForm, setSegregateForm] = useState({
+    strategy: 'category',
+    batch_size: 100,
+    force_rescan: false,
+  });
+  const [summaryForm, setSummaryForm] = useState({
+    segment_name: '',
+    date_from: '',
+    date_to: '',
+  });
 
   // Form states
   const [formData, setFormData] = useState({
@@ -357,6 +383,131 @@ export default function ProfileSettings() {
     }
   };
 
+  // Mail Operations Functions
+  const strategies = [
+    { value: 'category', label: 'By Category (Sales, Support, etc.)' },
+    { value: 'sender_domain', label: 'By Sender Domain' },
+    { value: 'priority', label: 'By Priority Level' },
+    { value: 'intent', label: 'By Business Intent' },
+    { value: 'engagement', label: 'By Engagement Level' },
+    { value: 'custom', label: 'Custom Segmentation' },
+  ];
+
+  const fetchSegregationStats = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/mail/segregation-stats`, {
+        headers: {
+          'Authorization': localStorage.getItem('sessionToken') || '',
+        },
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch stats');
+      
+      const data = await response.json();
+      setSegregationStats(data);
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSegregateEmails = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/mail/segregate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': localStorage.getItem('sessionToken') || '',
+        },
+        body: JSON.stringify(segregateForm),
+      });
+      
+      if (!response.ok) throw new Error('Failed to segregate emails');
+      
+      const data = await response.json();
+      setMessage({ 
+        type: 'success', 
+        text: `Successfully segregated ${data.processed} emails` 
+      });
+      setSummaries(data.segment_summaries || []);
+      setSegregateDialogOpen(false);
+      await fetchSegregationStats();
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGenerateSummary = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/mail/generate-summary`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': localStorage.getItem('sessionToken') || '',
+        },
+        body: JSON.stringify(summaryForm),
+      });
+      
+      if (!response.ok) throw new Error('Failed to generate summary');
+      
+      const data = await response.json();
+      setMessage({ type: 'success', text: 'Summary generated successfully' });
+      setSummaries([data, ...summaries]);
+      setSummaryDialogOpen(false);
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExtractContacts = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/mail/extract-contacts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': localStorage.getItem('sessionToken') || '',
+        },
+      });
+      
+      if (!response.ok) throw new Error('Failed to extract contacts');
+      
+      const data = await response.json();
+      setContacts(data.contacts || []);
+      setContactsDialogOpen(true);
+      setMessage({ type: 'success', text: `Extracted ${data.contacts?.length || 0} contacts` });
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownloadContacts = () => {
+    if (contacts.length === 0) return;
+
+    const csv = [
+      ['Name', 'Email', 'Company', 'Title'],
+      ...contacts.map(c => [c.name, c.email, c.company, c.title])
+    ].map(row => row.join(',')).join('\\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `contacts_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
   // Save Gemini API Keys
   const handleSaveGeminiKeys = async () => {
     try {
@@ -430,7 +581,8 @@ export default function ProfileSettings() {
         >
           <Tab label="Prompt Management" id="tab-0" />
           <Tab label="Gemini API Keys" id="tab-1" />
-          <Tab label="Profile Settings" id="tab-2" />
+          <Tab label="Mail Operations" id="tab-2" />
+          <Tab label="Profile Settings" id="tab-3" />
         </Tabs>
 
         {/* Prompt Management Tab */}
@@ -640,8 +792,182 @@ export default function ProfileSettings() {
           </Box>
         </TabPanel>
 
-        {/* Profile Settings Tab */}
+        {/* Mail Operations Tab */}
         <TabPanel value={tabValue} index={2}>
+          <Box sx={{ mb: 4 }}>
+            <Typography variant="h6" gutterBottom>Email Segregation & Management</Typography>
+            <Typography variant="body2" color="textSecondary">
+              Segregate emails, generate summaries, and extract contact information using AI
+            </Typography>
+          </Box>
+
+          {/* Fetch stats when tab opens */}
+          {tabValue === 2 && !segregationStats && fetchSegregationStats()}
+
+          {/* Stats Overview */}
+          {segregationStats && (
+            <Grid container spacing={3} sx={{ mb: 4 }}>
+              <Grid item xs={12} sm={6} md={3}>
+                <Card>
+                  <CardContent>
+                    <Typography color="textSecondary" gutterBottom>
+                      Total Emails
+                    </Typography>
+                    <Typography variant="h5">
+                      {segregationStats.total_emails?.toLocaleString() || 0}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Card>
+                  <CardContent>
+                    <Typography color="textSecondary" gutterBottom>
+                      Segregated
+                    </Typography>
+                    <Typography variant="h5">
+                      {segregationStats.segregated_emails?.toLocaleString() || 0}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Card>
+                  <CardContent>
+                    <Typography color="textSecondary" gutterBottom>
+                      Pending
+                    </Typography>
+                    <Typography variant="h5">
+                      {segregationStats.pending_emails?.toLocaleString() || 0}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Card>
+                  <CardContent>
+                    <Typography color="textSecondary" gutterBottom>
+                      Progress
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography variant="h5">
+                        {segregationStats.segregation_percentage || 0}%
+                      </Typography>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            </Grid>
+          )}
+
+          {/* Action Buttons */}
+          <Box sx={{ mb: 3, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+            <Button 
+              variant="contained" 
+              color="primary"
+              startIcon={<PlayArrowIcon />}
+              onClick={() => setSegregateDialogOpen(true)}
+            >
+              Start Segregation
+            </Button>
+            <Button 
+              variant="outlined" 
+              color="primary"
+              startIcon={<RefreshIcon />}
+              onClick={fetchSegregationStats}
+            >
+              Refresh Stats
+            </Button>
+            <Button 
+              variant="outlined" 
+              color="primary"
+              startIcon={<SummaryIcon />}
+              onClick={() => setSummaryDialogOpen(true)}
+            >
+              Generate Summary
+            </Button>
+            <Button 
+              variant="outlined" 
+              color="primary"
+              startIcon={<PersonIcon />}
+              onClick={handleExtractContacts}
+            >
+              Extract Contacts
+            </Button>
+          </Box>
+
+          {/* Segment Breakdown */}
+          {segregationStats?.segment_breakdown && segregationStats.segment_breakdown.length > 0 && (
+            <Box sx={{ mt: 3 }}>
+              <Typography variant="h6" sx={{ mb: 2 }}>Segment Breakdown</Typography>
+              <TableContainer component={Paper} variant="outlined">
+                <Table>
+                  <TableHead>
+                    <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                      <TableCell><strong>Segment</strong></TableCell>
+                      <TableCell align="right"><strong>Count</strong></TableCell>
+                      <TableCell align="right"><strong>Percentage</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {segregationStats.segment_breakdown.map((segment, idx) => {
+                      const percentage = ((segment.count / segregationStats.total_emails) * 100).toFixed(1);
+                      return (
+                        <TableRow key={idx}>
+                          <TableCell>{segment._id || 'Unclassified'}</TableCell>
+                          <TableCell align="right">{segment.count.toLocaleString()}</TableCell>
+                          <TableCell align="right">{percentage}%</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
+          )}
+
+          {/* Summaries Section */}
+          {summaries.length > 0 && (
+            <Box sx={{ mt: 4 }}>
+              <Typography variant="h6" sx={{ mb: 2 }}>Recent Summaries</Typography>
+              <Grid container spacing={2}>
+                {summaries.map((summary, index) => (
+                  <Grid item xs={12} md={6} key={index}>
+                    <Card>
+                      <CardHeader 
+                        title={summary.segment_name}
+                        subheader={`${summary.total_emails} emails`}
+                      />
+                      <CardContent>
+                        <Typography variant="body2" sx={{ mb: 2 }}>
+                          {summary.summary_text}
+                        </Typography>
+                        {summary.key_topics && summary.key_topics.length > 0 && (
+                          <Box sx={{ mb: 2 }}>
+                            <Typography variant="caption" color="textSecondary">
+                              <strong>Key Topics:</strong>
+                            </Typography>
+                            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 1 }}>
+                              {summary.key_topics.map((topic, i) => (
+                                <Chip key={i} label={topic} size="small" />
+                              ))}
+                            </Box>
+                          </Box>
+                        )}
+                        <Typography variant="caption" color="textSecondary">
+                          Created: {new Date(summary.created_at).toLocaleDateString()}
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            </Box>
+          )}
+        </TabPanel>
+
+        {/* Profile Settings Tab */}
+        <TabPanel value={tabValue} index={3}>
           <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
               <Card>
@@ -888,6 +1214,201 @@ export default function ProfileSettings() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setVersionsDialogOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Mail Segregation Dialog */}
+      <Dialog open={segregateDialogOpen} onClose={() => setSegregateDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Configure Email Segregation</DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <FormControl fullWidth>
+              <InputLabel>Segregation Strategy</InputLabel>
+              <Select
+                value={segregateForm.strategy}
+                onChange={(e) => setSegregateForm({ ...segregateForm, strategy: e.target.value })}
+                label="Segregation Strategy"
+              >
+                {strategies.map((s) => (
+                  <MenuItem key={s.value} value={s.value}>
+                    {s.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <TextField
+              label="Batch Size"
+              type="number"
+              fullWidth
+              value={segregateForm.batch_size}
+              onChange={(e) => setSegregateForm({ ...segregateForm, batch_size: parseInt(e.target.value) })}
+              inputProps={{ min: 10, max: 1000 }}
+            />
+
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={segregateForm.force_rescan}
+                  onChange={(e) => setSegregateForm({ ...segregateForm, force_rescan: e.target.checked })}
+                />
+              }
+              label="Force rescan already segregated emails"
+            />
+            <Typography variant="caption" color="textSecondary">
+              This will re-process all emails. Useful for testing or updating segmentation logic.
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSegregateDialogOpen(false)}>Cancel</Button>
+          <Button 
+            onClick={handleSegregateEmails} 
+            variant="contained" 
+            color="primary"
+            disabled={loading}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Start Segregation'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Summary Dialog */}
+      <Dialog open={summaryDialogOpen} onClose={() => setSummaryDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Generate Mail Summary</DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextField
+              label="Segment Name (optional)"
+              fullWidth
+              placeholder="e.g., Sales, Support"
+              value={summaryForm.segment_name}
+              onChange={(e) => setSummaryForm({ ...summaryForm, segment_name: e.target.value })}
+            />
+            <TextField
+              label="Date From"
+              type="date"
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+              value={summaryForm.date_from}
+              onChange={(e) => setSummaryForm({ ...summaryForm, date_from: e.target.value })}
+            />
+            <TextField
+              label="Date To"
+              type="date"
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+              value={summaryForm.date_to}
+              onChange={(e) => setSummaryForm({ ...summaryForm, date_to: e.target.value })}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSummaryDialogOpen(false)}>Cancel</Button>
+          <Button 
+            onClick={handleGenerateSummary} 
+            variant="contained" 
+            color="primary"
+            disabled={loading}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Generate'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Summary Details Dialog */}
+      <Dialog open={summaryDetailsOpen} onClose={() => setSummaryDetailsOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>{selectedSummary?.segment_name} Summary</DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {selectedSummary && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <Box>
+                <Typography variant="subtitle2" gutterBottom>Summary</Typography>
+                <Typography variant="body2">{selectedSummary.summary_text}</Typography>
+              </Box>
+
+              <Divider />
+
+              <Box>
+                <Typography variant="subtitle2" gutterBottom>Key Topics</Typography>
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                  {selectedSummary.key_topics?.map((topic, i) => (
+                    <Chip key={i} label={topic} />
+                  ))}
+                </Box>
+              </Box>
+
+              {selectedSummary.action_items && (
+                <Box>
+                  <Typography variant="subtitle2" gutterBottom>Action Items</Typography>
+                  {selectedSummary.action_items.map((item, i) => (
+                    <Typography key={i} variant="body2" sx={{ ml: 2 }}>• {item}</Typography>
+                  ))}
+                </Box>
+              )}
+
+              {selectedSummary.top_senders && (
+                <Box>
+                  <Typography variant="subtitle2" gutterBottom>Top Senders</Typography>
+                  {selectedSummary.top_senders.map(([sender, count], i) => (
+                    <Typography key={i} variant="body2" sx={{ ml: 2 }}>
+                      {sender} ({count} emails)
+                    </Typography>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSummaryDetailsOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Contacts Dialog */}
+      <Dialog open={contactsDialogOpen} onClose={() => setContactsDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Extracted Contacts</DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Box sx={{ mb: 2 }}>
+            <Button 
+              variant="outlined"
+              startIcon={<DownloadIcon />}
+              onClick={handleDownloadContacts}
+              disabled={contacts.length === 0}
+            >
+              Download as CSV
+            </Button>
+          </Box>
+
+          {contacts.length > 0 ? (
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                    <TableCell><strong>Name</strong></TableCell>
+                    <TableCell><strong>Email</strong></TableCell>
+                    <TableCell><strong>Company</strong></TableCell>
+                    <TableCell><strong>Title</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {contacts.map((contact, i) => (
+                    <TableRow key={i}>
+                      <TableCell>{contact.name}</TableCell>
+                      <TableCell>{contact.email}</TableCell>
+                      <TableCell>{contact.company}</TableCell>
+                      <TableCell>{contact.title}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : (
+            <Typography color="textSecondary">No contacts found</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setContactsDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
     </Container>
