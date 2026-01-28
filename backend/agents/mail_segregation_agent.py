@@ -44,7 +44,13 @@ email_conversations = email_automation_db["email_conversations"]  # Email thread
 classified_emails = email_automation_db["classified_emails"]  # Classification results
 
 # Leads database - where extracted leads go
-leads_db = mongo_client.get_database("leads") or mongo_client.get_database("ai_enrichment")
+# Try to get "leads" database, fallback to "ai_enrichment" if it doesn't exist
+try:
+    leads_db = mongo_client.get_database("leads")
+    # Check if database exists by trying to list collections
+    leads_db.list_collection_names()
+except Exception:
+    leads_db = mongo_client.get_database("ai_enrichment")
 leads_collection = leads_db["leads"]  # Main leads collection
 lead_extraction_logs = leads_db["lead_extraction_logs"]  # Track extraction activity
 
