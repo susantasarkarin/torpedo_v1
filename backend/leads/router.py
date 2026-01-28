@@ -916,31 +916,38 @@ async def list_web_search_jobs(
     GET /leads/import/web-search/jobs
     List all web search jobs, optionally filtered by status.
     """
-    query = {}
-    if status:
-        query["status"] = status
-    
-    jobs = list(web_search_jobs_collection.find(query)
-                .sort("created_at", -1)
-                .limit(limit))
-    
-    result = []
-    for job in jobs:
-        progress_percent = 0
-        if job["target_count"] > 0:
-            progress_percent = round((job["total_imported"] / job["target_count"]) * 100, 1)
+    try:
+        query = {}
+        if status:
+            query["status"] = status
         
-        result.append({
-            "job_id": job["job_id"],
-            "status": job["status"],
-            "target_count": job["target_count"],
-            "total_imported": job["total_imported"],
-            "progress_percent": progress_percent,
-            "created_at": job["created_at"].isoformat() if job.get("created_at") else None,
-            "config": job.get("config", {})
-        })
-    
-    return {"jobs": result, "count": len(result)}
+        jobs = list(web_search_jobs_collection.find(query)
+                    .sort("created_at", -1)
+                    .limit(limit))
+        
+        result = []
+        for job in jobs:
+            progress_percent = 0
+            if job["target_count"] > 0:
+                progress_percent = round((job["total_imported"] / job["target_count"]) * 100, 1)
+            
+            result.append({
+                "job_id": job["job_id"],
+                "status": job["status"],
+                "target_count": job["target_count"],
+                "total_imported": job["total_imported"],
+                "progress_percent": progress_percent,
+                "created_at": job["created_at"].isoformat() if job.get("created_at") else None,
+                "config": job.get("config", {})
+            })
+        
+        return {"jobs": result, "count": len(result)}
+    except Exception as e:
+        print(f"❌ Error listing web search jobs: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to fetch jobs: {str(e)}")
+
 
 
 @router.post("/import/web-search/resume/{job_id}")

@@ -64,6 +64,8 @@ try:
     from .app.integrations.cint_integration import CintIntegration
     from .leads import router as leads_router
     from .routers import panel as panel_router
+    from .routers import mail_operations as mail_operations_router
+    from .routers import prompt_management as prompt_management_router
 except Exception:
     # Fallback to absolute import for other runtimes
     from routers import traffic as traffic_router
@@ -84,6 +86,8 @@ except Exception:
     from app.routers import cint as cint_router
     from app.integrations.cint_integration import CintIntegration
     from leads import router as leads_router
+    from routers import mail_operations as mail_operations_router
+    from routers import prompt_management as prompt_management_router
 
 # Ensure stdout/stderr use UTF-8 on Windows consoles to avoid UnicodeEncodeError
 import sys
@@ -330,6 +334,38 @@ app.add_middleware(
 # GZip compression for responses > 500 bytes (speeds up large JSON payloads)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
+# ----------------------------
+# Global Exception Handler - Ensures all errors return JSON
+# ----------------------------
+from starlette.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request, exc):
+    """Convert all HTTP exceptions to JSON responses"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": exc.detail,
+            "status_code": exc.status_code,
+            "path": str(request.url.path)
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request, exc):
+    """Convert all unhandled exceptions to JSON responses"""
+    print(f"❌ Unhandled exception: {type(exc).__name__}: {str(exc)}")
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": f"Internal server error: {type(exc).__name__}",
+            "status_code": 500,
+            "path": str(request.url.path),
+            "detail": str(exc)[:200]  # Limit error message length
+        }
+    )
 
 # ----------------------------
 # Performance Timing Middleware
@@ -806,6 +842,20 @@ try:
     print("✅ RFQ router included")
 except Exception as e:
     print(f"⚠️ RFQ router not included: {e}")
+
+# Mail Operations router (Mail segregation, summaries, contact extraction)
+try:
+    app.include_router(mail_operations_router.router, prefix="/api")
+    print("✅ Mail Operations router included")
+except Exception as e:
+    print(f"⚠️ Mail Operations router not included: {e}")
+
+# Prompt Management router (AI agent prompt management)
+try:
+    app.include_router(prompt_management_router.router, prefix="/api")
+    print("✅ Prompt Management router included")
+except Exception as e:
+    print(f"⚠️ Prompt Management router not included: {e}")
 
 # Campaign Automation router
 try:
@@ -2076,6 +2126,20 @@ async def get_templates(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Template fetch error: {str(e)}")
 
+# Alias endpoints without trailing slashes for frontend compatibility
+@app.get("/templates", dependencies=[Depends(verify_session)])
+async def get_templates_no_slash(
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(50, ge=1, le=1000, description="Maximum records to return")
+):
+    """Alias for /templates/ - GET templates without auth redirect"""
+    return await get_templates(skip=skip, limit=limit)
+
+@app.post("/templates")
+async def save_template_no_slash(template: Dict[str, Any] = Body(...)):
+    """Alias for /templates/ - POST template save"""
+    return await save_template(template=template)
+
 # ----------------------------
 # Send Emails
 # ----------------------------
@@ -2873,6 +2937,17 @@ async def get_projects():
         return {"projects": projects}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fetch projects error: {str(e)}")
+
+# Alias for /projects (without trailing slash)
+@app.get("/projects", dependencies=[Depends(verify_session)])
+async def get_projects_no_slash():
+    """Alias for /projects/ - GET projects"""
+    return await get_projects()
+
+@app.post("/projects")
+async def create_project_no_slash(project_data: Dict[str, Any] = Body(...)):
+    """Alias for /projects/ - POST project"""
+    return await create_project(project_data=project_data)
 
 @app.put("/projects/{project_id}")
 async def update_project(project_id: str, project_data: Dict[str, Any] = Body(...)):
