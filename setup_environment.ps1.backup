@@ -1,0 +1,355 @@
+# ============================================================================
+# Environment Configuration Helper (Windows PowerShell)
+# ============================================================================
+# This script guides users through setting up environment variables for the
+# campaign platform. It prompts for required configuration and creates/updates .env
+#
+# Usage: .\setup_environment.ps1
+# ============================================================================
+
+$ErrorActionPreference = "Stop"
+
+$ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$EnvFile = Join-Path $ProjectRoot ".env"
+
+# Color definitions
+$Colors = @{
+    Success = 'Green'
+    Warning = 'Yellow'
+    Error = 'Red'
+    Info = 'Cyan'
+    Input = 'White'
+}
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
+
+function Write-Status {
+    param(
+        [string]$Message,
+        [string]$Type = "Info",
+        [string]$Symbol = "•"
+    )
+    
+    switch ($Type) {
+        "Success" { Write-Host "✅ $Message" -ForegroundColor $Colors.Success }
+        "Warning" { Write-Host "⚠️  $Message" -ForegroundColor $Colors.Warning }
+        "Error" { Write-Host "❌ $Message" -ForegroundColor $Colors.Error }
+        "Progress" { Write-Host "🔄 $Message" -ForegroundColor $Colors.Progress }
+        "Header" { Write-Host "`n════════════════════════════════════════════════════════════════`n$Message`n════════════════════════════════════════════════════════════════" -ForegroundColor $Colors.Info }
+        "Step" { Write-Host "`n📋 $Message" -ForegroundColor $Colors.Info }
+        default { Write-Host "$Symbol $Message" -ForegroundColor $Colors.Info }
+    }
+}
+
+function Read-Input {
+    param(
+        [string]$Prompt,
+        [string]$Default = "",
+        [switch]$Secret
+    )
+    
+    Write-Host "`n$Prompt" -ForegroundColor $Colors.Input
+    if ($Default) {
+        Write-Host "  [Default: $Default]" -ForegroundColor $Colors.Warning
+    }
+    Write-Host "  > " -NoNewline -ForegroundColor $Colors.Input
+    
+    if ($Secret) {
+        $input = Read-Host -AsSecureString
+        $input = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToCoTaskMemUnicode($input))
+    } else {
+        $input = Read-Host
+    }
+    
+    if ([string]::IsNullOrWhiteSpace($input)) {
+        return $Default
+    }
+    return $input
+}
+
+function Test-PathExists {
+    param([string]$Path)
+    return Test-Path $Path
+}
+
+function Load-EnvFile {
+    $envContent = @{}
+    if (Test-PathExists $EnvFile) {
+        Get-Content $EnvFile | ForEach-Object {
+            $line = $_.Trim()
+            if ($line -and -not $line.StartsWith("#")) {
+                $parts = $line -split '=', 2
+                if ($parts.Count -eq 2) {
+                    $envContent[$parts[0].Trim()] = $parts[1].Trim()
+                }
+            }
+        }
+    }
+    return $envContent
+}
+
+function Save-EnvFile {
+    param([hashtable]$EnvData)
+    
+    $content = @()
+    $content += "# Campaign Platform - Environment Configuration"
+    $content += "# Generated on: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    $content += "# Update values as needed for your environment"
+    $content += ""
+    
+    # Database
+    $content += "# ============== DATABASE =============="
+    $content += "MONGO_URI=$($EnvData['MONGO_URI'])"
+    $content += ""
+    
+    # Server
+    $content += "# ============== SERVER =============="
+    $content += "API_BASE=$($EnvData['API_BASE'])"
+    $content += "CORS_ORIGINS=$($EnvData['CORS_ORIGINS'])"
+    $content += ""
+    
+    # Authentication
+    $content += "# ============== AUTHENTICATION =============="
+    $content += "SESSION_SECRET=$($EnvData['SESSION_SECRET'])"
+    $content += "SESSION_TTL_SECONDS=$($EnvData['SESSION_TTL_SECONDS'])"
+    $content += "DEFAULT_ADMIN_USERNAME=$($EnvData['DEFAULT_ADMIN_USERNAME'])"
+    $content += "DEFAULT_ADMIN_PASSWORD=$($EnvData['DEFAULT_ADMIN_PASSWORD'])"
+    $content += ""
+    
+    # AI Providers
+    $content += "# ============== AI PROVIDERS =============="
+    $content += "OPENAI_API_KEY=$($EnvData['OPENAI_API_KEY'])"
+    $content += "GEMINI_API_KEYS=$($EnvData['GEMINI_API_KEYS'])"
+    $content += ""
+    
+    # Redis (Optional)
+    $content += "# ============== REDIS (OPTIONAL) =============="
+    $content += "REDIS_URL=$($EnvData['REDIS_URL'])"
+    $content += ""
+    
+    # CPX Research
+    $content += "# ============== CPX RESEARCH API =============="
+    $content += "CPX_APP_ID=$($EnvData['CPX_APP_ID'])"
+    $content += "CPX_EXT_USER_ID=$($EnvData['CPX_EXT_USER_ID'])"
+    $content += "CPX_SECURE_HASH_KEY=$($EnvData['CPX_SECURE_HASH_KEY'])"
+    $content += ""
+    
+    $content -join "`n" | Set-Content $EnvFile -Encoding UTF8
+}
+
+function Show-Intro {
+    Write-Status "Environment Setup Helper" "Header"
+    Write-Host @"
+This script will guide you through configuring your environment variables.
+
+Configuration sections:
+  1. Database (MongoDB)
+  2. Server settings
+  3. Authentication
+  4. AI Providers (OpenAI, Gemini)
+  5. Cache (Redis)
+  6. CPX Research API
+
+All settings are optional except Database and AI Provider keys.
+Press Enter to use default values (shown in [brackets]).
+"@ -ForegroundColor $Colors.Info
+}
+
+function Configure-Database {
+    Write-Status "Configuring Database Settings" "Step"
+    
+    Write-Host @"
+MongoDB is required for the platform to work.
+
+Options:
+  • Local: mongodb://localhost:27017/campaign_platform
+  • MongoDB Atlas: mongodb+srv://user:password@cluster.mongodb.net/database
+  • Other MongoDB instance: mongodb://host:port/database
+"@ -ForegroundColor $Colors.Info
+    
+    $mongoUri = Read-Input "MongoDB Connection String" "mongodb://localhost:27017/campaign_platform"
+    
+    return @{
+        MONGO_URI = $mongoUri
+    }
+}
+
+function Configure-Server {
+    Write-Status "Configuring Server Settings" "Step"
+    
+    Write-Host "API base URL is used for email tracking and integrations." -ForegroundColor $Colors.Info
+    
+    $apiBase = Read-Input "API Base URL" "http://localhost:8000"
+    $corsOrigins = Read-Input "CORS Allowed Origins (comma-separated)" "http://localhost:5173,http://localhost:5174,http://localhost:3000"
+    
+    return @{
+        API_BASE = $apiBase
+        CORS_ORIGINS = $corsOrigins
+    }
+}
+
+function Configure-Authentication {
+    Write-Status "Configuring Authentication" "Step"
+    
+    Write-Host "These settings are used for session management and default admin account." -ForegroundColor $Colors.Warning
+    
+    # Generate a random session secret if not exists
+    $randomSecret = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 32 | ForEach-Object {[char]$_})
+    $sessionSecret = Read-Input "Session Secret (auto-generated if blank)" $randomSecret
+    
+    $sessionTtl = Read-Input "Session TTL in seconds" "86400"
+    $adminUser = Read-Input "Default Admin Username" "admin"
+    $adminPass = Read-Input "Default Admin Password" "password123"
+    
+    Write-Status "⚠️  Change admin password immediately after first login!" "Warning"
+    
+    return @{
+        SESSION_SECRET = $sessionSecret
+        SESSION_TTL_SECONDS = $sessionTtl
+        DEFAULT_ADMIN_USERNAME = $adminUser
+        DEFAULT_ADMIN_PASSWORD = $adminPass
+    }
+}
+
+function Configure-AIProviders {
+    Write-Status "Configuring AI Providers" "Step"
+    
+    Write-Host @"
+Choose your AI provider(s):
+
+OpenAI:
+  - Get key from: https://platform.openai.com/api-keys
+  - Required for GPT models
+  - Paid tier with usage limits
+
+Gemini (Recommended FREE):
+  - Get keys from: https://aistudio.google.com/
+  - 6-7 free keys for rotation
+  - 1000 RPD, 15 RPM limits per key
+"@ -ForegroundColor $Colors.Info
+    
+    $openaiKey = Read-Input "OpenAI API Key (optional, press Enter to skip)" ""
+    $geminiKeys = Read-Input "Gemini API Keys (comma-separated, required)" ""
+    
+    if ([string]::IsNullOrWhiteSpace($geminiKeys)) {
+        Write-Status "Gemini keys are recommended. Add them later in .env file." "Warning"
+    }
+    
+    return @{
+        OPENAI_API_KEY = $openaiKey
+        GEMINI_API_KEYS = $geminiKeys
+    }
+}
+
+function Configure-Redis {
+    Write-Status "Configuring Redis (Optional)" "Step"
+    
+    Write-Host "Redis is optional and used for caching and task queues." -ForegroundColor $Colors.Info
+    
+    $useRedis = Read-Host "Do you want to configure Redis? (y/n)" 
+    
+    if ($useRedis -eq 'y') {
+        $redisUrl = Read-Input "Redis URL" "redis://localhost:6379/0"
+        return @{
+            REDIS_URL = $redisUrl
+        }
+    }
+    
+    return @{
+        REDIS_URL = ""
+    }
+}
+
+function Configure-CPXResearch {
+    Write-Status "Configuring CPX Research API (Optional)" "Step"
+    
+    Write-Host "CPX Research is optional and used for survey inventory." -ForegroundColor $Colors.Info
+    
+    $useCPX = Read-Host "Do you want to configure CPX Research? (y/n)"
+    
+    if ($useCPX -eq 'y') {
+        $appId = Read-Input "CPX App ID"
+        $extUserId = Read-Input "CPX Ext User ID"
+        $secureHashKey = Read-Input "CPX Secure Hash Key"
+        
+        return @{
+            CPX_APP_ID = $appId
+            CPX_EXT_USER_ID = $extUserId
+            CPX_SECURE_HASH_KEY = $secureHashKey
+        }
+    }
+    
+    return @{
+        CPX_APP_ID = ""
+        CPX_EXT_USER_ID = ""
+        CPX_SECURE_HASH_KEY = ""
+    }
+}
+
+function Main {
+    Show-Intro
+    
+    # Load existing env file if it exists
+    $existingEnv = Load-EnvFile
+    
+    # Prompt for each section
+    $config = @{}
+    
+    $config += Configure-Database
+    $config += Configure-Server
+    $config += Configure-Authentication
+    $config += Configure-AIProviders
+    $config += Configure-Redis
+    $config += Configure-CPXResearch
+    
+    # Merge with existing values
+    $finalConfig = $existingEnv.Clone()
+    foreach ($key in $config.Keys) {
+        $finalConfig[$key] = $config[$key]
+    }
+    
+    # Review configuration
+    Write-Status "Configuration Summary" "Step"
+    Write-Host @"
+Database:
+  MongoDB URI: $($finalConfig['MONGO_URI'])
+
+Server:
+  API Base: $($finalConfig['API_BASE'])
+  CORS: $($finalConfig['CORS_ORIGINS'])
+
+Authentication:
+  Session Secret: ••••••••
+  Session TTL: $($finalConfig['SESSION_TTL_SECONDS']) seconds
+  Admin User: $($finalConfig['DEFAULT_ADMIN_USERNAME'])
+
+AI Providers:
+  OpenAI Key: $( if ($finalConfig['OPENAI_API_KEY']) { "✅ Configured" } else { "❌ Not set" })
+  Gemini Keys: $( if ($finalConfig['GEMINI_API_KEYS']) { "✅ Configured" } else { "❌ Not set" })
+
+Redis:
+  URL: $( if ($finalConfig['REDIS_URL']) { $finalConfig['REDIS_URL'] } else { "Not configured" })
+
+CPX Research:
+  App ID: $( if ($finalConfig['CPX_APP_ID']) { "✅ Configured" } else { "Not set" })
+"@ -ForegroundColor $Colors.Input
+    
+    # Confirm and save
+    $confirm = Read-Host "`nSave configuration? (y/n)"
+    
+    if ($confirm -eq 'y') {
+        Save-EnvFile $finalConfig
+        Write-Status ".env file created/updated successfully!" "Success"
+        Write-Status "Location: $EnvFile" "Info"
+        Write-Host "`n⚠️  IMPORTANT:" -ForegroundColor $Colors.Warning
+        Write-Host "  • Keep your .env file secure (never commit to git)"
+        Write-Host "  • Update secrets and API keys as needed"
+        Write-Host "  • Review .env before running the platform"
+    } else {
+        Write-Status "Configuration cancelled. No changes made." "Info"
+    }
+}
+
+Main

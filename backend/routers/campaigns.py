@@ -828,3 +828,378 @@ async def auto_select_ab_winner(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== PHASE 2: ML-BASED SEND TIME OPTIMIZATION ==============
+
+@router.get("/leads/{lead_id}/optimal-send-time", response_model=Dict[str, Any])
+async def get_lead_optimal_send_time(
+    lead_id: str,
+    db = Depends(get_db)
+):
+    """
+    Get predicted optimal send time for a specific lead.
+    
+    Uses historical engagement data to predict best day/hour for sending emails.
+    
+    Args:
+        lead_id: Lead/recipient ID
+    
+    Returns:
+        Optimal send time prediction with confidence score
+    """
+    try:
+        from ..campaigns.send_time_optimizer import SendTimeOptimizer
+        
+        optimizer = SendTimeOptimizer(db)
+        optimal_time = optimizer.predict_optimal_send_time(lead_id)
+        
+        return {
+            "success": True,
+            "lead_id": lead_id,
+            "optimal_send_time": optimal_time
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error analyzing send time: {str(e)}")
+
+
+@router.get("/{campaign_id}/send-time-analysis", response_model=Dict[str, Any])
+async def get_campaign_send_time_analysis(
+    campaign_id: str,
+    db = Depends(get_db)
+):
+    """
+    Analyze send time patterns for all recipients in a campaign.
+    
+    Returns optimal send times and engagement patterns by hour/day.
+    
+    Args:
+        campaign_id: Campaign ID
+    
+    Returns:
+        Send time analysis and recommendations
+    """
+    try:
+        from ..campaigns.send_time_optimizer import SendTimeOptimizer
+        from ..analytics.engagement_patterns import EngagementPatternAnalyzer
+        
+        # Get campaign
+        db_obj = db
+        campaign = db_obj.campaigns.find_one({"_id": ObjectId(campaign_id) if isinstance(campaign_id, str) else campaign_id})
+        
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        
+        # Analyze send times
+        optimizer = SendTimeOptimizer(db_obj)
+        schedule = optimizer.batch_optimize_schedule(campaign_id)
+        
+        # Get segment performance
+        analyzer = EngagementPatternAnalyzer(db_obj)
+        recipients = list(db_obj.campaign_recipients.find(
+            {"campaign_id": ObjectId(campaign_id) if isinstance(campaign_id, str) else campaign_id}
+        ).limit(1000))
+        
+        segment_analysis = analyzer.analyze_segment_performance({
+            "_id": {"$in": [r.get("lead_id") for r in recipients]}
+        })
+        
+        return {
+            "success": True,
+            "campaign_id": campaign_id,
+            "campaign_name": campaign.get("name"),
+            "send_time_analysis": schedule,
+            "segment_analysis": segment_analysis,
+            "summary": {
+                "total_recipients": len(recipients),
+                "optimized_recipients": len(schedule.get("optimized_recipients", [])),
+                "avg_confidence": sum(r.get("confidence", 0) for r in schedule.get("optimized_recipients", [])) / max(1, len(schedule.get("optimized_recipients", [])))
+            }
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error analyzing send times: {str(e)}")
+
+
+@router.post("/{campaign_id}/optimize-schedule", response_model=Dict[str, Any])
+async def optimize_campaign_schedule(
+    campaign_id: str,
+    db = Depends(get_db)
+):
+    """
+    Optimize campaign schedule by reordering recipients based on optimal send times.
+    
+    Reorders recipients to group by optimal send hour/day for efficient batch sending.
+    
+    Args:
+        campaign_id: Campaign ID to optimize
+    
+    Returns:
+        Optimized schedule with recipient order and send time recommendations
+    """
+    try:
+        from ..campaigns.send_time_optimizer import SendTimeOptimizer
+        
+        db_obj = db
+        
+        # Verify campaign exists
+        campaign = db_obj.campaigns.find_one({
+            "_id": ObjectId(campaign_id) if isinstance(campaign_id, str) else campaign_id
+        })
+        
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        
+        # Optimize schedule
+        optimizer = SendTimeOptimizer(db_obj)
+        optimized = optimizer.batch_optimize_schedule(campaign_id)
+        
+        # Store optimization in campaign metadata
+        db_obj.campaigns.update_one(
+            {"_id": ObjectId(campaign_id) if isinstance(campaign_id, str) else campaign_id},
+            {
+                "$set": {
+                    "schedule_optimization": {
+                        "optimized_at": datetime.utcnow(),
+                        "metrics": optimized.get("metrics", {}),
+                        "optimization_status": "completed"
+                    }
+                }
+            }
+        )
+        
+        return {
+            "success": True,
+            "campaign_id": campaign_id,
+            "message": "Campaign schedule optimized successfully",
+            "optimization": optimized,
+            "action_items": [
+                f"Send to {optimized['metrics']['with_predictions']} recipients with ML predictions",
+                f"Use fallback defaults for {optimized['metrics']['fallback_defaults']} recipients",
+                "Group sends by optimal hour for efficiency",
+                f"High confidence predictions: {optimized['metrics']['confidence_high']} recipients"
+            ]
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error optimizing schedule: {str(e)}")
+
+
+# ============== PHASE 2: ENGAGEMENT PATTERNS & ANALYSIS ==============
+
+@router.get("/leads/{lead_id}/engagement-patterns", response_model=Dict[str, Any])
+async def get_lead_engagement_patterns(
+    lead_id: str,
+    db = Depends(get_db)
+):
+    """
+    Detect and analyze engagement patterns for a lead.
+    
+    Returns:
+    - Response latency (how quickly they open/click)
+    - Preferred days of week
+    - Engagement momentum (trending up/down)
+    - Reply likelihood
+    
+    Args:
+        lead_id: Lead/recipient ID
+    
+    Returns:
+        Engagement patterns and behavior analysis
+    """
+    try:
+        from ..analytics.engagement_patterns import EngagementPatternAnalyzer
+        
+        analyzer = EngagementPatternAnalyzer(db)
+        patterns = analyzer.detect_patterns(lead_id)
+        
+        return {
+            "success": True,
+            "lead_id": lead_id,
+            "patterns": patterns
+        }
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error detecting patterns: {str(e)}")
+
+
+@router.get("/{campaign_id}/segment-performance", response_model=Dict[str, Any])
+async def analyze_campaign_segment_performance(
+    campaign_id: str,
+    industry: Optional[str] = Query(None),
+    seniority: Optional[str] = Query(None),
+    db = Depends(get_db)
+):
+    """
+    Analyze performance metrics for a campaign segment.
+    
+    Groups recipients by industry/seniority and calculates aggregate metrics.
+    
+    Args:
+        campaign_id: Campaign ID
+        industry: Optional industry filter
+        seniority: Optional seniority level filter
+    
+    Returns:
+        Segment performance analysis and recommendations
+    """
+    try:
+        from ..analytics.engagement_patterns import EngagementPatternAnalyzer
+        
+        # Get campaign recipients
+        campaign_obj_id = ObjectId(campaign_id) if isinstance(campaign_id, str) else campaign_id
+        recipients = list(db.campaign_recipients.find(
+            {"campaign_id": campaign_obj_id}
+        ).limit(1000))
+        
+        if not recipients:
+            raise HTTPException(status_code=404, detail="No recipients found for campaign")
+        
+        # Build filter
+        segment_filter = {"_id": {"$in": [r.get("lead_id") for r in recipients]}}
+        if industry:
+            segment_filter["industry"] = industry
+        if seniority:
+            segment_filter["seniority_level"] = seniority
+        
+        # Analyze segment
+        analyzer = EngagementPatternAnalyzer(db)
+        analysis = analyzer.analyze_segment_performance(segment_filter)
+        
+        # Get frequency recommendations
+        if industry and seniority:
+            frequency = analyzer.suggest_contact_frequency(industry, seniority)
+        else:
+            frequency = {}
+        
+        return {
+            "success": True,
+            "campaign_id": campaign_id,
+            "segment_filter": {
+                "industry": industry,
+                "seniority": seniority
+            },
+            "performance_analysis": analysis,
+            "frequency_recommendations": frequency
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error analyzing segment: {str(e)}")
+
+
+# ============== PHASE 2: ML-BASED LEAD SCORING ==============
+
+@router.get("/leads/{lead_id}/reply-score", response_model=Dict[str, Any])
+async def get_lead_reply_score(
+    lead_id: str,
+    db = Depends(get_db)
+):
+    """
+    Get ML-predicted reply probability for a lead.
+    
+    Predicts likelihood of reply based on historical engagement and profile.
+    
+    Args:
+        lead_id: Lead/recipient ID
+    
+    Returns:
+        Reply probability score with factors and recommendation
+    """
+    try:
+        from ..agents.ml_lead_scorer import MLLeadScorer
+        
+        # Get lead
+        lead = db.leads.find_one({
+            "_id": ObjectId(lead_id) if isinstance(lead_id, str) else lead_id
+        })
+        
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        
+        # Score lead
+        scorer = MLLeadScorer(db)
+        score = scorer.score_lead_for_reply(lead)
+        
+        return {
+            "success": True,
+            "lead_id": lead_id,
+            "reply_score": score
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error scoring lead: {str(e)}")
+
+
+@router.post("/{campaign_id}/prioritize-leads", response_model=Dict[str, Any])
+async def prioritize_campaign_leads(
+    campaign_id: str,
+    limit: Optional[int] = Query(None, ge=1, le=1000),
+    db = Depends(get_db)
+):
+    """
+    Prioritize campaign recipients by reply probability using ML scoring.
+    
+    Scores all recipients and returns them ranked by predicted reply likelihood.
+    
+    Args:
+        campaign_id: Campaign ID
+        limit: Optional limit on results (default: return all)
+    
+    Returns:
+        Prioritized leads sorted by reply probability
+    """
+    try:
+        from ..agents.ml_lead_scorer import MLLeadScorer
+        
+        campaign_obj_id = ObjectId(campaign_id) if isinstance(campaign_id, str) else campaign_id
+        
+        # Get campaign recipients
+        recipients = list(db.campaign_recipients.find(
+            {"campaign_id": campaign_obj_id}
+        ))
+        
+        if not recipients:
+            raise HTTPException(status_code=404, detail="No recipients found")
+        
+        lead_ids = [str(r.get("lead_id")) for r in recipients]
+        
+        # Score and prioritize
+        scorer = MLLeadScorer(db)
+        prioritized = scorer.prioritize_leads(lead_ids, limit=limit)
+        
+        # Calculate statistics
+        reply_probs = [p.get("probability", 0) for p in prioritized]
+        high_probability_count = sum(1 for p in reply_probs if p >= 0.6)
+        medium_probability_count = sum(1 for p in reply_probs if 0.4 <= p < 0.6)
+        
+        return {
+            "success": True,
+            "campaign_id": campaign_id,
+            "total_scored": len(prioritized),
+            "prioritized_leads": prioritized,
+            "statistics": {
+                "avg_probability": round(sum(reply_probs) / len(reply_probs), 3) if reply_probs else 0,
+                "high_probability_count": high_probability_count,
+                "medium_probability_count": medium_probability_count,
+                "low_probability_count": len(reply_probs) - high_probability_count - medium_probability_count
+            },
+            "recommendations": [
+                f"Focus heavy outreach on {high_probability_count} high-probability leads",
+                f"Use nurture sequences for {medium_probability_count} medium-probability leads",
+                "Schedule optimization by optimal send times for all leads"
+            ]
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error prioritizing leads: {str(e)}")

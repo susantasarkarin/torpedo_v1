@@ -113,6 +113,19 @@ def setup_indexes(db_manager=None):
         ("title", TEXT)
     ], name="leads_text_search")
     
+    # LinkedIn engagement tracking indexes (Phase 1)
+    create_index_safe(leads, "engagement_score", sparse=True)
+    create_index_safe(leads, "reengagement_eligible", sparse=True)
+    create_index_safe(leads, "last_outreach_date", sparse=True)
+    create_index_safe(leads, "linkedin_connection_status", sparse=True)
+    
+    # Compound index for re-engagement queries (find high-engagement leads ready for outreach)
+    create_index_safe(leads, [
+        ("engagement_score", DESCENDING),
+        ("reengagement_eligible", ASCENDING),
+        ("last_outreach_date", DESCENDING)
+    ], name="leads_reengagement_query")
+    
     # Web Search Jobs collection
     web_search_jobs = email_db["web_search_jobs"]
     create_index_safe(web_search_jobs, "job_id", unique=True)
@@ -161,6 +174,14 @@ def setup_indexes(db_manager=None):
     create_index_safe(campaign_sends, "campaign_id")
     create_index_safe(campaign_sends, "recipient_id")
     create_index_safe(campaign_sends, "sent_at")
+    create_index_safe(campaign_sends, "status", sparse=True)
+    
+    # Compound index for campaign analytics queries
+    create_index_safe(campaign_sends, [
+        ("campaign_id", ASCENDING),
+        ("status", ASCENDING),
+        ("created_at", DESCENDING)
+    ], name="campaign_sends_analytics")
     
     # Email Audit Log - track all email operations
     email_audit_log = email_db["email_audit_log"]
@@ -191,6 +212,92 @@ def setup_indexes(db_manager=None):
     create_index_safe(email_leads, "segment")
     create_index_safe(email_leads, "from_email")
     create_index_safe(email_leads, "received_at")
+    
+    # ============== CAMPAIGN RECIPIENT INDEXES ==============
+    # Campaign Recipients - tracks A/B test variants and engagement
+    campaign_recipients = email_db["campaign_recipients"]
+    create_index_safe(campaign_recipients, "campaign_id")
+    create_index_safe(campaign_recipients, "lead_id")
+    create_index_safe(campaign_recipients, "ab_variant", sparse=True)
+    create_index_safe(campaign_recipients, "engagement_status", sparse=True)
+    create_index_safe(campaign_recipients, [
+        ("campaign_id", ASCENDING),
+        ("ab_variant", ASCENDING)
+    ], name="campaign_recipients_ab_test")
+    create_index_safe(campaign_recipients, [
+        ("campaign_id", ASCENDING),
+        ("engagement_status", ASCENDING)
+    ], name="campaign_recipients_engagement")
+    
+    # ============== LINKEDIN AUTOMATION INDEXES ==============
+    # LinkedIn Connections - connection request tracking
+    linkedin_connections = email_db["linkedin_connections"]
+    create_index_safe(linkedin_connections, "lead_id")
+    create_index_safe(linkedin_connections, "session_id", sparse=True)
+    create_index_safe(linkedin_connections, "status", sparse=True)
+    create_index_safe(linkedin_connections, "sent_at", sparse=True)
+    create_index_safe(linkedin_connections, "accepted_at", sparse=True)
+    create_index_safe(linkedin_connections, [
+        ("lead_id", ASCENDING),
+        ("status", ASCENDING)
+    ], name="linkedin_connections_by_lead_status")
+    create_index_safe(linkedin_connections, [
+        ("session_id", ASCENDING),
+        ("sent_at", DESCENDING)
+    ], name="linkedin_connections_session_timeline")
+    
+    # LinkedIn Sessions - browser session management
+    linkedin_sessions = email_db["linkedin_sessions"]
+    create_index_safe(linkedin_sessions, "session_id", unique=True)
+    create_index_safe(linkedin_sessions, "email", sparse=True)
+    create_index_safe(linkedin_sessions, "status", sparse=True)
+    create_index_safe(linkedin_sessions, "login_date", sparse=True)
+    create_index_safe(linkedin_sessions, "last_active", sparse=True)
+    
+    # LinkedIn Messages - message tracking
+    linkedin_messages = email_db["linkedin_messages"]
+    create_index_safe(linkedin_messages, "lead_id")
+    create_index_safe(linkedin_messages, "connection_id", sparse=True)
+    create_index_safe(linkedin_messages, "sent_at")
+    create_index_safe(linkedin_messages, "read_at", sparse=True)
+    create_index_safe(linkedin_messages, "replied_at", sparse=True)
+    create_index_safe(linkedin_messages, [
+        ("lead_id", ASCENDING),
+        ("sent_at", DESCENDING)
+    ], name="linkedin_messages_by_lead_timeline")
+    
+    # LinkedIn Activity - daily rate limit tracking
+    linkedin_activities = email_db["linkedin_activities"]
+    create_index_safe(linkedin_activities, "session_id")
+    create_index_safe(linkedin_activities, "date")
+    create_index_safe(linkedin_activities, [
+        ("date", ASCENDING),
+        ("session_id", ASCENDING)
+    ], name="linkedin_activities_daily_summary")
+    create_index_safe(linkedin_activities, [
+        ("session_id", DESCENDING),
+        ("date", DESCENDING)
+    ], name="linkedin_activities_session_timeline")
+    
+    # LinkedIn Templates - message templates
+    linkedin_templates = email_db["linkedin_templates"]
+    create_index_safe(linkedin_templates, "name", sparse=True)
+    create_index_safe(linkedin_templates, "created_at", sparse=True)
+    
+    # ============== PERFORMANCE OPTIMIZATION INDEXES ==============
+    # Domain Health - email domain reputation tracking
+    domain_health = email_db["domain_health"]
+    create_index_safe(domain_health, "domain", unique=True)
+    create_index_safe(domain_health, "last_checked", sparse=True)
+    
+    # Gmail Account Usage - usage tracking for rate limiting
+    gmail_account_usage = email_db["gmail_account_usage"]
+    create_index_safe(gmail_account_usage, "account_id", unique=True, sparse=True)
+    create_index_safe(gmail_account_usage, "last_sync", sparse=True)
+    create_index_safe(gmail_account_usage, [
+        ("account_id", ASCENDING),
+        ("last_sync", DESCENDING)
+    ], name="gmail_account_usage_sync_tracking")
     
     # ============== FINANCE DATABASE ==============
     finance_db = client["finance_db"]

@@ -201,6 +201,13 @@ class Campaign(BaseModel):
     ab_test_config: Optional[Dict] = None  # A/B test configuration
     reengagement_timeline: Optional[Dict] = None  # {soft_drip_start_days, trigger_based_start_days, reset_outreach_start_days}
     
+    # ============== TEAM COLLABORATION (Agent 18 - Phase 3) ==============
+    
+    # Ownership & Visibility
+    created_by: str = Field(..., description="User ID of campaign creator")
+    team_id: Optional[str] = Field(None, description="Team that owns this campaign")
+    visibility: str = Field("personal", description="Visibility level: personal | team | org")
+    
     # Status
     status: CampaignStatus = CampaignStatus.DRAFT
     created_at: datetime = Field(default_factory=datetime.utcnow)

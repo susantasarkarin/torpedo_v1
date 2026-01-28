@@ -1,12 +1,15 @@
 /**
  * Leads Page - Sales Pipeline
- * Redesigned to match AI Database styling
+ * Enhanced with engagement scoring, outreach history, and advanced filtering
  */
 "use client"
 import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { getLeadStages, getStageById, getStageStyle as getPipelineStageStyle } from "../../utils/salesPipeline"
+import { MessageCircle, Eye, CheckCircle2, TrendingUp } from "lucide-react"
+import OutreachHistory from "../../components/OutreachHistory"
+import EngagementScore from "../../components/EngagementScore"
 import "./Leads.css"
 import "../../styles/SalesPages.css"
 import { buildApiUrl } from "../../config"
@@ -15,6 +18,8 @@ function Leads() {
   const navigate = useNavigate();
   const [leads, setLeads] = useState([])
   const [showForm, setShowForm] = useState(false)
+  const [showDetailPanel, setShowDetailPanel] = useState(false)
+  const [selectedLead, setSelectedLead] = useState(null)
   const [editingId, setEditingId] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -22,6 +27,15 @@ function Leads() {
   const [currentPage, setCurrentPage] = useState(1)
   const [recordsPerPage, setRecordsPerPage] = useState(10)
   const [selectedIds, setSelectedIds] = useState([])
+
+  // Filters
+  const [filters, setFilters] = useState({
+    engagementScore: "all",
+    status: "all",
+    sequenceStage: "all",
+    linkedinStatus: "all",
+  })
+  const [sortBy, setSortBy] = useState("name")
 
   // Lead stages (pre-qualification)
   const leadStages = getLeadStages()
@@ -326,16 +340,68 @@ function Leads() {
     }
   };
 
+  // Get engagement status icon
+  const getEngagementIcon = (status) => {
+    if (status === "active") return { icon: "🟢", label: "Active" };
+    if (status === "neutral") return { icon: "🟡", label: "Neutral" };
+    if (status === "inactive") return { icon: "🔴", label: "Inactive" };
+    return { icon: "⚪", label: "Unknown" };
+  };
+
   const filtered = useMemo(() => {
     // Server already filters by lead_stage=leads, just apply search filter
+    let result = leads;
+    
     const q = search.trim().toLowerCase();
-    if (!q) return leads;
-    return leads.filter((l) =>
-      ["name", "firstName", "lastName", "email", "title", "companyName", "company_name", "companyIndustry", "company_industry", "location"].some((field) =>
-        String(l[field] || "").toLowerCase().includes(q)
-      )
-    );
-  }, [leads, search]);
+    if (q) {
+      result = result.filter((l) =>
+        ["name", "firstName", "lastName", "email", "title", "companyName", "company_name", "companyIndustry", "company_industry", "location"].some((field) =>
+          String(l[field] || "").toLowerCase().includes(q)
+        )
+      );
+    }
+
+    // Apply engagement score filter
+    if (filters.engagementScore !== "all") {
+      result = result.filter((l) => {
+        const score = l.engagement_score || 0;
+        if (filters.engagementScore === "high") return score >= 67;
+        if (filters.engagementScore === "medium") return score >= 34 && score < 67;
+        if (filters.engagementScore === "low") return score < 34;
+        return true;
+      });
+    }
+
+    // Apply status filter
+    if (filters.status !== "all") {
+      result = result.filter((l) => (l.emailStatus || l.email_status || "").toLowerCase() === filters.status.toLowerCase());
+    }
+
+    // Apply sequence stage filter
+    if (filters.sequenceStage !== "all") {
+      result = result.filter((l) => (l.sequence_stage || "").toLowerCase() === filters.sequenceStage.toLowerCase());
+    }
+
+    // Apply LinkedIn status filter
+    if (filters.linkedinStatus !== "all") {
+      result = result.filter((l) => (l.linkedin_connection_status || "").toLowerCase() === filters.linkedinStatus.toLowerCase());
+    }
+
+    // Apply sorting
+    if (sortBy === "name") {
+      result.sort((a, b) => {
+        const nameA = (a.name || `${a.firstName || ''} ${a.lastName || ''}`.trim()).toLowerCase();
+        const nameB = (b.name || `${b.firstName || ''} ${b.lastName || ''}`.trim()).toLowerCase();
+        return nameA.localeCompare(nameB);
+      });
+    } else if (sortBy === "engagement") {
+      result.sort((a, b) => (b.engagement_score || 0) - (a.engagement_score || 0));
+    } else if (sortBy === "recent") {
+      result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    }
+
+    return result;
+  }, [leads, search, filters, sortBy]);
 
   const totalPages = Math.ceil(filtered.length / recordsPerPage);
   const startIdx = (currentPage - 1) * recordsPerPage;

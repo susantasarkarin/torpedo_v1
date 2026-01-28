@@ -479,6 +479,13 @@ class LeadEnriched(BaseModel):
         description="AI-analyzed sentiment of last reply: positive | neutral | negative | unsubscribe"
     )
     
+    # ============== TEAM COLLABORATION (Agent 18 - Phase 3) ==============
+    
+    # Assignment & Ownership
+    assigned_to: Optional[str] = Field(None, description="User ID of assigned team member")
+    last_touched_by: Optional[str] = Field(None, description="User ID of last person to interact with this lead")
+    team_id: Optional[str] = Field(None, description="Team that owns this lead")
+    
     # Versioning
     classification_version: int = 1
     classified_at: datetime = Field(default_factory=datetime.utcnow)

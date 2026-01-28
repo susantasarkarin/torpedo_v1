@@ -1,0 +1,432 @@
+# ============================================================================
+# System Health Checker (Windows PowerShell)
+# ============================================================================
+# This script verifies that all components of the AI Cold Outreach platform
+# are properly installed and operational.
+#
+# Usage: .\health_check.ps1 [-Verbose] [-Deep]
+#
+# Parameters:
+#   -Verbose   Show detailed output for each check
+#   -Deep      Perform deep connectivity tests (slower)
+# ============================================================================
+
+param(
+    [switch]$Verbose = $false,
+    [switch]$Deep = $false
+)
+
+$ErrorActionPreference = "Continue"
+
+$ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$BackendDir = Join-Path $ProjectRoot "backend"
+$FrontendDir = Join-Path $ProjectRoot "Campaign_platform"
+
+# Color definitions
+$Colors = @{
+    Success = 'Green'
+    Warning = 'Yellow'
+    Error = 'Red'
+    Info = 'Cyan'
+}
+
+# Health status tracking
+$HealthStatus = @{
+    Passed = 0
+    Failed = 0
+    Warnings = 0
+    Results = @()
+}
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
+
+function Write-Check {
+    param(
+        [string]$Name,
+        [string]$Status,
+        [string]$Details = ""
+    )
+    
+    switch ($Status) {
+        "PASS" {
+            Write-Host "  ✅ $Name" -ForegroundColor $Colors.Success
+            $HealthStatus.Passed++
+        }
+        "FAIL" {
+            Write-Host "  ❌ $Name" -ForegroundColor $Colors.Error
+            $HealthStatus.Failed++
+        }
+        "WARN" {
+            Write-Host "  ⚠️  $Name" -ForegroundColor $Colors.Warning
+            $HealthStatus.Warnings++
+        }
+        "INFO" {
+            Write-Host "  ℹ️  $Name" -ForegroundColor $Colors.Info
+        }
+    }
+    
+    if ($Details -and $Verbose) {
+        Write-Host "      └─ $Details" -ForegroundColor $Colors.Info
+    }
+    
+    $HealthStatus.Results += @{
+        Name = $Name
+        Status = $Status
+        Details = $Details
+    }
+}
+
+function Test-Command {
+    param([string]$Command)
+    return $null -ne (Get-Command $Command -ErrorAction SilentlyContinue)
+}
+
+function Test-Port {
+    param([int]$Port)
+    try {
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $tcp.Connect("127.0.0.1", $Port)
+        $tcp.Close()
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Test-PathExists {
+    param([string]$Path)
+    return Test-Path $Path
+}
+
+function Get-EnvValue {
+    param([string]$Key)
+    $envFile = Join-Path $ProjectRoot ".env"
+    if (Test-PathExists $envFile) {
+        $content = Get-Content $envFile
+        $line = $content | Where-Object { $_ -match "^$Key=" }
+        if ($line) {
+            return $line -split '=', 2 | Select-Object -Last 1
+        }
+    }
+    return $null
+}
+
+function Test-APIEndpoint {
+    param(
+        [string]$Url,
+        [int]$TimeoutMs = 5000
+    )
+    try {
+        $response = Invoke-WebRequest -Uri $Url -TimeoutSec ($TimeoutMs / 1000) -SkipCertificateCheck -ErrorAction Stop
+        return $response.StatusCode -eq 200
+    }
+    catch {
+        return $false
+    }
+}
+
+# ============================================================================
+# HEALTH CHECK SECTIONS
+# ============================================================================
+
+function Check-SystemTools {
+    Write-Host "`n📦 System Tools" -ForegroundColor $Colors.Info
+    
+    # Python
+    if (Test-Command "python") {
+        $version = & python --version 2>&1
+        Write-Check "Python" "PASS" $version
+    } else {
+        Write-Check "Python" "FAIL" "Not installed"
+    }
+    
+    # Node.js
+    if (Test-Command "npm") {
+        $version = & npm --version
+        Write-Check "Node.js" "PASS" "npm version $version"
+    } else {
+        Write-Check "Node.js" "FAIL" "Not installed"
+    }
+    
+    # Git
+    if (Test-Command "git") {
+        $version = & git --version
+        Write-Check "Git" "PASS" $version
+    } else {
+        Write-Check "Git" "WARN" "Not installed (optional)"
+    }
+}
+
+function Check-ProjectStructure {
+    Write-Host "`n📁 Project Structure" -ForegroundColor $Colors.Info
+    
+    # Backend
+    if (Test-PathExists $BackendDir) {
+        Write-Check "Backend directory" "PASS" $BackendDir
+    } else {
+        Write-Check "Backend directory" "FAIL" "Not found"
+    }
+    
+    # Frontend
+    if (Test-PathExists $FrontendDir) {
+        Write-Check "Frontend directory" "PASS" $FrontendDir
+    } else {
+        Write-Check "Frontend directory" "FAIL" "Not found"
+    }
+    
+    # Requirements
+    $reqFile = Join-Path $BackendDir "requirements.txt"
+    if (Test-PathExists $reqFile) {
+        Write-Check "Backend requirements.txt" "PASS"
+    } else {
+        Write-Check "Backend requirements.txt" "FAIL"
+    }
+    
+    # Package.json
+    $pkgFile = Join-Path $FrontendDir "package.json"
+    if (Test-PathExists $pkgFile) {
+        Write-Check "Frontend package.json" "PASS"
+    } else {
+        Write-Check "Frontend package.json" "FAIL"
+    }
+}
+
+function Check-Configuration {
+    Write-Host "`n⚙️  Configuration" -ForegroundColor $Colors.Info
+    
+    # .env file
+    $envFile = Join-Path $ProjectRoot ".env"
+    if (Test-PathExists $envFile) {
+        Write-Check ".env file" "PASS"
+    } else {
+        Write-Check ".env file" "WARN" "Not found - run setup_environment.ps1"
+    }
+    
+    # Environment variables
+    $mongoUri = Get-EnvValue "MONGO_URI"
+    if ($mongoUri) {
+        Write-Check "MongoDB URI" "PASS" "Configured"
+    } else {
+        Write-Check "MongoDB URI" "FAIL" "Not configured"
+    }
+    
+    $openaiKey = Get-EnvValue "OPENAI_API_KEY"
+    if ($openaiKey) {
+        $masked = $openaiKey.Substring(0, [Math]::Min(4, $openaiKey.Length)) + "***"
+        Write-Check "OpenAI API Key" "PASS" "Configured"
+    } else {
+        Write-Check "OpenAI API Key" "WARN" "Not configured"
+    }
+    
+    $geminiKeys = Get-EnvValue "GEMINI_API_KEYS"
+    if ($geminiKeys) {
+        Write-Check "Gemini API Keys" "PASS" "Configured"
+    } else {
+        Write-Check "Gemini API Keys" "WARN" "Not configured"
+    }
+}
+
+function Check-PythonPackages {
+    Write-Host "`n🐍 Python Packages" -ForegroundColor $Colors.Info
+    
+    $packages = @(
+        @{Name = "FastAPI"; Import = "fastapi"},
+        @{Name = "PyMongo"; Import = "pymongo"},
+        @{Name = "Uvicorn"; Import = "uvicorn"},
+        @{Name = "Pydantic"; Import = "pydantic"},
+        @{Name = "python-dotenv"; Import = "dotenv"},
+        @{Name = "Requests"; Import = "requests"},
+        @{Name = "OpenAI"; Import = "openai"},
+        @{Name = "Google Generative AI"; Import = "google.generativeai"},
+        @{Name = "BeautifulSoup4"; Import = "bs4"}
+    )
+    
+    foreach ($pkg in $packages) {
+        try {
+            $import = $pkg.Import -replace '\..*', ''
+            & python -c "import $import" 2>$null
+            Write-Check $pkg.Name "PASS"
+        }
+        catch {
+            Write-Check $pkg.Name "WARN" "Not installed"
+        }
+    }
+}
+
+function Check-NodePackages {
+    Write-Host "`n📦 Node.js Packages" -ForegroundColor $Colors.Info
+    
+    $nodeModules = Join-Path $FrontendDir "node_modules"
+    
+    if (Test-PathExists $nodeModules) {
+        Write-Check "node_modules directory" "PASS"
+        
+        # Check key packages
+        $keyPackages = @("react", "vite", "react-dom")
+        foreach ($pkg in $keyPackages) {
+            $pkgPath = Join-Path $nodeModules $pkg
+            if (Test-PathExists $pkgPath) {
+                Write-Check $pkg "PASS"
+            } else {
+                Write-Check $pkg "WARN" "Not found"
+            }
+        }
+    } else {
+        Write-Check "node_modules directory" "FAIL" "Run: npm install in frontend"
+    }
+}
+
+function Check-Services {
+    Write-Host "`n🚀 Service Connectivity" -ForegroundColor $Colors.Info
+    
+    # Backend
+    if (Test-Port 8000) {
+        Write-Check "Backend API (port 8000)" "PASS" "http://localhost:8000"
+        
+        if ($Deep) {
+            if (Test-APIEndpoint "http://localhost:8000/docs") {
+                Write-Check "Backend API /docs endpoint" "PASS"
+            } else {
+                Write-Check "Backend API /docs endpoint" "WARN" "Not responding"
+            }
+        }
+    } else {
+        Write-Check "Backend API (port 8000)" "WARN" "Not running - start with: .\start_services.ps1"
+    }
+    
+    # Frontend
+    if (Test-Port 5173) {
+        Write-Check "Frontend (port 5173)" "PASS" "http://localhost:5173"
+    } else {
+        Write-Check "Frontend (port 5173)" "WARN" "Not running - start with: .\start_services.ps1"
+    }
+    
+    # Redis
+    if (Test-Port 6379) {
+        Write-Check "Redis (port 6379)" "PASS" "localhost:6379"
+    } else {
+        Write-Check "Redis (port 6379)" "WARN" "Not running (optional)"
+    }
+}
+
+function Check-Database {
+    Write-Host "`n🗄️  Database" -ForegroundColor $Colors.Info
+    
+    $mongoUri = Get-EnvValue "MONGO_URI"
+    
+    if (-not $mongoUri) {
+        Write-Check "MongoDB URI" "FAIL" "Not configured in .env"
+        return
+    }
+    
+    Write-Check "MongoDB URI configured" "PASS"
+    
+    if ($Deep) {
+        Write-Status "Testing MongoDB connection..." "INFO"
+        try {
+            $testScript = @"
+from pymongo import MongoClient
+import sys
+try:
+    client = MongoClient('$mongoUri', serverSelectionTimeoutMS=3000)
+    client.server_info()
+    print('Connected')
+except Exception as e:
+    print(f'Error: {e}')
+    sys.exit(1)
+"@
+            
+            $result = & python -c $testScript 2>&1
+            if ($result -eq "Connected") {
+                Write-Check "MongoDB connection" "PASS"
+            } else {
+                Write-Check "MongoDB connection" "FAIL" $result
+            }
+        }
+        catch {
+            Write-Check "MongoDB connection" "WARN" "Cannot test (Python error)"
+        }
+    }
+}
+
+# ============================================================================
+# REPORT GENERATION
+# ============================================================================
+
+function Show-Summary {
+    Write-Host "`n" -ForegroundColor $Colors.Info
+    Write-Host "════════════════════════════════════════════════════════════════" -ForegroundColor $Colors.Info
+    Write-Host "HEALTH CHECK SUMMARY" -ForegroundColor $Colors.Info
+    Write-Host "════════════════════════════════════════════════════════════════" -ForegroundColor $Colors.Info
+    
+    Write-Host ""
+    Write-Host "✅ Passed:  $($HealthStatus.Passed)" -ForegroundColor $Colors.Success
+    Write-Host "❌ Failed:  $($HealthStatus.Failed)" -ForegroundColor $Colors.Error
+    Write-Host "⚠️  Warnings: $($HealthStatus.Warnings)" -ForegroundColor $Colors.Warning
+    
+    Write-Host ""
+    
+    if ($HealthStatus.Failed -eq 0) {
+        Write-Host "✅ OVERALL STATUS: HEALTHY" -ForegroundColor $Colors.Success
+    } elseif ($HealthStatus.Failed -le 3) {
+        Write-Host "⚠️  OVERALL STATUS: DEGRADED" -ForegroundColor $Colors.Warning
+    } else {
+        Write-Host "❌ OVERALL STATUS: UNHEALTHY" -ForegroundColor $Colors.Error
+    }
+    
+    Write-Host ""
+    Write-Host "────────────────────────────────────────────────────────────────" -ForegroundColor $Colors.Info
+    Write-Host "NEXT STEPS:" -ForegroundColor $Colors.Info
+    Write-Host "────────────────────────────────────────────────────────────────" -ForegroundColor $Colors.Info
+    
+    if ($HealthStatus.Failed -gt 0) {
+        Write-Host "  1. Review failed checks above" -ForegroundColor $Colors.Info
+        Write-Host "  2. Run: .\deploy.ps1              (Full deployment)" -ForegroundColor $Colors.Info
+        Write-Host "  3. Run: .\setup_environment.ps1   (Configure environment)" -ForegroundColor $Colors.Info
+        Write-Host "  4. Run: .\install_dependencies.ps1 (Install packages)" -ForegroundColor $Colors.Info
+    } else {
+        Write-Host "  • System is ready to run!" -ForegroundColor $Colors.Success
+        Write-Host "  • Start services: .\start_services.ps1" -ForegroundColor $Colors.Info
+        Write-Host "  • Access frontend: http://localhost:5173" -ForegroundColor $Colors.Info
+    }
+    
+    Write-Host ""
+}
+
+# ============================================================================
+# MAIN EXECUTION
+# ============================================================================
+
+function Main {
+    Write-Host "════════════════════════════════════════════════════════════════" -ForegroundColor $Colors.Info
+    Write-Host "AI COLD OUTREACH PLATFORM - HEALTH CHECK" -ForegroundColor $Colors.Info
+    Write-Host "════════════════════════════════════════════════════════════════" -ForegroundColor $Colors.Info
+    
+    Write-Host "Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor $Colors.Info
+    Write-Host "Project: $ProjectRoot" -ForegroundColor $Colors.Info
+    
+    if ($Verbose) {
+        Write-Host "Mode: VERBOSE" -ForegroundColor $Colors.Warning
+    }
+    
+    if ($Deep) {
+        Write-Host "Mode: DEEP CHECKS (slower)" -ForegroundColor $Colors.Warning
+    }
+    
+    # Run all checks
+    Check-SystemTools
+    Check-ProjectStructure
+    Check-Configuration
+    Check-PythonPackages
+    Check-NodePackages
+    Check-Services
+    Check-Database
+    
+    # Show summary
+    Show-Summary
+}
+
+Main

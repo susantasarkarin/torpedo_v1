@@ -1,6 +1,11 @@
 #!/bin/bash
 
-# Auto Deployment Script (No Docker)
+# ============================================================================
+# AI Cold Outreach Platform - Deployment Script (Linux/macOS Bash)
+# ============================================================================
+# This script automates the entire deployment process for the campaign platform
+# including dependency installation, environment setup, and service startup.
+#
 # Usage: ./deploy.sh [options]
 # Options:
 #   --frontend-only    Deploy only frontend
@@ -8,6 +13,10 @@
 #   --no-pull          Skip git pull
 #   --no-confirm       Skip confirmation prompts
 #   --force            Force deployment even if working directory is dirty
+#   --install-deps     Install/update all dependencies
+#   --setup-env        Run environment setup
+#
+# ============================================================================
 
 set -e  # Exit on error
 
