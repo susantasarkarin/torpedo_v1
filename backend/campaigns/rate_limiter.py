@@ -311,6 +311,138 @@ class RateLimitService:
             return False
 
 
+    def get_available_accounts(self, required_capacity: int = 1) -> list:
+        """
+        Get available Gmail accounts with capacity for required sends.
+        Returns accounts with sends_today + required_capacity <= 2000.
+        Sorted by sends_today ASC (accounts with least usage first).
+        
+        Args:
+            required_capacity: Number of emails to be sent (default: 1)
+            
+        Returns:
+            List of available account dicts with fields:
+            - account_id, account_email, sends_today, send_limit, etc.
+        """
+        try:
+            # Query gmail_account_usage collection from deliverability module
+            gmail_usage_collection = self.db.get_collection("gmail_account_usage")
+            
+            # Calculate max sends allowed
+            max_sends_today = 2000 - required_capacity
+            
+            # Find active accounts with capacity
+            available = list(gmail_usage_collection.find(
+                {
+                    "status": "active",
+                    "sends_today": {"$lte": max_sends_today}
+                }
+            ).sort("sends_today", 1))  # Sort ASC: least used first
+            
+            logger.info(f"Found {len(available)} accounts with capacity for {required_capacity} sends")
+            return available
+            
+        except Exception as e:
+            logger.error(f"Failed to get available accounts: {e}")
+            return []
+    
+    def select_best_account(self, accounts: list) -> Optional[Dict[str, Any]]:
+        """
+        Select best account from available list using round-robin within capacity tiers.
+        Prefers accounts under 80% capacity (< 1600 sends) for round-robin distribution.
+        Falls back to any available account if all are heavily used.
+        
+        Args:
+            accounts: List of available account dicts
+            
+        Returns:
+            Selected account dict or None if list is empty
+        """
+        if not accounts:
+            return None
+        
+        # Define 80% threshold (1600 out of 2000)
+        OPTIMAL_THRESHOLD = 1600
+        
+        # Filter accounts under 80% capacity
+        optimal_accounts = [acc for acc in accounts if acc.get("sends_today", 0) < OPTIMAL_THRESHOLD]
+        
+        if optimal_accounts:
+            # Round-robin: select account with lowest sends_today
+            # Already sorted by sends_today ASC, so take first
+            selected = optimal_accounts[0]
+            logger.info(f"Selected optimal account {selected.get('account_email')} with {selected.get('sends_today', 0)} sends")
+            return selected
+        else:
+            # All accounts heavily used, select least used
+            selected = accounts[0]  # First in sorted list
+            logger.warning(f"All accounts over 80% capacity. Selected {selected.get('account_email')} with {selected.get('sends_today', 0)} sends")
+            return selected
+    
+    def get_pool_stats(self) -> Dict[str, Any]:
+        """
+        Get aggregate statistics for the entire Gmail account pool.
+        
+        Returns:
+            Dict with keys:
+            - total_capacity: Total sending capacity across all accounts
+            - used: Total emails sent today across all accounts
+            - available: Remaining capacity
+            - accounts: List of all accounts with usage stats
+            - active_accounts: Number of active accounts
+            - quota_exceeded: Number of accounts at quota
+        """
+        try:
+            gmail_usage_collection = self.db.get_collection("gmail_account_usage")
+            
+            # Get all accounts
+            all_accounts = list(gmail_usage_collection.find({}))
+            
+            # Calculate aggregates
+            active_accounts = [acc for acc in all_accounts if acc.get("status") == "active"]
+            total_capacity = len(active_accounts) * 2000
+            used = sum(acc.get("sends_today", 0) for acc in active_accounts)
+            available = total_capacity - used
+            quota_exceeded = len([acc for acc in all_accounts if acc.get("status") == "quota_exceeded"])
+            
+            stats = {
+                "total_capacity": total_capacity,
+                "used": used,
+                "available": available,
+                "percentage_used": round((used / total_capacity * 100) if total_capacity > 0 else 0, 2),
+                "active_accounts": len(active_accounts),
+                "total_accounts": len(all_accounts),
+                "quota_exceeded": quota_exceeded,
+                "accounts": [
+                    {
+                        "account_id": acc.get("account_id"),
+                        "account_email": acc.get("account_email"),
+                        "sends_today": acc.get("sends_today", 0),
+                        "send_limit": acc.get("send_limit", 2000),
+                        "status": acc.get("status", "unknown"),
+                        "percentage_used": round((acc.get("sends_today", 0) / acc.get("send_limit", 2000) * 100), 2)
+                    }
+                    for acc in all_accounts
+                ]
+            }
+            
+            logger.info(f"Pool stats: {used}/{total_capacity} used ({stats['percentage_used']}%)")
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Failed to get pool stats: {e}")
+            return {
+                "total_capacity": 0,
+                "used": 0,
+                "available": 0,
+                "percentage_used": 0,
+                "active_accounts": 0,
+                "total_accounts": 0,
+                "quota_exceeded": 0,
+                "accounts": []
+            }
+
+
 # Singleton instance holder
 _rate_limiter: Optional[RateLimitService] = None
 

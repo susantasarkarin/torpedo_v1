@@ -11,6 +11,8 @@ from .schemas import (
     OutreachTone,
     OutreachDraftResult,
     OutreachComposerResult,
+    BehaviorFollowupDraft,
+    BehaviorFollowupResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -215,3 +217,263 @@ Return all {len(leads_formatted)} email drafts in the specified JSON format."""
         if result.success and result.data:
             return OutreachComposerResult(**result.data)
         return OutreachComposerResult()
+    
+    def get_behavior_system_prompt(self) -> str:
+        """Get system prompt for behavior-based follow-up generation."""
+        config = self.agent_config
+        
+        tone_descriptions = {
+            OutreachTone.FORMAL: "formal and professional",
+            OutreachTone.PROFESSIONAL: "professional but approachable",
+            OutreachTone.FRIENDLY: "friendly and conversational",
+            OutreachTone.CASUAL: "casual and relaxed"
+        }
+        
+        tone = config.tone
+        if isinstance(tone, str):
+            tone = OutreachTone(tone)
+        tone_desc = tone_descriptions.get(tone, tone_descriptions[OutreachTone.PROFESSIONAL])
+        
+        return f"""You are an expert B2B sales strategist creating behavior-based follow-up emails. Your task is to generate follow-up emails tailored to recipient engagement behavior.
+
+BEHAVIOR CATEGORIES:
+1. OPENED_NO_REPLY: Recipient opened email but didn't respond
+   - Strategy: Make CTA easier, reduce friction, shift focus to their pain
+   - Subject approach: Shorter, more direct, curiosity-driven
+   - Length: Keep shorter (80-120 words)
+   - CTA: Make it a question or super easy ask
+
+2. NOT_OPENED: Recipient never opened the email
+   - Strategy: New subject line that works better, shorter preview text
+   - Subject approach: Different hook - use different angle, personalization, urgency
+   - Length: Even shorter (60-100 words)
+   - CTA: Quick, clear ask without assumptions
+
+3. CLICKED: Recipient clicked a link in the email
+   - Strategy: Reference what they clicked, move conversation forward
+   - Subject approach: Reference their interest area
+   - Body: Build on their demonstrated interest
+   - CTA: Offer next step relevant to what interested them
+
+4. REPLIED: Recipient replied with a response
+   - Strategy: This isn't a follow-up case normally, but if needed: address their question/concern
+   - Body: Answer specific to their reply
+   - CTA: Move toward meeting or deeper conversation
+
+TONE: {tone_desc}
+
+OUTPUT FORMAT (JSON):
+{{
+    "followup_drafts": [
+        {{
+            "lead_id": "original_lead_id",
+            "behavior_type": "opened_no_reply",
+            "original_subject": "Quick question about your sales process",
+            "followup_subject": "One thing sales leaders told us (and I think applies to you)",
+            "followup_body": "Hi John,\\n\\nI noticed you opened my last email - great! I wanted to reach out with something more specific...\\n\\nBest,\\n[Sender]",
+            "cta_modification": "Changed from 'Want to talk?' to 'Can I send you a resource on this?' - easier ask",
+            "reasoning": "Your opened-but-no-reply suggests interest but the ask was too big. New CTA is lower friction.",
+            "word_count": 95
+        }}
+    ],
+    "total_generated": 10,
+    "by_behavior_type": {{
+        "opened_no_reply": 6,
+        "not_opened": 3,
+        "clicked": 1
+    }}
+}}"""
+    
+    def build_behavior_prompt(self, input_data: Any) -> str:
+        """Build prompt for behavior-based follow-up generation."""
+        leads = []
+        
+        if isinstance(input_data, list):
+            leads = input_data
+        elif isinstance(input_data, dict):
+            leads = input_data.get("leads", [input_data])
+        
+        config = self.agent_config
+        
+        # Format leads with behavior data
+        leads_formatted = []
+        for i, lead in enumerate(leads[:LEADS_PER_BATCH]):
+            behavior = lead.get('engagement_behavior', 'unknown')
+            original_subject = lead.get('original_subject_line', 'Unknown')
+            
+            # Get engagement details
+            opened = lead.get('opened', False)
+            clicked_links = lead.get('clicked_links', [])
+            clicked_content = lead.get('clicked_content', 'Unknown')
+            replied = lead.get('replied', False)
+            
+            engagement_detail = ""
+            if opened and clicked_links:
+                engagement_detail = f"Opened email and clicked: {', '.join(clicked_links)}"
+            elif opened:
+                engagement_detail = "Opened email but didn't click"
+            else:
+                engagement_detail = "Never opened email"
+            
+            lead_str = f"""Lead {i+1}:
+  - ID: {lead.get('lead_id', f'lead_{i+1}')}
+  - Name: {lead.get('full_name', 'Unknown')}
+  - First Name: {lead.get('first_name', '')}
+  - Title: {lead.get('title', 'Unknown')}
+  - Email: {lead.get('email', 'Not available')}
+  - Company: {lead.get('company_name', 'Unknown')}
+  - Industry: {lead.get('company_industry', 'Unknown')}
+  
+  ENGAGEMENT BEHAVIOR:
+  - Behavior Type: {behavior}
+  - Details: {engagement_detail}
+  - Original Subject: {original_subject}
+  - Replied: {replied}
+  - Clicked Content: {clicked_content if clicked_content != 'Unknown' else 'N/A'}"""
+            
+            leads_formatted.append(lead_str)
+        
+        leads_text = "\n\n".join(leads_formatted)
+        
+        prompt = f"""Create behavior-based follow-up emails for the following {len(leads_formatted)} leads based on their engagement:
+
+{leads_text}
+
+**Follow-up Strategy:**
+- For OPENED_NO_REPLY: Easier CTA, shorter email, different angle
+- For NOT_OPENED: New subject line that breaks pattern, shorter preview
+- For CLICKED: Reference what they clicked, move conversation forward
+- For REPLIED: (Only if follow-up needed) Address their specific question
+
+**Tone: {config.tone.value if hasattr(config.tone, 'value') else config.tone}**
+
+**Requirements:**
+1. Generate one follow-up email for each lead based on their engagement behavior
+2. Make each follow-up distinctly different from the original
+3. For opened-no-reply: Make CTA easier and less pushy
+4. For not-opened: Create completely new subject line with different hook
+5. For clicked: Build on their demonstrated interest in that topic
+6. Keep follow-ups under {config.max_words - 30} words (shorter than originals)
+7. Explain why the follow-up strategy matches the behavior
+
+Return all {len(leads_formatted)} follow-up drafts in the specified JSON format."""
+        
+        return prompt
+    
+    def parse_behavior_response(self, response_text: str) -> BehaviorFollowupResult:
+        """Parse behavior-based follow-up response."""
+        data = self._extract_json_from_response(response_text)
+        
+        drafts = []
+        by_behavior = {}
+        
+        for draft_data in data.get("followup_drafts", []):
+            try:
+                word_count = draft_data.get("word_count", 0)
+                if not word_count and draft_data.get("followup_body"):
+                    word_count = len(draft_data["followup_body"].split())
+                
+                behavior_type = draft_data.get("behavior_type", "unknown")
+                by_behavior[behavior_type] = by_behavior.get(behavior_type, 0) + 1
+                
+                draft = BehaviorFollowupDraft(
+                    lead_id=draft_data.get("lead_id", ""),
+                    behavior_type=behavior_type,
+                    original_subject=draft_data.get("original_subject", ""),
+                    followup_subject=draft_data.get("followup_subject", ""),
+                    followup_body=draft_data.get("followup_body", ""),
+                    cta_modification=draft_data.get("cta_modification", ""),
+                    reasoning=draft_data.get("reasoning", ""),
+                    word_count=word_count
+                )
+                drafts.append(draft)
+            except Exception as e:
+                logger.warning(f"Failed to parse behavior follow-up draft: {e}")
+                continue
+        
+        return BehaviorFollowupResult(
+            followup_drafts=drafts,
+            total_generated=len(drafts),
+            by_behavior_type=by_behavior
+        )
+    
+    async def generate_behavior_followup(
+        self,
+        leads: List[Dict[str, Any]],
+        engagement_data: List[Dict[str, Any]]
+    ) -> BehaviorFollowupResult:
+        """
+        Generate behavior-based follow-up emails.
+        
+        Args:
+            leads: List of lead dicts
+            engagement_data: List of engagement data including behavior type
+            
+        Returns:
+            BehaviorFollowupResult with follow-up drafts
+        """
+        # Merge engagement data with leads
+        leads_with_behavior = []
+        for i, lead in enumerate(leads[:LEADS_PER_BATCH]):
+            lead_copy = lead.copy()
+            if i < len(engagement_data):
+                lead_copy.update(engagement_data[i])
+            leads_with_behavior.append(lead_copy)
+        
+        # Build and execute
+        system_prompt = self.get_behavior_system_prompt()
+        user_prompt = self.build_behavior_prompt(leads_with_behavior)
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        try:
+            response = self._call_chat_completion(messages)
+            content = response.get("content", "")
+            result = self.parse_behavior_response(content)
+            
+            # Log usage
+            self._log_usage(
+                input_tokens=response.get("input_tokens", 0),
+                output_tokens=response.get("output_tokens", 0),
+                model=response.get("model", "gpt-4o-mini"),
+                latency_ms=0,
+                success=True
+            )
+            
+            return result
+        except Exception as e:
+            logger.error(f"Failed to generate behavior follow-ups: {e}")
+            return BehaviorFollowupResult()
+    
+    def generate_behavior_followup_batch(
+        self,
+        leads: List[Dict[str, Any]]
+    ) -> BehaviorFollowupResult:
+        """
+        Generate behavior-based follow-up emails for a batch.
+        Expects leads to have 'engagement_behavior' field.
+        
+        Args:
+            leads: List of lead dicts with engagement behavior
+            
+        Returns:
+            BehaviorFollowupResult with follow-up drafts
+        """
+        system_prompt = self.get_behavior_system_prompt()
+        user_prompt = self.build_behavior_prompt(leads)
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        try:
+            response = self._call_chat_completion(messages)
+            content = response.get("content", "")
+            return self.parse_behavior_response(content)
+        except Exception as e:
+            logger.error(f"Failed to generate behavior follow-ups: {e}")
+            return BehaviorFollowupResult()

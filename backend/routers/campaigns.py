@@ -6,6 +6,7 @@ REST API endpoints for campaign management.
 """
 
 from datetime import datetime
+import logging
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Query, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel, Field
@@ -14,6 +15,7 @@ from pymongo import MongoClient
 
 import os
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/campaigns", tags=["Campaigns"])
 
@@ -509,4 +511,320 @@ async def get_campaign_report(
         raise
     except Exception as e:
         print(f"Error retrieving campaign report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== A/B TESTING ENDPOINTS ==============
+
+@router.post("/{campaign_id}/ab-test/setup", response_model=Dict[str, Any])
+async def setup_ab_test(
+    campaign_id: str,
+    test_name: str = Body(..., description="Name for this A/B test"),
+    variants: List[Dict[str, Any]] = Body(..., description="List of test variants"),
+    focus_metric: str = Body("open_rate", description="Primary metric to optimize"),
+    auto_select_winner: bool = Body(False, description="Auto-select winner when significant"),
+    db = Depends(get_db)
+):
+    """
+    Configure A/B test for a campaign.
+    
+    Example variants:
+    [
+        {
+            "variant_id": "A",
+            "name": "Short Subject",
+            "subject_line": "Quick question",
+            "template_id": "template_abc"
+        },
+        {
+            "variant_id": "B", 
+            "name": "Long Subject",
+            "subject_line": "I noticed your company does X - can we help?",
+            "template_id": "template_xyz"
+        }
+    ]
+    """
+    try:
+        # Verify campaign exists
+        campaign = db["campaigns"].find_one({"_id": ObjectId(campaign_id)})
+        if not campaign:
+            raise HTTPException(status_code=404, detail="Campaign not found")
+        
+        # Create A/B test configuration
+        ab_test = {
+            "campaign_id": ObjectId(campaign_id),
+            "test_name": test_name,
+            "variants": variants,
+            "focus_metric": focus_metric,
+            "auto_select_winner": auto_select_winner,
+            "status": "active",
+            "winner_declared": False,
+            "created_at": datetime.utcnow()
+        }
+        
+        # Insert into ab_tests collection
+        result = db["ab_tests"].insert_one(ab_test)
+        test_id = str(result.inserted_id)
+        
+        # Update campaign with A/B test flag
+        db["campaigns"].update_one(
+            {"_id": ObjectId(campaign_id)},
+            {"$set": {
+                "ab_test_enabled": True,
+                "ab_test_id": ObjectId(test_id)
+            }}
+        )
+        
+        return {
+            "success": True,
+            "test_id": test_id,
+            "campaign_id": campaign_id,
+            "test_name": test_name,
+            "variants": len(variants),
+            "message": "A/B test configured successfully"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{campaign_id}/ab-test/results", response_model=Dict[str, Any])
+async def get_ab_test_results(
+    campaign_id: str,
+    analyze_with_agent: bool = Query(False, description="Use ABTestAnalyzerAgent for deep analysis"),
+    db = Depends(get_db)
+):
+    """
+    Get A/B test results with variant performance and statistical significance.
+    
+    Optionally analyzes with ABTestAnalyzerAgent to get:
+    - Winner identification
+    - Why the winner won
+    - Next variant suggestions
+    """
+    try:
+        # Get A/B test configuration
+        ab_test = db["ab_tests"].find_one({"campaign_id": ObjectId(campaign_id)})
+        if not ab_test:
+            raise HTTPException(status_code=404, detail="No A/B test found for this campaign")
+        
+        # Get recipient performance by variant
+        variants_performance = []
+        
+        for variant in ab_test.get("variants", []):
+            variant_id = variant.get("variant_id")
+            
+            # Query campaign sends for this variant
+            sends = list(db["campaign_sends"].find({
+                "campaign_id": ObjectId(campaign_id),
+                "variant_id": variant_id
+            }))
+            
+            emails_sent = len(sends)
+            opens = sum(1 for s in sends if s.get("opened"))
+            clicks = sum(1 for s in sends if s.get("clicked"))
+            replies = sum(1 for s in sends if s.get("replied"))
+            conversions = sum(1 for s in sends if s.get("converted"))
+            
+            variants_performance.append({
+                "variant_id": variant_id,
+                "variant_name": variant.get("name", variant_id),
+                "emails_sent": emails_sent,
+                "opens": opens,
+                "clicks": clicks,
+                "replies": replies,
+                "conversions": conversions,
+                "open_rate": opens / emails_sent if emails_sent > 0 else 0,
+                "click_rate": clicks / emails_sent if emails_sent > 0 else 0,
+                "reply_rate": replies / emails_sent if emails_sent > 0 else 0,
+                "conversion_rate": conversions / emails_sent if emails_sent > 0 else 0,
+                "subject_line": variant.get("subject_line", ""),
+                "cta_text": variant.get("cta_text", ""),
+                "email_length": variant.get("email_length", "medium")
+            })
+        
+        # Calculate statistical significance (simple z-test)
+        winner = None
+        is_significant = False
+        
+        if len(variants_performance) >= 2:
+            focus_metric = ab_test.get("focus_metric", "open_rate")
+            sorted_variants = sorted(
+                variants_performance,
+                key=lambda v: v.get(focus_metric, 0),
+                reverse=True
+            )
+            
+            winner = sorted_variants[0]
+            
+            # Simple significance check (sample size > 100 and >10% improvement)
+            if winner["emails_sent"] >= 100:
+                control = sorted_variants[1]
+                improvement = (winner[focus_metric] - control[focus_metric]) / max(control[focus_metric], 0.001)
+                is_significant = improvement > 0.10
+        
+        agent_analysis = None
+        
+        # Analyze with ABTestAnalyzerAgent if requested
+        if analyze_with_agent:
+            try:
+                from ..agents.ab_test_agent import ABTestAnalyzerAgent
+                
+                agent = ABTestAnalyzerAgent()
+                
+                # Format test data for agent
+                test_data = {
+                    "test_name": ab_test.get("test_name"),
+                    "control_variant": variants_performance[0] if variants_performance else {},
+                    "test_variants": variants_performance[1:] if len(variants_performance) > 1 else []
+                }
+                
+                result = await agent.run([test_data])
+                agent_analysis = result.model_dump()
+                
+            except Exception as e:
+                logger.warning(f"ABTestAnalyzerAgent analysis failed: {e}")
+        
+        return {
+            "success": True,
+            "test_id": str(ab_test["_id"]),
+            "test_name": ab_test.get("test_name"),
+            "campaign_id": campaign_id,
+            "variants": variants_performance,
+            "winner": winner,
+            "is_statistically_significant": is_significant,
+            "focus_metric": ab_test.get("focus_metric"),
+            "agent_analysis": agent_analysis
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{campaign_id}/ab-test/declare-winner", response_model=Dict[str, Any])
+async def declare_ab_test_winner(
+    campaign_id: str,
+    winner_variant_id: str = Body(..., description="Variant ID to declare as winner"),
+    reason: Optional[str] = Body(None, description="Reason for declaring this winner"),
+    db = Depends(get_db)
+):
+    """
+    Manually declare an A/B test winner.
+    
+    This stops the test and routes all future sends to the winning variant.
+    """
+    try:
+        # Get A/B test
+        ab_test = db["ab_tests"].find_one({"campaign_id": ObjectId(campaign_id)})
+        if not ab_test:
+            raise HTTPException(status_code=404, detail="No A/B test found for this campaign")
+        
+        # Verify variant exists
+        variant_ids = [v["variant_id"] for v in ab_test.get("variants", [])]
+        if winner_variant_id not in variant_ids:
+            raise HTTPException(status_code=400, detail=f"Invalid variant ID: {winner_variant_id}")
+        
+        # Update A/B test
+        db["ab_tests"].update_one(
+            {"_id": ab_test["_id"]},
+            {"$set": {
+                "status": "completed",
+                "winner_declared": True,
+                "winner_variant_id": winner_variant_id,
+                "winner_reason": reason,
+                "completed_at": datetime.utcnow()
+            }}
+        )
+        
+        # Update campaign to use winning variant only
+        db["campaigns"].update_one(
+            {"_id": ObjectId(campaign_id)},
+            {"$set": {
+                "ab_test_enabled": False,
+                "winning_variant_id": winner_variant_id
+            }}
+        )
+        
+        return {
+            "success": True,
+            "campaign_id": campaign_id,
+            "winner_variant_id": winner_variant_id,
+            "reason": reason,
+            "message": f"Winner declared: Variant {winner_variant_id}"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{campaign_id}/ab-test/auto-select", response_model=Dict[str, Any])
+async def auto_select_ab_winner(
+    campaign_id: str,
+    minimum_sample_size: int = Body(100, description="Minimum sends per variant"),
+    significance_threshold: float = Body(0.95, description="Confidence threshold"),
+    db = Depends(get_db)
+):
+    """
+    Trigger automatic winner selection based on statistical significance.
+    
+    Only selects a winner if:
+    - All variants have minimum sample size
+    - Winner has significantly better performance
+    """
+    try:
+        # Get results
+        results = await get_ab_test_results(campaign_id, analyze_with_agent=False, db=db)
+        
+        variants = results.get("variants", [])
+        
+        # Check if we have enough data
+        insufficient_data = [v for v in variants if v["emails_sent"] < minimum_sample_size]
+        if insufficient_data:
+            return {
+                "success": False,
+                "message": f"Insufficient data: {len(insufficient_data)} variants need more samples",
+                "minimum_required": minimum_sample_size,
+                "variants_pending": [v["variant_id"] for v in insufficient_data]
+            }
+        
+        # Check if already significant
+        if not results.get("is_statistically_significant"):
+            return {
+                "success": False,
+                "message": "No statistically significant winner yet",
+                "continue_testing": True
+            }
+        
+        # Auto-declare winner
+        winner = results.get("winner")
+        if winner:
+            await declare_ab_test_winner(
+                campaign_id,
+                winner_variant_id=winner["variant_id"],
+                reason=f"Auto-selected: {winner['variant_name']} had {winner.get(results['focus_metric'], 0):.2%} {results['focus_metric']}",
+                db=db
+            )
+            
+            return {
+                "success": True,
+                "winner_variant_id": winner["variant_id"],
+                "winner_name": winner["variant_name"],
+                "winning_metric_value": winner.get(results["focus_metric"]),
+                "message": "Winner automatically selected"
+            }
+        
+        return {
+            "success": False,
+            "message": "Could not determine winner"
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

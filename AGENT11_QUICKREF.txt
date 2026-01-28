@@ -1,0 +1,235 @@
+# AGENT 11 QUICK REFERENCE
+## Analytics API Endpoints - Fast Access Guide
+
+---
+
+## 🎯 DELIVERABILITY ENDPOINTS
+
+**Base URL**: `/deliverability`
+
+### List Monitored Domains
+```
+GET /deliverability/domains
+```
+Returns all domains being monitored for health.
+
+### Domain Health Check
+```
+GET /deliverability/domains/{domain}/health
+```
+Full DNS health report: SPF, DKIM, DMARC, MX, score (0-100), grade (A-F).
+
+**Example**: `/deliverability/domains/surveyfieldwork.com/health`
+
+### Manual Health Check
+```
+POST /deliverability/domains/{domain}/check
+```
+Trigger fresh DNS lookup (bypasses cache).
+
+### Gmail Pool Usage
+```
+GET /deliverability/gmail-accounts/usage
+```
+Returns: Total capacity, used, available, per-account breakdown.
+Gmail limit: 2000 emails/day per account.
+
+### Reputation Metrics
+```
+GET /deliverability/reputation?days=7
+```
+Aggregated bounce rate, complaint rate, open rate across all domains.
+Query params: `days` (1-90, default: 7)
+
+### Deliverability Alerts
+```
+GET /deliverability/alerts?severity=critical&resolved=false
+```
+Active alerts: SPF failures, high bounces, quota exceeded.
+Query params: `severity`, `resolved`
+
+### Resolve Alert
+```
+POST /deliverability/alerts/{alert_id}/resolve
+```
+Mark alert as resolved.
+
+---
+
+## 📊 CAMPAIGN ANALYTICS ENDPOINTS
+
+**Base URL**: `/campaigns/automation/campaigns/{campaign_id}/analytics`
+
+### Time Series Data
+```
+GET /campaigns/{campaign_id}/analytics/timeseries?interval=day
+```
+Daily/hourly/weekly metrics: sent, opened, clicked, replied, bounced.
+
+**Query params**:
+- `interval`: `hour`, `day` (default), `week`
+
+**Use case**: Line charts, area charts
+
+### Conversion Funnel
+```
+GET /campaigns/{campaign_id}/analytics/funnel
+```
+Sent → Delivered → Opened → Clicked → Replied
+
+Returns counts and conversion rates at each stage.
+
+**Use case**: Funnel visualization, drop-off analysis
+
+### Segment Analysis
+```
+GET /campaigns/{campaign_id}/analytics/by-segment?segment_by=industry
+```
+Performance breakdown by audience segment.
+
+**Query params**:
+- `segment_by`: `industry`, `seniority`, `company_size`, `title`
+
+**Use case**: Identify best-performing segments
+
+### Engagement Heatmap
+```
+GET /campaigns/{campaign_id}/analytics/engagement-heatmap
+```
+7 days × 24 hours matrix showing when recipients open/click.
+
+**Use case**: Optimize send times
+
+---
+
+## 🔥 QUICK CURL TESTS
+
+```bash
+# Domain health
+curl http://localhost:8000/deliverability/domains/surveyfieldwork.com/health
+
+# Gmail pool
+curl http://localhost:8000/deliverability/gmail-accounts/usage
+
+# Campaign funnel
+curl http://localhost:8000/campaigns/automation/campaigns/12345/analytics/funnel
+
+# Time series
+curl http://localhost:8000/campaigns/automation/campaigns/12345/analytics/timeseries?interval=day
+
+# Heatmap
+curl http://localhost:8000/campaigns/automation/campaigns/12345/analytics/engagement-heatmap
+```
+
+---
+
+## 📁 KEY FILES
+
+- **Deliverability Router**: `backend/routers/deliverability.py`
+- **Analytics Extensions**: `backend/routers/campaign_automation.py` (bottom)
+- **Domain Health Service**: `backend/deliverability/domain_health.py`
+- **Rate Limiter**: `backend/campaigns/rate_limiter.py`
+- **Main App**: `backend/main.py` (router registration)
+
+---
+
+## 🎨 FRONTEND INTEGRATION SNIPPETS
+
+### Display Domain Health
+```javascript
+const res = await fetch(`/deliverability/domains/${domain}/health`);
+const data = await res.json();
+console.log(`Health Score: ${data.health_score}/100 (${data.grade})`);
+```
+
+### Chart Time Series
+```javascript
+const res = await fetch(`/campaigns/automation/campaigns/${id}/analytics/timeseries`);
+const data = await res.json();
+
+// data.data = [{date: "2026-01-20", sent: 100, opened: 40, ...}]
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: data.data.map(d => d.date),
+    datasets: [{
+      label: 'Opens',
+      data: data.data.map(d => d.opened)
+    }]
+  }
+});
+```
+
+### Show Funnel
+```javascript
+const res = await fetch(`/campaigns/automation/campaigns/${id}/analytics/funnel`);
+const data = await res.json();
+
+// data.funnel.stages = ["Sent", "Delivered", "Opened", "Clicked", "Replied"]
+// data.funnel.counts = [1000, 980, 420, 89, 34]
+// data.funnel.rates = [100, 98, 42.9, 21.2, 38.2]
+```
+
+### Display Heatmap
+```javascript
+const res = await fetch(`/campaigns/automation/campaigns/${id}/analytics/engagement-heatmap`);
+const data = await res.json();
+
+// data.heatmap.opens = [
+//   {day: "Monday", hours: [0, 2, 5, 8, ...]},
+//   {day: "Tuesday", hours: [1, 3, 6, 10, ...]}
+// ]
+// data.insights.peak_open_time = {day: "Tuesday", hour: 10}
+```
+
+---
+
+## 🚨 ALERT THRESHOLDS
+
+Recommended monitoring thresholds:
+
+| Metric | Threshold | Action |
+|--------|-----------|--------|
+| Domain Health Score | < 70 | Investigate DNS records |
+| Gmail Pool Usage | > 85% | Add more accounts |
+| Bounce Rate | > 5% | Check list quality |
+| Complaint Rate | > 0.1% | Review content |
+| Domain Health Grade | D or F | Critical - fix immediately |
+
+---
+
+## 🔄 BACKGROUND MONITORING
+
+Schedule in `background_job_scheduler.py`:
+
+```python
+from routers.deliverability import monitor_deliverability
+
+scheduler.add_job(
+    monitor_deliverability,
+    'interval',
+    hours=1,
+    id='deliverability_monitor'
+)
+```
+
+---
+
+## ✅ HEALTH CHECK
+
+Verify endpoints are working:
+
+```bash
+# Check deliverability router is loaded
+curl http://localhost:8000/docs | grep deliverability
+
+# Test domains endpoint
+curl http://localhost:8000/deliverability/domains
+
+# Test analytics endpoint (replace with real campaign_id)
+curl http://localhost:8000/campaigns/automation/campaigns/{real_id}/analytics/funnel
+```
+
+---
+
+**Agent 11 - Analytics & Deliverability API** 🚀

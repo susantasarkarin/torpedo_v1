@@ -815,6 +815,17 @@ try:
 except Exception as e:
     print(f"⚠️ Campaign Automation router not included: {e}")
 
+# Deliverability Monitoring router (Agent 11)
+try:
+    try:
+        from .routers import deliverability as deliverability_router
+    except ImportError:
+        from routers import deliverability as deliverability_router
+    app.include_router(deliverability_router.router)
+    print("✅ Deliverability router included")
+except Exception as e:
+    print(f"⚠️ Deliverability router not included: {e}")
+
 # Operations router (Operations-Finance integration)
 try:
     app.include_router(operations_router.router)
@@ -909,6 +920,17 @@ try:
     print("✅ Campaign Automation router included")
 except Exception as e:
     print(f"⚠️ Campaign Automation router not included: {e}")
+
+# LinkedIn Automation router (connection requests and messaging)
+try:
+    try:
+        from .routers import linkedin as linkedin_router
+    except ImportError:
+        from routers import linkedin as linkedin_router
+    app.include_router(linkedin_router.router)
+    print("✅ LinkedIn Automation router included")
+except Exception as e:
+    print(f"⚠️ LinkedIn Automation router not included: {e}")
 
 # Email Classification router (AI batch classification)
 try:

@@ -4,7 +4,7 @@ MongoDB Collections & Schemas
 """
 
 from datetime import datetime
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Dict
 from pydantic import BaseModel, Field
 from enum import Enum
 
@@ -356,8 +356,10 @@ class AIClassificationOutput(BaseModel):
 
 class LeadEnriched(BaseModel):
     """
-    Enriched lead with AI classification.
+    Enriched lead with AI classification, engagement tracking, and outreach history.
+    
     Collection: leads_enriched
+    
     Indexes:
         - raw_lead_id
         - seniority_level
@@ -366,6 +368,23 @@ class LeadEnriched(BaseModel):
         - confidence_score
         - campaign_ids
         - email (unique for deduplication)
+        - engagement_status (for filtering by engagement state)
+        - sequence_stage (for tracking outreach sequences)
+        - linkedin_connection_status (for LinkedIn tracking)
+    
+    New Fields (Agent 1 - Engagement & Outreach):
+        - engagement_score: Numeric score 0-100 tracking email engagement
+        - engagement_status: Categorical status of email engagement
+        - sequence_stage: Current position in outreach sequence
+        - last_outreach_date: Timestamp of most recent contact
+        - outreach_history: Complete history of all outreach attempts
+        - reengagement_eligible: Flag for re-engagement campaigns
+        - reengagement_pool_date: When added to re-engagement pool
+        - timezone: Detected timezone for send-time optimization
+        - linkedin_connection_status: LinkedIn connection state
+        - linkedin_connection_date: When connection was made
+        - linkedin_last_message_date: Last LinkedIn message timestamp
+        - reply_sentiment: AI sentiment analysis of replies
     """
     raw_lead_id: str
     
@@ -421,6 +440,44 @@ class LeadEnriched(BaseModel):
     
     # RFQ Links (NEW)
     rfq_ids: List[str] = Field([], description="Links to rfqs collection")
+    
+    # ============== ENGAGEMENT TRACKING & OUTREACH HISTORY ==============
+    
+    # Engagement Metrics
+    engagement_score: float = Field(0.0, description="Engagement score 0-100 based on email opens, clicks, replies")
+    engagement_status: Optional[str] = Field(
+        None, 
+        description="Current engagement state: never_opened | opened_no_reply | engaged | replied_positive | replied_neutral | replied_negative | unsubscribed"
+    )
+    
+    # Sequence Tracking
+    sequence_stage: Optional[str] = Field(None, description="Current step in outreach sequence: email_1, email_2, email_3, etc.")
+    last_outreach_date: Optional[datetime] = Field(None, description="Timestamp of last outreach attempt")
+    outreach_history: List[Dict] = Field(
+        [], 
+        description="List of outreach attempts with structure: {timestamp, channel, status, subject, response_type}"
+    )
+    
+    # Re-engagement Pool
+    reengagement_eligible: bool = Field(False, description="Whether lead is eligible for re-engagement after dormancy")
+    reengagement_pool_date: Optional[datetime] = Field(None, description="When lead was added to re-engagement pool")
+    
+    # Timezone & Timing
+    timezone: Optional[str] = Field(None, description="Detected timezone for optimal send times (e.g., 'America/New_York')")
+    
+    # LinkedIn Integration
+    linkedin_connection_status: Optional[str] = Field(
+        None, 
+        description="LinkedIn connection state: none | pending | connected | rejected"
+    )
+    linkedin_connection_date: Optional[datetime] = Field(None, description="When LinkedIn connection was established")
+    linkedin_last_message_date: Optional[datetime] = Field(None, description="Last LinkedIn message timestamp")
+    
+    # Reply Sentiment Analysis
+    reply_sentiment: Optional[str] = Field(
+        None, 
+        description="AI-analyzed sentiment of last reply: positive | neutral | negative | unsubscribe"
+    )
     
     # Versioning
     classification_version: int = 1

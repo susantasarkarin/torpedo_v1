@@ -201,6 +201,208 @@ class OutreachComposerConfig(BaseModel):
     )
 
 
+class ReengagementAgentConfig(BaseModel):
+    """Configuration for Reengagement Agent"""
+    inactivity_threshold_days: int = Field(
+        default=30,
+        description="Days of inactivity to trigger reengagement"
+    )
+    max_reengagement_attempts: int = Field(
+        default=3,
+        description="Maximum number of reengagement attempts per lead"
+    )
+    focus_value_proposition: str = Field(
+        default="We've improved our solution based on customer feedback",
+        description="Value proposition specifically for reengagement"
+    )
+    sender_name: str = Field(
+        default="",
+        description="Sender's name for reengagement emails"
+    )
+    sender_title: str = Field(
+        default="",
+        description="Sender's title"
+    )
+    company_name: str = Field(
+        default="",
+        description="Sender's company name"
+    )
+
+
+class ABTestAnalyzerConfig(BaseModel):
+    """Configuration for A/B Test Analyzer Agent"""
+    significance_threshold: float = Field(
+        default=0.95,
+        description="Confidence level for statistical significance (0-1)"
+    )
+    minimum_sample_size: int = Field(
+        default=100,
+        description="Minimum samples per variant for analysis"
+    )
+    focus_metrics: List[str] = Field(
+        default=["open_rate", "click_rate", "reply_rate"],
+        description="Which metrics to prioritize in analysis"
+    )
+
+
+# ============== REENGAGEMENT AGENT SCHEMAS ==============
+
+class DormancyAnalysis(BaseModel):
+    """Analysis of why a lead went dormant"""
+    reason: str = Field(..., description="Primary reason for dormancy")
+    opened_last_email: bool = Field(default=False, description="Did they open last email")
+    clicked_any_link: bool = Field(default=False, description="Did they click any link")
+    replied_any: bool = Field(default=False, description="Did they reply to any email")
+    days_since_last_engagement: int = Field(default=0, description="Days of inactivity")
+    engagement_pattern: str = Field(default="", description="Pattern of engagement")
+    industry_context: str = Field(default="", description="Industry-specific dormancy factors")
+
+
+class ReengagementStrategy(BaseModel):
+    """Reengagement strategy recommendation"""
+    strategy_type: str = Field(..., description="Type: reset, soft_drip, trigger_based")
+    description: str = Field(..., description="Description of the strategy")
+    expected_response_lift: float = Field(default=0.0, ge=0.0, le=1.0, description="Expected lift in response rate")
+    next_action: str = Field(..., description="Specific next action to take")
+
+
+class FreshAngle(BaseModel):
+    """Fresh angle/value prop for reengagement"""
+    angle: str = Field(..., description="New value proposition angle")
+    reasoning: str = Field(..., description="Why this angle for this lead")
+    suggested_copy: str = Field(..., description="Suggested email copy using this angle")
+
+
+class ReengagementPlan(BaseModel):
+    """Complete reengagement plan for a lead"""
+    lead_id: str = Field(..., description="Lead ID")
+    full_name: str = ""
+    email: Optional[str] = None
+    company_name: str = ""
+    
+    # Analysis
+    dormancy_analysis: DormancyAnalysis = Field(default_factory=DormancyAnalysis)
+    
+    # Strategy
+    recommended_strategy: ReengagementStrategy = Field(default_factory=ReengagementStrategy)
+    
+    # Fresh angle
+    fresh_angle: FreshAngle = Field(default_factory=FreshAngle)
+    
+    # Recommendations
+    sender_to_use: str = Field(default="", description="Recommended sender (rotation)")
+    optimal_send_day: str = Field(default="", description="Best day to send")
+    optimal_send_time: str = Field(default="", description="Best time to send")
+    subject_line_suggestion: str = Field(default="", description="Suggested subject line")
+    
+    # Metadata
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ReengagementResult(BaseModel):
+    """Batch result from Reengagement Agent"""
+    reengagement_plans: List[ReengagementPlan] = Field(default_factory=list)
+    total_analyzed: int = 0
+    total_dormant: int = 0
+    strategy_distribution: Dict[str, int] = Field(default_factory=dict)
+    analysis_timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ============== A/B TEST ANALYZER SCHEMAS ==============
+
+class VariantPerformance(BaseModel):
+    """Performance metrics for a test variant"""
+    variant_id: str = Field(..., description="Variant ID (A, B, C, etc.)")
+    variant_name: str = Field(default="", description="Human-readable variant name")
+    emails_sent: int = Field(default=0, description="Number of emails sent")
+    opens: int = Field(default=0, description="Number of opens")
+    clicks: int = Field(default=0, description="Number of clicks")
+    replies: int = Field(default=0, description="Number of replies")
+    conversions: int = Field(default=0, description="Number of conversions")
+    
+    # Calculated metrics
+    open_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    click_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    reply_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    conversion_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    
+    # Metadata
+    subject_line: str = Field(default="", description="Subject line for this variant")
+    cta_text: str = Field(default="", description="CTA text for this variant")
+    email_length: str = Field(default="", description="Email length category")
+
+
+class TestWinner(BaseModel):
+    """Analysis of test winner"""
+    winner_id: str = Field(..., description="ID of winning variant")
+    winner_name: str = Field(..., description="Name of winning variant")
+    metrics_won: List[str] = Field(default_factory=list, description="Which metrics it won on")
+    primary_win_reason: str = Field(..., description="Main reason it won")
+    detailed_reasoning: str = Field(..., description="Detailed explanation")
+    improvement_over_control: Dict[str, float] = Field(default_factory=dict, description="% improvement vs control")
+    statistical_confidence: float = Field(default=0.0, ge=0.0, le=1.0, description="Confidence level (0-1)")
+
+
+class NextVariantSuggestion(BaseModel):
+    """Suggested variant to test next"""
+    experiment_name: str = Field(..., description="Name of next experiment")
+    variant_a_description: str = Field(..., description="Variant A setup")
+    variant_b_description: str = Field(..., description="Variant B setup")
+    expected_improvement: str = Field(..., description="Expected improvement")
+    hypothesis: str = Field(..., description="Testing hypothesis")
+    why_this_variant: str = Field(..., description="Why test this variant next")
+
+
+class ABTestAnalysis(BaseModel):
+    """Complete A/B test analysis"""
+    test_name: str = Field(default="", description="Name of the test")
+    control_variant: VariantPerformance = Field(default_factory=VariantPerformance)
+    test_variants: List[VariantPerformance] = Field(default_factory=list)
+    
+    # Results
+    test_winner: TestWinner = Field(default_factory=TestWinner)
+    is_statistically_significant: bool = False
+    
+    # Copy improvements
+    recommended_copy_changes: List[str] = Field(default_factory=list)
+    
+    # Next steps
+    next_variant_suggestions: List[NextVariantSuggestion] = Field(default_factory=list)
+    
+    # Metadata
+    analyzed_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ABTestAnalyzerResult(BaseModel):
+    """Batch result from A/B Test Analyzer Agent"""
+    tests_analyzed: List[ABTestAnalysis] = Field(default_factory=list)
+    total_tests: int = 0
+    winners_identified: int = 0
+    statistically_significant_count: int = 0
+    analysis_timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class BehaviorFollowupDraft(BaseModel):
+    """Behavior-based follow-up email draft"""
+    lead_id: str = Field(..., description="Lead ID")
+    behavior_type: str = Field(..., description="Type: opened_no_reply, not_opened, clicked, replied")
+    original_subject: str = Field(default="", description="Original email subject")
+    followup_subject: str = Field(..., description="Follow-up subject line")
+    followup_body: str = Field(..., description="Follow-up email body")
+    cta_modification: str = Field(default="", description="How CTA was modified")
+    reasoning: str = Field(..., description="Reasoning for this followup")
+    word_count: int = 0
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class BehaviorFollowupResult(BaseModel):
+    """Result from behavior-based follow-up generation"""
+    followup_drafts: List[BehaviorFollowupDraft] = Field(default_factory=list)
+    total_generated: int = 0
+    by_behavior_type: Dict[str, int] = Field(default_factory=dict)
+    generation_timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
 class AgentConfig(BaseModel):
     """
     Master agent configuration - stored in MongoDB agent_configurations collection
@@ -217,6 +419,8 @@ class AgentConfig(BaseModel):
     lead_enricher: LeadEnricherConfig = Field(default_factory=LeadEnricherConfig)
     lead_scorer: LeadScorerConfig = Field(default_factory=LeadScorerConfig)
     outreach_composer: OutreachComposerConfig = Field(default_factory=OutreachComposerConfig)
+    reengagement_agent: ReengagementAgentConfig = Field(default_factory=ReengagementAgentConfig)
+    ab_test_analyzer: ABTestAnalyzerConfig = Field(default_factory=ABTestAnalyzerConfig)
     
     # Metadata
     created_at: datetime = Field(default_factory=datetime.utcnow)

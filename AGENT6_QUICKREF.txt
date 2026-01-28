@@ -1,0 +1,149 @@
+═══════════════════════════════════════════════════════════════════
+  AGENT 6 QUICK REFERENCE GUIDE
+  Timezone Scheduler & Domain Health Service
+═══════════════════════════════════════════════════════════════════
+
+📦 INSTALLATION
+───────────────────────────────────────────────────────────────────
+pip install timezonefinder pytz dnspython
+
+🕐 SEND SCHEDULER - Quick Usage
+───────────────────────────────────────────────────────────────────
+from backend.campaigns import SendScheduler
+
+scheduler = SendScheduler()
+
+# Check if can send now
+recipient = {'city': 'New York', 'state': 'NY', 'country': 'US'}
+can_send, reason = scheduler.can_send_now(recipient)
+
+# Get local time
+local_time = scheduler.get_recipient_local_time(recipient)
+
+# Check specific time
+in_window = scheduler.is_within_send_window(local_time)
+
+# Get next send window
+next_window = scheduler.get_next_send_window(recipient)
+
+# Custom send windows
+can_send, reason = scheduler.can_send_now(
+    recipient, 
+    windows=[(8, 10), (13, 15), (17, 19)]  # 8-10am, 1-3pm, 5-7pm
+)
+
+🏥 DOMAIN HEALTH - Quick Usage
+───────────────────────────────────────────────────────────────────
+from backend.deliverability import DomainHealthService
+
+service = DomainHealthService()
+
+# Full health check (recommended)
+result = service.calculate_health_score('example.com')
+print(f"Score: {result['score']}/100 (Grade: {result['grade']})")
+
+# Individual checks
+spf = service.check_spf('example.com')
+dkim = service.check_dkim('example.com', 'google')
+dmarc = service.check_dmarc('example.com')
+mx = service.check_mx_records('example.com')
+
+# Auto-detect DKIM selectors
+dkim_auto = service.check_dkim_auto('example.com')
+print(f"Valid selectors: {dkim_auto['valid_selectors']}")
+
+# Get recommendations
+recommendations = service.get_recommendations(result)
+
+📊 HEALTH SCORE BREAKDOWN
+───────────────────────────────────────────────────────────────────
+SPF:   25 pts  →  pass=25, fail/none=0
+DKIM:  25 pts  →  valid=25, none=0
+DMARC: 25 pts  →  reject=25, quarantine=20, none=10, missing=0
+MX:    25 pts  →  has records=25, none=0
+
+Grades: A(90-100) | B(80-89) | C(70-79) | D(60-69) | F(0-59)
+
+🔗 CAMPAIGN EXECUTOR INTEGRATION
+───────────────────────────────────────────────────────────────────
+# In campaign_executor.py
+
+from backend.campaigns import SendScheduler
+
+class CampaignExecutor:
+    def __init__(self):
+        self.scheduler = SendScheduler()
+    
+    def _can_send(self, recipient, settings):
+        # ... existing checks ...
+        
+        # Add timezone check
+        can_send, reason = self.scheduler.can_send_now(recipient)
+        if not can_send:
+            return False, reason
+        
+        return True, "OK"
+
+📋 RECIPIENT DATA FORMAT
+───────────────────────────────────────────────────────────────────
+Required fields (at least one):
+{
+    'city': 'San Francisco',      # Optional
+    'state': 'CA',                 # Optional (US only)
+    'country': 'US',               # Optional
+    'latitude': 37.7749,           # Optional (most accurate)
+    'longitude': -122.4194         # Optional (most accurate)
+}
+
+🌍 SUPPORTED LOCATIONS
+───────────────────────────────────────────────────────────────────
+• All 50 US states (by state code)
+• 30+ major global cities
+• 10+ countries (default timezones)
+• Any location with coordinates (lat/lng)
+
+⏰ DEFAULT SEND WINDOWS
+───────────────────────────────────────────────────────────────────
+Morning:    9:00 AM  - 11:00 AM  (local time)
+Afternoon:  2:00 PM  -  4:00 PM  (local time)
+
+🔍 COMMON DKIM SELECTORS CHECKED
+───────────────────────────────────────────────────────────────────
+default, google, ses, k1, k2, s1, s2, mail, email, 
+smtp, dkim, selector1, selector2
+
+💡 BEST PRACTICES
+───────────────────────────────────────────────────────────────────
+1. Always check domain health before starting campaigns
+2. Use coordinates (lat/lng) for most accurate timezone
+3. Set minimum health score threshold (recommend: 60+)
+4. Monitor domain health weekly
+5. Respect send windows for better engagement
+6. Use DMARC policy 'quarantine' or 'reject'
+7. Log timezone detection failures for review
+
+⚠️ ERROR HANDLING
+───────────────────────────────────────────────────────────────────
+Both services return graceful failures:
+• Timezone detection: Falls back to America/New_York
+• Domain checks: Return status='error' with details
+• All exceptions logged but don't crash
+
+🧪 TESTING
+───────────────────────────────────────────────────────────────────
+# Test Send Scheduler
+python backend/campaigns/send_scheduler.py
+
+# Test Domain Health
+python backend/deliverability/domain_health.py
+
+📁 FILES
+───────────────────────────────────────────────────────────────────
+backend/campaigns/send_scheduler.py         368 lines
+backend/deliverability/domain_health.py     671 lines
+AGENT6_DELIVERABLES.md                      Full documentation
+AGENT6_COMPLETION_REPORT.txt                This report
+
+═══════════════════════════════════════════════════════════════════
+Questions? Check AGENT6_DELIVERABLES.md for detailed docs
+═══════════════════════════════════════════════════════════════════

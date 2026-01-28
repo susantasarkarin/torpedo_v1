@@ -104,6 +104,18 @@ class ReplyType(str, Enum):
 
 # ============== PYDANTIC MODELS ==============
 
+class ABTestConfig(BaseModel):
+    """A/B test configuration for campaigns"""
+    enabled: bool = False
+    variants: List[str] = []  # ["A", "B", "C"]
+    split_ratio: Dict[str, float] = {}  # {"A": 0.5, "B": 0.5}
+    winning_metric: str = "reply_rate"  # open_rate | click_rate | reply_rate
+    significance_threshold: float = 0.95
+    auto_select_winner: bool = False
+    winner_variant: Optional[str] = None
+    test_status: str = "running"  # running | completed | paused
+
+
 class EmailTemplate(BaseModel):
     """Email template with personalization support"""
     id: Optional[str] = Field(default_factory=lambda: str(ObjectId()))
@@ -132,6 +144,12 @@ class SequenceStep(BaseModel):
     delay_hours: int = 0
     send_time: Optional[str] = None  # Preferred send time "09:00" in recipient timezone
     condition: SequenceCondition = SequenceCondition.ALWAYS
+    
+    # Multi-channel support
+    channel: str = "email"  # email | linkedin
+    condition_type: Optional[str] = None  # opened_no_reply | not_opened | clicked_no_reply | connection_accepted
+    linkedin_action_type: Optional[str] = None  # connection_request | message | inmail
+    personalization_tokens: Optional[List[str]] = None  # List of tokens used in this step
     
     # Stop conditions
     stop_on_reply: bool = True
@@ -176,6 +194,12 @@ class Campaign(BaseModel):
     from_email: str
     from_name: Optional[str] = None
     reply_to: Optional[str] = None
+    
+    # Campaign type and configuration
+    campaign_type: Optional[str] = "cold"  # cold | drip | reengagement
+    personalization_level: int = 2  # 1=Light, 2=Role-Based, 3=Deep
+    ab_test_config: Optional[Dict] = None  # A/B test configuration
+    reengagement_timeline: Optional[Dict] = None  # {soft_drip_start_days, trigger_based_start_days, reset_outreach_start_days}
     
     # Status
     status: CampaignStatus = CampaignStatus.DRAFT
