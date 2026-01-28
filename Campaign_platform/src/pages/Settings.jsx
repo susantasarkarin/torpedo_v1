@@ -99,9 +99,19 @@ function Settings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: "", text: "" })
-  const [activeTab, setActiveTab] = useState("app") // "app", "allocation"
+  const [activeTab, setActiveTab] = useState("app") // "app", "allocation", "mail-operations"
   const [testingMongo, setTestingMongo] = useState(false)
   const [testingCpx, setTestingCpx] = useState(false)
+
+  // Mail Operations state
+  const [segregationStats, setSegregationStats] = useState(null)
+  const [segregationLoading, setSegregationLoading] = useState(false)
+  const [segregateDialogOpen, setSegregateDialogOpen] = useState(false)
+  const [segregateForm, setSegregateForm] = useState({
+    strategy: 'category',
+    batch_size: 100,
+    force_rescan: false,
+  })
 
   // Cost Analytics state
   const [costAnalytics, setCostAnalytics] = useState(null)
@@ -1191,6 +1201,58 @@ function Settings() {
     }
   }
 
+  // ============== MAIL OPERATIONS FUNCTIONS ==============
+
+  const fetchSegregationStats = async () => {
+    setSegregationLoading(true)
+    try {
+      const token = getAuthToken()
+      const response = await fetch(buildApiUrl(`/api/mail/segregation-stats`), {
+        headers: { Authorization: token }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setSegregationStats(data)
+        setMessage({ type: "success", text: "Stats loaded successfully" })
+      } else {
+        setMessage({ type: "error", text: "Failed to fetch stats" })
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: "Error loading stats: " + error.message })
+    } finally {
+      setSegregationLoading(false)
+    }
+  }
+
+  const handleSegregateEmails = async () => {
+    setSaving(true)
+    try {
+      const token = getAuthToken()
+      const response = await fetch(buildApiUrl(`/api/mail/segregate`), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token
+        },
+        body: JSON.stringify(segregateForm)
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setMessage({ type: "success", text: `Successfully segregated ${data.processed || 0} emails` })
+        setSegregateDialogOpen(false)
+        await fetchSegregationStats()
+      } else {
+        const error = await response.json()
+        setMessage({ type: "error", text: getErrorMessage(error, "Failed to segregate emails") })
+      }
+    } catch (error) {
+      setMessage({ type: "error", text: "Error: " + error.message })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const addAlias = async (accountEmail) => {
     if (!newAlias.email) {
       setMessage({ type: "error", text: "Alias email is required" })
@@ -1361,6 +1423,16 @@ function Settings() {
         >
           <span className="tab-icon">📊</span>
           Survey Allocation
+        </button>
+        <button 
+          className={`tab-button ${activeTab === "mail-operations" ? "active" : ""}`}
+          onClick={() => {
+            setActiveTab("mail-operations")
+            if (!segregationStats) fetchSegregationStats()
+          }}
+        >
+          <span className="tab-icon">📧</span>
+          Mail Operations
         </button>
       </div>
 
@@ -1885,9 +1957,205 @@ function Settings() {
             </div>
           </div>
         )}
+
+        {activeTab === "mail-operations" && (
+          <div className="settings-section">
+            <h2>Email Segregation & Management</h2>
+            <p className="section-description">
+              Segregate emails using AI-powered categorization, generate summaries, and extract contact information
+            </p>
+
+            {segregationStats && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+                <div style={{ padding: '1rem', backgroundColor: '#f3f4f6', borderRadius: '0.5rem', borderLeft: '4px solid #3b82f6' }}>
+                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.5rem' }}>Total Emails</div>
+                  <div style={{ fontSize: '1.875rem', fontWeight: 'bold', color: '#111827' }}>
+                    {segregationStats.total_emails?.toLocaleString() || 0}
+                  </div>
+                </div>
+                <div style={{ padding: '1rem', backgroundColor: '#f3f4f6', borderRadius: '0.5rem', borderLeft: '4px solid #10b981' }}>
+                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.5rem' }}>Segregated</div>
+                  <div style={{ fontSize: '1.875rem', fontWeight: 'bold', color: '#111827' }}>
+                    {segregationStats.segregated_emails?.toLocaleString() || 0}
+                  </div>
+                </div>
+                <div style={{ padding: '1rem', backgroundColor: '#f3f4f6', borderRadius: '0.5rem', borderLeft: '4px solid #f59e0b' }}>
+                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.5rem' }}>Pending</div>
+                  <div style={{ fontSize: '1.875rem', fontWeight: 'bold', color: '#111827' }}>
+                    {segregationStats.pending_emails?.toLocaleString() || 0}
+                  </div>
+                </div>
+                <div style={{ padding: '1rem', backgroundColor: '#f3f4f6', borderRadius: '0.5rem', borderLeft: '4px solid #8b5cf6' }}>
+                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.5rem' }}>Progress</div>
+                  <div style={{ fontSize: '1.875rem', fontWeight: 'bold', color: '#111827' }}>
+                    {segregationStats.segregation_percentage || 0}%
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
+              <button 
+                className="save-button"
+                onClick={() => {
+                  setSegregateForm({ strategy: 'category', batch_size: 100, force_rescan: false })
+                  setSegregateDialogOpen(true)
+                }}
+              >
+                ▶️ Start Segregation
+              </button>
+              <button 
+                className="save-button"
+                style={{ backgroundColor: '#6b7280' }}
+                onClick={fetchSegregationStats}
+                disabled={segregationLoading}
+              >
+                {segregationLoading ? "Loading..." : "🔄 Refresh Stats"}
+              </button>
+            </div>
+
+            {segregationStats?.segment_breakdown && segregationStats.segment_breakdown.length > 0 && (
+              <div>
+                <h3 style={{ marginBottom: '1rem' }}>📊 Segment Breakdown</h3>
+                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e5e7eb' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                      <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600' }}>Segment</th>
+                      <th style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '600' }}>Count</th>
+                      <th style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '600' }}>Percentage</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {segregationStats.segment_breakdown.map((segment, idx) => {
+                      const percentage = ((segment.count / segregationStats.total_emails) * 100).toFixed(1)
+                      return (
+                        <tr key={idx} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                          <td style={{ padding: '0.75rem' }}>{segment._id || 'Unclassified'}</td>
+                          <td style={{ padding: '0.75rem', textAlign: 'right' }}>{segment.count.toLocaleString()}</td>
+                          <td style={{ padding: '0.75rem', textAlign: 'right' }}>{percentage}%</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Segregation Dialog */}
+            {segregateDialogOpen && (
+              <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0,0,0,0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 1000
+              }}>
+                <div style={{
+                  backgroundColor: 'white',
+                  borderRadius: '0.5rem',
+                  padding: '2rem',
+                  maxWidth: '500px',
+                  width: '90%',
+                  boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)'
+                }}>
+                  <h3 style={{ marginTop: 0, marginBottom: '1rem' }}>Configure Email Segregation</h3>
+                  
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>Strategy</label>
+                    <select
+                      value={segregateForm.strategy}
+                      onChange={(e) => setSegregateForm({ ...segregateForm, strategy: e.target.value })}
+                      style={{
+                        width: '100%',
+                        padding: '0.5rem',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '0.375rem',
+                        fontSize: '1rem'
+                      }}
+                    >
+                      <option value="category">By Category (Sales, Support, etc.)</option>
+                      <option value="sender_domain">By Sender Domain</option>
+                      <option value="priority">By Priority Level</option>
+                      <option value="intent">By Business Intent</option>
+                      <option value="engagement">By Engagement Level</option>
+                    </select>
+                  </div>
+
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>Batch Size</label>
+                    <input
+                      type="number"
+                      min="10"
+                      max="1000"
+                      value={segregateForm.batch_size}
+                      onChange={(e) => setSegregateForm({ ...segregateForm, batch_size: parseInt(e.target.value) })}
+                      style={{
+                        width: '100%',
+                        padding: '0.5rem',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '0.375rem',
+                        fontSize: '1rem',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={segregateForm.force_rescan}
+                      onChange={(e) => setSegregateForm({ ...segregateForm, force_rescan: e.target.checked })}
+                      style={{ width: '18px', height: '18px' }}
+                    />
+                    <label style={{ margin: 0 }}>Force rescan already segregated emails</label>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+                    <button
+                      onClick={() => setSegregateDialogOpen(false)}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        backgroundColor: '#e5e7eb',
+                        border: 'none',
+                        borderRadius: '0.375rem',
+                        cursor: 'pointer',
+                        fontWeight: '500'
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSegregateEmails}
+                      disabled={saving}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        backgroundColor: '#3b82f6',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '0.375rem',
+                        cursor: 'pointer',
+                        fontWeight: '500',
+                        opacity: saving ? 0.6 : 1
+                      }}
+                    >
+                      {saving ? "Processing..." : "Start Segregation"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 export default Settings
+
+```
