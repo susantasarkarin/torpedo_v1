@@ -68,7 +68,9 @@ MODEL_COSTS = {
 }
 
 # Confidence threshold for escalation
-ESCALATION_CONFIDENCE_THRESHOLD = 0.7
+# Reduced from 0.7 to 0.5 to reduce expensive GPT-4o escalations
+# Analysis showed 47% were escalating at 0.7, target is <15%
+ESCALATION_CONFIDENCE_THRESHOLD = 0.5
 
 # Retry configuration
 MAX_RETRIES = 3
@@ -756,6 +758,13 @@ def chat_completion_with_escalation(
     try:
         parsed = json.loads(result["content"])
         confidence = parsed.get(confidence_key, 1.0)
+        
+        # Skip escalation for "uncategorized" results (waste of expensive API calls)
+        # Analysis showed 47% of emails were "uncategorized" even after escalation
+        category = parsed.get("category", "").lower()
+        if category in ("uncategorized", "unknown", "other", "none"):
+            logger.info(f"Skipping escalation for '{category}' result (confidence: {confidence:.2f})")
+            return result
         
         if isinstance(confidence, (int, float)) and confidence < confidence_threshold:
             logger.info(f"Low confidence ({confidence:.2f}), escalating to {escalation_model}")

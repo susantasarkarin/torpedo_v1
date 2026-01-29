@@ -504,7 +504,7 @@ def classify_pending_emails_task(
 def classify_all_pending_batch(
     self,
     batch_size: int = 50,
-    max_batches: Optional[int] = None,
+    max_batches: Optional[int] = 20,  # Cap at 1000 emails per run to prevent infinite loops
     internal_domains: Optional[List[str]] = None
 ) -> Dict[str, Any]:
     """
