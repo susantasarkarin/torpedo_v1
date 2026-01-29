@@ -173,16 +173,20 @@ async def cpx_callback(
     msg: str = Query(None, description="Response type: complete or out"),
     message_id: str = Query(None, description="Response type: complete or out (alias)"),
     rid: str = Query(None, description="CPX message_id (optional, for backwards compatibility)"),
-    sfwid: str = Query(None, description="SFWID passed via subid_1 from CPX - PRIMARY identifier")
+    sfwid: str = Query(None, description="SFWID passed via subid_1 from CPX - PRIMARY identifier"),
+    subid: str = Query(None, description="Alias for sfwid parameter (backward compatibility)")
 ):
     """
     CPX Survey Callback Handler
     
     URL format: /cpx-response?msg={type}&rid={message_id}&sfwid={subid_1}
+    Alternative: /cpx-response?message_id={message_id}&subid={subid_1}
     
     - msg: "complete" or "out" (terminate)
+    - message_id: Alias for msg parameter
     - rid: CPX message_id (optional, not used for lookup)
     - sfwid: The SFWID (traffic record _id) passed via subid_1 - PRIMARY identifier
+    - subid: Alias for sfwid parameter (backward compatibility)
     
     Logic:
     1. Use sfwid (from subid_1) to find the traffic record
@@ -195,16 +199,19 @@ async def cpx_callback(
         # Support both 'msg' and 'message_id' parameters for status
         status_code = msg or message_id or "out"
         
-        print(f"📥 CPX Callback received: msg={status_code}, rid={rid}, sfwid={sfwid}")
+        # Support both 'sfwid' and 'subid' parameters for traffic record ID
+        traffic_id = sfwid or subid
+        
+        print(f"📥 CPX Callback received: msg={status_code}, rid={rid}, sfwid={sfwid}, subid={subid}")
         print(f"📥 Full callback URL: {request.url}")
         
-        # sfwid from subid_1 is the PRIMARY identifier - it contains the SFWID (traffic record _id)
-        if not sfwid:
-            print(f"❌ Missing sfwid parameter - cannot identify traffic record")
+        # traffic_id from subid_1 is the PRIMARY identifier - it contains the SFWID (traffic record _id)
+        if not traffic_id:
+            print(f"❌ Missing sfwid/subid parameter - cannot identify traffic record")
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
-        decoded_sfwid = sfwid
-        print(f"✅ Using sfwid from subid_1: {sfwid}")
+        decoded_sfwid = traffic_id
+        print(f"✅ Using traffic ID from subid_1: {traffic_id}")
         
         # Determine status based on msg/message_id ("out" treated as terminate)
         if status_code.lower() == "complete":
