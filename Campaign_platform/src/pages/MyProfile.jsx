@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL, buildApiUrl } from "../config"
+import UserManagement from "../components/UserManagement"
 import "./Settings.css"
 
 function MyProfile() {
@@ -11,7 +12,7 @@ function MyProfile() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(null)
-  
+
   // User profile data
   const [profile, setProfile] = useState({
     username: "",
@@ -20,7 +21,7 @@ function MyProfile() {
     role: "",
     createdAt: "",
   })
-  
+
   // Password change form
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
@@ -234,7 +235,7 @@ function MyProfile() {
 
           <div className="settings-group">
             <h3>📋 User Details</h3>
-            
+
             <div className="setting-row">
               <label>Display Name</label>
               <input
@@ -247,7 +248,7 @@ function MyProfile() {
                 This name will be shown across the application
               </small>
             </div>
-            
+
             <div className="setting-row">
               <label>Username</label>
               <input
@@ -305,6 +306,17 @@ function MyProfile() {
             </div>
           </div>
         </div>
+
+        {/* User Management Section - Admin Only */}
+        {profile.role === 'admin' && (
+          <div className="settings-section">
+            <h2>👥 User Management</h2>
+            <p className="section-description">
+              Manage system users and their roles.
+            </p>
+            <UserManagement />
+          </div>
+        )}
 
         {/* Password Change Section */}
         <div className="settings-section">

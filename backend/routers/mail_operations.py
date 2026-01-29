@@ -10,8 +10,9 @@ Provides API endpoints for:
 
 import asyncio
 import logging
+import uuid
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, Request, Query, Body
+from fastapi import APIRouter, HTTPException, Request, Query, Body, BackgroundTasks
 from pydantic import BaseModel, Field
 from datetime import datetime
 
@@ -28,6 +29,9 @@ router = APIRouter(
     prefix="/mail",
     tags=["mail"]
 )
+
+# In-memory job status storage
+segregation_jobs: Dict[str, Dict[str, Any]] = {}
 
 
 # ============================================
@@ -93,16 +97,46 @@ class MailSummaryResponse(BaseModel):
 
 
 # ============================================
+# Background Task Functions
+# ============================================
+
+async def run_segregation_task(job_id: str, strategy: SegmentationStrategy, batch_size: int, force_rescan: bool):
+    """Background task to run email segregation"""
+    try:
+        segregation_jobs[job_id]["status"] = "running"
+        segregation_jobs[job_id]["started_at"] = datetime.now().isoformat()
+        
+        agent = get_mail_segregation_agent()
+        result = await agent.segregate_all_emails(
+            strategy=strategy,
+            batch_size=batch_size,
+            force_rescan=force_rescan
+        )
+        
+        segregation_jobs[job_id]["status"] = "completed"
+        segregation_jobs[job_id]["completed_at"] = datetime.now().isoformat()
+        segregation_jobs[job_id]["result"] = result
+        logger.info(f"Segregation job {job_id} completed: {result.get('processed', 0)} emails processed")
+        
+    except Exception as e:
+        segregation_jobs[job_id]["status"] = "failed"
+        segregation_jobs[job_id]["error"] = str(e)
+        segregation_jobs[job_id]["completed_at"] = datetime.now().isoformat()
+        logger.error(f"Segregation job {job_id} failed: {e}")
+
+
+# ============================================
 # Endpoints
 # ============================================
 
 @router.post("/segregate")
 async def segregate_emails(
     request: Request,
-    payload: SegregateRequest
+    payload: SegregateRequest,
+    background_tasks: BackgroundTasks
 ) -> Dict[str, Any]:
     """
-    Segregate all emails in mail_pool using specified strategy
+    Start email segregation as a background job
     
     Strategies:
     - category: Categorize by business type (sales, support, etc.)
@@ -112,14 +146,12 @@ async def segregate_emails(
     - engagement: Analyze engagement level
     - custom: Custom Gemini-based segmentation
     
-    Returns: Segregation statistics and summaries
+    Returns: Job ID to track progress
     """
     try:
         session_id = request.headers.get("Authorization")
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
-        
-        agent = get_mail_segregation_agent()
         
         # Validate strategy
         try:
@@ -130,19 +162,90 @@ async def segregate_emails(
                 detail=f"Invalid strategy. Must be one of: {[s.value for s in SegmentationStrategy]}"
             )
         
-        # Run segregation
-        result = await agent.segregate_all_emails(
-            strategy=strategy,
-            batch_size=payload.batch_size,
-            force_rescan=payload.force_rescan
+        # Create job ID
+        job_id = str(uuid.uuid4())
+        
+        # Initialize job status
+        segregation_jobs[job_id] = {
+            "job_id": job_id,
+            "status": "pending",
+            "strategy": payload.strategy,
+            "batch_size": payload.batch_size,
+            "force_rescan": payload.force_rescan,
+            "created_at": datetime.now().isoformat(),
+            "started_at": None,
+            "completed_at": None,
+            "result": None,
+            "error": None
+        }
+        
+        # Start background task
+        background_tasks.add_task(
+            run_segregation_task,
+            job_id,
+            strategy,
+            payload.batch_size,
+            payload.force_rescan
         )
         
-        return result
+        return {
+            "success": True,
+            "message": "Segregation job started in background",
+            "job_id": job_id,
+            "status": "pending"
+        }
     
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error segregating emails: {e}")
+        logger.error(f"Error starting segregation job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/segregate/status/{job_id}")
+async def get_segregation_job_status(
+    request: Request,
+    job_id: str
+) -> Dict[str, Any]:
+    """Get status of a segregation job"""
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        if job_id not in segregation_jobs:
+            raise HTTPException(status_code=404, detail="Job not found")
+        
+        return segregation_jobs[job_id]
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting job status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/segregate/jobs")
+async def list_segregation_jobs(request: Request) -> Dict[str, Any]:
+    """List all segregation jobs"""
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        # Return last 10 jobs, sorted by created_at
+        jobs = list(segregation_jobs.values())
+        jobs.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        
+        return {
+            "jobs": jobs[:10],
+            "total": len(jobs)
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing jobs: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

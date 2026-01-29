@@ -129,7 +129,13 @@ else:
 # ----------------------------
 # MongoDB connection
 # ----------------------------
-client = MongoClient(MONGO_URI)
+# Add connection timeout to prevent hanging (30s connect, 30s server select)
+client = MongoClient(
+    MONGO_URI,
+    serverSelectionTimeoutMS=30000,
+    connectTimeoutMS=30000,
+    socketTimeoutMS=60000
+)
 db = client["email_automation"]
 
 # Traffic flow database (from app.py)
