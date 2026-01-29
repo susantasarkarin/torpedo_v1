@@ -3,13 +3,25 @@ import { API_BASE_URL } from "../../config";
 import "./TrafficFlowParser.css";
 import { buildApiUrl } from "../../config"
 
+// Generate a unique transaction ID (UUID v4)
+function generateTransId() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 export default function TrafficFlowParser() {
   const [urlParams, setUrlParams] = useState({});
   const [fullUrl, setFullUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [pollingStatus, setPollingStatus] = useState(null); // For showing survey completion status
   const hasAutoTriggered = useRef(false);
+  const pollIntervalRef = useRef(null);
+  const currentTransIdRef = useRef(null);
 
   useEffect(() => {
     const currentUrl = window.location.href;
@@ -19,6 +31,13 @@ export default function TrafficFlowParser() {
     const parsedParams = {};
     for (let [key, value] of params.entries()) parsedParams[key] = value;
     setUrlParams(parsedParams);
+    
+    // Cleanup polling on unmount
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
   }, []);
 
   // Function to trigger survey pool sync
@@ -41,6 +60,81 @@ export default function TrafficFlowParser() {
     return false;
   };
 
+  // Pre-register transaction before user starts survey
+  const preRegisterTransaction = async (transId, subid) => {
+    try {
+      console.log(`📝 Pre-registering transaction: ${transId}`);
+      const response = await fetch(buildApiUrl(`/cpx-api/transaction/create`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        mode: "cors",
+        body: JSON.stringify({
+          trans_id: transId,
+          subid: subid,
+          status: "pending"
+        }),
+      });
+      if (response.ok) {
+        const result = await response.json();
+        console.log("✅ Transaction pre-registered:", result);
+        return true;
+      } else {
+        console.error("❌ Failed to pre-register transaction");
+        return false;
+      }
+    } catch (err) {
+      console.error("❌ Transaction pre-registration error:", err);
+      return false;
+    }
+  };
+
+  // Poll for survey completion status
+  const startPolling = useCallback((transId) => {
+    console.log(`🔄 Starting polling for transaction: ${transId}`);
+    setPollingStatus("waiting");
+    
+    const pollForStatus = async () => {
+      try {
+        const response = await fetch(buildApiUrl(`/cpx-api/survey-status?trans_id=${transId}`), {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+          mode: "cors",
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          console.log(`📊 Poll result:`, result);
+          
+          if (result.status === "completed" || result.status === "canceled" || result.status === "fraud") {
+            // Stop polling and redirect to response page
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+            console.log(`✅ Survey ${result.status}, redirecting to response page...`);
+            window.location.href = `/response?trans_id=${transId}&status=${result.status}&subid=${urlParams.rid || ""}`;
+          }
+        }
+      } catch (err) {
+        console.error("⚠️ Polling error:", err);
+      }
+    };
+    
+    // Poll immediately, then every 5 seconds
+    pollForStatus();
+    pollIntervalRef.current = setInterval(pollForStatus, 5000);
+    
+    // Stop polling after 30 minutes (surveys have time limits)
+    setTimeout(() => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+        setPollingStatus("timeout");
+        console.log("⏰ Polling timeout reached");
+      }
+    }, 30 * 60 * 1000);
+  }, [urlParams.rid]);
+
   const handleStore = useCallback(async (isRetry = false) => {
     // Check for required traffic parameters
     const vid = urlParams.vid;
@@ -56,6 +150,17 @@ export default function TrafficFlowParser() {
     setError(null);
 
     try {
+      // Generate unique transaction ID for this survey attempt
+      const transId = generateTransId();
+      currentTransIdRef.current = transId;
+      console.log(`🆔 Generated trans_id: ${transId}`);
+
+      // Pre-register transaction before starting survey
+      const preRegistered = await preRegisterTransaction(transId, rid);
+      if (!preRegistered) {
+        console.warn("⚠️ Failed to pre-register transaction, continuing anyway...");
+      }
+
       // Add timeout controller for better error handling
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
@@ -69,6 +174,7 @@ export default function TrafficFlowParser() {
           url: fullUrl,
           params: urlParams,
           userAgent: navigator.userAgent,
+          trans_id: transId, // Include trans_id in traffic record
         }),
       });
 
@@ -78,14 +184,23 @@ export default function TrafficFlowParser() {
         const result = await response.json();
         const objectId = result.id;
         const recordType = result.type || "unknown";
-        const entryLink = result.entry_link;
+        let entryLink = result.entry_link;
         const allocationSuccess = result.allocation_success;
 
         console.log(`✅ Traffic record created: ${objectId} (type: ${recordType})`);
 
         // Check if survey was allocated successfully
         if (allocationSuccess && entryLink) {
+          // Append trans_id to entry link for CPX postback tracking
+          const separator = entryLink.includes('?') ? '&' : '?';
+          entryLink = `${entryLink}${separator}ext_subid2=${transId}`;
+          
           console.log(`✅ Survey allocated successfully, redirecting to: ${entryLink}`);
+          
+          // Start polling for survey completion
+          startPolling(transId);
+          
+          // Redirect to survey
           window.location.href = entryLink;
         } else {
           // No survey allocated - try to sync and retry once
@@ -123,7 +238,7 @@ export default function TrafficFlowParser() {
       setError(errorMessage);
       setLoading(false);
     }
-  }, [urlParams, fullUrl, retryCount]);
+  }, [urlParams, fullUrl, retryCount, startPolling]);
 
   // Auto-trigger removed - user must click the "Next" button manually
   // This was causing the system to automatically click the button
@@ -167,6 +282,43 @@ export default function TrafficFlowParser() {
               }}
             >
               Try Again
+            </button>
+          </div>
+        )}
+
+        {/* Show polling status when waiting for survey completion */}
+        {pollingStatus === "waiting" && (
+          <div style={{ margin: "10px 0", padding: "15px", backgroundColor: "#e7f3ff", color: "#0066cc", borderRadius: "4px", textAlign: "center" }}>
+            <div className="spinner" style={{ margin: "0 auto 10px" }}></div>
+            <strong>Waiting for survey completion...</strong>
+            <p style={{ margin: "5px 0 0", fontSize: "14px" }}>
+              You will be automatically redirected when the survey is complete.
+            </p>
+          </div>
+        )}
+
+        {pollingStatus === "timeout" && (
+          <div style={{ margin: "10px 0", padding: "15px", backgroundColor: "#fff3cd", color: "#856404", borderRadius: "4px" }}>
+            <strong>Session Timeout</strong>
+            <p style={{ margin: "5px 0 0" }}>
+              Your survey session has timed out. Please start again if you haven't completed the survey.
+            </p>
+            <button
+              onClick={() => {
+                setPollingStatus(null);
+                setLoading(false);
+              }}
+              style={{
+                marginTop: "10px",
+                padding: "8px 20px",
+                cursor: "pointer",
+                backgroundColor: "#fff",
+                border: "1px solid #856404",
+                borderRadius: "4px",
+                color: "#856404"
+              }}
+            >
+              Start New Survey
             </button>
           </div>
         )}

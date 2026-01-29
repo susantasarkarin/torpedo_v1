@@ -23,12 +23,12 @@ LEADS_PER_BATCH = 10
 MAX_RETRIES = 3
 RETRY_DELAY_BASE = 2.0  # seconds
 
-# MODEL CONFIGURATION: OpenAI for all tasks (DeepSeek balance exhausted)
-DEFAULT_MODEL = "gpt-4o-mini"           # OpenAI gpt-4o-mini for all tasks
+# MODEL CONFIGURATION: OpenAI for web search only (Gemini for email ops via ai_governance)
+DEFAULT_MODEL = "gpt-4o-mini"           # OpenAI gpt-4o-mini for web search
 DEFAULT_PROVIDER = "openai"
 WEB_SEARCH_MODEL = "gpt-4o-mini"        # OpenAI for web search (required)
 WEB_SEARCH_PROVIDER = "openai"
-DEEPSEEK_API_BASE = "https://api.deepseek.com"
+# NOTE: Email classification/summarization uses Gemini via ai_governance module
 
 
 class AgentResult(BaseModel):
@@ -68,29 +68,14 @@ class BaseAgent(ABC, Generic[T]):
             config: Agent-specific configuration dict
         """
         self.config = config or {}
-        self._deepseek_client: Optional[OpenAI] = None
         self._openai_client: Optional[OpenAI] = None
         self._mongo_client = None
         self._db = None
     
     @property
     def client(self) -> OpenAI:
-        """Default client (DeepSeek for cost savings)."""
-        return self._get_deepseek_client()
-    
-    def _get_deepseek_client(self) -> OpenAI:
-        """Get DeepSeek client for most tasks."""
-        if self._deepseek_client is None:
-            api_key = self._get_deepseek_api_key()
-            if not api_key:
-                # Fallback to OpenAI if no DeepSeek key
-                logger.warning("DeepSeek API key not found, falling back to OpenAI")
-                return self._get_openai_client()
-            self._deepseek_client = OpenAI(
-                api_key=api_key,
-                base_url=DEEPSEEK_API_BASE
-            )
-        return self._deepseek_client
+        """Default client (OpenAI for web search)."""
+        return self._get_openai_client()
     
     def _get_openai_client(self) -> OpenAI:
         """Get OpenAI client for web search tasks."""
@@ -100,21 +85,6 @@ class BaseAgent(ABC, Generic[T]):
                 raise ValueError("OPENAI_API_KEY not configured")
             self._openai_client = OpenAI(api_key=api_key)
         return self._openai_client
-    
-    def _get_deepseek_api_key(self) -> Optional[str]:
-        """Get DeepSeek API key from DB or environment."""
-        try:
-            from pymongo import MongoClient
-            mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-            client = MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
-            settings_db = client["torpedo_settings"]
-            app_settings = settings_db["app_settings"]
-            stored = app_settings.find_one({"_id": "app_config"})
-            if stored and stored.get("deepseek_api_key"):
-                return stored["deepseek_api_key"]
-        except Exception as e:
-            logger.debug(f"Could not fetch DeepSeek key from DB: {e}")
-        return os.getenv("DEEPSEEK_API_KEY")
     
     def _get_openai_api_key(self) -> Optional[str]:
         """Get OpenAI API key from DB or environment."""
@@ -133,8 +103,8 @@ class BaseAgent(ABC, Generic[T]):
     
     # Legacy compatibility
     def _get_api_key(self) -> Optional[str]:
-        """Legacy method - returns DeepSeek key (or OpenAI fallback)."""
-        return self._get_deepseek_api_key() or self._get_openai_api_key()
+        """Legacy method - returns OpenAI key."""
+        return self._get_openai_api_key()
     
     def _get_db(self):
         """Get MongoDB database connection."""

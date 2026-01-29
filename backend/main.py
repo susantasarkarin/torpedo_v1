@@ -47,6 +47,7 @@ except ImportError:
 try:
     # Prefer relative import when running as a package (python -m uvicorn backend.main)
     from .routers import traffic as traffic_router
+    from .routers import cpx_api as cpx_api_router
     from .app.routers import cpx as cpx_router
     from .routers import finance as finance_router
     from .routers import settings as settings_router
@@ -69,6 +70,7 @@ try:
 except Exception:
     # Fallback to absolute import for other runtimes
     from routers import traffic as traffic_router
+    from routers import cpx_api as cpx_api_router
     from app.routers import cpx as cpx_router
     from routers import finance as finance_router
     from routers import settings as settings_router
@@ -695,6 +697,27 @@ try:
 except Exception as e:
     print(f"⚠️ CPX callback logs collection issue: {e}")
 
+# ============================================
+# CPX API Router (trans_id based flow - no message_id)
+# ============================================
+try:
+    # Initialize survey_transactions collection for the new CPX API flow
+    survey_transactions_collection = traffic_db["survey_transactions"]
+    cpx_postback_logs_collection = traffic_db["cpx_postback_logs"]
+    
+    # Inject collections into cpx_api_router
+    cpx_api_router.set_survey_transactions_collection(survey_transactions_collection)
+    cpx_api_router.set_cpx_postback_logs_collection(cpx_postback_logs_collection)
+    
+    # Include the CPX API router (trans_id based flow)
+    app.include_router(cpx_api_router.router)
+    print("✅ CPX API router initialized (trans_id flow)")
+    print("✅ Survey transactions collection initialized")
+except Exception as e:
+    print(f"⚠️ CPX API router not initialized: {e}")
+    import traceback
+    traceback.print_exc()
+
 # Settings router
 try:
     app.include_router(settings_router.router)
@@ -1132,7 +1155,7 @@ def background_gmail_sync():
             
             print(f"✅ [Gmail] Background sync complete: {total_synced} new emails across {len(mailboxes)} mailboxes")
             
-            # Re-enabled: Auto-classification using DeepSeek (cheaper & faster)
+            # Auto-classification using Gemini (via ai_governance module)
             if total_synced > 0:
                 try:
                     from leads.email_classifier import classify_all_pending_emails

@@ -16,6 +16,7 @@ import Login from "./pages/Login"
 // Public user pages - Keep non-lazy
 import TrafficFlowParser from "./pages/user/TrafficFlowParser"
 import SurveyError from "./pages/user/SurveyError"
+import SurveyResponse from "./pages/user/SurveyResponse"
 
 // ============== PANEL MODULE (Lazy Loaded) ==============
 import PanelProtectedRoute from "./panel/components/PanelProtectedRoute"
@@ -141,6 +142,8 @@ function App() {
       {/* Public user pages */}
       <Route path="/takesurvey" element={<TrafficFlowParser />} />
       <Route path="/survey-error" element={<SurveyError />} />
+      <Route path="/response" element={<SurveyResponse />} />
+      <Route path="/survey-response" element={<SurveyResponse />} />
 
       {/* ============== SURVEY PANEL ROUTES ============== */}
       {/* Panel Public Pages (no auth required) */}

@@ -33,6 +33,22 @@ from .survey_allocation import (
     CallbackResponse
 )
 
+from .survey_transaction import (
+    # Enums
+    TransactionStatus,
+    
+    # Transaction models
+    SurveyTransactionBase,
+    SurveyTransactionCreate,
+    SurveyTransaction,
+    SurveyTransactionUpdate,
+    
+    # Request/Response
+    CPXPostbackRequest,
+    TransactionStatusResponse,
+    SurveyStatusPollResponse
+)
+
 __all__ = [
     "RespondentStatus",
     "SurveyStatus",
@@ -49,5 +65,14 @@ __all__ = [
     "AllocationRequest",
     "AllocationResponse",
     "CallbackEvent",
-    "CallbackResponse"
+    "CallbackResponse",
+    # Survey Transaction models
+    "TransactionStatus",
+    "SurveyTransactionBase",
+    "SurveyTransactionCreate",
+    "SurveyTransaction",
+    "SurveyTransactionUpdate",
+    "CPXPostbackRequest",
+    "TransactionStatusResponse",
+    "SurveyStatusPollResponse"
 ]

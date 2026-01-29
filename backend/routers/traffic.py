@@ -171,17 +171,17 @@ async def cint_callback(
 async def cpx_callback(
     request: Request,
     msg: str = Query(None, description="Response type: complete or out"),
-    message_id: str = Query(None, description="Response type: complete or out (alias)"),
-    rid: str = Query(None, description="CPX message_id (optional, for backwards compatibility)"),
+    trans_id: str = Query(None, description="Transaction ID (preferred, replaces message_id)"),
+    rid: str = Query(None, description="CPX respondent ID (optional, for backwards compatibility)"),
     sfwid: str = Query(None, description="SFWID passed via subid_1 from CPX - PRIMARY identifier")
 ):
     """
-    CPX Survey Callback Handler
+    CPX Survey Callback Handler (LEGACY - prefer /cpx-api/cpx-postback for new integrations)
     
-    URL format: /cpx-response?msg={type}&rid={message_id}&sfwid={subid_1}
+    URL format: /cpx-response?msg={type}&trans_id={trans_id}&sfwid={subid_1}
     
     - msg: "complete" or "out" (terminate)
-    - rid: CPX message_id (optional, not used for lookup)
+    - trans_id: Transaction ID (preferred identifier, replaces message_id)
     - sfwid: The SFWID (traffic record _id) passed via subid_1 - PRIMARY identifier
     
     Logic:
@@ -192,10 +192,10 @@ async def cpx_callback(
     5. Update traffic status and redirect to vendor
     """
     try:
-        # Support both 'msg' and 'message_id' parameters for status
-        status_code = msg or message_id or "out"
+        # Support 'msg' parameter for status (message_id alias removed)
+        status_code = msg or "out"
         
-        print(f"📥 CPX Callback received: msg={status_code}, rid={rid}, sfwid={sfwid}")
+        print(f"📥 CPX Callback received: msg={status_code}, trans_id={trans_id}, rid={rid}, sfwid={sfwid}")
         print(f"📥 Full callback URL: {request.url}")
         
         # sfwid from subid_1 is the PRIMARY identifier - it contains the SFWID (traffic record _id)
@@ -206,7 +206,7 @@ async def cpx_callback(
         decoded_sfwid = sfwid
         print(f"✅ Using sfwid from subid_1: {sfwid}")
         
-        # Determine status based on msg/message_id ("out" treated as terminate)
+        # Determine status based on msg ("out" treated as terminate)
         if status_code.lower() == "complete":
             new_status = "COMPLETE"
             redirect_type = "completeRD"
@@ -424,7 +424,8 @@ async def cpx_callback(
             "timestamp": datetime.utcnow(),
             "callback_url": str(request.url),
             "rid_received": rid,
-            "status_code": msg or message_id or "unknown",
+            "trans_id": trans_id,
+            "status_code": msg or "unknown",
             "traffic_found": False,
             "success": False,
             "error": str(e),
