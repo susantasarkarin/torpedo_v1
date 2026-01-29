@@ -12,10 +12,10 @@ const getAuthToken = () => localStorage.getItem("session_id") || getAuthToken()
 // Helper to extract error message from various error response formats
 const getErrorMessage = (error, fallback = "An error occurred") => {
   if (!error) return fallback
-  
+
   // If it's a string, return it directly
   if (typeof error === "string") return error
-  
+
   // FastAPI validation error format: { detail: [{ type, loc, msg, input }, ...] }
   if (error.detail) {
     if (typeof error.detail === "string") return error.detail
@@ -27,11 +27,11 @@ const getErrorMessage = (error, fallback = "An error occurred") => {
       return error.detail.msg || error.detail.message || JSON.stringify(error.detail)
     }
   }
-  
+
   // Standard error format
   if (error.message) return error.message
   if (error.msg) return error.msg
-  
+
   return fallback
 }
 
@@ -39,7 +39,7 @@ function Settings() {
   // Global sync status - temporarily disabled for debugging
   // const { isSyncActive } = useSyncStatus()
   const isSyncActive = false; // Temporary fallback
-  
+
   // App Settings state
   const [appSettings, setAppSettings] = useState({
     mongo_uri: "",
@@ -59,7 +59,7 @@ function Settings() {
     google_sheets_service_account: "",
   })
   const [maskedSettings, setMaskedSettings] = useState({})
-  
+
   // Survey Filter state
   const [surveyFilters, setSurveyFilters] = useState({
     max_loi: 20,
@@ -78,7 +78,7 @@ function Settings() {
     cooldown_seconds: 10,
     enabled: true,
   })
-  
+
   // Gmail Workspace Signatures
   const [workspaceSignatures, setWorkspaceSignatures] = useState([])
   const [signaturesLoading, setSignaturesLoading] = useState(false)
@@ -95,7 +95,7 @@ function Settings() {
     prefer_high_ir_surveys: true,
     prefer_high_cpi_surveys: false,
   })
-  
+
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: "", text: "" })
@@ -189,7 +189,7 @@ function Settings() {
   const saveRateLimitsHandler = async () => {
     setSaving(true)
     setMessage({ type: "", text: "" })
-    
+
     try {
       const token = getAuthToken()
       const response = await fetch(buildApiUrl(`/gmail/rate-limits`), {
@@ -200,7 +200,7 @@ function Settings() {
         },
         body: JSON.stringify(rateLimits)
       })
-      
+
       if (response.ok) {
         setMessage({ type: "success", text: "Rate limits saved!" })
       } else {
@@ -224,7 +224,7 @@ function Settings() {
     setSignaturesLoading(true)
     try {
       const token = getAuthToken()
-      
+
       // Load accounts and signatures in parallel for faster loading
       const needsAccounts = gmailAccounts.length === 0
       const requests = [
@@ -233,9 +233,9 @@ function Settings() {
       if (needsAccounts) {
         requests.unshift(fetch(buildApiUrl(`/gmail/accounts`), { headers: { Authorization: token } }))
       }
-      
+
       const responses = await Promise.all(requests)
-      
+
       if (needsAccounts) {
         const accountsRes = responses[0]
         const sigRes = responses[1]
@@ -288,7 +288,7 @@ function Settings() {
   }
 
   // ============== AI PROMPTS FUNCTIONS ==============
-  
+
   const loadAiPrompts = async () => {
     setAiPromptsLoading(true)
     try {
@@ -330,7 +330,7 @@ function Settings() {
       const token = getAuthToken()
       const res = await fetch(buildApiUrl(`/settings/ai-prompts/${editingPrompt.prompt_key}`), {
         method: "PUT",
-        headers: { 
+        headers: {
           Authorization: token,
           "Content-Type": "application/json"
         },
@@ -365,7 +365,7 @@ function Settings() {
       const token = getAuthToken()
       const res = await fetch(buildApiUrl(`/settings/ai-prompts/${editingPrompt.prompt_key}/test`), {
         method: "POST",
-        headers: { 
+        headers: {
           Authorization: token,
           "Content-Type": "application/json"
         },
@@ -411,13 +411,13 @@ function Settings() {
   }
 
   // ============== AI DATABASE FUNCTIONS ==============
-  
+
   const loadAiDatabase = async () => {
     setAiDatabaseLoading(true)
     try {
       const token = getAuthToken()
       const filter = aiDatabaseFilter !== 'all' ? `?status=${aiDatabaseFilter}` : ''
-      
+
       // Load status and companies in parallel for faster loading
       const [statusRes, companiesRes] = await Promise.all([
         fetch(buildApiUrl(`/leads/ai-database/status`), {
@@ -427,7 +427,7 @@ function Settings() {
           headers: { Authorization: token }
         })
       ])
-      
+
       if (statusRes.ok) {
         const status = await statusRes.json()
         setAiDatabaseStatus(status)
@@ -453,7 +453,7 @@ function Settings() {
       const token = getAuthToken()
       const res = await fetch(buildApiUrl(`/leads/ai-database/discover-leads`), {
         method: "POST",
-        headers: { 
+        headers: {
           Authorization: token,
           "Content-Type": "application/json"
         },
@@ -488,7 +488,7 @@ function Settings() {
       const token = getAuthToken()
       const res = await fetch(buildApiUrl(`/leads/ai-database/process-batch`), {
         method: "POST",
-        headers: { 
+        headers: {
           Authorization: token,
           "Content-Type": "application/json"
         },
@@ -496,9 +496,9 @@ function Settings() {
       })
       if (res.ok) {
         const data = await res.json()
-        setMessage({ 
-          type: "success", 
-          text: `Processed ${data.processed} companies: ${data.leads_found} leads found, ${data.enriched} enriched` 
+        setMessage({
+          type: "success",
+          text: `Processed ${data.processed} companies: ${data.leads_found} leads found, ${data.enriched} enriched`
         })
         loadAiDatabase()
       } else {
@@ -569,7 +569,7 @@ function Settings() {
   // Save signature
   const handleSaveSignature = async () => {
     if (!selectedSignatureEmail) return
-    
+
     setSavingSignature(true)
     try {
       const token = getAuthToken()
@@ -584,7 +584,7 @@ function Settings() {
           signature_text: signatureText
         })
       })
-      
+
       if (res.ok) {
         setMessage({ type: "success", text: "Signature saved successfully!" })
         loadEmailSignatures() // Refresh list
@@ -603,7 +603,7 @@ function Settings() {
   const handleDeleteSignature = async () => {
     if (!selectedSignatureEmail) return
     if (!confirm(`Delete signature for ${selectedSignatureEmail}?`)) return
-    
+
     setSavingSignature(true)
     try {
       const token = getAuthToken()
@@ -611,7 +611,7 @@ function Settings() {
         method: "DELETE",
         headers: { Authorization: token }
       })
-      
+
       if (res.ok) {
         setMessage({ type: "success", text: "Signature deleted!" })
         setSignatureHtml("")
@@ -635,11 +635,11 @@ function Settings() {
       console.log("Skipping Gmail settings refresh - sync in progress")
       return
     }
-    
+
     setGmailLoading(true)
     try {
       const token = getAuthToken()
-      
+
       // Load Email/IMAP accounts from leads endpoint
       const accountsRes = await fetch(buildApiUrl(`/leads/gmail/accounts`), {
         headers: { Authorization: token }
@@ -659,7 +659,7 @@ function Settings() {
           aliases: acc.aliases || []  // Include aliases
         }))
         setGmailAccounts(accounts)
-        
+
         // Initialize import days from accounts
         const daysMap = {}
         accounts.forEach(acc => {
@@ -667,7 +667,7 @@ function Settings() {
         })
         setImportDays(daysMap)
       }
-      
+
       // Load IDLE status
       await loadIdleStatus()
     } catch (error) {
@@ -703,9 +703,9 @@ function Settings() {
         headers: { Authorization: token }
       })
       if (response.ok) {
-        setMessage({ 
-          type: "success", 
-          text: start ? "Real-time email monitoring started" : "Real-time email monitoring stopped" 
+        setMessage({
+          type: "success",
+          text: start ? "Real-time email monitoring started" : "Real-time email monitoring stopped"
         })
         await loadIdleStatus()
       } else {
@@ -723,16 +723,16 @@ function Settings() {
     try {
       const token = getAuthToken()
       const days = importDays[email] || 30
-      
+
       const response = await fetch(buildApiUrl(`/gmail/import/historical/${encodeURIComponent(email)}`), {
         method: "POST",
-        headers: { 
+        headers: {
           Authorization: token,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({ days })
       })
-      
+
       if (response.ok) {
         setMessage({ type: "success", text: `Import started for ${email}` })
         // Start polling for progress
@@ -755,11 +755,11 @@ function Settings() {
         const response = await fetch(buildApiUrl(`/gmail/import/progress/${encodeURIComponent(email)}`), {
           headers: { Authorization: token }
         })
-        
+
         if (response.ok) {
           const data = await response.json()
           setImportProgress(prev => ({ ...prev, [email]: data }))
-          
+
           // Continue polling if still in progress (check all running statuses)
           if (data.status === "in_progress" || data.status === "started" || data.status === "running") {
             setTimeout(checkProgress, 1500) // Poll slightly faster for better UX
@@ -769,19 +769,19 @@ function Settings() {
         console.error("Error polling progress:", error)
       }
     }
-    
+
     checkProgress()
   }
 
   // Update import days setting for an account
   const updateImportDaysSetting = async (email, days) => {
     setImportDays(prev => ({ ...prev, [email]: days }))
-    
+
     try {
       const token = getAuthToken()
       await fetch(buildApiUrl(`/gmail/imap-accounts/${encodeURIComponent(email)}/settings`), {
         method: "PUT",
-        headers: { 
+        headers: {
           Authorization: token,
           "Content-Type": "application/json"
         },
@@ -810,7 +810,7 @@ function Settings() {
   const saveAllocationSettings = async () => {
     setSaving(true)
     setMessage({ type: "", text: "" })
-    
+
     try {
       const token = getAuthToken()
       const response = await fetch(buildApiUrl(`/survey-allocation/settings`), {
@@ -821,7 +821,7 @@ function Settings() {
         },
         body: JSON.stringify(allocationSettings)
       })
-      
+
       if (response.ok) {
         setMessage({ type: "success", text: "Allocation settings saved successfully!" })
       } else {
@@ -844,7 +844,7 @@ function Settings() {
     setLoading(true)
     try {
       const token = getAuthToken()
-      
+
       // Load app settings, survey filters, and rate limits in parallel
       const [appRes, filterRes] = await Promise.all([
         fetch(buildApiUrl(`/settings/app`), {
@@ -854,18 +854,18 @@ function Settings() {
           headers: { Authorization: token }
         })
       ])
-      
+
       if (appRes.ok) {
         const data = await appRes.json()
         setAppSettings(prev => ({ ...prev, ...data.settings }))
         setMaskedSettings(data.settings)
       }
-      
+
       if (filterRes.ok) {
         const data = await filterRes.json()
         setSurveyFilters(prev => ({ ...prev, ...data.filters }))
       }
-      
+
       // Load rate limits separately (non-blocking)
       loadRateLimits()
     } catch (error) {
@@ -879,10 +879,10 @@ function Settings() {
   const saveAppSettings = async () => {
     setSaving(true)
     setMessage({ type: "", text: "" })
-    
+
     try {
       const token = getAuthToken()
-      
+
       // Only send non-empty values
       const settingsToSave = {}
       Object.entries(appSettings).forEach(([key, value]) => {
@@ -890,7 +890,7 @@ function Settings() {
           settingsToSave[key] = value
         }
       })
-      
+
       const response = await fetch(buildApiUrl(`/settings/app`), {
         method: "POST",
         headers: {
@@ -899,7 +899,7 @@ function Settings() {
         },
         body: JSON.stringify(settingsToSave)
       })
-      
+
       if (response.ok) {
         setMessage({ type: "success", text: "Application settings saved successfully!" })
         loadAllSettings() // Reload to get updated masked values
@@ -918,10 +918,10 @@ function Settings() {
   const saveSurveyFilters = async () => {
     setSaving(true)
     setMessage({ type: "", text: "" })
-    
+
     try {
       const token = getAuthToken()
-      
+
       const response = await fetch(buildApiUrl(`/settings/survey-filters`), {
         method: "POST",
         headers: {
@@ -930,7 +930,7 @@ function Settings() {
         },
         body: JSON.stringify(surveyFilters)
       })
-      
+
       if (response.ok) {
         setMessage({ type: "success", text: "Survey filter settings saved successfully!" })
       } else {
@@ -949,10 +949,10 @@ function Settings() {
   const saveAllSettings = async () => {
     setSaving(true)
     setMessage({ type: "", text: "" })
-    
+
     try {
       const token = getAuthToken()
-      
+
       // Save app settings
       const appResponse = await fetch(buildApiUrl(`/settings/app`), {
         method: "POST",
@@ -962,13 +962,13 @@ function Settings() {
         },
         body: JSON.stringify(appSettings)
       })
-      
+
       if (!appResponse.ok) {
         const error = await appResponse.json()
         setMessage({ type: "error", text: getErrorMessage(error, "Failed to save application settings") })
         return
       }
-      
+
       // Save survey filters
       const filterResponse = await fetch(buildApiUrl(`/settings/survey-filters`), {
         method: "POST",
@@ -978,13 +978,13 @@ function Settings() {
         },
         body: JSON.stringify(surveyFilters)
       })
-      
+
       if (!filterResponse.ok) {
         const error = await filterResponse.json()
         setMessage({ type: "error", text: getErrorMessage(error, "Failed to save filter settings") })
         return
       }
-      
+
       setMessage({ type: "success", text: "All settings saved successfully!" })
       loadAllSettings() // Reload to get updated masked values
     } catch (error) {
@@ -998,7 +998,7 @@ function Settings() {
   const testMongoConnection = async () => {
     setTestingMongo(true)
     setMessage({ type: "", text: "" })
-    
+
     try {
       const token = getAuthToken()
       const response = await fetch(buildApiUrl(`/settings/test-mongo`), {
@@ -1009,11 +1009,11 @@ function Settings() {
         },
         body: JSON.stringify({ mongo_uri: appSettings.mongo_uri })
       })
-      
+
       const data = await response.json()
-      setMessage({ 
-        type: data.success ? "success" : "error", 
-        text: data.message 
+      setMessage({
+        type: data.success ? "success" : "error",
+        text: data.message
       })
     } catch (error) {
       setMessage({ type: "error", text: "Connection test failed" })
@@ -1025,7 +1025,7 @@ function Settings() {
   const testCpxCredentials = async () => {
     setTestingCpx(true)
     setMessage({ type: "", text: "" })
-    
+
     try {
       const token = getAuthToken()
       const response = await fetch(buildApiUrl(`/settings/test-cpx`), {
@@ -1040,11 +1040,11 @@ function Settings() {
           cpx_secure_hash_key: appSettings.cpx_secure_hash_key
         })
       })
-      
+
       const data = await response.json()
-      setMessage({ 
-        type: data.success ? "success" : "error", 
-        text: data.message 
+      setMessage({
+        type: data.success ? "success" : "error",
+        text: data.message
       })
     } catch (error) {
       setMessage({ type: "error", text: "Credential test failed" })
@@ -1108,7 +1108,7 @@ function Settings() {
       setMessage({ type: "error", text: "App password is required" })
       return
     }
-    
+
     setSaving(true)
     try {
       const token = getAuthToken()
@@ -1131,13 +1131,13 @@ function Settings() {
           skip_validation: newAccount.skip_validation
         })
       })
-      
+
       if (response.ok) {
         setMessage({ type: "success", text: newAccount.skip_validation ? "Email account saved (validation skipped)" : "Email account added and verified successfully" })
-        setNewAccount({ 
-          email: "", 
+        setNewAccount({
+          email: "",
           password: "",
-          display_name: "", 
+          display_name: "",
           imap_server: "",
           imap_port: 993,
           smtp_server: "",
@@ -1163,14 +1163,14 @@ function Settings() {
     if (!window.confirm("Are you sure you want to remove this email account?")) {
       return
     }
-    
+
     try {
       const token = getAuthToken()
       const response = await fetch(buildApiUrl(`/leads/gmail/accounts/${encodeURIComponent(accountEmail)}`), {
         method: "DELETE",
         headers: { Authorization: token }
       })
-      
+
       if (response.ok) {
         setMessage({ type: "success", text: "Email account removed" })
         loadGmailSettings()
@@ -1189,7 +1189,7 @@ function Settings() {
         method: "POST",
         headers: { Authorization: token }
       })
-      
+
       const data = await response.json()
       if (data.success) {
         setMessage({ type: "success", text: `Connection test successful for ${accountEmail}` })
@@ -1236,7 +1236,7 @@ function Settings() {
         },
         body: JSON.stringify(segregateForm)
       })
-      
+
       if (response.ok) {
         const data = await response.json()
         setMessage({ type: "success", text: `Successfully segregated ${data.processed || 0} emails` })
@@ -1258,7 +1258,7 @@ function Settings() {
       setMessage({ type: "error", text: "Alias email is required" })
       return
     }
-    
+
     setSaving(true)
     try {
       const token = getAuthToken()
@@ -1270,7 +1270,7 @@ function Settings() {
         },
         body: JSON.stringify({ email: newAlias.email, name: newAlias.name })
       })
-      
+
       if (response.ok) {
         setMessage({ type: "success", text: "Alias added successfully" })
         setNewAlias({ email: "", name: "", account_id: "" })
@@ -1297,7 +1297,7 @@ function Settings() {
           headers: { Authorization: token }
         }
       )
-      
+
       if (response.ok) {
         setMessage({ type: "success", text: "Alias removed" })
         loadGmailSettings()
@@ -1312,14 +1312,14 @@ function Settings() {
   const syncAliases = async (accountEmail) => {
     setGmailLoading(true)
     setMessage({ type: "info", text: "Scanning sent emails to detect aliases... This may take a moment." })
-    
+
     try {
       const token = getAuthToken()
       const response = await fetch(buildApiUrl(`/leads/gmail/accounts/${encodeURIComponent(accountEmail)}/aliases/sync`), {
         method: "POST",
         headers: { Authorization: token }
       })
-      
+
       if (response.ok) {
         const data = await response.json()
         if (data.added > 0) {
@@ -1343,7 +1343,7 @@ function Settings() {
   const saveRateLimits = async () => {
     setSaving(true)
     setMessage({ type: "", text: "" })
-    
+
     try {
       const token = getAuthToken()
       const response = await fetch(buildApiUrl(`/gmail/rate-limits`), {
@@ -1354,7 +1354,7 @@ function Settings() {
         },
         body: JSON.stringify(rateLimits)
       })
-      
+
       if (response.ok) {
         setMessage({ type: "success", text: "Rate limits saved successfully!" })
       } else {
@@ -1375,7 +1375,7 @@ function Settings() {
         method: "POST",
         headers: { Authorization: token }
       })
-      
+
       if (response.ok) {
         setMessage({ type: "success", text: "Default account updated" })
         loadGmailSettings()
@@ -1410,21 +1410,21 @@ function Settings() {
       )}
 
       <div className="settings-tabs">
-        <button 
+        <button
           className={`tab-button ${activeTab === "app" ? "active" : ""}`}
           onClick={() => setActiveTab("app")}
         >
           <span className="tab-icon">⚙️</span>
           Settings
         </button>
-        <button 
+        <button
           className={`tab-button ${activeTab === "allocation" ? "active" : ""}`}
           onClick={() => setActiveTab("allocation")}
         >
           <span className="tab-icon">📊</span>
           Survey Allocation
         </button>
-        <button 
+        <button
           className={`tab-button ${activeTab === "mail-operations" ? "active" : ""}`}
           onClick={() => {
             setActiveTab("mail-operations")
@@ -1456,7 +1456,7 @@ function Settings() {
                       value={appSettings.mongo_uri}
                       onChange={(e) => handleAppSettingChange("mongo_uri", e.target.value)}
                     />
-                    <button 
+                    <button
                       className="test-button"
                       onClick={testMongoConnection}
                       disabled={testingMongo}
@@ -1496,7 +1496,7 @@ function Settings() {
                       value={appSettings.cpx_secure_hash_key}
                       onChange={(e) => handleAppSettingChange("cpx_secure_hash_key", e.target.value)}
                     />
-                    <button 
+                    <button
                       className="test-button"
                       onClick={testCpxCredentials}
                       disabled={testingCpx}
@@ -1534,7 +1534,7 @@ function Settings() {
                     onChange={(e) => handleAppSettingChange("deepseek_api_key", e.target.value)}
                   />
                   <p className="setting-hint">
-                    <strong>Primary provider</strong> for all bulk tasks. ~$0.14/1M tokens, 60 RPM (86,400/day). 
+                    <strong>Primary provider</strong> for all bulk tasks. ~$0.14/1M tokens, 60 RPM (86,400/day).
                     Model: <code>deepseek-chat</code>. Get from <a href="https://platform.deepseek.com/" target="_blank" rel="noopener noreferrer">DeepSeek Platform</a>
                   </p>
                 </div>
@@ -1547,7 +1547,7 @@ function Settings() {
                     onChange={(e) => handleAppSettingChange("openai_api_key", e.target.value)}
                   />
                   <p className="setting-hint">
-                    For <strong>web search discovery</strong> and <strong>tier 2 analysis</strong>. 
+                    For <strong>web search discovery</strong> and <strong>tier 2 analysis</strong>.
                     Models: <code>gpt-4o-mini</code> (default), <code>gpt-4o</code> (premium). Get from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>
                   </p>
                 </div>
@@ -1678,7 +1678,7 @@ function Settings() {
               {/* Email Rate Limits Section */}
               <div className="settings-group">
                 <h3>⏱️ Email Rate Limits</h3>
-                
+
                 <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <input
                     type="checkbox"
@@ -1688,7 +1688,7 @@ function Settings() {
                   />
                   <label style={{ margin: 0 }}>Enable Rate Limiting</label>
                 </div>
-                
+
                 <div className="setting-row">
                   <label>Daily / Hourly / Per Minute</label>
                   <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -1730,7 +1730,7 @@ function Settings() {
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="setting-row">
                   <label>Cooldown</label>
                   <div className="input-with-unit">
@@ -1747,8 +1747,8 @@ function Settings() {
                   </div>
                   <p className="setting-hint">Delay between sending emails</p>
                 </div>
-                
-                <button 
+
+                <button
                   className="save-button-small"
                   onClick={saveRateLimitsHandler}
                   disabled={saving}
@@ -1762,7 +1762,7 @@ function Settings() {
               <div className="settings-group">
                 <div className="group-header">
                   <h3>✉️ Email Signatures</h3>
-                  <button 
+                  <button
                     className="refresh-button"
                     onClick={loadWorkspaceSignatures}
                     disabled={signaturesLoading}
@@ -1770,7 +1770,7 @@ function Settings() {
                     {signaturesLoading ? "Loading..." : "🔄 Import from Gmail"}
                   </button>
                 </div>
-                
+
                 {workspaceSignatures.length === 0 ? (
                   <p className="no-data-message">
                     Click "Import from Gmail" to fetch signatures from your Gmail Workspace mailboxes.
@@ -1785,7 +1785,7 @@ function Settings() {
                           {sig.display_name && <span className="signature-name">{sig.display_name}</span>}
                         </div>
                         {sig.signature_html ? (
-                          <div 
+                          <div
                             className="signature-preview"
                             dangerouslySetInnerHTML={{ __html: sig.signature_html }}
                           />
@@ -1801,7 +1801,7 @@ function Settings() {
             </div>{/* End settings-grid */}
 
             <div className="settings-actions">
-              <button 
+              <button
                 className="save-button"
                 onClick={saveAllSettings}
                 disabled={saving}
@@ -1831,26 +1831,26 @@ function Settings() {
                       max="1000"
                       value={allocationSettings.batch_size}
                       onChange={(e) => handleAllocationSettingChange("batch_size", parseInt(e.target.value))}
-                  />
-                  <span className="unit">allocs</span>
+                    />
+                    <span className="unit">allocs</span>
+                  </div>
+                </div>
+                <div className="setting-row">
+                  <label>Buffer Multiplier</label>
+                  <div className="input-with-unit">
+                    <input
+                      type="number"
+                      min="1.0"
+                      max="2.0"
+                      step="0.1"
+                      value={allocationSettings.buffer_multiplier}
+                      onChange={(e) => handleAllocationSettingChange("buffer_multiplier", parseFloat(e.target.value))}
+                    />
+                    <span className="unit">x</span>
+                  </div>
+                  <p className="setting-hint">Extra buffer (1.2 = 20% more)</p>
                 </div>
               </div>
-              <div className="setting-row">
-                <label>Buffer Multiplier</label>
-                <div className="input-with-unit">
-                  <input
-                    type="number"
-                    min="1.0"
-                    max="2.0"
-                    step="0.1"
-                    value={allocationSettings.buffer_multiplier}
-                    onChange={(e) => handleAllocationSettingChange("buffer_multiplier", parseFloat(e.target.value))}
-                  />
-                  <span className="unit">x</span>
-                </div>
-                <p className="setting-hint">Extra buffer (1.2 = 20% more)</p>
-              </div>
-            </div>
 
               <div className="settings-group">
                 <h3>📈 Quality Thresholds</h3>
@@ -1947,7 +1947,7 @@ function Settings() {
             </div>{/* End settings-grid */}
 
             <div className="settings-actions">
-              <button 
+              <button
                 className="save-button"
                 onClick={saveAllocationSettings}
                 disabled={saving}
@@ -1995,7 +1995,7 @@ function Settings() {
             )}
 
             <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
-              <button 
+              <button
                 className="save-button"
                 onClick={() => {
                   setSegregateForm({ strategy: 'category', batch_size: 100, force_rescan: false })
@@ -2004,7 +2004,7 @@ function Settings() {
               >
                 ▶️ Start Segregation
               </button>
-              <button 
+              <button
                 className="save-button"
                 style={{ backgroundColor: '#6b7280' }}
                 onClick={fetchSegregationStats}
@@ -2041,114 +2041,195 @@ function Settings() {
               </div>
             )}
 
-            {/* Segregation Dialog */}
-            {segregateDialogOpen && (
-              <div style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                backgroundColor: 'rgba(0,0,0,0.5)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 1000
-              }}>
-                <div style={{
-                  backgroundColor: 'white',
-                  borderRadius: '0.5rem',
-                  padding: '2rem',
-                  maxWidth: '500px',
-                  width: '90%',
-                  boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)'
-                }}>
-                  <h3 style={{ marginTop: 0, marginBottom: '1rem' }}>Configure Email Segregation</h3>
-                  
-                  <div style={{ marginBottom: '1rem' }}>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>Strategy</label>
-                    <select
-                      value={segregateForm.strategy}
-                      onChange={(e) => setSegregateForm({ ...segregateForm, strategy: e.target.value })}
-                      style={{
-                        width: '100%',
-                        padding: '0.5rem',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '0.375rem',
-                        fontSize: '1rem'
-                      }}
-                    >
-                      <option value="category">By Category (Sales, Support, etc.)</option>
-                      <option value="sender_domain">By Sender Domain</option>
-                      <option value="priority">By Priority Level</option>
-                      <option value="intent">By Business Intent</option>
-                      <option value="engagement">By Engagement Level</option>
-                    </select>
-                  </div>
 
-                  <div style={{ marginBottom: '1rem' }}>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '500' }}>Batch Size</label>
+          </div>
+        )}
+
+        {activeTab === "ai-prompts" && (
+          <div className="settings-section">
+            <h2>🤖 AI Prompt Management</h2>
+            <p className="section-description">
+              Customize system prompts for various AI agents
+            </p>
+
+            <div className="settings-grid">
+              {aiPromptsLoading ? (
+                <p>Loading prompts...</p>
+              ) : aiPrompts.length === 0 ? (
+                <p>No prompts found. Create one using the backend API or initialize defaults.</p>
+              ) : (
+                aiPrompts.map(prompt => (
+                  <div key={prompt.id} className="settings-group">
+                    <div className="group-header" style={{ marginBottom: '1rem' }}>
+                      <h3>{prompt.name}</h3>
+                      <button
+                        className="save-button-small"
+                        onClick={() => openPromptEditor(prompt)}
+                      >
+                        Edit Prompt
+                      </button>
+                    </div>
+                    <p style={{ marginBottom: '0.5rem' }}><strong>Agent:</strong> {prompt.agent_type}</p>
+                    <p style={{ color: '#666', fontSize: '0.9rem' }}>{prompt.description}</p>
+                    <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#999' }}>
+                      Version: {prompt.version} • Updated: {new Date(prompt.updated_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {editingPrompt && (
+              <div className="settings-modal-overlay">
+                <div className="settings-modal">
+                  <h3>Edit Prompt: {editingPrompt.name}</h3>
+
+                  <div className="setting-row">
+                    <label>Description</label>
                     <input
-                      type="number"
-                      min="10"
-                      max="1000"
-                      value={segregateForm.batch_size}
-                      onChange={(e) => setSegregateForm({ ...segregateForm, batch_size: parseInt(e.target.value) })}
-                      style={{
-                        width: '100%',
-                        padding: '0.5rem',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '0.375rem',
-                        fontSize: '1rem',
-                        boxSizing: 'border-box'
-                      }}
+                      type="text"
+                      value={editingPrompt.description}
+                      onChange={e => handlePromptChange('description', e.target.value)}
                     />
                   </div>
 
-                  <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <input
-                      type="checkbox"
-                      checked={segregateForm.force_rescan}
-                      onChange={(e) => setSegregateForm({ ...segregateForm, force_rescan: e.target.checked })}
-                      style={{ width: '18px', height: '18px' }}
+                  <div className="setting-row">
+                    <label>System Prompt / Content</label>
+                    <textarea
+                      rows={15}
+                      value={editingPrompt.content}
+                      onChange={e => handlePromptChange('content', e.target.value)}
+                      style={{ fontFamily: 'monospace', fontSize: '0.9rem', width: '100%' }}
                     />
-                    <label style={{ margin: 0 }}>Force rescan already segregated emails</label>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
-                    <button
-                      onClick={() => setSegregateDialogOpen(false)}
-                      style={{
-                        padding: '0.5rem 1rem',
-                        backgroundColor: '#e5e7eb',
-                        border: 'none',
-                        borderRadius: '0.375rem',
-                        cursor: 'pointer',
-                        fontWeight: '500'
-                      }}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleSegregateEmails}
-                      disabled={saving}
-                      style={{
-                        padding: '0.5rem 1rem',
-                        backgroundColor: '#3b82f6',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '0.375rem',
-                        cursor: 'pointer',
-                        fontWeight: '500',
-                        opacity: saving ? 0.6 : 1
-                      }}
-                    >
-                      {saving ? "Processing..." : "Start Segregation"}
-                    </button>
+                  <div className="settings-actions" style={{ justifyContent: 'space-between' }}>
+                    <button className="refresh-button" onClick={closePromptEditor}>Cancel</button>
+                    <div style={{ display: 'flex', gap: '1rem' }}>
+                      <button className="save-button" onClick={testPrompt} style={{ backgroundColor: '#8b5cf6' }}>
+                        {testingPrompt ? "Testing..." : "🧪 Test Prompt"}
+                      </button>
+                      <button className="save-button" onClick={savePrompt} disabled={savingPrompt}>
+                        {savingPrompt ? "Saving..." : "💾 Save Changes"}
+                      </button>
+                    </div>
                   </div>
+
+                  {testPromptResult && (
+                    <div style={{ marginTop: '1rem', padding: '1rem', background: '#f8f9fa', borderRadius: '4px', maxHeight: '200px', overflow: 'auto' }}>
+                      <strong>Test Result:</strong>
+                      <pre style={{ whiteSpace: 'pre-wrap' }}>{JSON.stringify(testPromptResult, null, 2)}</pre>
+                    </div>
+                  )}
+
                 </div>
               </div>
             )}
+
+            <style jsx>{`
+               .settings-modal-overlay {
+                  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+                  background: rgba(0,0,0,0.5); display: flex; alignItems: center; justifyContent: center; zIndex: 1000;
+               }
+               .settings-modal {
+                  background: white; padding: 2rem; borderRadius: 8px; width: 800px; maxWidth: 90%;
+                  maxHeight: 90vh; overflow: auto;
+               }
+            `}</style>
+          </div>
+        )}
+      </div>
+        {activeTab === "ai-prompts" && (
+          <div className="settings-section">
+            <h2>🤖 AI Prompt Management</h2>
+            <p className="section-description">
+              Customize system prompts for various AI agents
+            </p>
+
+            <div className="settings-grid">
+              {aiPromptsLoading ? (
+                <p>Loading prompts...</p>
+              ) : aiPrompts.length === 0 ? (
+                <p>No prompts found. Create one using the backend API or initialize defaults.</p>
+              ) : (
+                aiPrompts.map(prompt => (
+                  <div key={prompt.id} className="settings-group">
+                    <div className="group-header" style={{marginBottom:'1rem', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                      <h3>{prompt.name}</h3>
+                      <button 
+                         className="save-button-small"
+                         onClick={() => openPromptEditor(prompt)}
+                      >
+                         Edit Prompt
+                      </button>
+                    </div>
+                    <p style={{marginBottom:'0.5rem'}}><strong>Agent:</strong> {prompt.agent_type}</p>
+                    <p style={{color:'#666', fontSize:'0.9rem'}}>{prompt.description}</p>
+                    <div style={{marginTop:'0.5rem', fontSize:'0.8rem', color:'#999'}}>
+                       Version: {prompt.version} • Updated: {new Date(prompt.updated_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {editingPrompt && (
+              <div className="settings-modal-overlay">
+                <div className="settings-modal">
+                  <h3>Edit Prompt: {editingPrompt.name}</h3>
+                  
+                  <div className="setting-row">
+                     <label>Description</label>
+                     <input 
+                       type="text" 
+                       value={editingPrompt.description} 
+                       onChange={e => handlePromptChange('description', e.target.value)}
+                     />
+                  </div>
+
+                  <div className="setting-row">
+                     <label>System Prompt / Content</label>
+                     <textarea 
+                       rows={15}
+                       value={editingPrompt.content}
+                       onChange={e => handlePromptChange('content', e.target.value)}
+                       style={{fontFamily:'monospace', fontSize:'0.9rem', width:'100%'}}
+                     />
+                  </div>
+                  
+                  <div className="settings-actions" style={{justifyContent:'space-between'}}>
+                    <button className="refresh-button" onClick={closePromptEditor}>Cancel</button>
+                    <div style={{display:'flex', gap:'1rem'}}>
+                      <button className="save-button" onClick={testPrompt} style={{backgroundColor:'#8b5cf6'}}>
+                        {testingPrompt ? "Testing..." : "🧪 Test Prompt"}
+                      </button>
+                      <button className="save-button" onClick={savePrompt} disabled={savingPrompt}>
+                        {savingPrompt ? "Saving..." : "💾 Save Changes"}
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {testPromptResult && (
+                    <div style={{marginTop:'1rem', padding:'1rem', background:'#f8f9fa', borderRadius:'4px', maxHeight:'200px', overflow:'auto'}}>
+                       <strong>Test Result:</strong>
+                       <pre style={{whiteSpace:'pre-wrap'}}>{JSON.stringify(testPromptResult, null, 2)}</pre>
+                    </div>
+                  )}
+
+                </div>
+              </div>
+            )}
+            
+            <style jsx>{`
+               .settings-modal-overlay {
+                  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+                  background: rgba(0,0,0,0.5); display: flex; alignItems: center; justifyContent: center; zIndex: 1000;
+               }
+               .settings-modal {
+                  background: white; padding: 2rem; borderRadius: 8px; width: 800px; maxWidth: 90%;
+                  maxHeight: 90vh; overflow: auto;
+               }
+            `}</style>
           </div>
         )}
       </div>
