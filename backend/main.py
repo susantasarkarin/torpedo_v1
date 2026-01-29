@@ -1593,6 +1593,50 @@ async def startup_event():
             print("ℹ️ Email classification disabled (set EMAIL_CLASSIFICATION_ENABLED=true to enable)")
     except Exception as e:
         print(f"⚠️ Could not schedule email classification job: {e}")
+
+    # ----------------------------
+    # Mail Segregation Job (every 10 minutes)
+    # ----------------------------
+    try:
+        if scheduler.running:
+            def background_mail_segregation_wrapper():
+                """Wrapper to run async segregation in sync scheduler"""
+                import asyncio
+                from backend.agents.mail_segregation_agent import get_mail_segregation_agent, SegmentationStrategy
+                
+                async def _run():
+                    try:
+                        agent = get_mail_segregation_agent()
+                        # Run category strategy by default
+                        result = await agent.segregate_all_emails(
+                            strategy=SegmentationStrategy.CATEGORY,
+                            batch_size=50,
+                            force_rescan=False
+                        )
+                        if result.get("processed", 0) > 0:
+                            print(f"[MailSegregation] Processed {result.get('processed')} emails")
+                    except Exception as e:
+                        print(f"[MailSegregation] Error: {e}")
+
+                try:
+                    # Create new loop for this thread
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(_run())
+                    loop.close()
+                except Exception as e:
+                    print(f"[MailSegregation] Wrapper Error: {e}")
+
+            scheduler.add_job(
+                background_mail_segregation_wrapper,
+                IntervalTrigger(seconds=600),
+                id="mail_segregation",
+                name="Mail Segregation (Auto)",
+                replace_existing=True
+            )
+            print("✅ Mail segregation job scheduled (every 10 minutes)")
+    except Exception as e:
+        print(f"⚠️ Could not schedule mail segregation job: {e}")
     
     # ============== STARTUP SUMMARY BANNER ==============
     print("\n" + "=" * 60)
@@ -1918,6 +1962,354 @@ async def change_password(request: Request, password_data: Dict[str, str] = Body
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Password change error: {str(e)}")
 
+
+# ----------------------------
+# User Management Endpoints (Admin Only)
+# ----------------------------
+
+# Available roles with their permissions
+AVAILABLE_ROLES = {
+    "admin": {
+        "name": "Administrator",
+        "description": "Full system access",
+        "permissions": ["*"]  # All permissions
+    },
+    "manager": {
+        "name": "Manager",
+        "description": "Can manage campaigns, leads, and view reports",
+        "permissions": ["campaigns.*", "leads.*", "reports.view", "analytics.view"]
+    },
+    "user": {
+        "name": "Standard User",
+        "description": "Can view and edit campaigns and leads",
+        "permissions": ["campaigns.view", "campaigns.edit", "leads.view", "leads.edit"]
+    },
+    "viewer": {
+        "name": "Viewer",
+        "description": "Read-only access to campaigns and leads",
+        "permissions": ["campaigns.view", "leads.view", "reports.view"]
+    }
+}
+
+
+def check_admin_role(request: Request) -> str:
+    """Verify user has admin role. Returns username if authorized."""
+    session_id = request.headers.get("Authorization")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    try:
+        username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
+        user = users_collection.find_one({"username": username})
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        
+        user_role = user.get("role", "user")
+        if user_role != "admin":
+            raise HTTPException(status_code=403, detail="Admin access required")
+        
+        return username
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+
+@app.get("/admin/users/", dependencies=[Depends(verify_session)])
+async def list_all_users(request: Request):
+    """List all users (admin only)"""
+    check_admin_role(request)
+    
+    try:
+        all_users = list(users_collection.find({}, {"password": 0}))  # Exclude password
+        users_list = []
+        
+        for user in all_users:
+            users_list.append({
+                "id": str(user.get("_id", "")),
+                "username": user.get("username", ""),
+                "email": user.get("email", ""),
+                "name": user.get("displayName", user.get("username", "")),
+                "role": user.get("role", "user"),
+                "roles": [user.get("role", "user")],  # For compatibility with frontend
+                "status": user.get("status", "active"),
+                "createdAt": user.get("createdAt", "").isoformat() if user.get("createdAt") else "",
+                "lastLogin": user.get("lastLogin", "").isoformat() if user.get("lastLogin") else "",
+            })
+        
+        return {"users": users_list, "total": len(users_list)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch users: {str(e)}")
+
+
+@app.get("/admin/users/{user_id}", dependencies=[Depends(verify_session)])
+async def get_user_by_id(request: Request, user_id: str):
+    """Get a specific user by ID (admin only)"""
+    check_admin_role(request)
+    
+    try:
+        user = users_collection.find_one({"_id": ObjectId(user_id)}, {"password": 0})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return {
+            "id": str(user.get("_id", "")),
+            "username": user.get("username", ""),
+            "email": user.get("email", ""),
+            "name": user.get("displayName", user.get("username", "")),
+            "role": user.get("role", "user"),
+            "roles": [user.get("role", "user")],
+            "status": user.get("status", "active"),
+            "createdAt": user.get("createdAt", "").isoformat() if user.get("createdAt") else "",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch user: {str(e)}")
+
+
+@app.post("/admin/users/", dependencies=[Depends(verify_session)])
+async def create_new_user(request: Request, user_data: Dict[str, Any] = Body(...)):
+    """Create a new user (admin only)"""
+    admin_username = check_admin_role(request)
+    
+    try:
+        username = user_data.get("username") or user_data.get("email")
+        email = user_data.get("email", "")
+        password = user_data.get("password")
+        name = user_data.get("name", username)
+        role = user_data.get("role", "user")
+        
+        # Validation
+        if not username:
+            raise HTTPException(status_code=400, detail="Username or email is required")
+        if not password:
+            raise HTTPException(status_code=400, detail="Password is required")
+        if len(password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+        if role not in AVAILABLE_ROLES:
+            raise HTTPException(status_code=400, detail=f"Invalid role. Available roles: {list(AVAILABLE_ROLES.keys())}")
+        
+        # Check if user already exists
+        existing = users_collection.find_one({"username": username})
+        if existing:
+            raise HTTPException(status_code=400, detail="Username already exists")
+        
+        # Create user
+        new_user = {
+            "username": username,
+            "email": email,
+            "displayName": name,
+            "password": hash_password(password),
+            "role": role,
+            "status": "active",
+            "createdAt": datetime.utcnow(),
+            "createdBy": admin_username,
+        }
+        
+        result = users_collection.insert_one(new_user)
+        
+        logger.info(f"User '{username}' created by admin '{admin_username}' with role '{role}'")
+        
+        return {
+            "success": True,
+            "message": f"User '{username}' created successfully",
+            "user": {
+                "id": str(result.inserted_id),
+                "username": username,
+                "email": email,
+                "name": name,
+                "role": role,
+                "roles": [role],
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create user: {str(e)}")
+
+
+@app.put("/admin/users/{user_id}", dependencies=[Depends(verify_session)])
+async def update_user_by_id(request: Request, user_id: str, user_data: Dict[str, Any] = Body(...)):
+    """Update an existing user (admin only)"""
+    admin_username = check_admin_role(request)
+    
+    try:
+        # Find user
+        user = users_collection.find_one({"_id": ObjectId(user_id)})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Build update document
+        update_doc = {"updatedAt": datetime.utcnow(), "updatedBy": admin_username}
+        
+        if "name" in user_data:
+            update_doc["displayName"] = user_data["name"]
+        if "email" in user_data:
+            update_doc["email"] = user_data["email"]
+        if "role" in user_data:
+            role = user_data["role"]
+            if role not in AVAILABLE_ROLES:
+                raise HTTPException(status_code=400, detail=f"Invalid role. Available roles: {list(AVAILABLE_ROLES.keys())}")
+            update_doc["role"] = role
+        if "roles" in user_data and isinstance(user_data["roles"], list) and len(user_data["roles"]) > 0:
+            # Take first role from the list
+            role = user_data["roles"][0]
+            if role in AVAILABLE_ROLES:
+                update_doc["role"] = role
+        if "status" in user_data:
+            if user_data["status"] not in ["active", "inactive", "pending", "locked"]:
+                raise HTTPException(status_code=400, detail="Invalid status")
+            update_doc["status"] = user_data["status"]
+        if "password" in user_data and user_data["password"]:
+            if len(user_data["password"]) < 6:
+                raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+            update_doc["password"] = hash_password(user_data["password"])
+        
+        result = users_collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": update_doc}
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        logger.info(f"User '{user.get('username')}' updated by admin '{admin_username}'")
+        
+        return {
+            "success": True,
+            "message": "User updated successfully",
+            "user": {
+                "id": user_id,
+                "username": user.get("username"),
+                "role": update_doc.get("role", user.get("role")),
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update user: {str(e)}")
+
+
+@app.delete("/admin/users/{user_id}", dependencies=[Depends(verify_session)])
+async def delete_user_by_id(request: Request, user_id: str):
+    """Delete a user (admin only)"""
+    admin_username = check_admin_role(request)
+    
+    try:
+        # Find user first
+        user = users_collection.find_one({"_id": ObjectId(user_id)})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Prevent self-deletion
+        if user.get("username") == admin_username:
+            raise HTTPException(status_code=400, detail="Cannot delete your own account")
+        
+        # Soft delete: set status to inactive
+        result = users_collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {
+                "status": "inactive",
+                "deletedAt": datetime.utcnow(),
+                "deletedBy": admin_username
+            }}
+        )
+        
+        logger.info(f"User '{user.get('username')}' deactivated by admin '{admin_username}'")
+        
+        return {"success": True, "message": "User deactivated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete user: {str(e)}")
+
+
+@app.get("/admin/roles/", dependencies=[Depends(verify_session)])
+async def list_available_roles(request: Request):
+    """List all available roles and their permissions"""
+    check_admin_role(request)
+    
+    roles_list = []
+    for code, role_info in AVAILABLE_ROLES.items():
+        roles_list.append({
+            "code": code,
+            "name": role_info["name"],
+            "description": role_info["description"],
+            "permissions": role_info["permissions"]
+        })
+    
+    return {"roles": roles_list}
+
+
+@app.put("/admin/users/{user_id}/role", dependencies=[Depends(verify_session)])
+async def change_user_role(request: Request, user_id: str, role_data: Dict[str, str] = Body(...)):
+    """Change a user's role (admin only)"""
+    admin_username = check_admin_role(request)
+    
+    try:
+        role = role_data.get("role")
+        if not role or role not in AVAILABLE_ROLES:
+            raise HTTPException(status_code=400, detail=f"Invalid role. Available roles: {list(AVAILABLE_ROLES.keys())}")
+        
+        user = users_collection.find_one({"_id": ObjectId(user_id)})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        result = users_collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {
+                "role": role,
+                "updatedAt": datetime.utcnow(),
+                "roleChangedBy": admin_username
+            }}
+        )
+        
+        logger.info(f"User '{user.get('username')}' role changed to '{role}' by admin '{admin_username}'")
+        
+        return {
+            "success": True,
+            "message": f"User role changed to '{role}'",
+            "role": role
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to change role: {str(e)}")
+
+
+@app.put("/admin/users/{user_id}/reset-password", dependencies=[Depends(verify_session)])
+async def admin_reset_password(request: Request, user_id: str, password_data: Dict[str, str] = Body(...)):
+    """Admin reset user password (no current password required)"""
+    admin_username = check_admin_role(request)
+    
+    try:
+        new_password = password_data.get("new_password")
+        if not new_password:
+            raise HTTPException(status_code=400, detail="New password is required")
+        if len(new_password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+        
+        user = users_collection.find_one({"_id": ObjectId(user_id)})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        result = users_collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {
+                "password": hash_password(new_password),
+                "password_updated_at": datetime.utcnow(),
+                "passwordResetBy": admin_username
+            }}
+        )
+        
+        logger.info(f"Password reset for user '{user.get('username')}' by admin '{admin_username}'")
+        
+        return {"success": True, "message": "Password reset successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to reset password: {str(e)}")
 
 
 # ----------------------------
