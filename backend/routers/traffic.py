@@ -167,22 +167,27 @@ async def cint_callback(
         return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
 
 
-@router.get("/cpx-response")
+@router.get("/response")
 async def cpx_callback(
     request: Request,
     msg: str = Query(None, description="Response type: complete or out"),
     message_id: str = Query(None, description="Response type: complete or out (alias)"),
     rid: str = Query(None, description="CPX message_id (optional, for backwards compatibility)"),
-    sfwid: str = Query(None, description="SFWID passed via subid_1 from CPX - PRIMARY identifier")
+    sfwid: str = Query(None, description="SFWID passed via subid_1 from CPX - PRIMARY identifier"),
+    subid: str = Query(None, description="Alias for sfwid - subid_1 from CPX callback"),
+    subid_1: str = Query(None, description="Direct subid_1 parameter from CPX callback")
 ):
     """
     CPX Survey Callback Handler
     
-    URL format: /cpx-response?msg={type}&rid={message_id}&sfwid={subid_1}
+    Supports multiple URL formats:
+    - Original: /response?msg={type}&rid={message_id}&sfwid={subid_1}
+    - Alternative: /response?message_id={message_id}&subid={subid_1}
+    - Direct: /response?message_id={message_id}&subid_1={subid_1}
     
-    - msg: "complete" or "out" (terminate)
+    - msg/message_id: "complete" or "out" (terminate)
     - rid: CPX message_id (optional, not used for lookup)
-    - sfwid: The SFWID (traffic record _id) passed via subid_1 - PRIMARY identifier
+    - sfwid/subid/subid_1: The SFWID (traffic record _id) passed via subid_1 - PRIMARY identifier
     
     Logic:
     1. Use sfwid (from subid_1) to find the traffic record
@@ -195,16 +200,19 @@ async def cpx_callback(
         # Support both 'msg' and 'message_id' parameters for status
         status_code = msg or message_id or "out"
         
-        print(f"📥 CPX Callback received: msg={status_code}, rid={rid}, sfwid={sfwid}")
+        # Support multiple parameter names for the traffic ID: sfwid, subid, or subid_1
+        traffic_id = sfwid or subid or subid_1
+        
+        print(f"📥 CPX Callback received: msg={status_code}, rid={rid}, sfwid={sfwid}, subid={subid}, subid_1={subid_1}")
         print(f"📥 Full callback URL: {request.url}")
         
-        # sfwid from subid_1 is the PRIMARY identifier - it contains the SFWID (traffic record _id)
-        if not sfwid:
-            print(f"❌ Missing sfwid parameter - cannot identify traffic record")
+        # sfwid/subid/subid_1 is the PRIMARY identifier - it contains the SFWID (traffic record _id)
+        if not traffic_id:
+            print(f"❌ Missing sfwid/subid/subid_1 parameter - cannot identify traffic record")
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
-        decoded_sfwid = sfwid
-        print(f"✅ Using sfwid from subid_1: {sfwid}")
+        decoded_sfwid = traffic_id
+        print(f"✅ Using traffic ID from subid_1: {traffic_id}")
         
         # Determine status based on msg/message_id ("out" treated as terminate)
         if status_code.lower() == "complete":

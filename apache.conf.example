@@ -26,8 +26,8 @@
     ProxyPassReverse /api/ http://localhost:8000/
     
     # CPX callback endpoint - proxy to backend
-    ProxyPass /cpx-response http://localhost:8000/cpx-response
-    ProxyPassReverse /cpx-response http://localhost:8000/cpx-response
+    ProxyPass /response http://localhost:8000/response
+    ProxyPassReverse /response http://localhost:8000/response
     
     # Survey allocation endpoints - proxy to backend
     ProxyPass /survey-allocation http://localhost:8000/survey-allocation

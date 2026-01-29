@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     proxy: {
       // Proxy CPX callback to backend
-      '/cpx-response': {
+      '/response': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
