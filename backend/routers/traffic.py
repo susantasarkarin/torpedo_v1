@@ -174,7 +174,7 @@ async def cpx_callback(
     message_id: str = Query(None, description="Response type: complete or out (alias)"),
     rid: str = Query(None, description="CPX message_id (optional, for backwards compatibility)"),
     sfwid: str = Query(None, description="SFWID passed via subid_1 from CPX - PRIMARY identifier"),
-    subid: str = Query(None, description="Alias for sfwid parameter (backward compatibility)")
+    subid: str = Query(None, description="Alias for sfwid to support CPX callback URL format")
 ):
     """
     CPX Survey Callback Handler
@@ -186,7 +186,7 @@ async def cpx_callback(
     - message_id: Alias for msg parameter
     - rid: CPX message_id (optional, not used for lookup)
     - sfwid: The SFWID (traffic record _id) passed via subid_1 - PRIMARY identifier
-    - subid: Alias for sfwid parameter (backward compatibility)
+    - subid: Alias for sfwid to support CPX callback URL format
     
     Logic:
     1. Use sfwid (from subid_1) to find the traffic record
