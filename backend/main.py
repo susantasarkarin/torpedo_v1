@@ -697,6 +697,14 @@ try:
 except Exception as e:
     print(f"⚠️ CPX callback logs collection issue: {e}")
 
+# Initialize CPX S2S postback logs collection for redirect verification
+try:
+    cpx_postback_logs_for_traffic = traffic_db["cpx_postback_logs"]
+    traffic_router.set_cpx_postback_logs_collection(cpx_postback_logs_for_traffic)
+    print("✅ CPX postback logs injected into traffic router for S2S verification")
+except Exception as e:
+    print(f"⚠️ CPX postback logs injection issue: {e}")
+
 # ============================================
 # CPX API Router (trans_id based flow - no message_id)
 # ============================================
