@@ -421,16 +421,16 @@ async def main():
         batch_size=args.batch_size,
         dry_run=args.dry_run
     )
-    # By default, only process pool surveys unless --all-surveys is specified
-        surveys = generator.get_surveys_without_links(
-            active_only=True,
-            include_pool_only=not args.all_surveys
+    
+    try:
+        # Initialize service
         await generator.initialize_service()
         
         # Get surveys without links
+        # By default, only process pool surveys unless --all-surveys is specified
         surveys = generator.get_surveys_without_links(
             active_only=True,
-            include_pool_only=args.include_pool
+            include_pool_only=not args.all_surveys
         )
         
         if not surveys:
