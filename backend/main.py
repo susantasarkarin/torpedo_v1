@@ -708,11 +708,14 @@ try:
     # Inject collections into cpx_api_router
     cpx_api_router.set_survey_transactions_collection(survey_transactions_collection)
     cpx_api_router.set_cpx_postback_logs_collection(cpx_postback_logs_collection)
+    cpx_api_router.set_url_parameters_collection(url_parameters_collection)  # Traffic records
+    cpx_api_router.set_vendors_collection(vendors_collection)  # Vendors for postback forwarding
     
     # Include the CPX API router (trans_id based flow)
     app.include_router(cpx_api_router.router)
     print("✅ CPX API router initialized (trans_id flow)")
     print("✅ Survey transactions collection initialized")
+    print("✅ CPX vendor postback forwarding enabled")
 except Exception as e:
     print(f"⚠️ CPX API router not initialized: {e}")
     import traceback

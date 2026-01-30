@@ -235,7 +235,7 @@ class TrafficService:
         cpx_service: Any,
         client_id: str,
         batch_size: int = 100,
-        live_link: str = ""
+        href: str = ""
     ) -> Dict[str, Any]:
         """
         Assign a survey to a batch of NEW traffic records with dynamically generated entry links.
@@ -246,7 +246,7 @@ class TrafficService:
             cpx_service: CPX service instance for generating entry links
             client_id: Client ID for the survey
             batch_size: Number of records to process (default: 100)
-            live_link: The base live link from CPX API to append parameters to
+            href: The CPX click-tracking URL (click.cpx-research.com) to use for entry links
             
         Returns:
             Dictionary with assignment statistics
@@ -275,12 +275,18 @@ class TrafficService:
                     country_code = traffic.get("countryCode", "")
                     respondent_id = traffic.get("respondentId", "")
                     
-                    # Generate unique entry link using direct CPX URL format
-                    # Use traffic_id (SFWID) as ext_user_id so we can look up the record on callback
+                    # Generate unique entry link using CPX click-tracking URL (click.cpx-research.com)
+                    # Use traffic_id (SFWID) as subid_1 so we can look up the record on postback callback
                     entry_link = cpx_service.generate_entry_link(
                         survey_id=survey_id,
-                        respondent_id=traffic_id  # Use SFWID as ext_user_id
+                        respondent_id=traffic_id,  # Use SFWID as subid_1 for callback tracking
+                        href=href  # Pass CPX click-tracking URL
                     )
+                    
+                    if not entry_link:
+                        print(f"⚠️ No href available for survey {survey_id}, skipping traffic {traffic_id}")
+                        failed_count += 1
+                        continue
                     
                     # Build final redirect URL with additional tracking params
                     redirect_url = f"{entry_link}&clientId={client_id}-{traffic_id}&cc={country_code}"
