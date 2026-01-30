@@ -97,13 +97,13 @@ class BulkEntryLinkGenerator:
         self.client.close()
         
     def get_surveys_without_links(self, active_only: bool = True, 
-                                   include_pool_only: bool = False) -> List[Dict[str, Any]]:
+                                   include_pool_only: bool = True) -> List[Dict[str, Any]]:
         """
         Query MongoDB for surveys without entry links
         
         Args:
             active_only: Only get active surveys
-            include_pool_only: Only get surveys with is_active_in_pool=True
+            include_pool_only: Only get surveys with is_active_in_pool=True (DEFAULT: True)
             
         Returns:
             List of survey documents
@@ -188,8 +188,8 @@ class BulkEntryLinkGenerator:
         
         # Create entry link config
         link_config = SupplierLinkCreate(
-            SupplierLinkTypeCode="OWS",  # One-Way Survey
-            TrackingTypeCode="NONE"       # No tracking
+            supplier_link_type_code="OWS",  # One-Way Survey
+            tracking_type_code="NONE"       # No tracking
         )
         
         try:
@@ -388,7 +388,13 @@ async def main():
     parser.add_argument(
         "--include-pool",
         action="store_true",
-        help="Only process surveys with is_active_in_pool=True"
+        default=True,
+        help="Only process surveys with is_active_in_pool=True (DEFAULT)"
+    )
+    parser.add_argument(
+        "--all-surveys",
+        action="store_true",
+        help="Process ALL active surveys (not just pool surveys)"
     )
     
     args = parser.parse_args()
@@ -415,9 +421,10 @@ async def main():
         batch_size=args.batch_size,
         dry_run=args.dry_run
     )
-    
-    try:
-        # Initialize service
+    # By default, only process pool surveys unless --all-surveys is specified
+        surveys = generator.get_surveys_without_links(
+            active_only=True,
+            include_pool_only=not args.all_surveys
         await generator.initialize_service()
         
         # Get surveys without links
