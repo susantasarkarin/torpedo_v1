@@ -265,11 +265,17 @@ class BulkEntryLinkGenerator:
         tasks = [create_with_limit(survey) for survey in batch]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        # Count successes in this batch
-        success_count = sum(
-            1 for r in results 
-            if isinstance(r, dict) and r.get("success")
-        )
+        # Count successes and check for exceptions
+        success_count = 0
+        for r in results:
+            if isinstance(r, Exception):
+                print(f"  ⚠️  Exception caught: {type(r).__name__}: {str(r)}")
+            elif isinstance(r, dict):
+                if r.get("success"):
+                    success_count += 1
+                elif r.get("error"):
+                    # Error already logged in create_entry_link
+                    pass
         
         # Log first error if all failed
         if success_count == 0 and results:
