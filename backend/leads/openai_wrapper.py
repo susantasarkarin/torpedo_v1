@@ -1,19 +1,16 @@
 """
-CENTRALIZED AI API WRAPPER (OpenAI + DeepSeek)
-Cost-optimized wrapper with token logging, rate limiting, and safety guards.
+CENTRALIZED AI API WRAPPER (OpenAI Only - Web Search)
+[DEPRECATED] Email classification/summarization now uses Gemini via ai_governance module.
 
 Key Features:
-- DeepSeek as PRIMARY for bulk tasks (cheap, no daily limit)
-- OpenAI for premium tasks (web search, tier 2 analysis)
-- Strict max_output_tokens enforcement
+- OpenAI for web search and external lead discovery ONLY
+- Email operations MUST use backend.ai_governance.gemini_gateway
 - Token usage logging to MongoDB
 - Global kill switch via DISABLE_AI_CALLS env var
-- Exponential backoff on retries
-- Request source tracking (cron/api/user)
 
-Provider Priority:
-1. DeepSeek (PRIMARY - cheap, 60 RPM, no daily limit)
-2. OpenAI (PREMIUM - web search, complex tasks)
+GOVERNANCE NOTE:
+- Gemini: Email classification, summarization, lead extraction (via ai_governance)
+- OpenAI: Web search, company discovery, web enrichment ONLY
 """
 
 import os
@@ -35,11 +32,11 @@ logger = logging.getLogger(__name__)
 
 # ============== CONFIGURATION ==============
 
-# AI Provider types
-AIProvider = Literal["openai", "deepseek"]
+# AI Provider types (Gemini handled separately in ai_governance)
+AIProvider = Literal["openai"]
 
-# DEFAULT PROVIDER: OpenAI for bulk tasks (DeepSeek balance exhausted)
-DEFAULT_PROVIDER = os.getenv("AI_DEFAULT_PROVIDER", "openai")
+# DEFAULT PROVIDER: OpenAI for web search only
+DEFAULT_PROVIDER = "openai"
 
 # Default token limits - COST CONTROL
 DEFAULT_MAX_OUTPUT_TOKENS = 300       # Standard API responses
@@ -51,20 +48,14 @@ ESCALATED_MAX_OUTPUT_TOKENS = 500     # Escalated to premium model
 OPENAI_DEFAULT_MODEL = "gpt-4o-mini"  # ~$0.15/$0.60 per 1M tokens
 OPENAI_PREMIUM_MODEL = "gpt-4o"       # ~$5/$15 per 1M tokens - USE SPARINGLY
 
-# DeepSeek models
-DEEPSEEK_DEFAULT_MODEL = "deepseek-chat"  # ~$0.14/$0.28 per 1M tokens
-DEEPSEEK_API_BASE = "https://api.deepseek.com"
-
-# Default model based on provider
-DEFAULT_MODEL = DEEPSEEK_DEFAULT_MODEL if DEFAULT_PROVIDER == "deepseek" else OPENAI_DEFAULT_MODEL
+# Default model (OpenAI only)
+DEFAULT_MODEL = OPENAI_DEFAULT_MODEL
 PREMIUM_MODEL = OPENAI_PREMIUM_MODEL
 
 # Cost per 1K tokens
 MODEL_COSTS = {
     "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
     "gpt-4o": {"input": 0.005, "output": 0.015},
-    "deepseek-chat": {"input": 0.00014, "output": 0.00028},
-    "deepseek-coder": {"input": 0.00014, "output": 0.00028},
 }
 
 # Confidence threshold for escalation
@@ -79,46 +70,35 @@ MAX_RETRY_DELAY = 30.0
 RequestSource = Literal["api", "cron", "background", "user", "internal"]
 
 # Task types for model routing
+# NOTE: Email tasks MUST use Gemini via ai_governance module
 TaskType = Literal[
-    # DeepSeek tasks (99% of calls)
-    "email_classification",
-    "lead_classification", 
-    "email_summary",
-    "email_thread_summary",
-    "contact_extraction",
-    "lead_scoring",
-    "bulk_categorization",
-    "conversation_summary",
-    "outreach_composition",  # DeepSeek with tone examples
-    "personalization",       # DeepSeek with context
-    # GPT-4o-mini tasks (only web search)
+    # OpenAI tasks (web search only)
     "web_search",
     "company_discovery",
     "web_enrichment",
-    # Default
+    # DEPRECATED: Use ai_governance.gemini_gateway for these
+    "email_classification",  # -> ai_governance.classify_email()
+    "email_summary",         # -> ai_governance.summarize_email()
+    "contact_extraction",    # -> ai_governance.extract_leads_from_email()
+    # Default (web search)
     "default"
 ]
 
-# Tasks that REQUIRE GPT-4o-mini (web search capability)
+# Tasks that use OpenAI (web search only)
 OPENAI_REQUIRED_TASKS = frozenset({
     "web_search",
     "company_discovery", 
     "web_enrichment",
+    "default",
 })
 
-# All other tasks use DeepSeek
-DEEPSEEK_TASKS = frozenset({
+# DEPRECATED: Email tasks now use Gemini via ai_governance
+# These will raise an error if called through this wrapper
+GEMINI_REQUIRED_TASKS = frozenset({
     "email_classification",
-    "lead_classification",
     "email_summary",
     "email_thread_summary", 
     "contact_extraction",
-    "lead_scoring",
-    "bulk_categorization",
-    "conversation_summary",
-    "outreach_composition",
-    "personalization",
-    "default",
 })
 
 
@@ -126,20 +106,25 @@ def get_model_for_task(task_type: str = "default") -> tuple:
     """
     Get the optimal (provider, model) for a given task type.
     
-    Strategy:
-    - 99% of tasks use DeepSeek (cheap, no rate limit issues)
-    - Only web search tasks use GPT-4o-mini (requires OpenAI web_search tool)
+    GOVERNANCE POLICY:
+    - OpenAI: Web search, company discovery, web enrichment ONLY
+    - Gemini (via ai_governance): All email operations
     
     Args:
         task_type: Type of task (see TaskType literals)
         
     Returns:
         Tuple of (provider, model)
+        
+    Raises:
+        ValueError: If task_type should use Gemini instead
     """
-    if task_type in OPENAI_REQUIRED_TASKS:
-        return ("openai", OPENAI_DEFAULT_MODEL)
-    else:
-        return ("deepseek", DEEPSEEK_DEFAULT_MODEL)
+    if task_type in GEMINI_REQUIRED_TASKS:
+        raise ValueError(
+            f"Task '{task_type}' must use Gemini via ai_governance module. "
+            f"Import: from ai_governance import classify_email, summarize_email, extract_leads_from_email"
+        )
+    return ("openai", OPENAI_DEFAULT_MODEL)
 
 
 # ============== GLOBAL KILL SWITCH ==============
@@ -199,7 +184,7 @@ class TokenUsageLogger:
         if collection is None:
             return
         
-        costs = MODEL_COSTS.get(model, MODEL_COSTS[DEEPSEEK_DEFAULT_MODEL])
+        costs = MODEL_COSTS.get(model, MODEL_COSTS[OPENAI_DEFAULT_MODEL])
         cost_usd = (input_tokens / 1000 * costs["input"]) + (output_tokens / 1000 * costs["output"])
         
         doc = {
@@ -325,27 +310,13 @@ def get_openai_api_key() -> Optional[str]:
     return os.getenv("OPENAI_API_KEY")
 
 
-def get_deepseek_api_key() -> Optional[str]:
-    """Get DeepSeek API key from database settings first, fallback to env var."""
-    try:
-        mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
-        settings_db = client["torpedo_settings"]
-        app_settings = settings_db["app_settings"]
-        
-        stored = app_settings.find_one({"_id": "app_config"})
-        if stored and stored.get("deepseek_api_key"):
-            return stored["deepseek_api_key"]
-    except Exception as e:
-        logger.debug(f"Could not fetch DeepSeek key from DB: {e}")
-    
-    return os.getenv("DEEPSEEK_API_KEY")
+# DEPRECATED: get_deepseek_api_key removed per AI Governance spec
+# Use Gemini for email operations via ai_governance module
 
 
 # ============== CLIENT SINGLETONS ==============
 
 _openai_client: Optional[OpenAI] = None
-_deepseek_client: Optional[OpenAI] = None
 
 
 def get_openai_client() -> OpenAI:
@@ -359,27 +330,13 @@ def get_openai_client() -> OpenAI:
     return _openai_client
 
 
-def get_deepseek_client() -> OpenAI:
-    """Get or create DeepSeek client singleton (OpenAI-compatible)."""
-    global _deepseek_client
-    if _deepseek_client is None:
-        api_key = get_deepseek_api_key()
-        if not api_key:
-            raise ValueError("DEEPSEEK_API_KEY not configured in settings or environment")
-        _deepseek_client = OpenAI(api_key=api_key, base_url=DEEPSEEK_API_BASE)
-    return _deepseek_client
+# DEPRECATED: get_deepseek_client removed per AI Governance spec
 
 
 def reset_clients():
     """Reset client singletons (useful when API keys change)."""
-    global _openai_client, _deepseek_client
+    global _openai_client
     _openai_client = None
-    _deepseek_client = None
-
-
-def is_deepseek_model(model: str) -> bool:
-    """Check if the model is a DeepSeek model."""
-    return model.startswith("deepseek")
 
 
 # ============== MAIN API WRAPPER ==============
@@ -397,32 +354,30 @@ def chat_completion(
 ) -> Dict[str, Any]:
     """
     Centralized AI chat completion with cost controls.
-    Supports DeepSeek (PRIMARY) and OpenAI (PREMIUM).
+    OpenAI ONLY - for web search and external lead discovery.
+    
+    NOTE: Email operations MUST use ai_governance.gemini_gateway
     
     Args:
         messages: List of message dicts with 'role' and 'content'
         source: Request source for logging and rate limiting
         endpoint: API endpoint name for logging
-        model: Model to use (defaults to DeepSeek)
+        model: Model to use (defaults to gpt-4o-mini)
         max_output_tokens: Max tokens in response
         temperature: Model temperature (default 0.1)
         response_format: Optional response format (e.g., {"type": "json_object"})
         allow_premium_model: Must be True to use premium models
-        provider: Force provider ("deepseek" or "openai")
+        provider: Force provider (only "openai" supported)
     
     Returns:
         Dict with 'content', 'usage', 'model', 'provider', 'success', 'error'
     """
     start_time = time.time()
     
-    # Default provider/model logic
-    if provider is None and model is None:
-        provider = DEFAULT_PROVIDER
-        model = DEEPSEEK_DEFAULT_MODEL if provider == "deepseek" else OPENAI_DEFAULT_MODEL
-    elif provider is None:
-        provider = "deepseek" if is_deepseek_model(model) else "openai"
-    elif model is None:
-        model = DEEPSEEK_DEFAULT_MODEL if provider == "deepseek" else OPENAI_DEFAULT_MODEL
+    # Always use OpenAI (governance policy)
+    provider = "openai"
+    if model is None:
+        model = OPENAI_DEFAULT_MODEL
     
     # Safety: Check kill switch
     if is_ai_disabled():
@@ -448,7 +403,7 @@ def chat_completion(
         }
     
     # Model routing: prevent accidental premium model usage
-    if provider == "openai" and model == OPENAI_PREMIUM_MODEL and not allow_premium_model:
+    if model == OPENAI_PREMIUM_MODEL and not allow_premium_model:
         logger.warning(f"Downgrading {OPENAI_PREMIUM_MODEL} to {OPENAI_DEFAULT_MODEL}")
         model = OPENAI_DEFAULT_MODEL
     
@@ -461,145 +416,22 @@ def chat_completion(
         else:
             max_output_tokens = DEFAULT_MAX_OUTPUT_TOKENS
     
-    # Route to appropriate provider
-    if provider == "deepseek":
-        return _deepseek_chat_completion(
-            messages=messages,
-            model=model,
-            max_output_tokens=max_output_tokens,
-            temperature=temperature,
-            response_format=response_format,
-            source=source,
-            endpoint=endpoint,
-            start_time=start_time
-        )
-    else:
-        return _openai_chat_completion(
-            messages=messages,
-            model=model,
-            max_output_tokens=max_output_tokens,
-            temperature=temperature,
-            response_format=response_format,
-            source=source,
-            endpoint=endpoint,
-            start_time=start_time
-        )
-
-
-# ============== DEEPSEEK IMPLEMENTATION ==============
-
-def _deepseek_chat_completion(
-    messages: List[Dict[str, str]],
-    model: str,
-    max_output_tokens: int,
-    temperature: float,
-    source: RequestSource,
-    endpoint: str,
-    start_time: float,
-    response_format: Optional[Dict] = None
-) -> Dict[str, Any]:
-    """Internal DeepSeek implementation (OpenAI-compatible API)."""
-    
-    kwargs = {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_output_tokens
-    }
-    if response_format:
-        kwargs["response_format"] = response_format
-    
-    last_error = None
-    retry_delay = INITIAL_RETRY_DELAY
-    
-    for attempt in range(MAX_RETRIES):
-        try:
-            client = get_deepseek_client()
-            response = client.chat.completions.create(**kwargs)
-            
-            usage = response.usage
-            input_tokens = usage.prompt_tokens if usage else 0
-            output_tokens = usage.completion_tokens if usage else 0
-            total_tokens = usage.total_tokens if usage else 0
-            
-            latency_ms = int((time.time() - start_time) * 1000)
-            response_content = response.choices[0].message.content
-            
-            input_summary = " | ".join([f"{m['role']}: {m['content'][:200]}" for m in messages])
-            
-            token_logger.log_usage(
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                total_tokens=total_tokens,
-                model=model,
-                source=source,
-                provider="deepseek",
-                endpoint=endpoint,
-                latency_ms=latency_ms,
-                success=True,
-                input_data=input_summary,
-                output_response=response_content
-            )
-            
-            return {
-                "content": response_content,
-                "usage": {
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                    "total_tokens": total_tokens
-                },
-                "model": model,
-                "provider": "deepseek",
-                "success": True,
-                "error": None
-            }
-            
-        except RateLimitError as e:
-            last_error = str(e)
-            logger.warning(f"DeepSeek rate limit hit, retrying in {retry_delay}s...")
-            time.sleep(retry_delay)
-            retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
-            
-        except (APIError, APIConnectionError) as e:
-            last_error = str(e)
-            if attempt < MAX_RETRIES - 1:
-                logger.warning(f"DeepSeek API error, retrying: {e}")
-                time.sleep(retry_delay)
-                retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
-            
-        except Exception as e:
-            last_error = str(e)
-            logger.error(f"DeepSeek call failed: {e}")
-            break
-    
-    # Log failed attempt
-    latency_ms = int((time.time() - start_time) * 1000)
-    input_summary = " | ".join([f"{m['role']}: {m['content'][:200]}" for m in messages])
-    token_logger.log_usage(
-        input_tokens=0,
-        output_tokens=0,
-        total_tokens=0,
+    # Route to OpenAI only
+    return _openai_chat_completion(
+        messages=messages,
         model=model,
+        max_output_tokens=max_output_tokens,
+        temperature=temperature,
+        response_format=response_format,
         source=source,
-        provider="deepseek",
         endpoint=endpoint,
-        latency_ms=latency_ms,
-        success=False,
-        error_message=last_error or "Unknown error",
-        input_data=input_summary
+        start_time=start_time
     )
-    
-    return {
-        "content": "",
-        "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-        "model": model,
-        "provider": "deepseek",
-        "success": False,
-        "error": last_error
-    }
 
 
-# ============== OPENAI IMPLEMENTATION ==============
+# DEPRECATED: _deepseek_chat_completion removed per AI Governance spec
+# All email operations now use Gemini via ai_governance module
+
 
 def _openai_chat_completion(
     messages: List[Dict[str, str]],

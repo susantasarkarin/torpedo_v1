@@ -1199,46 +1199,70 @@ export default function SurveyPool() {
                       </div>
                     ) : cintEntryLink?.live_link ? (
                       <>
-                        <div className="entry-link-container">
-                          <input 
-                            type="text" 
-                            readOnly 
-                            value={cintEntryLink.live_link}
-                            className="entry-link-input"
-                            onClick={(e) => e.target.select()}
-                          />
-                          <button 
-                            className="copy-link-btn"
-                            onClick={() => {
-                              navigator.clipboard.writeText(cintEntryLink.live_link);
-                              // Optional: show brief feedback
-                            }}
-                            title="Copy to clipboard"
-                          >
-                            📋 Copy
-                          </button>
-                          <a 
-                            href={cintEntryLink.live_link} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="open-link-btn"
-                            title="Open in new tab (test mode)"
-                            style={{ padding: '8px 12px', background: '#10b981', color: 'white', borderRadius: '4px', textDecoration: 'none', fontSize: '0.85rem' }}
-                          >
-                            🔗 Open
-                          </a>
-                        </div>
-                        {cintEntryLink.test_link && (
-                          <div style={{ marginTop: '8px' }}>
-                            <span style={{ fontSize: '0.8rem', color: '#666' }}>Test Link: </span>
+                        {/* Live Link Section */}
+                        <div className="entry-link-section">
+                          <span className="entry-link-label">🚀 Live Link (Production)</span>
+                          <div className="entry-link-container">
+                            <input 
+                              type="text" 
+                              readOnly 
+                              value={cintEntryLink.live_link}
+                              className="entry-link-input"
+                              onClick={(e) => e.target.select()}
+                            />
+                            <button 
+                              className="copy-link-btn"
+                              onClick={() => {
+                                navigator.clipboard.writeText(cintEntryLink.live_link);
+                                // Optional: show brief feedback
+                              }}
+                              title="Copy to clipboard"
+                            >
+                              📋 Copy
+                            </button>
                             <a 
-                              href={cintEntryLink.test_link} 
+                              href={cintEntryLink.live_link} 
                               target="_blank" 
                               rel="noopener noreferrer"
-                              style={{ fontSize: '0.8rem', color: '#3b82f6' }}
+                              className="open-link-btn"
+                              title="Test live link in new tab"
                             >
-                              {cintEntryLink.test_link.substring(0, 60)}...
+                              🚀 Test
                             </a>
+                          </div>
+                        </div>
+
+                        {/* Test Link Section (if available) */}
+                        {cintEntryLink.test_link && (
+                          <div className="entry-link-section" style={{ marginTop: '12px' }}>
+                            <span className="entry-link-label test-mode">🧪 Test Link (Sandbox)</span>
+                            <div className="entry-link-container">
+                              <input 
+                                type="text" 
+                                readOnly 
+                                value={cintEntryLink.test_link}
+                                className="entry-link-input"
+                                onClick={(e) => e.target.select()}
+                              />
+                              <button 
+                                className="copy-link-btn"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(cintEntryLink.test_link);
+                                }}
+                                title="Copy to clipboard"
+                              >
+                                📋 Copy
+                              </button>
+                              <a 
+                                href={cintEntryLink.test_link} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="open-link-btn test-mode"
+                                title="Test sandbox link"
+                              >
+                                🧪 Test
+                              </a>
+                            </div>
                           </div>
                         )}
                       </>

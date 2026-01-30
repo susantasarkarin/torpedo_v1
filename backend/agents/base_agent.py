@@ -243,9 +243,9 @@ class BaseAgent(ABC, Generic[T]):
         )
     
     def _call_chat_completion(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
-        """Make a chat completion call using DeepSeek (default)."""
+        """Make a chat completion call using OpenAI."""
         response = self.client.chat.completions.create(
-            model=DEFAULT_MODEL,  # deepseek-chat
+            model=DEFAULT_MODEL,  # gpt-4o-mini
             messages=messages,
             temperature=0.1,
             max_tokens=2000,
@@ -258,7 +258,7 @@ class BaseAgent(ABC, Generic[T]):
         return {
             "content": message.content,
             "model": response.model,
-            "provider": "deepseek",
+            "provider": "openai",
             "input_tokens": usage.prompt_tokens if usage else 0,
             "output_tokens": usage.completion_tokens if usage else 0,
             "total_tokens": usage.total_tokens if usage else 0
@@ -314,18 +314,17 @@ class BaseAgent(ABC, Generic[T]):
             }
             
         except Exception as e:
-            logger.warning(f"Web search failed, falling back to DeepSeek: {e}")
-            # Fallback to regular DeepSeek completion
+            logger.warning(f"Web search failed, falling back to OpenAI: {e}")
+            # Fallback to regular OpenAI completion
             return self._call_chat_completion(messages)
     
     def _calculate_cost(self, input_tokens: int, output_tokens: int, model: str) -> float:
         """Calculate cost in USD based on token usage."""
         costs = {
-            "deepseek-chat": {"input": 0.00014, "output": 0.00028},
             "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
             "gpt-4o": {"input": 0.005, "output": 0.015},
         }
-        model_costs = costs.get(model, costs["deepseek-chat"])
+        model_costs = costs.get(model, costs["gpt-4o-mini"])
         return (input_tokens / 1000 * model_costs["input"]) + (output_tokens / 1000 * model_costs["output"])
     
     def _log_usage(
@@ -343,15 +342,14 @@ class BaseAgent(ABC, Generic[T]):
             collection = db['ai_usage_logs']
             
             costs = {
-                "deepseek-chat": {"input": 0.00014, "output": 0.00028},
                 "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
                 "gpt-4o": {"input": 0.005, "output": 0.015},
             }
-            model_costs = costs.get(model, costs["deepseek-chat"])
+            model_costs = costs.get(model, costs["gpt-4o-mini"])
             cost_usd = (input_tokens / 1000 * model_costs["input"]) + (output_tokens / 1000 * model_costs["output"])
             
             # Determine provider from model
-            provider = "deepseek" if "deepseek" in model else "openai"
+            provider = "openai"
             
             doc = {
                 "timestamp": datetime.utcnow(),

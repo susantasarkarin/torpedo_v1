@@ -7,7 +7,7 @@ This script will:
 1. Disable redundant agent systems
 2. Increase API call delays
 3. Stop background auto-classification
-4. Switch to DeepSeek for cost savings
+4. Configure Gemini for email operations (via ai_governance)
 """
 
 import os
@@ -56,9 +56,9 @@ def update_env_file():
         
         # Update or add AI provider settings
         updates = {
-            'AI_DEFAULT_PROVIDER': 'deepseek',
+            'AI_DEFAULT_PROVIDER': 'openai',  # OpenAI for web search only
             'DISABLE_AI_CALLS': 'false',
-            # Add DeepSeek key placeholder if not exists
+            # Gemini keys configured separately via ai_governance module
         }
         
         for key, value in updates.items():
@@ -75,9 +75,8 @@ def update_env_file():
         with open(env_path, 'w', encoding='utf-8') as f:
             f.write(content)
         
-        print("\n⚠️  IMPORTANT: Add your DeepSeek API key to .env:")
-        print("   DEEPSEEK_API_KEY=your_actual_key_here")
-        print("   Get free key from: https://platform.deepseek.com/")
+        print("\n⚠️  IMPORTANT: Configure Gemini API keys for email operations")
+        print("   See backend/ai_governance/README.md for setup instructions")
 
 def disable_background_classification():
     """Disable auto-classification in background sync"""
@@ -301,10 +300,10 @@ def main():
     print("="*70)
     
     print("\n⚠️  REQUIRED ACTIONS:")
-    print("1. Add DEEPSEEK_API_KEY to your .env file")
+    print("1. Configure Gemini API keys in MongoDB (see ai_governance README)")
     print("2. Restart your backend server")
     print("3. Run 'python monitor_api_usage.py' to check current usage")
-    print("\n📚 See MULTI_AGENT_EFFICIENCY_ANALYSIS.md for full details\n")
+    print("\n📚 See backend/ai_governance/README.md for governance details\n")
     
     print("BACKUPS CREATED:")
     print("  All modified files have .backup copies")

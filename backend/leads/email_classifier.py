@@ -548,7 +548,7 @@ def classify_pending_emails(
     """
     Legacy alias for classify_batch.
     Used by ai_tasks.py and other legacy code.
-    Now uses DeepSeek as the default AI provider via openai_wrapper.
+    Now uses Gemini via ai_governance module for email classification.
     """
     global INTERNAL_DOMAINS
     if internal_domains:

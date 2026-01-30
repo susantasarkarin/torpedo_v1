@@ -453,7 +453,7 @@ def classify_pending_emails_task(
     logger.info(f"[{task_id}] Starting email classification task (limit={limit})")
     
     try:
-        # Import the classifier (using DeepSeek via openai_wrapper)
+        # Import the classifier (now uses Gemini via ai_governance module)
         from leads.email_classifier import classify_pending_emails
         
         # Update task state to show progress

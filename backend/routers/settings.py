@@ -88,10 +88,10 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
             "cpx_ext_user_id": stored.get("cpx_ext_user_id", os.getenv("CPX_EXT_USER_ID", "")),
             "cpx_secure_hash_key": stored.get("cpx_secure_hash_key", os.getenv("CPX_SECURE_HASH_KEY", "")),
             "cpx_api_timeout": stored.get("cpx_api_timeout", int(os.getenv("CPX_API_TIMEOUT", "30"))),
-            # AI Providers - DeepSeek (PRIMARY, cheap) + OpenAI (PREMIUM, web search) + Gemini (FREE tier)
-            "deepseek_api_key": stored.get("deepseek_api_key", os.getenv("DEEPSEEK_API_KEY", "")),
+            # AI Providers - Gemini (email ops) + OpenAI (web search only)
+            # NOTE: DeepSeek removed per AI Governance spec
             "openai_api_key": stored.get("openai_api_key", os.getenv("OPENAI_API_KEY", "")),
-            # Gemini API Keys (7 individual keys for FREE tier - 1000 req/day each)
+            # Gemini API Keys (7 individual keys for 7,000 req/day total cap)
             "gemini_api_key_1": stored.get("gemini_api_key_1", os.getenv("GEMINI_API_KEY_1", "")),
             "gemini_api_key_2": stored.get("gemini_api_key_2", os.getenv("GEMINI_API_KEY_2", "")),
             "gemini_api_key_3": stored.get("gemini_api_key_3", os.getenv("GEMINI_API_KEY_3", "")),
@@ -106,7 +106,7 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
         masked_settings = {**settings}
         sensitive_fields = [
             "cpx_secure_hash_key",
-            "deepseek_api_key", "openai_api_key",
+            "openai_api_key",
             "gemini_api_key_1", "gemini_api_key_2", "gemini_api_key_3", "gemini_api_key_4",
             "gemini_api_key_5", "gemini_api_key_6", "gemini_api_key_7",
             "google_sheets_service_account"
@@ -155,8 +155,8 @@ async def save_app_settings(
         allowed_keys = [
             "mongo_uri",
             "cpx_app_id", "cpx_ext_user_id", "cpx_secure_hash_key", "cpx_api_timeout",
-            # AI Providers - DeepSeek (PRIMARY) + OpenAI (PREMIUM) + Gemini (FREE - 7 individual keys)
-            "deepseek_api_key", "openai_api_key",
+            # AI Providers - Gemini (email) + OpenAI (web search) - DeepSeek removed per governance
+            "openai_api_key",
             "gemini_api_key_1", "gemini_api_key_2", "gemini_api_key_3", "gemini_api_key_4",
             "gemini_api_key_5", "gemini_api_key_6", "gemini_api_key_7",
             "google_sheets_service_account"

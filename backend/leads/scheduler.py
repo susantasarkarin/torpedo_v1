@@ -8,19 +8,20 @@ Architecture:
 │                         MASTER SCHEDULER                                     │
 │                        (asyncio.gather)                                      │
 └─────────────────────────────────────────────────────────────────────────────┘
-     │         │         │         │         │         │
-     ▼         ▼         ▼         ▼         ▼         ▼
-┌─────────┬─────────┬─────────┬─────────┬─────────┬─────────┐
-│ WEB     │ LEAD    │ EMAIL   │ COMPANY │ EMAIL   │ LEAD    │
-│ SEARCH  │ CLASS.  │ CLASS.  │ ENRICH  │ SUMMARY │ SCORING │
-│         │         │         │         │         │         │
-│ Google  │DeepSeek │DeepSeek │DeepSeek │DeepSeek │DeepSeek │
-│ CSE     │20/batch │10/batch │10/batch │5/batch  │50/batch │
-└─────────┴─────────┴─────────┴─────────┴─────────┴─────────┘
+     │         │         │         │         
+     ▼         ▼         ▼         ▼         
+┌─────────┬─────────┬─────────┬─────────┐
+│ WEB     │ LEAD    │ COMPANY │ LEAD    │
+│ SEARCH  │ CLASS.  │ ENRICH  │ SCORING │
+│         │         │         │         │
+│ OpenAI  │ OpenAI  │ OpenAI  │ OpenAI  │
+│ GPT-4o  │ mini    │ web     │ web     │
+└─────────┴─────────┴─────────┴─────────┘
 
-Provider Routing:
-- DeepSeek (PRIMARY): All bulk classification, enrichment, scoring
-- OpenAI (PREMIUM): Web search discovery, tier 2 analysis (escalation only)
+AI GOVERNANCE POLICY (Effective Jan 2026):
+- Gemini operations (email classification, summarization) are DISABLED in scheduler
+- Gemini calls can only be triggered via manual API request (not scheduled/automated)
+- OpenAI (gpt-4o-mini): Web search, company discovery, enrichment, lead classification
 """
 
 import os
@@ -370,7 +371,7 @@ async def run_search_batch(queries: List[str], state: LeadSchedulerState) -> int
 
 async def run_classification_batch(state: LeadSchedulerState) -> tuple:
     """
-    Classify pending leads in batch using DeepSeek.
+    Classify pending leads in batch using OpenAI (web-based enrichment).
     
     Returns:
         (success_count, failure_count)
@@ -383,10 +384,10 @@ async def run_classification_batch(state: LeadSchedulerState) -> tuple:
         state.log_activity("classification_batch", {
             "success": success,
             "failure": failure,
-            "provider": "deepseek"
+            "provider": "openai"
         })
         
-        print(f"[Scheduler] Lead Classification: {success} success, {failure} failures (DeepSeek)")
+        print(f"[Scheduler] Lead Classification: {success} success, {failure} failures (OpenAI)")
         
         return success, failure
     
@@ -403,32 +404,27 @@ async def run_classification_batch(state: LeadSchedulerState) -> tuple:
 
 async def run_email_classification_batch() -> dict:
     """
-    Classify pending emails in batch using DeepSeek.
-    Batch size: 10 emails per API call
-    """
-    try:
-        from .email_classifier import classify_batch
-        
-        result = classify_batch(batch_size=10, source="scheduler")
-        
-        processed = result.get("processed", 0)
-        success = result.get("success", 0)
-        errors = result.get("errors", 0)
-        
-        print(f"[Scheduler] Email Classification: {success}/{processed} (DeepSeek, 10/batch)")
-        
-        return {"processed": processed, "success": success, "errors": errors}
+    DISABLED PER AI GOVERNANCE POLICY.
     
-    except Exception as e:
-        print(f"[Scheduler] Email Classification error: {e}")
-        return {"processed": 0, "success": 0, "errors": 1, "error": str(e)}
+    Email classification uses Gemini which cannot be triggered from schedulers.
+    Use the API endpoint POST /api/v2/ai/gemini/classify for manual classification.
+    
+    See: backend/ai_governance/README.md
+    """
+    return {
+        "processed": 0, 
+        "success": 0, 
+        "errors": 0, 
+        "message": "DISABLED: Gemini email classification cannot be triggered from scheduler. Use API endpoint.",
+        "governance": "AI_GOVERNANCE_POLICY_ACTIVE"
+    }
 
 
 # ============== COMPANY ENRICHMENT BATCH ==============
 
 async def run_company_enrichment_batch() -> dict:
     """
-    Enrich companies in batch using DeepSeek.
+    Enrich companies in batch using OpenAI (web search).
     Batch size: 10 companies per API call
     """
     try:
@@ -477,7 +473,7 @@ Return JSON: {{"results": [{{"company_name": "...", "industry": "...", "company_
                 )
                 enriched_count += 1
         
-        print(f"[Scheduler] Company Enrichment: {enriched_count}/{len(companies_needing_enrichment)} (DeepSeek, 10/batch)")
+        print(f"[Scheduler] Company Enrichment: {enriched_count}/{len(companies_needing_enrichment)} (OpenAI, 10/batch)")
         
         return {"processed": len(companies_needing_enrichment), "enriched": enriched_count}
     
@@ -490,32 +486,19 @@ Return JSON: {{"results": [{{"company_name": "...", "industry": "...", "company_
 
 async def run_email_summary_batch() -> dict:
     """
-    Summarize emails in batch using DeepSeek.
-    Batch size: 5 emails per API call
+    DISABLED PER AI GOVERNANCE POLICY.
+    
+    Email summarization uses Gemini which cannot be triggered from schedulers.
+    Use the API endpoint POST /api/v2/ai/gemini/summarize for manual summarization.
+    
+    See: backend/ai_governance/README.md
     """
-    try:
-        # Get emails needing summary
-        torpedo_gmail = client['torpedo_gmail']
-        emails_needing_summary = list(torpedo_gmail['email_metadata'].find(
-            {"ai_summary": {"$exists": False}, "body_plain": {"$exists": True, "$ne": ""}},
-            {"_id": 1, "subject": 1, "body_plain": 1, "from_email": 1}
-        ).limit(5))
-        
-        if not emails_needing_summary:
-            return {"processed": 0, "message": "No emails to summarize"}
-        
-        from .openai_wrapper import chat_completion
-        
-        summarized_count = 0
-        for email in emails_needing_summary:
-            body = (email.get("body_plain", "") or "")[:2000]
-            subject = email.get("subject", "")
-            
-            result = chat_completion(
-                messages=[
-                    {"role": "system", "content": "Summarize this email in 2-3 sentences. Include key actions if any."},
-                    {"role": "user", "content": f"Subject: {subject}\n\nBody:\n{body}"}
-                ],
+    return {
+        "processed": 0, 
+        "summarized": 0, 
+        "message": "DISABLED: Gemini email summarization cannot be triggered from scheduler. Use API endpoint.",
+        "governance": "AI_GOVERNANCE_POLICY_ACTIVE"
+    }
                 source="scheduler",
                 max_output_tokens=150,
                 provider="openai"
@@ -541,7 +524,7 @@ async def run_email_summary_batch() -> dict:
 
 async def run_lead_scoring_batch() -> dict:
     """
-    Score leads in batch using DeepSeek.
+    Score leads in batch using OpenAI.
     Batch size: 50 leads per API call
     """
     try:
@@ -586,7 +569,7 @@ Return JSON: {{"results": [{{"name": "...", "score": 1-100, "reason": "1 sentenc
                 )
                 scored_count += 1
         
-        print(f"[Scheduler] Lead Scoring: {scored_count}/{len(leads_needing_scoring)} (DeepSeek, 50/batch)")
+        print(f"[Scheduler] Lead Scoring: {scored_count}/{len(leads_needing_scoring)} (OpenAI, 50/batch)")
         
         return {"processed": len(leads_needing_scoring), "scored": scored_count}
     
@@ -881,18 +864,18 @@ async def scheduler_loop():
     """
     Main scheduler loop - runs continuously until stopped.
     Runs ALL 6 tasks in PARALLEL using asyncio.gather:
-    - Web Search (Google CSE)
-    - Lead Classification (DeepSeek)
-    - Email Classification (DeepSeek)
-    - Company Enrichment (DeepSeek)
-    - Email Summary (DeepSeek)
-    - Lead Scoring (DeepSeek)
+    - Web Search (OpenAI/Google)
+    - Lead Classification (OpenAI)
+    - Email Classification (Gemini via ai_governance)
+    - Company Enrichment (OpenAI web search)
+    - Email Summary (Gemini via ai_governance)
+    - Lead Scoring (OpenAI)
     """
     global scheduler_state
     
     print("[Scheduler] Starting FULL PARALLEL lead ingestion scheduler...")
     print(f"[Scheduler] Targets: {HOURLY_TARGET}/hour, {DAILY_TARGET}/day")
-    print("[Scheduler] Mode: 6 tasks running in PARALLEL (DeepSeek + Google CSE)")
+    print("[Scheduler] Mode: 6 tasks running in PARALLEL (Gemini for email, OpenAI for web)")
     
     scheduler_state.is_running = True
     scheduler_state.started_at = datetime.utcnow()
@@ -945,15 +928,15 @@ async def scheduler_loop():
             results = await asyncio.gather(
                 # Task 1: Web Search for new leads (Google CSE)
                 run_search_batch(queries, scheduler_state),
-                # Task 2: Classify pending leads (DeepSeek, 20/batch)
+                # Task 2: Classify pending leads (OpenAI, 20/batch)
                 run_classification_batch(scheduler_state),
-                # Task 3: Classify emails (DeepSeek, 10/batch)
+                # Task 3: Classify emails (Gemini via ai_governance, 10/batch)
                 run_email_classification_batch(),
-                # Task 4: Enrich company data (DeepSeek, 10/batch)
+                # Task 4: Enrich company data (OpenAI web search, 10/batch)
                 run_company_enrichment_batch(),
-                # Task 5: Summarize emails (DeepSeek, 5/batch)
+                # Task 5: Summarize emails (Gemini via ai_governance, 5/batch)
                 run_email_summary_batch(),
-                # Task 6: Score leads (DeepSeek, 50/batch)
+                # Task 6: Score leads (OpenAI, 50/batch)
                 run_lead_scoring_batch(),
                 # Return exceptions instead of raising them
                 return_exceptions=True

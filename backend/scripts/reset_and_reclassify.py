@@ -6,7 +6,7 @@ RESET AND RECLASSIFY ALL EMAILS
 This script:
 1. Clears all previous AI classifications from emails
 2. Syncs any new emails via Google Workspace API
-3. Re-classifies all emails using DeepSeek AI (via openai_wrapper)
+3. Re-classifies all emails using Gemini AI (via ai_governance module)
 4. Generates a summary report
 
 Usage:
@@ -195,7 +195,7 @@ def classify_all_emails(
     """
     db = get_database('torpedo_gmail')
     
-    # Import classification function (now uses DeepSeek via openai_wrapper)
+    # Import classification function (now uses Gemini via ai_governance module)
     try:
         from leads.email_classifier import (
             classify_and_summarize,
@@ -208,18 +208,14 @@ def classify_all_emails(
             "error": f"Import error: {e}"
         }
     
-    # Check DeepSeek/OpenAI availability
+    # Check Gemini/OpenAI availability
     try:
-        from leads.openai_wrapper import get_deepseek_api_key, get_openai_api_key
-        has_deepseek = bool(get_deepseek_api_key())
+        from leads.openai_wrapper import get_openai_api_key
         has_openai = bool(get_openai_api_key())
-        if not has_deepseek and not has_openai:
-            return {
-                "success": False,
-                "error": "No AI API key configured (DeepSeek or OpenAI)",
-                "status": {"deepseek": has_deepseek, "openai": has_openai}
-            }
-        logger.info(f"AI Status: DeepSeek={has_deepseek}, OpenAI={has_openai}")
+        # Gemini availability checked via ai_governance module
+        if not has_openai:
+            logger.warning("OpenAI not configured - web search features unavailable")
+        logger.info(f"AI Status: OpenAI={has_openai}, Gemini=via ai_governance")
     except Exception as e:
         logger.warning(f"Could not check AI status: {e}")
     

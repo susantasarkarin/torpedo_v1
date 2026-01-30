@@ -16,7 +16,7 @@ client = MongoClient(os.getenv('MONGO_URI', 'mongodb://localhost:27017/'))
 cfg = client.torpedo_settings.app_settings.find_one()
 if cfg:
     print(f"   OpenAI API key: ...{cfg.get('openai_api_key','')[-4:]}")
-    print(f"   DeepSeek API key: ...{cfg.get('deepseek_api_key','')[-4:]}")
+    print(f"   Gemini API key 1: ...{cfg.get('gemini_api_key_1','')[-4:]}")
     print(f"   CPX hash key: ...{cfg.get('cpx_secure_hash_key','')[-4:]}")
 else:
     print("   ❌ No config found")

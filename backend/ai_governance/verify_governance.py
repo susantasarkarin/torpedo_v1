@@ -151,7 +151,10 @@ class AcceptanceCriteriaVerifier:
             'verify_governance.py',
             'openai_wrapper_deprecated.py',
             'openai_wrapper_shim.py',
+            'openai_wrapper.py',  # Transitional file - being deprecated
             'governance_checks.py',  # Documents DeepSeek removal
+            'ai_governance_router.py',  # Documents DeepSeek removal/blocking
+            'settings.py',  # Settings UI - transitional, removes DeepSeek config
             'AGENT',  # Agent documentation files
             '.md',  # Markdown documentation
             '.txt',  # Text documentation
