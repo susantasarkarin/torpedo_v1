@@ -41,7 +41,7 @@ load_dotenv()
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 CINT_API_KEY = os.getenv('CINT_API_KEY')
 CINT_SUPPLIER_CODE = os.getenv('CINT_SUPPLIER_CODE')
-CINT_BASE_URL = os.getenv('CINT_BASE_URL', 'https://api.samplicio.us')
+CINT_ENVIRONMENT = os.getenv('CINT_ENVIRONMENT', 'sandbox')
 
 # Default settings
 DEFAULT_MAX_CONCURRENT = 5
@@ -83,9 +83,12 @@ class BulkEntryLinkGenerator:
         """Initialize the Cint service"""
         self.cint_service = CintService(
             api_key=CINT_API_KEY,
-            base_url=CINT_BASE_URL
+            supplier_code=CINT_SUPPLIER_CODE,
+            environment=CINT_ENVIRONMENT,
+            cint_surveys_collection=self.cint_surveys,
+            cint_entry_links_collection=self.cint_entry_links
         )
-        print(f"✓ Cint service initialized (API: {CINT_BASE_URL})")
+        print(f"✓ Cint service initialized (Environment: {CINT_ENVIRONMENT})")
         
     async def close_service(self):
         """Close the Cint service"""
@@ -390,7 +393,7 @@ async def main():
     
     print(f"✓ API Key: {CINT_API_KEY[:10]}...")
     print(f"✓ Supplier Code: {CINT_SUPPLIER_CODE}")
-    print(f"✓ Base URL: {CINT_BASE_URL}")
+    print(f"✓ Environment: {CINT_ENVIRONMENT}")
     
     # Initialize generator
     generator = BulkEntryLinkGenerator(
