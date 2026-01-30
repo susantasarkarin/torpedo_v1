@@ -622,14 +622,14 @@ def batch_chat_completion(
     prompt_generator: callable,
     source: RequestSource = "background",
     batch_size: int = 10,
-    model: str = DEEPSEEK_DEFAULT_MODEL,
+    model: str = OPENAI_DEFAULT_MODEL,
     max_output_tokens: int = 1500,
     system_prompt: str = "",
-    provider: str = "deepseek"
+    provider: str = "openai"
 ) -> List[Dict[str, Any]]:
     """
     Process multiple items in batched API calls.
-    Uses DeepSeek by default for cost efficiency.
+    Uses OpenAI by default.
     """
     all_results = []
     

@@ -499,25 +499,6 @@ async def run_email_summary_batch() -> dict:
         "message": "DISABLED: Gemini email summarization cannot be triggered from scheduler. Use API endpoint.",
         "governance": "AI_GOVERNANCE_POLICY_ACTIVE"
     }
-                source="scheduler",
-                max_output_tokens=150,
-                provider="openai"
-            )
-            
-            if result.get("success"):
-                torpedo_gmail['email_metadata'].update_one(
-                    {"_id": email["_id"]},
-                    {"$set": {"ai_summary": result["content"], "summarized_at": datetime.utcnow()}}
-                )
-                summarized_count += 1
-        
-        print(f"[Scheduler] Email Summary: {summarized_count}/{len(emails_needing_summary)} (OpenAI, 5/batch)")
-        
-        return {"processed": len(emails_needing_summary), "summarized": summarized_count}
-    
-    except Exception as e:
-        print(f"[Scheduler] Email Summary error: {e}")
-        return {"processed": 0, "summarized": 0, "error": str(e)}
 
 
 # ============== LEAD SCORING BATCH ==============
