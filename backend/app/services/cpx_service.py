@@ -111,50 +111,55 @@ class CPXService:
         respondent_id: str,
         subid_1: Optional[str] = None,
         subid_2: Optional[str] = None,
-        href: Optional[str] = None,  # Not used - kept for backward compatibility
+        href: Optional[str] = None,  # CPX click-tracking URL from API
         username: Optional[str] = None,
         email: Optional[str] = None,
-        live_link: Optional[str] = None,  # Not used - kept for backward compatibility
+        live_link: Optional[str] = None,  # Not used
     ) -> str:
         """
-        Generate CPX survey entry link using the offers.cpx-research.com format.
+        Generate CPX survey entry link using the CPX-provided href URL.
         
-        URL format:
-        https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&secure_hash={secure_hash}&survey_id={survey_id}&subid_1={subid_1}
+        The href URL from CPX API (click.cpx-research.com) contains an encrypted
+        survey identifier. We append subid_1 (respondent_id) for callback tracking.
+        
+        URL format from CPX:
+        https://click.cpx-research.com/?k=ENCRYPTED&subid_1=&subid_2=
         
         Args:
             survey_id: The CPX survey ID
-            respondent_id: The respondent ID (ext_user_id) for tracking
+            respondent_id: The respondent ID for tracking (used as subid_1)
             subid_1: Optional tracking parameter (defaults to respondent_id)
             subid_2: Optional tracking parameter
-            href: Not used - kept for backward compatibility
+            href: CPX click-tracking URL from API payload
             username: Optional username (not used)
             email: Optional email (not used)
-            live_link: Not used - kept for backward compatibility
+            live_link: Not used
             
         Returns:
-            CPX entry URL in offers.cpx-research.com format
+            CPX entry URL with subid_1/subid_2 populated for callback tracking
         """
         if not survey_id or not respondent_id:
             return ""
         
-        # Always generate the offers.cpx-research.com/index.php format
-        # This is the correct format per CPX documentation
-        secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
+        if not href:
+            return ""
         
-        from urllib.parse import urlencode
+        # Parse the CPX href URL and populate subid_1/subid_2 for callback tracking
+        from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
         
-        params = {
-            "app_id": self.app_id,
-            "ext_user_id": respondent_id,
-            "secure_hash": secure_hash,
-            "survey_id": survey_id,
-            "subid_1": subid_1 or respondent_id,
-        }
+        parsed = urlparse(href)
+        query_params = parse_qs(parsed.query, keep_blank_values=True)
+        
+        # Populate subid_1 with respondent_id for callback tracking
+        query_params['subid_1'] = [subid_1 or respondent_id]
         if subid_2:
-            params["subid_2"] = subid_2
-            
-        return f"{self.ENTRY_URL}?{urlencode(params)}"
+            query_params['subid_2'] = [subid_2]
+        
+        # Flatten query params (parse_qs returns lists)
+        flat_params = {k: v[0] if isinstance(v, list) and len(v) == 1 else v for k, v in query_params.items()}
+        
+        new_query = urlencode(flat_params, doseq=True)
+        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', new_query, ''))
     
     def generate_entry_link_template(self, survey_id: str) -> str:
         """
@@ -369,12 +374,13 @@ class CPXService:
             # click_count and last_clicked_at are set via $setOnInsert to preserve existing values
         }
         
-        # Generate entry_link using direct URL format (with survey_id)
+        # Generate entry_link using CPX's href URL with respondent tracking
         # Note: The actual respondent-specific entry_link is generated at allocation time
         if respondent_id:
             normalized["entry_link"] = self.generate_entry_link(
                 survey_id=str(survey_id),
-                respondent_id=respondent_id
+                respondent_id=respondent_id,
+                href=href  # Pass CPX's click-tracking URL
             )
         else:
             # Generate entry_link template with placeholders for later substitution
