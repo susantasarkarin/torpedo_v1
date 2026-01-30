@@ -211,6 +211,7 @@ class BulkEntryLinkGenerator:
             else:
                 self.stats["failed"] += 1
                 error_msg = result.get("message", "Unknown error")
+                print(f"  ❌ Survey {survey_id} failed: {error_msg}")  # Verbose logging
                 self.failed_surveys.append({
                     "survey_id": survey_id,
                     "survey_name": survey.get("survey_name", "N/A"),
@@ -227,6 +228,7 @@ class BulkEntryLinkGenerator:
         except Exception as e:
             self.stats["failed"] += 1
             error_msg = str(e)
+            print(f"  ❌ Survey {survey_id} exception: {error_msg}")  # Verbose logging
             self.failed_surveys.append({
                 "survey_id": survey_id,
                 "survey_name": survey.get("survey_name", "N/A"),
@@ -268,6 +270,12 @@ class BulkEntryLinkGenerator:
             1 for r in results 
             if isinstance(r, dict) and r.get("success")
         )
+        
+        # Log first error if all failed
+        if success_count == 0 and results:
+            first_error = next((r for r in results if isinstance(r, dict) and r.get("error")), None)
+            if first_error:
+                print(f"  Sample error: Survey {first_error.get('survey_id')}: {first_error.get('error')}")
         
         print(f"  Batch {batch_num}/{total_batches}: {success_count}/{len(batch)} successful")
         
