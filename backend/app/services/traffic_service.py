@@ -541,6 +541,7 @@ class TrafficService:
                     "assignedSurveyId": record.get("assignedSurveyId"),
                     "redirectUrl": record.get("redirectUrl"),
                     "outUrl": record.get("outUrl"),
+                    "cpxCallbackUrl": record.get("cpxCallbackUrl"),
                     "createdAt": record.get("createdAt").isoformat() if record.get("createdAt") else None,
                     "updatedAt": record.get("updatedAt").isoformat() if record.get("updatedAt") else None,
                     "assignedAt": record.get("assignedAt").isoformat() if record.get("assignedAt") else None,

@@ -198,6 +198,53 @@ export default function TrafficManagement() {
     }
   }
 
+  // Export traffic to CSV
+  const handleExportCSV = async () => {
+    const sessionId = localStorage.getItem("session_id")
+    if (!sessionId) {
+      navigate("/login")
+      return
+    }
+
+    try {
+      const params = new URLSearchParams()
+      if (statusFilter) params.append("status", statusFilter)
+      if (search) params.append("search", search)
+      params.append("limit", "50000") // Max export limit
+
+      const res = await fetch(buildApiUrl(`/api/traffic/export/csv?${params}`), {
+        headers: {
+          Authorization: sessionId,
+        },
+      })
+
+      if (res.status === 401) {
+        alert("Session expired. Please login again.")
+        localStorage.removeItem("session_id")
+        navigate("/login")
+        return
+      }
+
+      if (!res.ok) {
+        const errorData = await res.json()
+        throw new Error(errorData.detail || "Failed to export")
+      }
+
+      // Download the file
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `traffic_export_${new Date().toISOString().split("T")[0]}.csv`
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (e) {
+      alert("Export failed: " + e.message)
+    }
+  }
+
   return (
     <div className="traffic-management-container">
       <div className="traffic-header">
@@ -205,9 +252,14 @@ export default function TrafficManagement() {
           <h1>🚦 Traffic Management</h1>
           <p>Monitor and track survey traffic records</p>
         </div>
-        <button onClick={handleRefresh} disabled={loading} className="refresh-btn">
-          {loading ? "⏳ Loading..." : "🔄 Refresh"}
-        </button>
+        <div className="header-actions">
+          <button onClick={handleExportCSV} className="export-btn" title="Export all traffic with URLs to CSV">
+            📥 Export CSV
+          </button>
+          <button onClick={handleRefresh} disabled={loading} className="refresh-btn">
+            {loading ? "⏳ Loading..." : "🔄 Refresh"}
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -380,18 +432,24 @@ export default function TrafficManagement() {
                             </div>
                             {record.redirectUrl && (
                               <div className="expanded-section">
-                                <h4>🔗 Redirect URL</h4>
+                                <h4>🔗 Redirect URL (Survey Entry)</h4>
                                 <code className="redirect-url">{record.redirectUrl}</code>
                               </div>
                             )}
                             <div className="expanded-section">
-                              <h4>🚀 Out URL (Post-Survey Redirect)</h4>
+                              <h4>🚀 Client URL (Post-Survey Redirect)</h4>
                               {record.outUrl ? (
                                 <a href={record.outUrl} target="_blank" rel="noopener noreferrer" className="redirect-url">{record.outUrl}</a>
                               ) : (
-                                <code className="redirect-url">—</code>
+                                <code className="redirect-url">N/A</code>
                               )}
                             </div>
+                            {record.cpxCallbackUrl && (
+                              <div className="expanded-section">
+                                <h4>📥 CPX Callback URL</h4>
+                                <code className="redirect-url">{record.cpxCallbackUrl}</code>
+                              </div>
+                            )}
                             {record.params && Object.keys(record.params).length > 0 && (
                               <div className="expanded-section">
                                 <h4>📦 Raw Parameters</h4>

@@ -1365,3 +1365,251 @@ async def get_traffic_report(
         print(f"Error retrieving traffic report: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.get("/api/traffic/export")
+async def export_traffic_records(
+    request: Request,
+    status: Optional[str] = Query(None, description="Filter by status"),
+    survey_id: Optional[str] = Query(None, description="Filter by survey ID"),
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    limit: int = Query(10000, ge=1, le=50000, description="Maximum records to export"),
+):
+    """
+    Export all historic traffic records with URL information
+    
+    Returns for each record:
+    - SFWID (traffic record ID)
+    - Redirect URL (survey entry URL)  
+    - Client URL (appended vendor redirect URL with respondent ID)
+    - Out URL (raw vendor redirect URL)
+    - Status, timestamps, and other metadata
+    
+    Requires authentication
+    """
+    try:
+        # Verify session
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        if url_parameters_collection is None:
+            raise HTTPException(status_code=503, detail="Traffic collection not initialized")
+        
+        # Build query
+        query = {}
+        
+        if status:
+            query["status"] = status.upper()
+        
+        if survey_id:
+            query["assignedSurveyId"] = survey_id
+        
+        if start_date or end_date:
+            date_query = {}
+            if start_date:
+                try:
+                    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+                    date_query["$gte"] = start_dt
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
+            if end_date:
+                try:
+                    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+                    end_dt = end_dt.replace(hour=23, minute=59, second=59)
+                    date_query["$lte"] = end_dt
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
+            if date_query:
+                query["createdAt"] = date_query
+        
+        # Get total count
+        total_count = url_parameters_collection.count_documents(query)
+        
+        # Fetch records
+        records = list(
+            url_parameters_collection.find(query)
+            .sort("createdAt", -1)
+            .limit(limit)
+        )
+        
+        # Serialize for export
+        export_records = []
+        for record in records:
+            # Format dates
+            created_at = record.get("createdAt")
+            updated_at = record.get("updatedAt")
+            assigned_at = record.get("assignedAt")
+            completed_at = record.get("completedAt")
+            
+            export_record = {
+                "sfwid": str(record.get("_id", "")),
+                "status": record.get("status", ""),
+                "vendor_id": record.get("vendorId", ""),
+                "country_code": record.get("countryCode", ""),
+                "respondent_id": record.get("respondentId", ""),
+                "survey_id": record.get("assignedSurveyId", ""),
+                # URL Fields
+                "redirect_url": record.get("redirectUrl", ""),  # Survey entry URL
+                "out_url": record.get("outUrl", ""),  # Client redirect URL (with respondent appended)
+                "cpx_callback_url": record.get("cpxCallbackUrl", ""),  # Callback URL from CPX
+                # Timestamps
+                "created_at": created_at.isoformat() if created_at else None,
+                "updated_at": updated_at.isoformat() if updated_at else None,
+                "assigned_at": assigned_at.isoformat() if assigned_at else None,
+                "completed_at": completed_at.isoformat() if completed_at else None,
+                # Raw params
+                "params": record.get("params", {}),
+            }
+            export_records.append(export_record)
+        
+        return {
+            "total_available": total_count,
+            "exported_count": len(export_records),
+            "limit_applied": limit,
+            "filters": {
+                "status": status,
+                "survey_id": survey_id,
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+            "records": export_records
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error exporting traffic records: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Export error: {str(e)}")
+
+
+@router.get("/api/traffic/export/csv")
+async def export_traffic_csv(
+    request: Request,
+    status: Optional[str] = Query(None, description="Filter by status"),
+    survey_id: Optional[str] = Query(None, description="Filter by survey ID"),
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    limit: int = Query(10000, ge=1, le=50000, description="Maximum records to export"),
+):
+    """
+    Export all historic traffic records as CSV
+    
+    Columns:
+    - SFWID, Status, Vendor ID, Country, Respondent ID, Survey ID
+    - Redirect URL, Client URL (Out URL), CPX Callback URL
+    - Created At, Assigned At, Completed At
+    
+    Requires authentication
+    """
+    from fastapi.responses import StreamingResponse
+    import io
+    import csv
+    
+    try:
+        # Verify session
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        if url_parameters_collection is None:
+            raise HTTPException(status_code=503, detail="Traffic collection not initialized")
+        
+        # Build query
+        query = {}
+        
+        if status:
+            query["status"] = status.upper()
+        
+        if survey_id:
+            query["assignedSurveyId"] = survey_id
+        
+        if start_date or end_date:
+            date_query = {}
+            if start_date:
+                try:
+                    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+                    date_query["$gte"] = start_dt
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
+            if end_date:
+                try:
+                    end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+                    end_dt = end_dt.replace(hour=23, minute=59, second=59)
+                    date_query["$lte"] = end_dt
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
+            if date_query:
+                query["createdAt"] = date_query
+        
+        # Fetch records
+        records = list(
+            url_parameters_collection.find(query)
+            .sort("createdAt", -1)
+            .limit(limit)
+        )
+        
+        # Create CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow([
+            "SFWID",
+            "Status",
+            "Vendor ID",
+            "Country Code",
+            "Respondent ID",
+            "Survey ID",
+            "Redirect URL",
+            "Client URL (Out URL)",
+            "CPX Callback URL",
+            "Created At",
+            "Assigned At",
+            "Completed At",
+        ])
+        
+        # Write data rows
+        for record in records:
+            created_at = record.get("createdAt")
+            assigned_at = record.get("assignedAt")
+            completed_at = record.get("completedAt")
+            
+            writer.writerow([
+                str(record.get("_id", "")),
+                record.get("status", ""),
+                record.get("vendorId", ""),
+                record.get("countryCode", ""),
+                record.get("respondentId", ""),
+                record.get("assignedSurveyId", ""),
+                record.get("redirectUrl", ""),
+                record.get("outUrl", ""),
+                record.get("cpxCallbackUrl", ""),
+                created_at.isoformat() if created_at else "",
+                assigned_at.isoformat() if assigned_at else "",
+                completed_at.isoformat() if completed_at else "",
+            ])
+        
+        # Create streaming response
+        output.seek(0)
+        
+        filename = f"traffic_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        return StreamingResponse(
+            io.BytesIO(output.getvalue().encode('utf-8')),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error exporting traffic CSV: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"CSV export error: {str(e)}")
+
