@@ -15,6 +15,7 @@ class TrafficService:
         self,
         traffic_collection: Any,
         surveys_collection: Any,
+        audit_service: Any = None,
     ):
         """
         Initialize Traffic Service
@@ -22,9 +23,11 @@ class TrafficService:
         Args:
             traffic_collection: MongoDB collection for traffic records
             surveys_collection: MongoDB collection for CPX surveys
+            audit_service: Audit service for fingerprinting and logging
         """
         self.traffic_collection = traffic_collection
         self.surveys_collection = surveys_collection
+        self.audit_service = audit_service
     
     def create_traffic_record(
         self,
@@ -33,10 +36,13 @@ class TrafficService:
         respondent_id: str,
         url: str = None,
         user_agent: str = None,
-        params: Dict[str, Any] = None
+        params: Dict[str, Any] = None,
+        ip: str = None,
+        accept_language: str = None,
+        demographic_data: Dict[str, Any] = None
     ) -> str:
         """
-        Create a new traffic record
+        Create a new traffic record with fingerprinting and audit logging
         
         Args:
             vendor_id: Vendor ID (vid parameter)
@@ -45,11 +51,27 @@ class TrafficService:
             url: Full URL that was accessed
             user_agent: Browser user agent
             params: All URL parameters
+            ip: IP address for fingerprinting
+            accept_language: Accept-Language header for fingerprinting
+            demographic_data: Demographics for pre-screen audit (age, gender, device, language)
             
         Returns:
-            MongoDB ObjectId as string
+            MongoDB ObjectId as string or None if blocked
         """
         try:
+            # Generate and check fingerprint
+            fingerprint_hash = None
+            if self.audit_service and ip and user_agent:
+                should_block, fingerprint_record = self.audit_service.check_user_fingerprint(
+                    ip, user_agent, accept_language or ""
+                )
+                
+                if should_block:
+                    print(f"🚫 Blocked repeat attempt from fingerprint: {fingerprint_record.get('fingerprint_hash')[:16]}...")
+                    return None
+                
+                fingerprint_hash = fingerprint_record["fingerprint_hash"]
+            
             traffic_record = {
                 "vendorId": vendor_id,
                 "countryCode": country_code,
@@ -63,10 +85,27 @@ class TrafficService:
                 "assignedSurveyId": None,
                 "redirectUrl": None,
                 "outUrl": None,
+                "fingerprint_hash": fingerprint_hash,
+                "ip_address": ip,
+                "accept_language": accept_language,
             }
+            
+            # Add demographic data if provided
+            if demographic_data:
+                traffic_record.update(demographic_data)
             
             result = self.traffic_collection.insert_one(traffic_record)
             object_id = str(result.inserted_id)
+            
+            # Update fingerprint status if audit service available
+            if self.audit_service and fingerprint_hash:
+                self.audit_service.update_fingerprint_status(
+                    fingerprint_hash, "SENT_TO_CPX", object_id
+                )
+                
+                # Log pre-screen data
+                if demographic_data:
+                    self.audit_service.log_pre_screen_data(object_id, demographic_data)
             
             print(f"✅ Created traffic record: {object_id} (vid={vendor_id}, cc={country_code}, rid={respondent_id})")
             return object_id
@@ -290,6 +329,24 @@ class TrafficService:
                     
                     # Build final redirect URL with additional tracking params
                     redirect_url = f"{entry_link}&clientId={client_id}-{traffic_id}&cc={country_code}"
+                    
+                    # Log redirect out for audit
+                    if self.audit_service:
+                        try:
+                            self.audit_service.log_redirect_out(
+                                user_id=traffic_id,
+                                subid=traffic_id,  # SFWID
+                                url=redirect_url,
+                                params={
+                                    "survey_id": survey_id,
+                                    "traffic_id": traffic_id,
+                                    "respondent_id": respondent_id,
+                                    "country_code": country_code,
+                                    "client_id": client_id
+                                }
+                            )
+                        except Exception as audit_error:
+                            print(f"⚠️ Failed to log redirect_out: {audit_error}")
                     
                     # Assign survey and update status
                     if self.assign_survey_to_traffic(traffic_id, survey_id, redirect_url):

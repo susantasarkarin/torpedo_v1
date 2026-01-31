@@ -41,6 +41,7 @@ cpx_service: Optional[Any] = None
 vendors_collection: Optional[Collection] = None
 cpx_callback_logs_collection: Optional[Collection] = None
 cpx_postback_logs_collection: Optional[Collection] = None  # S2S postback logs for verification
+audit_service: Optional[Any] = None  # CPX audit service for comprehensive tracking
 
 
 def set_url_parameters_collection(collection: Collection):
@@ -83,6 +84,12 @@ def set_cpx_postback_logs_collection(collection: Collection):
     """Set the CPX S2S postback logs collection for verification"""
     global cpx_postback_logs_collection
     cpx_postback_logs_collection = collection
+
+
+def set_audit_service(service: Any):
+    """Set the audit service instance"""
+    global audit_service
+    audit_service = service
 
 
 @router.get("/cint-response")
@@ -270,6 +277,18 @@ async def cpx_callback(
             except Exception as log_error:
                 print(f"⚠️ Failed to log initial callback: {log_error}")
         
+        # ============================================
+        # AUDIT SERVICE: Log redirect in (parameter snapshot)
+        # ============================================
+        if audit_service is not None:
+            try:
+                audit_service.log_redirect_in(
+                    raw_query=dict(request.query_params),
+                    headers=dict(request.headers)
+                )
+            except Exception as audit_error:
+                print(f"⚠️ Failed to log audit redirect_in: {audit_error}")
+        
         # P0.15: CPX Callback Idempotency Check
         # Generate callback key: {click_id}:{conversion_type}:{hour_bucket}
         hour_bucket = datetime.utcnow().strftime("%Y%m%d%H")
@@ -426,11 +445,31 @@ async def cpx_callback(
                 out_url=vendor_redirect_url
             )
         elif url_parameters_collection:
+            # Calculate duration from createdAt to now
+            created_at = traffic_record.get("createdAt")
+            duration_seconds = None
+            screenout_type = None
+            
+            if created_at:
+                duration_delta = datetime.utcnow() - created_at
+                duration_seconds = duration_delta.total_seconds()
+                
+                # Classify screenout type if terminated
+                if new_status == "TERMINATED" and audit_service:
+                    screenout_type = audit_service.classify_screenout(duration_seconds)
+            
             update_data = {
                 "status": new_status,
                 "updatedAt": datetime.utcnow(),
                 "cpxCallbackUrl": str(request.url)
             }
+            
+            # Add duration and screenout classification
+            if duration_seconds is not None:
+                update_data["duration_seconds"] = duration_seconds
+            if screenout_type is not None:
+                update_data["screenout_type"] = screenout_type
+            
             if vendor_redirect_url:
                 update_data["outUrl"] = vendor_redirect_url
             if new_status == "COMPLETE":

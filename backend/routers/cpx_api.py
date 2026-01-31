@@ -37,6 +37,7 @@ survey_transactions_collection = None
 cpx_postback_logs_collection = None
 url_parameters_collection = None  # Traffic records collection
 vendors_collection = None  # Vendors collection
+audit_service = None  # Audit service for validation
 
 
 def set_survey_transactions_collection(collection):
@@ -61,6 +62,12 @@ def set_vendors_collection(collection):
     """Set the vendors MongoDB collection"""
     global vendors_collection
     vendors_collection = collection
+
+
+def set_audit_service(service):
+    """Set the audit service instance"""
+    global audit_service
+    audit_service = service
 
 
 def generate_postback_hash(trans_id: str, status: int, amount_usd: float = 0) -> str:
@@ -198,6 +205,20 @@ async def cpx_postback_handler(
             
             survey_transactions_collection.insert_one(new_transaction)
             logger.info(f"✅ Created transaction: trans_id={trans_id}, status={status}")
+        
+        # ============================================
+        # AUDIT SERVICE: Validate postback consistency
+        # ============================================
+        if audit_service:
+            try:
+                postback_status = "complete" if status == 1 else "canceled"
+                is_valid, error_msg = audit_service.validate_postback(
+                    postback_status, amount_usd or 0
+                )
+                if not is_valid:
+                    logger.warning(f"⚠️ Postback validation failed: {error_msg}")
+            except Exception as audit_error:
+                logger.warning(f"⚠️ Audit validation error: {audit_error}")
         
         # ============================================
         # VENDOR POSTBACK - Forward to vendor server

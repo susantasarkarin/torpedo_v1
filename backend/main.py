@@ -678,6 +678,44 @@ if cpx_surveys_collection is not None and cpx_filters_collection is not None:
     )
     cpx_router.set_cpx_service(cpx_service)
     traffic_router.set_cpx_service(cpx_service)  # Inject CPX service into traffic router for survey allocation
+    
+    # ============================================
+    # Initialize Audit Service for CPX traffic audit
+    # ============================================
+    try:
+        from app.services.audit_service import AuditService
+        from app.routers import audit as audit_router
+        
+        # Create audit collections
+        audit_logs_collection = traffic_db["cpx_audit_logs"]
+        fingerprint_collection = traffic_db["cpx_user_fingerprints"]
+        alerts_collection = traffic_db["cpx_audit_alerts"]
+        
+        # Initialize audit service
+        cpx_audit_service = AuditService(
+            traffic_collection=url_parameters_collection,
+            audit_logs_collection=audit_logs_collection,
+            fingerprint_collection=fingerprint_collection,
+            alerts_collection=alerts_collection
+        )
+        
+        # Inject audit service into routers
+        traffic_router.set_audit_service(cpx_audit_service)
+        audit_router.set_audit_service(cpx_audit_service)
+        
+        # Update traffic service with audit service
+        if traffic_service_instance:
+            traffic_service_instance.audit_service = cpx_audit_service
+        
+        # Include audit router
+        app.include_router(audit_router.router, prefix="/api")
+        
+        print("✅ CPX Audit Service initialized and injected")
+    except Exception as e:
+        print(f"⚠️ CPX Audit Service initialization issue: {e}")
+        import traceback
+        traceback.print_exc()
+    
     app.include_router(cpx_router.router)
     print("✅ CPX Research router initialized")
     print("✅ CPX service injected into traffic router")
@@ -722,6 +760,14 @@ try:
     cpx_api_router.set_cpx_postback_logs_collection(cpx_postback_logs_collection)
     cpx_api_router.set_url_parameters_collection(url_parameters_collection)  # Traffic records
     cpx_api_router.set_vendors_collection(vendors_collection)  # Vendors for postback forwarding
+    
+    # Inject audit service if available
+    try:
+        if 'cpx_audit_service' in locals():
+            cpx_api_router.set_audit_service(cpx_audit_service)
+            print("✅ Audit service injected into CPX API router")
+    except Exception as audit_inject_error:
+        print(f"⚠️ Could not inject audit service into CPX API router: {audit_inject_error}")
     
     # Include the CPX API router (trans_id based flow)
     app.include_router(cpx_api_router.router)
