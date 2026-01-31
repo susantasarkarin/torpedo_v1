@@ -92,7 +92,8 @@ async def cpx_postback_handler(
     status: int = Query(..., description="Status: 1=complete, 2=canceled/fraud"),
     amount_usd: Optional[float] = Query(None, description="Payout in USD"),
     amount_local: Optional[float] = Query(None, description="Payout in local currency"),
-    subid_1: Optional[str] = Query(None, alias="subid", description="Primary sub ID (SFWID)"),
+    subid_1: Optional[str] = Query(None, alias="subid_1", description="Primary sub ID (SFWID)"),
+    subid: Optional[str] = Query(None, alias="subid", description="Legacy primary sub ID (SFWID)"),
     subid_2: Optional[str] = Query(None, description="Secondary sub ID"),
     ip: Optional[str] = Query(None, description="User IP address"),
     offer_id: Optional[str] = Query(None, description="CPX offer/survey ID"),
@@ -103,7 +104,7 @@ async def cpx_postback_handler(
     
     This endpoint ALWAYS returns HTTP 200 (required by CPX).
     
-    URL format: /cpx-postback?trans_id={trans_id}&status={status}&amount_usd={amount}&subid={subid_1}
+    URL format: /cpx-postback?trans_id={trans_id}&status={status}&amount_usd={amount}&subid_1={subid_1}
     
     Status codes:
     - 1 = COMPLETED (successful survey completion)
@@ -117,8 +118,10 @@ async def cpx_postback_handler(
     5. Log postback for monitoring
     6. Return HTTP 200 (always)
     """
+    sfwid = subid_1 or subid
+
     try:
-        logger.info(f"📥 CPX Postback: trans_id={trans_id}, status={status}, amount={amount_usd}")
+        logger.info(f"📥 CPX Postback: trans_id={trans_id}, status={status}, amount={amount_usd}, sfwid={sfwid}")
         
         # Generate postback hash for deduplication
         postback_hash = generate_postback_hash(trans_id, status, amount_usd or 0)
@@ -127,7 +130,7 @@ async def cpx_postback_handler(
         if not validate_cpx_hash(trans_id, status, hash):
             logger.warning(f"⚠️ Invalid hash for trans_id={trans_id}")
             # Still return 200 to not cause CPX retries, but log the issue
-            _log_postback(trans_id, status, amount_usd, subid_1, False, "Invalid hash")
+            _log_postback(trans_id, status, amount_usd, sfwid, False, "Invalid hash")
             return JSONResponse(content={"status": "ok"}, status_code=200)
         
         if survey_transactions_collection is None:
@@ -141,7 +144,7 @@ async def cpx_postback_handler(
             # Check if this is a duplicate (same hash)
             if existing.get("postback_hash") == postback_hash:
                 logger.info(f"⚠️ Duplicate postback ignored for trans_id={trans_id}")
-                _log_postback(trans_id, status, amount_usd, subid_1, True, "Duplicate ignored")
+                _log_postback(trans_id, status, amount_usd, sfwid, True, "Duplicate ignored")
                 return JSONResponse(content={"status": "ok"}, status_code=200)
             
             # Update existing transaction
@@ -180,7 +183,7 @@ async def cpx_postback_handler(
                 "status": "completed" if status == 1 else ("fraud" if status == 2 else "canceled"),
                 "amount_usd": amount_usd,
                 "amount_local": amount_local,
-                "subid": subid_1,
+                "subid": sfwid,
                 "subid_2": subid_2,
                 "survey_id": offer_id,
                 "ip_address": ip,
@@ -204,10 +207,10 @@ async def cpx_postback_handler(
         # 2. Get vendor from traffic record
         # 3. Build vendor postback URL with respondent_id
         # 4. Make async HTTP GET call to vendor's server
-        vendor_postback_result = await _forward_to_vendor(subid_1, status, amount_usd, trans_id)
+        vendor_postback_result = await _forward_to_vendor(sfwid, status, amount_usd, trans_id)
         
         # Log successful postback
-        _log_postback(trans_id, status, amount_usd, subid_1, True, "Processed", vendor_postback_result)
+        _log_postback(trans_id, status, amount_usd, sfwid, True, "Processed", vendor_postback_result)
         
         # ALWAYS return 200
         return JSONResponse(content={"status": "ok"}, status_code=200)
@@ -218,7 +221,7 @@ async def cpx_postback_handler(
         traceback.print_exc()
         
         # Log error but still return 200
-        _log_postback(trans_id, status, amount_usd, subid_1, False, str(e), None)
+        _log_postback(trans_id, status, amount_usd, sfwid, False, str(e), None)
         return JSONResponse(content={"status": "ok"}, status_code=200)
 
 
