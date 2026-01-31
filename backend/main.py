@@ -624,6 +624,32 @@ if url_parameters_collection is not None:
     except Exception as e:
         print(f"⚠️ Survey allocation service injection issue: {e}")
 
+# ============================================
+# CPX Callback/Postback Collections (MUST be before router inclusion)
+# ============================================
+# Inject vendors collection into traffic router for CPX callback handling
+try:
+    traffic_router.set_vendors_collection(vendors_collection)
+    print("✅ Vendors collection injected into traffic router")
+except Exception as e:
+    print(f"⚠️ Vendors collection injection issue: {e}")
+
+# Initialize CPX callback logs collection and inject into traffic router
+try:
+    cpx_callback_logs_collection = traffic_db["cpx_callback_logs"]
+    traffic_router.set_cpx_callback_logs_collection(cpx_callback_logs_collection)
+    print("✅ CPX callback logs collection initialized")
+except Exception as e:
+    print(f"⚠️ CPX callback logs collection issue: {e}")
+
+# Initialize CPX S2S postback logs collection for redirect verification
+try:
+    cpx_postback_logs_for_traffic = traffic_db["cpx_postback_logs"]
+    traffic_router.set_cpx_postback_logs_collection(cpx_postback_logs_for_traffic)
+    print("✅ CPX postback logs injected into traffic router for S2S verification")
+except Exception as e:
+    print(f"⚠️ CPX postback logs injection issue: {e}")
+
 app.include_router(traffic_router.router)
 
 # Finance router for CRUD endpoints used by the frontend
@@ -682,28 +708,6 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
-# Inject vendors collection into traffic router for CPX callback handling
-try:
-    traffic_router.set_vendors_collection(vendors_collection)
-    print("✅ Vendors collection injected into traffic router")
-except Exception as e:
-    print(f"⚠️ Vendors collection injection issue: {e}")
-
-# Initialize CPX callback logs collection and inject into traffic router
-try:
-    cpx_callback_logs_collection = traffic_db["cpx_callback_logs"]
-    traffic_router.set_cpx_callback_logs_collection(cpx_callback_logs_collection)
-    print("✅ CPX callback logs collection initialized")
-except Exception as e:
-    print(f"⚠️ CPX callback logs collection issue: {e}")
-
-# Initialize CPX S2S postback logs collection for redirect verification
-try:
-    cpx_postback_logs_for_traffic = traffic_db["cpx_postback_logs"]
-    traffic_router.set_cpx_postback_logs_collection(cpx_postback_logs_for_traffic)
-    print("✅ CPX postback logs injected into traffic router for S2S verification")
-except Exception as e:
-    print(f"⚠️ CPX postback logs injection issue: {e}")
 
 # ============================================
 # CPX API Router (trans_id based flow - no message_id)
@@ -1260,6 +1264,51 @@ def cint_health_check():
         asyncio.run(_check_and_resubscribe())
 
 
+def refresh_cint_inventory():
+    """
+    Background job to refresh CINT survey inventory from offerwall API.
+    
+    This is a FALLBACK mechanism in case webhooks are not working.
+    Polls the legacy Fulcrum AllOfferwall API and syncs surveys to MongoDB.
+    
+    Runs every 5 minutes (configurable) to ensure fresh survey inventory.
+    """
+    import asyncio
+    
+    async def _fetch_and_sync():
+        try:
+            print(f"🔄 [Cint] Starting survey inventory refresh at {datetime.utcnow().isoformat()}")
+            
+            if not cint_integration or not cint_integration.cint_service:
+                print("⚠️ [Cint] Integration not initialized, skipping refresh")
+                return
+            
+            # Fetch and sync surveys from offerwall API
+            result = await cint_integration.cint_service.sync_surveys_from_offerwall(apply_filters=False)
+            
+            if result.get("success"):
+                fetched = result.get("stats", {}).get("fetched", 0)
+                stored = result.get("stats", {}).get("stored", 0)
+                print(f"✅ [Cint] Refresh complete: {fetched} fetched, {stored} stored/updated")
+            else:
+                print(f"⚠️ [Cint] Refresh returned no success: {result}")
+                
+        except Exception as e:
+            print(f"❌ [Cint] Inventory refresh failed: {str(e)}")
+            traceback.print_exc()
+    
+    # Run the async function
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(_fetch_and_sync())
+        else:
+            loop.run_until_complete(_fetch_and_sync())
+    except RuntimeError:
+        # No event loop, create one
+        asyncio.run(_fetch_and_sync())
+
+
 def background_survey_sync():
     """
     Background job to sync and activate surveys from CPX/CINT pools.
@@ -1559,6 +1608,27 @@ async def startup_event():
         print(f"⚠️ Could not schedule Cint health check job: {e}")
     
     # ----------------------------
+    # Cint Survey Inventory Refresh (every 5 minutes - fallback for webhooks)
+    # ----------------------------
+    try:
+        if scheduler.running and cint_integration and cint_integration.cint_service:
+            scheduler.add_job(
+                refresh_cint_inventory,
+                IntervalTrigger(seconds=300),  # Every 5 minutes
+                id="cint_inventory_refresh",
+                name="Cint Survey Inventory Refresh",
+                replace_existing=True
+            )
+            print("✅ Cint inventory refresh job scheduled (every 5 minutes)")
+            
+            # Schedule initial fetch as background task (non-blocking)
+            import asyncio
+            asyncio.create_task(asyncio.to_thread(refresh_cint_inventory))
+            print("🚀 Initial Cint survey fetch scheduled (running in background)")
+    except Exception as e:
+        print(f"⚠️ Could not schedule Cint inventory refresh job: {e}")
+    
+    # ----------------------------
     # Survey Pool Sync & Activation (every 10 minutes)
     # ----------------------------
     try:
@@ -1689,6 +1759,7 @@ async def startup_event():
     print("🔄 BACKGROUND JOBS:")
     if scheduler.running:
         print(f"   • CPX Survey Refresh: Active (every {filter_settings.get('refresh_interval_seconds', 60)}s)")
+        print("   • Cint Survey Refresh: Active (every 5 minutes)")
         print("   • Gmail Background Sync: Active (every 5 minutes)")
         print("   • Historic Email Backfill: Active (every 30 seconds, rate-limited)")
         if email_classify_enabled:
@@ -1697,6 +1768,7 @@ async def startup_event():
             print("   • Email Classification: Disabled (EMAIL_CLASSIFICATION_ENABLED=false)")
     else:
         print("   • CPX Survey Refresh: Inactive")
+        print("   • Cint Survey Refresh: Inactive")
     # Check email sync workers status
     try:
         try:
