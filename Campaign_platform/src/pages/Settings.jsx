@@ -7,7 +7,7 @@ import { API_BASE_URL, buildApiUrl } from "../config"
 import "./Settings.css"
 
 // Helper to get auth token - handles both storage methods
-const getAuthToken = () => localStorage.getItem("session_id") || getAuthToken()
+const getAuthToken = () => localStorage.getItem("session_id")
 
 // Helper to extract error message from various error response formats
 const getErrorMessage = (error, fallback = "An error occurred") => {
@@ -2126,16 +2126,6 @@ function Settings() {
               </div>
             )}
 
-            <style jsx>{`
-               .settings-modal-overlay {
-                  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-                  background: rgba(0,0,0,0.5); display: flex; alignItems: center; justifyContent: center; zIndex: 1000;
-               }
-               .settings-modal {
-                  background: white; padding: 2rem; borderRadius: 8px; width: 800px; maxWidth: 90%;
-                  maxHeight: 90vh; overflow: auto;
-               }
-            `}</style>
           </div>
         )}
       </div>
@@ -2220,16 +2210,6 @@ function Settings() {
               </div>
             )}
             
-            <style jsx>{`
-               .settings-modal-overlay {
-                  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-                  background: rgba(0,0,0,0.5); display: flex; alignItems: center; justifyContent: center; zIndex: 1000;
-               }
-               .settings-modal {
-                  background: white; padding: 2rem; borderRadius: 8px; width: 800px; maxWidth: 90%;
-                  maxHeight: 90vh; overflow: auto;
-               }
-            `}</style>
           </div>
         )}
       </div>
