@@ -177,17 +177,25 @@ async def cint_callback(
 @router.get("/cpx-response")
 async def cpx_callback(
     request: Request,
-    msg: str = Query(None, description="Response type: complete or out"),
+    msg: str = Query(None, description="Response type: complete or out (can also be message_id)"),
+    status: str = Query(None, description="Response status: complete or out (alternative to msg)"),
+    message_id: str = Query(None, description="Message ID (alternative identifier)"),
     trans_id: str = Query(None, description="Transaction ID (preferred, replaces message_id)"),
     rid: str = Query(None, description="CPX respondent ID (optional, for backwards compatibility)"),
-    sfwid: str = Query(None, description="SFWID passed via subid_1 from CPX - PRIMARY identifier")
+    sfwid: str = Query(None, description="SFWID passed via subid_1 from CPX - PRIMARY identifier"),
+    subid_1: Optional[str] = Query(None, alias="subid_1", description="Legacy subid_1 (SFWID)"),
+    subid: Optional[str] = Query(None, alias="subid", description="Legacy subid (SFWID)")
 ):
     """
     CPX Survey Callback Handler (LEGACY - prefer /cpx-api/cpx-postback for new integrations)
     
-    URL format: /cpx-response?msg={type}&trans_id={trans_id}&sfwid={subid_1}
+    URL formats supported:
+    - /cpx-response?msg={type}&trans_id={trans_id}&sfwid={subid_1}
+    - /cpx-response?msg={message_id}&status={status}&sfwid={subid_1}
     
-    - msg: "complete" or "out" (terminate)
+    - msg: "complete" or "out" (terminate) OR can be message_id
+    - status: "complete" or "out" (alternative to msg for status)
+    - message_id: Message identifier
     - trans_id: Transaction ID (preferred identifier, replaces message_id)
     - sfwid: The SFWID (traffic record _id) passed via subid_1 - PRIMARY identifier
     
@@ -199,19 +207,30 @@ async def cpx_callback(
     5. Update traffic status and redirect to vendor
     """
     try:
-        # Support 'msg' parameter for status (message_id alias removed)
-        status_code = msg or "out"
+        # Priority for status: 'status' param > 'msg' param (if it looks like a status) > default to "out"
+        # The 'status' param is the explicit status indicator
+        # The 'msg' param can be either status type OR a message_id
+        if status:
+            # Explicit status parameter provided
+            status_code = status
+        elif msg and msg.lower() in ["complete", "out", "terminate", "quotafull", "quality_terminate"]:
+            # msg looks like a status value
+            status_code = msg
+        else:
+            # Default to "out" (terminate)
+            status_code = "out"
         
-        print(f"📥 CPX Callback received: msg={status_code}, trans_id={trans_id}, rid={rid}, sfwid={sfwid}")
+        resolved_sfwid = sfwid or subid_1 or subid
+        print(f"📥 CPX Callback received: msg={msg}, status={status}, resolved_status={status_code}, trans_id={trans_id}, message_id={message_id}, rid={rid}, sfwid={resolved_sfwid}")
         print(f"📥 Full callback URL: {request.url}")
         
         # sfwid from subid_1 is the PRIMARY identifier - it contains the SFWID (traffic record _id)
-        if not sfwid:
+        if not resolved_sfwid:
             print(f"❌ Missing sfwid parameter - cannot identify traffic record")
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
-        decoded_sfwid = sfwid
-        print(f"✅ Using sfwid from subid_1: {sfwid}")
+        decoded_sfwid = resolved_sfwid
+        print(f"✅ Using sfwid from query params: {decoded_sfwid}")
         
         # Determine status based on msg ("out" treated as terminate)
         if status_code.lower() == "complete":
@@ -220,6 +239,36 @@ async def cpx_callback(
         else:  # "out" = terminate
             new_status = "TERMINATED"
             redirect_type = "terminateRD"
+        
+        # ============================================
+        # IMMEDIATE CALLBACK LOGGING: Log every callback attempt for monitoring
+        # This ensures visibility even if verification fails or times out
+        # ============================================
+        initial_log_id = None
+        if cpx_callback_logs_collection is not None:
+            try:
+                initial_log_entry = {
+                    "timestamp": datetime.utcnow(),
+                    "callback_url": str(request.url),
+                    "msg_param": msg,
+                    "status_param": status,
+                    "status_code": status_code,
+                    "new_status": new_status,
+                    "redirect_type": redirect_type,
+                    "decoded_sfwid": decoded_sfwid,
+                    "rid_received": rid,
+                    "trans_id": trans_id,
+                    "message_id": message_id,
+                    "event": "callback_received",
+                    "processing_status": "pending",
+                    "success": False,  # Will be updated after successful processing
+                    "verified": False  # Will be updated after postback verification
+                }
+                result = cpx_callback_logs_collection.insert_one(initial_log_entry)
+                initial_log_id = result.inserted_id
+                print(f"📝 Logged initial callback receipt: {initial_log_id}")
+            except Exception as log_error:
+                print(f"⚠️ Failed to log initial callback: {log_error}")
         
         # P0.15: CPX Callback Idempotency Check
         # Generate callback key: {click_id}:{conversion_type}:{hour_bucket}
@@ -241,98 +290,13 @@ async def cpx_callback(
                 return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
         # ============================================
-        # POSTBACK VERIFICATION: Verify S2S postback was received before trusting redirect
-        # The S2S postback is the authoritative source (has hash validation)
-        # The user redirect URL can be spoofed, so we verify against postback
+        # POSTBACK VERIFICATION: DISABLED
+        # The redirect URL is now the primary source of truth
+        # S2S postback verification has been permanently disabled
         # ============================================
-        postback_verified = False
-        verified_status = None
-        
-        if cpx_postback_logs_collection is not None:
-            # Look up the S2S postback by subid (which contains the sfwid)
-            postback_record = cpx_postback_logs_collection.find_one({
-                "subid": decoded_sfwid,
-                "success": True
-            })
-            
-            if postback_record:
-                postback_verified = True
-                cpx_status = postback_record.get("cpx_status")
-                # CPX status: 1 = complete, 2 = fraud/canceled
-                if cpx_status == 1:
-                    verified_status = "COMPLETE"
-                    redirect_type = "completeRD"
-                else:
-                    verified_status = "TERMINATED"
-                    redirect_type = "terminateRD"
-                print(f"✅ Postback verified for sfwid={decoded_sfwid}, cpx_status={cpx_status}, verified_status={verified_status}")
-                new_status = verified_status
-            else:
-                print(f"⚠️ No postback found for sfwid={decoded_sfwid}, checking retry count...")
-                
-                # Check retry count from query param (for auto-refresh retries)
-                retry_count = 0
-                try:
-                    retry_param = request.query_params.get("_retry", "0")
-                    retry_count = int(retry_param)
-                except (ValueError, TypeError):
-                    retry_count = 0
-                
-                if retry_count < 3:
-                    # Postback not yet received - show processing page with auto-refresh
-                    next_retry = retry_count + 1
-                    # Build retry URL with incremented counter
-                    retry_url = str(request.url)
-                    if "_retry=" in retry_url:
-                        import re
-                        retry_url = re.sub(r'_retry=\d+', f'_retry={next_retry}', retry_url)
-                    else:
-                        separator = "&" if "?" in retry_url else "?"
-                        retry_url = f"{retry_url}{separator}_retry={next_retry}"
-                    
-                    print(f"⏳ Waiting for postback, retry {next_retry}/3 in 5 seconds...")
-                    
-                    # Return HTML page with auto-refresh
-                    from fastapi.responses import HTMLResponse
-                    html_content = f"""
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <title>Processing...</title>
-                        <meta http-equiv="refresh" content="5;url={retry_url}">
-                        <style>
-                            body {{ font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f5f5f5; }}
-                            .container {{ text-align: center; padding: 40px; background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
-                            .spinner {{ border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin: 0 auto 20px; }}
-                            @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
-                        </style>
-                    </head>
-                    <body>
-                        <div class="container">
-                            <div class="spinner"></div>
-                            <h2>Processing your survey completion...</h2>
-                            <p>Please wait while we verify your response.</p>
-                            <p style="color: #888; font-size: 12px;">Attempt {next_retry} of 3</p>
-                        </div>
-                    </body>
-                    </html>
-                    """
-                    return HTMLResponse(content=html_content, status_code=200)
-                else:
-                    # Max retries reached - postback never arrived
-                    print(f"❌ Postback verification failed after 3 retries for sfwid={decoded_sfwid}")
-                    # Log this for investigation
-                    if cpx_callback_logs_collection is not None:
-                        cpx_callback_logs_collection.insert_one({
-                            "sfwid": decoded_sfwid,
-                            "event": "postback_verification_timeout",
-                            "msg_from_url": status_code,
-                            "timestamp": datetime.utcnow(),
-                            "retries": retry_count
-                        })
-                    return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?reason=verification_timeout")
-        else:
-            print(f"⚠️ cpx_postback_logs_collection not available, proceeding without verification")
+        postback_verified = False  # Not using postback verification
+        print(f"ℹ️ Postback verification disabled - proceeding directly with redirect flow")
+        print(f"📋 Processing redirect: sfwid={decoded_sfwid}, status={new_status}, redirect_type={redirect_type}")
         
         # Step 1: Find the traffic record by _id (SFWID)
         traffic_record = None
@@ -479,30 +443,60 @@ async def cpx_callback(
         
         print(f"✅ Updated traffic record {traffic_id} status to {new_status}")
         
-        # Step 6: Log the callback for monitoring
-        log_entry = {
-            "timestamp": datetime.utcnow(),
-            "callback_key": callback_key,  # P0.15: Idempotency key for deduplication
-            "callback_url": str(request.url),
-            "rid_received": rid,
-            "decoded_sfwid": decoded_sfwid,
-            "status_code": status_code,
-            "new_status": new_status,
-            "traffic_found": True,
-            "traffic_id": traffic_id,
-            "vendor_id": vendor_id,
-            "respondent_id": original_respondent_id,
-            "vendor_found": vendor is not None,
-            "vendor_name": vendor.get("vendorName") if vendor else None,
-            "redirect_type": redirect_type,
-            "vendor_redirect_url": vendor_redirect_url,
-            "success": vendor_redirect_url is not None
-        }
-        
-        if cpx_callback_logs_collection is not None:
+        # Step 6: Update the initial callback log with complete processing details
+        if cpx_callback_logs_collection is not None and initial_log_id:
             try:
+                update_fields = {
+                    "callback_key": callback_key,  # P0.15: Idempotency key for deduplication
+                    "event": "callback_processed",
+                    "processing_status": "completed",
+                    "traffic_found": True,
+                    "traffic_id": traffic_id,
+                    "vendor_id": vendor_id,
+                    "respondent_id": original_respondent_id,
+                    "vendor_found": vendor is not None,
+                    "vendor_name": vendor.get("vendorName") if vendor else None,
+                    "vendor_redirect_url": vendor_redirect_url,
+                    "success": vendor_redirect_url is not None,
+                    "verified": postback_verified,
+                    "completed_at": datetime.utcnow()
+                }
+                cpx_callback_logs_collection.update_one(
+                    {"_id": initial_log_id},
+                    {"$set": update_fields}
+                )
+                print(f"📝 Updated CPX callback log with processing result")
+            except Exception as log_error:
+                print(f"⚠️ Failed to update callback log: {log_error}")
+        elif cpx_callback_logs_collection is not None:
+            # Fallback: insert new log if initial_log_id is not available
+            try:
+                log_entry = {
+                    "timestamp": datetime.utcnow(),
+                    "callback_key": callback_key,
+                    "callback_url": str(request.url),
+                    "msg_param": msg,
+                    "status_param": status,
+                    "message_id_param": message_id,
+                    "rid_received": rid,
+                    "decoded_sfwid": decoded_sfwid,
+                    "status_code": status_code,
+                    "new_status": new_status,
+                    "redirect_type": redirect_type,
+                    "event": "callback_processed",
+                    "processing_status": "completed",
+                    "traffic_found": True,
+                    "traffic_id": traffic_id,
+                    "vendor_id": vendor_id,
+                    "respondent_id": original_respondent_id,
+                    "vendor_found": vendor is not None,
+                    "vendor_name": vendor.get("vendorName") if vendor else None,
+                    "vendor_redirect_url": vendor_redirect_url,
+                    "success": vendor_redirect_url is not None,
+                    "verified": postback_verified
+                }
                 cpx_callback_logs_collection.insert_one(log_entry)
-                print(f"📝 Logged CPX callback")
+                print(f"📝 Logged CPX callback (fallback insert)")
             except Exception as log_error:
                 print(f"⚠️ Failed to log callback: {log_error}")
         
@@ -524,9 +518,15 @@ async def cpx_callback(
         error_log = {
             "timestamp": datetime.utcnow(),
             "callback_url": str(request.url),
+            "msg_param": msg,
+            "status_param": status,
+            "message_id_param": message_id,
             "rid_received": rid,
             "trans_id": trans_id,
-            "status_code": msg or "unknown",
+            "sfwid_param": sfwid,
+            "subid_1_param": subid_1,
+            "subid_param": subid,
+            "status_code": status or msg or "unknown",
             "traffic_found": False,
             "success": False,
             "error": str(e),
