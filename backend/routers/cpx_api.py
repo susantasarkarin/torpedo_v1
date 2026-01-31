@@ -99,8 +99,8 @@ async def cpx_postback_handler(
     status: int = Query(..., description="Status: 1=complete, 2=canceled/fraud"),
     amount_usd: Optional[float] = Query(None, description="Payout in USD"),
     amount_local: Optional[float] = Query(None, description="Payout in local currency"),
-    subid_1: Optional[str] = Query(None, alias="subid_1", description="Primary sub ID (SFWID)"),
-    subid: Optional[str] = Query(None, alias="subid", description="Legacy primary sub ID (SFWID)"),
+    subid_1: Optional[str] = Query(None, alias="subid_1", description="Primary sub ID (SFWID) - preferred"),
+    subid: Optional[str] = Query(None, alias="subid", description="Legacy sub ID (SFWID) - fallback for backwards compatibility"),
     subid_2: Optional[str] = Query(None, description="Secondary sub ID"),
     ip: Optional[str] = Query(None, description="User IP address"),
     offer_id: Optional[str] = Query(None, description="CPX offer/survey ID"),
@@ -112,6 +112,11 @@ async def cpx_postback_handler(
     This endpoint ALWAYS returns HTTP 200 (required by CPX).
     
     URL format: /cpx-postback?trans_id={trans_id}&status={status}&amount_usd={amount}&subid_1={subid_1}
+    
+    Parameter precedence for SFWID:
+    - subid_1 is preferred (standard CPX parameter name)
+    - subid is fallback for backwards compatibility
+    - Only one should be provided, but if both are present, subid_1 takes precedence
     
     Status codes:
     - 1 = COMPLETED (successful survey completion)

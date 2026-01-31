@@ -455,8 +455,17 @@ async def cpx_callback(
                 duration_seconds = duration_delta.total_seconds()
                 
                 # Classify screenout type if terminated
-                if new_status == "TERMINATED" and audit_service:
-                    screenout_type = audit_service.classify_screenout(duration_seconds)
+                if new_status == "TERMINATED":
+                    if audit_service:
+                        screenout_type = audit_service.classify_screenout(duration_seconds)
+                    else:
+                        # Provide default classification if audit service unavailable
+                        if duration_seconds < 5:
+                            screenout_type = "IMMEDIATE_REJECT"
+                        elif duration_seconds < 30:
+                            screenout_type = "SCREENER_FAIL"
+                        else:
+                            screenout_type = "QUALITY_REJECT"
             
             update_data = {
                 "status": new_status,

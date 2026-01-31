@@ -120,16 +120,19 @@ def test_postback_validation():
     # Valid complete with payout
     is_valid, error = validate_postback("complete", 2.50)
     assert is_valid, "Complete with payout should be valid"
+    assert error is None, "Error should be None for valid postback"
     print(f"   ✅ Complete + $2.50 payout -> Valid")
     
     # Invalid complete without payout
     is_valid, error = validate_postback("complete", 0)
     assert not is_valid, "Complete without payout should be invalid"
+    assert error is not None, "Error should be set for invalid postback"
     print(f"   ✅ Complete + $0 payout -> Invalid: {error}")
     
     # Terminated with 0 payout is OK
     is_valid, error = validate_postback("terminated", 0)
     assert is_valid, "Terminated with 0 payout should be valid"
+    assert error is None, "Error should be None for valid postback"
     print(f"   ✅ Terminated + $0 payout -> Valid")
 
 

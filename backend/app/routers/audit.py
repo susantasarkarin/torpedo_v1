@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 router = APIRouter(prefix="/audit", tags=["audit"])
 
 # Service instance (will be injected from main.py)
-audit_service: Optional[Any] = None
+audit_service: Optional['AuditService'] = None  # Type hint for better IDE support
 
 
 def set_audit_service(service: Any):

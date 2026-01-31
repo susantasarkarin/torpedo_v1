@@ -131,12 +131,14 @@ class AuditService:
         status = fingerprint_record.get("status", "NEW")
         
         # HARD ASSERTION: Block if user already attempted CPX
-        if attempt_count >= 1 and status in ["SENT_TO_CPX", "SCREENED_OUT", "COMPLETED"]:
+        # Note: attempt_count > 1 means this is a repeat attempt
+        # Status check ensures we're not blocking legitimate first attempts
+        if attempt_count > 1:
             self._log_audit_event("user_blocked_repeat_attempt", {
                 "fingerprint_hash": fingerprint_hash,
                 "attempt_count": attempt_count,
                 "status": status,
-                "reason": "User already attempted CPX"
+                "reason": "User has multiple CPX attempts"
             })
             return True, fingerprint_record
         

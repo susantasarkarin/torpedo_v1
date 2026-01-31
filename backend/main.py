@@ -762,12 +762,15 @@ try:
     cpx_api_router.set_vendors_collection(vendors_collection)  # Vendors for postback forwarding
     
     # Inject audit service if available
+    audit_service_initialized = False
     try:
         if 'cpx_audit_service' in locals():
             cpx_api_router.set_audit_service(cpx_audit_service)
+            audit_service_initialized = True
             print("✅ Audit service injected into CPX API router")
     except Exception as audit_inject_error:
         print(f"⚠️ Could not inject audit service into CPX API router: {audit_inject_error}")
+        audit_service_initialized = False
     
     # Include the CPX API router (trans_id based flow)
     app.include_router(cpx_api_router.router)
