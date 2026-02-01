@@ -317,17 +317,14 @@ async def cpx_callback(
                 except Exception as e:
                     print(f"⚠️ ObjectId search failed for {search_val}: {e}")
                 
-                # Try as string _id
+                # Try as string _id (same field, different format)
                 if not traffic_record:
                     traffic_record = url_parameters_collection.find_one({"_id": search_val})
                     if traffic_record:
                         print(f"✅ Found traffic record by string _id: {search_val}")
                 
-                # Try by respondentId as fallback
-                if not traffic_record:
-                    traffic_record = url_parameters_collection.find_one({"respondentId": search_val})
-                    if traffic_record:
-                        print(f"✅ Found traffic record by respondentId: {search_val}")
+                # NOTE: respondentId fallback REMOVED - violates deterministic mapping
+                # SFWID must resolve to exactly one traffic record via _id field only
         
         if not traffic_record:
             print(f"❌ No traffic record found for SFWID: {decoded_sfwid}")

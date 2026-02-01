@@ -672,6 +672,7 @@ def fetch_cpx_surveys(
         # CPX API settings
         cpx_app_id = os.getenv('CPX_APP_ID', '')
         cpx_hash_key = os.getenv('CPX_HASH_KEY', '')
+        cpx_ext_user_id = os.getenv('CPX_EXT_USER_ID', 'PANEL_88921')  # Default ext_user_id
         cpx_api_url = os.getenv('CPX_API_URL', 'https://live-api.cpx-research.com/api/get-surveys.php')
         
         if not cpx_app_id or not cpx_hash_key:
@@ -682,12 +683,17 @@ def fetch_cpx_surveys(
                 'task_id': task_id
             }
         
-        # Fetch surveys from CPX API
-        # Note: This is a simplified version - real implementation uses CPXService
+        # Generate secure_hash per CPX API docs: MD5(ext_user_id + "-" + secure_hash_key)
+        import hashlib
+        secure_hash = hashlib.md5(f"{cpx_ext_user_id}-{cpx_hash_key}".encode()).hexdigest()
+        
+        # Fetch surveys from CPX API with correct parameters per API documentation
         params = {
             'app_id': cpx_app_id,
-            'hash': cpx_hash_key,
+            'ext_user_id': cpx_ext_user_id,
+            'secure_hash': secure_hash,
             'output_method': 'api',
+            'limit': 100,
         }
         
         try:
@@ -735,6 +741,22 @@ def fetch_cpx_surveys(
                 upsert=True
             )
             stored += 1
+        
+        # Sync active status based on filter settings
+        # Required: new surveys default to is_active_in_pool=False
+        # Without this sync, new surveys cannot be allocated
+        try:
+            from app.services.cpx_service import CPXService
+            cpx_service = CPXService(
+                app_id=cpx_app_id,
+                ext_user_id=cpx_ext_user_id,
+                secure_hash_key=cpx_hash_key,
+                surveys_collection=cpx_surveys_coll
+            )
+            sync_result = cpx_service.sync_active_status_by_filters()
+            logger.info(f"Synced active status: {sync_result.get('active', 0)} active, {sync_result.get('inactive', 0)} inactive")
+        except Exception as sync_err:
+            logger.warning(f"Failed to sync active status: {sync_err}")
         
         # Broadcast to WebSocket clients
         self.update_state(

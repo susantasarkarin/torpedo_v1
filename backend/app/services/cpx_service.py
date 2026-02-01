@@ -11,7 +11,7 @@ class CPXService:
     """Service to interact with CPX Research API"""
     
     BASE_URL = "https://live-api.cpx-research.com/api/get-surveys.php"
-    ENTRY_URL = "https://offers.cpx-research.com/index.php"  # Direct entry URL for survey redirects
+    CLICK_URL = "https://click.cpx-research.com/"
     
     def __init__(
         self,
@@ -111,82 +111,251 @@ class CPXService:
         respondent_id: str,
         subid_1: Optional[str] = None,
         subid_2: Optional[str] = None,
-        href: Optional[str] = None,  # CPX click-tracking URL from API
+        href: Optional[str] = None,
         username: Optional[str] = None,
         email: Optional[str] = None,
-        live_link: Optional[str] = None,  # Not used
+        live_link: Optional[str] = None,
     ) -> str:
         """
-        Generate CPX survey entry link using the CPX-provided href URL.
+        DEPRECATED — DO NOT USE.
+        Breaks CPX user-based API contract by reusing href URLs tied to master ext_user_id.
         
-        The href URL from CPX API (click.cpx-research.com) contains an encrypted
-        survey identifier. We append subid_1 (respondent_id) for callback tracking.
+        Use generate_respondent_entry_link() instead, which generates a fresh secure hash
+        per respondent and constructs proper click.cpx-research.com URLs.
         
-        URL format from CPX:
-        https://click.cpx-research.com/?k=ENCRYPTED&subid_1=&subid_2=
-        
-        Args:
-            survey_id: The CPX survey ID
-            respondent_id: The respondent ID for tracking (used as subid_1)
-            subid_1: Optional tracking parameter (defaults to respondent_id)
-            subid_2: Optional tracking parameter
-            href: CPX click-tracking URL from API payload
-            username: Optional username (not used)
-            email: Optional email (not used)
-            live_link: Not used
-            
-        Returns:
-            CPX entry URL with subid_1/subid_2 populated for callback tracking
+        This method is retained for backward compatibility but logs deprecation warnings.
         """
-        if not survey_id or not respondent_id:
-            return ""
-        
-        if not href:
-            return ""
-        
-        # Parse the CPX href URL and populate subid_1/subid_2 for callback tracking
-        from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
-        
-        parsed = urlparse(href)
-        query_params = parse_qs(parsed.query, keep_blank_values=True)
-        
-        # Populate subid_1 with respondent_id for callback tracking
-        query_params['subid_1'] = [subid_1 or respondent_id]
-        if subid_2:
-            query_params['subid_2'] = [subid_2]
-        
-        # Flatten query params (parse_qs returns lists)
-        flat_params = {k: v[0] if isinstance(v, list) and len(v) == 1 else v for k, v in query_params.items()}
-        
-        new_query = urlencode(flat_params, doseq=True)
-        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', new_query, ''))
-    
-    def generate_entry_link_template(self, survey_id: str) -> str:
-        """
-        Generate a template entry link with placeholders for runtime substitution.
-        Used for display purposes - actual values should be substituted at allocation time.
-        
-        Template format per CPX documentation:
-        https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&secure_hash={secure_hash}&survey_id={survey_id}
-        
-        Args:
-            survey_id: The CPX survey ID
-            
-        Returns:
-            Entry URL template with placeholders
-        """
-        if not survey_id:
-            return ""
-            
-        template = (
-            f"{self.ENTRY_URL}"
-            f"?app_id={self.app_id}"
-            f"&ext_user_id={{ext_user_id}}"
-            f"&secure_hash={{secure_hash}}"
-            f"&survey_id={survey_id}"
-            f"&subid_1={{subid_1}}"
+        import warnings
+        warnings.warn(
+            "generate_entry_link() is DEPRECATED. Use generate_respondent_entry_link() instead. "
+            "Reusing CPX href URLs breaks the user-based API contract.",
+            DeprecationWarning,
+            stacklevel=2
         )
-        return template
+        print("⚠️  DEPRECATED: generate_entry_link() called - this breaks CPX compliance!")
+        print("⚠️  Use generate_respondent_entry_link(survey_id, respondent_id) instead.")
+        
+        # Fallback to new correct method
+        if survey_id and respondent_id:
+            return self.generate_respondent_entry_link(survey_id, respondent_id)
+        return ""
+    
+    def generate_respondent_entry_link(
+        self,
+        survey_id: str,
+        respondent_id: str,  # SFWID - Survey Field Work ID
+    ) -> str:
+        """
+        Generate a unique CPX entry link for a specific respondent.
+        
+        This is the CORRECT method for CPX integration. It generates a fresh
+        secure hash per respondent and constructs the entry URL dynamically.
+        
+        CPX API is user-based: any href returned by get-surveys.php is tied to
+        the ext_user_id used in that API call and MUST NOT be reused.
+        
+        URL format:
+        https://click.cpx-research.com/
+            ?app_id={app_id}
+            &ext_user_id={SFWID}
+            &secure_hash={MD5(SFWID-secure_hash_key)}
+            &survey_id={survey_id}
+            &subid_1={SFWID}
+            &subid_2={SFWID}
+        
+        Args:
+            survey_id: The CPX survey ID to link to
+            respondent_id: The respondent's SFWID (Survey Field Work ID)
+            
+        Returns:
+            Fully qualified CPX entry URL unique to this respondent
+            
+        Raises:
+            ValueError: If survey_id or respondent_id is empty
+        """
+        # Validate inputs - fail loudly if missing
+        if not survey_id:
+            raise ValueError("survey_id is required for CPX entry link generation")
+        if not respondent_id:
+            raise ValueError("respondent_id (SFWID) is required for CPX entry link generation")
+        
+        # Generate fresh secure hash for THIS respondent
+        # Hash formula: MD5(ext_user_id-secure_hash_key)
+        # ext_user_id = respondent SFWID (NOT the master ext_user_id)
+        secure_hash = self._generate_secure_hash(
+            ext_user_id=respondent_id,
+            secure_hash_key=self.secure_hash_key
+        )
+        
+        # Build query parameters - SFWID used everywhere per spec
+        params = {
+            "app_id": self.app_id,
+            "ext_user_id": respondent_id,  # SFWID
+            "secure_hash": secure_hash,
+            "survey_id": survey_id,
+            "subid_1": respondent_id,  # SFWID for callback tracking
+            "subid_2": respondent_id,  # SFWID for callback tracking
+        }
+        
+        # Construct the full URL
+        query_string = urlencode(params)
+        entry_link = f"{self.CLICK_URL}?{query_string}"
+        
+        print(f"🔗 Generated CPX entry link for respondent {respondent_id}, survey {survey_id}")
+        return entry_link
+    
+    def allocate_survey_for_respondent(
+        self,
+        respondent_id: str,  # SFWID
+        survey_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Allocate a CPX survey to a respondent and generate their unique entry link.
+        
+        This method:
+        1. Validates the respondent_id (SFWID) is non-empty
+        2. Selects a survey (by survey_id or from active pool)
+        3. Validates the survey exists and is_active_in_pool=true
+        4. Generates entry link using generate_respondent_entry_link()
+        5. Increments click counters on the survey
+        6. Returns a clean allocation response
+        
+        IMPORTANT: This method does NOT call the CPX API. It only uses cached
+        survey metadata and generates entry links dynamically.
+        
+        Args:
+            respondent_id: The respondent's SFWID (Survey Field Work ID) - REQUIRED
+            survey_id: Optional specific survey ID to allocate. If not provided,
+                      a random active survey is selected.
+        
+        Returns:
+            Dictionary with allocation details:
+            {
+                "success": bool,
+                "entry_link": str,
+                "survey_id": str,
+                "respondent_id": str,
+                "survey": dict,  # Survey metadata (loi, payout, etc.)
+                "error": str  # Only present if success=False
+            }
+            
+        Raises:
+            ValueError: If respondent_id is empty
+        """
+        # Validate respondent_id is non-empty
+        if not respondent_id:
+            raise ValueError("respondent_id (SFWID) is required for CPX allocation")
+        
+        if self.cpx_surveys_collection is None:
+            return {
+                "success": False,
+                "error": "CPX surveys collection not initialized",
+                "entry_link": "",
+                "survey_id": "",
+                "respondent_id": respondent_id,
+            }
+        
+        try:
+            # Build query for active surveys
+            query = {"is_active_in_pool": True}
+            
+            if survey_id:
+                # Specific survey requested - validate it exists and is active
+                query["_id"] = survey_id
+                survey = self.cpx_surveys_collection.find_one(query)
+                
+                if not survey:
+                    # Check if survey exists but is inactive
+                    inactive_survey = self.cpx_surveys_collection.find_one({"_id": survey_id})
+                    if inactive_survey:
+                        return {
+                            "success": False,
+                            "error": f"Survey {survey_id} exists but is not active in pool",
+                            "entry_link": "",
+                            "survey_id": survey_id,
+                            "respondent_id": respondent_id,
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "error": f"Survey {survey_id} not found",
+                            "entry_link": "",
+                            "survey_id": survey_id,
+                            "respondent_id": respondent_id,
+                        }
+            else:
+                # No specific survey - pick one from active pool
+                # Use aggregation with $sample for random selection
+                pipeline = [
+                    {"$match": query},
+                    {"$sample": {"size": 1}}
+                ]
+                result = list(self.cpx_surveys_collection.aggregate(pipeline))
+                
+                if not result:
+                    return {
+                        "success": False,
+                        "error": "No active surveys available in pool",
+                        "entry_link": "",
+                        "survey_id": "",
+                        "respondent_id": respondent_id,
+                    }
+                
+                survey = result[0]
+            
+            # Extract survey_id from the selected survey
+            allocated_survey_id = str(survey.get("_id") or survey.get("survey_id"))
+            
+            # Generate unique entry link for this respondent
+            # This generates a fresh secure hash - NO reuse of cached href
+            entry_link = self.generate_respondent_entry_link(
+                survey_id=allocated_survey_id,
+                respondent_id=respondent_id
+            )
+            
+            # Increment click counter and update last_clicked_at
+            self.cpx_surveys_collection.update_one(
+                {"_id": allocated_survey_id},
+                {
+                    "$inc": {"click_count": 1},
+                    "$set": {"last_clicked_at": datetime.utcnow()}
+                }
+            )
+            
+            # Prepare clean survey metadata for response (no raw_data, no href)
+            clean_survey = {
+                "survey_id": allocated_survey_id,
+                "title": survey.get("title", ""),
+                "loi": survey.get("loi", 0),
+                "payout": survey.get("payout", 0),
+                "conversion_rate": survey.get("conversion_rate", 0),
+                "country": survey.get("country", "ALL"),
+                "category": survey.get("category", ""),
+                "provider": "CPX",
+            }
+            
+            print(f"✅ Allocated CPX survey {allocated_survey_id} to respondent {respondent_id}")
+            
+            return {
+                "success": True,
+                "entry_link": entry_link,
+                "survey_id": allocated_survey_id,
+                "respondent_id": respondent_id,
+                "survey": clean_survey,
+            }
+            
+        except ValueError as ve:
+            # Re-raise validation errors
+            raise ve
+        except Exception as e:
+            print(f"❌ CPX allocation error: {e}")
+            return {
+                "success": False,
+                "error": f"Allocation failed: {str(e)}",
+                "entry_link": "",
+                "survey_id": survey_id or "",
+                "respondent_id": respondent_id,
+            }
     
     @staticmethod
     def _get_client_ip() -> str:
@@ -343,16 +512,23 @@ class CPXService:
         # The allocation logic should skip country filtering for CPX surveys when country=ALL
         country = survey.get("survey_country") or survey.get("country", "") or "ALL"
         
-        # Get href and href_new from CPX API response (stored for reference only)
+        # Get href and href_new from CPX API response
+        # href is the click-tracking URL (click.cpx-research.com) required for entry links
+        # href_new is the mobile-optimized version
         href = survey.get("href") or ""
         href_new = survey.get("href_new") or ""
         
-        # Generate live_link using the correct offers.cpx-research.com/index.php format
-        # Format: https://offers.cpx-research.com/index.php?app_id={app_id}&ext_user_id={ext_user_id}&secure_hash={secure_hash}&survey_id={survey_id}&subid_1={subid_1}
-        # Note: The entry_link template uses placeholders, actual values are filled at allocation time
-        live_link = self.generate_entry_link_template(survey_id=str(survey_id))
+        # Log warning if href is missing - this survey won't be usable for allocation
+        if not href:
+            print(f"⚠️  Survey {survey_id} missing href - will be skipped during allocation")
+        
+        # Use href as live_link (the click-tracking URL from CPX API)
+        # Prefer href_new (mobile-optimized) if available, otherwise use href
+        live_link = href_new or href
         
         # Map CPX field names to internal field names
+        # NOTE: Entry links are NOT stored - they are generated dynamically per respondent
+        # at allocation time using generate_respondent_entry_link()
         normalized = {
             "_id": str(survey_id),  # Map to _id for MongoDB
             "survey_id": str(survey_id),
@@ -366,27 +542,22 @@ class CPXService:
             "provider": "CPX",
             "source": "CPX",
             "last_updated": datetime.utcnow(),
-            "href": href,          # Original href from CPX (stored for reference)
-            "href_new": href_new,  # Mobile-optimized href from CPX (stored for reference)
-            "live_link": live_link,  # Entry link template in offers.cpx-research.com format
+            # IMPORTANT: href/href_new stored for REFERENCE ONLY - DO NOT USE for entry links
+            # Entry links MUST be generated via generate_respondent_entry_link() at allocation time
+            "_href_reference": href,       # Stored for debugging/reference only - NOT for use
+            "_href_new_reference": href_new,  # Stored for debugging/reference only - NOT for use
             "raw_data": survey,  # Store raw data for reference
             # Click tracking fields - used for click-based cleanup
             # click_count and last_clicked_at are set via $setOnInsert to preserve existing values
         }
         
-        # Generate entry_link using CPX's href URL with respondent tracking
-        # Note: The actual respondent-specific entry_link is generated at allocation time
-        if respondent_id:
-            normalized["entry_link"] = self.generate_entry_link(
-                survey_id=str(survey_id),
-                respondent_id=respondent_id,
-                href=href  # Pass CPX's click-tracking URL
-            )
-        else:
-            # Generate entry_link template with placeholders for later substitution
-            normalized["entry_link"] = self.generate_entry_link_template(
-                survey_id=str(survey_id)
-            )
+        # DO NOT store entry_link or live_link - these are generated dynamically per respondent
+        # at allocation time. Storing them would violate the CPX user-based API contract.
+        # The generate_respondent_entry_link() method creates unique links with:
+        #   - Fresh secure_hash = MD5(SFWID-secure_hash_key)
+        #   - ext_user_id = SFWID
+        #   - subid_1 = SFWID
+        #   - subid_2 = SFWID
         
         return normalized
     
