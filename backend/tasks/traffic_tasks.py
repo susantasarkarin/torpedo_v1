@@ -671,7 +671,7 @@ def fetch_cpx_surveys(
         
         # CPX API settings
         cpx_app_id = os.getenv('CPX_APP_ID', '')
-        cpx_hash_key = os.getenv('CPX_HASH_KEY', '')
+        cpx_hash_key = os.getenv('CPX_SECURE_HASH_KEY', '')
         cpx_ext_user_id = os.getenv('CPX_EXT_USER_ID', 'PANEL_88921')  # Default ext_user_id
         cpx_api_url = os.getenv('CPX_API_URL', 'https://live-api.cpx-research.com/api/get-surveys.php')
         

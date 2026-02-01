@@ -621,7 +621,7 @@ class SurveyAllocationService:
         
         # Get CPX credentials from environment
         cpx_app_id = os.getenv("CPX_APP_ID", "")
-        cpx_hash_key = os.getenv("CPX_HASH_KEY", "")
+        cpx_hash_key = os.getenv("CPX_SECURE_HASH_KEY", "")
         
         if not cpx_app_id or not cpx_hash_key:
             print(f"⚠️ CPX credentials not configured - cannot build entry link")
