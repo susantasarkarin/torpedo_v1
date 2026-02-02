@@ -2,7 +2,7 @@ import os
 import random
 import requests
 import hashlib
-from urllib.parse import quote, urlencode
+from urllib.parse import urlencode
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
 from pymongo import MongoClient
@@ -430,14 +430,15 @@ class CPXService:
             user_agent = self._get_user_agent()
             
             # Build query parameters
+            # NOTE: Do NOT use quote() - requests library handles URL encoding automatically
             params = {
                 "app_id": self.app_id,
                 "ext_user_id": self.ext_user_id,
                 "subid_1": "",
                 "subid_2": "",
                 "output_method": "api",
-                "ip_user": quote(client_ip),
-                "user_agent": quote(user_agent),
+                "ip_user": client_ip,
+                "user_agent": user_agent,
                 "limit": self.fetch_limit,
                 "secure_hash": secure_hash,
             }
@@ -519,14 +520,15 @@ class CPXService:
             client_ip = self._get_client_ip()
             user_agent = self._get_user_agent()
             
+            # NOTE: Do NOT use quote() - requests library handles URL encoding automatically
             params = {
                 "app_id": self.app_id,
                 "ext_user_id": respondent_id,
                 "subid_1": "",
                 "subid_2": "",
                 "output_method": "api",
-                "ip_user": quote(client_ip),
-                "user_agent": quote(user_agent),
+                "ip_user": client_ip,
+                "user_agent": user_agent,
                 "limit": self.fetch_limit,
                 "secure_hash": secure_hash,
             }
@@ -630,14 +632,16 @@ class CPXService:
             actual_user_agent = user_agent if user_agent else self._get_user_agent()
             
             # Build params with respondent as ext_user_id
+            # NOTE: Do NOT use quote() here - requests library handles URL encoding automatically
+            # Double-encoding causes "ip_user has incorrect format" error from CPX
             params = {
                 "app_id": self.app_id,
                 "ext_user_id": respondent_id,  # Key: use respondent's SFWID
                 "subid_1": "",
                 "subid_2": "",
                 "output_method": "api",
-                "ip_user": quote(client_ip),
-                "user_agent": quote(actual_user_agent),
+                "ip_user": client_ip,  # No quote() - requests handles encoding
+                "user_agent": actual_user_agent,  # No quote() - requests handles encoding
                 "limit": self.fetch_limit,
                 "secure_hash": secure_hash,
             }
