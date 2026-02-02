@@ -121,6 +121,7 @@ campaign_platform/
 - [Implementation Summary](IMPLEMENTATION_SUMMARY.md)
 - [Security Summary](SECURITY_SUMMARY.md)
 - [Survey Pool Fix](SURVEY_POOL_FIX_SUMMARY.md)
+- [Node.js Conversion Guide](NODEJS_CONVERSION_GUIDE.md) - Convert Python backend to Node.js
 
 ## Agent Work Tracking
 
