@@ -577,6 +577,7 @@ class CPXService:
     def fetch_and_allocate_for_respondent(
         self,
         respondent_id: str,
+        user_ip: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Fetch CPX surveys for a specific respondent, apply filters, randomly select one,
@@ -593,6 +594,7 @@ class CPXService:
         
         Args:
             respondent_id: The respondent's SFWID (Survey Field Work ID)
+            user_ip: Optional IP address of the respondent. If validated, used instead of hardcoded IP.
             
         Returns:
             Dictionary with allocation result:
@@ -617,7 +619,10 @@ class CPXService:
         try:
             # Generate secure hash for this specific respondent
             secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
-            client_ip = self._get_client_ip()
+            
+            # Use provided user_ip if valid, otherwise fallback to hardcoded Indian IP
+            # CPX requires the IP used in API call to match the click IP for security
+            client_ip = user_ip if user_ip else self._get_client_ip()
             user_agent = self._get_user_agent()
             
             # Build params with respondent as ext_user_id

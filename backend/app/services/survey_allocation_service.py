@@ -490,7 +490,8 @@ class SurveyAllocationService:
         entry_link = self._build_entry_link(
             survey=survey,
             respondent_id=respondent_id,
-            allocation_id=allocation_id
+            allocation_id=allocation_id,
+            user_ip=request.ip_address
         )
 
         if not entry_link:
@@ -598,7 +599,8 @@ class SurveyAllocationService:
         self, 
         survey: dict, 
         respondent_id: str,
-        allocation_id: str
+        allocation_id: str,
+        user_ip: Optional[str] = None
     ) -> str:
         """
         Build survey entry link with tracking parameters.
@@ -615,7 +617,8 @@ class SurveyAllocationService:
         if provider == "CPX":
             return self._build_cpx_entry_link(
                 survey=survey,  # Pass full survey to access href
-                respondent_id=respondent_id
+                respondent_id=respondent_id,
+                user_ip=user_ip
             )
         
         # Default: append tracking parameters to stored entry_url
@@ -628,7 +631,8 @@ class SurveyAllocationService:
     def _build_cpx_entry_link(
         self,
         survey: dict,
-        respondent_id: str
+        respondent_id: str,
+        user_ip: Optional[str] = None
     ) -> str:
         """
         Build CPX entry link using per-respondent CPX API call.
@@ -644,6 +648,7 @@ class SurveyAllocationService:
         Args:
             survey: Survey document from allocation pool (used for fallback metadata)
             respondent_id: Respondent's SFWID for tracking
+            user_ip: Optional IP address of the respondent (passed from incoming request)
             
         Returns:
             Entry link with respondent tracking, or empty string on failure
@@ -670,8 +675,10 @@ class SurveyAllocationService:
         )
 
         # Call per-respondent allocation (API call + filter + random select)
+        # Pass user_ip to ensure CPX API receives the correct IP for fraud detection
         result = cpx_service.fetch_and_allocate_for_respondent(
-            respondent_id=respondent_id
+            respondent_id=respondent_id,
+            user_ip=user_ip
         )
 
         if result.get("success"):
