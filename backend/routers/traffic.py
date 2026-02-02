@@ -677,6 +677,10 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             (x_real_ip.strip() if x_real_ip else None) or
             (request.client.host if request else None)
         )
+        
+        # Extract User-Agent from request headers (for CPX fingerprint matching)
+        client_user_agent = request.headers.get("User-Agent") if request else None
+        
         print(
             "📍 IP debug: "
             f"X-Forwarded-For={forwarded} | "
@@ -685,6 +689,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             f"request.client.host={(request.client.host if request else None)} | "
             f"resolved={client_ip}"
         )
+        print(f"📱 User-Agent: {client_user_agent[:80]}..." if client_user_agent and len(client_user_agent) > 80 else f"📱 User-Agent: {client_user_agent}")
         
         # If traffic service is available and we have the required params, use it
         if traffic_service and vendor_id and country_code and respondent_id:
@@ -785,12 +790,14 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 # 3. Randomly selects one survey from filtered results
                                 # 4. Generates entry link with subid_1=traffic_id
                                 
-                                # Log detected client IP for debugging
+                                # Log detected client IP and User-Agent for debugging
                                 print(f"📍 Detected client IP: {client_ip} for SFWID: {traffic_id}")
+                                print(f"📱 Using User-Agent for CPX: {client_user_agent[:60]}..." if client_user_agent and len(client_user_agent) > 60 else f"📱 Using User-Agent for CPX: {client_user_agent}")
                                 
                                 result = cpx_service.fetch_and_allocate_for_respondent(
                                     respondent_id=traffic_id,  # Use SFWID as ext_user_id
-                                    user_ip=client_ip          # Pass authenticated user IP
+                                    user_ip=client_ip,         # Pass authenticated user IP
+                                    user_agent=client_user_agent  # Pass real User-Agent for fingerprint matching
                                 )
                                 
                                 if result.get("success"):

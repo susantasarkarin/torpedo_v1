@@ -577,7 +577,8 @@ class CPXService:
     def fetch_and_allocate_for_respondent(
         self,
         respondent_id: str,
-        user_ip: Optional[str] = None
+        user_ip: Optional[str] = None,
+        user_agent: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Fetch CPX surveys for a specific respondent, apply filters, randomly select one,
@@ -595,6 +596,7 @@ class CPXService:
         Args:
             respondent_id: The respondent's SFWID (Survey Field Work ID)
             user_ip: Optional IP address of the respondent. If validated, used instead of hardcoded IP.
+            user_agent: Optional User-Agent string of the respondent. If provided, used instead of hardcoded UA.
             
         Returns:
             Dictionary with allocation result:
@@ -623,7 +625,9 @@ class CPXService:
             # Use provided user_ip if valid, otherwise fallback to hardcoded Indian IP
             # CPX requires the IP used in API call to match the click IP for security
             client_ip = user_ip if user_ip else self._get_client_ip()
-            user_agent = self._get_user_agent()
+            # Use provided user_agent if valid, otherwise fallback to hardcoded UA
+            # CPX compares user_agent from API call to actual click - must match
+            actual_user_agent = user_agent if user_agent else self._get_user_agent()
             
             # Build params with respondent as ext_user_id
             params = {
@@ -633,12 +637,12 @@ class CPXService:
                 "subid_2": "",
                 "output_method": "api",
                 "ip_user": quote(client_ip),
-                "user_agent": quote(user_agent),
+                "user_agent": quote(actual_user_agent),
                 "limit": self.fetch_limit,
                 "secure_hash": secure_hash,
             }
             
-            print(f"🔄 Fetching CPX surveys for respondent {respondent_id}...")
+            print(f"🔄 Fetching CPX surveys for respondent {respondent_id} (IP: {client_ip[:20]}..., UA: {actual_user_agent[:40]}...)" if actual_user_agent else f"🔄 Fetching CPX surveys for respondent {respondent_id} (IP: {client_ip})")
             response = requests.get(
                 self.BASE_URL,
                 params=params,
