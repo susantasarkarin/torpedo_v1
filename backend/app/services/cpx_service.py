@@ -651,6 +651,9 @@ class CPXService:
             response.raise_for_status()
             data = response.json()
             
+            # Debug: Log raw CPX API response summary
+            print(f"🔍 CPX API response for {respondent_id}: status={data.get('status')}, count={data.get('count_available_surveys')}, surveys_len={len(data.get('surveys', []))}, message_not_found={data.get('message_not_found')}")
+            
             # Parse API response
             if not isinstance(data, dict):
                 print(f"⚠️ Unexpected CPX API response format: {type(data)}")
