@@ -667,9 +667,24 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         survey_id = None
         allocation_success = False
         
-        # Extract client IP (prefer X-Forwarded-For, fall back to request.client.host)
+        # Extract client IP (prefer X-Forwarded-For, then CF/X-Real-IP, fall back to request.client.host)
         forwarded = request.headers.get("X-Forwarded-For") if request else None
-        client_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request else None)
+        cf_connecting_ip = request.headers.get("CF-Connecting-IP") if request else None
+        x_real_ip = request.headers.get("X-Real-IP") if request else None
+        client_ip = (
+            forwarded.split(",")[0].strip() if forwarded else
+            (cf_connecting_ip.strip() if cf_connecting_ip else None) or
+            (x_real_ip.strip() if x_real_ip else None) or
+            (request.client.host if request else None)
+        )
+        print(
+            "📍 IP debug: "
+            f"X-Forwarded-For={forwarded} | "
+            f"CF-Connecting-IP={cf_connecting_ip} | "
+            f"X-Real-IP={x_real_ip} | "
+            f"request.client.host={(request.client.host if request else None)} | "
+            f"resolved={client_ip}"
+        )
         
         # If traffic service is available and we have the required params, use it
         if traffic_service and vendor_id and country_code and respondent_id:
@@ -838,7 +853,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     vid=vendor_id,
                     cc=country_code.upper(),
                     rid=respondent_id,
-                    ip_address=request.client.host if request else None,
+                    ip_address=client_ip,
                     user_agent=data.get('userAgent')
                 )
                 
