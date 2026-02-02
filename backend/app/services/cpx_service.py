@@ -1,4 +1,5 @@
 import os
+import random
 import requests
 import hashlib
 from urllib.parse import quote, urlencode
@@ -11,6 +12,8 @@ class CPXService:
     """Service to interact with CPX Research API"""
     
     BASE_URL = "https://live-api.cpx-research.com/api/get-surveys.php"
+    # CPX provides href URLs in the format: click.cpx-research.com/?k=<encrypted>&...
+    # We just need to append subid_1 and subid_2 to the href for tracking
     CLICK_URL = "https://click.cpx-research.com/"
     
     def __init__(
@@ -117,89 +120,88 @@ class CPXService:
         live_link: Optional[str] = None,
     ) -> str:
         """
-        DEPRECATED — DO NOT USE.
-        Breaks CPX user-based API contract by reusing href URLs tied to master ext_user_id.
+        Generate CPX entry link by appending subid_1 and subid_2 to the CPX href URL.
         
-        Use generate_respondent_entry_link() instead, which generates a fresh secure hash
-        per respondent and constructs proper click.cpx-research.com URLs.
-        
-        This method is retained for backward compatibility but logs deprecation warnings.
+        Args:
+            survey_id: The CPX survey ID
+            respondent_id: The respondent's SFWID for tracking
+            href: The CPX href URL (click.cpx-research.com/?k=...) - REQUIRED
+            Other params are deprecated/ignored
+            
+        Returns:
+            Entry link with subid_1 and subid_2 populated
         """
-        import warnings
-        warnings.warn(
-            "generate_entry_link() is DEPRECATED. Use generate_respondent_entry_link() instead. "
-            "Reusing CPX href URLs breaks the user-based API contract.",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        print("⚠️  DEPRECATED: generate_entry_link() called - this breaks CPX compliance!")
-        print("⚠️  Use generate_respondent_entry_link(survey_id, respondent_id) instead.")
+        # Use href or live_link as the base URL
+        base_href = href or live_link
         
-        # Fallback to new correct method
-        if survey_id and respondent_id:
-            return self.generate_respondent_entry_link(survey_id, respondent_id)
+        if survey_id and respondent_id and base_href:
+            return self.generate_respondent_entry_link(survey_id, respondent_id, base_href)
+        elif survey_id and respondent_id:
+            # No href provided - log warning
+            print(f"⚠️ generate_entry_link called without href for survey {survey_id}")
+            return ""
         return ""
     
     def generate_respondent_entry_link(
         self,
         survey_id: str,
         respondent_id: str,  # SFWID - Survey Field Work ID
+        href: Optional[str] = None,  # The CPX href URL with k= parameter
     ) -> str:
         """
         Generate a unique CPX entry link for a specific respondent.
         
-        This is the CORRECT method for CPX integration. It generates a fresh
-        secure hash per respondent and constructs the entry URL dynamically.
-        
-        CPX API is user-based: any href returned by get-surveys.php is tied to
-        the ext_user_id used in that API call and MUST NOT be reused.
-        
-        URL format:
-        https://click.cpx-research.com/
-            ?app_id={app_id}
-            &ext_user_id={SFWID}
-            &secure_hash={MD5(SFWID-secure_hash_key)}
-            &survey_id={survey_id}
-            &subid_1={SFWID}
-            &subid_2={SFWID}
+        CORRECT FLOW:
+        1. CPX API returns surveys with href URLs: click.cpx-research.com/?k=<encrypted>&...
+        2. The href already contains the unique k= token from CPX
+        3. We just append subid_1 and subid_2 to the href for callback tracking
         
         Args:
-            survey_id: The CPX survey ID to link to
+            survey_id: The CPX survey ID (for logging/validation)
             respondent_id: The respondent's SFWID (Survey Field Work ID)
+            href: The CPX href URL from the survey (contains k= parameter)
             
         Returns:
-            Fully qualified CPX entry URL unique to this respondent
+            Fully qualified CPX entry URL with subid_1 and subid_2 appended
             
         Raises:
-            ValueError: If survey_id or respondent_id is empty
+            ValueError: If survey_id, respondent_id, or href is empty
         """
         # Validate inputs - fail loudly if missing
         if not survey_id:
             raise ValueError("survey_id is required for CPX entry link generation")
         if not respondent_id:
             raise ValueError("respondent_id (SFWID) is required for CPX entry link generation")
+        if not href:
+            raise ValueError("href (CPX click URL with k= parameter) is required for CPX entry link generation")
         
-        # Generate fresh secure hash for THIS respondent
-        # Hash formula: MD5(ext_user_id-secure_hash_key)
-        # ext_user_id = respondent SFWID (NOT the master ext_user_id)
-        secure_hash = self._generate_secure_hash(
-            ext_user_id=respondent_id,
-            secure_hash_key=self.secure_hash_key
-        )
+        # The href from CPX already has the format:
+        # https://click.cpx-research.com/?k=<encrypted>&api=true&time_stamp=...&ext_user_id=...
+        # We keep the href as-is and only set subid_1 for respondent tracking
         
-        # Build query parameters - SFWID used everywhere per spec
-        params = {
-            "app_id": self.app_id,
-            "ext_user_id": respondent_id,  # SFWID
-            "secure_hash": secure_hash,
-            "survey_id": survey_id,
-            "subid_1": respondent_id,  # SFWID for callback tracking
-            "subid_2": respondent_id,  # SFWID for callback tracking
-        }
+        # Parse the URL to properly handle query parameters
+        from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
         
-        # Construct the full URL
-        query_string = urlencode(params)
-        entry_link = f"{self.CLICK_URL}?{query_string}"
+        parsed = urlparse(href)
+        query_params = parse_qs(parsed.query, keep_blank_values=True)
+        
+        # Set respondent tracking only (subid_1). Ignore subid_2 placeholder.
+        query_params['subid_1'] = [respondent_id]
+        if 'subid_2' in query_params:
+            query_params.pop('subid_2', None)
+        
+        # Build query string preserving original parameters (k, api, time_stamp, ext_user_id)
+        new_query = urlencode(query_params, doseq=True)
+        
+        # Reconstruct the full URL
+        entry_link = urlunparse((
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            parsed.params,
+            new_query,
+            parsed.fragment
+        ))
         
         print(f"🔗 Generated CPX entry link for respondent {respondent_id}, survey {survey_id}")
         return entry_link
@@ -306,11 +308,25 @@ class CPXService:
             # Extract survey_id from the selected survey
             allocated_survey_id = str(survey.get("_id") or survey.get("survey_id"))
             
-            # Generate unique entry link for this respondent
-            # This generates a fresh secure hash - NO reuse of cached href
+            # Use cached href from survey (fetched during refresh with PANEL_88921)
+            # This avoids calling CPX API per respondent (important for 500+ simultaneous starts)
+            survey_href = survey.get("href") or survey.get("href_new") or ""
+            
+            if not survey_href:
+                return {
+                    "success": False,
+                    "error": f"Survey {allocated_survey_id} missing href (run refresh to update surveys)",
+                    "entry_link": "",
+                    "survey_id": allocated_survey_id,
+                    "respondent_id": respondent_id,
+                }
+            
+            # Generate entry link by appending subid_1 to the cached CPX href
+            # Note: href is encrypted with PANEL_88921, but respondent tracking is via subid_1
             entry_link = self.generate_respondent_entry_link(
                 survey_id=allocated_survey_id,
-                respondent_id=respondent_id
+                respondent_id=respondent_id,
+                href=survey_href
             )
             
             # Increment click counter and update last_clicked_at
@@ -486,6 +502,317 @@ class CPXService:
         except Exception as e:
             print(f"❌ CPX fetch error: {e}")
             return []
+
+    def fetch_survey_href_for_respondent(
+        self,
+        respondent_id: str,
+        survey_id: str
+    ) -> Optional[str]:
+        """
+        Fetch CPX surveys for a specific respondent and return href for target survey.
+        
+        This ensures the k= parameter is encrypted for the respondent (ext_user_id).
+        Returns None if survey is not available or API fails.
+        """
+        try:
+            secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
+            client_ip = self._get_client_ip()
+            user_agent = self._get_user_agent()
+            
+            params = {
+                "app_id": self.app_id,
+                "ext_user_id": respondent_id,
+                "subid_1": "",
+                "subid_2": "",
+                "output_method": "api",
+                "ip_user": quote(client_ip),
+                "user_agent": quote(user_agent),
+                "limit": self.fetch_limit,
+                "secure_hash": secure_hash,
+            }
+            
+            response = requests.get(
+                self.BASE_URL,
+                params=params,
+                timeout=self.api_timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            if not isinstance(data, dict):
+                print(f"⚠️  Unexpected CPX API response format: {type(data)}")
+                return None
+            
+            surveys: List[Dict[str, Any]] = []
+            if isinstance(data.get("surveys"), list) and len(data["surveys"]) > 0:
+                surveys = data["surveys"]
+            elif data.get("count_available_surveys", 0) > 0:
+                info_list = data.get("info", [])
+                if isinstance(info_list, list) and len(info_list) > 0:
+                    surveys = info_list
+            elif data.get("message_not_found"):
+                return None
+            
+            if not surveys:
+                return None
+            
+            target_id = str(survey_id)
+            for survey in surveys:
+                sid = str(survey.get("id") or survey.get("survey_id") or "")
+                if sid == target_id:
+                    href = survey.get("href") or survey.get("href_new") or ""
+                    return href or None
+            
+            return None
+        except requests.exceptions.Timeout:
+            print(f"❌ CPX API timeout (>{self.api_timeout}s) for respondent {respondent_id}")
+            return None
+        except requests.exceptions.RequestException as e:
+            print(f"❌ CPX API request failed for respondent {respondent_id}: {e}")
+            return None
+        except Exception as e:
+            print(f"❌ CPX fetch error for respondent {respondent_id}: {e}")
+            return None
+    
+    def fetch_and_allocate_for_respondent(
+        self,
+        respondent_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Fetch CPX surveys for a specific respondent, apply filters, randomly select one,
+        store all surveys, and generate entry link.
+        
+        This is the per-respondent allocation flow:
+        1. Call CPX API with respondent's SFWID as ext_user_id (gets personalized hrefs)
+        2. Store all returned surveys in cpx_research.cpx_surveys
+        3. Apply filter settings (max_loi, min_cpi, min_ir)
+        4. Randomly select one survey from filtered results
+        5. Generate entry link with subid_1=respondent_id
+        
+        Scales to 500+ simultaneous starts (each gets their own API call).
+        
+        Args:
+            respondent_id: The respondent's SFWID (Survey Field Work ID)
+            
+        Returns:
+            Dictionary with allocation result:
+            {
+                "success": bool,
+                "entry_link": str,
+                "survey_id": str,
+                "respondent_id": str,
+                "survey": dict,  # Survey metadata
+                "error": str  # Only present if success=False
+            }
+        """
+        if not respondent_id:
+            return {
+                "success": False,
+                "error": "respondent_id (SFWID) is required",
+                "entry_link": "",
+                "survey_id": "",
+                "respondent_id": respondent_id or "",
+            }
+        
+        try:
+            # Generate secure hash for this specific respondent
+            secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
+            client_ip = self._get_client_ip()
+            user_agent = self._get_user_agent()
+            
+            # Build params with respondent as ext_user_id
+            params = {
+                "app_id": self.app_id,
+                "ext_user_id": respondent_id,  # Key: use respondent's SFWID
+                "subid_1": "",
+                "subid_2": "",
+                "output_method": "api",
+                "ip_user": quote(client_ip),
+                "user_agent": quote(user_agent),
+                "limit": self.fetch_limit,
+                "secure_hash": secure_hash,
+            }
+            
+            print(f"🔄 Fetching CPX surveys for respondent {respondent_id}...")
+            response = requests.get(
+                self.BASE_URL,
+                params=params,
+                timeout=self.api_timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            # Parse API response
+            if not isinstance(data, dict):
+                print(f"⚠️ Unexpected CPX API response format: {type(data)}")
+                return {
+                    "success": False,
+                    "error": "Invalid API response format",
+                    "entry_link": "",
+                    "survey_id": "",
+                    "respondent_id": respondent_id,
+                }
+            
+            # Handle multiple response formats
+            surveys: List[Dict[str, Any]] = []
+            if isinstance(data.get("surveys"), list) and len(data["surveys"]) > 0:
+                surveys = data["surveys"]
+            elif data.get("count_available_surveys", 0) > 0:
+                info_list = data.get("info", [])
+                if isinstance(info_list, list) and len(info_list) > 0:
+                    surveys = info_list
+            elif data.get("message_not_found"):
+                print(f"ℹ️ No surveys available from CPX for respondent {respondent_id}")
+                return {
+                    "success": False,
+                    "error": "No surveys available from CPX",
+                    "entry_link": "",
+                    "survey_id": "",
+                    "respondent_id": respondent_id,
+                }
+            
+            if not surveys:
+                return {
+                    "success": False,
+                    "error": "No surveys returned from CPX API",
+                    "entry_link": "",
+                    "survey_id": "",
+                    "respondent_id": respondent_id,
+                }
+            
+            print(f"📥 Fetched {len(surveys)} surveys from CPX for respondent {respondent_id}")
+            
+            # Store ALL surveys in cpx_research.cpx_surveys (for reference/analytics)
+            if self.cpx_surveys_collection is not None:
+                for survey in surveys:
+                    normalized = self._normalize_survey(survey)
+                    try:
+                        self.cpx_surveys_collection.update_one(
+                            {"_id": normalized.get("_id")},
+                            {
+                                "$set": normalized,
+                                "$setOnInsert": {
+                                    "created_at": datetime.utcnow(),
+                                    "click_count": 0,
+                                    "last_clicked_at": None,
+                                }
+                            },
+                            upsert=True
+                        )
+                    except Exception as e:
+                        print(f"⚠️ Failed to upsert survey {normalized.get('_id')}: {e}")
+            
+            # Get filter settings
+            filter_settings = self.get_filter_settings()
+            max_loi = filter_settings.get("max_loi", 20)
+            min_cpi = filter_settings.get("min_cpi", 1.0)
+            min_ir = filter_settings.get("min_ir", 0)
+            
+            print(f"🔍 Applying filters: max_loi={max_loi}, min_cpi={min_cpi}, min_ir={min_ir}")
+            
+            # Apply filters to find matching surveys
+            filtered_surveys = []
+            for survey in surveys:
+                # Get survey values
+                loi = float(survey.get("loi") or survey.get("survey_loi") or 0)
+                payout = float(
+                    survey.get("payout_publisher_usd") or
+                    survey.get("survey_reward_usd") or
+                    survey.get("payout") or 0
+                )
+                ir = float(survey.get("conversion_rate") or survey.get("ir") or 0)
+                
+                # Apply filters
+                if loi > max_loi:
+                    continue  # LOI too high
+                if payout < min_cpi:
+                    continue  # Payout too low
+                if ir < min_ir:
+                    continue  # Incidence rate too low
+                
+                # Check href exists
+                href = survey.get("href") or survey.get("href_new") or ""
+                if not href:
+                    continue  # No href means we can't generate entry link
+                
+                filtered_surveys.append(survey)
+            
+            if not filtered_surveys:
+                print(f"⚠️ No surveys match filters for respondent {respondent_id}")
+                return {
+                    "success": False,
+                    "error": f"No surveys match filter criteria (max_loi={max_loi}, min_cpi={min_cpi}, min_ir={min_ir})",
+                    "entry_link": "",
+                    "survey_id": "",
+                    "respondent_id": respondent_id,
+                }
+            
+            print(f"✅ {len(filtered_surveys)} surveys match filters")
+            
+            # Randomly select one survey
+            selected_survey = random.choice(filtered_surveys)
+            survey_id = str(selected_survey.get("id") or selected_survey.get("survey_id"))
+            href = selected_survey.get("href") or selected_survey.get("href_new") or ""
+            
+            print(f"🎲 Randomly selected survey {survey_id} for respondent {respondent_id}")
+            
+            # Generate entry link by appending subid_1=respondent_id
+            entry_link = self.generate_respondent_entry_link(
+                survey_id=survey_id,
+                respondent_id=respondent_id,
+                href=href
+            )
+            
+            # Prepare clean survey metadata
+            clean_survey = {
+                "survey_id": survey_id,
+                "title": selected_survey.get("survey_title") or selected_survey.get("title", ""),
+                "loi": float(selected_survey.get("loi") or selected_survey.get("survey_loi") or 0),
+                "payout": float(
+                    selected_survey.get("payout_publisher_usd") or
+                    selected_survey.get("survey_reward_usd") or 0
+                ),
+                "conversion_rate": float(selected_survey.get("conversion_rate") or 0),
+                "provider": "CPX",
+            }
+            
+            print(f"✅ Allocated CPX survey {survey_id} to respondent {respondent_id}")
+            
+            return {
+                "success": True,
+                "entry_link": entry_link,
+                "survey_id": survey_id,
+                "respondent_id": respondent_id,
+                "survey": clean_survey,
+            }
+            
+        except requests.exceptions.Timeout:
+            print(f"❌ CPX API timeout for respondent {respondent_id}")
+            return {
+                "success": False,
+                "error": f"CPX API timeout (>{self.api_timeout}s)",
+                "entry_link": "",
+                "survey_id": "",
+                "respondent_id": respondent_id,
+            }
+        except requests.exceptions.RequestException as e:
+            print(f"❌ CPX API request failed for respondent {respondent_id}: {e}")
+            return {
+                "success": False,
+                "error": f"CPX API request failed: {str(e)}",
+                "entry_link": "",
+                "survey_id": "",
+                "respondent_id": respondent_id,
+            }
+        except Exception as e:
+            print(f"❌ CPX allocation error for respondent {respondent_id}: {e}")
+            return {
+                "success": False,
+                "error": f"Allocation failed: {str(e)}",
+                "entry_link": "",
+                "survey_id": "",
+                "respondent_id": respondent_id,
+            }
     
     def _normalize_survey(self, survey: Dict[str, Any], respondent_id: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -542,22 +869,22 @@ class CPXService:
             "provider": "CPX",
             "source": "CPX",
             "last_updated": datetime.utcnow(),
-            # IMPORTANT: href/href_new stored for REFERENCE ONLY - DO NOT USE for entry links
-            # Entry links MUST be generated via generate_respondent_entry_link() at allocation time
-            "_href_reference": href,       # Stored for debugging/reference only - NOT for use
-            "_href_new_reference": href_new,  # Stored for debugging/reference only - NOT for use
-            "raw_data": survey,  # Store raw data for reference
+            # IMPORTANT: href contains the click.cpx-research.com/?k=<encrypted> URL from CPX API
+            # At allocation time, we append subid_1 and subid_2 to this URL for tracking
+            "href": href,              # Primary CPX click URL with k= parameter
+            "href_new": href_new,      # Mobile-optimized version (if available)
+            "raw_data": survey,        # Store raw data for reference
             # Click tracking fields - used for click-based cleanup
             # click_count and last_clicked_at are set via $setOnInsert to preserve existing values
         }
         
-        # DO NOT store entry_link or live_link - these are generated dynamically per respondent
-        # at allocation time. Storing them would violate the CPX user-based API contract.
-        # The generate_respondent_entry_link() method creates unique links with:
-        #   - Fresh secure_hash = MD5(SFWID-secure_hash_key)
-        #   - ext_user_id = SFWID
-        #   - subid_1 = SFWID
-        #   - subid_2 = SFWID
+        # CORRECT FLOW for entry link generation at allocation time:
+        # 1. Get the href from stored survey (click.cpx-research.com/?k=<encrypted>&...)
+        # 2. Append subid_1=SFWID and subid_2=SFWID to the URL for callback tracking
+        # 3. Redirect user to this URL
+        # 
+        # The href already contains the unique k= token from CPX API.
+        # DO NOT generate a new secure_hash - just use the href as-is with subids appended.
         
         return normalized
     
@@ -856,6 +1183,7 @@ class CPXService:
         defaults = {
             "max_loi": 20,  # 20 minutes max LOI
             "min_cpi": 1.0,  # $1 min payout
+            "min_ir": 0,    # 0% min incidence rate (no filter by default)
             "deletion_period_days": 7,
             "auto_refresh_enabled": True,
             "refresh_interval_seconds": 60,
@@ -869,6 +1197,7 @@ class CPXService:
                     return {
                         "max_loi": settings.get("max_loi", defaults["max_loi"]),
                         "min_cpi": settings.get("min_cpi", defaults["min_cpi"]),
+                        "min_ir": settings.get("min_ir", defaults["min_ir"]),
                         "deletion_period_days": settings.get("deletion_period_days", defaults["deletion_period_days"]),
                         "auto_refresh_enabled": settings.get("auto_refresh_enabled", defaults["auto_refresh_enabled"]),
                         "refresh_interval_seconds": settings.get("refresh_interval_seconds", defaults["refresh_interval_seconds"]),

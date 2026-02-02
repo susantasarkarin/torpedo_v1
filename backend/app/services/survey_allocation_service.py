@@ -17,6 +17,7 @@ from bson import ObjectId
 from dotenv import load_dotenv
 import hashlib
 import secrets
+from app.services.cpx_service import CPXService
 
 # Load environment
 load_dotenv()
@@ -491,6 +492,28 @@ class SurveyAllocationService:
             respondent_id=respondent_id,
             allocation_id=allocation_id
         )
+
+        if not entry_link:
+            try:
+                self.respondents.update_one(
+                    {"_id": ObjectId(respondent_id)},
+                    {
+                        "$set": {
+                            "status": RespondentStatus.TERMINATED.value,
+                            "terminated_at": datetime.utcnow(),
+                            "termination_reason": "CPX survey unavailable"
+                        }
+                    }
+                )
+            except Exception as e:
+                print(f"⚠️ Failed to mark respondent {respondent_id} as terminated: {e}")
+
+            return AllocationResponse(
+                success=False,
+                message="Respondent terminated: CPX survey unavailable",
+                respondent_id=respondent_id,
+                survey_id=survey_id
+            )
         
         # Vendor redirect URL (for complete/terminate callbacks)
         vendor_redirect_base = os.getenv("API_BASE", "http://localhost:8000")
@@ -587,10 +610,11 @@ class SurveyAllocationService:
         """
         provider = survey.get("provider", "").upper()
         
-        # CPX requires dynamic link generation with per-respondent secure hash
+        # CPX requires using the href from the API with k= parameter
+        # Just append subid_1 and subid_2 to the existing href
         if provider == "CPX":
             return self._build_cpx_entry_link(
-                survey_id=str(survey.get("external_id") or survey.get("_id")),
+                survey=survey,  # Pass full survey to access href
                 respondent_id=respondent_id
             )
         
@@ -603,45 +627,59 @@ class SurveyAllocationService:
     
     def _build_cpx_entry_link(
         self,
-        survey_id: str,
+        survey: dict,
         respondent_id: str
     ) -> str:
         """
-        Build CPX entry link with per-respondent secure hash.
+        Build CPX entry link using per-respondent CPX API call.
         
-        CPX API is user-based: entry links must use the respondent's SFWID as
-        ext_user_id with a fresh MD5(SFWID-secure_hash_key) secure hash.
+        PER-RESPONDENT FLOW (scales to 500+ simultaneous starts):
+        1. Call CPX API with respondent's SFWID as ext_user_id
+        2. Apply filter settings (max_loi, min_cpi, min_ir) from torpedo_settings
+        3. Randomly select one survey from filtered results
+        4. Generate entry link with subid_1=respondent_id
         
-        URL format:
-        https://click.cpx-research.com/?app_id={app_id}&ext_user_id={SFWID}
-            &secure_hash={MD5}&survey_id={survey_id}&subid_1={SFWID}&subid_2={SFWID}
+        This ensures href is encrypted for the specific respondent.
+        
+        Args:
+            survey: Survey document from allocation pool (used for fallback metadata)
+            respondent_id: Respondent's SFWID for tracking
+            
+        Returns:
+            Entry link with respondent tracking, or empty string on failure
         """
-        import hashlib
-        from urllib.parse import urlencode
-        
-        # Get CPX credentials from environment
-        cpx_app_id = os.getenv("CPX_APP_ID", "")
-        cpx_hash_key = os.getenv("CPX_SECURE_HASH_KEY", "")
-        
-        if not cpx_app_id or not cpx_hash_key:
-            print(f"⚠️ CPX credentials not configured - cannot build entry link")
+        # Get CPX settings
+        settings = self.settings_collection.find_one({"_id": "app_config"}) or {}
+        app_id = settings.get("cpx_app_id") or os.getenv("CPX_APP_ID", "")
+        secure_hash_key = settings.get("cpx_secure_hash_key") or os.getenv("CPX_SECURE_HASH_KEY", "")
+
+        if not app_id or not secure_hash_key:
+            print("⚠️ CPX app settings missing (app_id or secure_hash_key)")
             return ""
-        
-        # Generate fresh secure hash for THIS respondent
-        secure_hash = hashlib.md5(f"{respondent_id}-{cpx_hash_key}".encode()).hexdigest()
-        
-        # Build URL with SFWID used everywhere per CPX spec
-        params = {
-            "app_id": cpx_app_id,
-            "ext_user_id": respondent_id,
-            "secure_hash": secure_hash,
-            "survey_id": survey_id,
-            "subid_1": respondent_id,
-            "subid_2": respondent_id,
-        }
-        
-        query_string = urlencode(params)
-        return f"https://click.cpx-research.com/?{query_string}"
+
+        # Initialize CPXService with respondent as ext_user_id
+        cpx_service = CPXService(
+            app_id=app_id,
+            ext_user_id=respondent_id,
+            secure_hash_key=secure_hash_key,
+            api_timeout=30,
+            surveys_collection=self.cpx_surveys,
+            filters_collection=None,
+            settings_collection=self.settings_collection,
+            survey_allocation_service=None
+        )
+
+        # Call per-respondent allocation (API call + filter + random select)
+        result = cpx_service.fetch_and_allocate_for_respondent(
+            respondent_id=respondent_id
+        )
+
+        if result.get("success"):
+            print(f"🔗 Built CPX entry link for respondent {respondent_id}, survey {result.get('survey_id')}")
+            return result.get("entry_link", "")
+        else:
+            print(f"⚠️ CPX allocation failed for respondent {respondent_id}: {result.get('error')}")
+            return ""
     
     def _log_allocation(
         self,
@@ -690,7 +728,6 @@ class SurveyAllocationService:
                 message=f"Unknown event type: {event.event_type}"
             )
         
-        return handler(event)
     
     def _handle_start(self, event: CallbackEvent) -> CallbackResponse:
         """Handle survey start event (respondent began survey)"""
