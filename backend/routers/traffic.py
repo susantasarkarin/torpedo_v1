@@ -754,31 +754,38 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         
                         # Generate entry link based on source
                         if source == 'CPX':
-                            # Generate CPX entry link with survey_id and SFWID as ext_user_id
-                            # Using direct entry URL format per CPX documentation
+                            # PER-RESPONDENT ALLOCATION FLOW:
+                            # Call CPX API with respondent's SFWID as ext_user_id
+                            # This ensures the k= parameter in href is encrypted for THIS respondent
+                            # NOT the global PANEL_88921 user from bulk refresh
                             if cpx_service:
-                                # Get href from survey (prefer href for click-tracking with subid support)
-                                # href format: https://click.cpx-research.com/?k=ENCRYPTED&subid_1=&subid_2=
-                                # We populate subid_1 with SFWID for callback tracking
-                                survey_href = selected_survey.get('href') or selected_survey.get('href_new') or selected_survey.get('live_link')
-                                
-                                entry_link = cpx_service.generate_entry_link(
-                                    survey_id=str(survey_id),
-                                    respondent_id=traffic_id,  # Use SFWID for callback tracking
-                                    href=survey_href  # Use CPX's click-tracking URL
+                                # Use fetch_and_allocate_for_respondent for per-respondent API call
+                                # This method:
+                                # 1. Calls CPX API with traffic_id as ext_user_id
+                                # 2. Applies filter settings (max_loi, min_cpi, min_ir)
+                                # 3. Randomly selects one survey from filtered results
+                                # 4. Generates entry link with subid_1=traffic_id
+                                result = cpx_service.fetch_and_allocate_for_respondent(
+                                    respondent_id=traffic_id  # Use SFWID as ext_user_id
                                 )
-                                allocation_success = True
                                 
-                                # Update the traffic record
-                                if traffic_service:
-                                    traffic_service.assign_survey_to_traffic(
-                                        traffic_id=traffic_id,
-                                        survey_id=str(survey_id),
-                                        redirect_url=entry_link
-                                    )
-                                
-                                print(f"✅ Allocated CPX survey {survey_id} to SFWID={traffic_id}")
-                                print(f"   Entry link: {entry_link[:100]}...")
+                                if result.get("success"):
+                                    entry_link = result.get("entry_link", "")
+                                    survey_id = result.get("survey_id", survey_id)
+                                    allocation_success = True
+                                    
+                                    # Update the traffic record
+                                    if traffic_service:
+                                        traffic_service.assign_survey_to_traffic(
+                                            traffic_id=traffic_id,
+                                            survey_id=str(survey_id),
+                                            redirect_url=entry_link
+                                        )
+                                    
+                                    print(f"✅ Allocated CPX survey {survey_id} to SFWID={traffic_id} (per-respondent)")
+                                    print(f"   Entry link: {entry_link[:100]}...")
+                                else:
+                                    print(f"⚠️ Per-respondent CPX allocation failed: {result.get('error')}")
                         
                         elif source == 'CINT':
                             # For CINT, try to get entry link from collection first
