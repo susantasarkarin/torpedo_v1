@@ -667,6 +667,10 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         survey_id = None
         allocation_success = False
         
+        # Extract client IP (prefer X-Forwarded-For, fall back to request.client.host)
+        forwarded = request.headers.get("X-Forwarded-For") if request else None
+        client_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request else None)
+        
         # If traffic service is available and we have the required params, use it
         if traffic_service and vendor_id and country_code and respondent_id:
             try:
@@ -765,8 +769,13 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 # 2. Applies filter settings (max_loi, min_cpi, min_ir)
                                 # 3. Randomly selects one survey from filtered results
                                 # 4. Generates entry link with subid_1=traffic_id
+                                
+                                # Log detected client IP for debugging
+                                print(f"📍 Detected client IP: {client_ip} for SFWID: {traffic_id}")
+                                
                                 result = cpx_service.fetch_and_allocate_for_respondent(
-                                    respondent_id=traffic_id  # Use SFWID as ext_user_id
+                                    respondent_id=traffic_id,  # Use SFWID as ext_user_id
+                                    user_ip=client_ip          # Pass authenticated user IP
                                 )
                                 
                                 if result.get("success"):
