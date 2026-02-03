@@ -596,20 +596,19 @@ class CPXService:
         
         Scales to 500+ simultaneous starts (each gets their own API call).
         
-        IMPORTANT: IP HANDLING
-        - CPX requires IP parameter for geo-targeting and fingerprint validation
-        - However, using respondent's detected IP (from proxy/CF) causes issues:
-          * Respondent might have IPv6 from proxy but IPv4 from device
-          * IP changes during session (WiFi to mobile, proxy hops)
-          * This causes CPX validation failures on click
-        - Solution: Use STANDARD/HARDCODED IP for CPX API calls
-          * Ensures consistent href generation
-          * CPX validates via encrypted k= parameter, not strict IP matching
-          * User-Agent fingerprinting is more stable and is sent
+        IMPORTANT: IP HANDLING (UPDATED)
+        - CPX requires IP parameter for geo-targeting and validation
+        - Uses the REAL DEVICE IP captured from the parsing page
+        - IP is extracted from multiple headers in priority order:
+          1. CF-Connecting-IP (CloudFlare's direct client IP - most reliable)
+          2. X-Forwarded-For (rightmost IP, closer to origin)
+          3. X-Real-IP (Nginx reverse proxy detection)
+          4. request.client.host (direct connection - least reliable)
+        - Prefers IPv4 over IPv6 for better CPX compatibility
         
         Args:
             respondent_id: The respondent's SFWID (Survey Field Work ID)
-            user_ip: Detected IP (currently unused - we use standard IP instead)
+            user_ip: Real Device IP from parsing page (IPv4 preferred, extracted from headers)
             user_agent: Real User-Agent from respondent's browser (MUST be captured and sent)
             
         Returns:
@@ -636,11 +635,9 @@ class CPXService:
             # Generate secure hash for this specific respondent
             secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
             
-            # CRITICAL: Use STANDARD IP, not respondent's detected IP
-            # Respondent's IP from proxy (X-Forwarded-For) may be IPv6, but device has IPv4
-            # Or it may change during session. CPX validates the encrypted k= parameter,
-            # not strict IP matching. User-Agent is more stable for fingerprinting.
-            standard_ip = self._get_client_ip()  # Hardcoded Indian IP for consistency
+            # Use REAL DEVICE IP from respondent's parsing page
+            # This IP was extracted from multiple headers and validated to be IPv4
+            device_ip = user_ip if user_ip else self._get_client_ip()
             
             # Use provided user_agent - this IS critical for fingerprint matching
             # CPX validates that the UA sending the API call matches the UA clicking the link
@@ -654,15 +651,14 @@ class CPXService:
                 "subid_1": "",
                 "subid_2": "",
                 "output_method": "api",
-                "ip_user": standard_ip,  # Standard IP for consistency (not respondent's detected IP)
-                "user_agent": actual_user_agent,  # Real User-Agent from respondent (CRITICAL)
+                "ip_user": device_ip,  # Real device IP from parsing page (IPv4)
+                "user_agent": actual_user_agent,  # Real User-Agent from respondent
                 "limit": self.fetch_limit,
                 "secure_hash": secure_hash,
             }
             
             print(f"🔄 Fetching CPX surveys for respondent {respondent_id}")
-            print(f"   Detected IP: {user_ip} (not used - using standard IP for consistency)")
-            print(f"   Standard IP: {standard_ip}")
+            print(f"   Device IP: {device_ip}")
             print(f"   User-Agent: {actual_user_agent[:80]}..." if actual_user_agent and len(actual_user_agent) > 80 else f"   User-Agent: {actual_user_agent}")
             print(f"   CPX params: app_id={params['app_id']}, ext_user_id={params['ext_user_id']}, ip_user={params['ip_user']}")
             
