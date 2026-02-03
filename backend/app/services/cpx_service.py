@@ -596,10 +596,21 @@ class CPXService:
         
         Scales to 500+ simultaneous starts (each gets their own API call).
         
+        IMPORTANT: IP HANDLING
+        - CPX requires IP parameter for geo-targeting and fingerprint validation
+        - However, using respondent's detected IP (from proxy/CF) causes issues:
+          * Respondent might have IPv6 from proxy but IPv4 from device
+          * IP changes during session (WiFi to mobile, proxy hops)
+          * This causes CPX validation failures on click
+        - Solution: Use STANDARD/HARDCODED IP for CPX API calls
+          * Ensures consistent href generation
+          * CPX validates via encrypted k= parameter, not strict IP matching
+          * User-Agent fingerprinting is more stable and is sent
+        
         Args:
             respondent_id: The respondent's SFWID (Survey Field Work ID)
-            user_ip: Optional IP address of the respondent. If validated, used instead of hardcoded IP.
-            user_agent: Optional User-Agent string of the respondent. If provided, used instead of hardcoded UA.
+            user_ip: Detected IP (currently unused - we use standard IP instead)
+            user_agent: Real User-Agent from respondent's browser (MUST be captured and sent)
             
         Returns:
             Dictionary with allocation result:
@@ -625,31 +636,34 @@ class CPXService:
             # Generate secure hash for this specific respondent
             secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
             
-            # Use provided user_ip if valid, otherwise fallback to hardcoded Indian IP
-            # CPX requires the IP used in API call to match the click IP for security
-            client_ip = user_ip if user_ip else self._get_client_ip()
-            # Use provided user_agent if valid, otherwise fallback to hardcoded UA
-            # CPX compares user_agent from API call to actual click - must match
+            # CRITICAL: Use STANDARD IP, not respondent's detected IP
+            # Respondent's IP from proxy (X-Forwarded-For) may be IPv6, but device has IPv4
+            # Or it may change during session. CPX validates the encrypted k= parameter,
+            # not strict IP matching. User-Agent is more stable for fingerprinting.
+            standard_ip = self._get_client_ip()  # Hardcoded Indian IP for consistency
+            
+            # Use provided user_agent - this IS critical for fingerprint matching
+            # CPX validates that the UA sending the API call matches the UA clicking the link
             actual_user_agent = user_agent if user_agent else self._get_user_agent()
             
             # Build params with respondent as ext_user_id
             # NOTE: Do NOT use quote() here - requests library handles URL encoding automatically
-            # Double-encoding causes "ip_user has incorrect format" error from CPX
             params = {
                 "app_id": self.app_id,
                 "ext_user_id": respondent_id,  # Key: use respondent's SFWID
                 "subid_1": "",
                 "subid_2": "",
                 "output_method": "api",
-                "ip_user": client_ip,  # No quote() - requests handles encoding
-                "user_agent": actual_user_agent,  # No quote() - requests handles encoding
+                "ip_user": standard_ip,  # Standard IP for consistency (not respondent's detected IP)
+                "user_agent": actual_user_agent,  # Real User-Agent from respondent (CRITICAL)
                 "limit": self.fetch_limit,
                 "secure_hash": secure_hash,
             }
             
             print(f"🔄 Fetching CPX surveys for respondent {respondent_id}")
-            print(f"   IP: {client_ip}")
-            print(f"   UA: {actual_user_agent[:80]}..." if actual_user_agent and len(actual_user_agent) > 80 else f"   UA: {actual_user_agent}")
+            print(f"   Detected IP: {user_ip} (not used - using standard IP for consistency)")
+            print(f"   Standard IP: {standard_ip}")
+            print(f"   User-Agent: {actual_user_agent[:80]}..." if actual_user_agent and len(actual_user_agent) > 80 else f"   User-Agent: {actual_user_agent}")
             print(f"   CPX params: app_id={params['app_id']}, ext_user_id={params['ext_user_id']}, ip_user={params['ip_user']}")
             
             response = requests.get(
