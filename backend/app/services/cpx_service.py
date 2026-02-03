@@ -204,6 +204,7 @@ class CPXService:
         ))
         
         print(f"🔗 Generated CPX entry link for respondent {respondent_id}, survey {survey_id}")
+        print(f"   Full URL: {entry_link[:150]}...")
         return entry_link
     
     def allocate_survey_for_respondent(
@@ -646,7 +647,11 @@ class CPXService:
                 "secure_hash": secure_hash,
             }
             
-            print(f"🔄 Fetching CPX surveys for respondent {respondent_id} (IP: {client_ip[:20]}..., UA: {actual_user_agent[:40]}...)" if actual_user_agent else f"🔄 Fetching CPX surveys for respondent {respondent_id} (IP: {client_ip})")
+            print(f"🔄 Fetching CPX surveys for respondent {respondent_id}")
+            print(f"   IP: {client_ip}")
+            print(f"   UA: {actual_user_agent[:80]}..." if actual_user_agent and len(actual_user_agent) > 80 else f"   UA: {actual_user_agent}")
+            print(f"   CPX params: app_id={params['app_id']}, ext_user_id={params['ext_user_id']}, ip_user={params['ip_user']}")
+            
             response = requests.get(
                 self.BASE_URL,
                 params=params,
