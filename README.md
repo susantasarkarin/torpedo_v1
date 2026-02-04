@@ -13,7 +13,7 @@ A comprehensive campaign automation and lead management platform.
 **Proposed Stack:** Node.js + MongoDB + React (app) | PHP (websites) | n8n (workflows)  
 **Timeline:** 6-9 months | **Cost:** $230-250k | **Complexity Reduction:** 35-40%
 
-See the documents above for detailed analysis, three migration options, and recommendations.
+**Why multiple technologies?** The plan proposes separation of concerns: Node.js for the application API (unified with React frontend), PHP for lightweight public websites (optimal for web serving), and n8n for visual workflow automation (replacing 100+ Python scripts). This reduces overall complexity by consolidating the application stack while using specialized tools for specific needs. See the [transition plan](ARCHITECTURE_TRANSITION_PLAN.md) for detailed rationale.
 
 ## 🤖 Agent Tools
 
