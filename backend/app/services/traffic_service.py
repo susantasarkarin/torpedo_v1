@@ -33,7 +33,12 @@ class TrafficService:
         respondent_id: str,
         url: str = None,
         user_agent: str = None,
-        params: Dict[str, Any] = None
+        params: Dict[str, Any] = None,
+        client_ip: str = None,
+        ip_source: str = None,
+        device_fingerprint: str = None,
+        fingerprint_source: str = None,
+        fingerprint_components: Dict[str, Any] = None
     ) -> str:
         """
         Create a new traffic record
@@ -45,6 +50,11 @@ class TrafficService:
             url: Full URL that was accessed
             user_agent: Browser user agent
             params: All URL parameters
+            client_ip: Client IP address for CPX targeting
+            ip_source: Source of the IP (e.g., 'CF-Connecting-IP', 'X-Forwarded-For')
+            device_fingerprint: Device fingerprint hash
+            fingerprint_source: Source of the fingerprint (e.g., 'client', 'server')
+            fingerprint_components: Components used to generate the fingerprint
             
         Returns:
             MongoDB ObjectId as string
@@ -60,6 +70,11 @@ class TrafficService:
                 "url": url,
                 "userAgent": user_agent,
                 "params": params or {},
+                "clientIp": client_ip,
+                "ipSource": ip_source,
+                "deviceFingerprint": device_fingerprint,
+                "fingerprintSource": fingerprint_source,
+                "fingerprintComponents": fingerprint_components or {},
                 "assignedSurveyId": None,
                 "redirectUrl": None,
                 "outUrl": None,
