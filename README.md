@@ -6,11 +6,16 @@ A comprehensive campaign automation and lead management platform.
 
 **Considering modernization? We've created a comprehensive transition plan:**
 
-- ❓ **[Node.js vs n8n Decision Guide](ARCHITECTURE_DECISION_NODEJS_VS_N8N.md)** - Do we need Node.js? Which modules go where? (READ THIS FIRST)
+### 📚 Planning Documents
+- ❓ **[Node.js vs n8n Decision Guide](ARCHITECTURE_DECISION_NODEJS_VS_N8N.md)** - Do we need Node.js? Which modules go where?
 - 🎯 **[Executive Summary](ARCHITECTURE_TRANSITION_EXECUTIVE_SUMMARY.md)** - For stakeholders and decision makers
 - 📋 **[Complete Transition Plan](ARCHITECTURE_TRANSITION_PLAN.md)** - Detailed 60-page guide covering strategy, timeline, costs, and risks
 - ⚡ **[Quick Reference](ARCHITECTURE_TRANSITION_QUICKREF.md)** - TL;DR summary with key decisions and options
 - 📊 **[Visual Guide](ARCHITECTURE_TRANSITION_VISUAL.md)** - Diagrams, comparisons, and visual explanations
+
+### 🤖 Implementation Guides
+- 🚀 **[AI Assistant Migration Prompt](AI_ASSISTANT_MIGRATION_PROMPT.md)** - Copy-paste prompt for AI tools (ChatGPT, Claude, Copilot) to help with Python→Node.js migration
+- 🔄 **[Python to n8n Workflow Guide](PYTHON_TO_N8N_WORKFLOW_GUIDE.md)** - Step-by-step guide for converting 100+ Python scripts to n8n visual workflows
 
 **Three Options Available:**
 1. **Python + n8n** (2-3mo, $70k, Low risk) - Recommended for quick wins
@@ -19,7 +24,7 @@ A comprehensive campaign automation and lead management platform.
 
 **Key Insight:** 80% of complexity comes from automation scripts, not Python backend. n8n solves this regardless of backend choice.
 
-See the [Node.js vs n8n Decision Guide](ARCHITECTURE_DECISION_NODEJS_VS_N8N.md) to understand which modules should be handled by Node.js vs n8n.
+**Ready to migrate?** Use the AI Assistant Prompt to guide your AI tools, and the Workflow Guide to convert Python scripts to n8n.
 
 ## 🤖 Agent Tools
 
