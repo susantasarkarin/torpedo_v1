@@ -556,3 +556,94 @@ def include_deleted_filter(include: bool = False) -> dict:
     if include:
         return {}
     return {"is_deleted": {"$ne": True}}
+
+
+# ============== HTTP REQUEST UTILITIES ==============
+
+def extract_real_client_ip(request) -> tuple:
+    """
+    Extract the real client IP from request headers.
+    
+    Checks headers in priority order:
+    1. CF-Connecting-IP (Cloudflare)
+    2. X-Forwarded-For (rightmost IP for client behind proxies)
+    3. X-Real-IP (Nginx)
+    4. request.client.host (direct connection)
+    
+    Args:
+        request: FastAPI Request object
+        
+    Returns:
+        Tuple of (ip_address: str, source: str)
+    """
+    # Priority 1: Cloudflare header (most reliable when using CF)
+    cf_ip = request.headers.get("CF-Connecting-IP")
+    if cf_ip:
+        return cf_ip.strip(), "CF-Connecting-IP"
+    
+    # Priority 2: X-Forwarded-For (get rightmost non-private IP)
+    xff = request.headers.get("X-Forwarded-For")
+    if xff:
+        # X-Forwarded-For format: "client, proxy1, proxy2"
+        # Take the first IP (original client)
+        ips = [ip.strip() for ip in xff.split(",")]
+        if ips:
+            # Return the first (leftmost) IP - this is the original client
+            client_ip = ips[0]
+            # Validate it's not a private IP
+            if client_ip and not _is_private_ip(client_ip):
+                return client_ip, "X-Forwarded-For"
+            # If first is private, try to find a public IP
+            for ip in ips:
+                if ip and not _is_private_ip(ip):
+                    return ip, "X-Forwarded-For"
+    
+    # Priority 3: X-Real-IP (Nginx)
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip(), "X-Real-IP"
+    
+    # Priority 4: Direct connection
+    if request.client and request.client.host:
+        return request.client.host, "direct"
+    
+    return "0.0.0.0", "unknown"
+
+
+def _is_private_ip(ip: str) -> bool:
+    """
+    Check if an IP address is private/internal.
+    
+    Args:
+        ip: IP address string
+        
+    Returns:
+        True if private, False if public
+    """
+    private_prefixes = [
+        "10.",
+        "172.16.", "172.17.", "172.18.", "172.19.",
+        "172.20.", "172.21.", "172.22.", "172.23.",
+        "172.24.", "172.25.", "172.26.", "172.27.",
+        "172.28.", "172.29.", "172.30.", "172.31.",
+        "192.168.",
+        "127.",
+        "0.",
+        "::1",
+        "localhost"
+    ]
+    ip_lower = ip.lower().strip()
+    return any(ip_lower.startswith(prefix) for prefix in private_prefixes)
+
+
+def extract_user_agent(request) -> str:
+    """
+    Extract User-Agent from request headers.
+    
+    Args:
+        request: FastAPI Request object
+        
+    Returns:
+        User-Agent string or empty string if not present
+    """
+    return request.headers.get("User-Agent", "") or ""
