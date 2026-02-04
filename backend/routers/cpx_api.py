@@ -680,7 +680,8 @@ async def survey_status_poll(
 
 @router.post("/transaction/create")
 async def create_transaction(
-    trans_id: str = Query(..., description="Transaction ID"),
+    request: Request,
+    trans_id: Optional[str] = Query(None, description="Transaction ID (query param)"),
     user_id: Optional[str] = Query(None, description="User/Respondent ID"),
     subid: Optional[str] = Query(None, description="Sub ID"),
     survey_id: Optional[str] = Query(None, description="Survey ID"),
@@ -692,23 +693,43 @@ async def create_transaction(
     
     Call this endpoint when generating the CPX survey link to pre-register
     the transaction. The postback will then update this record.
+    
+    Accepts parameters via query string OR JSON body for flexibility.
     """
     try:
         if survey_transactions_collection is None:
             raise HTTPException(status_code=503, detail="Database not available")
         
+        # Support both query params and JSON body
+        body_data = {}
+        try:
+            body_data = await request.json()
+        except:
+            pass  # No JSON body, use query params
+        
+        # Prefer body data, fall back to query params
+        final_trans_id = body_data.get("trans_id") or trans_id
+        final_user_id = body_data.get("user_id") or user_id
+        final_subid = body_data.get("subid") or subid
+        final_survey_id = body_data.get("survey_id") or survey_id
+        final_vendor_id = body_data.get("vendor_id") or vendor_id
+        final_country_code = body_data.get("country_code") or country_code
+        
+        if not final_trans_id:
+            raise HTTPException(status_code=400, detail="trans_id is required")
+        
         # Check if already exists
-        existing = survey_transactions_collection.find_one({"trans_id": trans_id})
+        existing = survey_transactions_collection.find_one({"trans_id": final_trans_id})
         if existing:
-            return {"success": True, "trans_id": trans_id, "message": "Transaction already exists"}
+            return {"success": True, "trans_id": final_trans_id, "message": "Transaction already exists"}
         
         new_transaction = {
-            "trans_id": trans_id,
-            "user_id": user_id,
-            "subid": subid,
-            "survey_id": survey_id,
-            "vendor_id": vendor_id,
-            "country_code": country_code,
+            "trans_id": final_trans_id,
+            "user_id": final_user_id,
+            "subid": final_subid,
+            "survey_id": final_survey_id,
+            "vendor_id": final_vendor_id,
+            "country_code": final_country_code,
             "status": "pending",
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
@@ -719,7 +740,7 @@ async def create_transaction(
         
         return {
             "success": True,
-            "trans_id": trans_id,
+            "trans_id": final_trans_id,
             "message": "Transaction created"
         }
         

@@ -123,9 +123,8 @@ export default function TrafficFlowParser() {
   const [fullUrl, setFullUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [retryCount, setRetryCount] = useState(0);
+  // NOTE: retryCount removed - CPX forbids retries (each API call binds identity)
   const [pollingStatus, setPollingStatus] = useState(null); // For showing survey completion status
-  const hasAutoTriggered = useRef(false);
   const pollIntervalRef = useRef(null);
   const currentTransIdRef = useRef(null);
   
@@ -153,7 +152,7 @@ export default function TrafficFlowParser() {
           console.log(`✅ IP prefetched and cached: ${ipData.ip} (source: ${ipData.source})`);
         }
       } catch (err) {
-        console.warn('⚠️ IP prefetch on load failed, will retry on PROCEED:', err.message);
+        console.warn('⚠️ IP prefetch on load failed:', err.message);
       }
     };
     prefetchIp();
@@ -166,53 +165,8 @@ export default function TrafficFlowParser() {
     };
   }, []);
 
-  // Function to trigger survey pool sync
-  const triggerSurveySync = async () => {
-    try {
-      console.log("🔄 Triggering survey pool sync...");
-      const syncResponse = await fetch(buildApiUrl(`/survey-pool/sync`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        mode: "cors",
-      });
-      if (syncResponse.ok) {
-        const syncResult = await syncResponse.json();
-        console.log("✅ Survey sync completed:", syncResult);
-        return true;
-      }
-    } catch (err) {
-      console.error("⚠️ Survey sync failed:", err);
-    }
-    return false;
-  };
-
-  // Pre-register transaction before user starts survey
-  const preRegisterTransaction = async (transId, subid) => {
-    try {
-      console.log(`📝 Pre-registering transaction: ${transId}`);
-      const response = await fetch(buildApiUrl(`/cpx-api/transaction/create`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        mode: "cors",
-        body: JSON.stringify({
-          trans_id: transId,
-          subid: subid,
-          status: "pending"
-        }),
-      });
-      if (response.ok) {
-        const result = await response.json();
-        console.log("✅ Transaction pre-registered:", result);
-        return true;
-      } else {
-        console.error("❌ Failed to pre-register transaction");
-        return false;
-      }
-    } catch (err) {
-      console.error("❌ Transaction pre-registration error:", err);
-      return false;
-    }
-  };
+  // NOTE: triggerSurveySync removed - CPX forbids sync/retry flows
+  // Each CPX API call binds identity. Retry = new identity = violation.
 
   // Poll for survey completion status
   const startPolling = useCallback((transId) => {
@@ -261,7 +215,7 @@ export default function TrafficFlowParser() {
     }, 30 * 60 * 1000);
   }, [urlParams.rid]);
 
-  const handleStore = useCallback(async (isRetry = false) => {
+  const handleStore = useCallback(async () => {
     // Check for required traffic parameters
     const vid = urlParams.vid;
     const cc = urlParams.cc;
@@ -331,38 +285,48 @@ export default function TrafficFlowParser() {
         const recordType = result.type || "unknown";
         let entryLink = result.entry_link;
         const allocationSuccess = result.allocation_success;
+        const allocationError = result.allocation_error;
+        const debugInfo = result.debug_info;
 
         console.log(`✅ Traffic record created: ${objectId} (type: ${recordType})`);
 
         // Check if survey was allocated successfully
         if (allocationSuccess && entryLink) {
-          // Append trans_id to entry link for CPX postback tracking
-          const separator = entryLink.includes('?') ? '&' : '?';
-          entryLink = `${entryLink}${separator}ext_subid2=${transId}`;
+          // CRITICAL: Do NOT modify CPX href - it already contains encrypted identity (k= parameter)
+          // CPX embeds ext_user_id in the href, appending anything can break identity validation
+          // subid_1 (our SFWID) is already included via the API call params
           
           console.log(`✅ Survey allocated successfully, redirecting to: ${entryLink}`);
           
           // Start polling for survey completion
           startPolling(transId);
           
-          // Redirect to survey
+          // Redirect to survey IMMEDIATELY - no delays allowed
           window.location.href = entryLink;
         } else {
-          // No survey allocated - try to sync and retry once (no delay)
-          if (!isRetry && retryCount < 1) {
-            console.log("⚠️ No survey allocated, triggering sync and retrying immediately...");
-            setRetryCount(prev => prev + 1);
-            const synced = await triggerSurveySync();
-            if (synced) {
-              // Retry immediately - no delay for faster user experience
-              handleStore(true);
-              return;
-            }
+          // ===============================================================
+          // NO SURVEYS AVAILABLE - THIS IS A VALID OUTCOME, NOT AN ERROR
+          // ===============================================================
+          // CPX RULES: 
+          // - Do NOT retry - each API call binds identity
+          // - Do NOT sync and retry - violates timing rules
+          // - Do NOT pool fallback - hrefs are bound to ext_user_id
+          // - Accept "no surveys" as a clean exit
+          // ===============================================================
+          
+          // Log diagnostic info for debugging
+          if (allocationError) {
+            console.log(`ℹ️ No surveys available: ${allocationError}`);
+          }
+          if (debugInfo) {
+            console.log(`🔍 Debug info:`, debugInfo);
           }
           
-          // If retry also failed, show error
-          console.error("❌ No survey allocated from pool after retry. Backend may have no active surveys.");
-          setError("No surveys are currently available. Please try again in a few minutes or contact support.");
+          // Show user-friendly message - this is a VALID outcome, not a failure
+          const errorMsg = allocationError 
+            ? `No surveys available for your profile: ${allocationError}`
+            : "No surveys are currently available for your profile. This is normal - please check back later.";
+          setError(errorMsg);
           setLoading(false);
         }
       } else {
@@ -383,7 +347,7 @@ export default function TrafficFlowParser() {
       setError(errorMessage);
       setLoading(false);
     }
-  }, [urlParams, fullUrl, retryCount, startPolling]);
+  }, [urlParams, fullUrl, startPolling]);
 
   // Auto-trigger removed - user must click the "Next" button manually
   // This was causing the system to automatically click the button

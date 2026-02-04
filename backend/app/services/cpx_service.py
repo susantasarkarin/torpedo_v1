@@ -185,10 +185,12 @@ class CPXService:
         parsed = urlparse(href)
         query_params = parse_qs(parsed.query, keep_blank_values=True)
         
+        # Ensure subid_1 appears exactly once in the final URL.
+        # CPX hrefs may already include subid_1/subid_2 placeholders; remove all first.
+        query_params.pop('subid_1', None)
+        query_params.pop('subid_2', None)
         # Set respondent tracking only (subid_1). Ignore subid_2 placeholder.
         query_params['subid_1'] = [respondent_id]
-        if 'subid_2' in query_params:
-            query_params.pop('subid_2', None)
         
         # Build query string preserving original parameters (k, api, time_stamp, ext_user_id)
         new_query = urlencode(query_params, doseq=True)
@@ -377,29 +379,36 @@ class CPXService:
     @staticmethod
     def _get_client_ip() -> str:
         """
-        Get IP address for CPX API requests.
+        DEPRECATED - DO NOT USE
         
-        Uses a hardcoded Indian IP to ensure CPX API works regardless of
-        server location (e.g., when deployed on US-based VMs).
+        This method previously returned a hardcoded IP which violated CPX identity rules.
+        IP MUST come from the actual client request, not a fallback.
         
-        Returns:
-            Indian IP address for geo-targeting
+        Raises:
+            RuntimeError: Always - fallback IP is not allowed
         """
-        # Hardcoded Indian IP address for CPX API geo-targeting
-        # This ensures CPX API returns India-relevant surveys regardless of server location
-        # Using a Mumbai (Maharashtra) IP address
-        INDIAN_IP = "103.21.124.1"  # Indian IP (Mumbai region)
-        
-        return INDIAN_IP
+        raise RuntimeError(
+            "CPX FATAL: _get_client_ip() fallback called. "
+            "IP MUST be captured from actual client request headers. "
+            "Using fallback IP will cause CPX to reject all traffic."
+        )
     
     @staticmethod
     def _get_user_agent() -> str:
         """
-        Get default user agent for requests
-        Returns:
-            User agent string
+        DEPRECATED - DO NOT USE
+        
+        This method previously returned a generic UA which violated CPX fingerprint rules.
+        UA MUST come from the actual client request, not a fallback.
+        
+        Raises:
+            RuntimeError: Always - fallback UA is not allowed
         """
-        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        raise RuntimeError(
+            "CPX FATAL: _get_user_agent() fallback called. "
+            "User-Agent MUST be captured from actual client request headers. "
+            "Using fallback UA will cause CPX fingerprint mismatch."
+        )
 
     @staticmethod
     def _utc_to_ist(utc_dt: datetime) -> datetime:
@@ -417,93 +426,26 @@ class CPXService:
     
     def fetch_cpx_surveys(self) -> List[Dict[str, Any]]:
         """
-        Fetch surveys from CPX Research API
+        DEPRECATED - DO NOT USE FOR PRODUCTION
         
-        Returns:
-            List of normalized survey dictionaries
+        This method attempts to fetch CPX surveys without a real client context.
+        This fundamentally violates CPX protocol:
+        - href URLs are bound to ext_user_id + IP + UA from the API call
+        - Surveys fetched with fake/generic IP/UA cannot be used by real respondents
+        - The encrypted 'k' parameter in href will mismatch on click
+        
+        For production use:
+        - Use fetch_and_allocate_for_respondent() with REAL client IP and UA
+        - Fetch surveys on-demand when a real respondent is present
+        
+        Raises:
+            RuntimeError: Always - bulk fetching CPX surveys is not allowed
         """
-        try:
-            # Generate secure hash
-            secure_hash = self._generate_secure_hash(self.ext_user_id, self.secure_hash_key)
-            
-            # Get client IP and user agent
-            client_ip = self._get_client_ip()
-            user_agent = self._get_user_agent()
-            
-            # Build query parameters
-            # NOTE: Do NOT use quote() - requests library handles URL encoding automatically
-            params = {
-                "app_id": self.app_id,
-                "ext_user_id": self.ext_user_id,
-                "subid_1": "",
-                "subid_2": "",
-                "output_method": "api",
-                "ip_user": client_ip,
-                "user_agent": user_agent,
-                "limit": self.fetch_limit,
-                "secure_hash": secure_hash,
-            }
-            
-            # Make request to CPX API
-            print(f"🔄 Fetching CPX surveys with limit={self.fetch_limit}...")
-            response = requests.get(
-                self.BASE_URL,
-                params=params,
-                timeout=self.api_timeout
-            )
-            response.raise_for_status()
-            
-            data = response.json()
-            print(f"📥 CPX API Response: {data}")
-            
-            # Handle API response
-            if not isinstance(data, dict):
-                print(f"⚠️  Unexpected CPX API response format: {type(data)}")
-                return []
-            
-            # Handle multiple response formats (like the working script)
-            surveys = []
-            
-            # Format 1: Direct surveys list
-            if isinstance(data.get("surveys"), list) and len(data["surveys"]) > 0:
-                surveys = data["surveys"]
-                print(f"📋 Found {len(surveys)} surveys in 'surveys' key")
-            
-            # Format 2: Using count_available_surveys and info key
-            elif data.get("count_available_surveys", 0) > 0:
-                info_list = data.get("info", [])
-                if isinstance(info_list, list) and len(info_list) > 0:
-                    surveys = info_list
-                    print(f"📋 Found {len(surveys)} surveys in 'info' key")
-            
-            # Format 3: No surveys message
-            elif data.get("message_not_found"):
-                print("ℹ️  No surveys available (message_not_found)")
-                return []
-            
-            if not surveys:
-                print("ℹ️  No surveys returned from CPX API")
-                return []
-            
-            # Normalize surveys (store ALL surveys without filtering)
-            # Filters are now applied only during display/routing, not during ingestion
-            normalized_surveys = []
-            for survey in surveys:
-                normalized = self._normalize_survey(survey)
-                normalized_surveys.append(normalized)
-            
-            print(f"✅ Fetched {len(normalized_surveys)} CPX surveys (storing all without filtering)")
-            return normalized_surveys
-            
-        except requests.exceptions.Timeout:
-            print(f"❌ CPX API timeout (>{self.api_timeout}s)")
-            return []
-        except requests.exceptions.RequestException as e:
-            print(f"❌ CPX API request failed: {e}")
-            return []
-        except Exception as e:
-            print(f"❌ CPX fetch error: {e}")
-            return []
+        raise RuntimeError(
+            "CPX FATAL: fetch_cpx_surveys() is deprecated. "
+            "CPX surveys MUST be fetched per-respondent with real IP/UA. "
+            "Use fetch_and_allocate_for_respondent() instead."
+        )
 
     def fetch_survey_href_for_respondent(
         self,
@@ -511,105 +453,88 @@ class CPXService:
         survey_id: str
     ) -> Optional[str]:
         """
-        Fetch CPX surveys for a specific respondent and return href for target survey.
+        DEPRECATED - DO NOT USE
         
-        This ensures the k= parameter is encrypted for the respondent (ext_user_id).
-        Returns None if survey is not available or API fails.
+        This method attempts to fetch a specific survey href without real IP/UA.
+        This fundamentally violates CPX protocol:
+        - href URLs are bound to ext_user_id + IP + UA from the API call
+        - Using fallback IP/UA causes fingerprint mismatch on click
+        
+        For production use:
+        - Use fetch_and_allocate_for_respondent() with REAL client IP and UA
+        - Let CPX select the best survey (don't target specific survey_id)
+        
+        Raises:
+            RuntimeError: Always - this method cannot work correctly
         """
-        try:
-            secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
-            client_ip = self._get_client_ip()
-            user_agent = self._get_user_agent()
-            
-            # NOTE: Do NOT use quote() - requests library handles URL encoding automatically
-            params = {
-                "app_id": self.app_id,
-                "ext_user_id": respondent_id,
-                "subid_1": "",
-                "subid_2": "",
-                "output_method": "api",
-                "ip_user": client_ip,
-                "user_agent": user_agent,
-                "limit": self.fetch_limit,
-                "secure_hash": secure_hash,
-            }
-            
-            response = requests.get(
-                self.BASE_URL,
-                params=params,
-                timeout=self.api_timeout
-            )
-            response.raise_for_status()
-            data = response.json()
-            
-            if not isinstance(data, dict):
-                print(f"⚠️  Unexpected CPX API response format: {type(data)}")
-                return None
-            
-            surveys: List[Dict[str, Any]] = []
-            if isinstance(data.get("surveys"), list) and len(data["surveys"]) > 0:
-                surveys = data["surveys"]
-            elif data.get("count_available_surveys", 0) > 0:
-                info_list = data.get("info", [])
-                if isinstance(info_list, list) and len(info_list) > 0:
-                    surveys = info_list
-            elif data.get("message_not_found"):
-                return None
-            
-            if not surveys:
-                return None
-            
-            target_id = str(survey_id)
-            for survey in surveys:
-                sid = str(survey.get("id") or survey.get("survey_id") or "")
-                if sid == target_id:
-                    href = survey.get("href") or survey.get("href_new") or ""
-                    return href or None
-            
-            return None
-        except requests.exceptions.Timeout:
-            print(f"❌ CPX API timeout (>{self.api_timeout}s) for respondent {respondent_id}")
-            return None
-        except requests.exceptions.RequestException as e:
-            print(f"❌ CPX API request failed for respondent {respondent_id}: {e}")
-            return None
-        except Exception as e:
-            print(f"❌ CPX fetch error for respondent {respondent_id}: {e}")
-            return None
+        raise RuntimeError(
+            "CPX FATAL: fetch_survey_href_for_respondent() is deprecated. "
+            "CPX surveys MUST be fetched with real IP/UA. "
+            "Use fetch_and_allocate_for_respondent() instead."
+        )
     
     def fetch_and_allocate_for_respondent(
         self,
-        respondent_id: str,
-        user_ip: Optional[str] = None,
-        user_agent: Optional[str] = None
+        vendor_user_id: str,          # STABLE vendor-provided rid (ext_user_id for CPX)
+        internal_tracking_id: str,     # Our SFWID for internal tracking (subid_1)
+        user_ip: str,                  # REQUIRED - real client IP, no fallback
+        user_agent: str,               # REQUIRED - real client UA, no fallback
     ) -> Dict[str, Any]:
         """
+        ╔══════════════════════════════════════════════════════════════════════════════╗
+        ║  ⚠️  CPX IS NOT A POOL-BASED PROVIDER - READ THIS BEFORE MODIFYING  ⚠️       ║
+        ╠══════════════════════════════════════════════════════════════════════════════╣
+        ║                                                                              ║
+        ║  DO NOT:                                                                     ║
+        ║    ❌ Reuse survey hrefs (they are single-use, identity-bound)               ║
+        ║    ❌ Retry failed calls (each call binds new identity)                      ║
+        ║    ❌ Call from background jobs (requires real HTTP context)                 ║
+        ║    ❌ Mutate href URLs (k= parameter is cryptographically signed)            ║
+        ║    ❌ Fabricate IP or User-Agent (must match click fingerprint)              ║
+        ║    ❌ Store href in database (expires immediately)                           ║
+        ║    ❌ Abstract into shared vendor allocator (CPX rules are unique)           ║
+        ║                                                                              ║
+        ║  THIS METHOD MUST BE CALLED ONLY FROM A REAL HTTP REQUEST.                   ║
+        ║  VIOLATING THIS WILL CAUSE SILENT TRAFFIC TERMINATION BY CPX.                ║
+        ║                                                                              ║
+        ╚══════════════════════════════════════════════════════════════════════════════╝
+        
         Fetch CPX surveys for a specific respondent, apply filters, randomly select one,
-        store all surveys, and generate entry link.
+        and generate entry link for IMMEDIATE redirect.
         
-        This is the per-respondent allocation flow:
-        1. Call CPX API with respondent's SFWID as ext_user_id (gets personalized hrefs)
-        2. Store all returned surveys in cpx_research.cpx_surveys
+        ⚠️ THIS IS THE ONLY VALID CPX ENTRY POINT ⚠️
+        
+        This method MUST be called from an HTTP request context with:
+        - Real vendor-provided respondent ID (not generated UUIDs)
+        - Real client IP from request headers
+        - Real User-Agent from browser
+        
+        CRITICAL CPX IDENTITY RULES:
+        - ext_user_id MUST be a STABLE identifier (vendor's rid), NOT our internal traffic_id
+        - secure_hash = md5(ext_user_id + "-" + secret) - MUST use same ext_user_id
+        - subid_1 = our internal tracking ID (SFWID) for postback correlation
+        - href is single-use, tied to ext_user_id, NEVER cache or reuse
+        - IP and UA MUST match between API call and user click (no fallbacks!)
+        
+        Flow:
+        1. Call CPX API with vendor_user_id as ext_user_id
+        2. CPX returns surveys with hrefs bound to that ext_user_id
         3. Apply filter settings (max_loi, min_cpi, min_ir)
-        4. Randomly select one survey from filtered results
-        5. Generate entry link with subid_1=respondent_id
+        4. Randomly select one survey from filtered results  
+        5. Append subid_1=internal_tracking_id to href for our tracking
+        6. Return entry_link for IMMEDIATE redirect (href expires quickly)
         
-        Scales to 500+ simultaneous starts (each gets their own API call).
-        
-        IMPORTANT: IP HANDLING (UPDATED)
-        - CPX requires IP parameter for geo-targeting and validation
-        - Uses the REAL DEVICE IP captured from the parsing page
-        - IP is extracted from multiple headers in priority order:
-          1. CF-Connecting-IP (CloudFlare's direct client IP - most reliable)
-          2. X-Forwarded-For (rightmost IP, closer to origin)
-          3. X-Real-IP (Nginx reverse proxy detection)
-          4. request.client.host (direct connection - least reliable)
-        - Prefers IPv4 over IPv6 for better CPX compatibility
+        REGRESSION GUARDS:
+        - vendor_user_id must not look like UUID/ObjectId (indicates wrong ID used)
+        - user_ip must not be localhost/private (indicates missing real IP)
+        - user_agent must not be generic/empty (indicates missing real UA)
         
         Args:
-            respondent_id: The respondent's SFWID (Survey Field Work ID)
-            user_ip: Real Device IP from parsing page (IPv4 preferred, extracted from headers)
-            user_agent: Real User-Agent from respondent's browser (MUST be captured and sent)
+            vendor_user_id: STABLE vendor-provided respondent ID (rid parameter)
+                           This becomes ext_user_id for CPX identity tracking
+            internal_tracking_id: Our SFWID for internal tracking (becomes subid_1)
+            user_ip: Real Device IP - REQUIRED, must match user's click IP
+            user_agent: Real User-Agent - REQUIRED, must match user's browser
             
         Returns:
             Dictionary with allocation result:
@@ -617,50 +542,102 @@ class CPXService:
                 "success": bool,
                 "entry_link": str,
                 "survey_id": str,
-                "respondent_id": str,
-                "survey": dict,  # Survey metadata
+                "vendor_user_id": str,
+                "internal_tracking_id": str,
+                "survey": dict,
                 "error": str  # Only present if success=False
             }
         """
-        if not respondent_id:
+        # =========================================================================
+        # REGRESSION GUARDS - Detect incorrect usage patterns
+        # =========================================================================
+        import re
+        
+        # Guard 1: Detect if vendor_user_id looks like a UUID/ObjectId (wrong ID type)
+        uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        objectid_pattern = r'^[0-9a-f]{24}$'
+        if vendor_user_id and (re.match(uuid_pattern, vendor_user_id, re.I) or re.match(objectid_pattern, vendor_user_id, re.I)):
+            print(f"⚠️ CPX REGRESSION WARNING: vendor_user_id '{vendor_user_id}' looks like UUID/ObjectId!")
+            print("   This should be the vendor's stable rid, not an internally generated ID.")
+            # Don't fail, but log loudly for debugging
+        
+        # Guard 2: Detect localhost/private IPs (indicates missing real client IP)
+        private_ip_patterns = ['127.0.0.1', 'localhost', '0.0.0.0', '::1', '10.', '192.168.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.']
+        if user_ip and any(user_ip.startswith(p) for p in private_ip_patterns):
+            print(f"⚠️ CPX REGRESSION WARNING: user_ip '{user_ip}' is private/localhost!")
+            print("   CPX requires real public client IP. This will cause identity mismatch on click.")
+        
+        # Guard 3: Detect generic/empty User-Agent
+        generic_ua_patterns = ['python', 'requests', 'curl', 'wget', 'httpie', 'test', 'bot', 'crawler']
+        if user_agent and any(p in user_agent.lower() for p in generic_ua_patterns):
+            print(f"⚠️ CPX REGRESSION WARNING: user_agent looks generic/automated!")
+            print("   CPX requires real browser User-Agent. This will cause fingerprint mismatch.")
+        
+        # =========================================================================
+        # Validate ALL required inputs - no fallbacks, fail fast
+        if not vendor_user_id:
             return {
                 "success": False,
-                "error": "respondent_id (SFWID) is required",
+                "error": "vendor_user_id (rid) is REQUIRED for CPX ext_user_id",
                 "entry_link": "",
                 "survey_id": "",
-                "respondent_id": respondent_id or "",
+                "vendor_user_id": vendor_user_id or "",
+                "internal_tracking_id": internal_tracking_id or "",
+            }
+        
+        if not internal_tracking_id:
+            return {
+                "success": False,
+                "error": "internal_tracking_id (SFWID) is REQUIRED for tracking",
+                "entry_link": "",
+                "survey_id": "",
+                "vendor_user_id": vendor_user_id,
+                "internal_tracking_id": "",
+            }
+        
+        if not user_ip:
+            return {
+                "success": False,
+                "error": "user_ip is REQUIRED - CPX validates IP consistency",
+                "entry_link": "",
+                "survey_id": "",
+                "vendor_user_id": vendor_user_id,
+                "internal_tracking_id": internal_tracking_id,
+            }
+        
+        if not user_agent:
+            return {
+                "success": False,
+                "error": "user_agent is REQUIRED - CPX validates UA fingerprint",
+                "entry_link": "",
+                "survey_id": "",
+                "vendor_user_id": vendor_user_id,
+                "internal_tracking_id": internal_tracking_id,
             }
         
         try:
-            # Generate secure hash for this specific respondent
-            secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
+            # Generate secure hash with STABLE vendor ID (not internal tracking ID!)
+            # CPX formula: md5(ext_user_id + "-" + secure_hash_key)
+            secure_hash = self._generate_secure_hash(vendor_user_id, self.secure_hash_key)
             
-            # Use REAL DEVICE IP from respondent's parsing page
-            # This IP was extracted from multiple headers and validated to be IPv4
-            device_ip = user_ip if user_ip else self._get_client_ip()
-            
-            # Use provided user_agent - this IS critical for fingerprint matching
-            # CPX validates that the UA sending the API call matches the UA clicking the link
-            actual_user_agent = user_agent if user_agent else self._get_user_agent()
-            
-            # Build params with respondent as ext_user_id
-            # NOTE: Do NOT use quote() here - requests library handles URL encoding automatically
+            # Build params with vendor_user_id as ext_user_id
+            # subid_1 = internal_tracking_id for our postback correlation
             params = {
                 "app_id": self.app_id,
-                "ext_user_id": respondent_id,  # Key: use respondent's SFWID
-                "subid_1": "",
+                "ext_user_id": vendor_user_id,         # STABLE vendor rid
+                "subid_1": internal_tracking_id,       # Our SFWID for tracking
                 "subid_2": "",
                 "output_method": "api",
-                "ip_user": device_ip,  # Real device IP from parsing page (IPv4)
-                "user_agent": actual_user_agent,  # Real User-Agent from respondent
+                "ip_user": user_ip,                    # Real client IP (required)
+                "user_agent": user_agent,              # Real client UA (required)
                 "limit": self.fetch_limit,
                 "secure_hash": secure_hash,
             }
             
-            print(f"🔄 Fetching CPX surveys for respondent {respondent_id}")
-            print(f"   Device IP: {device_ip}")
-            print(f"   User-Agent: {actual_user_agent[:80]}..." if actual_user_agent and len(actual_user_agent) > 80 else f"   User-Agent: {actual_user_agent}")
-            print(f"   CPX params: app_id={params['app_id']}, ext_user_id={params['ext_user_id']}, ip_user={params['ip_user']}")
+            print(f"🔄 Fetching CPX surveys for vendor_user_id={vendor_user_id}, internal_tracking_id={internal_tracking_id}")
+            print(f"   Device IP: {user_ip}")
+            print(f"   User-Agent: {user_agent[:80]}..." if user_agent and len(user_agent) > 80 else f"   User-Agent: {user_agent}")
+            print(f"   CPX params: app_id={params['app_id']}, ext_user_id={params['ext_user_id']}, subid_1={params['subid_1']}, ip_user={params['ip_user']}")
             
             response = requests.get(
                 self.BASE_URL,
@@ -671,7 +648,7 @@ class CPXService:
             data = response.json()
             
             # Debug: Log raw CPX API response summary
-            print(f"🔍 CPX API response for {respondent_id}: status={data.get('status')}, count={data.get('count_available_surveys')}, surveys_len={len(data.get('surveys', []))}, message_not_found={data.get('message_not_found')}")
+            print(f"🔍 CPX API response for {vendor_user_id}: status={data.get('status')}, count={data.get('count_available_surveys')}, surveys_len={len(data.get('surveys', []))}, message_not_found={data.get('message_not_found')}")
             
             # Parse API response
             if not isinstance(data, dict):
@@ -681,7 +658,8 @@ class CPXService:
                     "error": "Invalid API response format",
                     "entry_link": "",
                     "survey_id": "",
-                    "respondent_id": respondent_id,
+                    "vendor_user_id": vendor_user_id,
+                    "internal_tracking_id": internal_tracking_id,
                 }
             
             # Handle multiple response formats
@@ -693,13 +671,14 @@ class CPXService:
                 if isinstance(info_list, list) and len(info_list) > 0:
                     surveys = info_list
             elif data.get("message_not_found"):
-                print(f"ℹ️ No surveys available from CPX for respondent {respondent_id}")
+                print(f"ℹ️ No surveys available from CPX for {vendor_user_id}")
                 return {
                     "success": False,
                     "error": "No surveys available from CPX",
                     "entry_link": "",
                     "survey_id": "",
-                    "respondent_id": respondent_id,
+                    "vendor_user_id": vendor_user_id,
+                    "internal_tracking_id": internal_tracking_id,
                 }
             
             if not surveys:
@@ -708,15 +687,21 @@ class CPXService:
                     "error": "No surveys returned from CPX API",
                     "entry_link": "",
                     "survey_id": "",
-                    "respondent_id": respondent_id,
+                    "vendor_user_id": vendor_user_id,
+                    "internal_tracking_id": internal_tracking_id,
                 }
             
-            print(f"📥 Fetched {len(surveys)} surveys from CPX for respondent {respondent_id}")
+            print(f"📥 Fetched {len(surveys)} surveys from CPX for {vendor_user_id}")
             
-            # Store ALL surveys in cpx_research.cpx_surveys (for reference/analytics)
+            # Store ALL surveys in cpx_research.cpx_surveys (for reference/analytics ONLY)
+            # NOTE: Do NOT store href - it's bound to ext_user_id and single-use
             if self.cpx_surveys_collection is not None:
                 for survey in surveys:
                     normalized = self._normalize_survey(survey)
+                    # Remove href before storing - it's single-use and bound to ext_user_id
+                    normalized.pop('href', None)
+                    normalized.pop('href_new', None)
+                    normalized.pop('live_link', None)
                     try:
                         self.cpx_surveys_collection.update_one(
                             {"_id": normalized.get("_id")},
@@ -769,13 +754,14 @@ class CPXService:
                 filtered_surveys.append(survey)
             
             if not filtered_surveys:
-                print(f"⚠️ No surveys match filters for respondent {respondent_id}")
+                print(f"⚠️ No surveys match filters for {vendor_user_id}")
                 return {
                     "success": False,
                     "error": f"No surveys match filter criteria (max_loi={max_loi}, min_cpi={min_cpi}, min_ir={min_ir})",
                     "entry_link": "",
                     "survey_id": "",
-                    "respondent_id": respondent_id,
+                    "vendor_user_id": vendor_user_id,
+                    "internal_tracking_id": internal_tracking_id,
                 }
             
             print(f"✅ {len(filtered_surveys)} surveys match filters")
@@ -785,14 +771,27 @@ class CPXService:
             survey_id = str(selected_survey.get("id") or selected_survey.get("survey_id"))
             href = selected_survey.get("href") or selected_survey.get("href_new") or ""
             
-            print(f"🎲 Randomly selected survey {survey_id} for respondent {respondent_id}")
+            print(f"🎲 Randomly selected survey {survey_id} for {vendor_user_id}")
             
-            # Generate entry link by appending subid_1=respondent_id
-            entry_link = self.generate_respondent_entry_link(
-                survey_id=survey_id,
-                respondent_id=respondent_id,
-                href=href
-            )
+            # CRITICAL: href already contains ext_user_id=vendor_user_id from API call
+            # The subid_1 was also set in API call params, so href should have it
+            # We use the href as-is - DO NOT modify it (it's already correctly formed)
+            # Just verify subid_1 is present, if not, append our internal_tracking_id
+            entry_link = href
+            if f"subid_1={internal_tracking_id}" not in href and "subid_1=" not in href:
+                # href might not have subid_1, append it
+                separator = "&" if "?" in href else "?"
+                entry_link = f"{href}{separator}subid_1={internal_tracking_id}"
+            elif "subid_1=" in href and f"subid_1={internal_tracking_id}" not in href:
+                # CPX might have included a different subid_1, replace it
+                from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+                parsed = urlparse(href)
+                query_params = parse_qs(parsed.query, keep_blank_values=True)
+                query_params['subid_1'] = [internal_tracking_id]
+                new_query = urlencode(query_params, doseq=True)
+                entry_link = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
+            
+            print(f"🔗 Entry link for {vendor_user_id}: {entry_link[:120]}...")
             
             # Prepare clean survey metadata
             clean_survey = {
@@ -807,42 +806,46 @@ class CPXService:
                 "provider": "CPX",
             }
             
-            print(f"✅ Allocated CPX survey {survey_id} to respondent {respondent_id}")
+            print(f"✅ Allocated CPX survey {survey_id} to vendor_user_id={vendor_user_id}, tracking_id={internal_tracking_id}")
             
             return {
                 "success": True,
                 "entry_link": entry_link,
                 "survey_id": survey_id,
-                "respondent_id": respondent_id,
+                "vendor_user_id": vendor_user_id,
+                "internal_tracking_id": internal_tracking_id,
                 "survey": clean_survey,
             }
             
         except requests.exceptions.Timeout:
-            print(f"❌ CPX API timeout for respondent {respondent_id}")
+            print(f"❌ CPX API timeout for {vendor_user_id}")
             return {
                 "success": False,
                 "error": f"CPX API timeout (>{self.api_timeout}s)",
                 "entry_link": "",
                 "survey_id": "",
-                "respondent_id": respondent_id,
+                "vendor_user_id": vendor_user_id,
+                "internal_tracking_id": internal_tracking_id,
             }
         except requests.exceptions.RequestException as e:
-            print(f"❌ CPX API request failed for respondent {respondent_id}: {e}")
+            print(f"❌ CPX API request failed for {vendor_user_id}: {e}")
             return {
                 "success": False,
                 "error": f"CPX API request failed: {str(e)}",
                 "entry_link": "",
                 "survey_id": "",
-                "respondent_id": respondent_id,
+                "vendor_user_id": vendor_user_id,
+                "internal_tracking_id": internal_tracking_id,
             }
         except Exception as e:
-            print(f"❌ CPX allocation error for respondent {respondent_id}: {e}")
+            print(f"❌ CPX allocation error for {vendor_user_id}: {e}")
             return {
                 "success": False,
                 "error": f"Allocation failed: {str(e)}",
                 "entry_link": "",
                 "survey_id": "",
-                "respondent_id": respondent_id,
+                "vendor_user_id": vendor_user_id,
+                "internal_tracking_id": internal_tracking_id,
             }
     
     def _normalize_survey(self, survey: Dict[str, Any], respondent_id: Optional[str] = None) -> Dict[str, Any]:

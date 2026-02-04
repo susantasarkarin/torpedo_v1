@@ -735,6 +735,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         entry_link = None
         survey_id = None
         allocation_success = False
+        allocation_error = None  # Track allocation failure reason for debugging
         
         # ===================================================================================
         # IP EXTRACTION: Prefer client-provided (from prefetch), fallback to server headers
@@ -806,139 +807,126 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             result = url_parameters_collection.insert_one(data)
             traffic_id = str(result.inserted_id)
         
-        # Try to allocate a survey from both CPX and CINT pools
-        # Filter by: is_active_in_pool=True AND country code match
-        if vendor_id and country_code and respondent_id:
+        # PER-RESPONDENT CPX FLOW (preferred)
+        # Call CPX live API directly to fetch/allocate for this respondent.
+        # CRITICAL: ext_user_id MUST be the stable vendor-provided rid, NOT our internal traffic_id
+        # The traffic_id is only for our internal tracking (subid_1)
+        if not allocation_success and vendor_id and country_code and respondent_id and cpx_service:
+            try:
+                print(f"📍 Detected client IP: {client_ip} for SFWID: {traffic_id}")
+                print(f"📱 Using User-Agent for CPX: {client_user_agent[:60]}..." if client_user_agent and len(client_user_agent) > 60 else f"📱 Using User-Agent for CPX: {client_user_agent}")
+                print(f"🔑 Using vendor rid '{respondent_id}' as ext_user_id (stable), traffic_id '{traffic_id}' as subid_1 (tracking)")
+
+                result = cpx_service.fetch_and_allocate_for_respondent(
+                    vendor_user_id=respondent_id,        # STABLE vendor rid as ext_user_id
+                    internal_tracking_id=traffic_id,     # Our SFWID for subid_1 tracking
+                    user_ip=client_ip,
+                    user_agent=client_user_agent
+                )
+
+                if result.get("success"):
+                    entry_link = result.get("entry_link", "")
+                    survey_id = result.get("survey_id", "")
+                    allocation_success = True
+
+                    if traffic_service:
+                        traffic_service.assign_survey_to_traffic(
+                            traffic_id=traffic_id,
+                            survey_id=str(survey_id),
+                            redirect_url=entry_link
+                        )
+
+                    print(f"✅ Allocated CPX survey {survey_id} to SFWID={traffic_id} (per-respondent)")
+                    print(f"   Entry link: {entry_link[:100]}...")
+                else:
+                    allocation_error = result.get('error', 'CPX returned no surveys')
+                    print(f"⚠️ Per-respondent CPX allocation failed: {allocation_error}")
+            except Exception as e:
+                allocation_error = f"CPX allocation error: {str(e)}"
+                print(f"⚠️ Per-respondent CPX allocation error: {e}")
+                import traceback
+                traceback.print_exc()
+
+        # ===============================================================================
+        # POOL FALLBACK (DEPRECATED - DO NOT USE FOR CPX)
+        # ===============================================================================
+        # WARNING: The pool fallback for CPX surveys is FUNDAMENTALLY BROKEN:
+        # - CPX hrefs are bound to ext_user_id at API call time
+        # - Cached hrefs have wrong ext_user_id baked into encrypted k= parameter
+        # - Reusing cached hrefs WILL cause CPX to reject the traffic
+        # 
+        # The correct flow is: Call CPX API fresh per respondent (done above)
+        # This fallback is only kept for CINT surveys which may work differently
+        # ===============================================================================
+        if not allocation_success and vendor_id and country_code and respondent_id:
             try:
                 from pymongo import MongoClient
                 import os
-                
+
                 # Get MongoDB connection
                 mongo_uri = os.getenv("MONGO_URI")
                 if not mongo_uri:
                     print("❌ MONGO_URI not configured")
                 else:
                     client = MongoClient(mongo_uri)
+
+                    # DISABLED: CPX pool fallback - hrefs are bound to ext_user_id and cannot be reused
+                    # cpx_collection = client["cpx_research"]["cpx_surveys"]
+                    # cpx_surveys = list(cpx_collection.find({"is_active_in_pool": True}).limit(50))
                     
-                    # Get both CPX and CINT survey collections
-                    cpx_collection = client["cpx_research"]["cpx_surveys"]
+                    # Only CINT surveys can potentially use pool fallback
                     cint_collection = client["cint_research"]["cint_surveys"]
-                    
-                    # Normalize country code to uppercase
-                    cc_upper = country_code.upper()
-                    
-                    # Query for active CPX surveys (NO country filter - CPX handles routing internally)
-                    # CPX surveys have country="ALL" to indicate they accept all countries
-                    # The CPX platform handles country-based targeting on their end
-                    cpx_query = {
-                        "is_active_in_pool": True
-                    }
-                    cpx_surveys = list(cpx_collection.find(cpx_query).limit(50))
-                    print(f"📊 Found {len(cpx_surveys)} active CPX surveys (all countries - CPX handles routing)")
-                    
-                    # Query for active CINT surveys matching country
-                    # CINT uses country_language field - need to map country code
-                    # For now, get all active CINT surveys and filter by country_language mapping
                     cint_query = {
                         "is_active_in_pool": True
                     }
                     cint_surveys = list(cint_collection.find(cint_query).limit(50))
-                    print(f"📊 Found {len(cint_surveys)} active CINT surveys (before country filter)")
-                    
-                    # Combine both pools
+                    print(f"📊 Found {len(cint_surveys)} active CINT surveys (CPX pool fallback DISABLED - use live API only)")
+
                     all_surveys = []
-                    
-                    # Add CPX surveys with source tag
-                    for survey in cpx_surveys:
-                        survey['_source'] = 'CPX'
-                        all_surveys.append(survey)
-                    
-                    # TEMPORARILY DISABLED: CINT surveys not working correctly
-                    # TODO: Re-enable once CINT integration is fixed
-                    # for survey in cint_surveys:
-                    #     survey['_source'] = 'CINT'
+                    # DISABLED: CPX pool fallback - cannot reuse cached hrefs
+                    # for survey in cpx_surveys:
+                    #     survey['_source'] = 'CPX'
                     #     all_surveys.append(survey)
-                    
-                    print(f"📊 Total active surveys in pool: {len(all_surveys)} (CPX: {len(cpx_surveys)}, CINT: {len(cint_surveys)} - CINT DISABLED)")
-                    
+
+                    # CINT may work with pool (different identity model)
+                    for survey in cint_surveys:
+                        survey['_source'] = 'CINT'
+                        all_surveys.append(survey)
+
+                    print(f"📊 Total pool surveys: {len(all_surveys)} (CPX: DISABLED, CINT: {len(cint_surveys)})")
+
                     if all_surveys:
-                        # Randomly select a survey from the combined pool
                         selected_survey = random.choice(all_surveys)
                         source = selected_survey.get('_source')
                         survey_id = selected_survey.get('survey_id') or selected_survey.get('_id')
-                        
+
                         print(f"🎯 Selected {source} survey: {survey_id}")
-                        
-                        # Generate entry link based on source
-                        if source == 'CPX':
-                            # PER-RESPONDENT ALLOCATION FLOW:
-                            # Call CPX API with respondent's SFWID as ext_user_id
-                            # This ensures the k= parameter in href is encrypted for THIS respondent
-                            # NOT the global PANEL_88921 user from bulk refresh
-                            if cpx_service:
-                                # Use fetch_and_allocate_for_respondent for per-respondent API call
-                                # This method:
-                                # 1. Calls CPX API with traffic_id as ext_user_id
-                                # 2. Applies filter settings (max_loi, min_cpi, min_ir)
-                                # 3. Randomly selects one survey from filtered results
-                                # 4. Generates entry link with subid_1=traffic_id
-                                
-                                # Log detected client IP and User-Agent for debugging
-                                print(f"📍 Detected client IP: {client_ip} for SFWID: {traffic_id}")
-                                print(f"📱 Using User-Agent for CPX: {client_user_agent[:60]}..." if client_user_agent and len(client_user_agent) > 60 else f"📱 Using User-Agent for CPX: {client_user_agent}")
-                                
-                                result = cpx_service.fetch_and_allocate_for_respondent(
-                                    respondent_id=traffic_id,  # Use SFWID as ext_user_id
-                                    user_ip=client_ip,         # Pass authenticated user IP
-                                    user_agent=client_user_agent  # Pass real User-Agent for fingerprint matching
-                                )
-                                
-                                if result.get("success"):
-                                    entry_link = result.get("entry_link", "")
-                                    survey_id = result.get("survey_id", survey_id)
-                                    allocation_success = True
-                                    
-                                    # Update the traffic record
-                                    if traffic_service:
-                                        traffic_service.assign_survey_to_traffic(
-                                            traffic_id=traffic_id,
-                                            survey_id=str(survey_id),
-                                            redirect_url=entry_link
-                                        )
-                                    
-                                    print(f"✅ Allocated CPX survey {survey_id} to SFWID={traffic_id} (per-respondent)")
-                                    print(f"   Entry link: {entry_link[:100]}...")
-                                else:
-                                    print(f"⚠️ Per-respondent CPX allocation failed: {result.get('error')}")
-                        
-                        elif source == 'CINT':
-                            # For CINT, try to get entry link from collection first
-                            # If not found, use default Samplicio/Fulcrum URL format
+
+                        if source == 'CINT':
                             entry_links_collection = client["cint_research"]["entry_links"]
                             entry_link_doc = entry_links_collection.find_one({"survey_id": str(survey_id)})
-                            
+
                             if entry_link_doc and entry_link_doc.get('link'):
                                 entry_link = entry_link_doc['link']
                             else:
-                                # Use default Samplicio/Fulcrum format with respondent tracking
-                                # Format: https://samplicio.us/s/default.aspx?SID={SurveyID}&PID={PanelistID}
                                 entry_link = f"https://samplicio.us/s/default.aspx?SID={survey_id}&PID={traffic_id}"
                                 print(f"ℹ️ Using default Samplicio URL for CINT survey {survey_id}")
-                            
+
                             allocation_success = True
-                            
-                            # Update the traffic record
+
                             if traffic_service:
                                 traffic_service.assign_survey_to_traffic(
                                     traffic_id=traffic_id,
                                     survey_id=str(survey_id),
                                     redirect_url=entry_link
                                 )
-                            
+
                             print(f"✅ Allocated CINT survey {survey_id} to SFWID={traffic_id}")
                     else:
+                        cc_upper = country_code.upper()
+                        allocation_error = allocation_error or f"No active surveys available for country {cc_upper}"
                         print(f"⚠️ No active surveys available for country {cc_upper}")
-                    
+
             except Exception as e:
                 print(f"⚠️ Survey allocation error: {e}")
                 import traceback
@@ -973,18 +961,32 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     
                     print(f"✅ Allocated survey {survey_id} via allocation service")
                 else:
+                    allocation_error = allocation_error or allocation_result.message
                     print(f"⚠️ Survey allocation service failed: {allocation_result.message}")
                     
             except Exception as e:
+                allocation_error = allocation_error or f"Allocation service error: {str(e)}"
                 print(f"⚠️ Survey allocation service error: {e}")
         
-        return {
+        # Build response with diagnostic info
+        response_data = {
             "id": traffic_id,
             "type": "traffic_record" if traffic_service else "legacy",
             "allocation_success": allocation_success,
             "entry_link": entry_link,
             "survey_id": survey_id
         }
+        
+        # Include allocation error for debugging (only if allocation failed)
+        if not allocation_success and allocation_error:
+            response_data["allocation_error"] = allocation_error
+            response_data["debug_info"] = {
+                "client_ip": client_ip,
+                "country_code": country_code,
+                "cpx_service_available": cpx_service is not None
+            }
+        
+        return response_data
         
     except Exception as e:
         print(f"Error storing URL parameters: {e}")

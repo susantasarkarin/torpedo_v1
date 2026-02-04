@@ -675,10 +675,15 @@ class SurveyAllocationService:
         )
 
         # Call per-respondent allocation (API call + filter + random select)
-        # Pass user_ip to ensure CPX API receives the correct IP for fraud detection
+        # CRITICAL CPX IDENTITY RULES:
+        # - vendor_user_id = stable vendor rid (becomes ext_user_id for CPX)
+        # - internal_tracking_id = our sfwid for subid_1 tracking
+        # - IP and UA are REQUIRED, no fallbacks
         result = cpx_service.fetch_and_allocate_for_respondent(
-            respondent_id=respondent_id,
-            user_ip=user_ip
+            vendor_user_id=respondent_id,        # This should be the vendor's rid
+            internal_tracking_id=respondent_id,  # Our tracking ID (may differ in real flow)
+            user_ip=user_ip or "",               # Will fail if empty - that's correct
+            user_agent=""                        # Will fail - caller must provide UA
         )
 
         if result.get("success"):

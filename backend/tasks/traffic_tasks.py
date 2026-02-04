@@ -626,184 +626,31 @@ def bulk_inbox_operation(
 @celery_app.task(
     bind=True,
     name='backend.tasks.traffic_tasks.fetch_cpx_surveys',
-    max_retries=3,
-    default_retry_delay=30,
+    max_retries=0,  # No retries - this task is DISABLED
 )
 def fetch_cpx_surveys(
     self,
     force_refresh: bool = False
 ) -> Dict[str, Any]:
     """
-    Fetch CPX surveys in background and broadcast to WebSocket clients.
+    ⛔ DISABLED - CPX CANNOT BE FETCHED IN BACKGROUND JOBS
     
-    This task:
-    1. Fetches surveys from CPX API
-    2. Stores them in MongoDB
-    3. Broadcasts to connected WebSocket clients
+    CPX Research binds survey hrefs to ext_user_id + IP + User-Agent.
+    Background jobs cannot provide real client context, so any surveys
+    fetched here would produce UNUSABLE hrefs that fail on click.
     
-    Args:
-        force_refresh: If True, ignore cache and fetch fresh data
-        
-    Returns:
-        Dict with status and count of surveys fetched
+    Use fetch_and_allocate_for_respondent() from HTTP request context instead.
+    
+    Raises:
+        RuntimeError: Always - CPX background fetching is not allowed
     """
     task_id = self.request.id
-    
-    try:
-        import asyncio
-        from pymongo import MongoClient
-        import os
-        import requests
-        
-        logger.info(f"Starting CPX survey fetch task {task_id}")
-        
-        # Update task state
-        self.update_state(
-            state='PROGRESS',
-            meta={'stage': 'fetching', 'message': 'Fetching surveys from CPX API'}
-        )
-        
-        # MongoDB connection
-        mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        client = MongoClient(mongo_uri)
-        db = client['torpedo_cpx']
-        cpx_surveys_coll = db['cpx_surveys']
-        
-        # CPX API settings
-        cpx_app_id = os.getenv('CPX_APP_ID', '')
-        cpx_hash_key = os.getenv('CPX_HASH_KEY', '')
-        cpx_ext_user_id = os.getenv('CPX_EXT_USER_ID', 'PANEL_88921')  # Default ext_user_id
-        cpx_api_url = os.getenv('CPX_API_URL', 'https://live-api.cpx-research.com/api/get-surveys.php')
-        
-        if not cpx_app_id or not cpx_hash_key:
-            logger.warning("CPX credentials not configured")
-            return {
-                'status': 'error',
-                'error': 'CPX credentials not configured',
-                'task_id': task_id
-            }
-        
-        # Generate secure_hash per CPX API docs: MD5(ext_user_id + "-" + secure_hash_key)
-        import hashlib
-        secure_hash = hashlib.md5(f"{cpx_ext_user_id}-{cpx_hash_key}".encode()).hexdigest()
-        
-        # Fetch surveys from CPX API with correct parameters per API documentation
-        params = {
-            'app_id': cpx_app_id,
-            'ext_user_id': cpx_ext_user_id,
-            'secure_hash': secure_hash,
-            'output_method': 'api',
-            'limit': 100,
-        }
-        
-        try:
-            response = requests.get(cpx_api_url, params=params, timeout=30)
-            response.raise_for_status()
-            
-            data = response.json()
-            surveys = data.get('surveys', []) or data.get('data', []) or []
-            
-            if not surveys and isinstance(data, list):
-                surveys = data
-            
-            logger.info(f"Fetched {len(surveys)} surveys from CPX API")
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"CPX API request failed: {e}")
-            raise self.retry(exc=e)
-        
-        # Store surveys in MongoDB
-        self.update_state(
-            state='PROGRESS',
-            meta={'stage': 'storing', 'message': f'Storing {len(surveys)} surveys'}
-        )
-        
-        stored = 0
-        for survey in surveys:
-            survey_id = survey.get('id') or survey.get('survey_id')
-            if not survey_id:
-                continue
-            
-            # Upsert survey
-            cpx_surveys_coll.update_one(
-                {'survey_id': str(survey_id)},
-                {
-                    '$set': {
-                        **survey,
-                        'survey_id': str(survey_id),
-                        'updated_at': datetime.utcnow(),
-                        'source': 'celery_task'
-                    },
-                    '$setOnInsert': {
-                        'created_at': datetime.utcnow()
-                    }
-                },
-                upsert=True
-            )
-            stored += 1
-        
-        # Sync active status based on filter settings
-        # Required: new surveys default to is_active_in_pool=False
-        # Without this sync, new surveys cannot be allocated
-        try:
-            from app.services.cpx_service import CPXService
-            cpx_service = CPXService(
-                app_id=cpx_app_id,
-                ext_user_id=cpx_ext_user_id,
-                secure_hash_key=cpx_hash_key,
-                surveys_collection=cpx_surveys_coll
-            )
-            sync_result = cpx_service.sync_active_status_by_filters()
-            logger.info(f"Synced active status: {sync_result.get('active', 0)} active, {sync_result.get('inactive', 0)} inactive")
-        except Exception as sync_err:
-            logger.warning(f"Failed to sync active status: {sync_err}")
-        
-        # Broadcast to WebSocket clients
-        self.update_state(
-            state='PROGRESS',
-            meta={'stage': 'broadcasting', 'message': 'Notifying connected clients'}
-        )
-        
-        try:
-            # Import and broadcast using async helper
-            from websocket_manager import connection_manager
-            
-            # Prepare broadcast data
-            broadcast_data = {
-                'type': 'surveys_update',
-                'surveys': surveys[:100],  # Limit to first 100 for broadcast
-                'count': len(surveys),
-                'source': 'celery_task',
-                'task_id': task_id
-            }
-            
-            # Run async broadcast in event loop
-            async def do_broadcast():
-                await connection_manager.broadcast('cpx_surveys', broadcast_data)
-            
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(do_broadcast())
-            finally:
-                loop.close()
-            
-            logger.info(f"Broadcast CPX surveys to WebSocket clients")
-            
-        except ImportError:
-            logger.warning("WebSocket manager not available for broadcast")
-        except Exception as ws_err:
-            logger.warning(f"Failed to broadcast to WebSocket: {ws_err}")
-        
-        client.close()
-        
-        return {
-            'status': 'success',
-            'surveys_fetched': len(surveys),
-            'surveys_stored': stored,
-            'task_id': task_id
-        }
-        
-    except Exception as e:
-        logger.error(f"Error fetching CPX surveys: {e}")
-        raise
+    logger.error(
+        f"CPX FATAL: Task {task_id} attempted to fetch CPX surveys in background. "
+        "This is architecturally invalid - CPX requires real client IP/UA."
+    )
+    raise RuntimeError(
+        "CPX FATAL: Cannot fetch CPX surveys in background job. "
+        "CPX binds hrefs to client IP/UA which background jobs cannot provide. "
+        "Use fetch_and_allocate_for_respondent() from HTTP context instead."
+    )

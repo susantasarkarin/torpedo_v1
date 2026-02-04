@@ -1114,27 +1114,47 @@ scheduler = BackgroundScheduler()
 cpx_refresh_job: Optional[Any] = None
 
 def refresh_cpx_inventory():
-    """Background job to refresh CPX survey inventory"""
+    """
+    ⛔ DISABLED - CPX CANNOT BE REFRESHED IN BACKGROUND JOBS
+    
+    CPX Research binds survey hrefs to:
+      - ext_user_id (stable vendor ID)
+      - IP address (real client IP)  
+      - User-Agent (real browser UA)
+    
+    Background jobs cannot provide real client IP/UA, so any surveys
+    fetched here would produce UNUSABLE hrefs that fail on click.
+    
+    The ONLY valid way to get CPX surveys is via HTTP request:
+      cpx_service.fetch_and_allocate_for_respondent(
+          vendor_user_id=rid,
+          internal_tracking_id=sfwid,
+          user_ip=real_client_ip,
+          user_agent=real_browser_ua
+      )
+    
+    This job now only performs cleanup of old survey metadata.
+    """
     if cpx_service is None:
-        print("⚠️ CPX service not initialized, skipping refresh")
+        print("⚠️ CPX service not initialized, skipping cleanup")
         return
     
     try:
-        print(f"🔄 [CPX] Starting scheduled refresh at {datetime.utcnow().isoformat()}")
+        print(f"🔄 [CPX] Starting scheduled cleanup at {datetime.utcnow().isoformat()}")
         
         # Get filter settings from database
         filter_settings = get_survey_filter_settings()
         deletion_days = filter_settings.get("deletion_period_days", 7)
         
-        # Cleanup surveys older than configured days
+        # Cleanup surveys older than configured days (metadata only)
         cpx_service.cleanup_old_surveys(days=deletion_days)
         
-        # Fetch and upsert new surveys
-        surveys = cpx_service.fetch_cpx_surveys()
-        count = cpx_service.upsert_surveys(surveys)
-        print(f"✅ [CPX] Refresh complete: {len(surveys)} fetched, {count} upserted")
+        # ⛔ DO NOT fetch new surveys - CPX requires real client IP/UA
+        # surveys = cpx_service.fetch_cpx_surveys()  # DISABLED
+        
+        print(f"✅ [CPX] Cleanup complete. Note: Survey fetch disabled - use HTTP context.")
     except Exception as e:
-        print(f"❌ [CPX] Refresh failed: {str(e)}")
+        print(f"❌ [CPX] Cleanup failed: {str(e)}")
         traceback.print_exc()
 
 
