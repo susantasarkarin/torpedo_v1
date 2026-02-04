@@ -645,6 +645,70 @@ async def clear_cpx_callback_logs(request: Request):
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
+# ===================================================================================
+# ZERO-DELAY IP PREFETCH ENDPOINT
+# ===================================================================================
+# This endpoint is called when the parsing page loads (before user clicks PROCEED)
+# It captures the user's real IP from server headers (CloudFlare/Nginx) instantly
+# This eliminates the 3-9 second delay of calling external IP services
+# ===================================================================================
+
+@router.get("/api/prefetch-ip")
+async def prefetch_client_ip(request: Request):
+    """
+    Instantly capture client IP from server headers on page load.
+    
+    This endpoint replaces the slow external IP service calls (ipify, ipinfo, ip.sb)
+    by using CloudFlare/Nginx headers that are already available on every request.
+    
+    Benefits:
+    - Instant (0ms) vs 3-9 seconds from external APIs
+    - More reliable (always available, never fails)
+    - Same IP the user will have when clicking through to CPX surveys
+    
+    Called by: TrafficFlowParser.jsx on component mount
+    
+    Returns:
+        {
+            "ip": "123.45.67.89",
+            "source": "CF-Connecting-IP" | "X-Forwarded-For" | "X-Real-IP" | "direct",
+            "userAgent": "Mozilla/5.0...",
+            "timestamp": "2026-02-04T10:30:00.000Z"
+        }
+    """
+    try:
+        # Import IP extraction utilities
+        try:
+            from ..utils import extract_real_client_ip, extract_user_agent
+        except ImportError:
+            from utils import extract_real_client_ip, extract_user_agent
+        
+        # Extract IP from headers (instant, no external calls)
+        client_ip, ip_source = extract_real_client_ip(request)
+        user_agent = extract_user_agent(request)
+        
+        # Log for monitoring
+        print(f"📍 Prefetch IP: {client_ip} (source: {ip_source})")
+        
+        return JSONResponse(content={
+            "ip": client_ip,
+            "source": ip_source,
+            "userAgent": user_agent,
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        })
+        
+    except Exception as e:
+        print(f"❌ Prefetch IP error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "ip": None,
+                "source": "error",
+                "error": str(e)
+            }
+        )
+
+
 @router.post("/api/store")
 async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
     """
