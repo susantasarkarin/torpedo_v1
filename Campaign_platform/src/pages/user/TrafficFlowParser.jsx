@@ -12,6 +12,112 @@ function generateTransId() {
   });
 }
 
+// Fetch client IP from server-side headers (instant - no external API calls)
+// This uses CloudFlare/Nginx headers which are always available and fast
+async function fetchClientIP() {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout (generous)
+    
+    const response = await fetch(buildApiUrl('/api/prefetch-ip'), {
+      signal: controller.signal,
+      mode: "cors",
+    });
+    clearTimeout(timeoutId);
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (data.ip) {
+        console.log(`✅ Prefetched client IP: ${data.ip} (source: ${data.source})`);
+        return { ip: data.ip, source: data.source, userAgent: data.userAgent };
+      }
+    }
+  } catch (err) {
+    console.warn(`⚠️ Server-side IP prefetch failed:`, err.message);
+  }
+  
+  // Fallback to legacy external services only if server-side fails
+  console.log("⚠️ Falling back to external IP services...");
+  return await fetchClientIPLegacy();
+}
+
+// Legacy fallback: External IP services (slower, kept for redundancy)
+async function fetchClientIPLegacy() {
+  const ipServices = [
+    { url: "https://api.ipify.org?format=json", parser: (data) => data.ip },
+    { url: "https://ipinfo.io/json", parser: (data) => data.ip },
+    { url: "https://api.ip.sb/ip", parser: (text) => text.trim() },
+  ];
+
+  for (const service of ipServices) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
+      
+      const response = await fetch(service.url, {
+        signal: controller.signal,
+        mode: "cors",
+      });
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const contentType = response.headers.get("content-type") || "";
+        let ip;
+        if (contentType.includes("application/json")) {
+          const data = await response.json();
+          ip = service.parser(data);
+        } else {
+          const text = await response.text();
+          ip = service.parser(text);
+        }
+        if (ip && ip.match(/^[\d.:a-fA-F]+$/)) {
+          console.log(`✅ Fetched client IP: ${ip} from ${service.url}`);
+          return { ip, source: service.url };
+        }
+      }
+    } catch (err) {
+      console.warn(`⚠️ IP fetch failed from ${service.url}:`, err.message);
+    }
+  }
+  console.error("❌ Could not fetch client IP from any service");
+  return { ip: null, source: null };
+}
+
+// Generate device fingerprint for fraud detection
+async function generateDeviceFingerprint() {
+  const components = {
+    userAgent: navigator.userAgent || "",
+    language: navigator.language || "",
+    platform: navigator.platform || "",
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+    screen: `${window.screen?.width || 0}x${window.screen?.height || 0}x${window.screen?.colorDepth || 0}`,
+    hardwareConcurrency: navigator.hardwareConcurrency || 0,
+    deviceMemory: navigator.deviceMemory || 0,
+    maxTouchPoints: navigator.maxTouchPoints || 0,
+  };
+
+  const raw = JSON.stringify(components);
+
+  const fallbackHash = () => {
+    let hash = 5381;
+    for (let i = 0; i < raw.length; i += 1) {
+      hash = ((hash << 5) + hash) + raw.charCodeAt(i);
+      hash &= 0xffffffff;
+    }
+    return `fp_${(hash >>> 0).toString(16)}`;
+  };
+
+  if (window.crypto?.subtle && window.TextEncoder) {
+    const data = new TextEncoder().encode(raw);
+    const digest = await window.crypto.subtle.digest("SHA-256", data);
+    const hashArray = Array.from(new Uint8Array(digest));
+    const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+    return { hash: `fp_${hashHex}`, components };
+  }
+
+  return { hash: fallbackHash(), components };
+}
+
 export default function TrafficFlowParser() {
   const [urlParams, setUrlParams] = useState({});
   const [fullUrl, setFullUrl] = useState("");
@@ -22,6 +128,9 @@ export default function TrafficFlowParser() {
   const hasAutoTriggered = useRef(false);
   const pollIntervalRef = useRef(null);
   const currentTransIdRef = useRef(null);
+  
+  // Pre-fetched IP data (captured on page load for zero-delay allocation)
+  const prefetchedIpRef = useRef(null);
 
   useEffect(() => {
     const currentUrl = window.location.href;
@@ -31,6 +140,23 @@ export default function TrafficFlowParser() {
     const parsedParams = {};
     for (let [key, value] of params.entries()) parsedParams[key] = value;
     setUrlParams(parsedParams);
+    
+    // ZERO-DELAY OPTIMIZATION: Prefetch IP on page load
+    // This eliminates the 3-9 second delay when user clicks PROCEED
+    // because the IP is already captured from server headers
+    const prefetchIp = async () => {
+      try {
+        console.log('🚀 Prefetching client IP on page load...');
+        const ipData = await fetchClientIP();
+        if (ipData.ip) {
+          prefetchedIpRef.current = ipData;
+          console.log(`✅ IP prefetched and cached: ${ipData.ip} (source: ${ipData.source})`);
+        }
+      } catch (err) {
+        console.warn('⚠️ IP prefetch on load failed, will retry on PROCEED:', err.message);
+      }
+    };
+    prefetchIp();
     
     // Cleanup polling on unmount
     return () => {
@@ -150,16 +276,29 @@ export default function TrafficFlowParser() {
     setError(null);
 
     try {
+      // ZERO-DELAY OPTIMIZATION: Use pre-fetched IP from page load
+      // This avoids the 3-9 second delay of calling external IP services
+      let ipResult = prefetchedIpRef.current;
+      
+      // If prefetch didn't work (rare), try fetching now with short timeout
+      if (!ipResult || !ipResult.ip) {
+        console.log("⚠️ Using fresh IP fetch (prefetch was not available)...");
+        ipResult = await fetchClientIP();
+      } else {
+        console.log(`✅ Using prefetched IP: ${ipResult.ip} (source: ${ipResult.source})`);
+      }
+
+      // Generate fingerprint in parallel (fast, ~100ms)
+      const fingerprint = await generateDeviceFingerprint();
+      console.log(`🔐 Device fingerprint: ${fingerprint?.hash?.substring(0, 20)}...`);
+
       // Generate unique transaction ID for this survey attempt
       const transId = generateTransId();
       currentTransIdRef.current = transId;
       console.log(`🆔 Generated trans_id: ${transId}`);
 
-      // Pre-register transaction before starting survey
-      const preRegistered = await preRegisterTransaction(transId, rid);
-      if (!preRegistered) {
-        console.warn("⚠️ Failed to pre-register transaction, continuing anyway...");
-      }
+      // NOTE: Removed preRegisterTransaction call to reduce latency
+      // Transaction tracking is now handled by the backend
 
       // Add timeout controller for better error handling
       const controller = new AbortController();
@@ -174,6 +313,12 @@ export default function TrafficFlowParser() {
           url: fullUrl,
           params: urlParams,
           userAgent: navigator.userAgent,
+          // IP data from server-side prefetch (fast) or fallback
+          clientIp: ipResult.ip || null,
+          ipSource: ipResult.source || "none",
+          deviceFingerprint: fingerprint?.hash || "",
+          fingerprintComponents: fingerprint?.components || {},
+          fingerprintSource: "client",
           trans_id: transId, // Include trans_id in traffic record
         }),
       });
@@ -203,14 +348,14 @@ export default function TrafficFlowParser() {
           // Redirect to survey
           window.location.href = entryLink;
         } else {
-          // No survey allocated - try to sync and retry once
+          // No survey allocated - try to sync and retry once (no delay)
           if (!isRetry && retryCount < 1) {
-            console.log("⚠️ No survey allocated, triggering sync and retrying...");
+            console.log("⚠️ No survey allocated, triggering sync and retrying immediately...");
             setRetryCount(prev => prev + 1);
             const synced = await triggerSurveySync();
             if (synced) {
-              // Wait a moment for sync to complete, then retry
-              setTimeout(() => handleStore(true), 2000);
+              // Retry immediately - no delay for faster user experience
+              handleStore(true);
               return;
             }
           }

@@ -651,6 +651,11 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
     Store URL parameters from survey tracking
     Creates a traffic record with vid, cc, rid if available
     Also attempts to allocate a survey to the respondent
+    
+    ZERO-DELAY OPTIMIZATION:
+    - Client may provide prefetched IP from /api/prefetch-ip endpoint
+    - If client provides valid IP, use it (maintains consistency with prefetch)
+    - Otherwise, extract from server headers as fallback
     """
     try:
         if url_parameters_collection is None:
@@ -667,94 +672,47 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         survey_id = None
         allocation_success = False
         
-        # Extract REAL DEVICE IP from headers
-        # Strategy: Get all available IPs and select the most reliable one
-        # 1. X-Forwarded-For: Often contains multiple IPs (proxy chain). The RIGHTMOST IP is typically the real client
-        # 2. CF-Connecting-IP: CloudFlare's actual client IP (often more reliable than first X-Forwarded-For)
-        # 3. X-Real-IP: Nginx reverse proxy's detected client IP
-        # 4. request.client.host: Direct connection IP (least reliable in proxy scenarios)
+        # ===================================================================================
+        # IP EXTRACTION: Prefer client-provided (from prefetch), fallback to server headers
+        # ===================================================================================
+        # The frontend calls /api/prefetch-ip on page load which returns server-side IP
+        # The client then sends this IP in the request body for consistency
+        # If client doesn't provide IP, we extract it ourselves from headers
         
-        def is_ipv4(ip: str) -> bool:
-            """Check if IP is valid IPv4 format"""
-            parts = ip.split('.')
-            if len(parts) != 4:
-                return False
-            try:
-                for part in parts:
-                    num = int(part)
-                    if num < 0 or num > 255:
-                        return False
-                return True
-            except:
-                return False
+        # Import utilities for server-side extraction
+        try:
+            from ..utils import extract_real_client_ip, extract_user_agent
+        except ImportError:
+            from utils import extract_real_client_ip, extract_user_agent
         
-        def is_ipv6(ip: str) -> bool:
-            """Check if IP is valid IPv6 format"""
-            return ':' in ip and '.' not in ip  # Simple IPv6 detection
+        # Check if client provided IP (from prefetch endpoint)
+        client_provided_ip = data.get('clientIp')
+        client_ip_source = data.get('ipSource', 'unknown')
         
-        # Extract all available IPs
-        forwarded = request.headers.get("X-Forwarded-For") if request else None
-        cf_connecting_ip = request.headers.get("CF-Connecting-IP") if request else None
-        x_real_ip = request.headers.get("X-Real-IP") if request else None
-        direct_ip = request.client.host if request else None
-        
-        # Parse X-Forwarded-For which may contain multiple IPs separated by commas
-        # Format: "client_ip, proxy1_ip, proxy2_ip, ..."
-        # Rightmost IP is often the actual client, but leftmost is what we want
-        x_forwarded_ips = []
-        if forwarded:
-            x_forwarded_ips = [ip.strip() for ip in forwarded.split(",")]
-        
-        # Strategy: Prefer CF-Connecting-IP (CloudFlare's direct client IP), then X-Forwarded-For rightmost, then others
-        candidates = []
-        
-        # Add CF-Connecting-IP first (most reliable from CloudFlare)
-        if cf_connecting_ip and cf_connecting_ip.strip():
-            candidates.append(("CF-Connecting-IP", cf_connecting_ip.strip()))
-        
-        # Add X-Forwarded-For IPs (prefer rightmost which is closer to origin)
-        if x_forwarded_ips:
-            # Reverse the list to prioritize rightmost
-            for ip in reversed(x_forwarded_ips):
-                if ip:
-                    candidates.append(("X-Forwarded-For", ip))
-        
-        # Add X-Real-IP
-        if x_real_ip and x_real_ip.strip():
-            candidates.append(("X-Real-IP", x_real_ip.strip()))
-        
-        # Add direct connection IP
-        if direct_ip and direct_ip.strip():
-            candidates.append(("request.client.host", direct_ip.strip()))
-        
-        # Select the first IPv4 address we find (prefer IPv4 over IPv6 for CPX)
-        client_ip = None
-        selected_source = None
-        for source, ip in candidates:
-            if is_ipv4(ip):
-                client_ip = ip
-                selected_source = source
-                break
-        
-        # If no IPv4 found, log all candidates and use first available
-        if not client_ip:
-            print(f"⚠️ No IPv4 found in: {candidates}")
-            if candidates:
-                client_ip = candidates[0][1]
-                selected_source = candidates[0][0]
+        if client_provided_ip and '.' in client_provided_ip:
+            # Use client-provided IP (from prefetch - maintains consistency)
+            client_ip = client_provided_ip
+            print(f"📍 Using client-provided IP: {client_ip} (source: {client_ip_source})")
+        else:
+            # Fallback: Extract from server headers
+            client_ip, client_ip_source = extract_real_client_ip(request)
+            print(f"📍 Using server-extracted IP: {client_ip} (source: {client_ip_source})")
         
         # Extract User-Agent from request headers (for CPX fingerprint matching)
-        client_user_agent = request.headers.get("User-Agent") if request else None
+        client_user_agent = data.get('userAgent') or request.headers.get("User-Agent") or ""
+        print(f"📱 User-Agent: {client_user_agent[:80]}..." if len(client_user_agent) > 80 else f"📱 User-Agent: {client_user_agent}")
         
-        print(
-            "📍 IP extraction: "
-            f"X-Forwarded-For={forwarded} | "
-            f"CF-Connecting-IP={cf_connecting_ip} | "
-            f"X-Real-IP={x_real_ip} | "
-            f"request.client.host={direct_ip} | "
-            f"Selected: {selected_source}={client_ip}"
-        )
-        print(f"📱 User-Agent: {client_user_agent[:80]}..." if client_user_agent and len(client_user_agent) > 80 else f"📱 User-Agent: {client_user_agent}")
+        # Extract device fingerprint from client
+        device_fingerprint = data.get('deviceFingerprint', '')
+        fingerprint_components = data.get('fingerprintComponents', {})
+        
+        # Log IP extraction for debugging
+        if not client_ip:
+            print("⚠️ WARNING: No valid IP could be extracted! CPX API targeting may fail.")
+        
+        # ===================================================================================
+        # STEP 1: CREATE TRAFFIC RECORD (SFWID)
+        # ===================================================================================
         
         # If traffic service is available and we have the required params, use it
         if traffic_service and vendor_id and country_code and respondent_id:
@@ -764,9 +722,15 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     country_code=country_code,
                     respondent_id=respondent_id,
                     url=data.get('url'),
-                    user_agent=data.get('userAgent'),
-                    params=params
+                    user_agent=client_user_agent,
+                    params=params,
+                    client_ip=client_ip,
+                    ip_source=client_ip_source,
+                    device_fingerprint=device_fingerprint,
+                    fingerprint_source="client",
+                    fingerprint_components=fingerprint_components
                 )
+                print(f"✅ Created traffic record (SFWID): {traffic_id}")
             except Exception as e:
                 print(f"⚠️ Failed to create traffic record, falling back to legacy: {e}")
         
