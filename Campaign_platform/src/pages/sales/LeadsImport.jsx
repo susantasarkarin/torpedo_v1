@@ -389,7 +389,22 @@ function LeadsImport() {
       formDataUpload.append("file", blob, "import.csv")
       
       const sessionId = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/leads/import/csv`), {
+      const apiUrl = buildApiUrl(`/leads/import/csv`)
+      
+      // Log API call details before making the request
+      console.group("🚀 API Call - Leads Import")
+      console.log("📍 Endpoint:", apiUrl)
+      console.log("📝 Method:", "POST")
+      console.log("📦 Payload:", {
+        file: "import.csv",
+        rows: mappedData.length,
+        mappedFields: Object.keys(columnMapping).filter(k => columnMapping[k])
+      })
+      console.log("🔑 Authorization:", sessionId ? "Present" : "Missing")
+      console.log("⏰ Timestamp:", new Date().toISOString())
+      console.groupEnd()
+      
+      const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
           Authorization: sessionId,
@@ -547,6 +562,25 @@ function LeadsImport() {
             <p style={{ color: "#6b7280" }}>
               Review the first 5 rows before importing. {csvData.length} leads will be imported.
             </p>
+            
+            {/* API Call Information Box */}
+            <div style={{
+              padding: "1rem",
+              backgroundColor: "#eff6ff",
+              border: "1px solid #bfdbfe",
+              borderRadius: "8px",
+              marginBottom: "1rem",
+              fontSize: "0.875rem"
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                <span style={{ fontSize: "1rem" }}>🚀</span>
+                <strong style={{ color: "#1e40af" }}>API Call Details</strong>
+              </div>
+              <div style={{ color: "#1e3a8a", fontFamily: "monospace", fontSize: "0.813rem" }}>
+                <div><strong>Endpoint:</strong> POST /leads/import/csv</div>
+                <div><strong>Payload:</strong> {csvData.length} rows, {Object.keys(columnMapping).filter(k => columnMapping[k]).length} fields mapped</div>
+              </div>
+            </div>
             
             {error && (
               <div style={styles.errorBox}>
