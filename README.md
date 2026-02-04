@@ -6,15 +6,20 @@ A comprehensive campaign automation and lead management platform.
 
 **Considering modernization? We've created a comprehensive transition plan:**
 
-- 🎯 **[Executive Summary](ARCHITECTURE_TRANSITION_EXECUTIVE_SUMMARY.md)** - For stakeholders and decision makers (START HERE)
+- ❓ **[Node.js vs n8n Decision Guide](ARCHITECTURE_DECISION_NODEJS_VS_N8N.md)** - Do we need Node.js? Which modules go where? (READ THIS FIRST)
+- 🎯 **[Executive Summary](ARCHITECTURE_TRANSITION_EXECUTIVE_SUMMARY.md)** - For stakeholders and decision makers
 - 📋 **[Complete Transition Plan](ARCHITECTURE_TRANSITION_PLAN.md)** - Detailed 60-page guide covering strategy, timeline, costs, and risks
 - ⚡ **[Quick Reference](ARCHITECTURE_TRANSITION_QUICKREF.md)** - TL;DR summary with key decisions and options
 - 📊 **[Visual Guide](ARCHITECTURE_TRANSITION_VISUAL.md)** - Diagrams, comparisons, and visual explanations
 
-**Proposed Stack:** Node.js + MongoDB + React (app) | PHP (websites) | n8n (workflows)  
-**Timeline:** 6-9 months | **Cost:** $230-250k | **Complexity Reduction:** 35-40%
+**Three Options Available:**
+1. **Python + n8n** (2-3mo, $70k, Low risk) - Recommended for quick wins
+2. **Node.js + n8n** (6-9mo, $240k, Medium risk) - For full modernization
+3. **Stay as-is** ($0, No risk) - If system works fine
 
-**Why multiple technologies?** The plan proposes separation of concerns: Node.js for the application API (unified with React frontend), PHP for lightweight public websites (optimal for web serving), and n8n for visual workflow automation (replacing 100+ Python scripts). This reduces overall complexity by consolidating the application stack while using specialized tools for specific needs. See the [transition plan](ARCHITECTURE_TRANSITION_PLAN.md) for detailed rationale.
+**Key Insight:** 80% of complexity comes from automation scripts, not Python backend. n8n solves this regardless of backend choice.
+
+See the [Node.js vs n8n Decision Guide](ARCHITECTURE_DECISION_NODEJS_VS_N8N.md) to understand which modules should be handled by Node.js vs n8n.
 
 ## 🤖 Agent Tools
 
