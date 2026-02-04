@@ -573,7 +573,7 @@ function LeadsImport() {
               fontSize: "0.875rem"
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-                <span style={{ fontSize: "1rem" }}>🚀</span>
+                <span style={{ fontSize: "1rem" }} aria-hidden="true">🚀</span>
                 <strong style={{ color: "#1e40af" }}>API Call Details</strong>
               </div>
               <div style={{ color: "#1e3a8a", fontFamily: "monospace", fontSize: "0.813rem" }}>

@@ -1,7 +1,7 @@
 # API Call Documentation - Leads Import Parsing Page
 
 ## Overview
-This document shows the API call that is made before the respondent clicks the button on the parsing page.
+This document describes the API call that is made when the user clicks the import button on the parsing page. The API call details are now visible to users BEFORE they click the button, and detailed logging occurs immediately when the button is clicked.
 
 ## Page Location
 **File:** `/Campaign_platform/src/pages/sales/LeadsImport.jsx`  
