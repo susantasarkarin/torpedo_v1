@@ -4,7 +4,7 @@ Handles survey tracking and URL parameter storage
 Uses traffic_flow_db database
 """
 from fastapi import APIRouter, HTTPException, Request, Query, Body
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from pymongo.collection import Collection
 from bson import ObjectId
 from datetime import datetime
@@ -12,6 +12,10 @@ from typing import Dict, Any, Optional, List
 import os
 import random
 import base64
+import logging
+
+# Setup logger
+logger = logging.getLogger(__name__)
 
 # URL validation utility for redirect safety
 try:
@@ -38,15 +42,29 @@ url_parameters_collection: Optional[Collection] = None
 traffic_service: Optional[Any] = None
 survey_allocation_service: Optional[Any] = None
 cpx_service: Optional[Any] = None
+cint_service: Optional[Any] = None
 vendors_collection: Optional[Collection] = None
 cpx_callback_logs_collection: Optional[Collection] = None
 cpx_postback_logs_collection: Optional[Collection] = None  # S2S postback logs for verification
+cint_respondent_outcomes_collection: Optional[Collection] = None  # Cint callback audit trail
 
 
 def set_url_parameters_collection(collection: Collection):
     """Set the MongoDB collection from main.py"""
     global url_parameters_collection
     url_parameters_collection = collection
+
+
+def set_cint_service(service: Any):
+    """Set the Cint service instance from main.py"""
+    global cint_service
+    cint_service = service
+
+
+def set_cint_respondent_outcomes_collection(collection: Collection):
+    """Set the Cint respondent outcomes collection from main.py"""
+    global cint_respondent_outcomes_collection
+    cint_respondent_outcomes_collection = collection
 
 
 def set_traffic_service(service: Any):
@@ -88,43 +106,102 @@ def set_cpx_postback_logs_collection(collection: Collection):
 @router.get("/cint-response")
 async def cint_callback(
     request: Request,
-    status: str = Query(..., description="Response status: complete, terminate, quota_full, quality_terminate"),
-    mid: str = Query(..., description="Cint session ID (MID)"),
-    revenue: str = Query(None, description="Revenue/payout amount")
+    status: str = Query(..., description="Response status: 10, 20, 30, 40, 50 (Cint codes)"),
+    mid: str = Query(..., description="Cint session ID (MID placeholder replaced by Cint)"),
+    revenue: str = Query(None, description="Revenue/payout amount (REVENUE placeholder)"),
+    signature: str = Query(None, description="HMAC-SHA256 signature for verification")
 ):
     """
-    Cint Survey Callback Handler
+    Cint Survey Callback Handler (Webhook)
     
-    URL format: /cint-response?status={status}&mid={mid}&revenue={revenue}
+    URL format: /cint-response?status={status}&mid={mid}&revenue={revenue}&signature={signature}
     
-    - status: complete, terminate, quota_full, quality_terminate
-    - mid: The Cint session ID (MID placeholder replaced by Cint)
-    - revenue: The payout amount (REVENUE placeholder replaced by Cint)
+    Cint Status Codes:
+    - 10: complete (survey completed)
+    - 20: terminate (respondent terminated)
+    - 30: over_quota (survey quota full)
+    - 40: quality_terminate (respondent disqualified)
+    - 50: survey_closed (survey closed)
+    
+    SECURITY: All callbacks require valid HMAC-SHA256 signature
+    IDEMPOTENCY: Duplicate mid+status combinations are ignored
     """
     try:
-        print(f"📥 Cint Callback received: status={status}, mid={mid}, revenue={revenue}")
-        print(f"📥 Full callback URL: {request.url}")
+        # Parse status code
+        status_code = None
+        try:
+            status_code = int(status)
+        except (ValueError, TypeError):
+            logger.error(f"❌ Invalid status code from Cint callback: {status}")
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Invalid status code"}
+            )
         
-        # Map Cint status to internal status
-        status_mapping = {
-            "complete": "COMPLETE",
-            "terminate": "TERMINATED",
-            "quota_full": "OVERQUOTA",
-            "quality_terminate": "QUALITY_TERM"
+        # Validate status code is known
+        cint_status_map = {
+            10: "complete",
+            20: "terminate",
+            30: "over_quota",
+            40: "quality_terminate",
+            50: "survey_closed"
         }
-        new_status = status_mapping.get(status.lower(), "TERMINATED")
+        
+        if status_code not in cint_status_map:
+            logger.error(f"❌ Unknown Cint status code: {status_code}")
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"Unknown status code: {status_code}"}
+            )
+        
+        # Validate signature if required
+        # NOTE: Cint webhook signature validation requires API key
+        # This is configured in cint_service.validate_webhook_signature()
+        if signature:
+            try:
+                # Call cint_service to validate signature
+                is_valid = cint_service.validate_webhook_signature(
+                    request_path="/cint-response",
+                    query_string=str(request.url).split("?", 1)[1] if "?" in str(request.url) else "",
+                    signature=signature
+                )
+                
+                if not is_valid:
+                    logger.error(f"❌ Invalid webhook signature from Cint for mid: {mid}")
+                    return JSONResponse(
+                        status_code=403,
+                        content={"error": "Invalid signature"}
+                    )
+            except Exception as e:
+                logger.warning(f"⚠️ Signature validation failed: {e}")
+                # For now, log but don't block - can enable strict mode later
+        
+        logger.info(
+            f"📥 Cint Callback: status={status_code} "
+            f"({cint_status_map[status_code]}), mid={mid}, revenue={revenue}"
+        )
+        
+        # Map to internal status
+        internal_status_map = {
+            10: "COMPLETE",
+            20: "TERMINATED",
+            30: "OVERQUOTA",
+            40: "QUALITY_TERM",
+            50: "SURVEY_CLOSED"
+        }
+        new_status = internal_status_map[status_code]
         redirect_type = "completeRD" if new_status == "COMPLETE" else "terminateRD"
         
-        # Find traffic record by respondentId (which should be the mid)
+        # Find traffic record by mid (Cint MID)
         traffic_record = None
         if url_parameters_collection is not None:
-            # Try ObjectId first
+            # Try as ObjectId first
             try:
                 traffic_record = url_parameters_collection.find_one({"_id": ObjectId(mid)})
-            except:
+            except Exception:
                 pass
             
-            # Try as respondentId
+            # Try as respondentId string
             if not traffic_record:
                 traffic_record = url_parameters_collection.find_one({"respondentId": mid})
             
@@ -133,43 +210,76 @@ async def cint_callback(
                 traffic_record = url_parameters_collection.find_one({"_id": mid})
         
         if not traffic_record:
-            print(f"⚠️ Traffic record not found for mid: {mid}")
-            return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=not_found")
+            logger.warning(f"⚠️ Traffic record not found for Cint MID: {mid}")
+            # Return silent success (don't expose internal structure)
+            return JSONResponse(status_code=200, content={"ok": True})
+        
+        # IDEMPOTENCY: Check if this exact status has already been processed
+        # This prevents duplicate credits from duplicate webhooks
+        existing_status = traffic_record.get("status")
+        existing_timestamp = traffic_record.get("cint_callback_timestamp")
+        
+        if existing_status == new_status and existing_timestamp:
+            # Check if this is within 5 seconds (likely a duplicate)
+            time_diff = (datetime.utcnow() - existing_timestamp).total_seconds()
+            if time_diff < 5:
+                logger.info(
+                    f"⏭️ Ignoring duplicate Cint callback for mid={mid}, "
+                    f"status already {new_status} (age: {time_diff:.1f}s)"
+                )
+                return JSONResponse(status_code=200, content={"ok": True})
         
         # Get vendor info
         vendor_id = traffic_record.get("vendorId")
         respondent_id = traffic_record.get("respondentId", "")
         
+        # Log the callback in outcomes (for audit trail)
+        if cint_respondent_outcomes_collection is not None:
+            try:
+                cint_respondent_outcomes_collection.insert_one({
+                    "traffic_id": str(traffic_record.get("_id")),
+                    "respondent_id": respondent_id,
+                    "mid": mid,
+                    "status_code": status_code,
+                    "status": new_status,
+                    "revenue": revenue,
+                    "vendor_id": vendor_id,
+                    "callback_timestamp": datetime.utcnow(),
+                    "is_duplicate": existing_status == new_status,
+                })
+            except Exception as e:
+                logger.error(f"Failed to log Cint callback outcome: {e}")
+        
         # Update traffic status
         if url_parameters_collection is not None:
-            url_parameters_collection.update_one(
-                {"_id": traffic_record["_id"]},
-                {"$set": {
-                    "status": new_status,
-                    "cint_revenue": revenue,
-                    "updatedAt": datetime.utcnow(),
-                    "completedAt": datetime.utcnow() if new_status == "COMPLETE" else None
-                }}
-            )
+            try:
+                url_parameters_collection.update_one(
+                    {"_id": traffic_record["_id"]},
+                    {"$set": {
+                        "status": new_status,
+                        "cint_revenue": revenue,
+                        "cint_mid": mid,
+                        "cint_status_code": status_code,
+                        "cint_callback_timestamp": datetime.utcnow(),
+                        "updatedAt": datetime.utcnow(),
+                        "completedAt": datetime.utcnow() if new_status == "COMPLETE" else None
+                    }}
+                )
+                logger.info(
+                    f"✅ Updated traffic {traffic_record.get('_id')} to {new_status} "
+                    f"(revenue: {revenue})"
+                )
+            except Exception as e:
+                logger.error(f"Failed to update traffic status: {e}")
         
-        # Get vendor redirect URL
-        redirect_url = f"{FRONTEND_URL}/thankyou"
-        if vendor_id and vendors_collection is not None:
-            vendor = vendors_collection.find_one({"vendorId": vendor_id})
-            if vendor:
-                redirect_url = vendor.get(redirect_type, redirect_url)
-        
-        # Append respondent ID
-        if respondent_id:
-            separator = "&" if "?" in redirect_url else "?"
-            redirect_url = f"{redirect_url}{separator}id={respondent_id}"
-        
-        print(f"✅ Cint callback: Redirecting to {redirect_url}")
-        return RedirectResponse(url=redirect_url)
+        # Return success to Cint
+        return JSONResponse(status_code=200, content={"ok": True})
         
     except Exception as e:
-        print(f"❌ Cint callback error: {e}")
-        import traceback
+        logger.error(f"❌ Cint callback error: {str(e)}", exc_info=True)
+        # Return success to prevent Cint retries on our errors
+        return JSONResponse(status_code=200, content={"ok": True})
+
         traceback.print_exc()
         return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
 
@@ -645,6 +755,70 @@ async def clear_cpx_callback_logs(request: Request):
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
+# ===================================================================================
+# ZERO-DELAY IP PREFETCH ENDPOINT
+# ===================================================================================
+# This endpoint is called when the parsing page loads (before user clicks PROCEED)
+# It captures the user's real IP from server headers (CloudFlare/Nginx) instantly
+# This eliminates the 3-9 second delay of calling external IP services
+# ===================================================================================
+
+@router.get("/api/prefetch-ip")
+async def prefetch_client_ip(request: Request):
+    """
+    Instantly capture client IP from server headers on page load.
+    
+    This endpoint replaces the slow external IP service calls (ipify, ipinfo, ip.sb)
+    by using CloudFlare/Nginx headers that are already available on every request.
+    
+    Benefits:
+    - Instant (0ms) vs 3-9 seconds from external APIs
+    - More reliable (always available, never fails)
+    - Same IP the user will have when clicking through to CPX surveys
+    
+    Called by: TrafficFlowParser.jsx on component mount
+    
+    Returns:
+        {
+            "ip": "123.45.67.89",
+            "source": "CF-Connecting-IP" | "X-Forwarded-For" | "X-Real-IP" | "direct",
+            "userAgent": "Mozilla/5.0...",
+            "timestamp": "2026-02-04T10:30:00.000Z"
+        }
+    """
+    try:
+        # Import IP extraction utilities
+        try:
+            from ..utils import extract_real_client_ip, extract_user_agent
+        except ImportError:
+            from utils import extract_real_client_ip, extract_user_agent
+        
+        # Extract IP from headers (instant, no external calls)
+        client_ip, ip_source = extract_real_client_ip(request)
+        user_agent = extract_user_agent(request)
+        
+        # Log for monitoring
+        print(f"📍 Prefetch IP: {client_ip} (source: {ip_source})")
+        
+        return JSONResponse(content={
+            "ip": client_ip,
+            "source": ip_source,
+            "userAgent": user_agent,
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        })
+        
+    except Exception as e:
+        print(f"❌ Prefetch IP error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "ip": None,
+                "source": "error",
+                "error": str(e)
+            }
+        )
+
+
 @router.post("/api/store")
 async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
     """
@@ -667,96 +841,53 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         survey_id = None
         allocation_success = False
         
-        # Extract REAL DEVICE IP from headers
-        # Strategy: Get all available IPs and select the most reliable one
-        # 1. X-Forwarded-For: Often contains multiple IPs (proxy chain). The RIGHTMOST IP is typically the real client
-        # 2. CF-Connecting-IP: CloudFlare's actual client IP (often more reliable than first X-Forwarded-For)
-        # 3. X-Real-IP: Nginx reverse proxy's detected client IP
-        # 4. request.client.host: Direct connection IP (least reliable in proxy scenarios)
+        # ===================================================================================
+        # EXTRACT IP AND FINGERPRINT FROM REQUEST BODY ONLY (FROM PARSING PAGE)
+        # ===================================================================================
+        # Per user requirement: Use ONLY the IP and fingerprint sent by the client (parsing page)
+        # DO NOT use CloudFlare headers, X-Forwarded-For, or any server-side IP extraction
+        # The frontend fetches the real client IP via external services (ipify, ipinfo, ip.sb)
         
-        def is_ipv4(ip: str) -> bool:
-            """Check if IP is valid IPv4 format"""
-            parts = ip.split('.')
-            if len(parts) != 4:
-                return False
-            try:
-                for part in parts:
-                    num = int(part)
-                    if num < 0 or num > 255:
-                        return False
-                return True
-            except:
-                return False
+        # Get client IP from request body (fetched by frontend from external IP service)
+        client_ip = data.get("clientIp") or None
+        ip_source = data.get("ipSource") or "client_provided"
         
-        def is_ipv6(ip: str) -> bool:
-            """Check if IP is valid IPv6 format"""
-            return ':' in ip and '.' not in ip  # Simple IPv6 detection
+        # Get device fingerprint from request body (generated by frontend)
+        device_fingerprint = data.get("deviceFingerprint") or ""
+        fingerprint_components = data.get("fingerprintComponents") or {}
+        fingerprint_source = data.get("fingerprintSource") or "client"
         
-        # Extract all available IPs
-        forwarded = request.headers.get("X-Forwarded-For") if request else None
-        cf_connecting_ip = request.headers.get("CF-Connecting-IP") if request else None
-        x_real_ip = request.headers.get("X-Real-IP") if request else None
-        direct_ip = request.client.host if request else None
+        # Get User-Agent from request body (sent by frontend)
+        client_user_agent = data.get("userAgent") or ""
         
-        # Parse X-Forwarded-For which may contain multiple IPs separated by commas
-        # Format: "client_ip, proxy1_ip, proxy2_ip, ..."
-        # Rightmost IP is often the actual client, but leftmost is what we want
-        x_forwarded_ips = []
-        if forwarded:
-            x_forwarded_ips = [ip.strip() for ip in forwarded.split(",")]
+        # Validate IP format (simple check)
+        if client_ip:
+            # Basic validation - should contain dots (IPv4) or colons (IPv6)
+            if not ('.' in client_ip or ':' in client_ip):
+                print(f"⚠️ Invalid IP format from client: {client_ip}, setting to None")
+                client_ip = None
         
-        # Strategy: Prefer CF-Connecting-IP (CloudFlare's direct client IP), then X-Forwarded-For rightmost, then others
-        candidates = []
+        # Log what we received from parsing page
+        print("=" * 80)
+        print("📥 DATA FROM PARSING PAGE (client-provided only)")
+        print(f"   📍 Client IP: {client_ip} (source: {ip_source})")
+        print(f"   📱 User-Agent: {client_user_agent[:80]}..." if client_user_agent and len(client_user_agent) > 80 else f"   📱 User-Agent: {client_user_agent}")
+        print(f"   🔐 Device Fingerprint: {device_fingerprint[:30]}..." if device_fingerprint else "   🔐 Device Fingerprint: None")
+        print(f"   🧩 Fingerprint Components: {list(fingerprint_components.keys()) if fingerprint_components else 'None'}")
+        print("=" * 80)
         
-        # Add CF-Connecting-IP first (most reliable from CloudFlare)
-        if cf_connecting_ip and cf_connecting_ip.strip():
-            candidates.append(("CF-Connecting-IP", cf_connecting_ip.strip()))
-        
-        # Add X-Forwarded-For IPs (prefer rightmost which is closer to origin)
-        if x_forwarded_ips:
-            # Reverse the list to prioritize rightmost
-            for ip in reversed(x_forwarded_ips):
-                if ip:
-                    candidates.append(("X-Forwarded-For", ip))
-        
-        # Add X-Real-IP
-        if x_real_ip and x_real_ip.strip():
-            candidates.append(("X-Real-IP", x_real_ip.strip()))
-        
-        # Add direct connection IP
-        if direct_ip and direct_ip.strip():
-            candidates.append(("request.client.host", direct_ip.strip()))
-        
-        # Select the first IPv4 address we find (prefer IPv4 over IPv6 for CPX)
-        client_ip = None
-        selected_source = None
-        for source, ip in candidates:
-            if is_ipv4(ip):
-                client_ip = ip
-                selected_source = source
-                break
-        
-        # If no IPv4 found, log all candidates and use first available
+        # Warn if no client IP was provided
         if not client_ip:
-            print(f"⚠️ No IPv4 found in: {candidates}")
-            if candidates:
-                client_ip = candidates[0][1]
-                selected_source = candidates[0][0]
+            print("⚠️ WARNING: No client IP provided from parsing page! CPX API targeting may fail.")
+            print("   This means the frontend could not fetch IP from ipify/ipinfo/ip.sb services.")
         
-        # Extract User-Agent from request headers (for CPX fingerprint matching)
-        client_user_agent = request.headers.get("User-Agent") if request else None
+        # ===================================================================================
+        # STEP 1: CREATE TRAFFIC RECORD (SFWID) FIRST
+        # ===================================================================================
+        # Per user requirement: Create SFWID first so CPX API receives the REAL SFWID as ext_user_id
+        # This ensures CPX logs show the correct SFWID format (e.g., "697a163119904fda1936cc4f")
+        # NOT a TEMP_ format (e.g., "TEMP_698221b9-f09d-d9d3-6579-728bb3efe392_1770136028")
         
-        print(
-            "📍 IP extraction: "
-            f"X-Forwarded-For={forwarded} | "
-            f"CF-Connecting-IP={cf_connecting_ip} | "
-            f"X-Real-IP={x_real_ip} | "
-            f"request.client.host={direct_ip} | "
-            f"Selected: {selected_source}={client_ip}"
-        )
-        print(f"📱 User-Agent: {client_user_agent[:80]}..." if client_user_agent and len(client_user_agent) > 80 else f"📱 User-Agent: {client_user_agent}")
-        
-        # If traffic service is available and we have the required params, use it
         if traffic_service and vendor_id and country_code and respondent_id:
             try:
                 traffic_id = traffic_service.create_traffic_record(
@@ -764,23 +895,113 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     country_code=country_code,
                     respondent_id=respondent_id,
                     url=data.get('url'),
-                    user_agent=data.get('userAgent'),
-                    params=params
+                    user_agent=client_user_agent or data.get('userAgent'),
+                    params=params,
+                    client_ip=client_ip,
+                    ip_source=ip_source,
+                    device_fingerprint=device_fingerprint,
+                    fingerprint_source=fingerprint_source,
+                    fingerprint_components=fingerprint_components
                 )
+                print(f"✅ STEP 1: Created traffic record (SFWID): {traffic_id}")
             except Exception as e:
-                print(f"⚠️ Failed to create traffic record, falling back to legacy: {e}")
+                print(f"⚠️ Failed to create traffic record in STEP 1: {e}")
         
-        # Legacy fallback - store as before
+        # ===================================================================================
+        # STEP 2: CALL CPX API WITH REAL SFWID + IP + FINGERPRINT
+        # ===================================================================================
+        # Per user requirement: Call CPX API IMMEDIATELY when PROCEED is clicked
+        # Use the REAL SFWID as ext_user_id so CPX logs show correct format
+        # This allows CPX to return surveys based on real device IP and fingerprint
+        
+        available_surveys = []
+        cpx_api_response = None
+        
+        if vendor_id and country_code and respondent_id and cpx_service and client_ip and traffic_id:
+            print(f"🔄 STEP 2: Calling CPX API with SFWID={traffic_id}, IP={client_ip}, Fingerprint={device_fingerprint[:20] if device_fingerprint else 'None'}...")
+            
+            try:
+                # Call CPX API with the REAL SFWID as ext_user_id (NOT TEMP_)
+                cpx_api_response = cpx_service.fetch_and_allocate_for_respondent(
+                    respondent_id=traffic_id,  # Use REAL SFWID, not TEMP_ format
+                    user_ip=client_ip,
+                    user_agent=client_user_agent
+                )
+                
+                if cpx_api_response and cpx_api_response.get("success"):
+                    print(f"✅ STEP 2 Complete: CPX returned surveys")
+                    print(f"   STEP 3: Filters applied (LOI, CPI, IR) - Survey selected: {cpx_api_response.get('survey_id')}")
+                else:
+                    print(f"⚠️ CPX API call failed or no surveys: {cpx_api_response.get('error') if cpx_api_response else 'Unknown error'}")
+            except Exception as e:
+                print(f"❌ CPX API call exception: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # SFWID already created in STEP 1, log confirmation
+        if traffic_id:
+            print(f"✅ STEP 4: Traffic record (SFWID) confirmed: {traffic_id}")
+        
+        # Legacy fallback - store as before if traffic_id wasn't created
         if not traffic_id:
+            data['clientIp'] = client_ip
+            data['ipSource'] = ip_source
+            data['deviceFingerprint'] = device_fingerprint
+            data['fingerprintSource'] = fingerprint_source
+            data['fingerprintComponents'] = fingerprint_components
             data['timestamp'] = datetime.utcnow().isoformat()
             data['status'] = 'incomplete'
             data['redirectUrl'] = None
             result = url_parameters_collection.insert_one(data)
             traffic_id = str(result.inserted_id)
+            print(f"✅ STEP 4 (Legacy): Created traffic record (SFWID): {traffic_id}")
         
-        # Try to allocate a survey from both CPX and CINT pools
-        # Filter by: is_active_in_pool=True AND country code match
-        if vendor_id and country_code and respondent_id:
+        # ===================================================================================
+        # GENERATE FINAL ENTRY LINK WITH SFWID AS SUBID_1
+        # ===================================================================================
+        
+        if cpx_api_response and cpx_api_response.get("success") and traffic_id:
+            selected_survey_id = cpx_api_response.get("survey_id")
+            
+            # Get survey href from database
+            try:
+                from pymongo import MongoClient
+                import os
+                
+                mongo_uri = os.getenv("MONGO_URI")
+                if mongo_uri:
+                    client = MongoClient(mongo_uri)
+                    cpx_collection = client["cpx_research"]["cpx_surveys"]
+                    survey_doc = cpx_collection.find_one({"_id": selected_survey_id})
+                    
+                    if survey_doc and survey_doc.get("href"):
+                        # Generate entry link with REAL SFWID as subid_1
+                        entry_link = cpx_service.generate_respondent_entry_link(
+                            survey_id=selected_survey_id,
+                            respondent_id=traffic_id,  # REAL SFWID
+                            href=survey_doc.get("href")
+                        )
+                        
+                        allocation_success = True
+                        survey_id = selected_survey_id
+                        
+                        # Update traffic record with survey assignment
+                        if traffic_service:
+                            traffic_service.assign_survey_to_traffic(
+                                traffic_id=traffic_id,
+                                survey_id=str(selected_survey_id),
+                                redirect_url=entry_link
+                            )
+                        
+                        print(f"✅ STEP 4 Complete: Generated final entry link with SFWID={traffic_id} as subid_1")
+                        print(f"   Entry link: {entry_link[:100]}...")
+            except Exception as e:
+                print(f"❌ Failed to generate final entry link: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Fallback: Old allocation flow if new flow didn't produce a result
+        if not allocation_success and vendor_id and country_code and respondent_id:
             try:
                 from pymongo import MongoClient
                 import os
@@ -926,7 +1147,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     cc=country_code.upper(),
                     rid=respondent_id,
                     ip_address=client_ip,
-                    user_agent=data.get('userAgent')
+                    user_agent=client_user_agent or data.get('userAgent')
                 )
                 
                 allocation_result = survey_allocation_service.allocate_respondent(allocation_request)

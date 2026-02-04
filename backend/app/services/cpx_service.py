@@ -635,8 +635,10 @@ class CPXService:
             # Generate secure hash for this specific respondent
             secure_hash = self._generate_secure_hash(respondent_id, self.secure_hash_key)
             
-            # Use REAL DEVICE IP from respondent's parsing page
-            # This IP was extracted from multiple headers and validated to be IPv4
+            # IMPORTANT: Use the REAL user IP from the parsing page
+            # CPX uses ip_user parameter to determine geo-targeting and return appropriate surveys
+            # The user_ip should be captured from the respondent's device on the parsing page
+            # and passed here for CPX to return country-appropriate surveys with valid hrefs
             device_ip = user_ip if user_ip else self._get_client_ip()
             
             # Use provided user_agent - this IS critical for fingerprint matching
@@ -658,7 +660,7 @@ class CPXService:
             }
             
             print(f"🔄 Fetching CPX surveys for respondent {respondent_id}")
-            print(f"   Device IP: {device_ip}")
+            print(f"   User IP: {device_ip} (from parsing page: {bool(user_ip)})")
             print(f"   User-Agent: {actual_user_agent[:80]}..." if actual_user_agent and len(actual_user_agent) > 80 else f"   User-Agent: {actual_user_agent}")
             print(f"   CPX params: app_id={params['app_id']}, ext_user_id={params['ext_user_id']}, ip_user={params['ip_user']}")
             

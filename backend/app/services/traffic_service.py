@@ -33,7 +33,12 @@ class TrafficService:
         respondent_id: str,
         url: str = None,
         user_agent: str = None,
-        params: Dict[str, Any] = None
+        params: Dict[str, Any] = None,
+        client_ip: str = None,
+        ip_source: str = None,
+        device_fingerprint: str = None,
+        fingerprint_source: str = None,
+        fingerprint_components: Dict[str, Any] = None
     ) -> str:
         """
         Create a new traffic record
@@ -59,6 +64,11 @@ class TrafficService:
                 "updatedAt": datetime.utcnow(),
                 "url": url,
                 "userAgent": user_agent,
+                "clientIp": client_ip,
+                "ipSource": ip_source,
+                "deviceFingerprint": device_fingerprint,
+                "fingerprintSource": fingerprint_source,
+                "fingerprintComponents": fingerprint_components or {},
                 "params": params or {},
                 "assignedSurveyId": None,
                 "redirectUrl": None,

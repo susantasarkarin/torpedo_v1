@@ -158,18 +158,23 @@ class CintAllocationExtension:
                 if link_doc:
                     entry_link = SupplierLink(**link_doc)
                     
-                    if cint_service and entry_link.live_link:
-                        # Use CintService to build link with parameters
-                        complete_link = cint_service.build_entry_link(
-                            live_link=entry_link.live_link,
-                            respondent_id=respondent.rid,
-                            country_code=respondent.cc,
+                    # CRITICAL: Use live_link AS-IS from Cint API
+                    # The live_link contains [%MID%] and other Cint placeholders
+                    # that Cint replaces when respondent clicks
+                    # DO NOT append custom parameters - they conflict with Cint's system
+                    if entry_link.live_link:
+                        logger.debug(
+                            f"Using Cint live_link for survey {survey.survey_id}: "
+                            f"respondent {respondent.rid}"
                         )
-                        
-                        return complete_link
+                        return entry_link.live_link
+                    else:
+                        logger.error(
+                            f"Entry link exists but has no live_link for survey {survey.survey_id}"
+                        )
         
         except Exception as e:
-            logger.error(f"Error building Cint entry link: {str(e)}")
+            logger.error(f"Error getting Cint entry link: {str(e)}")
         
         return None
 

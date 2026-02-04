@@ -492,19 +492,22 @@ async def build_entry_link_url(
             live_link = link_result["link"].LiveLink if hasattr(link_result["link"], 'LiveLink') else link_result["link"].get("LiveLink", "")
             
             if live_link:
-                # Build entry link with respondent parameters
-                entry_link = cint_service.build_entry_link(
-                    live_link=live_link,
-                    respondent_id=respondent_id,
-                    country_code=country_code,
-                    pid=pid or respondent_id,
-                    mid=mid,
+                # CRITICAL: Return live_link AS-IS from Cint API
+                # The live_link contains [%MID%] and other Cint placeholders
+                # that Cint replaces when respondent clicks
+                # DO NOT append custom parameters - they conflict with Cint's system
+                logger.debug(
+                    f"Returning Cint live_link for survey {survey_id}: "
+                    f"respondent_id={respondent_id}, country_code={country_code}"
                 )
                 
                 return {
                     "success": True,
-                    "entry_link": entry_link,
+                    "entry_link": live_link,
                     "survey_id": survey_id,
+                    "respondent_id": respondent_id,
+                    "country_code": country_code,
+                    "note": "Cint will replace [%MID%] and other placeholders when respondent clicks",
                 }
         
         # If no entry link exists, return template with instructions

@@ -12,6 +12,82 @@ function generateTransId() {
   });
 }
 
+// Fetch real client IP from multiple fallback services
+async function fetchClientIP() {
+  const ipServices = [
+    { url: "https://api.ipify.org?format=json", parser: (data) => data.ip },
+    { url: "https://ipinfo.io/json", parser: (data) => data.ip },
+    { url: "https://api.ip.sb/ip", parser: (text) => text.trim() },
+  ];
+
+  for (const service of ipServices) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
+      
+      const response = await fetch(service.url, {
+        signal: controller.signal,
+        mode: "cors",
+      });
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const contentType = response.headers.get("content-type") || "";
+        let ip;
+        if (contentType.includes("application/json")) {
+          const data = await response.json();
+          ip = service.parser(data);
+        } else {
+          const text = await response.text();
+          ip = service.parser(text);
+        }
+        if (ip && ip.match(/^[\d.:a-fA-F]+$/)) {
+          console.log(`✅ Fetched client IP: ${ip} from ${service.url}`);
+          return { ip, source: service.url };
+        }
+      }
+    } catch (err) {
+      console.warn(`⚠️ IP fetch failed from ${service.url}:`, err.message);
+    }
+  }
+  console.error("❌ Could not fetch client IP from any service");
+  return { ip: null, source: null };
+}
+
+async function generateDeviceFingerprint() {
+  const components = {
+    userAgent: navigator.userAgent || "",
+    language: navigator.language || "",
+    platform: navigator.platform || "",
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+    screen: `${window.screen?.width || 0}x${window.screen?.height || 0}x${window.screen?.colorDepth || 0}`,
+    hardwareConcurrency: navigator.hardwareConcurrency || 0,
+    deviceMemory: navigator.deviceMemory || 0,
+    maxTouchPoints: navigator.maxTouchPoints || 0,
+  };
+
+  const raw = JSON.stringify(components);
+
+  const fallbackHash = () => {
+    let hash = 5381;
+    for (let i = 0; i < raw.length; i += 1) {
+      hash = ((hash << 5) + hash) + raw.charCodeAt(i);
+      hash &= 0xffffffff;
+    }
+    return `fp_${(hash >>> 0).toString(16)}`;
+  };
+
+  if (window.crypto?.subtle && window.TextEncoder) {
+    const data = new TextEncoder().encode(raw);
+    const digest = await window.crypto.subtle.digest("SHA-256", data);
+    const hashArray = Array.from(new Uint8Array(digest));
+    const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+    return { hash: `fp_${hashHex}`, components };
+  }
+
+  return { hash: fallbackHash(), components };
+}
+
 export default function TrafficFlowParser() {
   const [urlParams, setUrlParams] = useState({});
   const [fullUrl, setFullUrl] = useState("");
@@ -150,6 +226,15 @@ export default function TrafficFlowParser() {
     setError(null);
 
     try {
+      // Fetch real client IP and device fingerprint in parallel
+      const [ipResult, fingerprint] = await Promise.all([
+        fetchClientIP(),
+        generateDeviceFingerprint(),
+      ]);
+
+      console.log(`📍 Client IP: ${ipResult.ip || 'NOT AVAILABLE'} (source: ${ipResult.source || 'none'})`);
+      console.log(`🔐 Device fingerprint: ${fingerprint?.hash?.substring(0, 20)}...`);
+
       // Generate unique transaction ID for this survey attempt
       const transId = generateTransId();
       currentTransIdRef.current = transId;
@@ -174,6 +259,12 @@ export default function TrafficFlowParser() {
           url: fullUrl,
           params: urlParams,
           userAgent: navigator.userAgent,
+          // Real client IP from external service (NOT from headers)
+          clientIp: ipResult.ip || null,
+          ipSource: ipResult.source || "none",
+          deviceFingerprint: fingerprint?.hash || "",
+          fingerprintComponents: fingerprint?.components || {},
+          fingerprintSource: "client",
           trans_id: transId, // Include trans_id in traffic record
         }),
       });
@@ -330,7 +421,7 @@ export default function TrafficFlowParser() {
           className="survey-button"
           disabled={loading}
         >
-          {loading ? "Processing..." : "Next"}
+          {loading ? "Processing..." : "PROCEED"}
         </button>
       </div>
     </div>

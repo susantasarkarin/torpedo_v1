@@ -556,3 +556,122 @@ def include_deleted_filter(include: bool = False) -> dict:
     if include:
         return {}
     return {"is_deleted": {"$ne": True}}
+
+
+# ============== IP EXTRACTION UTILITIES ==============
+
+def is_valid_ipv4(ip: str) -> bool:
+    """
+    Validate IPv4 address format.
+    
+    Args:
+        ip: IP address string to validate
+        
+    Returns:
+        True if valid IPv4, False otherwise
+    """
+    if not ip:
+        return False
+    parts = ip.split('.')
+    if len(parts) != 4:
+        return False
+    for part in parts:
+        try:
+            num = int(part)
+            if num < 0 or num > 255:
+                return False
+        except ValueError:
+            return False
+    return True
+
+
+def is_private_ip(ip: str) -> bool:
+    """
+    Check if IP is in a private/reserved range.
+    
+    Args:
+        ip: IPv4 address string
+        
+    Returns:
+        True if private/reserved IP, False otherwise
+    """
+    if not ip:
+        return True
+    
+    # Private ranges
+    private_patterns = [
+        r'^10\.',                          # 10.0.0.0/8
+        r'^172\.(1[6-9]|2[0-9]|3[01])\.',  # 172.16.0.0/12
+        r'^192\.168\.',                    # 192.168.0.0/16
+        r'^127\.',                         # Loopback
+        r'^0\.',                           # Reserved
+        r'^169\.254\.',                    # Link-local
+    ]
+    
+    for pattern in private_patterns:
+        if re.match(pattern, ip):
+            return True
+    return False
+
+
+def extract_real_client_ip(request) -> tuple:
+    """
+    Extract real client IP from request headers.
+    
+    This is the preferred method for getting client IP as it:
+    1. Uses CloudFlare/Nginx headers that are always available
+    2. Is instant (no external API calls)
+    3. Returns the same IP the user will have when clicking through to surveys
+    
+    Priority order (most reliable first):
+    1. CF-Connecting-IP (CloudFlare's direct client IP - most reliable)
+    2. X-Forwarded-For (leftmost non-private = original client)
+    3. X-Real-IP (Nginx reverse proxy)
+    4. request.client.host (direct connection fallback)
+    
+    Args:
+        request: FastAPI Request object
+        
+    Returns:
+        Tuple of (ip_address: str, source_header: str)
+        ip_address will be None if no valid IP found
+    """
+    # 1. CloudFlare header - most reliable when behind CloudFlare
+    cf_ip = request.headers.get("CF-Connecting-IP")
+    if cf_ip and is_valid_ipv4(cf_ip) and not is_private_ip(cf_ip):
+        return cf_ip, "CF-Connecting-IP"
+    
+    # 2. X-Forwarded-For - leftmost non-private is original client
+    xff = request.headers.get("X-Forwarded-For")
+    if xff:
+        ips = [ip.strip() for ip in xff.split(",")]
+        for ip in ips:
+            if is_valid_ipv4(ip) and not is_private_ip(ip):
+                return ip, "X-Forwarded-For"
+    
+    # 3. X-Real-IP from Nginx
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip and is_valid_ipv4(real_ip) and not is_private_ip(real_ip):
+        return real_ip, "X-Real-IP"
+    
+    # 4. Direct connection fallback
+    if request.client and request.client.host:
+        client_host = request.client.host
+        if is_valid_ipv4(client_host) and not is_private_ip(client_host):
+            return client_host, "direct"
+    
+    # No valid IP found
+    return None, "none"
+
+
+def extract_user_agent(request) -> str:
+    """
+    Extract User-Agent from request headers.
+    
+    Args:
+        request: FastAPI Request object
+        
+    Returns:
+        User-Agent string or empty string
+    """
+    return request.headers.get("User-Agent", "")

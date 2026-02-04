@@ -639,12 +639,38 @@ class CintService:
         """
         Create or update opportunities subscription
 
+        IMPORTANT: Subscription creation must be validated and stored persistently.
+        This ensures we can track subscription health and handle failures.
+
         Args:
             config: Subscription configuration with callback URL and filters
 
         Returns:
-            Response from Cint API
+            Response from Cint API with validation
+            
+        Raises:
+            CintValidationError: If subscription creation fails with client error
         """
+        # VALIDATION: Ensure callback URL is HTTPS in production
+        if self.environment == "production" and not config.callback_url.startswith("https://"):
+            error_msg = f"Callback URL must be HTTPS in production: {config.callback_url}"
+            logger.error(f"🔴 {error_msg}")
+            raise CintValidationError(
+                "V17",
+                error_msg,
+                status_code=400
+            )
+        
+        # VALIDATION: Ensure callback URL is reachable (basic check)
+        if not config.callback_url.startswith("http://") and not config.callback_url.startswith("https://"):
+            error_msg = f"Callback URL must start with http:// or https://: {config.callback_url}"
+            logger.error(f"🔴 {error_msg}")
+            raise CintValidationError(
+                "V15",
+                error_msg,
+                status_code=400
+            )
+        
         url = f"{self.base_url}{self.OPPORTUNITIES_ENDPOINT.format(supplier_code=self.supplier_code)}"
         
         # Build opportunities filters - must have at least one filter per Cint API spec
@@ -667,26 +693,141 @@ class CintService:
         
         try:
             # POST per Cint API documentation: https://developer.lucidhq.com/#post-create-opportunities-subscription
-            response = await self.client.post(
+            logger.info(f"🔄 Creating Cint opportunities subscription for {self.supplier_code}")
+            logger.debug(f"   Callback URL: {config.callback_url}")
+            logger.debug(f"   Filters: {opportunities}")
+            
+            response = await self._request_with_retry(
+                "POST",
                 url,
                 json=payload,
                 headers=self._get_headers(),
             )
-            response.raise_for_status()
             
-            logger.info(f"Opportunities subscription created for {self.supplier_code}")
-            return {"success": True, "data": response.json()}
+            api_response = response.json()
+            
+            # VALIDATE: Check response has required fields
+            if "success" not in api_response and "error" not in api_response:
+                logger.warning(f"⚠️ Unexpected Cint API response structure: {api_response}")
+            
+            # If error in response, raise validation error
+            if api_response.get("error"):
+                raise CintValidationError.from_response(api_response, response.status_code)
+            
+            # Store subscription status in MongoDB (if collection provided)
+            if self.cint_settings_collection is not None:
+                subscription_doc = {
+                    "_id": f"opportunities_subscription_{self.supplier_code}",
+                    "supplier_code": self.supplier_code,
+                    "config": config.dict(),
+                    "status": "active",
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                    "last_verified_at": datetime.now(timezone.utc),
+                    "api_response": api_response,
+                }
+                
+                try:
+                    self.cint_settings_collection.update_one(
+                        {"_id": f"opportunities_subscription_{self.supplier_code}"},
+                        {"$set": subscription_doc},
+                        upsert=True
+                    )
+                    logger.info(f"✅ Stored subscription status in MongoDB")
+                except Exception as db_err:
+                    logger.warning(f"⚠️ Failed to store subscription in DB: {db_err}")
+            
+            logger.info(f"✅ Opportunities subscription created/updated for {self.supplier_code}")
+            return {
+                "success": True,
+                "data": api_response,
+                "validation_passed": True,
+                "stored": self.cint_settings_collection is not None
+            }
+        
+        except CintValidationError as ve:
+            # Re-raise validation errors
+            logger.error(f"🔴 Cint validation error: {ve}")
+            # Store error state in DB
+            if self.cint_settings_collection is not None:
+                try:
+                    self.cint_settings_collection.update_one(
+                        {"_id": f"opportunities_subscription_{self.supplier_code}"},
+                        {
+                            "$set": {
+                                "status": "error",
+                                "error_code": ve.error_code,
+                                "error_message": str(ve),
+                                "updated_at": datetime.now(timezone.utc),
+                            }
+                        },
+                        upsert=True
+                    )
+                except Exception as db_err:
+                    logger.warning(f"⚠️ Failed to store error in DB: {db_err}")
+            raise
         
         except httpx.HTTPStatusError as e:
+            error_text = e.response.text[:500] if e.response.text else str(e)
+            logger.error(f"🔴 Cint subscription error: {e.response.status_code} - {error_text}")
+            
             # 404 often means the endpoint URL is wrong or subscription needs different method
             if e.response.status_code == 404:
-                logger.warning(f"Cint subscription endpoint not found (404) - verify API endpoint and supplier code: {self.supplier_code}")
-            else:
-                logger.error(f"Cint subscription error: {e.response.status_code} - {e.response.text}")
-            return {"success": False, "error": str(e), "status_code": e.response.status_code}
+                logger.error(f"   Verify API endpoint and supplier code: {self.supplier_code}")
+                logger.error(f"   Using base URL: {self.base_url}")
+                logger.error(f"   Endpoint URL: {url}")
+            
+            # Store error state in DB
+            if self.cint_settings_collection is not None:
+                try:
+                    self.cint_settings_collection.update_one(
+                        {"_id": f"opportunities_subscription_{self.supplier_code}"},
+                        {
+                            "$set": {
+                                "status": "error",
+                                "error_code": f"HTTP_{e.response.status_code}",
+                                "error_message": error_text,
+                                "updated_at": datetime.now(timezone.utc),
+                            }
+                        },
+                        upsert=True
+                    )
+                except Exception as db_err:
+                    logger.warning(f"⚠️ Failed to store error in DB: {db_err}")
+            
+            return {
+                "success": False,
+                "error": str(e),
+                "status_code": e.response.status_code,
+                "validation_passed": False
+            }
+        
         except Exception as e:
-            logger.error(f"Cint subscription failed: {str(e)}")
-            return {"success": False, "error": str(e)}
+            logger.error(f"🔴 Cint subscription failed: {str(e)}")
+            
+            # Store error state in DB
+            if self.cint_settings_collection is not None:
+                try:
+                    self.cint_settings_collection.update_one(
+                        {"_id": f"opportunities_subscription_{self.supplier_code}"},
+                        {
+                            "$set": {
+                                "status": "error",
+                                "error_code": "UNKNOWN_ERROR",
+                                "error_message": str(e),
+                                "updated_at": datetime.now(timezone.utc),
+                            }
+                        },
+                        upsert=True
+                    )
+                except Exception as db_err:
+                    logger.warning(f"⚠️ Failed to store error in DB: {db_err}")
+            
+            return {
+                "success": False,
+                "error": str(e),
+                "validation_passed": False
+            }
 
     async def get_opportunities_subscription(self) -> Dict[str, Any]:
         """
@@ -735,6 +876,22 @@ class CintService:
             response.raise_for_status()
             
             logger.info(f"Opportunities subscription deleted for {self.supplier_code}")
+            
+            # Mark subscription as inactive in DB
+            if self.cint_settings_collection is not None:
+                try:
+                    self.cint_settings_collection.update_one(
+                        {"_id": f"opportunities_subscription_{self.supplier_code}"},
+                        {
+                            "$set": {
+                                "status": "inactive",
+                                "updated_at": datetime.now(timezone.utc),
+                            }
+                        }
+                    )
+                except Exception as db_err:
+                    logger.warning(f"⚠️ Failed to update subscription status in DB: {db_err}")
+            
             return {"success": True}
         
         except httpx.HTTPStatusError as e:
@@ -743,6 +900,100 @@ class CintService:
         except Exception as e:
             logger.error(f"Failed to delete subscription: {str(e)}")
             return {"success": False, "error": str(e)}
+
+    async def check_subscription_health(self) -> Dict[str, Any]:
+        """
+        Check health of opportunities subscription.
+        
+        This method:
+        1. Verifies subscription is active in Cint API
+        2. Checks DB records for subscription status
+        3. Verifies webhook delivery isn't failing
+        4. Suggests remediation if issues found
+        
+        Returns:
+            Health status report with remediation steps if needed
+        """
+        try:
+            # Get subscription status from API
+            api_status = await self.get_opportunities_subscription()
+            
+            # Get subscription record from DB
+            db_record = None
+            if self.cint_settings_collection is not None:
+                db_record = self.cint_settings_collection.find_one(
+                    {"_id": f"opportunities_subscription_{self.supplier_code}"}
+                )
+            
+            # Assess health
+            health_status = "unknown"
+            issues = []
+            remediation = []
+            
+            if api_status.get("success"):
+                health_status = "active"
+                logger.info(f"✅ Subscription is active in Cint API")
+            else:
+                if api_status.get("status_code") == 404:
+                    health_status = "not_created"
+                    issues.append("Subscription does not exist in Cint API")
+                    remediation.append("Call create_opportunities_subscription() to create it")
+                else:
+                    health_status = "error"
+                    issues.append(f"Cint API error: {api_status.get('error')}")
+                    remediation.append("Check API credentials and network connectivity")
+            
+            # Check DB record
+            if db_record:
+                db_status = db_record.get("status", "unknown")
+                last_verified = db_record.get("last_verified_at")
+                last_webhook = db_record.get("last_webhook_received_at")
+                
+                if db_status == "error":
+                    if health_status == "unknown":
+                        health_status = "error"
+                    issues.append(f"DB record shows error: {db_record.get('error_message')}")
+                
+                # Check if webhooks are being received
+                if last_webhook:
+                    from datetime import timedelta
+                    now = datetime.now(timezone.utc)
+                    time_since_webhook = now - last_webhook
+                    if time_since_webhook > timedelta(hours=1):
+                        if health_status == "active":
+                            health_status = "degraded"
+                        issues.append(f"No webhooks received in {time_since_webhook.total_seconds() / 3600:.1f} hours")
+                        remediation.append("Verify callback URL is reachable and Cint platform is running")
+                else:
+                    if health_status == "active":
+                        issues.append("No webhooks received yet (subscription may be awaiting opportunities)")
+            else:
+                issues.append("No subscription record in database")
+            
+            return {
+                "success": True,
+                "supplier_code": self.supplier_code,
+                "health_status": health_status,  # active, degraded, error, not_created, unknown
+                "api_status": api_status.get("success"),
+                "db_record_exists": db_record is not None,
+                "last_webhook_received_at": db_record.get("last_webhook_received_at") if db_record else None,
+                "issues": issues,
+                "remediation": remediation,
+                "db_details": {
+                    "status": db_record.get("status") if db_record else None,
+                    "error_code": db_record.get("error_code") if db_record else None,
+                    "error_message": db_record.get("error_message") if db_record else None,
+                } if db_record else None
+            }
+        
+        except Exception as e:
+            logger.error(f"Error checking subscription health: {str(e)}")
+            return {
+                "success": False,
+                "health_status": "error",
+                "error": str(e),
+                "remediation": ["Check logs for detailed error information"]
+            }
 
     # ============================================
     # Respondent Outcomes Subscription (v2)
@@ -835,20 +1086,26 @@ class CintService:
     # ============================================
 
     # Status code mappings for marketplace_status and client_status
+    # Per Cint Lucid API specification
     MARKETPLACE_STATUS_MAP = {
-        10: "complete",
-        20: "terminate",
-        30: "over_quota",
-        40: "quality_terminate",
-        50: "survey_closed",
+        10: "complete",         # Survey completed successfully
+        20: "terminate",        # Respondent terminated survey
+        30: "over_quota",       # Survey quota full before respondent started
+        40: "quality_terminate", # Respondent disqualified during survey
+        50: "survey_closed",    # Survey closed before respondent started
     }
     
     CLIENT_STATUS_MAP = {
-        10: "complete",
-        20: "terminate",
-        30: "over_quota",
-        40: "quality_terminate",
+        10: "complete",         # Survey completed successfully
+        20: "terminate",        # Respondent terminated survey
+        30: "over_quota",       # Survey quota full before respondent started
+        40: "quality_terminate", # Respondent disqualified during survey
+        # NOTE: Code 50 (survey_closed) not in client_status per spec
     }
+    
+    # Valid status codes for explicit error handling
+    VALID_MARKETPLACE_CODES = {10, 20, 30, 40, 50}
+    VALID_CLIENT_CODES = {10, 20, 30, 40}
 
     async def process_respondent_outcome(
         self, outcome_data: Dict[str, Any]
@@ -871,11 +1128,26 @@ class CintService:
             # Parse to Pydantic model for validation
             outcome = RespondentOutcome(**outcome_data)
             
-            # Determine final status from marketplace_status
-            final_status = self.MARKETPLACE_STATUS_MAP.get(
-                outcome.marketplace_status, 
-                f"unknown_{outcome.marketplace_status}"
-            )
+            # VALIDATION: Fail fast on unknown marketplace_status
+            if outcome.marketplace_status not in self.VALID_MARKETPLACE_CODES:
+                logger.error(
+                    f"❌ Unknown marketplace_status {outcome.marketplace_status} "
+                    f"for session {outcome.session_id} (survey {outcome.survey_id})"
+                )
+                raise ValueError(
+                    f"Unknown marketplace_status: {outcome.marketplace_status}. "
+                    f"Expected one of {self.VALID_MARKETPLACE_CODES}"
+                )
+            
+            # Validate client_status if present
+            if outcome.client_status and outcome.client_status not in self.VALID_CLIENT_CODES:
+                logger.warning(
+                    f"⚠️ Unknown client_status {outcome.client_status} "
+                    f"for session {outcome.session_id} - will use marketplace_status"
+                )
+            
+            # Determine final status from marketplace_status (always use this)
+            final_status = self.MARKETPLACE_STATUS_MAP[outcome.marketplace_status]
             
             # Build document for storage
             outcome_doc = {
@@ -1193,6 +1465,10 @@ class CintService:
     async def get_entry_link(self, survey_id: int) -> Dict[str, Any]:
         """
         Retrieve entry link for a survey
+        
+        Strategy:
+        1. Check MongoDB first (includes synthetic workaround links)
+        2. Fall back to Cint API if not in DB
 
         Args:
             survey_id: Cint survey ID
@@ -1200,6 +1476,22 @@ class CintService:
         Returns:
             Entry link details
         """
+        # FIRST: Try to get from MongoDB (this includes synthetic links we created)
+        if self.cint_entry_links_collection is not None:
+            try:
+                link_doc = self.cint_entry_links_collection.find_one(
+                    {"survey_id": survey_id}
+                )
+                if link_doc:
+                    # Remove MongoDB _id field before creating SupplierLink
+                    link_doc_copy = {k: v for k, v in link_doc.items() if k != "_id"}
+                    supplier_link = SupplierLink(**link_doc_copy)
+                    logger.info(f"✅ Retrieved entry link for survey {survey_id} from database (synthetic)")
+                    return {"success": True, "link": supplier_link}
+            except Exception as e:
+                logger.warning(f"Error retrieving from DB: {str(e)}, will try Cint API")
+        
+        # FALLBACK: Try Cint API
         url = f"{self.base_url}{self.ENTRY_LINKS_ENDPOINT}/BySurveyNumber/{survey_id}/{self.supplier_code}"
         
         try:
@@ -1219,20 +1511,23 @@ class CintService:
                     **link_data
                 )
                 
-                logger.info(f"Retrieved entry link for survey {survey_id}")
+                # Store in DB for future use
+                self._store_entry_link(supplier_link)
+                
+                logger.info(f"✅ Retrieved entry link for survey {survey_id} from Cint API")
                 return {"success": True, "link": supplier_link}
             
             return {"success": False, "error": "Entry link not found"}
         
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
-                logger.warning(f"Entry link not found for survey {survey_id}")
+                logger.warning(f"❌ Entry link not found for survey {survey_id} (not in DB or Cint API)")
                 return {"success": False, "error": "Entry link not found", "status_code": 404}
             
-            logger.error(f"Failed to get entry link: {e.response.status_code}")
+            logger.error(f"❌ Failed to get entry link: {e.response.status_code}")
             return {"success": False, "error": str(e), "status_code": e.response.status_code}
         except Exception as e:
-            logger.error(f"Failed to get entry link: {str(e)}")
+            logger.error(f"❌ Failed to get entry link: {str(e)}")
             return {"success": False, "error": str(e)}
 
     def _store_entry_link(self, supplier_link: SupplierLink) -> None:
