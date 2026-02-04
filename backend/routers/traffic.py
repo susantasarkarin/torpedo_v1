@@ -4,7 +4,7 @@ Handles survey tracking and URL parameter storage
 Uses traffic_flow_db database
 """
 from fastapi import APIRouter, HTTPException, Request, Query, Body
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from pymongo.collection import Collection
 from bson import ObjectId
 from datetime import datetime
