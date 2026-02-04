@@ -2,6 +2,19 @@
 
 A comprehensive campaign automation and lead management platform.
 
+## 🏗️ Architecture Transition Planning
+
+**Considering modernization? We've created a comprehensive transition plan:**
+
+- 📋 **[Complete Transition Plan](ARCHITECTURE_TRANSITION_PLAN.md)** - Detailed 60-page guide covering strategy, timeline, costs, and risks
+- ⚡ **[Quick Reference](ARCHITECTURE_TRANSITION_QUICKREF.md)** - TL;DR summary with key decisions and options
+- 📊 **[Visual Guide](ARCHITECTURE_TRANSITION_VISUAL.md)** - Diagrams, comparisons, and visual explanations
+
+**Proposed Stack:** Node.js + MongoDB + React (app) | PHP (websites) | n8n (workflows)  
+**Timeline:** 6-9 months | **Cost:** $230-250k | **Complexity Reduction:** 35-40%
+
+See the documents above for detailed analysis, three migration options, and recommendations.
+
 ## 🤖 Agent Tools
 
 ### 🔍 Can't Find Your Agent Work?
