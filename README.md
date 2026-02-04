@@ -6,6 +6,7 @@ A comprehensive campaign automation and lead management platform.
 
 **Considering modernization? We've created a comprehensive transition plan:**
 
+- 🎯 **[Executive Summary](ARCHITECTURE_TRANSITION_EXECUTIVE_SUMMARY.md)** - For stakeholders and decision makers (START HERE)
 - 📋 **[Complete Transition Plan](ARCHITECTURE_TRANSITION_PLAN.md)** - Detailed 60-page guide covering strategy, timeline, costs, and risks
 - ⚡ **[Quick Reference](ARCHITECTURE_TRANSITION_QUICKREF.md)** - TL;DR summary with key decisions and options
 - 📊 **[Visual Guide](ARCHITECTURE_TRANSITION_VISUAL.md)** - Diagrams, comparisons, and visual explanations
