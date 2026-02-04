@@ -811,6 +811,10 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # Call CPX live API directly to fetch/allocate for this respondent.
         # CRITICAL: ext_user_id MUST be the stable vendor-provided rid, NOT our internal traffic_id
         # The traffic_id is only for our internal tracking (subid_1)
+        
+        # DEBUG: Log the CPX allocation condition check
+        print(f"🔍 CPX allocation check: allocation_success={allocation_success}, vendor_id={vendor_id}, country_code={country_code}, respondent_id={respondent_id}, cpx_service={cpx_service is not None}")
+        
         if not allocation_success and vendor_id and country_code and respondent_id and cpx_service:
             try:
                 print(f"📍 Detected client IP: {client_ip} for SFWID: {traffic_id}")
