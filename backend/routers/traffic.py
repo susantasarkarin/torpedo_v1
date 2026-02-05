@@ -815,17 +815,25 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # DEBUG: Log the CPX allocation condition check
         print(f"🔍 CPX allocation check: allocation_success={allocation_success}, vendor_id={vendor_id}, country_code={country_code}, respondent_id={respondent_id}, cpx_service={cpx_service is not None}")
         
+        # IP Comparison: Log if client-provided IP matches server-extracted IP
+        server_extracted_ip, server_ip_source = extract_real_client_ip(request)
+        if client_provided_ip and server_extracted_ip:
+            ip_match = client_provided_ip == server_extracted_ip
+            print(f"🔍 IP Comparison: client_provided={client_provided_ip} vs server_extracted={server_extracted_ip} -> {'✅ MATCH' if ip_match else '⚠️ MISMATCH'}")
+        
         if not allocation_success and vendor_id and country_code and respondent_id and cpx_service:
             try:
                 print(f"📍 Detected client IP: {client_ip} for SFWID: {traffic_id}")
                 print(f"📱 Using User-Agent for CPX: {client_user_agent[:60]}..." if client_user_agent and len(client_user_agent) > 60 else f"📱 Using User-Agent for CPX: {client_user_agent}")
                 print(f"🔑 Using SFWID '{traffic_id}' as both ext_user_id AND subid_1 for consistent tracking")
+                print(f"🌍 Country code from URL: {country_code}")
 
                 result = cpx_service.fetch_and_allocate_for_respondent(
                     vendor_user_id=traffic_id,           # Use SFWID as ext_user_id (same as subid_1)
                     internal_tracking_id=traffic_id,     # Use SFWID as subid_1 (same as ext_user_id)
                     user_ip=client_ip,
-                    user_agent=client_user_agent
+                    user_agent=client_user_agent,
+                    country_code=country_code            # Pass country code (will be converted to ISO3)
                 )
 
                 if result.get("success"):

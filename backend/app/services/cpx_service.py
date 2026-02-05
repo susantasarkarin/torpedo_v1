@@ -473,12 +473,55 @@ class CPXService:
             "Use fetch_and_allocate_for_respondent() instead."
         )
     
+    # ISO2 to ISO3 country code mapping for CPX API
+    ISO2_TO_ISO3 = {
+        "AF": "AFG", "AL": "ALB", "DZ": "DZA", "AS": "ASM", "AD": "AND", "AO": "AGO", "AI": "AIA", "AQ": "ATA",
+        "AG": "ATG", "AR": "ARG", "AM": "ARM", "AW": "ABW", "AU": "AUS", "AT": "AUT", "AZ": "AZE", "BS": "BHS",
+        "BH": "BHR", "BD": "BGD", "BB": "BRB", "BY": "BLR", "BE": "BEL", "BZ": "BLZ", "BJ": "BEN", "BM": "BMU",
+        "BT": "BTN", "BO": "BOL", "BA": "BIH", "BW": "BWA", "BR": "BRA", "BN": "BRN", "BG": "BGR", "BF": "BFA",
+        "BI": "BDI", "KH": "KHM", "CM": "CMR", "CA": "CAN", "CV": "CPV", "KY": "CYM", "CF": "CAF", "TD": "TCD",
+        "CL": "CHL", "CN": "CHN", "CO": "COL", "KM": "COM", "CG": "COG", "CD": "COD", "CR": "CRI", "CI": "CIV",
+        "HR": "HRV", "CU": "CUB", "CY": "CYP", "CZ": "CZE", "DK": "DNK", "DJ": "DJI", "DM": "DMA", "DO": "DOM",
+        "EC": "ECU", "EG": "EGY", "SV": "SLV", "GQ": "GNQ", "ER": "ERI", "EE": "EST", "ET": "ETH", "FJ": "FJI",
+        "FI": "FIN", "FR": "FRA", "GA": "GAB", "GM": "GMB", "GE": "GEO", "DE": "DEU", "GH": "GHA", "GR": "GRC",
+        "GD": "GRD", "GT": "GTM", "GN": "GIN", "GW": "GNB", "GY": "GUY", "HT": "HTI", "HN": "HND", "HK": "HKG",
+        "HU": "HUN", "IS": "ISL", "IN": "IND", "ID": "IDN", "IR": "IRN", "IQ": "IRQ", "IE": "IRL", "IL": "ISR",
+        "IT": "ITA", "JM": "JAM", "JP": "JPN", "JO": "JOR", "KZ": "KAZ", "KE": "KEN", "KI": "KIR", "KP": "PRK",
+        "KR": "KOR", "KW": "KWT", "KG": "KGZ", "LA": "LAO", "LV": "LVA", "LB": "LBN", "LS": "LSO", "LR": "LBR",
+        "LY": "LBY", "LI": "LIE", "LT": "LTU", "LU": "LUX", "MO": "MAC", "MK": "MKD", "MG": "MDG", "MW": "MWI",
+        "MY": "MYS", "MV": "MDV", "ML": "MLI", "MT": "MLT", "MH": "MHL", "MR": "MRT", "MU": "MUS", "MX": "MEX",
+        "FM": "FSM", "MD": "MDA", "MC": "MCO", "MN": "MNG", "ME": "MNE", "MA": "MAR", "MZ": "MOZ", "MM": "MMR",
+        "NA": "NAM", "NR": "NRU", "NP": "NPL", "NL": "NLD", "NZ": "NZL", "NI": "NIC", "NE": "NER", "NG": "NGA",
+        "NO": "NOR", "OM": "OMN", "PK": "PAK", "PW": "PLW", "PS": "PSE", "PA": "PAN", "PG": "PNG", "PY": "PRY",
+        "PE": "PER", "PH": "PHL", "PL": "POL", "PT": "PRT", "PR": "PRI", "QA": "QAT", "RO": "ROU", "RU": "RUS",
+        "RW": "RWA", "KN": "KNA", "LC": "LCA", "VC": "VCT", "WS": "WSM", "SM": "SMR", "ST": "STP", "SA": "SAU",
+        "SN": "SEN", "RS": "SRB", "SC": "SYC", "SL": "SLE", "SG": "SGP", "SK": "SVK", "SI": "SVN", "SB": "SLB",
+        "SO": "SOM", "ZA": "ZAF", "ES": "ESP", "LK": "LKA", "SD": "SDN", "SR": "SUR", "SZ": "SWZ", "SE": "SWE",
+        "CH": "CHE", "SY": "SYR", "TW": "TWN", "TJ": "TJK", "TZ": "TZA", "TH": "THA", "TL": "TLS", "TG": "TGO",
+        "TO": "TON", "TT": "TTO", "TN": "TUN", "TR": "TUR", "TM": "TKM", "TV": "TUV", "UG": "UGA", "UA": "UKR",
+        "AE": "ARE", "GB": "GBR", "US": "USA", "UY": "URY", "UZ": "UZB", "VU": "VUT", "VE": "VEN", "VN": "VNM",
+        "YE": "YEM", "ZM": "ZMB", "ZW": "ZWE", "UK": "GBR",  # UK is alias for GB
+    }
+    
+    @classmethod
+    def convert_country_to_iso3(cls, country_code: str) -> str:
+        """Convert ISO2 country code to ISO3 for CPX API"""
+        if not country_code:
+            return ""
+        code = country_code.upper().strip()
+        # If already ISO3, return as-is
+        if len(code) == 3:
+            return code
+        # Convert ISO2 to ISO3
+        return cls.ISO2_TO_ISO3.get(code, code)
+    
     def fetch_and_allocate_for_respondent(
         self,
         vendor_user_id: str,          # STABLE vendor-provided rid (ext_user_id for CPX)
         internal_tracking_id: str,     # Our SFWID for internal tracking (subid_1)
         user_ip: str,                  # REQUIRED - real client IP, no fallback
         user_agent: str,               # REQUIRED - real client UA, no fallback
+        country_code: str = "",        # ISO2 country code (e.g., "US", "IN") - will be converted to ISO3
     ) -> Dict[str, Any]:
         """
         ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -621,6 +664,9 @@ class CPXService:
             # Using internal_tracking_id for BOTH ext_user_id and subid_1 for consistent tracking
             secure_hash = self._generate_secure_hash(internal_tracking_id, self.secure_hash_key)
             
+            # Convert country code to ISO3 format for CPX
+            country_iso3 = self.convert_country_to_iso3(country_code) if country_code else ""
+            
             # Build params - ext_user_id and subid_1 are the SAME for consistent tracking
             params = {
                 "app_id": self.app_id,
@@ -634,10 +680,15 @@ class CPXService:
                 "secure_hash": secure_hash,
             }
             
+            # Add country code if available (ISO3 format for CPX)
+            if country_iso3:
+                params["country_code_iso3"] = country_iso3
+            
             print(f"🔄 Fetching CPX surveys for tracking_id={internal_tracking_id} (ext_user_id=subid_1)")
             print(f"   Device IP: {user_ip}")
+            print(f"   Country: {country_code} -> ISO3: {country_iso3}" if country_iso3 else "   Country: not provided")
             print(f"   User-Agent: {user_agent[:80]}..." if user_agent and len(user_agent) > 80 else f"   User-Agent: {user_agent}")
-            print(f"   CPX params: app_id={params['app_id']}, ext_user_id={params['ext_user_id']}, subid_1={params['subid_1']}, ip_user={params['ip_user']}")
+            print(f"   CPX params: app_id={params['app_id']}, ext_user_id={params['ext_user_id']}, subid_1={params['subid_1']}, ip_user={params['ip_user']}, country={country_iso3}")
             
             response = requests.get(
                 self.BASE_URL,
