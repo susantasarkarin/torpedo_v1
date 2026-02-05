@@ -819,11 +819,11 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             try:
                 print(f"📍 Detected client IP: {client_ip} for SFWID: {traffic_id}")
                 print(f"📱 Using User-Agent for CPX: {client_user_agent[:60]}..." if client_user_agent and len(client_user_agent) > 60 else f"📱 Using User-Agent for CPX: {client_user_agent}")
-                print(f"🔑 Using vendor rid '{respondent_id}' as ext_user_id (stable), traffic_id '{traffic_id}' as subid_1 (tracking)")
+                print(f"🔑 Using SFWID '{traffic_id}' as both ext_user_id AND subid_1 for consistent tracking")
 
                 result = cpx_service.fetch_and_allocate_for_respondent(
-                    vendor_user_id=respondent_id,        # STABLE vendor rid as ext_user_id
-                    internal_tracking_id=traffic_id,     # Our SFWID for subid_1 tracking
+                    vendor_user_id=traffic_id,           # Use SFWID as ext_user_id (same as subid_1)
+                    internal_tracking_id=traffic_id,     # Use SFWID as subid_1 (same as ext_user_id)
                     user_ip=client_ip,
                     user_agent=client_user_agent
                 )

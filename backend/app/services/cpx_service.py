@@ -616,16 +616,16 @@ class CPXService:
             }
         
         try:
-            # Generate secure hash with STABLE vendor ID (not internal tracking ID!)
+            # Generate secure hash using the tracking ID (ext_user_id = subid_1 = internal_tracking_id)
             # CPX formula: md5(ext_user_id + "-" + secure_hash_key)
-            secure_hash = self._generate_secure_hash(vendor_user_id, self.secure_hash_key)
+            # Using internal_tracking_id for BOTH ext_user_id and subid_1 for consistent tracking
+            secure_hash = self._generate_secure_hash(internal_tracking_id, self.secure_hash_key)
             
-            # Build params with vendor_user_id as ext_user_id
-            # subid_1 = internal_tracking_id for our postback correlation
+            # Build params - ext_user_id and subid_1 are the SAME for consistent tracking
             params = {
                 "app_id": self.app_id,
-                "ext_user_id": vendor_user_id,         # STABLE vendor rid
-                "subid_1": internal_tracking_id,       # Our SFWID for tracking
+                "ext_user_id": internal_tracking_id,   # Use SFWID as ext_user_id
+                "subid_1": internal_tracking_id,       # Use SFWID as subid_1 (same value)
                 "subid_2": "",
                 "output_method": "api",
                 "ip_user": user_ip,                    # Real client IP (required)
@@ -634,7 +634,7 @@ class CPXService:
                 "secure_hash": secure_hash,
             }
             
-            print(f"🔄 Fetching CPX surveys for vendor_user_id={vendor_user_id}, internal_tracking_id={internal_tracking_id}")
+            print(f"🔄 Fetching CPX surveys for tracking_id={internal_tracking_id} (ext_user_id=subid_1)")
             print(f"   Device IP: {user_ip}")
             print(f"   User-Agent: {user_agent[:80]}..." if user_agent and len(user_agent) > 80 else f"   User-Agent: {user_agent}")
             print(f"   CPX params: app_id={params['app_id']}, ext_user_id={params['ext_user_id']}, subid_1={params['subid_1']}, ip_user={params['ip_user']}")
