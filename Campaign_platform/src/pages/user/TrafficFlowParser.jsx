@@ -12,12 +12,21 @@ function generateTransId() {
   });
 }
 
-// Fetch client IP from server-side headers (instant - no external API calls)
-// This uses CloudFlare/Nginx headers which are always available and fast
+// Fetch client IP - MUST use external IPv4 service for CPX compatibility
+// CPX validates IP: API call IP must match survey click IP
+// CloudFlare headers often return IPv6, but CPX sees IPv4 when user clicks
+// So we MUST use an external IPv4 service to get the correct IP
 async function fetchClientIP() {
+  // Try IPv4 services FIRST (required for CPX)
+  const ipv4Result = await fetchClientIPv4();
+  if (ipv4Result.ip) {
+    return ipv4Result;
+  }
+  
+  // Fallback to server-side headers (may return IPv6 - not ideal for CPX)
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout (generous)
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     
     const response = await fetch(buildApiUrl('/api/prefetch-ip'), {
       signal: controller.signal,
@@ -28,7 +37,7 @@ async function fetchClientIP() {
     if (response.ok) {
       const data = await response.json();
       if (data.ip) {
-        console.log(`✅ Prefetched client IP: ${data.ip} (source: ${data.source})`);
+        console.log(`⚠️ Using server IP (may be IPv6): ${data.ip} (source: ${data.source})`);
         return { ip: data.ip, source: data.source, userAgent: data.userAgent };
       }
     }
@@ -36,17 +45,15 @@ async function fetchClientIP() {
     console.warn(`⚠️ Server-side IP prefetch failed:`, err.message);
   }
   
-  // Fallback to legacy external services only if server-side fails
-  console.log("⚠️ Falling back to external IP services...");
-  return await fetchClientIPLegacy();
+  return { ip: null, source: null };
 }
 
-// Legacy fallback: External IP services (slower, kept for redundancy)
-async function fetchClientIPLegacy() {
+// Fetch IPv4 specifically - CRITICAL for CPX
+// These services return IPv4 which matches what CPX sees when user clicks survey
+async function fetchClientIPv4() {
   const ipServices = [
     { url: "https://api.ipify.org?format=json", parser: (data) => data.ip },
     { url: "https://ipinfo.io/json", parser: (data) => data.ip },
-    { url: "https://api.ip.sb/ip", parser: (text) => text.trim() },
   ];
 
   for (const service of ipServices) {
