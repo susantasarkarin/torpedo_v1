@@ -717,6 +717,28 @@ try:
     survey_transactions_collection = traffic_db["survey_transactions"]
     cpx_postback_logs_collection = traffic_db["cpx_postback_logs"]
     
+    # ============================================
+    # CPX ENTRY GUARD COLLECTION (TASK 3 - Single-Use ext_user_id)
+    # ============================================
+    # This collection prevents ext_user_id reuse which causes CPX to reject traffic
+    # with errors like: already_clicked, already_do_internal, api_standart_screen_out
+    cpx_entry_guards_collection = traffic_db["cpx_entry_guards"]
+    
+    # Create indexes for CPX entry guards
+    try:
+        # Unique index on ext_user_id to prevent reuse
+        cpx_entry_guards_collection.create_index("ext_user_id", unique=True, background=True)
+        cpx_entry_guards_collection.create_index("status", background=True)
+        cpx_entry_guards_collection.create_index("created_at", background=True)
+        # TTL index to auto-expire old entries after 7 days
+        cpx_entry_guards_collection.create_index("created_at", expireAfterSeconds=604800, background=True)
+        print("✅ CPX entry guards collection initialized with unique ext_user_id index")
+    except Exception as idx_err:
+        print(f"⚠️ CPX entry guards index may already exist: {idx_err}")
+    
+    # Inject into traffic router
+    traffic_router.set_cpx_entry_guards_collection(cpx_entry_guards_collection)
+    
     # Create unique index on trans_id to prevent duplicate transactions
     # This is CRITICAL for idempotency and fraud prevention
     try:

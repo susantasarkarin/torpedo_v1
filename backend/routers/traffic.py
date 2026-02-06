@@ -85,6 +85,178 @@ def set_cpx_postback_logs_collection(collection: Collection):
     cpx_postback_logs_collection = collection
 
 
+# ============================================
+# TASK 3: CPX Entry Guards - Single-Use ext_user_id
+# ============================================
+# This prevents the same ext_user_id from being used multiple times
+# CPX rejects traffic with: already_clicked, already_do_internal, api_standart_screen_out
+cpx_entry_guards_collection: Optional[Collection] = None
+
+# Entry guard status values
+CPX_GUARD_STATUS_CREATED = "CREATED"      # ext_user_id registered, not yet redirected
+CPX_GUARD_STATUS_REDIRECTED = "REDIRECTED"  # User redirected to CPX survey
+CPX_GUARD_STATUS_LOCKED = "LOCKED"        # Entry locked, no more redirects allowed
+
+
+def set_cpx_entry_guards_collection(collection: Collection):
+    """Set the CPX entry guards collection for single-use ext_user_id enforcement"""
+    global cpx_entry_guards_collection
+    cpx_entry_guards_collection = collection
+    print("✅ CPX entry guards collection set for single-use ext_user_id enforcement")
+
+
+def check_cpx_entry_guard(ext_user_id: str, client_ip: str = None, user_agent: str = None) -> dict:
+    """
+    TASK 3: Check if ext_user_id can be used for CPX entry.
+    
+    Returns:
+        dict: {"allowed": bool, "reason": str, "existing_status": str or None}
+    """
+    if cpx_entry_guards_collection is None:
+        # If collection not available, allow (fail-open for backwards compatibility)
+        print("⚠️ CPX entry guards collection not available - allowing entry (fail-open)")
+        return {"allowed": True, "reason": "guard_collection_not_configured", "existing_status": None}
+    
+    try:
+        existing = cpx_entry_guards_collection.find_one({"ext_user_id": ext_user_id})
+        
+        if existing:
+            status = existing.get("status", "UNKNOWN")
+            print(f"🚫 CPX ENTRY GUARD: ext_user_id '{ext_user_id}' already exists with status '{status}'")
+            
+            # Log the duplicate attempt
+            cpx_entry_guards_collection.update_one(
+                {"ext_user_id": ext_user_id},
+                {
+                    "$inc": {"duplicate_attempt_count": 1},
+                    "$set": {"last_duplicate_attempt": datetime.utcnow()},
+                    "$push": {
+                        "duplicate_attempts": {
+                            "timestamp": datetime.utcnow(),
+                            "client_ip": client_ip,
+                            "user_agent": user_agent[:200] if user_agent else None
+                        }
+                    }
+                }
+            )
+            
+            return {
+                "allowed": False,
+                "reason": f"ext_user_id_already_used_{status.lower()}",
+                "existing_status": status
+            }
+        
+        # ext_user_id is new, register it
+        guard_doc = {
+            "ext_user_id": ext_user_id,
+            "status": CPX_GUARD_STATUS_CREATED,
+            "created_at": datetime.utcnow(),
+            "client_ip": client_ip,
+            "user_agent": user_agent[:500] if user_agent else None,
+            "duplicate_attempt_count": 0,
+            "duplicate_attempts": []
+        }
+        
+        try:
+            cpx_entry_guards_collection.insert_one(guard_doc)
+            print(f"✅ CPX ENTRY GUARD: Registered new ext_user_id '{ext_user_id}' with status CREATED")
+            return {"allowed": True, "reason": "new_ext_user_id", "existing_status": None}
+        except Exception as dup_err:
+            # Race condition - another request registered it first
+            if "duplicate" in str(dup_err).lower() or "E11000" in str(dup_err):
+                print(f"🚫 CPX ENTRY GUARD: Race condition - ext_user_id '{ext_user_id}' registered by another request")
+                return {"allowed": False, "reason": "race_condition_duplicate", "existing_status": "CREATED"}
+            raise
+            
+    except Exception as e:
+        print(f"⚠️ CPX ENTRY GUARD ERROR: {e} - allowing entry (fail-open)")
+        import traceback
+        traceback.print_exc()
+        return {"allowed": True, "reason": f"guard_error_{str(e)[:50]}", "existing_status": None}
+
+
+def update_cpx_entry_guard_status(ext_user_id: str, new_status: str, survey_id: str = None, entry_link: str = None):
+    """
+    TASK 4: Update ext_user_id status after redirect.
+    
+    Call this AFTER generating the entry link but BEFORE returning to frontend.
+    """
+    if cpx_entry_guards_collection is None:
+        print("⚠️ CPX entry guards collection not available - cannot update status")
+        return False
+    
+    try:
+        update_data = {
+            "status": new_status,
+            f"{new_status.lower()}_at": datetime.utcnow()
+        }
+        
+        if survey_id:
+            update_data["survey_id"] = survey_id
+        if entry_link:
+            update_data["entry_link"] = entry_link[:500]  # Truncate for storage
+        
+        result = cpx_entry_guards_collection.update_one(
+            {"ext_user_id": ext_user_id},
+            {"$set": update_data}
+        )
+        
+        if result.modified_count > 0:
+            print(f"✅ CPX ENTRY GUARD: Updated ext_user_id '{ext_user_id}' status to '{new_status}'")
+            return True
+        else:
+            print(f"⚠️ CPX ENTRY GUARD: No document found to update for ext_user_id '{ext_user_id}'")
+            return False
+            
+    except Exception as e:
+        print(f"⚠️ CPX ENTRY GUARD UPDATE ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+# ============================================
+# TASK 5: WebView Detection
+# ============================================
+WEBVIEW_SIGNATURES = [
+    "wv",           # Android WebView generic marker
+    "webview",      # Generic WebView
+    "fbav",         # Facebook App WebView
+    "fban",         # Facebook App Native
+    "instagram",    # Instagram WebView
+    "twitter",      # Twitter WebView
+    "line/",        # LINE app
+    "kakaotalk",    # KakaoTalk app
+    "timebucks",    # TimeBucks app (specific to CPX)
+    ";wv)",         # Android WebView pattern
+    "micromessenger",  # WeChat
+    "snapchat",     # Snapchat
+    "tiktok",       # TikTok
+]
+
+
+def is_webview_user_agent(user_agent: str) -> tuple:
+    """
+    TASK 5: Detect if user agent indicates WebView traffic.
+    
+    CPX explicitly blocks WebView traffic. We should reject before calling API.
+    
+    Returns:
+        tuple: (is_webview: bool, detected_signature: str or None)
+    """
+    if not user_agent:
+        return False, None
+    
+    ua_lower = user_agent.lower()
+    
+    for signature in WEBVIEW_SIGNATURES:
+        if signature.lower() in ua_lower:
+            print(f"🚫 WEBVIEW DETECTED: User agent contains '{signature}' - CPX will reject this traffic")
+            return True, signature
+    
+    return False, None
+
+
 @router.get("/cint-response")
 async def cint_callback(
     request: Request,
@@ -822,42 +994,87 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             print(f"🔍 IP Comparison: client_provided={client_provided_ip} vs server_extracted={server_extracted_ip} -> {'✅ MATCH' if ip_match else '⚠️ MISMATCH'}")
         
         if not allocation_success and vendor_id and country_code and respondent_id and cpx_service:
-            try:
-                print(f"📍 Detected client IP: {client_ip} for SFWID: {traffic_id}")
-                print(f"📱 Using User-Agent for CPX: {client_user_agent[:60]}..." if client_user_agent and len(client_user_agent) > 60 else f"📱 Using User-Agent for CPX: {client_user_agent}")
-                print(f"🔑 Using SFWID '{traffic_id}' as both ext_user_id AND subid_1 for consistent tracking")
-                print(f"🌍 Country code from URL: {country_code}")
+            # ============================================
+            # TASK 5: WebView Detection - Block BEFORE CPX API call
+            # ============================================
+            is_webview, webview_signature = is_webview_user_agent(client_user_agent)
+            if is_webview:
+                allocation_error = f"WebView traffic blocked (detected: {webview_signature})"
+                print(f"🚫 CPX WEBVIEW BLOCK: User agent '{client_user_agent[:80]}...' contains WebView signature '{webview_signature}'")
+                print(f"🚫 CPX rejects WebView traffic - blocking locally to avoid API call waste")
+                # Don't attempt CPX allocation for WebView traffic
+            else:
+                # ============================================
+                # TASK 3: Single-Use ext_user_id Guard - Check BEFORE CPX API call
+                # ============================================
+                guard_result = check_cpx_entry_guard(traffic_id, client_ip, client_user_agent)
+                
+                if not guard_result["allowed"]:
+                    allocation_error = f"ext_user_id guard blocked: {guard_result['reason']}"
+                    print(f"🚫 CPX ENTRY GUARD BLOCK: {guard_result['reason']} (existing status: {guard_result['existing_status']})")
+                    # Don't attempt CPX allocation for duplicate ext_user_id
+                else:
+                    # ext_user_id is valid and registered, proceed with CPX API call
+                    try:
+                        print(f"📍 Detected client IP: {client_ip} for SFWID: {traffic_id}")
+                        print(f"📱 Using User-Agent for CPX: {client_user_agent[:60]}..." if client_user_agent and len(client_user_agent) > 60 else f"📱 Using User-Agent for CPX: {client_user_agent}")
+                        print(f"🔑 Using SFWID '{traffic_id}' as both ext_user_id AND subid_1 for consistent tracking")
+                        print(f"🌍 Country code from URL: {country_code}")
 
-                result = cpx_service.fetch_and_allocate_for_respondent(
-                    vendor_user_id=traffic_id,           # Use SFWID as ext_user_id (same as subid_1)
-                    internal_tracking_id=traffic_id,     # Use SFWID as subid_1 (same as ext_user_id)
-                    user_ip=client_ip,
-                    user_agent=client_user_agent,
-                    country_code=country_code            # Pass country code (will be converted to ISO3)
-                )
-
-                if result.get("success"):
-                    entry_link = result.get("entry_link", "")
-                    survey_id = result.get("survey_id", "")
-                    allocation_success = True
-
-                    if traffic_service:
-                        traffic_service.assign_survey_to_traffic(
-                            traffic_id=traffic_id,
-                            survey_id=str(survey_id),
-                            redirect_url=entry_link
+                        result = cpx_service.fetch_and_allocate_for_respondent(
+                            vendor_user_id=traffic_id,           # Use SFWID as ext_user_id (same as subid_1)
+                            internal_tracking_id=traffic_id,     # Use SFWID as subid_1 (same as ext_user_id)
+                            user_ip=client_ip,
+                            user_agent=client_user_agent,
+                            country_code=country_code            # Pass country code (will be converted to ISO3)
                         )
 
-                    print(f"✅ Allocated CPX survey {survey_id} to SFWID={traffic_id} (per-respondent)")
-                    print(f"   Entry link: {entry_link[:100]}...")
-                else:
-                    allocation_error = result.get('error', 'CPX returned no surveys')
-                    print(f"⚠️ Per-respondent CPX allocation failed: {allocation_error}")
-            except Exception as e:
-                allocation_error = f"CPX allocation error: {str(e)}"
-                print(f"⚠️ Per-respondent CPX allocation error: {e}")
-                import traceback
-                traceback.print_exc()
+                        if result.get("success"):
+                            entry_link = result.get("entry_link", "")
+                            survey_id = result.get("survey_id", "")
+                            allocation_success = True
+
+                            # ============================================
+                            # TASK 4: Lock CPX Redirects - Update status to REDIRECTED
+                            # ============================================
+                            update_cpx_entry_guard_status(
+                                ext_user_id=traffic_id,
+                                new_status=CPX_GUARD_STATUS_REDIRECTED,
+                                survey_id=str(survey_id),
+                                entry_link=entry_link
+                            )
+
+                            if traffic_service:
+                                traffic_service.assign_survey_to_traffic(
+                                    traffic_id=traffic_id,
+                                    survey_id=str(survey_id),
+                                    redirect_url=entry_link
+                                )
+
+                            print(f"✅ Allocated CPX survey {survey_id} to SFWID={traffic_id} (per-respondent)")
+                            print(f"   Entry link: {entry_link[:100]}...")
+                        else:
+                            allocation_error = result.get('error', 'CPX returned no surveys')
+                            print(f"⚠️ Per-respondent CPX allocation failed: {allocation_error}")
+                            # Mark as LOCKED since CPX API was called (even if failed)
+                            update_cpx_entry_guard_status(
+                                ext_user_id=traffic_id,
+                                new_status=CPX_GUARD_STATUS_LOCKED,
+                                survey_id=None,
+                                entry_link=None
+                            )
+                    except Exception as e:
+                        allocation_error = f"CPX allocation error: {str(e)}"
+                        print(f"⚠️ Per-respondent CPX allocation error: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        # Mark as LOCKED on error to prevent retry
+                        update_cpx_entry_guard_status(
+                            ext_user_id=traffic_id,
+                            new_status=CPX_GUARD_STATUS_LOCKED,
+                            survey_id=None,
+                            entry_link=None
+                        )
 
         # ===============================================================================
         # POOL FALLBACK (DEPRECATED - DO NOT USE FOR CPX)

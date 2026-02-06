@@ -130,6 +130,15 @@ export default function TrafficFlowParser() {
   
   // Pre-fetched IP data (captured on page load for zero-delay allocation)
   const prefetchedIpRef = useRef(null);
+  
+  // ============================================
+  // TASK 8: Frontend Click Safety - Debounce Protection
+  // ============================================
+  // Prevents double-click/rapid-click from triggering multiple API calls
+  // CPX binds identity on each API call - multiple calls = multiple identities = rejection
+  const isClickProcessingRef = useRef(false);
+  const lastClickTimeRef = useRef(0);
+  const CLICK_DEBOUNCE_MS = 2000; // 2 second debounce window
 
   useEffect(() => {
     const currentUrl = window.location.href;
@@ -216,12 +225,34 @@ export default function TrafficFlowParser() {
   }, [urlParams.rid]);
 
   const handleStore = useCallback(async () => {
+    // ============================================
+    // TASK 8: Frontend Click Safety - Debounce Check
+    // ============================================
+    // Block rapid clicks to prevent multiple API calls (CPX binds identity per call)
+    const now = Date.now();
+    const timeSinceLastClick = now - lastClickTimeRef.current;
+    
+    if (isClickProcessingRef.current) {
+      console.log('🚫 Click blocked: Another request is already processing');
+      return;
+    }
+    
+    if (timeSinceLastClick < CLICK_DEBOUNCE_MS) {
+      console.log(`🚫 Click blocked: Debounce active (${timeSinceLastClick}ms since last click, need ${CLICK_DEBOUNCE_MS}ms)`);
+      return;
+    }
+    
+    // Mark as processing and record click time
+    isClickProcessingRef.current = true;
+    lastClickTimeRef.current = now;
+    
     // Check for required traffic parameters
     const vid = urlParams.vid;
     const cc = urlParams.cc;
     const rid = urlParams.rid;
 
     if (!vid || !cc || !rid) {
+      isClickProcessingRef.current = false;  // Reset on validation failure
       alert("Missing required parameters: vid (vendor ID), cc (country code), rid (respondent ID)\nExample: ?vid=123&cc=US&rid=456789");
       return;
     }
@@ -328,6 +359,7 @@ export default function TrafficFlowParser() {
             : "No surveys are currently available for your profile. This is normal - please check back later.";
           setError(errorMsg);
           setLoading(false);
+          isClickProcessingRef.current = false;  // TASK 8: Reset click guard on no surveys
         }
       } else {
         const errorData = await response.json().catch(() => ({ detail: "Unknown error" }));
@@ -346,6 +378,7 @@ export default function TrafficFlowParser() {
 
       setError(errorMessage);
       setLoading(false);
+      isClickProcessingRef.current = false;  // TASK 8: Reset click guard on error
     }
   }, [urlParams, fullUrl, startPolling]);
 

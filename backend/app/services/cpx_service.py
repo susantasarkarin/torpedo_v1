@@ -13,7 +13,7 @@ class CPXService:
     
     BASE_URL = "https://live-api.cpx-research.com/api/get-surveys.php"
     # CPX provides href URLs in the format: click.cpx-research.com/?k=<encrypted>&...
-    # We just need to append subid_1 and subid_2 to the href for tracking
+    # IMPORTANT: We STRIP subid_1/subid_2 from href - CPX tracks via ext_user_id in k= param
     CLICK_URL = "https://click.cpx-research.com/"
     
     def __init__(
@@ -120,7 +120,7 @@ class CPXService:
         live_link: Optional[str] = None,
     ) -> str:
         """
-        Generate CPX entry link by appending subid_1 and subid_2 to the CPX href URL.
+        Generate CPX entry link by STRIPPING subid_1 and subid_2 from the CPX href URL.
         
         Args:
             survey_id: The CPX survey ID
@@ -129,7 +129,7 @@ class CPXService:
             Other params are deprecated/ignored
             
         Returns:
-            Entry link with subid_1 and subid_2 populated
+            Clean entry link WITHOUT subid_1/subid_2 params
         """
         # Use href or live_link as the base URL
         base_href = href or live_link
@@ -149,12 +149,12 @@ class CPXService:
         href: Optional[str] = None,  # The CPX href URL with k= parameter
     ) -> str:
         """
-        Generate a unique CPX entry link for a specific respondent.
+        Generate a clean CPX entry link for a specific respondent.
         
         CORRECT FLOW:
         1. CPX API returns surveys with href URLs: click.cpx-research.com/?k=<encrypted>&...
-        2. The href already contains the unique k= token from CPX
-        3. We just append subid_1 and subid_2 to the href for callback tracking
+        2. The href already contains the unique k= token from CPX with ext_user_id embedded
+        3. We STRIP subid_1 and subid_2 from the href - they cause tracking issues
         
         Args:
             survey_id: The CPX survey ID (for logging/validation)
@@ -162,7 +162,7 @@ class CPXService:
             href: The CPX href URL from the survey (contains k= parameter)
             
         Returns:
-            Fully qualified CPX entry URL with subid_1 and subid_2 appended
+            Clean CPX entry URL WITHOUT subid_1/subid_2 params
             
         Raises:
             ValueError: If survey_id, respondent_id, or href is empty
@@ -177,7 +177,8 @@ class CPXService:
         
         # The href from CPX already has the format:
         # https://click.cpx-research.com/?k=<encrypted>&api=true&time_stamp=...&ext_user_id=...
-        # We keep the href as-is and only set subid_1 for respondent tracking
+        # CRITICAL: Use href as-is but REMOVE subid_1/subid_2 params
+        # CPX tracking is via ext_user_id in the k= parameter, not subids
         
         # Parse the URL to properly handle query parameters
         from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
@@ -185,17 +186,15 @@ class CPXService:
         parsed = urlparse(href)
         query_params = parse_qs(parsed.query, keep_blank_values=True)
         
-        # Ensure subid_1 appears exactly once in the final URL.
-        # CPX hrefs may already include subid_1/subid_2 placeholders; remove all first.
+        # REMOVE subid_1 and subid_2 entirely - they cause issues with CPX
+        # The ext_user_id is already embedded in the encrypted k= parameter
         query_params.pop('subid_1', None)
         query_params.pop('subid_2', None)
-        # Set respondent tracking only (subid_1). Ignore subid_2 placeholder.
-        query_params['subid_1'] = [respondent_id]
         
-        # Build query string preserving original parameters (k, api, time_stamp, ext_user_id)
+        # Build query string preserving only core parameters (k, api, time_stamp)
         new_query = urlencode(query_params, doseq=True)
         
-        # Reconstruct the full URL
+        # Reconstruct the full URL without subid params
         entry_link = urlunparse((
             parsed.scheme,
             parsed.netloc,
@@ -313,8 +312,9 @@ class CPXService:
             
             # Use cached href from survey (fetched during refresh with PANEL_88921)
             # This avoids calling CPX API per respondent (important for 500+ simultaneous starts)
-            # Prefer href_new (mobile-optimized per CPX docs)
-            survey_href = survey.get("href_new") or survey.get("href") or ""
+            # CRITICAL FIX (TASK 6): Use href ONLY - NOT href_new
+            # CPX official docs specify href is the correct entry URL
+            survey_href = survey.get("href") or ""
             
             if not survey_href:
                 return {
@@ -325,8 +325,8 @@ class CPXService:
                     "respondent_id": respondent_id,
                 }
             
-            # Generate entry link by appending subid_1 to the cached CPX href
-            # Note: href is encrypted with PANEL_88921, but respondent tracking is via subid_1
+            # Generate entry link by STRIPPING subid_1/subid_2 from the cached CPX href
+            # Note: href is encrypted with ext_user_id in k= param - no subids needed
             entry_link = self.generate_respondent_entry_link(
                 survey_id=allocated_survey_id,
                 respondent_id=respondent_id,
@@ -795,8 +795,8 @@ class CPXService:
                 if ir < min_ir:
                     continue  # Incidence rate too low
                 
-                # Check href exists - prefer href_new (mobile-optimized per CPX docs)
-                href = survey.get("href_new") or survey.get("href") or ""
+                # Check href exists - TASK 6: Use href ONLY (not href_new)
+                href = survey.get("href") or ""
                 if not href:
                     continue  # No href means we can't generate entry link
                 
@@ -818,28 +818,24 @@ class CPXService:
             # Randomly select one survey
             selected_survey = random.choice(filtered_surveys)
             survey_id = str(selected_survey.get("id") or selected_survey.get("survey_id"))
-            # Prefer href_new (mobile-optimized per CPX docs)
-            href = selected_survey.get("href_new") or selected_survey.get("href") or ""
+            # TASK 6: Use href ONLY - NOT href_new (CPX official docs)
+            href = selected_survey.get("href") or ""
             
             print(f"🎲 Randomly selected survey {survey_id} for {vendor_user_id}")
             
-            # CRITICAL: href already contains ext_user_id=vendor_user_id from API call
-            # The subid_1 was also set in API call params, so href should have it
-            # We use the href as-is - DO NOT modify it (it's already correctly formed)
-            # Just verify subid_1 is present, if not, append our internal_tracking_id
-            entry_link = href
-            if f"subid_1={internal_tracking_id}" not in href and "subid_1=" not in href:
-                # href might not have subid_1, append it
-                separator = "&" if "?" in href else "?"
-                entry_link = f"{href}{separator}subid_1={internal_tracking_id}"
-            elif "subid_1=" in href and f"subid_1={internal_tracking_id}" not in href:
-                # CPX might have included a different subid_1, replace it
-                from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
-                parsed = urlparse(href)
-                query_params = parse_qs(parsed.query, keep_blank_values=True)
-                query_params['subid_1'] = [internal_tracking_id]
-                new_query = urlencode(query_params, doseq=True)
-                entry_link = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
+            # CRITICAL: href already contains ext_user_id in encrypted k= parameter
+            # REMOVE subid_1 and subid_2 - they are NOT needed and cause issues
+            # CPX tracks via ext_user_id embedded in the k= param, not subids
+            from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+            parsed = urlparse(href)
+            query_params = parse_qs(parsed.query, keep_blank_values=True)
+            
+            # Strip subid_1 and subid_2 entirely
+            query_params.pop('subid_1', None)
+            query_params.pop('subid_2', None)
+            
+            new_query = urlencode(query_params, doseq=True)
+            entry_link = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
             
             print(f"🔗 Entry link for {vendor_user_id}: {entry_link[:120]}...")
             
@@ -934,8 +930,9 @@ class CPXService:
             print(f"⚠️  Survey {survey_id} missing href - will be skipped during allocation")
         
         # Use href as live_link (the click-tracking URL from CPX API)
-        # Prefer href_new (mobile-optimized) if available, otherwise use href
-        live_link = href_new or href
+        # TASK 6 CRITICAL FIX: Use href ONLY - NOT href_new
+        # CPX official documentation specifies href is the correct entry URL
+        live_link = href
         
         # Map CPX field names to internal field names
         # NOTE: Entry links are NOT stored - they are generated dynamically per respondent
@@ -954,7 +951,7 @@ class CPXService:
             "source": "CPX",
             "last_updated": datetime.utcnow(),
             # IMPORTANT: href contains the click.cpx-research.com/?k=<encrypted> URL from CPX API
-            # At allocation time, we append subid_1 and subid_2 to this URL for tracking
+            # At allocation time, we STRIP subid_1 and subid_2 - tracking is via ext_user_id in k= param
             "href": href,              # Primary CPX click URL with k= parameter
             "href_new": href_new,      # Mobile-optimized version (if available)
             "raw_data": survey,        # Store raw data for reference
@@ -964,11 +961,11 @@ class CPXService:
         
         # CORRECT FLOW for entry link generation at allocation time:
         # 1. Get the href from stored survey (click.cpx-research.com/?k=<encrypted>&...)
-        # 2. Append subid_1=SFWID and subid_2=SFWID to the URL for callback tracking
-        # 3. Redirect user to this URL
+        # 2. STRIP subid_1 and subid_2 from the URL (they cause issues)
+        # 3. Redirect user to the clean URL - CPX tracks via ext_user_id in k= param
         # 
         # The href already contains the unique k= token from CPX API.
-        # DO NOT generate a new secure_hash - just use the href as-is with subids appended.
+        # DO NOT add subid params - CPX doesn't need them for tracking.
         
         return normalized
     
@@ -1129,11 +1126,11 @@ class CPXService:
             for survey in surveys:
                 # Remove raw_data to reduce response size, but keep live_link and entry_link
                 if "raw_data" in survey:
-                    # Preserve href/link from raw_data if live_link is not set
-                    # Prefer href_new (mobile-optimized per CPX docs)
+                    # Preserve href from raw_data if live_link is not set
+                    # TASK 6: Use href ONLY - NOT href_new
                     if not survey.get("live_link"):
                         raw = survey["raw_data"]
-                        survey["live_link"] = raw.get("href_new") or raw.get("href") or raw.get("link") or ""
+                        survey["live_link"] = raw.get("href") or raw.get("link") or ""
                     del survey["raw_data"]
                 
                 # Convert ObjectId to string if present
