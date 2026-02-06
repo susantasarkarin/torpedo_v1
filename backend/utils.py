@@ -560,13 +560,27 @@ def include_deleted_filter(include: bool = False) -> dict:
 
 # ============== HTTP REQUEST UTILITIES ==============
 
+def _is_ipv4(ip: str) -> bool:
+    """Check if an IP address is IPv4 format (contains dots, no colons)."""
+    if not ip:
+        return False
+    ip = ip.strip()
+    # IPv4: contains dots, no colons (e.g., 192.168.1.1)
+    # IPv6: contains colons (e.g., 2001:db8::1)
+    return '.' in ip and ':' not in ip
+
+
 def extract_real_client_ip(request) -> tuple:
     """
     Extract the real client IP from request headers.
     
+    CRITICAL FOR CPX: Must return IPv4 when available!
+    CPX validates that the IP in API call matches the IP when user clicks survey.
+    If we send IPv6 but user connects with IPv4, CPX rejects with api_standart_screen_out.
+    
     Checks headers in priority order:
-    1. CF-Connecting-IP (Cloudflare)
-    2. X-Forwarded-For (rightmost IP for client behind proxies)
+    1. CF-Connecting-IP (Cloudflare) - PREFER IPv4
+    2. X-Forwarded-For (prefer IPv4 from the list)
     3. X-Real-IP (Nginx)
     4. request.client.host (direct connection)
     
@@ -576,38 +590,49 @@ def extract_real_client_ip(request) -> tuple:
     Returns:
         Tuple of (ip_address: str, source: str)
     """
-    # Priority 1: Cloudflare header (most reliable when using CF)
+    # Collect all available IPs with their sources
+    all_ips = []
+    
+    # Priority 1: Cloudflare header
     cf_ip = request.headers.get("CF-Connecting-IP")
     if cf_ip:
-        return cf_ip.strip(), "CF-Connecting-IP"
+        all_ips.append((cf_ip.strip(), "CF-Connecting-IP"))
     
-    # Priority 2: X-Forwarded-For (get rightmost non-private IP)
+    # Priority 2: X-Forwarded-For - may contain multiple IPs
     xff = request.headers.get("X-Forwarded-For")
     if xff:
         # X-Forwarded-For format: "client, proxy1, proxy2"
-        # Take the first IP (original client)
         ips = [ip.strip() for ip in xff.split(",")]
-        if ips:
-            # Return the first (leftmost) IP - this is the original client
-            client_ip = ips[0]
-            # Validate it's not a private IP
-            if client_ip and not _is_private_ip(client_ip):
-                return client_ip, "X-Forwarded-For"
-            # If first is private, try to find a public IP
-            for ip in ips:
-                if ip and not _is_private_ip(ip):
-                    return ip, "X-Forwarded-For"
+        for ip in ips:
+            if ip and not _is_private_ip(ip):
+                all_ips.append((ip, "X-Forwarded-For"))
     
     # Priority 3: X-Real-IP (Nginx)
     real_ip = request.headers.get("X-Real-IP")
     if real_ip:
-        return real_ip.strip(), "X-Real-IP"
+        all_ips.append((real_ip.strip(), "X-Real-IP"))
     
     # Priority 4: Direct connection
     if request.client and request.client.host:
-        return request.client.host, "direct"
+        all_ips.append((request.client.host, "direct"))
     
-    return "0.0.0.0", "unknown"
+    if not all_ips:
+        return "0.0.0.0", "unknown"
+    
+    # CRITICAL: Prefer IPv4 over IPv6 for CPX compatibility
+    # CPX tracking uses IPv4, if we send IPv6 but user clicks with IPv4, we get rejected
+    ipv4_ips = [(ip, src) for ip, src in all_ips if _is_ipv4(ip)]
+    
+    if ipv4_ips:
+        # Return the first IPv4 (highest priority source that has IPv4)
+        selected_ip, source = ipv4_ips[0]
+        print(f"📍 IP Selection: Using IPv4 {selected_ip} from {source} (had {len(all_ips)} total IPs)")
+        return selected_ip, source
+    
+    # No IPv4 available, use whatever we have (IPv6)
+    selected_ip, source = all_ips[0]
+    print(f"⚠️ IP Selection: No IPv4 available, using IPv6 {selected_ip} from {source}")
+    return selected_ip, source
 
 
 def _is_private_ip(ip: str) -> bool:
