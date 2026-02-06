@@ -177,8 +177,8 @@ class CPXService:
         
         # The href from CPX already has the format:
         # https://click.cpx-research.com/?k=<encrypted>&api=true&time_stamp=...&ext_user_id=...
-        # CRITICAL: Use href as-is but REMOVE subid_1/subid_2 params
-        # CPX tracking is via ext_user_id in the k= parameter, not subids
+        # CRITICAL: Append subid_1 to href for tracking purposes
+        # subid_1 = respondent_id (SFWID) for our server-side tracking
         
         # Parse the URL to properly handle query parameters
         from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
@@ -186,15 +186,13 @@ class CPXService:
         parsed = urlparse(href)
         query_params = parse_qs(parsed.query, keep_blank_values=True)
         
-        # REMOVE subid_1 and subid_2 entirely - they cause issues with CPX
-        # The ext_user_id is already embedded in the encrypted k= parameter
-        query_params.pop('subid_1', None)
-        query_params.pop('subid_2', None)
+        # Append subid_1 with respondent_id for tracking
+        query_params['subid_1'] = [respondent_id]
         
-        # Build query string preserving only core parameters (k, api, time_stamp)
+        # Build query string with subid_1 appended
         new_query = urlencode(query_params, doseq=True)
         
-        # Reconstruct the full URL without subid params
+        # Reconstruct the full URL with subid_1 appended
         entry_link = urlunparse((
             parsed.scheme,
             parsed.netloc,
@@ -650,12 +648,12 @@ class CPXService:
             # Normalize country code to ISO2 format for CPX (e.g., "IN", "US")
             country_iso2 = self.normalize_country_code(country_code) if country_code else ""
             
-            # Build params - ext_user_id and subid_1 are the SAME for consistent tracking
+            # Build params - subid_1 and subid_2 REMOVED from API call per CPX requirements
+            # They will be appended to the entry link href instead for tracking
             params = {
                 "app_id": self.app_id,
                 "ext_user_id": internal_tracking_id,   # Use SFWID as ext_user_id
-                "subid_1": internal_tracking_id,       # Use SFWID as subid_1 (same value)
-                "subid_2": "",
+                # subid_1 and subid_2 NOT included here - appended to entry link instead
                 "output_method": "api",
                 "ip_user": user_ip,                    # Real client IP (required)
                 "user_agent": user_agent,              # Real client UA (required)
@@ -668,11 +666,11 @@ class CPXService:
             if country_iso2:
                 params["user_country_code"] = country_iso2
             
-            print(f"🔄 Fetching CPX surveys for tracking_id={internal_tracking_id} (ext_user_id=subid_1)")
+            print(f"🔄 Fetching CPX surveys for tracking_id={internal_tracking_id}")
             print(f"   Device IP: {user_ip}")
             print(f"   Country: {country_iso2}" if country_iso2 else "   Country: not provided")
             print(f"   User-Agent: {user_agent[:80]}..." if user_agent and len(user_agent) > 80 else f"   User-Agent: {user_agent}")
-            print(f"   CPX params: app_id={params['app_id']}, ext_user_id={params['ext_user_id']}, subid_1={params['subid_1']}, ip_user={params['ip_user']}, user_country_code={country_iso2}")
+            print(f"   CPX params: app_id={params['app_id']}, ext_user_id={params['ext_user_id']}, ip_user={params['ip_user']}, user_country_code={country_iso2}")
             
             response = requests.get(
                 self.BASE_URL,
@@ -823,16 +821,14 @@ class CPXService:
             
             print(f"🎲 Randomly selected survey {survey_id} for {vendor_user_id}")
             
-            # CRITICAL: href already contains ext_user_id in encrypted k= parameter
-            # REMOVE subid_1 and subid_2 - they are NOT needed and cause issues
-            # CPX tracks via ext_user_id embedded in the k= param, not subids
+            # CRITICAL: Append subid_1 to entry link for tracking
+            # subid_1 = internal_tracking_id for our server-side tracking
             from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
             parsed = urlparse(href)
             query_params = parse_qs(parsed.query, keep_blank_values=True)
             
-            # Strip subid_1 and subid_2 entirely
-            query_params.pop('subid_1', None)
-            query_params.pop('subid_2', None)
+            # Append subid_1 for tracking (use internal_tracking_id)
+            query_params['subid_1'] = [internal_tracking_id]
             
             new_query = urlencode(query_params, doseq=True)
             entry_link = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
