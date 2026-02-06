@@ -126,8 +126,6 @@ export default function TrafficFlowParser() {
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState("");
   // NOTE: retryCount removed - CPX forbids retries (each API call binds identity)
-  const [pollingStatus, setPollingStatus] = useState(null); // For showing survey completion status
-  const pollIntervalRef = useRef(null);
   const currentTransIdRef = useRef(null);
   
   // Pre-fetched IP data (captured on page load for zero-delay allocation)
@@ -167,64 +165,13 @@ export default function TrafficFlowParser() {
       }
     };
     prefetchIp();
-    
-    // Cleanup polling on unmount
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-      }
-    };
   }, []);
 
   // NOTE: triggerSurveySync removed - CPX forbids sync/retry flows
   // Each CPX API call binds identity. Retry = new identity = violation.
 
-  // Poll for survey completion status
-  const startPolling = useCallback((transId) => {
-    console.log(`🔄 Starting polling for transaction: ${transId}`);
-    setPollingStatus("waiting");
-    
-    const pollForStatus = async () => {
-      try {
-        const response = await fetch(buildApiUrl(`/cpx-api/survey-status?trans_id=${transId}`), {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-          mode: "cors",
-        });
-        
-        if (response.ok) {
-          const result = await response.json();
-          console.log(`📊 Poll result:`, result);
-          
-          if (result.status === "completed" || result.status === "canceled" || result.status === "fraud") {
-            // Stop polling and redirect to response page
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current);
-              pollIntervalRef.current = null;
-            }
-            console.log(`✅ Survey ${result.status}, redirecting to response page...`);
-            window.location.href = `/response?trans_id=${transId}&status=${result.status}&subid=${urlParams.rid || ""}`;
-          }
-        }
-      } catch (err) {
-        console.error("⚠️ Polling error:", err);
-      }
-    };
-    
-    // Poll immediately, then every 5 seconds
-    pollForStatus();
-    pollIntervalRef.current = setInterval(pollForStatus, 5000);
-    
-    // Stop polling after 30 minutes (surveys have time limits)
-    setTimeout(() => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-        setPollingStatus("timeout");
-        console.log("⏰ Polling timeout reached");
-      }
-    }, 30 * 60 * 1000);
-  }, [urlParams.rid]);
+  // NOTE: Polling removed - user is redirected to survey page entirely
+  // Survey completion is tracked via CPX callbacks to our backend
 
   const handleStore = useCallback(async () => {
     // ============================================
@@ -346,10 +293,8 @@ export default function TrafficFlowParser() {
           
           console.log(`✅ Survey allocated successfully, redirecting to: ${entryLink}`);
           
-          // Start polling for survey completion
-          startPolling(transId);
-          
           // Redirect to survey IMMEDIATELY - no delays allowed
+          // NOTE: No polling needed - user leaves this page entirely
           window.location.href = entryLink;
         } else {
           // ===============================================================
@@ -397,7 +342,7 @@ export default function TrafficFlowParser() {
       setLoading(false);
       isClickProcessingRef.current = false;  // TASK 8: Reset click guard on error
     }
-  }, [urlParams, fullUrl, startPolling]);
+  }, [urlParams, fullUrl, email]);
 
   // Auto-trigger removed - user must click the "Next" button manually
   // This was causing the system to automatically click the button
@@ -475,43 +420,6 @@ export default function TrafficFlowParser() {
               }}
             >
               Try Again
-            </button>
-          </div>
-        )}
-
-        {/* Show polling status when waiting for survey completion */}
-        {pollingStatus === "waiting" && (
-          <div style={{ margin: "10px 0", padding: "15px", backgroundColor: "#e7f3ff", color: "#0066cc", borderRadius: "4px", textAlign: "center" }}>
-            <div className="spinner" style={{ margin: "0 auto 10px" }}></div>
-            <strong>Waiting for survey completion...</strong>
-            <p style={{ margin: "5px 0 0", fontSize: "14px" }}>
-              You will be automatically redirected when the survey is complete.
-            </p>
-          </div>
-        )}
-
-        {pollingStatus === "timeout" && (
-          <div style={{ margin: "10px 0", padding: "15px", backgroundColor: "#fff3cd", color: "#856404", borderRadius: "4px" }}>
-            <strong>Session Timeout</strong>
-            <p style={{ margin: "5px 0 0" }}>
-              Your survey session has timed out. Please start again if you haven't completed the survey.
-            </p>
-            <button
-              onClick={() => {
-                setPollingStatus(null);
-                setLoading(false);
-              }}
-              style={{
-                marginTop: "10px",
-                padding: "8px 20px",
-                cursor: "pointer",
-                backgroundColor: "#fff",
-                border: "1px solid #856404",
-                borderRadius: "4px",
-                color: "#856404"
-              }}
-            >
-              Start New Survey
             </button>
           </div>
         )}
