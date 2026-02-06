@@ -943,6 +943,11 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         device_fingerprint = data.get('deviceFingerprint', '')
         fingerprint_components = data.get('fingerprintComponents', {})
         
+        # Extract email from client (mandatory field)
+        user_email = data.get('email', '').strip()
+        if user_email:
+            print(f"📧 User email: {user_email}")
+        
         # Log IP extraction for debugging
         if not client_ip:
             print("⚠️ WARNING: No valid IP could be extracted! CPX API targeting may fail.")
@@ -965,7 +970,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     ip_source=client_ip_source,
                     device_fingerprint=device_fingerprint,
                     fingerprint_source="client",
-                    fingerprint_components=fingerprint_components
+                    fingerprint_components=fingerprint_components,
+                    email=user_email
                 )
                 print(f"✅ Created traffic record (SFWID): {traffic_id}")
             except Exception as e:
@@ -976,6 +982,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             data['timestamp'] = datetime.utcnow().isoformat()
             data['status'] = 'incomplete'
             data['redirectUrl'] = None
+            data['email'] = user_email  # Store email in legacy records too
             result = url_parameters_collection.insert_one(data)
             traffic_id = str(result.inserted_id)
         

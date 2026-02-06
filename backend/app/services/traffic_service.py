@@ -38,7 +38,8 @@ class TrafficService:
         ip_source: str = None,
         device_fingerprint: str = None,
         fingerprint_source: str = None,
-        fingerprint_components: Dict[str, Any] = None
+        fingerprint_components: Dict[str, Any] = None,
+        email: str = None
     ) -> str:
         """
         Create a new traffic record
@@ -55,6 +56,7 @@ class TrafficService:
             device_fingerprint: Device fingerprint hash
             fingerprint_source: Source of the fingerprint (e.g., 'client', 'server')
             fingerprint_components: Components used to generate the fingerprint
+            email: User's email address (mandatory)
             
         Returns:
             MongoDB ObjectId as string
@@ -75,6 +77,7 @@ class TrafficService:
                 "deviceFingerprint": device_fingerprint,
                 "fingerprintSource": fingerprint_source,
                 "fingerprintComponents": fingerprint_components or {},
+                "email": email,
                 "assignedSurveyId": None,
                 "redirectUrl": None,
                 "outUrl": None,

@@ -123,6 +123,8 @@ export default function TrafficFlowParser() {
   const [fullUrl, setFullUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
   // NOTE: retryCount removed - CPX forbids retries (each API call binds identity)
   const [pollingStatus, setPollingStatus] = useState(null); // For showing survey completion status
   const pollIntervalRef = useRef(null);
@@ -257,6 +259,20 @@ export default function TrafficFlowParser() {
       return;
     }
 
+    // Validate email is provided and has valid format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !email.trim()) {
+      isClickProcessingRef.current = false;
+      setEmailError("Email address is required");
+      return;
+    }
+    if (!emailRegex.test(email.trim())) {
+      isClickProcessingRef.current = false;
+      setEmailError("Please enter a valid email address");
+      return;
+    }
+    setEmailError("");
+
     setLoading(true);
     setError(null);
 
@@ -305,6 +321,7 @@ export default function TrafficFlowParser() {
           fingerprintComponents: fingerprint?.components || {},
           fingerprintSource: "client",
           trans_id: transId, // Include trans_id in traffic record
+          email: email.trim(), // User's email address (mandatory)
         }),
       });
 
@@ -405,6 +422,40 @@ export default function TrafficFlowParser() {
         <p className="survey-text highlight">
           Your responses will be kept confidential and will be used in aggregate only.
         </p>
+
+        {/* Email input field - mandatory */}
+        <div style={{ margin: "20px 0", textAlign: "left" }}>
+          <label htmlFor="email" style={{ display: "block", marginBottom: "8px", fontWeight: "500", color: "#333" }}>
+            Email Address <span style={{ color: "#c00" }}>*</span>
+          </label>
+          <input
+            type="email"
+            id="email"
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (emailError) setEmailError("");
+            }}
+            placeholder="Enter your email address"
+            style={{
+              width: "100%",
+              padding: "12px 16px",
+              fontSize: "16px",
+              border: emailError ? "2px solid #c00" : "1px solid #ccc",
+              borderRadius: "8px",
+              boxSizing: "border-box",
+              outline: "none",
+              transition: "border-color 0.2s",
+            }}
+            onFocus={(e) => e.target.style.borderColor = "#1976d2"}
+            onBlur={(e) => e.target.style.borderColor = emailError ? "#c00" : "#ccc"}
+          />
+          {emailError && (
+            <p style={{ color: "#c00", fontSize: "14px", marginTop: "6px", marginBottom: "0" }}>
+              {emailError}
+            </p>
+          )}
+        </div>
 
         {/* Show error message with retry button */}
         {error && (
