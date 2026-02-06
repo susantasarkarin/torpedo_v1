@@ -310,9 +310,8 @@ class CPXService:
             
             # Use cached href from survey (fetched during refresh with PANEL_88921)
             # This avoids calling CPX API per respondent (important for 500+ simultaneous starts)
-            # CRITICAL FIX (TASK 6): Use href ONLY - NOT href_new
-            # CPX official docs specify href is the correct entry URL
-            survey_href = survey.get("href") or ""
+            # Prefer href_new (mobile-optimized) - matches working respondent flow
+            survey_href = survey.get("href_new") or survey.get("href") or ""
             
             if not survey_href:
                 return {
@@ -793,8 +792,8 @@ class CPXService:
                 if ir < min_ir:
                     continue  # Incidence rate too low
                 
-                # Check href exists - TASK 6: Use href ONLY (not href_new)
-                href = survey.get("href") or ""
+                # Check href exists - prefer href_new (mobile-optimized, matches working respondent)
+                href = survey.get("href_new") or survey.get("href") or ""
                 if not href:
                     continue  # No href means we can't generate entry link
                 
@@ -816,8 +815,8 @@ class CPXService:
             # Randomly select one survey
             selected_survey = random.choice(filtered_surveys)
             survey_id = str(selected_survey.get("id") or selected_survey.get("survey_id"))
-            # TASK 6: Use href ONLY - NOT href_new (CPX official docs)
-            href = selected_survey.get("href") or ""
+            # Prefer href_new (mobile-optimized) - this matches the working respondent
+            href = selected_survey.get("href_new") or selected_survey.get("href") or ""
             
             print(f"🎲 Randomly selected survey {survey_id} for {vendor_user_id}")
             
@@ -921,14 +920,12 @@ class CPXService:
         href = survey.get("href") or ""
         href_new = survey.get("href_new") or ""
         
-        # Log warning if href is missing - this survey won't be usable for allocation
-        if not href:
-            print(f"⚠️  Survey {survey_id} missing href - will be skipped during allocation")
+        # Log warning if both hrefs are missing - this survey won't be usable for allocation
+        if not href and not href_new:
+            print(f"⚠️  Survey {survey_id} missing both href and href_new - will be skipped during allocation")
         
-        # Use href as live_link (the click-tracking URL from CPX API)
-        # TASK 6 CRITICAL FIX: Use href ONLY - NOT href_new
-        # CPX official documentation specifies href is the correct entry URL
-        live_link = href
+        # Prefer href_new (mobile-optimized) - matches working respondent flow
+        live_link = href_new or href
         
         # Map CPX field names to internal field names
         # NOTE: Entry links are NOT stored - they are generated dynamically per respondent
@@ -1123,10 +1120,10 @@ class CPXService:
                 # Remove raw_data to reduce response size, but keep live_link and entry_link
                 if "raw_data" in survey:
                     # Preserve href from raw_data if live_link is not set
-                    # TASK 6: Use href ONLY - NOT href_new
+                    # Prefer href_new (mobile-optimized)
                     if not survey.get("live_link"):
                         raw = survey["raw_data"]
-                        survey["live_link"] = raw.get("href") or raw.get("link") or ""
+                        survey["live_link"] = raw.get("href_new") or raw.get("href") or raw.get("link") or ""
                     del survey["raw_data"]
                 
                 # Convert ObjectId to string if present
