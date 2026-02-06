@@ -679,8 +679,22 @@ class CPXService:
                 params=params,
                 timeout=self.api_timeout
             )
+            
+            # DEBUG: Log full request URL (without secure_hash for security)
+            debug_params = {k: v for k, v in params.items() if k != 'secure_hash'}
+            full_url = f"{self.BASE_URL}?{'&'.join(f'{k}={v}' for k, v in debug_params.items())}"
+            print(f"📤 CPX REQUEST URL: {full_url}")
+            
             response.raise_for_status()
             data = response.json()
+            
+            # DEBUG: Log full raw CPX API response (truncated if too large)
+            import json
+            raw_response = json.dumps(data, indent=2)
+            if len(raw_response) > 5000:
+                print(f"📥 CPX FULL RESPONSE (truncated): {raw_response[:5000]}...")
+            else:
+                print(f"📥 CPX FULL RESPONSE: {raw_response}")
             
             # Debug: Log raw CPX API response summary
             print(f"🔍 CPX API response for {vendor_user_id}: status={data.get('status')}, count={data.get('count_available_surveys')}, surveys_len={len(data.get('surveys', []))}, message_not_found={data.get('message_not_found')}")
