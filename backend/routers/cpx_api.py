@@ -72,13 +72,55 @@ def generate_postback_hash(trans_id: str, status: int, amount_usd: float = 0) ->
 def validate_cpx_hash(trans_id: str, status: int, received_hash: str) -> bool:
     """
     Validate CPX security hash if configured.
-    CPX uses: md5(trans_id + status + secret_key)
+    
+    CPX Postback Hash Formula (per CPX documentation):
+    md5(trans_id + "-" + secure_hash_key)
+    
+    Note: This should match the formula used in the CPX dashboard Postback Test.
+    If validation fails, check the formula with CPX support.
     """
     if not CPX_SECRET_KEY or not received_hash:
+        logger.info("⚠️ CPX hash validation skipped (no secret key or no hash provided)")
         return True  # Skip validation if not configured
     
-    expected = hashlib.md5(f"{trans_id}{status}{CPX_SECRET_KEY}".encode()).hexdigest()
-    return expected.lower() == received_hash.lower()
+    # CPX formula: md5(trans_id + "-" + secure_hash_key)
+    expected = hashlib.md5(f"{trans_id}-{CPX_SECRET_KEY}".encode()).hexdigest()
+    is_valid = expected.lower() == received_hash.lower()
+    
+    if not is_valid:
+        # Log both for debugging
+        logger.warning(f"🔐 CPX Hash mismatch: received={received_hash}, expected={expected}, trans_id={trans_id}")
+    
+    return is_valid
+
+
+def determine_transaction_status(status: int, amount_usd: float, existing_status: str = None) -> str:
+    """
+    Determine the transaction status based on CPX status code and amount.
+    
+    Status codes from CPX:
+    - 1 = COMPLETED (successful survey completion)
+    - 2 = CANCELED / FRAUD / REVERSAL
+    
+    Screen-out handling:
+    - status=2 + amount > 0 = bonus_screenout (user still earns partial credit)
+    - status=2 + amount = 0 = screenout (normal termination, no credit)
+    
+    Reversal handling:
+    - If existing status was 'completed' and new status is 2, it's a reversal
+    """
+    if status == 1:
+        return "completed"
+    elif status == 2:
+        # Check if this is a reversal (was completed, now canceled)
+        if existing_status == "completed":
+            return "reversed"
+        # Check if this is a bonus screen-out
+        if amount_usd and amount_usd > 0:
+            return "bonus_screenout"
+        return "screenout"
+    else:
+        return "unknown"
 
 
 # ============================================
@@ -144,10 +186,18 @@ async def cpx_postback_handler(
                 _log_postback(trans_id, status, amount_usd, subid_1, True, "Duplicate ignored")
                 return JSONResponse(content={"status": "ok"}, status_code=200)
             
+            # Determine status with reversal detection
+            existing_status = existing.get("status")
+            new_status = determine_transaction_status(status, amount_usd or 0, existing_status)
+            
+            # Log reversal detection
+            if new_status == "reversed":
+                logger.warning(f"⚠️ REVERSAL detected: trans_id={trans_id} was '{existing_status}', now reversed")
+            
             # Update existing transaction
             update_data = {
                 "cpx_status": status,
-                "status": "completed" if status == 1 else ("fraud" if status == 2 else "canceled"),
+                "status": new_status,
                 "updated_at": datetime.utcnow(),
                 "last_postback_at": datetime.utcnow(),
                 "postback_hash": postback_hash,
@@ -160,6 +210,8 @@ async def cpx_postback_handler(
                 update_data["amount_local"] = amount_local
             if status == 1:
                 update_data["completed_at"] = datetime.utcnow()
+            if new_status == "reversed":
+                update_data["reversed_at"] = datetime.utcnow()
             if ip:
                 update_data["ip_address"] = ip
             
@@ -171,13 +223,16 @@ async def cpx_postback_handler(
                 {"$set": update_data, "$inc": inc_data}
             )
             
-            logger.info(f"✅ Updated transaction: trans_id={trans_id}, status={status}")
+            logger.info(f"✅ Updated transaction: trans_id={trans_id}, status={new_status}, cpx_status={status}")
         else:
+            # Determine status for new transaction
+            new_status = determine_transaction_status(status, amount_usd or 0)
+            
             # Create new transaction
             new_transaction = {
                 "trans_id": trans_id,
                 "cpx_status": status,
-                "status": "completed" if status == 1 else ("fraud" if status == 2 else "canceled"),
+                "status": new_status,
                 "amount_usd": amount_usd,
                 "amount_local": amount_local,
                 "subid": subid_1,
@@ -190,11 +245,12 @@ async def cpx_postback_handler(
                 "last_postback_at": datetime.utcnow(),
                 "postback_count": 1,
                 "postback_hash": postback_hash,
-                "completed_at": datetime.utcnow() if status == 1 else None
+                "completed_at": datetime.utcnow() if status == 1 else None,
+                "reversed_at": None
             }
             
             survey_transactions_collection.insert_one(new_transaction)
-            logger.info(f"✅ Created transaction: trans_id={trans_id}, status={status}")
+            logger.info(f"✅ Created transaction: trans_id={trans_id}, status={new_status}, cpx_status={status}")
         
         # ============================================
         # VENDOR POSTBACK - Forward to vendor server

@@ -717,6 +717,23 @@ try:
     survey_transactions_collection = traffic_db["survey_transactions"]
     cpx_postback_logs_collection = traffic_db["cpx_postback_logs"]
     
+    # Create unique index on trans_id to prevent duplicate transactions
+    # This is CRITICAL for idempotency and fraud prevention
+    try:
+        survey_transactions_collection.create_index("trans_id", unique=True, background=True)
+        print("✅ Unique index on trans_id created/verified")
+    except Exception as idx_err:
+        print(f"⚠️ trans_id index may already exist or error: {idx_err}")
+    
+    # Create index on subid for faster lookups by SFWID
+    try:
+        survey_transactions_collection.create_index("subid", background=True)
+        survey_transactions_collection.create_index("status", background=True)
+        survey_transactions_collection.create_index("created_at", background=True)
+        print("✅ Additional indexes on survey_transactions created/verified")
+    except Exception as idx_err:
+        print(f"⚠️ Additional indexes warning: {idx_err}")
+    
     # Inject collections into cpx_api_router
     cpx_api_router.set_survey_transactions_collection(survey_transactions_collection)
     cpx_api_router.set_cpx_postback_logs_collection(cpx_postback_logs_collection)
