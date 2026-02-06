@@ -313,7 +313,8 @@ class CPXService:
             
             # Use cached href from survey (fetched during refresh with PANEL_88921)
             # This avoids calling CPX API per respondent (important for 500+ simultaneous starts)
-            survey_href = survey.get("href") or survey.get("href_new") or ""
+            # Prefer href_new (mobile-optimized per CPX docs)
+            survey_href = survey.get("href_new") or survey.get("href") or ""
             
             if not survey_href:
                 return {
@@ -663,14 +664,15 @@ class CPXService:
             }
             
             # Add country code if available (ISO2 format for CPX - e.g., "IN", "US")
+            # CPX docs: parameter name is "user_country_code", NOT "country_code"
             if country_iso2:
-                params["country_code"] = country_iso2
+                params["user_country_code"] = country_iso2
             
             print(f"🔄 Fetching CPX surveys for tracking_id={internal_tracking_id} (ext_user_id=subid_1)")
             print(f"   Device IP: {user_ip}")
             print(f"   Country: {country_iso2}" if country_iso2 else "   Country: not provided")
             print(f"   User-Agent: {user_agent[:80]}..." if user_agent and len(user_agent) > 80 else f"   User-Agent: {user_agent}")
-            print(f"   CPX params: app_id={params['app_id']}, ext_user_id={params['ext_user_id']}, subid_1={params['subid_1']}, ip_user={params['ip_user']}, country={country_iso2}")
+            print(f"   CPX params: app_id={params['app_id']}, ext_user_id={params['ext_user_id']}, subid_1={params['subid_1']}, ip_user={params['ip_user']}, user_country_code={country_iso2}")
             
             response = requests.get(
                 self.BASE_URL,
@@ -779,8 +781,8 @@ class CPXService:
                 if ir < min_ir:
                     continue  # Incidence rate too low
                 
-                # Check href exists
-                href = survey.get("href") or survey.get("href_new") or ""
+                # Check href exists - prefer href_new (mobile-optimized per CPX docs)
+                href = survey.get("href_new") or survey.get("href") or ""
                 if not href:
                     continue  # No href means we can't generate entry link
                 
@@ -802,7 +804,8 @@ class CPXService:
             # Randomly select one survey
             selected_survey = random.choice(filtered_surveys)
             survey_id = str(selected_survey.get("id") or selected_survey.get("survey_id"))
-            href = selected_survey.get("href") or selected_survey.get("href_new") or ""
+            # Prefer href_new (mobile-optimized per CPX docs)
+            href = selected_survey.get("href_new") or selected_survey.get("href") or ""
             
             print(f"🎲 Randomly selected survey {survey_id} for {vendor_user_id}")
             
@@ -1113,9 +1116,10 @@ class CPXService:
                 # Remove raw_data to reduce response size, but keep live_link and entry_link
                 if "raw_data" in survey:
                     # Preserve href/link from raw_data if live_link is not set
+                    # Prefer href_new (mobile-optimized per CPX docs)
                     if not survey.get("live_link"):
                         raw = survey["raw_data"]
-                        survey["live_link"] = raw.get("href") or raw.get("href_new") or raw.get("link") or ""
+                        survey["live_link"] = raw.get("href_new") or raw.get("href") or raw.get("link") or ""
                     del survey["raw_data"]
                 
                 # Convert ObjectId to string if present
