@@ -960,7 +960,22 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         user_email = data.get('email', '').strip()
         if user_email:
             print(f"📧 User email: {user_email}")
-        
+
+        # Extract CPX User Profiling Parameters (CRITICAL for survey matching)
+        birthday_day = data.get('birthday_day')
+        birthday_month = data.get('birthday_month')
+        birthday_year = data.get('birthday_year')
+        gender = data.get('gender', '').strip().lower()
+        zip_code = data.get('zip_code', '').strip()
+
+        # Log profiling data if provided
+        if birthday_day and birthday_month and birthday_year:
+            print(f"📅 User DOB: {birthday_year}-{birthday_month:02d}-{birthday_day:02d}")
+        if gender:
+            print(f"⚧ User gender: {gender}")
+        if zip_code:
+            print(f"📮 User zip/postal code: {zip_code}")
+
         # Log IP extraction for debugging
         if not client_ip:
             print("⚠️ WARNING: No valid IP could be extracted! CPX API targeting may fail.")
@@ -1067,7 +1082,14 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                             internal_tracking_id=traffic_id,     # Use SFWID as subid_1
                             user_ip=client_ip,
                             user_agent=client_user_agent,
-                            country_code=country_code            # Pass country code (will be converted to ISO3)
+                            country_code=country_code,           # Pass country code (will be converted to ISO2)
+                            # CPX User Profiling Parameters (CRITICAL for survey matching)
+                            email=user_email,
+                            birthday_day=birthday_day,
+                            birthday_month=birthday_month,
+                            birthday_year=birthday_year,
+                            gender=gender,
+                            zip_code=zip_code,
                         )
 
                         if result.get("success"):

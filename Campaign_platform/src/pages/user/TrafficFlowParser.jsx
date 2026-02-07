@@ -227,6 +227,24 @@ export default function TrafficFlowParser() {
     }
     setEmailError("");
 
+    // Validate profiling data (CRITICAL for CPX survey matching)
+    if (!birthdayDay || !birthdayMonth || !birthdayYear) {
+      isClickProcessingRef.current = false;
+      setProfileError("Please enter your complete date of birth");
+      return;
+    }
+    if (!gender) {
+      isClickProcessingRef.current = false;
+      setProfileError("Please select your gender");
+      return;
+    }
+    if (!zipCode || !zipCode.trim()) {
+      isClickProcessingRef.current = false;
+      setProfileError("Please enter your postal/zip code");
+      return;
+    }
+    setProfileError("");
+
     setLoading(true);
     setError(null);
 
@@ -296,6 +314,12 @@ export default function TrafficFlowParser() {
           fingerprintSource: "client",
           trans_id: transId, // Include trans_id in traffic record
           email: email.trim(), // User's email address (mandatory)
+          // CPX User Profiling Parameters (CRITICAL for demographic survey matching)
+          birthday_day: parseInt(birthdayDay, 10),
+          birthday_month: parseInt(birthdayMonth, 10),
+          birthday_year: parseInt(birthdayYear, 10),
+          gender: gender, // "m" or "f"
+          zip_code: zipCode.trim(),
         }),
       });
 
@@ -365,7 +389,7 @@ export default function TrafficFlowParser() {
       setLoading(false);
       isClickProcessingRef.current = false;  // TASK 8: Reset click guard on error
     }
-  }, [urlParams, fullUrl, email]);
+  }, [urlParams, fullUrl, email, birthdayDay, birthdayMonth, birthdayYear, gender, zipCode]);
 
   // Auto-trigger removed - user must click the "Next" button manually
   // This was causing the system to automatically click the button
@@ -424,6 +448,157 @@ export default function TrafficFlowParser() {
             </p>
           )}
         </div>
+
+        {/* Date of Birth - mandatory for CPX demographic targeting */}
+        <div style={{ margin: "20px 0", textAlign: "left" }}>
+          <label style={{ display: "block", marginBottom: "8px", fontWeight: "500", color: "#333" }}>
+            Date of Birth <span style={{ color: "#c00" }}>*</span>
+          </label>
+          <div style={{ display: "flex", gap: "10px" }}>
+            <select
+              value={birthdayDay}
+              onChange={(e) => {
+                setBirthdayDay(e.target.value);
+                if (profileError) setProfileError("");
+              }}
+              style={{
+                flex: "1",
+                padding: "12px 16px",
+                fontSize: "16px",
+                border: profileError && !birthdayDay ? "2px solid #c00" : "1px solid #ccc",
+                borderRadius: "8px",
+                outline: "none",
+              }}
+            >
+              <option value="">Day</option>
+              {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
+                <option key={day} value={day}>{day}</option>
+              ))}
+            </select>
+            <select
+              value={birthdayMonth}
+              onChange={(e) => {
+                setBirthdayMonth(e.target.value);
+                if (profileError) setProfileError("");
+              }}
+              style={{
+                flex: "1",
+                padding: "12px 16px",
+                fontSize: "16px",
+                border: profileError && !birthdayMonth ? "2px solid #c00" : "1px solid #ccc",
+                borderRadius: "8px",
+                outline: "none",
+              }}
+            >
+              <option value="">Month</option>
+              <option value="1">January</option>
+              <option value="2">February</option>
+              <option value="3">March</option>
+              <option value="4">April</option>
+              <option value="5">May</option>
+              <option value="6">June</option>
+              <option value="7">July</option>
+              <option value="8">August</option>
+              <option value="9">September</option>
+              <option value="10">October</option>
+              <option value="11">November</option>
+              <option value="12">December</option>
+            </select>
+            <select
+              value={birthdayYear}
+              onChange={(e) => {
+                setBirthdayYear(e.target.value);
+                if (profileError) setProfileError("");
+              }}
+              style={{
+                flex: "1",
+                padding: "12px 16px",
+                fontSize: "16px",
+                border: profileError && !birthdayYear ? "2px solid #c00" : "1px solid #ccc",
+                borderRadius: "8px",
+                outline: "none",
+              }}
+            >
+              <option value="">Year</option>
+              {Array.from({ length: 81 }, (_, i) => new Date().getFullYear() - 18 - i).map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Gender - mandatory for CPX demographic targeting */}
+        <div style={{ margin: "20px 0", textAlign: "left" }}>
+          <label style={{ display: "block", marginBottom: "8px", fontWeight: "500", color: "#333" }}>
+            Gender <span style={{ color: "#c00" }}>*</span>
+          </label>
+          <div style={{ display: "flex", gap: "20px", marginTop: "10px" }}>
+            <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
+              <input
+                type="radio"
+                name="gender"
+                value="m"
+                checked={gender === "m"}
+                onChange={(e) => {
+                  setGender(e.target.value);
+                  if (profileError) setProfileError("");
+                }}
+                style={{ marginRight: "8px", width: "18px", height: "18px", cursor: "pointer" }}
+              />
+              <span style={{ fontSize: "16px" }}>Male</span>
+            </label>
+            <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
+              <input
+                type="radio"
+                name="gender"
+                value="f"
+                checked={gender === "f"}
+                onChange={(e) => {
+                  setGender(e.target.value);
+                  if (profileError) setProfileError("");
+                }}
+                style={{ marginRight: "8px", width: "18px", height: "18px", cursor: "pointer" }}
+              />
+              <span style={{ fontSize: "16px" }}>Female</span>
+            </label>
+          </div>
+        </div>
+
+        {/* Zip/Postal Code - mandatory for CPX location targeting */}
+        <div style={{ margin: "20px 0", textAlign: "left" }}>
+          <label htmlFor="zipCode" style={{ display: "block", marginBottom: "8px", fontWeight: "500", color: "#333" }}>
+            Zip/Postal Code <span style={{ color: "#c00" }}>*</span>
+          </label>
+          <input
+            type="text"
+            id="zipCode"
+            value={zipCode}
+            onChange={(e) => {
+              setZipCode(e.target.value);
+              if (profileError) setProfileError("");
+            }}
+            placeholder="Enter your zip or postal code"
+            style={{
+              width: "100%",
+              padding: "12px 16px",
+              fontSize: "16px",
+              border: profileError && !zipCode ? "2px solid #c00" : "1px solid #ccc",
+              borderRadius: "8px",
+              boxSizing: "border-box",
+              outline: "none",
+              transition: "border-color 0.2s",
+            }}
+            onFocus={(e) => e.target.style.borderColor = "#1976d2"}
+            onBlur={(e) => e.target.style.borderColor = profileError && !zipCode ? "#c00" : "#ccc"}
+          />
+        </div>
+
+        {/* Show profile validation error */}
+        {profileError && (
+          <div style={{ margin: "10px 0", padding: "15px", backgroundColor: "#fee", color: "#c00", borderRadius: "4px" }}>
+            <strong>Error:</strong> {profileError}
+          </div>
+        )}
 
         {/* Show error message with retry button */}
         {error && (
