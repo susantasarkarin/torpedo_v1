@@ -294,15 +294,11 @@ export default function TrafficFlowParser() {
 
         // Check if survey was allocated successfully
         if (allocationSuccess && entryLink) {
-          // CRITICAL: Do NOT modify CPX href - it already contains encrypted identity (k= parameter)
-          // CPX embeds ext_user_id in the href, appending anything can break identity validation
-          // subid_1 (our SFWID) is already included via the API call params
-          
-          console.log(`✅ Survey allocated successfully, redirecting to: ${entryLink}`);
-          
-          // Redirect to survey IMMEDIATELY - no delays allowed
-          // NOTE: No polling needed - user leaves this page entirely
-          window.location.href = entryLink;
+          // CRITICAL: Do NOT modify the CPX href. Use server-side HTTP redirect.
+          console.log(`✅ Survey allocated successfully, redirecting via HTTP: ${entryLink}`);
+
+          // Pure HTTP redirect handled by backend (no JS redirect to CPX)
+          window.location.href = buildApiUrl(`/cpx/redirect?id=${objectId}`);
         } else {
           // ===============================================================
           // NO SURVEYS AVAILABLE - THIS IS A VALID OUTCOME, NOT AN ERROR

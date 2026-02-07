@@ -177,34 +177,16 @@ class CPXService:
         
         # The href from CPX already has the format:
         # https://click.cpx-research.com/?k=<encrypted>&api=true&time_stamp=...&ext_user_id=...
-        # CRITICAL: Append subid_1 to href for tracking purposes
-        # subid_1 = respondent_id (SFWID) for our server-side tracking
-        
-        # Parse the URL to properly handle query parameters
-        from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
-        
+        # CRITICAL: Use the href verbatim. Any mutation causes CPX screen-out.
+
+        from urllib.parse import urlparse
         parsed = urlparse(href)
-        query_params = parse_qs(parsed.query, keep_blank_values=True)
-        
-        # Append subid_1 with respondent_id for tracking
-        query_params['subid_1'] = [respondent_id]
-        
-        # Build query string with subid_1 appended
-        new_query = urlencode(query_params, doseq=True)
-        
-        # Reconstruct the full URL with subid_1 appended
-        entry_link = urlunparse((
-            parsed.scheme,
-            parsed.netloc,
-            parsed.path,
-            parsed.params,
-            new_query,
-            parsed.fragment
-        ))
-        
-        print(f"🔗 Generated CPX entry link for respondent {respondent_id}, survey {survey_id}")
-        print(f"   Full URL: {entry_link[:150]}...")
-        return entry_link
+        if parsed.scheme != "https" or parsed.netloc != "click.cpx-research.com":
+            raise ValueError("CPX href must use https://click.cpx-research.com")
+
+        print(f"🔗 Using CPX entry link verbatim for respondent {respondent_id}, survey {survey_id}")
+        print(f"   Full URL: {href[:150]}...")
+        return href
     
     def allocate_survey_for_respondent(
         self,
@@ -639,20 +621,18 @@ class CPXService:
             }
         
         try:
-            # Generate secure hash using the tracking ID (ext_user_id = subid_1 = internal_tracking_id)
+            # Generate secure hash using ext_user_id (vendor-provided rid)
             # CPX formula: md5(ext_user_id + "-" + secure_hash_key)
-            # Using internal_tracking_id for BOTH ext_user_id and subid_1 for consistent tracking
-            secure_hash = self._generate_secure_hash(internal_tracking_id, self.secure_hash_key)
+            secure_hash = self._generate_secure_hash(vendor_user_id, self.secure_hash_key)
             
             # Normalize country code to ISO2 format for CPX (e.g., "IN", "US")
             country_iso2 = self.normalize_country_code(country_code) if country_code else ""
             
-            # Build params - subid_1 and subid_2 REMOVED from API call per CPX requirements
-            # They will be appended to the entry link href instead for tracking
+            # Build params - DO NOT mutate returned href
             params = {
                 "app_id": self.app_id,
-                "ext_user_id": internal_tracking_id,   # Use SFWID as ext_user_id
-                # subid_1 and subid_2 NOT included here - appended to entry link instead
+                "ext_user_id": vendor_user_id,         # Use vendor rid as ext_user_id
+                "subid_1": internal_tracking_id,       # Internal tracking ID for postback correlation
                 "output_method": "api",
                 "ip_user": user_ip,                    # Real client IP (required)
                 "user_agent": user_agent,              # Real client UA (required)
@@ -792,8 +772,8 @@ class CPXService:
                 if ir < min_ir:
                     continue  # Incidence rate too low
                 
-                # Check href exists - prefer href_new (mobile-optimized, matches working respondent)
-                href = survey.get("href_new") or survey.get("href") or ""
+                # Check href exists - MUST use click.cpx-research.com href
+                href = survey.get("href") or ""
                 if not href:
                     continue  # No href means we can't generate entry link
                 
@@ -815,23 +795,18 @@ class CPXService:
             # Randomly select one survey
             selected_survey = random.choice(filtered_surveys)
             survey_id = str(selected_survey.get("id") or selected_survey.get("survey_id"))
-            # Prefer href_new (mobile-optimized) - this matches the working respondent
-            href = selected_survey.get("href_new") or selected_survey.get("href") or ""
+            # MUST use click.cpx-research.com href (verbatim)
+            href = selected_survey.get("href") or ""
             
             print(f"🎲 Randomly selected survey {survey_id} for {vendor_user_id}")
             
-            # CRITICAL: Append subid_1 to entry link for tracking
-            # subid_1 = internal_tracking_id for our server-side tracking
-            from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
-            parsed = urlparse(href)
-            query_params = parse_qs(parsed.query, keep_blank_values=True)
-            
-            # Append subid_1 for tracking (use internal_tracking_id)
-            query_params['subid_1'] = [internal_tracking_id]
-            
-            new_query = urlencode(query_params, doseq=True)
-            entry_link = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
-            
+            # CRITICAL: Use href verbatim (no mutation)
+            entry_link = self.generate_respondent_entry_link(
+                survey_id=survey_id,
+                respondent_id=internal_tracking_id,
+                href=href
+            )
+
             print(f"🔗 Entry link for {vendor_user_id}: {entry_link[:120]}...")
             
             # Prepare clean survey metadata

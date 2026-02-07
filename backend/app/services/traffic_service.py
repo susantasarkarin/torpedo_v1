@@ -306,8 +306,8 @@ class TrafficService:
                         failed_count += 1
                         continue
                     
-                    # Build final redirect URL with additional tracking params
-                    redirect_url = f"{entry_link}&clientId={client_id}-{traffic_id}&cc={country_code}"
+                    # Use CPX entry link verbatim (no additional params)
+                    redirect_url = entry_link
                     
                     # Assign survey and update status
                     if self.assign_survey_to_traffic(traffic_id, survey_id, redirect_url):

@@ -1014,7 +1014,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 # ============================================
                 # TASK 3: Single-Use ext_user_id Guard - Check BEFORE CPX API call
                 # ============================================
-                guard_result = check_cpx_entry_guard(traffic_id, client_ip, client_user_agent)
+                guard_result = check_cpx_entry_guard(respondent_id, client_ip, client_user_agent)
                 
                 if not guard_result["allowed"]:
                     allocation_error = f"ext_user_id guard blocked: {guard_result['reason']}"
@@ -1025,12 +1025,12 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     try:
                         print(f"📍 Detected client IP: {client_ip} for SFWID: {traffic_id}")
                         print(f"📱 Using User-Agent for CPX: {client_user_agent[:60]}..." if client_user_agent and len(client_user_agent) > 60 else f"📱 Using User-Agent for CPX: {client_user_agent}")
-                        print(f"🔑 Using SFWID '{traffic_id}' as both ext_user_id AND subid_1 for consistent tracking")
+                        print(f"🔑 Using vendor rid '{respondent_id}' as ext_user_id and SFWID '{traffic_id}' as subid_1")
                         print(f"🌍 Country code from URL: {country_code}")
 
                         result = cpx_service.fetch_and_allocate_for_respondent(
-                            vendor_user_id=traffic_id,           # Use SFWID as ext_user_id (same as subid_1)
-                            internal_tracking_id=traffic_id,     # Use SFWID as subid_1 (same as ext_user_id)
+                            vendor_user_id=respondent_id,        # Use vendor rid as ext_user_id
+                            internal_tracking_id=traffic_id,     # Use SFWID as subid_1
                             user_ip=client_ip,
                             user_agent=client_user_agent,
                             country_code=country_code            # Pass country code (will be converted to ISO3)
@@ -1045,7 +1045,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                             # TASK 4: Lock CPX Redirects - Update status to REDIRECTED
                             # ============================================
                             update_cpx_entry_guard_status(
-                                ext_user_id=traffic_id,
+                                ext_user_id=respondent_id,
                                 new_status=CPX_GUARD_STATUS_REDIRECTED,
                                 survey_id=str(survey_id),
                                 entry_link=entry_link
@@ -1065,7 +1065,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                             print(f"⚠️ Per-respondent CPX allocation failed: {allocation_error}")
                             # Mark as LOCKED since CPX API was called (even if failed)
                             update_cpx_entry_guard_status(
-                                ext_user_id=traffic_id,
+                                ext_user_id=respondent_id,
                                 new_status=CPX_GUARD_STATUS_LOCKED,
                                 survey_id=None,
                                 entry_link=None
@@ -1077,7 +1077,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         traceback.print_exc()
                         # Mark as LOCKED on error to prevent retry
                         update_cpx_entry_guard_status(
-                            ext_user_id=traffic_id,
+                            ext_user_id=respondent_id,
                             new_status=CPX_GUARD_STATUS_LOCKED,
                             survey_id=None,
                             entry_link=None
@@ -1227,6 +1227,41 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
     except Exception as e:
         print(f"Error storing URL parameters: {e}")
         raise HTTPException(status_code=500, detail=f"Store error: {str(e)}")
+
+
+@router.get("/cpx/redirect")
+async def cpx_redirect(id: str = Query(..., description="Traffic record ID (SFWID)")):
+    """
+    Pure HTTP redirect to the CPX entry link stored on the traffic record.
+    This avoids JS-based redirects and preserves the exact href returned by CPX.
+    """
+    try:
+        if url_parameters_collection is None:
+            raise HTTPException(status_code=500, detail="Database not connected")
+
+        try:
+            record = url_parameters_collection.find_one({"_id": ObjectId(id)})
+        except Exception:
+            record = None
+
+        if not record:
+            raise HTTPException(status_code=404, detail="Traffic record not found")
+
+        entry_link = record.get("redirectUrl") or record.get("redirect_url") or ""
+        if not entry_link:
+            raise HTTPException(status_code=404, detail="Entry link not available")
+
+        # Ensure we only redirect to the CPX click domain
+        if not entry_link.startswith("https://click.cpx-research.com/"):
+            raise HTTPException(status_code=400, detail="Invalid CPX entry link")
+
+        return RedirectResponse(url=entry_link, status_code=302)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ CPX redirect error: {e}")
+        raise HTTPException(status_code=500, detail="Redirect error")
 
 
 @router.get("/surveycomplete")
