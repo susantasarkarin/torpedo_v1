@@ -922,18 +922,31 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         except ImportError:
             from utils import extract_real_client_ip, extract_user_agent
         
-        # Check if client provided IP (from prefetch endpoint)
+        # Check if client provided IP (from browser-based collection)
         client_provided_ip = data.get('clientIp')
         client_ip_source = data.get('ipSource', 'unknown')
-        
-        if client_provided_ip and '.' in client_provided_ip:
-            # Use client-provided IP (from prefetch - maintains consistency)
+
+        # Validate client-provided IP (accept both IPv4 and IPv6)
+        def is_valid_ip(ip_str):
+            """Check if IP is valid (IPv4 or IPv6)"""
+            if not ip_str or not isinstance(ip_str, str):
+                return False
+            # IPv4: contains dots
+            # IPv6: contains colons
+            # Basic validation - more robust than just checking for dots
+            return ('.' in ip_str and ip_str.replace('.', '').replace(':', '').isdigit()) or \
+                   (':' in ip_str and all(c in '0123456789abcdefABCDEF:' for c in ip_str))
+
+        if client_provided_ip and is_valid_ip(client_provided_ip):
+            # Use client-provided IP (from browser - CRITICAL for CPX compatibility)
             client_ip = client_provided_ip
-            print(f"📍 Using client-provided IP: {client_ip} (source: {client_ip_source})")
+            print(f"📍 Using browser-collected IP: {client_ip} (source: {client_ip_source})")
+            print(f"   ✅ This IP will match what CPX sees when user clicks survey")
         else:
-            # Fallback: Extract from server headers
+            # Fallback: Extract from server headers (may cause mismatch on mobile)
             client_ip, client_ip_source = extract_real_client_ip(request)
             print(f"📍 Using server-extracted IP: {client_ip} (source: {client_ip_source})")
+            print(f"   ⚠️ Server IP may differ from browser IP on mobile networks")
         
         # Extract User-Agent from request headers (for CPX fingerprint matching)
         client_user_agent = data.get('userAgent') or request.headers.get("User-Agent") or ""
@@ -994,11 +1007,32 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # DEBUG: Log the CPX allocation condition check
         print(f"🔍 CPX allocation check: allocation_success={allocation_success}, vendor_id={vendor_id}, country_code={country_code}, respondent_id={respondent_id}, cpx_service={cpx_service is not None}")
         
-        # IP Comparison: Log if client-provided IP matches server-extracted IP
+        # ============================================
+        # IP CONSISTENCY VALIDATION
+        # ============================================
+        # Compare browser-collected IP vs server-extracted IP to detect routing issues
+        # This helps diagnose mobile carrier NAT/CGNAT problems
         server_extracted_ip, server_ip_source = extract_real_client_ip(request)
+
         if client_provided_ip and server_extracted_ip:
             ip_match = client_provided_ip == server_extracted_ip
-            print(f"🔍 IP Comparison: client_provided={client_provided_ip} vs server_extracted={server_extracted_ip} -> {'✅ MATCH' if ip_match else '⚠️ MISMATCH'}")
+
+            if ip_match:
+                print(f"✅ IP MATCH: Browser IP matches server IP: {client_provided_ip}")
+                print(f"   This is ideal - CPX will see the same IP")
+            else:
+                print(f"⚠️ IP MISMATCH DETECTED:")
+                print(f"   Browser IP (from ipify.org): {client_provided_ip}")
+                print(f"   Server IP (from {server_ip_source}): {server_extracted_ip}")
+                print(f"   Likely cause: Mobile carrier NAT or multi-path routing")
+                print(f"   CPX WILL USE: {client_ip} (browser-collected, more accurate)")
+                print(f"   If screenout occurs, this mismatch may be why")
+
+        # Validate we have a usable IP for CPX
+        if not client_ip or client_ip in ['127.0.0.1', 'localhost', '0.0.0.0', '::1']:
+            print(f"❌ CRITICAL: Invalid IP for CPX: {client_ip}")
+            print(f"   CPX requires real public IP address")
+            allocation_error = f"Invalid client IP ({client_ip}) - cannot call CPX API"
         
         if not allocation_success and vendor_id and country_code and respondent_id and cpx_service:
             # ============================================
@@ -1230,7 +1264,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
 
 
 @router.get("/cpx/redirect")
-async def cpx_redirect(id: str = Query(..., description="Traffic record ID (SFWID)")):
+async def cpx_redirect(request: Request, id: str = Query(..., description="Traffic record ID (SFWID)")):
     """
     Pure HTTP redirect to the CPX entry link stored on the traffic record.
     This avoids JS-based redirects and preserves the exact href returned by CPX.
@@ -1239,21 +1273,55 @@ async def cpx_redirect(id: str = Query(..., description="Traffic record ID (SFWI
         if url_parameters_collection is None:
             raise HTTPException(status_code=500, detail="Database not connected")
 
+        def is_valid_cpx_link(url: str) -> bool:
+            return url.startswith("https://click.cpx-research.com/") or url.startswith(
+                "https://offers.cpx-research.com/"
+            )
+
         try:
             record = url_parameters_collection.find_one({"_id": ObjectId(id)})
         except Exception:
             record = None
 
         if not record:
+            print(f"❌ CPX redirect: traffic record not found (id={id})")
             raise HTTPException(status_code=404, detail="Traffic record not found")
 
         entry_link = record.get("redirectUrl") or record.get("redirect_url") or ""
+        entry_source = "traffic_record"
+
+        if entry_link and not is_valid_cpx_link(entry_link):
+            entry_link = ""
+
+        if not entry_link and cpx_entry_guards_collection:
+            guard_key = record.get("respondentId") or record.get("respondent_id")
+            if guard_key:
+                guard_doc = cpx_entry_guards_collection.find_one({"ext_user_id": guard_key})
+                guard_link = guard_doc.get("entry_link") if guard_doc else ""
+                if guard_link and is_valid_cpx_link(guard_link):
+                    entry_link = guard_link
+                    entry_source = "cpx_entry_guard"
+
         if not entry_link:
+            print(
+                "❌ CPX redirect: entry link not available "
+                f"(id={id}, respondent={record.get('respondentId')}, source={entry_source})"
+            )
             raise HTTPException(status_code=404, detail="Entry link not available")
 
-        # Ensure we only redirect to the CPX click domain
-        if not entry_link.startswith("https://click.cpx-research.com/"):
+        # Ensure we only redirect to CPX domains
+        if not is_valid_cpx_link(entry_link):
+            print(
+                "❌ CPX redirect: invalid entry link "
+                f"(id={id}, url={entry_link[:120]}...)")
             raise HTTPException(status_code=400, detail="Invalid CPX entry link")
+
+        client_ip = request.client.host if request.client else "unknown"
+        user_agent = request.headers.get("user-agent", "unknown")[:160]
+        print(
+            "✅ CPX redirect: sending user to CPX "
+            f"(id={id}, source={entry_source}, ip={client_ip}, ua={user_agent})"
+        )
 
         return RedirectResponse(url=entry_link, status_code=302)
 

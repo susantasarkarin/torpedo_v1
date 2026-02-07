@@ -231,16 +231,36 @@ export default function TrafficFlowParser() {
     setError(null);
 
     try {
-      // ZERO-DELAY OPTIMIZATION: Use pre-fetched IP from page load
-      // This avoids the 3-9 second delay of calling external IP services
-      let ipResult = prefetchedIpRef.current;
-      
-      // If prefetch didn't work (rare), try fetching now with short timeout
+      // ============================================
+      // FRESH IP COLLECTION ON CLICK (CRITICAL FIX)
+      // ============================================
+      // Mobile carriers (Jio, Airtel) rotate IPs frequently (30-60 seconds)
+      // Prefetched IP from page load may be stale by the time user clicks
+      // CPX validates: API call IP MUST match survey click IP
+      // Solution: Always fetch FRESH IP right before CPX API call
+      console.log("🔄 Fetching FRESH IP right before CPX API call...");
+      let ipResult = await fetchClientIP();
+
+      // If fresh fetch failed, use prefetched as emergency fallback
       if (!ipResult || !ipResult.ip) {
-        console.log("⚠️ Using fresh IP fetch (prefetch was not available)...");
-        ipResult = await fetchClientIP();
+        console.log("⚠️ Fresh IP fetch failed, using prefetched IP as fallback...");
+        ipResult = prefetchedIpRef.current;
+        if (!ipResult || !ipResult.ip) {
+          throw new Error("Failed to obtain client IP address. Please check your internet connection.");
+        }
       } else {
-        console.log(`✅ Using prefetched IP: ${ipResult.ip} (source: ${ipResult.source})`);
+        console.log(`✅ Using FRESH IP: ${ipResult.ip} (source: ${ipResult.source})`);
+
+        // Compare with prefetched IP to detect rotation
+        if (prefetchedIpRef.current && prefetchedIpRef.current.ip) {
+          const prefetchedIp = prefetchedIpRef.current.ip;
+          if (prefetchedIp !== ipResult.ip) {
+            console.warn(`⚠️ IP ROTATION DETECTED: Prefetch=${prefetchedIp}, Fresh=${ipResult.ip}`);
+            console.warn(`   This is common on mobile networks and would cause CPX screenout if we used prefetch!`);
+          } else {
+            console.log(`✅ IP consistent: ${ipResult.ip} (no rotation since page load)`);
+          }
+        }
       }
 
       // Generate fingerprint in parallel (fast, ~100ms)
