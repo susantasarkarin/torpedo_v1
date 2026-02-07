@@ -484,6 +484,13 @@ class CPXService:
         user_ip: str,                  # REQUIRED - real client IP, no fallback
         user_agent: str,               # REQUIRED - real client UA, no fallback
         country_code: str = "",        # ISO2 country code (e.g., "US", "IN") - sent as-is to CPX
+        # CPX User Profiling Parameters (CRITICAL for survey matching)
+        email: Optional[str] = None,
+        birthday_day: Optional[int] = None,
+        birthday_month: Optional[int] = None,
+        birthday_year: Optional[int] = None,
+        gender: Optional[str] = None,  # "m" or "f"
+        zip_code: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         ╔══════════════════════════════════════════════════════════════════════════════╗
@@ -644,12 +651,40 @@ class CPXService:
             # CPX docs: parameter name is "user_country_code", NOT "country_code"
             if country_iso2:
                 params["user_country_code"] = country_iso2
+
+            # Add CPX User Profiling Parameters (CRITICAL for survey matching)
+            # These "optional" parameters are actually essential for demographic targeting
+            # Without them, CPX cannot match users to age/gender/location-targeted surveys
+            if email:
+                params["email"] = email
+            if birthday_day is not None:
+                params["birthday_day"] = birthday_day
+            if birthday_month is not None:
+                params["birthday_month"] = birthday_month
+            if birthday_year is not None:
+                params["birthday_year"] = birthday_year
+            if gender:
+                params["gender"] = gender  # "m" or "f"
+            if zip_code:
+                params["zip_code"] = zip_code
             
             print(f"🔄 Fetching CPX surveys for tracking_id={internal_tracking_id}")
             print(f"   Device IP: {user_ip}")
             print(f"   Country: {country_iso2}" if country_iso2 else "   Country: not provided")
             print(f"   User-Agent: {user_agent[:80]}..." if user_agent and len(user_agent) > 80 else f"   User-Agent: {user_agent}")
             print(f"   CPX params: app_id={params['app_id']}, ext_user_id={params['ext_user_id']}, ip_user={params['ip_user']}, user_country_code={country_iso2}")
+
+            # Log profiling data if provided
+            if email or birthday_day or birthday_month or birthday_year or gender or zip_code:
+                print(f"   👤 User Profiling Data:")
+                if email:
+                    print(f"      📧 Email: {email}")
+                if birthday_day and birthday_month and birthday_year:
+                    print(f"      📅 DOB: {birthday_year}-{birthday_month:02d}-{birthday_day:02d}")
+                if gender:
+                    print(f"      ⚧ Gender: {gender}")
+                if zip_code:
+                    print(f"      📮 Zip/Postal: {zip_code}")
             
             response = requests.get(
                 self.BASE_URL,
