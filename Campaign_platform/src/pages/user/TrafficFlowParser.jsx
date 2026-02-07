@@ -132,6 +132,12 @@ export default function TrafficFlowParser() {
   const [error, setError] = useState(null);
   const [email, setEmail] = useState("");
   const [emailError, setEmailError] = useState("");
+  const [birthdayDay, setBirthdayDay] = useState("");
+  const [birthdayMonth, setBirthdayMonth] = useState("");
+  const [birthdayYear, setBirthdayYear] = useState("");
+  const [gender, setGender] = useState("");
+  const [zipCode, setZipCode] = useState("");
+  const [profileError, setProfileError] = useState("");
   // NOTE: retryCount removed - CPX forbids retries (each API call binds identity)
   const currentTransIdRef = useRef(null);
   
