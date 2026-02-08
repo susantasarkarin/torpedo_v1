@@ -136,20 +136,20 @@ class CintService:
         self.supplier_code = supplier_code
         self.environment = environment
         self.api_timeout = api_timeout
-        
+
         # Set base URL based on environment
         self.base_url = (
             self.PRODUCTION_BASE_URL
             if environment == "production"
             else self.SANDBOX_BASE_URL
         )
-        
+
         # Collections
         self.cint_surveys_collection = cint_surveys_collection
         self.cint_entry_links_collection = cint_entry_links_collection
         self.cint_settings_collection = cint_settings_collection
         self.cint_outcomes_collection = cint_outcomes_collection
-        
+
         # HTTP client
         self.client = httpx.AsyncClient(timeout=api_timeout)
 
@@ -1109,29 +1109,39 @@ class CintService:
                 headers=self._get_headers(),
             )
             response.raise_for_status()
-            
+
             # Parse response
             api_response = response.json()
-            
+
+            # DEBUG: Log the entire API response to understand its structure
+            logger.info(f"[ENTRY LINK DEBUG] Cint API response for survey {survey_id}: {json.dumps(api_response, indent=2)[:500]}")
+            logger.info(f"[ENTRY LINK DEBUG] Response keys: {list(api_response.keys()) if isinstance(api_response, dict) else type(api_response)}")
+
             # Extract supplier link from response
             if "SupplierLink" in api_response:
                 link_data = api_response["SupplierLink"]
-                
+
+                logger.info(f"[ENTRY LINK DEBUG] SupplierLink data keys: {list(link_data.keys())}")
+                logger.info(f"[ENTRY LINK DEBUG] SupplierLink has live_link: {'LiveLink' in link_data or 'live_link' in link_data}")
+
                 # Create SupplierLink object
                 supplier_link = SupplierLink(
                     survey_id=survey_id,
                     survey_number=survey_id,
                     **link_data
                 )
-                
+
+                logger.info(f"[ENTRY LINK DEBUG] Created SupplierLink object with live_link: {supplier_link.live_link}")
+
                 # Store in MongoDB if collection provided
                 if self.cint_entry_links_collection is not None:
                     self._store_entry_link(supplier_link)
-                
+
                 logger.info(f"Entry link created for survey {survey_id}")
                 return {"success": True, "link": supplier_link}
-            
-            return {"success": False, "error": "Invalid API response"}
+
+            logger.warning(f"[ENTRY LINK DEBUG] No 'SupplierLink' key in response. Full response: {api_response}")
+            return {"success": False, "error": "Invalid API response - missing SupplierLink key"}
         
         except httpx.HTTPStatusError as e:
             logger.error(f"Failed to create entry link: {e.response.status_code}")

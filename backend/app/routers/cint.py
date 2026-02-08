@@ -175,10 +175,13 @@ async def handle_opportunities_webhook(
         raise
     except Exception as e:
         logger.error(f"Error processing opportunities webhook: {str(e)}")
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        import traceback
+        traceback.print_exc()
+        # Return 500 to trigger Cint retry logic
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to process webhook: {str(e)}"
+        )
 
 
 
@@ -309,13 +312,27 @@ async def create_entry_link(
     """
     try:
         logger.info(f"Creating entry link for survey {survey_id}")
-        
+
         # Call CintService to create entry link via API
         result = await cint_service.create_entry_link(survey_id, link_config)
-        
-        if not result:
-            raise HTTPException(status_code=404, detail=f"Failed to create entry link for survey {survey_id}")
-        
+
+        # Check if result indicates failure
+        if not result or not result.get("success"):
+            error_msg = result.get("error", "Unknown error") if result else "No response"
+            status_code = result.get("status_code", 500) if result else 500
+
+            # If survey doesn't exist (404), provide clear message
+            if status_code == 404:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Survey {survey_id} not found or no longer active. Cannot create entry link."
+                )
+
+            raise HTTPException(
+                status_code=status_code,
+                detail=f"Failed to create entry link for survey {survey_id}: {error_msg}"
+            )
+
         return EntryLinkResponse(
             success=True,
             message="Entry link created successfully",
@@ -348,13 +365,27 @@ async def update_entry_link(
     """
     try:
         logger.info(f"Updating entry link for survey {survey_id}")
-        
+
         # Call CintService to update entry link
         result = await cint_service.update_entry_link(survey_id, link_config)
-        
-        if not result:
-            raise HTTPException(status_code=404, detail=f"Entry link not found for survey {survey_id}")
-        
+
+        # Check if result indicates failure
+        if not result or not result.get("success"):
+            error_msg = result.get("error", "Unknown error") if result else "No response"
+            status_code = result.get("status_code", 500) if result else 500
+
+            # If survey doesn't exist (404), provide clear message
+            if status_code == 404:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Entry link not found for survey {survey_id}. Survey may no longer be active."
+                )
+
+            raise HTTPException(
+                status_code=status_code,
+                detail=f"Failed to update entry link for survey {survey_id}: {error_msg}"
+            )
+
         return EntryLinkResponse(
             success=True,
             message="Entry link updated successfully",
@@ -379,16 +410,26 @@ async def auto_create_entry_links_for_all(
     
     # Get active surveys without entry links
     surveys = list(cint_service.cint_surveys_collection.find(
-        {"is_active": True},
-        {"survey_id": 1}
+        {
+            "is_active": True,
+            "is_live": True  # Only process live surveys
+        },
+        {"survey_id": 1, "is_live": 1}
     ).limit(limit))
-    
+
     created = 0
     skipped = 0
     errors = []
-    
+
     for survey in surveys:
         survey_id = survey["survey_id"]
+
+        # Double-check survey is still live before creating entry link
+        if not survey.get("is_live", False):
+            logger.info(f"Skipping survey {survey_id} - not live")
+            skipped += 1
+            continue
+
         try:
             existing = await cint_service.get_entry_link(survey_id)
             if existing.get("success") and existing.get("link"):
@@ -1301,3 +1342,152 @@ async def get_websocket_status():
         "connected_clients": connection_manager.get_connection_count("cint_surveys"),
         "channel": "cint_surveys"
     }
+
+
+@router.get("/diagnostic")
+async def diagnostic_check(cint_service = Depends(get_cint_service)):
+    """
+    Diagnostic endpoint to check Cint integration status.
+
+    Checks:
+    1. Are inventories being downloaded?
+    2. Are entry links being created?
+    3. Do entry links have live_link populated?
+
+    Returns:
+        Diagnostic information about surveys and entry links
+    """
+    if cint_service is None:
+        raise HTTPException(status_code=503, detail="Cint service not initialized")
+
+    diagnostics = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "surveys": {},
+        "entry_links": {},
+        "issues": [],
+        "recommendations": []
+    }
+
+    try:
+        # Check surveys collection
+        if cint_service.cint_surveys_collection:
+            total_surveys = cint_service.cint_surveys_collection.count_documents({})
+            active_surveys = cint_service.cint_surveys_collection.count_documents({"is_active": True})
+            live_surveys = cint_service.cint_surveys_collection.count_documents({"is_live": True})
+
+            diagnostics["surveys"] = {
+                "total": total_surveys,
+                "active": active_surveys,
+                "live": live_surveys,
+                "collection_name": "cint_surveys"
+            }
+
+            # Get sample surveys
+            sample_surveys = list(cint_service.cint_surveys_collection.find(
+                {},
+                {
+                    "survey_id": 1,
+                    "survey_name": 1,
+                    "is_live": 1,
+                    "is_active": 1,
+                    "message_reason": 1,
+                    "total_remaining": 1,
+                    "received_at": 1,
+                    "created_at": 1
+                }
+            ).sort("created_at", -1).limit(5))
+
+            # Convert ObjectId to string
+            for survey in sample_surveys:
+                if "_id" in survey:
+                    survey["_id"] = str(survey["_id"])
+                if "created_at" in survey and hasattr(survey["created_at"], "isoformat"):
+                    survey["created_at"] = survey["created_at"].isoformat()
+                if "received_at" in survey and hasattr(survey["received_at"], "isoformat"):
+                    survey["received_at"] = survey["received_at"].isoformat()
+
+            diagnostics["surveys"]["samples"] = sample_surveys
+
+            # Check if surveys are being received
+            if total_surveys == 0:
+                diagnostics["issues"].append("No surveys found in database")
+                diagnostics["recommendations"].append("Check if webhook subscription is active")
+                diagnostics["recommendations"].append("Verify CINT_WEBHOOK_CALLBACK_URL is correct")
+
+        # Check entry links collection
+        if cint_service.cint_entry_links_collection:
+            total_links = cint_service.cint_entry_links_collection.count_documents({})
+            links_with_live = cint_service.cint_entry_links_collection.count_documents(
+                {"live_link": {"$exists": True, "$ne": None}}
+            )
+            links_without_live = total_links - links_with_live
+
+            diagnostics["entry_links"] = {
+                "total": total_links,
+                "with_live_link": links_with_live,
+                "without_live_link": links_without_live,
+                "collection_name": "cint_entry_links"
+            }
+
+            # Get sample entry links
+            sample_links = list(cint_service.cint_entry_links_collection.find(
+                {},
+                {
+                    "survey_id": 1,
+                    "live_link": 1,
+                    "test_link": 1,
+                    "supplier_link_type_code": 1,
+                    "created_at": 1
+                }
+            ).sort("created_at", -1).limit(5))
+
+            # Convert ObjectId to string
+            for link in sample_links:
+                if "_id" in link:
+                    link["_id"] = str(link["_id"])
+                if "created_at" in link and hasattr(link["created_at"], "isoformat"):
+                    link["created_at"] = link["created_at"].isoformat()
+
+            diagnostics["entry_links"]["samples"] = sample_links
+
+            # Check for issues
+            if total_links == 0 and total_surveys > 0:
+                diagnostics["issues"].append("No entry links found despite having surveys")
+                diagnostics["recommendations"].append("Run POST /api/cint/auto-create-entry-links to create entry links")
+
+            if links_without_live > 0:
+                diagnostics["issues"].append(f"{links_without_live} entry links missing live_link field")
+                diagnostics["recommendations"].append("Check Cint API response format - may have changed structure")
+                diagnostics["recommendations"].append("Verify API credentials have permission to create entry links")
+
+        # Check webhook subscription status
+        try:
+            sub_result = await cint_service.get_opportunities_subscription()
+            diagnostics["subscription"] = {
+                "status": "active" if sub_result.get("success") else "inactive",
+                "details": sub_result
+            }
+
+            if not sub_result.get("success"):
+                diagnostics["issues"].append("Webhook subscription is not active")
+                diagnostics["recommendations"].append("Create webhook subscription via POST /api/cint/subscription/opportunities")
+        except Exception as sub_err:
+            diagnostics["subscription"] = {
+                "status": "error",
+                "error": str(sub_err)
+            }
+
+        # Overall health check
+        if not diagnostics["issues"]:
+            diagnostics["status"] = "healthy"
+            diagnostics["message"] = "All checks passed"
+        else:
+            diagnostics["status"] = "issues_found"
+            diagnostics["message"] = f"Found {len(diagnostics['issues'])} issues"
+
+        return diagnostics
+
+    except Exception as e:
+        logger.error(f"Diagnostic check failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Diagnostic failed: {str(e)}")
+
