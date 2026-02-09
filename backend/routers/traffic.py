@@ -1192,30 +1192,32 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 
                 client = MongoClient(mongo_uri)
                 
-                # Get active CINT surveys filtered by country
+                # Get active CINT surveys matching user's country
                 cint_collection = client["cint_research"]["cint_surveys"]
                 
-                # Map user's country code to CINT format (e.g., "US" -> "_us", "IN" -> "_in")
-                user_country = country_code.lower() if country_code else "us"
-                country_pattern = f"_{user_country}$"
+                # Map country code to CINT country_language suffix
+                # CINT uses format like "eng_us", "eng_gb", "eng_in", "spa_mx", etc.
+                country_suffix = country_code.lower() if country_code else ""
                 
-                cint_query = {
-                    "is_active_in_pool": True,
-                    "country_language": {"$regex": country_pattern, "$options": "i"}
-                }
+                cint_query = {"is_active_in_pool": True}
+                
+                # Add country filter if we have a country code
+                if country_suffix:
+                    # Filter by country_language ending with user's country code
+                    cint_query["country_language"] = {"$regex": f"_{country_suffix}$", "$options": "i"}
+                    print(f"🌍 CINT filtering surveys for country: {country_suffix}")
+                
                 cint_surveys = list(cint_collection.find(cint_query).limit(50))
                 
                 if not cint_surveys:
-                    print(f"⚠️ No active CINT surveys available for country {country_code}")
+                    print(f"⚠️ No active CINT surveys available for country: {country_suffix or 'any'}")
                     return False
-                
-                print(f"✅ Found {len(cint_surveys)} CINT surveys for country {country_code}")
                 
                 # Select a random survey
                 selected_survey = random.choice(cint_surveys)
                 survey_id = str(selected_survey.get('survey_id') or selected_survey.get('_id'))
                 
-                print(f"🎯 CINT selected survey: {survey_id}")
+                print(f"🎯 CINT selected survey: {survey_id} (country: {selected_survey.get('country_language')})")
                 
                 # First check MongoDB cache for entry link
                 entry_links_collection = client["cint_research"]["cint_entry_links"]
