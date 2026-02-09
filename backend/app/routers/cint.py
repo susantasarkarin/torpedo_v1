@@ -1172,6 +1172,163 @@ async def sync_active_status(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================
+# Rate Card Endpoint - Aggregated CPI Matrix
+# ============================================
+
+# Define IR ranges (rows)
+IR_RANGES = [
+    {"label": "<5%", "min": 0, "max": 5},
+    {"label": "6-10%", "min": 6, "max": 10},
+    {"label": "11-20%", "min": 11, "max": 20},
+    {"label": "21-30%", "min": 21, "max": 30},
+    {"label": "31-40%", "min": 31, "max": 40},
+    {"label": "41-50%", "min": 41, "max": 50},
+    {"label": "51-60%", "min": 51, "max": 60},
+    {"label": "61-70%", "min": 61, "max": 70},
+    {"label": "71-80%", "min": 71, "max": 80},
+    {"label": "81-90%", "min": 81, "max": 90},
+    {"label": "91-100%", "min": 91, "max": 100},
+]
+
+# Define LOI ranges (columns)
+LOI_RANGES = [
+    {"label": "<5 min", "min": 0, "max": 4},
+    {"label": "5-10 min", "min": 5, "max": 10},
+    {"label": "10-15 min", "min": 11, "max": 15},
+    {"label": "15-20 min", "min": 16, "max": 20},
+    {"label": "20-30 min", "min": 21, "max": 30},
+    {"label": ">30 min", "min": 31, "max": 9999},
+]
+
+@router.get("/surveys/rate-card")
+async def get_rate_card(
+    country: Optional[str] = Query(None, description="Filter by country code (e.g., US, CA, GB, AU)"),
+    cint_service = Depends(get_cint_service),
+) -> Dict[str, Any]:
+    """
+    Get rate card matrix - aggregated CPI by IR and LOI ranges
+    
+    Returns a matrix of average CPI rates organized by:
+    - Rows: Incidence Rate (IR) ranges
+    - Columns: Length of Interview (LOI) ranges
+    
+    Args:
+        country: Country code to filter (extracted from country_language like "eng_us" -> "US")
+        cint_service: CintService instance
+    
+    Returns:
+        {
+            "success": true,
+            "country": "US",
+            "countries": ["US", "CA", "GB", "AU"],
+            "ir_ranges": [...],
+            "loi_ranges": [...],
+            "matrix": [[{avg, min, max, count}, ...], ...],
+            "total_surveys": 8500,
+            "filtered_surveys": 5200
+        }
+    """
+    try:
+        logger.info(f"Building rate card matrix for country: {country}")
+        
+        # Get all surveys (no pagination limit for internal use)
+        all_surveys = cint_service.get_all_surveys_for_rate_card()
+        total_surveys = len(all_surveys)
+        
+        # Extract country from country_language (e.g., "eng_us" -> "US")
+        def extract_country(survey):
+            cl = survey.get("country_language", "")
+            if isinstance(cl, str) and "_" in cl:
+                return cl.split("_")[-1].upper()
+            return None
+        
+        # Get unique countries
+        countries = sorted(set(filter(None, [extract_country(s) for s in all_surveys])))
+        
+        # Filter by country if specified
+        if country:
+            country_upper = country.upper()
+            all_surveys = [s for s in all_surveys if extract_country(s) == country_upper]
+        
+        filtered_surveys = len(all_surveys)
+        
+        # Initialize matrix with empty cells
+        matrix = []
+        for ir_range in IR_RANGES:
+            row = []
+            for loi_range in LOI_RANGES:
+                row.append({
+                    "avg": None,
+                    "min": None,
+                    "max": None,
+                    "count": 0,
+                    "surveys": []
+                })
+            matrix.append(row)
+        
+        # Populate matrix with survey data
+        for survey in all_surveys:
+            ir = survey.get("bid_incidence")
+            loi = survey.get("length_of_interview") or survey.get("bid_length_of_interview")
+            
+            # Extract CPI from revenue_per_interview
+            rpi = survey.get("revenue_per_interview")
+            cpi = None
+            if rpi:
+                if isinstance(rpi, dict):
+                    cpi = float(rpi.get("value", 0))
+                elif isinstance(rpi, (int, float)):
+                    cpi = float(rpi)
+            
+            if ir is None or loi is None or cpi is None or cpi <= 0:
+                continue
+            
+            # Find IR range index
+            ir_idx = None
+            for i, r in enumerate(IR_RANGES):
+                if r["min"] <= ir <= r["max"]:
+                    ir_idx = i
+                    break
+            
+            # Find LOI range index
+            loi_idx = None
+            for j, r in enumerate(LOI_RANGES):
+                if r["min"] <= loi <= r["max"]:
+                    loi_idx = j
+                    break
+            
+            if ir_idx is not None and loi_idx is not None:
+                cell = matrix[ir_idx][loi_idx]
+                cell["surveys"].append(cpi)
+                cell["count"] += 1
+        
+        # Calculate averages, min, max for each cell
+        for row in matrix:
+            for cell in row:
+                if cell["count"] > 0:
+                    surveys = cell["surveys"]
+                    cell["avg"] = round(sum(surveys) / len(surveys), 2)
+                    cell["min"] = round(min(surveys), 2)
+                    cell["max"] = round(max(surveys), 2)
+                del cell["surveys"]  # Don't send raw data to frontend
+        
+        return {
+            "success": True,
+            "country": country.upper() if country else None,
+            "countries": countries,
+            "ir_ranges": [r["label"] for r in IR_RANGES],
+            "loi_ranges": [r["label"] for r in LOI_RANGES],
+            "matrix": matrix,
+            "total_surveys": total_surveys,
+            "filtered_surveys": filtered_surveys,
+        }
+    
+    except Exception as e:
+        logger.error(f"Error building rate card: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/surveys")
 async def get_surveys(
     min_loi: Optional[int] = Query(None, ge=1, le=60, description="Minimum LOI in minutes"),

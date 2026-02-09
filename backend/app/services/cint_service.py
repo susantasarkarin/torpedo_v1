@@ -1402,6 +1402,46 @@ class CintService:
         
         return None
 
+    def get_all_surveys_for_rate_card(self) -> List[Dict[str, Any]]:
+        """
+        Get all active surveys for rate card calculation (no pagination).
+        
+        Returns only the fields needed for rate card: bid_incidence, 
+        length_of_interview, revenue_per_interview, country_language.
+        
+        Returns:
+            List of survey dicts with rate card relevant fields
+        """
+        if self.cint_surveys_collection is None:
+            return []
+        
+        try:
+            # Query for active/live surveys
+            filter_query = {
+                "$or": [
+                    {"is_active": True},
+                    {"is_live": True, "message_reason": {"$ne": "deactivated"}}
+                ]
+            }
+            
+            # Only fetch fields needed for rate card calculation
+            projection = {
+                "_id": 0,
+                "survey_id": 1,
+                "bid_incidence": 1,
+                "length_of_interview": 1,
+                "bid_length_of_interview": 1,
+                "revenue_per_interview": 1,
+                "country_language": 1,
+            }
+            
+            cursor = self.cint_surveys_collection.find(filter_query, projection)
+            return list(cursor)
+        
+        except Exception as e:
+            logger.error(f"Error fetching surveys for rate card: {str(e)}")
+            return []
+
     def get_surveys(
         self,
         min_loi: Optional[int] = None,
