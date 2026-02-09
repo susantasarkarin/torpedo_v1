@@ -27,6 +27,12 @@
   font-size: 13px;
 }
 
+.page-header .last-refresh {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #9ca3af;
+}
+
 .refresh-button {
   border: none;
   background: #2563eb;

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { buildApiUrl } from "../../config";
 import "./RateCard.css";
@@ -39,6 +39,26 @@ const IR_RANGES = [
   { label: "91-100%", min: 91, max: 100 },
 ];
 
+// Default baseline rates (USD) when no data available - rates increase with lower IR and longer LOI
+// Rows: IR ranges, Columns: LOI ranges
+const DEFAULT_RATES = [
+  // <5%    5-10   10-15  15-20  20-30  >30
+  [8.50,  10.00, 12.00, 14.00, 17.00, 22.00], // <5%
+  [6.00,   7.50,  9.00, 10.50, 13.00, 17.00], // 6-10%
+  [4.50,   5.50,  6.50,  7.50,  9.50, 12.50], // 11-20%
+  [3.50,   4.25,  5.00,  5.75,  7.25,  9.50], // 21-30%
+  [2.75,   3.25,  3.75,  4.50,  5.75,  7.50], // 31-40%
+  [2.25,   2.75,  3.25,  3.75,  4.75,  6.25], // 41-50%
+  [1.90,   2.30,  2.70,  3.10,  4.00,  5.25], // 51-60%
+  [1.60,   1.95,  2.30,  2.65,  3.40,  4.50], // 61-70%
+  [1.35,   1.65,  1.95,  2.25,  2.90,  3.85], // 71-80%
+  [1.15,   1.40,  1.65,  1.90,  2.45,  3.25], // 81-90%
+  [1.00,   1.20,  1.40,  1.60,  2.10,  2.75], // 91-100%
+];
+
+// Auto-refresh interval (5 minutes)
+const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000;
+
 function RateCard() {
   const { user, token } = useAuth();
   const [surveys, setSurveys] = useState([]);
@@ -46,26 +66,22 @@ function RateCard() {
   const [error, setError] = useState(null);
   const [markupPercent, setMarkupPercent] = useState(15);
   const [countryFilter, setCountryFilter] = useState("");
+  const [lastRefresh, setLastRefresh] = useState(null);
 
-  useEffect(() => {
-    if (token) {
-      fetchAllSurveys();
-    }
-  }, [token]);
-
-  const fetchAllSurveys = async () => {
+  const fetchAllSurveys = useCallback(async () => {
+    if (!token) return;
     setLoading(true);
     setError(null);
 
     try {
-      const cpxResponse = await fetch(buildApiUrl("/cpx/surveys?page=1&page_size=50000&show_all=true"), {
+      const cpxResponse = await fetch(buildApiUrl("/cpx/surveys?page=1&page_size=500000&show_all=true"), {
         headers: {
           Authorization: token,
           "Content-Type": "application/json",
         },
       });
 
-      const cintQuery = "/api/cint/surveys?page=1&page_size=50000&show_all=true";
+      const cintQuery = "/api/cint/surveys?page=1&page_size=500000&show_all=true";
       const cintResponse = await fetch(buildApiUrl(cintQuery), {
         headers: {
           Authorization: token,
@@ -107,13 +123,23 @@ function RateCard() {
       }
 
       setSurveys(allSurveys);
+      setLastRefresh(new Date());
     } catch (err) {
       console.error("Error fetching surveys:", err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  // Initial fetch and auto-refresh
+  useEffect(() => {
+    if (token) {
+      fetchAllSurveys();
+      const interval = setInterval(fetchAllSurveys, AUTO_REFRESH_INTERVAL);
+      return () => clearInterval(interval);
+    }
+  }, [token, fetchAllSurveys]);
 
   const getCountryCode = (survey) => {
     const countryLanguage = survey.country_language;
@@ -222,6 +248,13 @@ function RateCard() {
     return Array.from(countries).sort();
   }, [surveys]);
 
+  // Set default country when countries load
+  useEffect(() => {
+    if (availableCountries.length > 0 && !countryFilter) {
+      setCountryFilter(availableCountries[0]);
+    }
+  }, [availableCountries]);
+
   // Helper to find which range a value falls into
   const findLOIRange = (loi) => {
     return LOI_RANGES.findIndex((r) => loi >= r.min && loi <= r.max);
@@ -264,13 +297,17 @@ function RateCard() {
       matrix[irIdx][loiIdx].count += 1;
     });
 
-    const globalMedian = getMedian(allRates);
-
-    // Calculate median + markup for each cell
-    return matrix.map((row) =>
-      row.map((cell) => {
-        const median = cell.rates.length ? getMedian(cell.rates) : globalMedian;
-        const rate = applyMarkup(median);
+    // Calculate median + markup for each cell, use DEFAULT_RATES as fallback
+    return matrix.map((row, irIdx) =>
+      row.map((cell, loiIdx) => {
+        let baseRate;
+        if (cell.rates.length > 0) {
+          baseRate = getMedian(cell.rates);
+        } else {
+          // Use default rate for this IR/LOI combination
+          baseRate = DEFAULT_RATES[irIdx][loiIdx];
+        }
+        const rate = applyMarkup(baseRate);
         return {
           rate,
           count: cell.count,
@@ -295,6 +332,9 @@ function RateCard() {
         <div>
           <h1>Rate Card</h1>
           <p>Based on all Cint study pool entries (active + inactive). Rates shown are median + {markupPercent}% markup.</p>
+          {lastRefresh && (
+            <p className="last-refresh">Last updated: {lastRefresh.toLocaleTimeString()} (auto-refreshes every 5 min)</p>
+          )}
         </div>
         <button className="refresh-button" onClick={fetchAllSurveys} disabled={loading}>
           {loading ? "Refreshing..." : "Refresh"}
@@ -305,7 +345,6 @@ function RateCard() {
         <div className="filter-group">
           <label>Country</label>
           <select value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)}>
-            <option value="">All Countries</option>
             {availableCountries.map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
