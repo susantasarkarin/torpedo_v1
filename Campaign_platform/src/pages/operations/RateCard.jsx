@@ -77,29 +77,42 @@ function RateCard() {
     setError(null);
 
     try {
-      // Use direct production URL for CINT surveys
-      const apiUrl = "https://torpedo.cogentixresearch.com/api/cint/surveys?page=1&page_size=100000";
-      console.log("Fetching CINT surveys from:", apiUrl);
-      
-      const response = await fetch(apiUrl);
-      console.log("CINT API response status:", response.status);
-      
-      if (!response.ok) {
-        throw new Error(`API returned status ${response.status}`);
-      }
-      
-      const data = await response.json();
-      console.log("CINT API response - success:", data.success, "total:", data.total);
-      
+      // Fetch all pages (API has page_size limit of ~1000)
+      const PAGE_SIZE = 1000;
       let allSurveys = [];
-      if (data && data.surveys && Array.isArray(data.surveys)) {
-        allSurveys = data.surveys.map((s) => ({ ...s, source: "CINT" }));
-        console.log("Loaded", allSurveys.length, "CINT surveys");
-        if (allSurveys.length > 0) {
-          console.log("Sample survey country_language:", allSurveys[0].country_language);
+      let page = 1;
+      let totalSurveys = 0;
+      
+      do {
+        const apiUrl = `${buildApiUrl("/api/cint/surveys")}?page=${page}&page_size=${PAGE_SIZE}`;
+        console.log(`Fetching page ${page} from:`, apiUrl);
+        
+        const response = await fetch(apiUrl);
+        console.log(`Page ${page} response status:`, response.status);
+        
+        if (!response.ok) {
+          throw new Error(`API returned status ${response.status}`);
         }
-      } else {
-        console.error("Invalid response structure:", data);
+        
+        const data = await response.json();
+        
+        if (page === 1) {
+          totalSurveys = data.total || 0;
+          console.log("Total surveys available:", totalSurveys);
+        }
+        
+        if (data && data.surveys && Array.isArray(data.surveys)) {
+          const pageSurveys = data.surveys.map((s) => ({ ...s, source: "CINT" }));
+          allSurveys = allSurveys.concat(pageSurveys);
+          console.log(`Got ${pageSurveys.length} surveys from page ${page}, total so far: ${allSurveys.length}`);
+        }
+        
+        page++;
+      } while (allSurveys.length < totalSurveys && page <= Math.ceil(totalSurveys / PAGE_SIZE));
+      
+      console.log("Loaded total CINT surveys:", allSurveys.length);
+      if (allSurveys.length > 0) {
+        console.log("Sample survey country_language:", allSurveys[0].country_language);
       }
 
       setSurveys(allSurveys);
