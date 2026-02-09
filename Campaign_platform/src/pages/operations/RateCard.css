@@ -130,10 +130,10 @@
 
 .matrix-table th,
 .matrix-table td {
-  padding: 12px 14px;
+  padding: 8px 10px;
   text-align: center;
   border: 1px solid #e5e7eb;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .matrix-table thead th {
@@ -162,7 +162,7 @@
 .rate-cell {
   font-weight: 500;
   color: #1f2937;
-  position: relative;
+  min-width: 70px;
 }
 
 .rate-cell.has-data {
@@ -173,14 +173,6 @@
 .rate-cell.estimated {
   background: #fef3c7;
   color: #92400e;
-}
-
-.cell-count {
-  display: block;
-  font-size: 10px;
-  color: #6b7280;
-  font-weight: 400;
-  margin-top: 2px;
 }
 
 .legend {

@@ -58,14 +58,14 @@ function RateCard() {
     setError(null);
 
     try {
-      const cpxResponse = await fetch(buildApiUrl("/cpx/surveys?page=1&page_size=1000&show_all=true"), {
+      const cpxResponse = await fetch(buildApiUrl("/cpx/surveys?page=1&page_size=50000&show_all=true"), {
         headers: {
           Authorization: token,
           "Content-Type": "application/json",
         },
       });
 
-      const cintQuery = "/api/cint/surveys?page=1&page_size=1000&show_all=true";
+      const cintQuery = "/api/cint/surveys?page=1&page_size=50000&show_all=true";
       const cintResponse = await fetch(buildApiUrl(cintQuery), {
         headers: {
           Authorization: token,
@@ -359,9 +359,6 @@ function RateCard() {
                       {cell.rate !== null && !isNaN(cell.rate)
                         ? `$${cell.rate.toFixed(2)}`
                         : "-"}
-                      {cell.count > 0 && (
-                        <span className="cell-count">({cell.count})</span>
-                      )}
                     </td>
                   );
                 })}
