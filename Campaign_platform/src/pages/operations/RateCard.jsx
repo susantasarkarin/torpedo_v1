@@ -263,7 +263,13 @@ function RateCard() {
     surveys.forEach((survey, idx) => {
       const country = getCountryCode(survey);
       if (idx < 5) {
-        console.log(`Survey ${idx}: country_language=${survey.country_language}, country=${survey.country}, extracted=${country}`);
+        console.log(`Survey ${idx}:`, { 
+          country_language: survey.country_language, 
+          country: survey.country, 
+          country_code: survey.country_code,
+          extracted: country,
+          source: survey.source
+        });
       }
       if (country !== "N/A" && !country.startsWith("ID:")) {
         countries.add(country);
@@ -378,6 +384,9 @@ function RateCard() {
           {lastRefresh && (
             <p className="last-refresh">Last updated: {lastRefresh.toLocaleTimeString()} (auto-refreshes every 5 min)</p>
           )}
+          <p style={{fontSize: '12px', color: '#666'}}>
+            Debug: {surveys.length} total surveys loaded, {availableCountries.length} countries found
+          </p>
         </div>
         <button className="refresh-button" onClick={fetchAllSurveys} disabled={loading}>
           {loading ? "Refreshing..." : "Refresh"}
@@ -387,24 +396,12 @@ function RateCard() {
       <div className="filters-section">
         <div className="filter-group">
           <label>Country</label>
-          <div className="select-row">
-            <select 
-              value={countryFilter} 
-              onChange={(e) => setCountryFilter(e.target.value)}
-              disabled={loading || availableCountries.length === 0}
-            >
-              {loading ? (
-                <option value="">Loading...</option>
-              ) : availableCountries.length === 0 ? (
-                <option value="">No countries found</option>
-              ) : (
-                availableCountries.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))
-              )}
-            </select>
-            <span className="country-count">({availableCountries.length} countries)</span>
-          </div>
+          <select value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)}>
+            {availableCountries.length === 0 && <option value="">No countries available</option>}
+            {availableCountries.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
         </div>
 
         <label className="markup-control">
