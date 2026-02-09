@@ -78,7 +78,7 @@ function RateCard() {
 
     try {
       // Use direct production URL for CINT surveys
-      const apiUrl = "https://torpedo.cogentixresearch.com/api/cint/surveys?page=1&page_size=500000&show_all=true";
+      const apiUrl = "https://torpedo.cogentixresearch.com/api/cint/surveys?page=1&page_size=100000";
       console.log("Fetching CINT surveys from:", apiUrl);
       
       const response = await fetch(apiUrl);
