@@ -652,8 +652,66 @@ class CintService:
             filter.dict(exclude_none=True)
             for filter in config.opportunities_filters
         ] if config.opportunities_filters else [
-            # Default: accept major English-speaking locales
-            {"country_language": {"in": ["eng_us", "eng_gb", "eng_ca", "eng_au"]}}
+            # Default: accept ALL countries (empty filter or no country_language restriction)
+            # Full list of Cint country_language codes for global coverage:
+            {"country_language": {"in": [
+                # English
+                "eng_us", "eng_gb", "eng_ca", "eng_au", "eng_nz", "eng_ie", "eng_za", "eng_in", "eng_ph", "eng_sg", "eng_hk", "eng_my",
+                # Spanish
+                "spa_mx", "spa_es", "spa_ar", "spa_co", "spa_cl", "spa_pe", "spa_ve", "spa_ec", "spa_gt", "spa_cu", "spa_bo", "spa_py", "spa_uy", "spa_pa", "spa_cr", "spa_pr", "spa_ni", "spa_hn", "spa_sv",
+                # Portuguese
+                "por_br", "por_pt",
+                # French
+                "fra_fr", "fra_ca", "fra_be", "fra_ch",
+                # German
+                "deu_de", "deu_at", "deu_ch",
+                # Italian
+                "ita_it", "ita_ch",
+                # Dutch
+                "nld_nl", "nld_be",
+                # Polish
+                "pol_pl",
+                # Russian
+                "rus_ru",
+                # Japanese
+                "jpn_jp",
+                # Korean
+                "kor_kr",
+                # Chinese
+                "zho_cn", "zho_tw", "zho_hk", "zho_sg",
+                # Arabic
+                "ara_sa", "ara_ae", "ara_eg", "ara_ma",
+                # Turkish
+                "tur_tr",
+                # Thai
+                "tha_th",
+                # Indonesian
+                "ind_id",
+                # Vietnamese
+                "vie_vn",
+                # Hindi
+                "hin_in",
+                # Swedish
+                "swe_se",
+                # Norwegian
+                "nor_no",
+                # Danish
+                "dan_dk",
+                # Finnish
+                "fin_fi",
+                # Czech
+                "ces_cz",
+                # Hungarian
+                "hun_hu",
+                # Romanian
+                "ron_ro",
+                # Greek
+                "ell_gr",
+                # Hebrew
+                "heb_il",
+                # Malay
+                "msa_my"
+            ]}}
         ]
         
         payload = {
@@ -1416,13 +1474,8 @@ class CintService:
             return []
         
         try:
-            # Query for active/live surveys
-            filter_query = {
-                "$or": [
-                    {"is_active": True},
-                    {"is_live": True, "message_reason": {"$ne": "deactivated"}}
-                ]
-            }
+            # Include all surveys (active + inactive) for rate card calculations
+            filter_query = {}
             
             # Only fetch fields needed for rate card calculation
             projection = {

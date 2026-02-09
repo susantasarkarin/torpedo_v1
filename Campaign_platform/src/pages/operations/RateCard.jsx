@@ -3,22 +3,6 @@ import { useAuth } from "../../hooks/useAuth";
 import { buildApiUrl } from "../../config";
 import "./RateCard.css";
 
-// Default baseline rates (USD) when no data available - rates increase with lower IR and longer LOI
-const DEFAULT_RATES = [
-  // <5min  5-10   10-15  15-20  20-30  >30
-  [8.50,  10.00, 12.00, 14.00, 17.00, 22.00], // <5%
-  [6.00,   7.50,  9.00, 10.50, 13.00, 17.00], // 6-10%
-  [4.50,   5.50,  6.50,  7.50,  9.50, 12.50], // 11-20%
-  [3.50,   4.25,  5.00,  5.75,  7.25,  9.50], // 21-30%
-  [2.75,   3.25,  3.75,  4.50,  5.75,  7.50], // 31-40%
-  [2.25,   2.75,  3.25,  3.75,  4.75,  6.25], // 41-50%
-  [1.90,   2.30,  2.70,  3.10,  4.00,  5.25], // 51-60%
-  [1.60,   1.95,  2.30,  2.65,  3.40,  4.50], // 61-70%
-  [1.35,   1.65,  1.95,  2.25,  2.90,  3.85], // 71-80%
-  [1.15,   1.40,  1.65,  1.90,  2.45,  3.25], // 81-90%
-  [1.00,   1.20,  1.40,  1.60,  2.10,  2.75], // 91-100%
-];
-
 // Auto-refresh interval (5 minutes)
 const AUTO_REFRESH_INTERVAL = 5 * 60 * 1000;
 
@@ -27,7 +11,6 @@ function RateCard() {
   const [rateCardData, setRateCardData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [markupPercent, setMarkupPercent] = useState(15);
   const [countryFilter, setCountryFilter] = useState("");
   const [lastRefresh, setLastRefresh] = useState(null);
 
@@ -88,12 +71,6 @@ function RateCard() {
     fetchRateCard(newCountry);
   };
 
-  const applyMarkup = (value) => {
-    if (value === null || value === undefined || isNaN(value)) return null;
-    const safeMarkup = Number.isFinite(markupPercent) ? markupPercent : 0;
-    return value * (1 + safeMarkup / 100);
-  };
-
   // Calculate total surveys from matrix
   const totalSurveys = rateCardData?.matrix
     ? rateCardData.matrix.flat().reduce((sum, cell) => sum + (cell.count || 0), 0)
@@ -108,7 +85,7 @@ function RateCard() {
       <div className="page-header">
         <div>
           <h1>Rate Card</h1>
-          <p>Based on all Cint study pool entries (active + inactive). Rates shown are average + {markupPercent}% markup.</p>
+          <p>Based on all Cint study pool entries (active + inactive). Rates shown are the exact averages from the backend.</p>
           {lastRefresh && (
             <p className="last-refresh">Last updated: {lastRefresh.toLocaleTimeString()} (auto-refreshes every 5 min)</p>
           )}
@@ -135,18 +112,6 @@ function RateCard() {
             ))}
           </select>
         </div>
-
-        <label className="markup-control">
-          <span>Markup %</span>
-          <input
-            type="number"
-            min="0"
-            max="100"
-            step="1"
-            value={markupPercent}
-            onChange={(event) => setMarkupPercent(Number(event.target.value))}
-          />
-        </label>
 
         <div className="count-pill">{totalSurveys} surveys</div>
       </div>
@@ -176,8 +141,7 @@ function RateCard() {
                   {rateCardData.loi_ranges.map((loiLabel, loiIdx) => {
                     const cell = rateCardData.matrix[irIdx]?.[loiIdx] || {};
                     const hasData = cell.count > 0 && cell.avg !== null;
-                    const baseRate = hasData ? cell.avg : DEFAULT_RATES[irIdx]?.[loiIdx] || 0;
-                    const rate = applyMarkup(baseRate);
+                    const rate = hasData ? cell.avg : null;
                     
                     return (
                       <td
@@ -185,7 +149,7 @@ function RateCard() {
                         className={`rate-cell ${hasData ? "has-data" : "estimated"}`}
                         title={hasData 
                           ? `${cell.count} surveys\nAvg: $${cell.avg}\nMin: $${cell.min}\nMax: $${cell.max}`
-                          : "Default rate (no data)"
+                          : "No data"
                         }
                       >
                         {rate !== null && !isNaN(rate)
@@ -203,7 +167,7 @@ function RateCard() {
 
       <div className="legend">
         <span className="legend-item"><span className="legend-dot has-data"></span> Average rate from data</span>
-        <span className="legend-item"><span className="legend-dot estimated"></span> Default rate (no data)</span>
+        <span className="legend-item"><span className="legend-dot estimated"></span> No data</span>
       </div>
     </div>
   );

@@ -3,10 +3,25 @@ import { useAuth } from "../../hooks/useAuth";
 import { buildApiUrl } from "../../config";
 import "./PotentialClients.css";
 
+const STORAGE_KEY = "potential_clients_v1";
+
 function PotentialClients() {
   const { user, token } = useAuth();
   const [surveys, setSurveys] = useState([]);
   const [clients, setClients] = useState([]);
+  const [persistedClients, setPersistedClients] = useState(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed = JSON.parse(raw || "[]");
+      if (Array.isArray(parsed)) {
+        return parsed.filter((entry) => entry && entry.key && entry.name);
+      }
+    } catch (err) {
+      console.warn("Failed to load persisted clients:", err);
+    }
+    return [];
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
@@ -17,6 +32,35 @@ function PotentialClients() {
       fetchClients();
     }
   }, [token]);
+
+  useEffect(() => {
+    if (!surveys.length) return;
+
+    const nextMap = new Map(persistedClients.map((entry) => [entry.key, entry]));
+    let hasChanges = false;
+
+    surveys.forEach((survey) => {
+      const rawName = getClientName(survey);
+      const normalized = normalizeClientName(rawName);
+      if (!normalized) return;
+
+      const key = normalized.toLowerCase();
+      if (!nextMap.has(key)) {
+        nextMap.set(key, { key, name: normalized });
+        hasChanges = true;
+      }
+    });
+
+    if (hasChanges) {
+      const updated = Array.from(nextMap.values());
+      setPersistedClients(updated);
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      } catch (err) {
+        console.warn("Failed to persist clients:", err);
+      }
+    }
+  }, [surveys, clients, persistedClients]);
 
   const fetchAllSurveys = async () => {
     setLoading(true);
@@ -129,23 +173,32 @@ function PotentialClients() {
     return client?.company_name || client?.name || "N/A";
   };
 
-  const clientStats = useMemo(() => {
-    const statsMap = new Map();
+  const normalizeClientName = (name) => {
+    if (!name || name === "N/A") return null;
+    const trimmed = String(name).trim();
+    return trimmed ? trimmed : null;
+  };
+
+  const currentCounts = useMemo(() => {
+    const counts = new Map();
 
     surveys.forEach((survey) => {
-      const name = getClientName(survey);
-      if (!name || name === "N/A") return;
-
-      const trimmed = name.trim();
-      if (!trimmed) return;
-
-      const key = trimmed.toLowerCase();
-      const entry = statsMap.get(key) || { name: trimmed, count: 0 };
-      entry.count += 1;
-      statsMap.set(key, entry);
+      const name = normalizeClientName(getClientName(survey));
+      if (!name) return;
+      const key = name.toLowerCase();
+      counts.set(key, (counts.get(key) || 0) + 1);
     });
 
-    let items = Array.from(statsMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return counts;
+  }, [surveys, clients]);
+
+  const clientStats = useMemo(() => {
+    let items = persistedClients
+      .map((entry) => ({
+        name: entry.name,
+        count: currentCounts.get(entry.key) || 0,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
 
     if (search.trim()) {
       const term = search.trim().toLowerCase();
@@ -153,7 +206,7 @@ function PotentialClients() {
     }
 
     return items;
-  }, [surveys, clients, search]);
+  }, [persistedClients, currentCounts, search]);
 
   if (!user) {
     return <div className="potential-clients-page">Please login to access Potential Clients.</div>;
