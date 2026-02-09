@@ -72,59 +72,34 @@ function RateCard() {
   const previousRatesRef = useRef({});
 
   const fetchAllSurveys = useCallback(async () => {
-    console.log("fetchAllSurveys called, token:", token ? "present" : "missing");
+    console.log("fetchAllSurveys called");
     setLoading(true);
     setError(null);
 
     try {
-      // Only fetch CINT surveys - no auth required
-      const cintQuery = "/api/cint/surveys?page=1&page_size=500000&show_all=true";
-      const apiUrl = buildApiUrl(cintQuery);
+      // Use direct production URL for CINT surveys
+      const apiUrl = "https://torpedo.cogentixresearch.com/api/cint/surveys?page=1&page_size=500000&show_all=true";
       console.log("Fetching CINT surveys from:", apiUrl);
       
-      const cintResponse = await fetch(apiUrl, {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-
-      console.log("CINT API response status:", cintResponse.status);
+      const response = await fetch(apiUrl);
+      console.log("CINT API response status:", response.status);
       
-      let cintData = null;
-      if (cintResponse.ok) {
-        cintData = await cintResponse.json();
-        console.log("CINT API response - total surveys:", cintData.total);
-      } else {
-        const errorText = await cintResponse.text();
-        console.error("CINT API failed with status:", cintResponse.status, "body:", errorText);
-        // Try fallback URL
-        try {
-          const fallbackUrl = `https://torpedo.cogentixresearch.com${cintQuery}`;
-          console.log("Trying fallback URL:", fallbackUrl);
-          const fallbackResponse = await fetch(fallbackUrl, {
-            headers: {
-              "Content-Type": "application/json",
-            },
-          });
-          if (fallbackResponse.ok) {
-            cintData = await fallbackResponse.json();
-            console.log("CINT fallback response - total:", cintData.total);
-          } else {
-            console.error("Fallback also failed:", fallbackResponse.status);
-          }
-        } catch (fallbackError) {
-          console.warn("CINT fallback fetch failed:", fallbackError);
-        }
+      if (!response.ok) {
+        throw new Error(`API returned status ${response.status}`);
       }
-
+      
+      const data = await response.json();
+      console.log("CINT API response - success:", data.success, "total:", data.total);
+      
       let allSurveys = [];
-      if (cintData && cintData.surveys) {
-        allSurveys = cintData.surveys.map((s) => ({ ...s, source: "CINT" }));
+      if (data && data.surveys && Array.isArray(data.surveys)) {
+        allSurveys = data.surveys.map((s) => ({ ...s, source: "CINT" }));
         console.log("Loaded", allSurveys.length, "CINT surveys");
         if (allSurveys.length > 0) {
-          console.log("Sample survey fields:", Object.keys(allSurveys[0]));
-          console.log("Sample survey:", allSurveys[0]);
+          console.log("Sample survey country_language:", allSurveys[0].country_language);
         }
+      } else {
+        console.error("Invalid response structure:", data);
       }
 
       setSurveys(allSurveys);
