@@ -54,6 +54,7 @@ class CPXService:
         if surveys_collection is not None:
             self.cpx_surveys_collection = surveys_collection
             self.cpx_filters_collection = filters_collection
+            self.cpx_diagnostic_logs = None  # Will be set if mongo available
         else:
             # Fallback to environment-based initialization
             mongo_uri = os.getenv("MONGO_URI")
@@ -62,6 +63,7 @@ class CPXService:
                 db = client["cpx_research"]
                 self.cpx_surveys_collection = db["cpx_surveys"]
                 self.cpx_filters_collection = db["cpx_filters"]
+                self.cpx_diagnostic_logs = db["cpx_diagnostic_logs"]  # Diagnostic logs collection
                 # Also connect to settings database
                 if settings_collection is None:
                     settings_db = client["torpedo_settings"]
@@ -69,6 +71,7 @@ class CPXService:
             else:
                 self.cpx_surveys_collection = None
                 self.cpx_filters_collection = None
+                self.cpx_diagnostic_logs = None
         
         # Create indexes for faster queries
         self._ensure_indexes()
@@ -92,6 +95,16 @@ class CPXService:
             )
         except Exception as e:
             print(f"Warning: Could not create CPX indexes: {e}")
+        
+        # Create TTL index for diagnostic logs (auto-delete after 7 days)
+        if hasattr(self, 'cpx_diagnostic_logs') and self.cpx_diagnostic_logs is not None:
+            try:
+                self.cpx_diagnostic_logs.create_index("timestamp", expireAfterSeconds=604800, background=True)
+                self.cpx_diagnostic_logs.create_index("country_code", background=True)
+                self.cpx_diagnostic_logs.create_index("outcome", background=True)
+                print("✅ CPX diagnostic logs indexes created (7-day TTL)")
+            except Exception as e:
+                print(f"Warning: Could not create diagnostic logs indexes: {e}")
     
     @staticmethod
     def _generate_secure_hash(ext_user_id: str, secure_hash_key: str) -> str:
@@ -787,8 +800,14 @@ class CPXService:
             
             print(f"🔍 Applying filters: max_loi={max_loi}, min_cpi={min_cpi}, min_ir={min_ir}")
             
-            # Apply filters to find matching surveys
+            # Apply filters to find matching surveys - track rejection reasons
             filtered_surveys = []
+            rejection_stats = {
+                "loi_too_high": 0,
+                "cpi_too_low": 0,
+                "ir_too_low": 0,
+                "no_href": 0
+            }
             for survey in surveys:
                 # Get survey values
                 loi = float(survey.get("loi") or survey.get("survey_loi") or 0)
@@ -801,18 +820,61 @@ class CPXService:
                 
                 # Apply filters
                 if loi > max_loi:
+                    rejection_stats["loi_too_high"] += 1
                     continue  # LOI too high
                 if payout < min_cpi:
+                    rejection_stats["cpi_too_low"] += 1
                     continue  # Payout too low
                 if ir < min_ir:
+                    rejection_stats["ir_too_low"] += 1
                     continue  # Incidence rate too low
                 
                 # Check href exists - MUST use click.cpx-research.com href
                 href = survey.get("href") or ""
                 if not href:
+                    rejection_stats["no_href"] += 1
                     continue  # No href means we can't generate entry link
                 
                 filtered_surveys.append(survey)
+            
+            # ============================================
+            # DIAGNOSTIC LOGGING - captures filter outcomes
+            # ============================================
+            diagnostic_entry = {
+                "timestamp": datetime.utcnow(),
+                "ext_user_id": vendor_user_id,
+                "internal_tracking_id": internal_tracking_id,
+                "country_code": country_iso2,
+                "user_ip": user_ip,
+                "cpx_response": {
+                    "count_available_surveys": data.get("count_available_surveys", 0),
+                    "status": data.get("status", "unknown"),
+                    "surveys_returned": len(surveys),
+                    "message_not_found": data.get("message_not_found", "")
+                },
+                "filter_settings": {
+                    "max_loi": max_loi,
+                    "min_cpi": min_cpi,
+                    "min_ir": min_ir
+                },
+                "filter_results": {
+                    "surveys_before_filter": len(surveys),
+                    "surveys_after_filter": len(filtered_surveys),
+                    "rejection_stats": rejection_stats,
+                    "filter_pass_rate": round((len(filtered_surveys) / len(surveys) * 100), 2) if len(surveys) > 0 else 0
+                },
+                "outcome": "surveys_found" if len(filtered_surveys) > 0 else "no_surveys_after_filter"
+            }
+            
+            # Log to console for debugging
+            print(f"📊 CPX DIAGNOSTIC: country={country_iso2}, cpx_surveys={len(surveys)}, after_filter={len(filtered_surveys)}, rejections={rejection_stats}")
+            
+            # Store in cpx_diagnostic_logs collection (with TTL for auto-cleanup)
+            if hasattr(self, 'cpx_diagnostic_logs') and self.cpx_diagnostic_logs is not None:
+                try:
+                    self.cpx_diagnostic_logs.insert_one(diagnostic_entry)
+                except Exception as log_err:
+                    print(f"⚠️ Failed to log diagnostic entry: {log_err}")
             
             if not filtered_surveys:
                 print(f"⚠️ No surveys match filters for {vendor_user_id}")

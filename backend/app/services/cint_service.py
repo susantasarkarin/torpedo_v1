@@ -1100,7 +1100,8 @@ class CintService:
         """
         url = f"{self.base_url}{self.ENTRY_LINKS_ENDPOINT}/Create/{survey_id}/{self.supplier_code}"
         
-        payload = link_config.dict(exclude_none=True)
+        # Use by_alias=True to send PascalCase field names to Cint API
+        payload = link_config.dict(exclude_none=True, by_alias=True)
         
         try:
             response = await self.client.post(
@@ -1165,7 +1166,8 @@ class CintService:
         """
         url = f"{self.base_url}{self.ENTRY_LINKS_ENDPOINT}/Update/{survey_id}/{self.supplier_code}"
         
-        payload = link_config.dict(exclude_none=False)
+        # Use by_alias=True to send PascalCase field names to Cint API
+        payload = link_config.dict(exclude_none=False, by_alias=True)
         
         try:
             response = await self.client.put(

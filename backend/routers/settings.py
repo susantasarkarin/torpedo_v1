@@ -1853,3 +1853,144 @@ async def get_prompts_usage_stats(request: Request = None, days: int = 7) -> Dic
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching prompt usage stats: {str(e)}")
+
+
+# ============================================
+# CPX Diagnostic Endpoints
+# ============================================
+
+@router.get("/cpx-filters")
+async def get_cpx_filter_settings(request: Request = None) -> Dict[str, Any]:
+    """
+    Get CPX survey filter settings for diagnostic purposes.
+    
+    Shows current filter values (max_loi, min_cpi, min_ir) that affect
+    which CPX surveys are available to users. Over-restrictive filters
+    may cause high screenout rates in lower-CPI markets like India.
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        # Get filter settings from survey_filters document
+        filters = app_settings_collection.find_one({"_id": "survey_filters"})
+        
+        # Default values
+        defaults = {
+            "max_loi": 20,
+            "min_cpi": 1.0,
+            "min_ir": 0,
+            "deletion_period_days": 7,
+            "auto_refresh_enabled": True,
+            "refresh_interval_seconds": 60
+        }
+        
+        if filters:
+            current_settings = {
+                "max_loi": filters.get("max_loi", defaults["max_loi"]),
+                "min_cpi": filters.get("min_cpi", defaults["min_cpi"]),
+                "min_ir": filters.get("min_ir", defaults["min_ir"]),
+                "deletion_period_days": filters.get("deletion_period_days", defaults["deletion_period_days"]),
+                "auto_refresh_enabled": filters.get("auto_refresh_enabled", defaults["auto_refresh_enabled"]),
+                "refresh_interval_seconds": filters.get("refresh_interval_seconds", defaults["refresh_interval_seconds"]),
+                "last_updated": filters.get("last_updated", "never").isoformat() if hasattr(filters.get("last_updated", "never"), 'isoformat') else str(filters.get("last_updated", "never"))
+            }
+        else:
+            current_settings = defaults.copy()
+            current_settings["last_updated"] = "never (using defaults)"
+        
+        # Market analysis
+        analysis = {
+            "india_market_analysis": {
+                "typical_cpi_range": "$0.10 - $0.50",
+                "current_min_cpi": current_settings["min_cpi"],
+                "impact": "HIGH - Most India surveys filtered out" if current_settings["min_cpi"] > 0.3 else "LOW - India surveys should pass filter",
+                "recommendation": "Set min_cpi to 0.10 or lower for India traffic" if current_settings["min_cpi"] > 0.3 else "Filter settings OK for India"
+            },
+            "us_market_analysis": {
+                "typical_cpi_range": "$0.50 - $2.00",
+                "current_min_cpi": current_settings["min_cpi"],
+                "impact": "LOW" if current_settings["min_cpi"] <= 1.0 else "MEDIUM - Some US surveys filtered out",
+                "recommendation": "Current settings acceptable for US market"
+            },
+            "loi_analysis": {
+                "current_max_loi": current_settings["max_loi"],
+                "impact": "LOW" if current_settings["max_loi"] >= 15 else "HIGH - Many surveys filtered out",
+                "recommendation": "Max LOI of 15-20 minutes is reasonable" if current_settings["max_loi"] >= 15 else "Consider increasing max_loi to 15-20 minutes"
+            }
+        }
+        
+        return {
+            "success": True,
+            "current_settings": current_settings,
+            "defaults": defaults,
+            "market_analysis": analysis,
+            "diagnosis": (
+                "POTENTIAL ISSUE: min_cpi filter is too restrictive for India market. "
+                "India surveys typically pay $0.10-$0.50. Consider lowering min_cpi to 0.10."
+            ) if current_settings["min_cpi"] > 0.3 else (
+                "Filter settings appear reasonable for multi-region traffic."
+            )
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching CPX filter settings: {str(e)}")
+
+
+@router.post("/cpx-filters")
+async def update_cpx_filter_settings(
+    request: Request,
+    data: Dict[str, Any] = Body(...)
+) -> Dict[str, Any]:
+    """
+    Update CPX survey filter settings.
+    
+    Adjusts max_loi, min_cpi, min_ir values that control which
+    CPX surveys are available to users.
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        
+        # Validate inputs
+        allowed_fields = ["max_loi", "min_cpi", "min_ir", "deletion_period_days", "auto_refresh_enabled", "refresh_interval_seconds"]
+        update_data = {k: v for k, v in data.items() if k in allowed_fields}
+        
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No valid fields to update. Allowed: " + ", ".join(allowed_fields))
+        
+        # Add timestamp
+        update_data["last_updated"] = datetime.utcnow()
+        
+        # Update in MongoDB
+        result = app_settings_collection.update_one(
+            {"_id": "survey_filters"},
+            {"$set": update_data},
+            upsert=True
+        )
+        
+        # Get updated settings
+        updated = app_settings_collection.find_one({"_id": "survey_filters"})
+        
+        return {
+            "success": True,
+            "message": "CPX filter settings updated",
+            "updated_fields": list(update_data.keys()),
+            "current_settings": {
+                "max_loi": updated.get("max_loi"),
+                "min_cpi": updated.get("min_cpi"),
+                "min_ir": updated.get("min_ir"),
+                "deletion_period_days": updated.get("deletion_period_days"),
+                "auto_refresh_enabled": updated.get("auto_refresh_enabled"),
+                "refresh_interval_seconds": updated.get("refresh_interval_seconds"),
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating CPX filter settings: {str(e)}")

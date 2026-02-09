@@ -176,6 +176,11 @@
   color: #047857;
 }
 
+.rate-cell.from-previous {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
 .rate-cell.estimated {
   background: #fef3c7;
   color: #92400e;
@@ -208,6 +213,11 @@
 .legend-dot.has-data {
   background: #ecfdf5;
   border: 1px solid #047857;
+}
+
+.legend-dot.from-previous {
+  background: #dbeafe;
+  border: 1px solid #1e40af;
 }
 
 .legend-dot.estimated {

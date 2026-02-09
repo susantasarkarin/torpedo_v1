@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, Query, Body
 from fastapi.responses import RedirectResponse, JSONResponse
 from pymongo.collection import Collection
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import os
 import random
@@ -2103,4 +2103,391 @@ async def export_traffic_csv(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"CSV export error: {str(e)}")
+
+
+# ============================================
+# CPX DIAGNOSTIC ENDPOINTS
+# ============================================
+
+@router.get("/api/debug/cpx-test")
+async def test_cpx_multi_country(
+    request: Request,
+    countries: str = Query("IN,US,GB,CA", description="Comma-separated ISO2 country codes to test"),
+    test_ip: Optional[str] = Query(None, description="Optional test IP (defaults to request IP)"),
+):
+    """
+    CPX Multi-Country Diagnostic Endpoint
+    
+    Tests CPX API availability for multiple countries to diagnose screenout issues.
+    This helps identify if the root cause is CPX survey inventory availability
+    for specific regions (e.g., India).
+    
+    Returns count_available_surveys for each country tested.
+    """
+    import requests
+    import hashlib
+    import json
+    
+    try:
+        # Get CPX credentials from environment or cpx_service
+        app_id = os.getenv("CPX_APP_ID", "")
+        secure_hash_key = os.getenv("CPX_SECURE_HASH_KEY", "")
+        
+        if not app_id or not secure_hash_key:
+            # Try to get from cpx_service if injected
+            if cpx_service:
+                app_id = cpx_service.app_id
+                secure_hash_key = cpx_service.secure_hash_key
+        
+        if not app_id or not secure_hash_key:
+            raise HTTPException(status_code=503, detail="CPX credentials not configured")
+        
+        # Get test IP (use provided or extract from request)
+        client_ip = test_ip or request.headers.get("CF-Connecting-IP") or \
+                    request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or \
+                    request.headers.get("X-Real-IP") or \
+                    (request.client.host if request.client else "127.0.0.1")
+        
+        user_agent = request.headers.get("User-Agent", "Mozilla/5.0 Diagnostic Test")
+        
+        # Parse countries
+        country_list = [c.strip().upper() for c in countries.split(",") if c.strip()]
+        
+        results = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "test_ip": client_ip,
+            "user_agent": user_agent[:80],
+            "countries_tested": country_list,
+            "results": {},
+            "summary": {
+                "total_tested": 0,
+                "with_surveys": 0,
+                "without_surveys": 0,
+                "errors": 0
+            }
+        }
+        
+        CPX_API_URL = "https://live-api.cpx-research.com/api/get-surveys.php"
+        
+        for country in country_list:
+            results["summary"]["total_tested"] += 1
+            
+            # Generate test ext_user_id
+            test_ext_user_id = f"diagnostic_test_{country}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+            secure_hash = hashlib.md5(f"{test_ext_user_id}-{secure_hash_key}".encode()).hexdigest()
+            
+            params = {
+                "app_id": app_id,
+                "ext_user_id": test_ext_user_id,
+                "output_method": "api",
+                "ip_user": client_ip,
+                "user_agent": user_agent,
+                "limit": 100,
+                "secure_hash": secure_hash,
+                "user_country_code": country,
+            }
+            
+            try:
+                response = requests.get(CPX_API_URL, params=params, timeout=15)
+                response.raise_for_status()
+                data = response.json()
+                
+                count = data.get("count_available_surveys", 0)
+                status = data.get("status", "unknown")
+                message = data.get("message_not_found", "")
+                surveys = data.get("surveys", []) or data.get("info", [])
+                
+                country_result = {
+                    "count_available_surveys": count,
+                    "status": status,
+                    "message": message,
+                    "survey_count_in_response": len(surveys) if surveys else 0,
+                    "sample_survey": None,
+                    "error": None
+                }
+                
+                # Include sample survey info (without href for security)
+                if surveys and len(surveys) > 0:
+                    sample = surveys[0]
+                    country_result["sample_survey"] = {
+                        "id": sample.get("id"),
+                        "title": sample.get("survey_title", sample.get("title", ""))[:50],
+                        "loi": sample.get("loi"),
+                        "payout_publisher_usd": sample.get("payout_publisher_usd"),
+                        "conversion_rate": sample.get("conversion_rate")
+                    }
+                    results["summary"]["with_surveys"] += 1
+                else:
+                    results["summary"]["without_surveys"] += 1
+                
+                results["results"][country] = country_result
+                
+            except Exception as e:
+                results["results"][country] = {
+                    "count_available_surveys": 0,
+                    "status": "error",
+                    "message": str(e),
+                    "survey_count_in_response": 0,
+                    "sample_survey": None,
+                    "error": str(e)
+                }
+                results["summary"]["errors"] += 1
+        
+        # Add diagnostic conclusion
+        if results["summary"]["with_surveys"] == 0:
+            results["diagnosis"] = "CRITICAL: No surveys found for ANY country. Check CPX credentials or account status."
+        elif "IN" in results["results"] and results["results"]["IN"]["count_available_surveys"] == 0:
+            other_countries_with_surveys = [c for c in country_list if c != "IN" and 
+                                            results["results"].get(c, {}).get("count_available_surveys", 0) > 0]
+            if other_countries_with_surveys:
+                results["diagnosis"] = f"ROOT CAUSE IDENTIFIED: CPX has NO survey inventory for India (IN), but has surveys for {', '.join(other_countries_with_surveys)}. This explains the screenouts for Indian traffic."
+            else:
+                results["diagnosis"] = "No India surveys and no surveys for other tested countries."
+        else:
+            india_count = results["results"].get("IN", {}).get("count_available_surveys", 0)
+            results["diagnosis"] = f"India has {india_count} surveys available. Screenouts may be due to filter settings or entry guard blocks."
+        
+        return results
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in CPX multi-country test: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"CPX diagnostic error: {str(e)}")
+
+
+@router.get("/api/debug/entry-guard-stats")
+async def get_entry_guard_stats(
+    request: Request,
+    hours: int = Query(24, ge=1, le=168, description="Hours to look back (1-168)"),
+):
+    """
+    Entry Guard Analytics Endpoint
+    
+    Shows statistics about CPX entry guards to diagnose if duplicate
+    ext_user_id blocking is contributing to screenouts.
+    """
+    try:
+        if cpx_entry_guards_collection is None:
+            raise HTTPException(status_code=503, detail="Entry guards collection not initialized")
+        
+        # Time window for recent stats
+        since = datetime.utcnow() - timedelta(hours=hours)
+        
+        # Get overall counts by status
+        status_counts = {}
+        for status in [CPX_GUARD_STATUS_CREATED, CPX_GUARD_STATUS_REDIRECTED, CPX_GUARD_STATUS_LOCKED]:
+            status_counts[status] = cpx_entry_guards_collection.count_documents({"status": status})
+        
+        # Get recent entries
+        recent_count = cpx_entry_guards_collection.count_documents({"created_at": {"$gte": since}})
+        
+        # Get entries with duplicate attempts
+        with_duplicates = cpx_entry_guards_collection.count_documents({"duplicate_attempt_count": {"$gt": 0}})
+        
+        # Get top duplicates (most blocked)
+        top_duplicates = list(
+            cpx_entry_guards_collection.find(
+                {"duplicate_attempt_count": {"$gt": 0}},
+                {"ext_user_id": 1, "duplicate_attempt_count": 1, "status": 1, "created_at": 1, "client_ip": 1}
+            ).sort("duplicate_attempt_count", -1).limit(10)
+        )
+        
+        for doc in top_duplicates:
+            doc["_id"] = str(doc["_id"])
+            if doc.get("created_at"):
+                doc["created_at"] = doc["created_at"].isoformat()
+        
+        # Get recent entries with IPs (for geo analysis)
+        recent_entries = list(
+            cpx_entry_guards_collection.find(
+                {"created_at": {"$gte": since}},
+                {"ext_user_id": 1, "status": 1, "client_ip": 1, "created_at": 1}
+            ).sort("created_at", -1).limit(20)
+        )
+        
+        for entry in recent_entries:
+            entry["_id"] = str(entry["_id"])
+            if entry.get("created_at"):
+                entry["created_at"] = entry["created_at"].isoformat()
+        
+        # Total count
+        total_guards = cpx_entry_guards_collection.count_documents({})
+        
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "time_window_hours": hours,
+            "total_guards": total_guards,
+            "status_breakdown": status_counts,
+            "recent_entries_count": recent_count,
+            "entries_with_duplicate_attempts": with_duplicates,
+            "duplicate_rate": round((with_duplicates / total_guards * 100), 2) if total_guards > 0 else 0,
+            "top_blocked_ext_user_ids": top_duplicates,
+            "recent_entries": recent_entries,
+            "diagnosis": f"{'HIGH' if with_duplicates > total_guards * 0.2 else 'LOW'} duplicate rate ({with_duplicates}/{total_guards}). " + 
+                        ("Entry guards may be blocking legitimate traffic." if with_duplicates > total_guards * 0.2 else "Entry guard blocking is not a significant factor.")
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error fetching entry guard stats: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Entry guard stats error: {str(e)}")
+
+
+@router.get("/api/debug/cpx-diagnostic-logs")
+async def get_cpx_diagnostic_logs(
+    request: Request,
+    hours: int = Query(24, ge=1, le=168, description="Hours to look back (1-168)"),
+    country: Optional[str] = Query(None, description="Filter by country code (e.g., IN, US)"),
+    outcome: Optional[str] = Query(None, description="Filter by outcome (surveys_found, no_surveys_after_filter)"),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Records per page"),
+):
+    """
+    Get CPX diagnostic logs showing filter outcomes and survey availability.
+    
+    This helps identify if screenouts are due to:
+    - No CPX surveys for the region
+    - Over-restrictive filter settings
+    - Specific rejection reasons (LOI, CPI, IR)
+    """
+    from pymongo import MongoClient
+    
+    try:
+        # Connect to cpx_diagnostic_logs
+        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+        client = MongoClient(mongo_uri)
+        cpx_db = client["cpx_research"]
+        diagnostic_logs = cpx_db["cpx_diagnostic_logs"]
+        
+        # Time window
+        since = datetime.utcnow() - timedelta(hours=hours)
+        
+        # Build query
+        query = {"timestamp": {"$gte": since}}
+        if country:
+            query["country_code"] = country.upper()
+        if outcome:
+            query["outcome"] = outcome
+        
+        # Get total count
+        total = diagnostic_logs.count_documents(query)
+        
+        # Calculate pagination
+        skip = (page - 1) * page_size
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+        
+        # Fetch logs (newest first)
+        logs = list(
+            diagnostic_logs.find(query)
+            .sort("timestamp", -1)
+            .skip(skip)
+            .limit(page_size)
+        )
+        
+        # Convert ObjectId to string
+        for log in logs:
+            log["_id"] = str(log["_id"])
+            if log.get("timestamp"):
+                log["timestamp"] = log["timestamp"].isoformat()
+        
+        # Aggregations for summary
+        country_stats = list(diagnostic_logs.aggregate([
+            {"$match": {"timestamp": {"$gte": since}}},
+            {"$group": {
+                "_id": "$country_code",
+                "total_requests": {"$sum": 1},
+                "surveys_found": {"$sum": {"$cond": [{"$eq": ["$outcome", "surveys_found"]}, 1, 0]}},
+                "no_surveys": {"$sum": {"$cond": [{"$eq": ["$outcome", "no_surveys_after_filter"]}, 1, 0]}},
+                "avg_cpx_surveys": {"$avg": "$cpx_response.surveys_returned"},
+                "avg_after_filter": {"$avg": "$filter_results.surveys_after_filter"}
+            }},
+            {"$sort": {"total_requests": -1}}
+        ]))
+        
+        # Get filter rejection breakdown
+        rejection_totals = list(diagnostic_logs.aggregate([
+            {"$match": {"timestamp": {"$gte": since}}},
+            {"$group": {
+                "_id": None,
+                "total_loi_rejected": {"$sum": "$filter_results.rejection_stats.loi_too_high"},
+                "total_cpi_rejected": {"$sum": "$filter_results.rejection_stats.cpi_too_low"},
+                "total_ir_rejected": {"$sum": "$filter_results.rejection_stats.ir_too_low"},
+                "total_no_href": {"$sum": "$filter_results.rejection_stats.no_href"},
+            }}
+        ]))
+        
+        rejection_summary = rejection_totals[0] if rejection_totals else {
+            "total_loi_rejected": 0,
+            "total_cpi_rejected": 0,
+            "total_ir_rejected": 0,
+            "total_no_href": 0
+        }
+        if "_id" in rejection_summary:
+            del rejection_summary["_id"]
+        
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "time_window_hours": hours,
+            "filters_applied": {
+                "country": country,
+                "outcome": outcome
+            },
+            "country_summary": country_stats,
+            "rejection_summary": rejection_summary,
+            "logs": logs,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": total_pages
+            },
+            "diagnosis": _generate_diagnostic_summary(country_stats, rejection_summary) if country_stats else "No diagnostic data available"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error fetching CPX diagnostic logs: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Diagnostic logs error: {str(e)}")
+
+
+def _generate_diagnostic_summary(country_stats: list, rejection_summary: dict) -> str:
+    """Generate a human-readable diagnostic summary"""
+    summary_parts = []
+    
+    # Check India specifically
+    india_stats = next((s for s in country_stats if s["_id"] == "IN"), None)
+    if india_stats:
+        success_rate = round((india_stats["surveys_found"] / india_stats["total_requests"] * 100), 1) if india_stats["total_requests"] > 0 else 0
+        if success_rate < 10:
+            summary_parts.append(f"CRITICAL: India survey success rate is only {success_rate}% ({india_stats['surveys_found']}/{india_stats['total_requests']})")
+        elif success_rate < 50:
+            summary_parts.append(f"WARNING: India survey success rate is low at {success_rate}%")
+    
+    # Check rejection reasons
+    total_rejections = sum([
+        rejection_summary.get("total_loi_rejected", 0),
+        rejection_summary.get("total_cpi_rejected", 0),
+        rejection_summary.get("total_ir_rejected", 0),
+        rejection_summary.get("total_no_href", 0)
+    ])
+    
+    if total_rejections > 0:
+        cpi_pct = round((rejection_summary.get("total_cpi_rejected", 0) / total_rejections * 100), 1) if total_rejections > 0 else 0
+        if cpi_pct > 50:
+            summary_parts.append(f"CPI filter is rejecting {cpi_pct}% of surveys. Consider lowering min_cpi.")
+        
+        loi_pct = round((rejection_summary.get("total_loi_rejected", 0) / total_rejections * 100), 1) if total_rejections > 0 else 0
+        if loi_pct > 50:
+            summary_parts.append(f"LOI filter is rejecting {loi_pct}% of surveys. Consider increasing max_loi.")
+    
+    return " | ".join(summary_parts) if summary_parts else "No critical issues detected"
 

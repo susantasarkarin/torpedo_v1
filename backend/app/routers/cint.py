@@ -336,7 +336,8 @@ async def create_entry_link(
         return EntryLinkResponse(
             success=True,
             message="Entry link created successfully",
-            data=result
+            link=result.get("link"),
+            data={"link": result.get("link")}
         )
     
     except HTTPException:
@@ -389,7 +390,8 @@ async def update_entry_link(
         return EntryLinkResponse(
             success=True,
             message="Entry link updated successfully",
-            data=result
+            link=result.get("link"),
+            data={"link": result.get("link")}
         )
     
     except HTTPException:
@@ -401,7 +403,7 @@ async def update_entry_link(
 
 @router.post("/auto-create-entry-links")
 async def auto_create_entry_links_for_all(
-    limit: int = Query(100, description="Max surveys to process"),
+    limit: int = Query(100, ge=0, description="Max surveys to process (0 = no limit)"),
     cint_service = Depends(get_cint_service)
 ):
     """Auto-create entry links for active surveys that don't have one."""
@@ -409,13 +411,19 @@ async def auto_create_entry_links_for_all(
         raise HTTPException(status_code=503, detail="Cint service not initialized")
     
     # Get active surveys without entry links
-    surveys = list(cint_service.cint_surveys_collection.find(
-        {
-            "is_active": True,
-            "is_live": True  # Only process live surveys
-        },
-        {"survey_id": 1, "is_live": 1}
-    ).limit(limit))
+    query = {
+        "is_active": True,
+        "is_live": True  # Only process live surveys
+    }
+    if cint_service.cint_entry_links_collection is not None:
+        existing_ids = cint_service.cint_entry_links_collection.distinct("survey_id")
+        if existing_ids:
+            query["survey_id"] = {"$nin": existing_ids}
+    projection = {"survey_id": 1, "is_live": 1}
+    cursor = cint_service.cint_surveys_collection.find(query, projection)
+    if limit > 0:
+        cursor = cursor.limit(limit)
+    surveys = list(cursor)
 
     created = 0
     skipped = 0
@@ -431,6 +439,10 @@ async def auto_create_entry_links_for_all(
             continue
 
         try:
+            existing_cached = await cint_service.get_entry_link_by_survey_id(survey_id)
+            if existing_cached:
+                skipped += 1
+                continue
             existing = await cint_service.get_entry_link(survey_id)
             if existing.get("success") and existing.get("link"):
                 skipped += 1
@@ -472,13 +484,14 @@ async def get_entry_link(
         # Call CintService to get entry link
         result = await cint_service.get_entry_link(survey_id)
         
-        if not result:
+        if not result or not result.get("success"):
             raise HTTPException(status_code=404, detail=f"Entry link not found for survey {survey_id}")
         
         return EntryLinkResponse(
             success=True,
             message="Entry link retrieved successfully",
-            data=result
+            link=result.get("link"),
+            data={"link": result.get("link")}
         )
     
     except HTTPException:
@@ -839,7 +852,7 @@ async def delete_opportunities_subscription(
     try:
         logger.info("Deleting opportunities subscription")
         result = await cint_service.delete_opportunities_subscription()
-        
+
         if result.get("success"):
             logger.info("✓ Subscription deleted")
             return {
@@ -852,13 +865,12 @@ async def delete_opportunities_subscription(
                 status_code=result.get("status_code", 500),
                 detail=result.get("error", "Failed to delete subscription"),
             )
-    
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error deleting subscription: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 # ============================================
 # Respondent Outcomes Subscription
@@ -1370,7 +1382,7 @@ async def diagnostic_check(cint_service = Depends(get_cint_service)):
 
     try:
         # Check surveys collection
-        if cint_service.cint_surveys_collection:
+        if cint_service.cint_surveys_collection is not None:
             total_surveys = cint_service.cint_surveys_collection.count_documents({})
             active_surveys = cint_service.cint_surveys_collection.count_documents({"is_active": True})
             live_surveys = cint_service.cint_surveys_collection.count_documents({"is_live": True})
@@ -1415,7 +1427,7 @@ async def diagnostic_check(cint_service = Depends(get_cint_service)):
                 diagnostics["recommendations"].append("Verify CINT_WEBHOOK_CALLBACK_URL is correct")
 
         # Check entry links collection
-        if cint_service.cint_entry_links_collection:
+        if cint_service.cint_entry_links_collection is not None:
             total_links = cint_service.cint_entry_links_collection.count_documents({})
             links_with_live = cint_service.cint_entry_links_collection.count_documents(
                 {"live_link": {"$exists": True, "$ne": None}}

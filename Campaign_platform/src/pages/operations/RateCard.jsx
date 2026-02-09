@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { buildApiUrl } from "../../config";
 import "./RateCard.css";
@@ -67,6 +67,9 @@ function RateCard() {
   const [markupPercent, setMarkupPercent] = useState(15);
   const [countryFilter, setCountryFilter] = useState("");
   const [lastRefresh, setLastRefresh] = useState(null);
+  
+  // Store previous rates per country to persist when new data is missing
+  const previousRatesRef = useRef({});
 
   const fetchAllSurveys = useCallback(async () => {
     if (!token) return;
@@ -238,10 +241,8 @@ function RateCard() {
   const availableCountries = useMemo(() => {
     const countries = new Set();
     surveys.forEach((survey) => {
-      const source = (survey.source || survey.provider || "").toUpperCase();
-      if (source !== "CINT" && !survey.account_name) return;
       const country = getCountryCode(survey);
-      if (country !== "N/A") {
+      if (country !== "N/A" && !country.startsWith("ID:")) {
         countries.add(country);
       }
     });
@@ -271,12 +272,8 @@ function RateCard() {
     const matrix = IR_RANGES.map(() =>
       LOI_RANGES.map(() => ({ rates: [], count: 0 }))
     );
-    const allRates = [];
 
     surveys.forEach((survey) => {
-      const source = (survey.source || survey.provider || "").toUpperCase();
-      if (source !== "CINT" && !survey.account_name) return;
-
       const country = getCountryCode(survey);
       const loi = getLOIValue(survey);
       const ir = getIncidenceRateValue(survey);
@@ -291,30 +288,52 @@ function RateCard() {
 
       const rate = getPayoutValue(survey);
       if (rate !== null && !isNaN(rate)) {
-        allRates.push(rate);
         matrix[irIdx][loiIdx].rates.push(rate);
       }
       matrix[irIdx][loiIdx].count += 1;
     });
 
-    // Calculate median + markup for each cell, use DEFAULT_RATES as fallback
-    return matrix.map((row, irIdx) =>
+    // Get previous rates for this country (if any)
+    const prevRates = previousRatesRef.current[countryFilter] || null;
+
+    // Calculate median + markup for each cell
+    const result = matrix.map((row, irIdx) =>
       row.map((cell, loiIdx) => {
         let baseRate;
-        if (cell.rates.length > 0) {
+        let hasData = cell.rates.length > 0;
+        
+        if (hasData) {
+          // Use current data
           baseRate = getMedian(cell.rates);
+        } else if (prevRates && prevRates[irIdx] && prevRates[irIdx][loiIdx]?.baseRate != null) {
+          // Use previous rate for this cell (without re-applying markup)
+          return {
+            rate: applyMarkup(prevRates[irIdx][loiIdx].baseRate),
+            count: cell.count,
+            hasData: false,
+            fromPrevious: true,
+          };
         } else {
-          // Use default rate for this IR/LOI combination
+          // Use default rate
           baseRate = DEFAULT_RATES[irIdx][loiIdx];
         }
+        
         const rate = applyMarkup(baseRate);
         return {
           rate,
           count: cell.count,
-          hasData: cell.rates.length > 0,
+          hasData,
+          baseRate, // Store base rate for future reference
         };
       })
     );
+
+    // Store current rates for this country for future use
+    if (countryFilter) {
+      previousRatesRef.current[countryFilter] = result;
+    }
+
+    return result;
   }, [surveys, countryFilter, markupPercent]);
 
   // Calculate total surveys count
@@ -389,11 +408,16 @@ function RateCard() {
                 <th className="row-header">{irRange.label}</th>
                 {LOI_RANGES.map((loiRange, loiIdx) => {
                   const cell = rateMatrix[irIdx][loiIdx];
+                  const cellClass = cell.hasData 
+                    ? "has-data" 
+                    : cell.fromPrevious 
+                      ? "from-previous" 
+                      : "estimated";
                   return (
                     <td
                       key={`${irRange.label}-${loiRange.label}`}
-                      className={`rate-cell ${cell.hasData ? "has-data" : "estimated"}`}
-                      title={`${cell.count} surveys`}
+                      className={`rate-cell ${cellClass}`}
+                      title={`${cell.count} surveys${cell.fromPrevious ? ' (previous rate)' : ''}`}
                     >
                       {cell.rate !== null && !isNaN(cell.rate)
                         ? `$${cell.rate.toFixed(2)}`
@@ -409,7 +433,8 @@ function RateCard() {
 
       <div className="legend">
         <span className="legend-item"><span className="legend-dot has-data"></span> Median rate from data</span>
-        <span className="legend-item"><span className="legend-dot estimated"></span> Estimated (global median)</span>
+        <span className="legend-item"><span className="legend-dot from-previous"></span> Previous rate (no new data)</span>
+        <span className="legend-item"><span className="legend-dot estimated"></span> Default rate</span>
       </div>
     </div>
   );

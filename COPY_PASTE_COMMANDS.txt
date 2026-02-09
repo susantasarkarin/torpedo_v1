@@ -1,0 +1,83 @@
+# COPY-PASTE DEPLOYMENT COMMANDS
+# Run these commands ONE AT A TIME in PowerShell
+
+# ============================================
+# STEP 1: Test SSH Connection
+# ============================================
+ssh root@torpedo.cogentixresearch.com "echo 'Connected successfully'"
+
+# If you see "Connected successfully", proceed to Step 2
+# If you get an error, you need to set up SSH keys first
+
+
+# ============================================
+# STEP 2: Create Backup on VM
+# ============================================
+ssh root@torpedo.cogentixresearch.com "cd /var/www/torpedo/backend && BACKUP_DIR=\"backups/\$(date +%Y%m%d_%H%M%S)\" && mkdir -p \$BACKUP_DIR/app/routers && mkdir -p \$BACKUP_DIR/app/services && [ -f app/routers/cint.py ] && cp app/routers/cint.py \$BACKUP_DIR/app/routers/ && [ -f app/services/cint_service.py ] && cp app/services/cint_service.py \$BACKUP_DIR/app/services/ && echo \"Backup created at \$BACKUP_DIR\""
+
+
+# ============================================
+# STEP 3: Deploy cint.py Router File
+# ============================================
+scp "d:\Code\03. Projects\01. torpedo wip\01. Torpedo v1 (python reacy)\campaign_platform-main\campaign_platform-main\backend\app\routers\cint.py" root@torpedo.cogentixresearch.com:/var/www/torpedo/backend/app/routers/cint.py
+
+
+# ============================================
+# STEP 4: Deploy cint_service.py Service File
+# ============================================
+scp "d:\Code\03. Projects\01. torpedo wip\01. Torpedo v1 (python reacy)\campaign_platform-main\campaign_platform-main\backend\app\services\cint_service.py" root@torpedo.cogentixresearch.com:/var/www/torpedo/backend/app/services/cint_service.py
+
+
+# ============================================
+# STEP 5: Restart Backend Service
+# ============================================
+ssh root@torpedo.cogentixresearch.com "sudo systemctl restart torpedo-backend && sleep 3 && sudo systemctl status torpedo-backend --no-pager"
+
+# Alternative if systemd doesn't work:
+# ssh root@torpedo.cogentixresearch.com "supervisorctl restart torpedo"
+
+
+# ============================================
+# STEP 6: Verify Deployment
+# ============================================
+# Wait 5 seconds for service to start
+Start-Sleep -Seconds 5
+
+# Test diagnostic endpoint
+Invoke-WebRequest -Uri "https://torpedo.cogentixresearch.com/api/cint/diagnostic" -UseBasicParsing | Select-Object -ExpandProperty Content | ConvertFrom-Json | ConvertTo-Json -Depth 10
+
+
+# ============================================
+# STEP 7: Check Diagnostic Data
+# ============================================
+# Using curl (if installed)
+curl https://torpedo.cogentixresearch.com/api/cint/diagnostic
+
+# Or using PowerShell
+(Invoke-WebRequest -Uri "https://torpedo.cogentixresearch.com/api/cint/diagnostic").Content | ConvertFrom-Json
+
+
+# ============================================
+# STEP 8: Monitor Webhook Activity (Optional)
+# ============================================
+# This will show real-time webhook activity
+ssh root@torpedo.cogentixresearch.com "tail -f /var/log/torpedo/backend.log | grep 'Received opportunities webhook'"
+
+
+# ============================================
+# STEP 9: Check Entry Link Debug Logs (Optional)
+# ============================================
+# This will show entry link creation details
+ssh root@torpedo.cogentixresearch.com "tail -f /var/log/torpedo/backend.log | grep 'ENTRY LINK DEBUG'"
+
+
+# ============================================
+# DONE!
+# ============================================
+# After running all commands above, your diagnostic endpoint should show:
+# - surveys.total (how many surveys downloaded)
+# - entry_links.with_live_link (how many entry links have live_link)
+#
+# This answers your two questions:
+# 1. Are Cint inventories getting downloaded? → Check surveys.total
+# 2. Are entry links created with live_link? → Check entry_links.with_live_link

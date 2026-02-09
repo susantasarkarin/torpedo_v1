@@ -91,8 +91,9 @@ export default function SurveyPool() {
       
       if (response.ok) {
         const data = await response.json();
-        if (data.success && data.data?.link) {
-          setCintEntryLink(data.data.link);
+        const link = data?.link || data?.data?.link || null;
+        if (data.success && link) {
+          setCintEntryLink(link);
         }
       } else if (response.status !== 404) {
         console.error('Failed to fetch Cint entry link:', response.status);
@@ -138,8 +139,9 @@ export default function SurveyPool() {
       
       if (response.ok) {
         const data = await response.json();
-        if (data.success && data.data?.link) {
-          setCintEntryLink(data.data.link);
+        const link = data?.link || data?.data?.link || null;
+        if (data.success && link) {
+          setCintEntryLink(link);
         } else {
           // Refetch to get the created link
           await fetchCintEntryLink(surveyId);
@@ -222,7 +224,8 @@ export default function SurveyPool() {
       });
 
       // Fetch CINT surveys (mounted at /api/cint in backend)
-      const cintResponse = await fetch(buildApiUrl(`/api/cint/surveys?page=1&page_size=1000&show_all=true`), {
+      const cintQuery = `/api/cint/surveys?page=1&page_size=1000&show_all=true`;
+      const cintResponse = await fetch(buildApiUrl(cintQuery), {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
@@ -237,8 +240,29 @@ export default function SurveyPool() {
         allSurveys = allSurveys.concat(cpxSurveys);
       }
 
+      let cintData = null;
       if (cintResponse.ok) {
-        const cintData = await cintResponse.json();
+        cintData = await cintResponse.json();
+      } else {
+        try {
+          const fallbackUrl = `https://torpedo.cogentixresearch.com${cintQuery}`;
+          const fallbackResponse = await fetch(fallbackUrl, {
+            headers: {
+              'Authorization': token,
+              'Content-Type': 'application/json',
+            },
+          });
+          if (fallbackResponse.ok) {
+            cintData = await fallbackResponse.json();
+          } else {
+            console.warn('CINT fetch failed:', cintResponse.status, fallbackResponse.status);
+          }
+        } catch (fallbackError) {
+          console.warn('CINT fallback fetch failed:', fallbackError);
+        }
+      }
+
+      if (cintData) {
         const cintSurveys = (cintData.surveys || []).map(s => ({ ...s, source: 'CINT' }));
         allSurveys = allSurveys.concat(cintSurveys);
       }
@@ -312,7 +336,7 @@ export default function SurveyPool() {
   };
 
   // Sync and activate surveys based on filters
-  const syncSurveys = async () => {
+  const syncSurveys = async ({ silent = false } = {}) => {
     setSyncing(true);
     let cpxResult = null;
     let cintResult = null;
@@ -383,7 +407,7 @@ export default function SurveyPool() {
         }
       }
 
-      if (cpxResult?.success || cintResult?.success) {
+      if (!silent && (cpxResult?.success || cintResult?.success)) {
         alert(summaryLines.join('\n'));
       } else if (!cpxResult && !cintResult) {
         setError('Failed to sync surveys from both providers');
@@ -438,6 +462,13 @@ export default function SurveyPool() {
       fetchPoolStats();
     }
   }, [token]);
+
+  // Auto-sync when switching to active-only view so active flags are populated
+  useEffect(() => {
+    if (showActiveOnly && token && !syncing) {
+      syncSurveys({ silent: true });
+    }
+  }, [showActiveOnly, token, syncing]);
 
   // Get client by provider/source name (e.g., "CPX" matches client "CPX Research")
   const getClientByProvider = (survey) => {

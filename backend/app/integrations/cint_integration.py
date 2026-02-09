@@ -25,10 +25,10 @@ logger = logging.getLogger(__name__)
 class CintIntegration:
     """
     Main integration class for Cint API
-    
+
     Manages service initialization, MongoDB collections, and configuration
     """
-    
+
     def __init__(
         self,
         mongo_uri: str,
@@ -39,7 +39,7 @@ class CintIntegration:
     ):
         """
         Initialize Cint Integration
-        
+
         Args:
             mongo_uri: MongoDB connection URI
             api_key: Cint API key
@@ -52,11 +52,11 @@ class CintIntegration:
         self.supplier_code = supplier_code
         self.environment = environment
         self.webhook_secret = webhook_secret
-        
+
         # Services
         self.cint_service: Optional[CintService] = None
         self.allocation_extension: Optional[CintAllocationExtension] = None
-        
+
         # Collections
         self.cint_collections: Dict[str, Collection] = {}
         self.survey_collections: Dict[str, Collection] = {}

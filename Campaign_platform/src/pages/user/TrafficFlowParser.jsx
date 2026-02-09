@@ -145,6 +145,12 @@ export default function TrafficFlowParser() {
   const prefetchedIpRef = useRef(null);
   
   // ============================================
+  // DEBUG DIAGNOSTICS - IP and Fingerprint tracking
+  // ============================================
+  const [diagnosticData, setDiagnosticData] = useState(null);
+  const showDebug = new URLSearchParams(window.location.search).get('debug') === 'true';
+  
+  // ============================================
   // TASK 8: Frontend Click Safety - Debounce Protection
   // ============================================
   // Prevents double-click/rapid-click from triggering multiple API calls
@@ -172,6 +178,27 @@ export default function TrafficFlowParser() {
         if (ipData.ip) {
           prefetchedIpRef.current = ipData;
           console.log(`✅ IP prefetched and cached: ${ipData.ip} (source: ${ipData.source})`);
+          
+          // Generate device fingerprint for diagnostics
+          const fingerprint = await generateDeviceFingerprint();
+          setDiagnosticData({
+            ip: ipData.ip,
+            ipSource: ipData.source,
+            fingerprint: fingerprint.hash,
+            fingerprintComponents: fingerprint.components,
+            timestamp: new Date().toISOString(),
+            userAgent: navigator.userAgent,
+            countryCode: parsedParams.cc || 'not_provided'
+          });
+          
+          // Log diagnostics to console for debugging
+          console.log('📊 CPX DIAGNOSTIC DATA:', {
+            ip: ipData.ip,
+            ipSource: ipData.source,
+            fingerprint: fingerprint.hash,
+            countryCode: parsedParams.cc,
+            components: fingerprint.components
+          });
         }
       } catch (err) {
         console.warn('⚠️ IP prefetch on load failed:', err.message);
@@ -637,6 +664,40 @@ export default function TrafficFlowParser() {
         >
           {loading ? "Processing..." : "Next"}
         </button>
+        
+        {/* DEBUG DIAGNOSTIC PANEL - Only shows when ?debug=true in URL */}
+        {showDebug && diagnosticData && (
+          <div style={{
+            marginTop: "30px",
+            padding: "15px",
+            backgroundColor: "#f5f5f5",
+            border: "1px solid #ddd",
+            borderRadius: "8px",
+            fontSize: "12px",
+            fontFamily: "monospace",
+            textAlign: "left",
+            wordBreak: "break-all"
+          }}>
+            <h4 style={{ margin: "0 0 10px 0", color: "#666" }}>🔧 CPX Diagnostic Info</h4>
+            <div><strong>IP Address:</strong> {diagnosticData.ip}</div>
+            <div><strong>IP Source:</strong> {diagnosticData.ipSource}</div>
+            <div><strong>Country Code:</strong> {diagnosticData.countryCode}</div>
+            <div><strong>Device Fingerprint:</strong> {diagnosticData.fingerprint}</div>
+            <div><strong>Timestamp:</strong> {diagnosticData.timestamp}</div>
+            <details style={{ marginTop: "10px" }}>
+              <summary style={{ cursor: "pointer", color: "#1976d2" }}>Fingerprint Components</summary>
+              <pre style={{ fontSize: "11px", margin: "5px 0", whiteSpace: "pre-wrap" }}>
+                {JSON.stringify(diagnosticData.fingerprintComponents, null, 2)}
+              </pre>
+            </details>
+            <details style={{ marginTop: "5px" }}>
+              <summary style={{ cursor: "pointer", color: "#1976d2" }}>User Agent</summary>
+              <pre style={{ fontSize: "11px", margin: "5px 0", whiteSpace: "pre-wrap" }}>
+                {diagnosticData.userAgent}
+              </pre>
+            </details>
+          </div>
+        )}
       </div>
     </div>
   );
