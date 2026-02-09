@@ -1175,10 +1175,19 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             try:
                 from pymongo import MongoClient
                 import os
+                import httpx
                 
                 mongo_uri = os.getenv("MONGO_URI")
                 if not mongo_uri:
                     print("❌ MONGO_URI not configured for CINT")
+                    return False
+                
+                # CINT API credentials
+                cint_api_key = os.getenv("CINT_API_KEY")
+                cint_supplier_code = os.getenv("CINT_SUPPLIER_CODE")
+                
+                if not cint_api_key or not cint_supplier_code:
+                    print("❌ CINT API credentials not configured")
                     return False
                 
                 client = MongoClient(mongo_uri)
@@ -1198,24 +1207,87 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 
                 print(f"🎯 CINT selected survey: {survey_id}")
                 
-                # Get entry link for the survey
+                # First check MongoDB cache for entry link
                 entry_links_collection = client["cint_research"]["cint_entry_links"]
-                entry_link_doc = entry_links_collection.find_one({"survey_id": survey_id})
+                entry_link_doc = entry_links_collection.find_one({"survey_id": int(survey_id)})
                 
+                live_link = None
                 if entry_link_doc:
-                    # Use live_link field and append SFWID as PID
-                    base_link = entry_link_doc.get('live_link') or entry_link_doc.get('link', '')
-                    if base_link:
-                        # Append PID (SFWID) to the entry link
-                        separator = "&" if "?" in base_link else "?"
-                        entry_link = f"{base_link}{separator}PID={traffic_id}"
-                    else:
-                        # Fallback to default Samplicio URL
-                        entry_link = f"https://samplicio.us/s/default.aspx?SID={survey_id}&PID={traffic_id}"
-                else:
-                    # No entry link found, use default URL
-                    entry_link = f"https://samplicio.us/s/default.aspx?SID={survey_id}&PID={traffic_id}"
-                    print(f"ℹ️ Using default Samplicio URL for CINT survey {survey_id}")
+                    live_link = entry_link_doc.get('live_link') or entry_link_doc.get('LiveLink')
+                    print(f"✅ Found cached entry link for survey {survey_id}")
+                
+                # If no cached entry link, fetch from CINT API
+                if not live_link:
+                    print(f"📡 Fetching entry link from CINT API for survey {survey_id}...")
+                    api_url = f"https://api.samplicio.us/Supply/v1/SupplierLinks/BySurveyNumber/{survey_id}/{cint_supplier_code}"
+                    headers = {"Authorization": cint_api_key, "Content-Type": "application/json"}
+                    
+                    try:
+                        resp = httpx.get(api_url, headers=headers, timeout=10)
+                        if resp.status_code == 200:
+                            api_data = resp.json()
+                            supplier_link = api_data.get("SupplierLink", {})
+                            live_link = supplier_link.get("LiveLink")
+                            
+                            if live_link:
+                                # Cache the entry link for future use
+                                entry_links_collection.update_one(
+                                    {"survey_id": int(survey_id)},
+                                    {"$set": {
+                                        "survey_id": int(survey_id),
+                                        "live_link": live_link,
+                                        "test_link": supplier_link.get("TestLink"),
+                                        "supplier_link_type_code": supplier_link.get("SupplierLinkTypeCode"),
+                                        "updated_at": datetime.utcnow()
+                                    }},
+                                    upsert=True
+                                )
+                                print(f"✅ Fetched and cached entry link for survey {survey_id}")
+                        elif resp.status_code == 404:
+                            # Entry link doesn't exist - try to create one
+                            print(f"📝 No entry link exists for survey {survey_id}, creating one...")
+                            create_url = f"https://api.samplicio.us/Supply/v1/SupplierLinks/Create/{survey_id}/{cint_supplier_code}"
+                            api_base = os.getenv("API_BASE", "https://torpedo.cogentixresearch.com")
+                            create_payload = {
+                                "SupplierLinkTypeCode": "OWS",
+                                "TrackingTypeCode": "NONE", 
+                                "DefaultLink": "https://surveyfieldwork.com/survey",
+                                "SuccessLink": f"{api_base}/cint-response?status=complete&mid=[%MID%]&revenue=[%REVENUE%]",
+                                "FailureLink": f"{api_base}/cint-response?status=terminate&mid=[%MID%]",
+                                "OverQuotaLink": f"{api_base}/cint-response?status=quota_full&mid=[%MID%]",
+                                "QualityTerminationLink": f"{api_base}/cint-response?status=quality_terminate&mid=[%MID%]"
+                            }
+                            create_resp = httpx.post(create_url, json=create_payload, headers=headers, timeout=15)
+                            if create_resp.status_code in [200, 201]:
+                                create_data = create_resp.json()
+                                live_link = create_data.get("SupplierLink", {}).get("LiveLink")
+                                if live_link:
+                                    # Cache it
+                                    entry_links_collection.update_one(
+                                        {"survey_id": int(survey_id)},
+                                        {"$set": {
+                                            "survey_id": int(survey_id),
+                                            "live_link": live_link,
+                                            "updated_at": datetime.utcnow()
+                                        }},
+                                        upsert=True
+                                    )
+                                    print(f"✅ Created and cached entry link for survey {survey_id}")
+                            else:
+                                print(f"⚠️ Failed to create entry link: {create_resp.status_code}")
+                        else:
+                            print(f"⚠️ CINT API error: {resp.status_code}")
+                    except Exception as api_err:
+                        print(f"⚠️ CINT API call failed: {api_err}")
+                
+                if not live_link:
+                    print(f"❌ Could not get entry link for CINT survey {survey_id}")
+                    return False
+                
+                # Build final entry link with SFWID as PID
+                # LiveLink format: https://www.samplicio.us/s/default.aspx?SID=uuid&PID=
+                entry_link = f"{live_link}{traffic_id}"
+                print(f"🔗 Final CINT entry link: {entry_link[:100]}...")
                 
                 allocation_success = True
                 
