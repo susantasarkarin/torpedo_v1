@@ -77,13 +77,7 @@ function RateCard() {
     setError(null);
 
     try {
-      const cpxResponse = await fetch(buildApiUrl("/cpx/surveys?page=1&page_size=500000&show_all=true"), {
-        headers: {
-          Authorization: token,
-          "Content-Type": "application/json",
-        },
-      });
-
+      // Only fetch CINT surveys
       const cintQuery = "/api/cint/surveys?page=1&page_size=500000&show_all=true";
       const cintResponse = await fetch(buildApiUrl(cintQuery), {
         headers: {
@@ -92,18 +86,13 @@ function RateCard() {
         },
       });
 
-      let allSurveys = [];
-
-      if (cpxResponse.ok) {
-        const cpxData = await cpxResponse.json();
-        const cpxSurveys = (cpxData.surveys || []).map((s) => ({ ...s, source: "CPX" }));
-        allSurveys = allSurveys.concat(cpxSurveys);
-      }
-
       let cintData = null;
       if (cintResponse.ok) {
         cintData = await cintResponse.json();
+        console.log("CINT API response:", cintData);
       } else {
+        console.error("CINT API failed with status:", cintResponse.status);
+        // Try fallback URL
         try {
           const fallbackUrl = `https://torpedo.cogentixresearch.com${cintQuery}`;
           const fallbackResponse = await fetch(fallbackUrl, {
@@ -114,15 +103,21 @@ function RateCard() {
           });
           if (fallbackResponse.ok) {
             cintData = await fallbackResponse.json();
+            console.log("CINT fallback response:", cintData);
           }
         } catch (fallbackError) {
           console.warn("CINT fallback fetch failed:", fallbackError);
         }
       }
 
-      if (cintData) {
-        const cintSurveys = (cintData.surveys || []).map((s) => ({ ...s, source: "CINT" }));
-        allSurveys = allSurveys.concat(cintSurveys);
+      let allSurveys = [];
+      if (cintData && cintData.surveys) {
+        allSurveys = cintData.surveys.map((s) => ({ ...s, source: "CINT" }));
+        console.log("Loaded", allSurveys.length, "CINT surveys");
+        if (allSurveys.length > 0) {
+          console.log("Sample survey fields:", Object.keys(allSurveys[0]));
+          console.log("Sample survey:", allSurveys[0]);
+        }
       }
 
       setSurveys(allSurveys);
@@ -145,48 +140,43 @@ function RateCard() {
   }, [token, fetchAllSurveys]);
 
   const getCountryCode = (survey) => {
-    // Priority 1: Direct country field from CPX surveys
-    if (survey.country && typeof survey.country === "string" && survey.country.length <= 3) {
-      return survey.country.toUpperCase();
-    }
-    
-    // Priority 2: country_code field
-    if (survey.country_code && typeof survey.country_code === "string" && survey.country_code.length <= 3) {
-      return survey.country_code.toUpperCase();
-    }
-    
     const countryLanguage = survey.country_language;
 
-    // Priority 3: Numeric country_language ID (CINT/Fulcrum)
+    // CINT format: Numeric CountryLanguageID
     if (countryLanguage && typeof countryLanguage === "number") {
       return CINT_COUNTRY_LANGUAGE_MAP[countryLanguage] || `ID:${countryLanguage}`;
     }
 
-    // Priority 4: String country_language
+    // CINT/Fulcrum format: "eng_us" (language_country) - country is LAST part
     if (countryLanguage && typeof countryLanguage === "string") {
-      // Format "US-EN" or "US_EN" (country-language) - take first part
-      if (countryLanguage.includes("-") || countryLanguage.includes("_")) {
-        const parts = countryLanguage.split(/[-_]/);
-        const firstPart = parts[0].toUpperCase();
+      // Format like "eng_us", "spa_mx", "deu_de"
+      if (countryLanguage.includes("_")) {
+        const parts = countryLanguage.split("_");
         const lastPart = parts[parts.length - 1].toUpperCase();
-        
-        // If first part is 2-3 chars, it's likely the country code
-        if (firstPart.length === 2 || firstPart.length === 3) {
-          // Check if it looks like a country code (not "ENG", "SPA", etc.)
-          if (!/^(ENG|SPA|FRA|DEU|ITA|POR|RUS|JPN|KOR|CHI|ARA)$/i.test(firstPart)) {
-            return firstPart.slice(0, 2);
-          }
-        }
-        // Otherwise last part is likely the country (format "eng_us")
         if (lastPart.length === 2) {
           return lastPart;
         }
       }
-      
+      // Format like "US-EN" or "US_EN" (country-language)
+      if (countryLanguage.includes("-")) {
+        const parts = countryLanguage.split("-");
+        const firstPart = parts[0].toUpperCase();
+        if (firstPart.length === 2) {
+          return firstPart;
+        }
+      }
       // Simple 2-char string
       if (countryLanguage.length === 2) {
         return countryLanguage.toUpperCase();
       }
+    }
+
+    // Fallback: check other fields
+    if (survey.country && typeof survey.country === "string" && survey.country.length <= 3) {
+      return survey.country.toUpperCase();
+    }
+    if (survey.country_code && typeof survey.country_code === "string" && survey.country_code.length <= 3) {
+      return survey.country_code.toUpperCase();
     }
 
     return "N/A";
