@@ -1192,14 +1192,24 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 
                 client = MongoClient(mongo_uri)
                 
-                # Get active CINT surveys
+                # Get active CINT surveys filtered by country
                 cint_collection = client["cint_research"]["cint_surveys"]
-                cint_query = {"is_active_in_pool": True}
+                
+                # Map user's country code to CINT format (e.g., "US" -> "_us", "IN" -> "_in")
+                user_country = country_code.lower() if country_code else "us"
+                country_pattern = f"_{user_country}$"
+                
+                cint_query = {
+                    "is_active_in_pool": True,
+                    "country_language": {"$regex": country_pattern, "$options": "i"}
+                }
                 cint_surveys = list(cint_collection.find(cint_query).limit(50))
                 
                 if not cint_surveys:
-                    print("⚠️ No active CINT surveys available")
+                    print(f"⚠️ No active CINT surveys available for country {country_code}")
                     return False
+                
+                print(f"✅ Found {len(cint_surveys)} CINT surveys for country {country_code}")
                 
                 # Select a random survey
                 selected_survey = random.choice(cint_surveys)
