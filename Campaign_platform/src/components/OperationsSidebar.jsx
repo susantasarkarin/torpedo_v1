@@ -37,7 +37,17 @@ function OperationsSidebar() {
               <span className="sidebar-icon">📋</span> Survey Pool
             </Link>
           </li>
-          
+          <li className={`sidebar-item ${isActive("/admin/operations/potential-clients") ? "active" : ""}`}>
+            <Link to="/admin/operations/potential-clients" className="sidebar-link">
+              <span className="sidebar-icon">💼</span> Potential Client
+            </Link>
+          </li>
+          <li className={`sidebar-item ${isActive("/admin/operations/rate-card") ? "active" : ""}`}>
+            <Link to="/admin/operations/rate-card" className="sidebar-link">
+              <span className="sidebar-icon">💵</span> Rate Card
+            </Link>
+          </li>
+
           {/* Traffic Group */}
           <li className="sidebar-group">
             <div 
