@@ -21,6 +21,13 @@ function RateCard() {
   const [error, setError] = useState(null);
   const [markupPercent, setMarkupPercent] = useState(15);
 
+  // Filters
+  const [countryFilter, setCountryFilter] = useState("");
+  const [loiMin, setLoiMin] = useState("");
+  const [loiMax, setLoiMax] = useState("");
+  const [irMin, setIrMin] = useState("");
+  const [irMax, setIrMax] = useState("");
+
   useEffect(() => {
     if (token) {
       fetchAllSurveys();
@@ -182,6 +189,20 @@ function RateCard() {
     return value * (1 + safeMarkup / 100);
   };
 
+  // Get unique countries for dropdown
+  const availableCountries = useMemo(() => {
+    const countries = new Set();
+    surveys.forEach((survey) => {
+      const source = (survey.source || survey.provider || "").toUpperCase();
+      if (source !== "CINT" && !survey.account_name) return;
+      const country = getCountryCode(survey);
+      if (country !== "N/A") {
+        countries.add(country);
+      }
+    });
+    return Array.from(countries).sort();
+  }, [surveys]);
+
   const rateRows = useMemo(() => {
     const groups = new Map();
     const allRates = [];
@@ -194,6 +215,13 @@ function RateCard() {
       const loi = getLOIValue(survey);
       const ir = getIncidenceRateValue(survey);
       if (country === "N/A" || loi === null || ir === null) return;
+
+      // Apply filters
+      if (countryFilter && country !== countryFilter) return;
+      if (loiMin !== "" && loi < Number(loiMin)) return;
+      if (loiMax !== "" && loi > Number(loiMax)) return;
+      if (irMin !== "" && ir < Number(irMin)) return;
+      if (irMax !== "" && ir > Number(irMax)) return;
 
       const rate = getPayoutValue(survey);
       if (rate !== null && !isNaN(rate)) {
@@ -234,7 +262,7 @@ function RateCard() {
         if (a.loi !== b.loi) return a.loi - b.loi;
         return a.ir - b.ir;
       });
-  }, [surveys]);
+  }, [surveys, countryFilter, loiMin, loiMax, irMin, irMax, markupPercent]);
 
   if (!user) {
     return <div className="rate-card-page">Please login to access Rate Card.</div>;
@@ -245,10 +273,79 @@ function RateCard() {
       <div className="page-header">
         <div>
           <h1>Rate Card</h1>
-          <p>Based on Cint study pool entries grouped by country, LOI, and IR.</p>
+          <p>Based on all Cint study pool entries (active + inactive) grouped by country, LOI, and IR.</p>
         </div>
         <button className="refresh-button" onClick={fetchAllSurveys} disabled={loading}>
           {loading ? "Refreshing..." : "Refresh"}
+        </button>
+      </div>
+
+      <div className="filters-section">
+        <div className="filter-group">
+          <label>Country</label>
+          <select value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)}>
+            <option value="">All Countries</option>
+            {availableCountries.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <label>LOI (min)</label>
+          <div className="range-inputs">
+            <input
+              type="number"
+              placeholder="Min"
+              value={loiMin}
+              onChange={(e) => setLoiMin(e.target.value)}
+              min="0"
+            />
+            <span>to</span>
+            <input
+              type="number"
+              placeholder="Max"
+              value={loiMax}
+              onChange={(e) => setLoiMax(e.target.value)}
+              min="0"
+            />
+          </div>
+        </div>
+
+        <div className="filter-group">
+          <label>IR (%)</label>
+          <div className="range-inputs">
+            <input
+              type="number"
+              placeholder="Min"
+              value={irMin}
+              onChange={(e) => setIrMin(e.target.value)}
+              min="0"
+              max="100"
+            />
+            <span>to</span>
+            <input
+              type="number"
+              placeholder="Max"
+              value={irMax}
+              onChange={(e) => setIrMax(e.target.value)}
+              min="0"
+              max="100"
+            />
+          </div>
+        </div>
+
+        <button
+          className="clear-filters-btn"
+          onClick={() => {
+            setCountryFilter("");
+            setLoiMin("");
+            setLoiMax("");
+            setIrMin("");
+            setIrMax("");
+          }}
+        >
+          Clear Filters
         </button>
       </div>
 
