@@ -1390,6 +1390,7 @@ async def cpx_redirect(request: Request, id: str = Query(..., description="Traff
                 "https://click.cpx-research.com/",
                 "https://offers.cpx-research.com/",
                 "https://samplicio.us/",
+                "https://www.samplicio.us/",
                 "https://s.samplicio.us/",
             ]
             return any(url.startswith(prefix) for prefix in valid_prefixes)
