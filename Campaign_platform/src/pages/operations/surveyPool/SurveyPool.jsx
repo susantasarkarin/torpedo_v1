@@ -565,7 +565,19 @@ export default function SurveyPool() {
   // Filter surveys based on active_only toggle
   const filteredSurveys = useMemo(() => {
     if (!showActiveOnly) return surveys;
-    return surveys.filter(survey => survey.is_active_in_pool === true);
+
+    return surveys.filter((survey) => {
+      if (survey.is_active_in_pool === true) {
+        return true;
+      }
+
+      const source = (survey.source || survey.provider || '').toUpperCase();
+      if (source === 'CINT') {
+        return survey.is_live === true && survey.message_reason !== 'deactivated';
+      }
+
+      return false;
+    });
   }, [surveys, showActiveOnly]);
 
   // Client-side pagination

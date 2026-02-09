@@ -698,6 +698,7 @@ try:
     # Wire up services to router for dependency injection
     cint_router.set_cint_service(cint_integration.cint_service)
     cint_router.set_cint_allocation_ext(cint_integration.allocation_extension)
+    traffic_router.set_cint_service(cint_integration.cint_service)  # Inject CINT service into traffic router for survey allocation
     
     # Register Cint router
     app.include_router(cint_router.router, prefix="/api/cint", tags=["Cint Research"])

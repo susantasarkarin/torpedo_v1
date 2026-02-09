@@ -38,6 +38,7 @@ url_parameters_collection: Optional[Collection] = None
 traffic_service: Optional[Any] = None
 survey_allocation_service: Optional[Any] = None
 cpx_service: Optional[Any] = None
+cint_service: Optional[Any] = None  # CINT service for direct survey allocation
 vendors_collection: Optional[Collection] = None
 cpx_callback_logs_collection: Optional[Collection] = None
 cpx_postback_logs_collection: Optional[Collection] = None  # S2S postback logs for verification
@@ -65,6 +66,12 @@ def set_cpx_service(service: Any):
     """Set the CPX service instance for survey allocation"""
     global cpx_service
     cpx_service = service
+
+
+def set_cint_service(service: Any):
+    """Set the CINT service instance for survey allocation"""
+    global cint_service
+    cint_service = service
 
 
 def set_vendors_collection(collection: Collection):
@@ -1011,16 +1018,31 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             data['status'] = 'incomplete'
             data['redirectUrl'] = None
             data['email'] = user_email  # Store email in legacy records too
+            # Store respondentId at top level for /cpx/redirect fallback lookup
+            data['respondentId'] = respondent_id
+            data['vendorId'] = vendor_id
+            data['countryCode'] = country_code
             result = url_parameters_collection.insert_one(data)
             traffic_id = str(result.inserted_id)
         
-        # PER-RESPONDENT CPX FLOW (preferred)
-        # Call CPX live API directly to fetch/allocate for this respondent.
-        # CRITICAL: ext_user_id MUST be the stable vendor-provided rid, NOT our internal traffic_id
-        # The traffic_id is only for our internal tracking (subid_1)
+        # ===============================================================================
+        # ALTERNATING CPX/CINT ALLOCATION (Load Balancing)
+        # ===============================================================================
+        # Respondent ID for BOTH CPX and CINT is the SFWID (traffic_id)
+        # This ensures unique tracking per respondent across both providers
+        # Provider is selected based on hash of traffic_id (deterministic 50/50 split)
+        # ===============================================================================
         
-        # DEBUG: Log the CPX allocation condition check
-        print(f"🔍 CPX allocation check: allocation_success={allocation_success}, vendor_id={vendor_id}, country_code={country_code}, respondent_id={respondent_id}, cpx_service={cpx_service is not None}")
+        # Determine primary provider based on hash of traffic_id (SFWID)
+        # This ensures deterministic, reproducible alternation
+        traffic_id_hash = hash(traffic_id) if traffic_id else 0
+        primary_provider = "CPX" if (traffic_id_hash % 2 == 0) else "CINT"
+        
+        print(f"🔀 Provider alternation: SFWID={traffic_id}, hash={traffic_id_hash % 2}, primary={primary_provider}")
+        print(f"🆔 Using SFWID '{traffic_id}' as respondent ID for both CPX and CINT")
+        
+        # DEBUG: Log allocation check
+        print(f"🔍 Allocation check: allocation_success={allocation_success}, vendor_id={vendor_id}, country_code={country_code}, SFWID={traffic_id}")
         
         # ============================================
         # IP CONSISTENCY VALIDATION
@@ -1043,222 +1065,213 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 print(f"   CPX WILL USE: {client_ip} (browser-collected, more accurate)")
                 print(f"   If screenout occurs, this mismatch may be why")
 
-        # Validate we have a usable IP for CPX
+        # Validate we have a usable IP for survey providers
         if not client_ip or client_ip in ['127.0.0.1', 'localhost', '0.0.0.0', '::1']:
-            print(f"❌ CRITICAL: Invalid IP for CPX: {client_ip}")
-            print(f"   CPX requires real public IP address")
-            allocation_error = f"Invalid client IP ({client_ip}) - cannot call CPX API"
+            print(f"❌ CRITICAL: Invalid IP: {client_ip}")
+            print(f"   Survey providers require real public IP address")
+            allocation_error = f"Invalid client IP ({client_ip}) - cannot call survey API"
         
-        if not allocation_success and vendor_id and country_code and respondent_id and cpx_service:
-            # ============================================
-            # TASK 5: WebView Detection - Block BEFORE CPX API call
-            # ============================================
+        # ============================================
+        # HELPER FUNCTION: CPX Allocation
+        # ============================================
+        def try_cpx_allocation():
+            nonlocal allocation_success, entry_link, survey_id, allocation_error
+            
+            if not cpx_service:
+                print("⚠️ CPX service not available")
+                return False
+                
+            # WebView Detection
             is_webview, webview_signature = is_webview_user_agent(client_user_agent)
             if is_webview:
-                allocation_error = f"WebView traffic blocked (detected: {webview_signature})"
-                print(f"🚫 CPX WEBVIEW BLOCK: User agent '{client_user_agent[:80]}...' contains WebView signature '{webview_signature}'")
-                print(f"🚫 CPX rejects WebView traffic - blocking locally to avoid API call waste")
-                # Don't attempt CPX allocation for WebView traffic
-            else:
-                # ============================================
-                # TASK 3: Single-Use ext_user_id Guard - Check BEFORE CPX API call
-                # ============================================
-                guard_result = check_cpx_entry_guard(respondent_id, client_ip, client_user_agent)
-                
-                if not guard_result["allowed"]:
-                    allocation_error = f"ext_user_id guard blocked: {guard_result['reason']}"
-                    print(f"🚫 CPX ENTRY GUARD BLOCK: {guard_result['reason']} (existing status: {guard_result['existing_status']})")
-                    # Don't attempt CPX allocation for duplicate ext_user_id
-                else:
-                    # ext_user_id is valid and registered, proceed with CPX API call
-                    try:
-                        print(f"📍 Detected client IP: {client_ip} for SFWID: {traffic_id}")
-                        print(f"📱 Using User-Agent for CPX: {client_user_agent[:60]}..." if client_user_agent and len(client_user_agent) > 60 else f"📱 Using User-Agent for CPX: {client_user_agent}")
-                        print(f"🔑 Using vendor rid '{respondent_id}' as ext_user_id and SFWID '{traffic_id}' as subid_1")
-                        print(f"🌍 Country code from URL: {country_code}")
-
-                        result = cpx_service.fetch_and_allocate_for_respondent(
-                            vendor_user_id=respondent_id,        # Use vendor rid as ext_user_id
-                            internal_tracking_id=traffic_id,     # Use SFWID as subid_1
-                            user_ip=client_ip,
-                            user_agent=client_user_agent,
-                            country_code=country_code,           # Pass country code (will be converted to ISO2)
-                            # CPX User Profiling Parameters (CRITICAL for survey matching)
-                            email=user_email,
-                            birthday_day=birthday_day,
-                            birthday_month=birthday_month,
-                            birthday_year=birthday_year,
-                            gender=gender,
-                            zip_code=zip_code,
-                        )
-
-                        if result.get("success"):
-                            entry_link = result.get("entry_link", "")
-                            survey_id = result.get("survey_id", "")
-                            allocation_success = True
-
-                            # ============================================
-                            # TASK 4: Lock CPX Redirects - Update status to REDIRECTED
-                            # ============================================
-                            update_cpx_entry_guard_status(
-                                ext_user_id=respondent_id,
-                                new_status=CPX_GUARD_STATUS_REDIRECTED,
-                                survey_id=str(survey_id),
-                                entry_link=entry_link
-                            )
-
-                            if traffic_service:
-                                traffic_service.assign_survey_to_traffic(
-                                    traffic_id=traffic_id,
-                                    survey_id=str(survey_id),
-                                    redirect_url=entry_link
-                                )
-
-                            print(f"✅ Allocated CPX survey {survey_id} to SFWID={traffic_id} (per-respondent)")
-                            print(f"   Entry link: {entry_link[:100]}...")
-                        else:
-                            allocation_error = result.get('error', 'CPX returned no surveys')
-                            print(f"⚠️ Per-respondent CPX allocation failed: {allocation_error}")
-                            # Mark as LOCKED since CPX API was called (even if failed)
-                            update_cpx_entry_guard_status(
-                                ext_user_id=respondent_id,
-                                new_status=CPX_GUARD_STATUS_LOCKED,
-                                survey_id=None,
-                                entry_link=None
-                            )
-                    except Exception as e:
-                        allocation_error = f"CPX allocation error: {str(e)}"
-                        print(f"⚠️ Per-respondent CPX allocation error: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        # Mark as LOCKED on error to prevent retry
-                        update_cpx_entry_guard_status(
-                            ext_user_id=respondent_id,
-                            new_status=CPX_GUARD_STATUS_LOCKED,
-                            survey_id=None,
-                            entry_link=None
-                        )
-
-        # ===============================================================================
-        # POOL FALLBACK (DEPRECATED - DO NOT USE FOR CPX)
-        # ===============================================================================
-        # WARNING: The pool fallback for CPX surveys is FUNDAMENTALLY BROKEN:
-        # - CPX hrefs are bound to ext_user_id at API call time
-        # - Cached hrefs have wrong ext_user_id baked into encrypted k= parameter
-        # - Reusing cached hrefs WILL cause CPX to reject the traffic
-        # 
-        # The correct flow is: Call CPX API fresh per respondent (done above)
-        # This fallback is only kept for CINT surveys which may work differently
-        # ===============================================================================
-        if not allocation_success and vendor_id and country_code and respondent_id:
+                print(f"🚫 CPX WEBVIEW BLOCK: User agent contains WebView signature '{webview_signature}'")
+                return False
+            
+            # Guard check using SFWID (traffic_id) as ext_user_id
+            guard_result = check_cpx_entry_guard(traffic_id, client_ip, client_user_agent)
+            if not guard_result["allowed"]:
+                print(f"🚫 CPX ENTRY GUARD BLOCK: {guard_result['reason']} (existing status: {guard_result['existing_status']})")
+                return False
+            
             try:
-                from pymongo import MongoClient
-                import os
-
-                # Get MongoDB connection
-                mongo_uri = os.getenv("MONGO_URI")
-                if not mongo_uri:
-                    print("❌ MONGO_URI not configured")
-                else:
-                    client = MongoClient(mongo_uri)
-
-                    # DISABLED: CPX pool fallback - hrefs are bound to ext_user_id and cannot be reused
-                    # cpx_collection = client["cpx_research"]["cpx_surveys"]
-                    # cpx_surveys = list(cpx_collection.find({"is_active_in_pool": True}).limit(50))
-                    
-                    # Only CINT surveys can potentially use pool fallback
-                    cint_collection = client["cint_research"]["cint_surveys"]
-                    cint_query = {
-                        "is_active_in_pool": True
-                    }
-                    cint_surveys = list(cint_collection.find(cint_query).limit(50))
-                    print(f"📊 Found {len(cint_surveys)} active CINT surveys (CPX pool fallback DISABLED - use live API only)")
-
-                    all_surveys = []
-                    # DISABLED: CPX pool fallback - cannot reuse cached hrefs
-                    # for survey in cpx_surveys:
-                    #     survey['_source'] = 'CPX'
-                    #     all_surveys.append(survey)
-
-                    # CINT may work with pool (different identity model)
-                    for survey in cint_surveys:
-                        survey['_source'] = 'CINT'
-                        all_surveys.append(survey)
-
-                    print(f"📊 Total pool surveys: {len(all_surveys)} (CPX: DISABLED, CINT: {len(cint_surveys)})")
-
-                    if all_surveys:
-                        selected_survey = random.choice(all_surveys)
-                        source = selected_survey.get('_source')
-                        survey_id = selected_survey.get('survey_id') or selected_survey.get('_id')
-
-                        print(f"🎯 Selected {source} survey: {survey_id}")
-
-                        if source == 'CINT':
-                            entry_links_collection = client["cint_research"]["entry_links"]
-                            entry_link_doc = entry_links_collection.find_one({"survey_id": str(survey_id)})
-
-                            if entry_link_doc and entry_link_doc.get('link'):
-                                entry_link = entry_link_doc['link']
-                            else:
-                                entry_link = f"https://samplicio.us/s/default.aspx?SID={survey_id}&PID={traffic_id}"
-                                print(f"ℹ️ Using default Samplicio URL for CINT survey {survey_id}")
-
-                            allocation_success = True
-
-                            if traffic_service:
-                                traffic_service.assign_survey_to_traffic(
-                                    traffic_id=traffic_id,
-                                    survey_id=str(survey_id),
-                                    redirect_url=entry_link
-                                )
-
-                            print(f"✅ Allocated CINT survey {survey_id} to SFWID={traffic_id}")
-                    else:
-                        cc_upper = country_code.upper()
-                        allocation_error = allocation_error or f"No active surveys available for country {cc_upper}"
-                        print(f"⚠️ No active surveys available for country {cc_upper}")
-
-            except Exception as e:
-                print(f"⚠️ Survey allocation error: {e}")
-                import traceback
-                traceback.print_exc()
-        
-        # Fallback to survey allocation service if CPX failed
-        if not allocation_success and survey_allocation_service and vendor_id and country_code and respondent_id:
-            try:
-                from app.models.survey_allocation import AllocationRequest
+                print(f"📍 CPX: IP={client_ip}, SFWID={traffic_id}")
+                print(f"🔑 Using SFWID '{traffic_id}' as ext_user_id for CPX")
                 
-                allocation_request = AllocationRequest(
-                    vid=vendor_id,
-                    cc=country_code.upper(),
-                    rid=respondent_id,
-                    ip_address=client_ip,
-                    user_agent=data.get('userAgent')
+                result = cpx_service.fetch_and_allocate_for_respondent(
+                    vendor_user_id=traffic_id,           # Use SFWID as ext_user_id
+                    internal_tracking_id=traffic_id,     # Use SFWID as subid_1 too
+                    user_ip=client_ip,
+                    user_agent=client_user_agent,
+                    country_code=country_code,
+                    email=user_email,
+                    birthday_day=birthday_day,
+                    birthday_month=birthday_month,
+                    birthday_year=birthday_year,
+                    gender=gender,
+                    zip_code=zip_code,
                 )
                 
-                allocation_result = survey_allocation_service.allocate_respondent(allocation_request)
-                
-                if allocation_result.success and allocation_result.entry_link:
-                    entry_link = allocation_result.entry_link
-                    survey_id = allocation_result.survey_id
+                if result.get("success"):
+                    entry_link = result.get("entry_link", "")
+                    survey_id = result.get("survey_id", "")
                     allocation_success = True
                     
+                    # Update guard status to REDIRECTED
+                    update_cpx_entry_guard_status(
+                        ext_user_id=traffic_id,
+                        new_status=CPX_GUARD_STATUS_REDIRECTED,
+                        survey_id=str(survey_id),
+                        entry_link=entry_link
+                    )
+                    
+                    # Update traffic record
                     if traffic_service:
                         traffic_service.assign_survey_to_traffic(
                             traffic_id=traffic_id,
-                            survey_id=survey_id,
+                            survey_id=str(survey_id),
                             redirect_url=entry_link
                         )
+                    else:
+                        url_parameters_collection.update_one(
+                            {"_id": ObjectId(traffic_id)},
+                            {"$set": {
+                                "status": "INCOMPLETE",
+                                "assignedSurveyId": str(survey_id),
+                                "redirectUrl": entry_link,
+                                "surveySource": "CPX",
+                                "updatedAt": datetime.utcnow().isoformat(),
+                            }}
+                        )
                     
-                    print(f"✅ Allocated survey {survey_id} via allocation service")
+                    print(f"✅ CPX allocated survey {survey_id} to SFWID={traffic_id}")
+                    return True
                 else:
-                    allocation_error = allocation_error or allocation_result.message
-                    print(f"⚠️ Survey allocation service failed: {allocation_result.message}")
+                    print(f"⚠️ CPX returned no surveys: {result.get('error', 'unknown')}")
+                    # Mark as LOCKED since CPX API was called
+                    update_cpx_entry_guard_status(
+                        ext_user_id=traffic_id,
+                        new_status=CPX_GUARD_STATUS_LOCKED,
+                        survey_id=None,
+                        entry_link=None
+                    )
+                    return False
                     
             except Exception as e:
-                allocation_error = allocation_error or f"Allocation service error: {str(e)}"
-                print(f"⚠️ Survey allocation service error: {e}")
+                print(f"⚠️ CPX allocation error: {e}")
+                update_cpx_entry_guard_status(
+                    ext_user_id=traffic_id,
+                    new_status=CPX_GUARD_STATUS_LOCKED,
+                    survey_id=None,
+                    entry_link=None
+                )
+                return False
+        
+        # ============================================
+        # HELPER FUNCTION: CINT Allocation
+        # ============================================
+        def try_cint_allocation():
+            nonlocal allocation_success, entry_link, survey_id, allocation_error
+            
+            try:
+                from pymongo import MongoClient
+                import os
+                
+                mongo_uri = os.getenv("MONGO_URI")
+                if not mongo_uri:
+                    print("❌ MONGO_URI not configured for CINT")
+                    return False
+                
+                client = MongoClient(mongo_uri)
+                
+                # Get active CINT surveys
+                cint_collection = client["cint_research"]["cint_surveys"]
+                cint_query = {"is_active_in_pool": True}
+                cint_surveys = list(cint_collection.find(cint_query).limit(50))
+                
+                if not cint_surveys:
+                    print("⚠️ No active CINT surveys available")
+                    return False
+                
+                # Select a random survey
+                selected_survey = random.choice(cint_surveys)
+                survey_id = str(selected_survey.get('survey_id') or selected_survey.get('_id'))
+                
+                print(f"🎯 CINT selected survey: {survey_id}")
+                
+                # Get entry link for the survey
+                entry_links_collection = client["cint_research"]["cint_entry_links"]
+                entry_link_doc = entry_links_collection.find_one({"survey_id": survey_id})
+                
+                if entry_link_doc:
+                    # Use live_link field and append SFWID as PID
+                    base_link = entry_link_doc.get('live_link') or entry_link_doc.get('link', '')
+                    if base_link:
+                        # Append PID (SFWID) to the entry link
+                        separator = "&" if "?" in base_link else "?"
+                        entry_link = f"{base_link}{separator}PID={traffic_id}"
+                    else:
+                        # Fallback to default Samplicio URL
+                        entry_link = f"https://samplicio.us/s/default.aspx?SID={survey_id}&PID={traffic_id}"
+                else:
+                    # No entry link found, use default URL
+                    entry_link = f"https://samplicio.us/s/default.aspx?SID={survey_id}&PID={traffic_id}"
+                    print(f"ℹ️ Using default Samplicio URL for CINT survey {survey_id}")
+                
+                allocation_success = True
+                
+                # Update traffic record
+                if traffic_service:
+                    traffic_service.assign_survey_to_traffic(
+                        traffic_id=traffic_id,
+                        survey_id=survey_id,
+                        redirect_url=entry_link
+                    )
+                else:
+                    url_parameters_collection.update_one(
+                        {"_id": ObjectId(traffic_id)},
+                        {"$set": {
+                            "status": "INCOMPLETE",
+                            "assignedSurveyId": survey_id,
+                            "redirectUrl": entry_link,
+                            "surveySource": "CINT",
+                            "updatedAt": datetime.utcnow().isoformat(),
+                        }}
+                    )
+                
+                print(f"✅ CINT allocated survey {survey_id} to SFWID={traffic_id}")
+                print(f"   Entry link: {entry_link[:100]}...")
+                return True
+                
+            except Exception as e:
+                print(f"⚠️ CINT allocation error: {e}")
+                import traceback
+                traceback.print_exc()
+                return False
+        
+        # ============================================
+        # MAIN ALLOCATION LOGIC: Alternate CPX/CINT
+        # ============================================
+        actual_provider = None  # Track which provider was actually used
+        
+        if not allocation_success and vendor_id and country_code and traffic_id:
+            if primary_provider == "CPX":
+                # Try CPX first, fallback to CINT
+                print("🔄 Trying CPX (primary)...")
+                if try_cpx_allocation():
+                    actual_provider = "CPX"
+                else:
+                    print("🔄 CPX failed, trying CINT (fallback)...")
+                    if try_cint_allocation():
+                        actual_provider = "CINT"
+            else:
+                # Try CINT first, fallback to CPX
+                print("🔄 Trying CINT (primary)...")
+                if try_cint_allocation():
+                    actual_provider = "CINT"
+                else:
+                    print("🔄 CINT failed, trying CPX (fallback)...")
+                    if try_cpx_allocation():
+                        actual_provider = "CPX"
         
         # Build response with diagnostic info
         response_data = {
@@ -1266,7 +1279,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             "type": "traffic_record" if traffic_service else "legacy",
             "allocation_success": allocation_success,
             "entry_link": entry_link,
-            "survey_id": survey_id
+            "survey_id": survey_id,
+            "survey_provider": actual_provider,
+            "primary_provider": primary_provider
         }
         
         # Include allocation error for debugging (only if allocation failed)
@@ -1275,7 +1290,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             response_data["debug_info"] = {
                 "client_ip": client_ip,
                 "country_code": country_code,
-                "cpx_service_available": cpx_service is not None
+                "cpx_service_available": cpx_service is not None,
+                "cint_service_available": cint_service is not None
             }
         
         return response_data
@@ -1288,17 +1304,23 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
 @router.get("/cpx/redirect")
 async def cpx_redirect(request: Request, id: str = Query(..., description="Traffic record ID (SFWID)")):
     """
-    Pure HTTP redirect to the CPX entry link stored on the traffic record.
-    This avoids JS-based redirects and preserves the exact href returned by CPX.
+    Pure HTTP redirect to the survey entry link stored on the traffic record.
+    Supports both CPX and CINT survey links.
+    This avoids JS-based redirects and preserves the exact href returned by the provider.
     """
     try:
         if url_parameters_collection is None:
             raise HTTPException(status_code=500, detail="Database not connected")
 
-        def is_valid_cpx_link(url: str) -> bool:
-            return url.startswith("https://click.cpx-research.com/") or url.startswith(
-                "https://offers.cpx-research.com/"
-            )
+        def is_valid_survey_link(url: str) -> bool:
+            """Check if URL is a valid CPX or CINT survey link"""
+            valid_prefixes = [
+                "https://click.cpx-research.com/",
+                "https://offers.cpx-research.com/",
+                "https://samplicio.us/",
+                "https://s.samplicio.us/",
+            ]
+            return any(url.startswith(prefix) for prefix in valid_prefixes)
 
         try:
             record = url_parameters_collection.find_one({"_id": ObjectId(id)})
@@ -1306,43 +1328,47 @@ async def cpx_redirect(request: Request, id: str = Query(..., description="Traff
             record = None
 
         if not record:
-            print(f"❌ CPX redirect: traffic record not found (id={id})")
+            print(f"❌ Survey redirect: traffic record not found (id={id})")
             raise HTTPException(status_code=404, detail="Traffic record not found")
 
         entry_link = record.get("redirectUrl") or record.get("redirect_url") or ""
-        entry_source = "traffic_record"
+        entry_source = record.get("surveySource", "unknown")
 
-        if entry_link and not is_valid_cpx_link(entry_link):
+        # Don't clear entry_link if it's a valid survey link
+        if entry_link and not is_valid_survey_link(entry_link):
+            # Check if it might be a CPX guard link
             entry_link = ""
 
+        # Fallback: Try CPX guard for CPX allocated surveys
         if not entry_link and cpx_entry_guards_collection:
-            guard_key = record.get("respondentId") or record.get("respondent_id")
+            # Use traffic_id (SFWID) as the guard key since that's now the ext_user_id
+            guard_key = str(record.get("_id"))
             if guard_key:
                 guard_doc = cpx_entry_guards_collection.find_one({"ext_user_id": guard_key})
                 guard_link = guard_doc.get("entry_link") if guard_doc else ""
-                if guard_link and is_valid_cpx_link(guard_link):
+                if guard_link and is_valid_survey_link(guard_link):
                     entry_link = guard_link
                     entry_source = "cpx_entry_guard"
 
         if not entry_link:
             print(
-                "❌ CPX redirect: entry link not available "
-                f"(id={id}, respondent={record.get('respondentId')}, source={entry_source})"
+                "❌ Survey redirect: entry link not available "
+                f"(id={id}, source={entry_source})"
             )
             raise HTTPException(status_code=404, detail="Entry link not available")
 
-        # Ensure we only redirect to CPX domains
-        if not is_valid_cpx_link(entry_link):
+        # Validate the link
+        if not is_valid_survey_link(entry_link):
             print(
-                "❌ CPX redirect: invalid entry link "
+                "❌ Survey redirect: invalid entry link "
                 f"(id={id}, url={entry_link[:120]}...)")
-            raise HTTPException(status_code=400, detail="Invalid CPX entry link")
+            raise HTTPException(status_code=400, detail="Invalid survey entry link")
 
         client_ip = request.client.host if request.client else "unknown"
         user_agent = request.headers.get("user-agent", "unknown")[:160]
         print(
-            "✅ CPX redirect: sending user to CPX "
-            f"(id={id}, source={entry_source}, ip={client_ip}, ua={user_agent})"
+            f"✅ Survey redirect: sending user to {entry_source} survey "
+            f"(id={id}, ip={client_ip}, ua={user_agent})"
         )
 
         return RedirectResponse(url=entry_link, status_code=302)
