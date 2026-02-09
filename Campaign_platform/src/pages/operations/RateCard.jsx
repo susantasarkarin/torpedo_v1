@@ -145,29 +145,48 @@ function RateCard() {
   }, [token, fetchAllSurveys]);
 
   const getCountryCode = (survey) => {
+    // Priority 1: Direct country field from CPX surveys
+    if (survey.country && typeof survey.country === "string" && survey.country.length <= 3) {
+      return survey.country.toUpperCase();
+    }
+    
+    // Priority 2: country_code field
+    if (survey.country_code && typeof survey.country_code === "string" && survey.country_code.length <= 3) {
+      return survey.country_code.toUpperCase();
+    }
+    
     const countryLanguage = survey.country_language;
 
-    if (countryLanguage && typeof countryLanguage === "string") {
-      const lastTwo = countryLanguage.slice(-2).toUpperCase();
-      if (lastTwo && /^[A-Z]{2}$/.test(lastTwo)) {
-        return lastTwo;
-      }
-      const parts = countryLanguage.split("_");
-      if (parts.length >= 2) {
-        return parts[parts.length - 1].toUpperCase();
-      }
-      return countryLanguage.toUpperCase();
-    }
-
+    // Priority 3: Numeric country_language ID (CINT/Fulcrum)
     if (countryLanguage && typeof countryLanguage === "number") {
       return CINT_COUNTRY_LANGUAGE_MAP[countryLanguage] || `ID:${countryLanguage}`;
     }
 
-    if (survey.country && typeof survey.country === "string" && survey.country.length <= 3) {
-      return survey.country.toUpperCase();
-    }
-    if (survey.country_code && typeof survey.country_code === "string" && survey.country_code.length <= 3) {
-      return survey.country_code.toUpperCase();
+    // Priority 4: String country_language
+    if (countryLanguage && typeof countryLanguage === "string") {
+      // Format "US-EN" or "US_EN" (country-language) - take first part
+      if (countryLanguage.includes("-") || countryLanguage.includes("_")) {
+        const parts = countryLanguage.split(/[-_]/);
+        const firstPart = parts[0].toUpperCase();
+        const lastPart = parts[parts.length - 1].toUpperCase();
+        
+        // If first part is 2-3 chars, it's likely the country code
+        if (firstPart.length === 2 || firstPart.length === 3) {
+          // Check if it looks like a country code (not "ENG", "SPA", etc.)
+          if (!/^(ENG|SPA|FRA|DEU|ITA|POR|RUS|JPN|KOR|CHI|ARA)$/i.test(firstPart)) {
+            return firstPart.slice(0, 2);
+          }
+        }
+        // Otherwise last part is likely the country (format "eng_us")
+        if (lastPart.length === 2) {
+          return lastPart;
+        }
+      }
+      
+      // Simple 2-char string
+      if (countryLanguage.length === 2) {
+        return countryLanguage.toUpperCase();
+      }
     }
 
     return "N/A";
