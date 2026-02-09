@@ -14,19 +14,38 @@ const CINT_COUNTRY_LANGUAGE_MAP = {
   86: "KZ", 146: "EU",
 };
 
+// LOI ranges (columns)
+const LOI_RANGES = [
+  { label: "<5 min", min: 0, max: 4 },
+  { label: "5-10 min", min: 5, max: 10 },
+  { label: "10-15 min", min: 11, max: 15 },
+  { label: "15-20 min", min: 16, max: 20 },
+  { label: "20-30 min", min: 21, max: 30 },
+  { label: ">30 min", min: 31, max: Infinity },
+];
+
+// IR ranges (rows)
+const IR_RANGES = [
+  { label: "<5%", min: 0, max: 5 },
+  { label: "6-10%", min: 6, max: 10 },
+  { label: "11-20%", min: 11, max: 20 },
+  { label: "21-30%", min: 21, max: 30 },
+  { label: "31-40%", min: 31, max: 40 },
+  { label: "41-50%", min: 41, max: 50 },
+  { label: "51-60%", min: 51, max: 60 },
+  { label: "61-70%", min: 61, max: 70 },
+  { label: "71-80%", min: 71, max: 80 },
+  { label: "81-90%", min: 81, max: 90 },
+  { label: "91-100%", min: 91, max: 100 },
+];
+
 function RateCard() {
   const { user, token } = useAuth();
   const [surveys, setSurveys] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [markupPercent, setMarkupPercent] = useState(15);
-
-  // Filters
   const [countryFilter, setCountryFilter] = useState("");
-  const [loiMin, setLoiMin] = useState("");
-  const [loiMax, setLoiMax] = useState("");
-  const [irMin, setIrMin] = useState("");
-  const [irMax, setIrMax] = useState("");
 
   useEffect(() => {
     if (token) {
@@ -203,8 +222,22 @@ function RateCard() {
     return Array.from(countries).sort();
   }, [surveys]);
 
-  const rateRows = useMemo(() => {
-    const groups = new Map();
+  // Helper to find which range a value falls into
+  const findLOIRange = (loi) => {
+    return LOI_RANGES.findIndex((r) => loi >= r.min && loi <= r.max);
+  };
+
+  const findIRRange = (ir) => {
+    return IR_RANGES.findIndex((r) => ir >= r.min && ir <= r.max);
+  };
+
+  // Build matrix data
+  const rateMatrix = useMemo(() => {
+    // Matrix: rows = IR ranges, cols = LOI ranges
+    // Each cell contains { rates: [], count: 0 }
+    const matrix = IR_RANGES.map(() =>
+      LOI_RANGES.map(() => ({ rates: [], count: 0 }))
+    );
     const allRates = [];
 
     surveys.forEach((survey) => {
@@ -216,53 +249,41 @@ function RateCard() {
       const ir = getIncidenceRateValue(survey);
       if (country === "N/A" || loi === null || ir === null) return;
 
-      // Apply filters
+      // Apply country filter
       if (countryFilter && country !== countryFilter) return;
-      if (loiMin !== "" && loi < Number(loiMin)) return;
-      if (loiMax !== "" && loi > Number(loiMax)) return;
-      if (irMin !== "" && ir < Number(irMin)) return;
-      if (irMax !== "" && ir > Number(irMax)) return;
+
+      const loiIdx = findLOIRange(loi);
+      const irIdx = findIRRange(ir);
+      if (loiIdx === -1 || irIdx === -1) return;
 
       const rate = getPayoutValue(survey);
       if (rate !== null && !isNaN(rate)) {
         allRates.push(rate);
+        matrix[irIdx][loiIdx].rates.push(rate);
       }
-
-      const key = `${country}__${loi}__${ir}`;
-      const entry = groups.get(key) || { country, loi, ir, count: 0, rates: [] };
-      entry.count += 1;
-      if (rate !== null && !isNaN(rate)) {
-        entry.rates.push(rate);
-      }
-      groups.set(key, entry);
+      matrix[irIdx][loiIdx].count += 1;
     });
 
     const globalMedian = getMedian(allRates);
 
-    return Array.from(groups.values())
-      .map((entry) => {
-        const median = entry.rates.length ? getMedian(entry.rates) : globalMedian;
+    // Calculate median + markup for each cell
+    return matrix.map((row) =>
+      row.map((cell) => {
+        const median = cell.rates.length ? getMedian(cell.rates) : globalMedian;
         const rate = applyMarkup(median);
         return {
-          country: entry.country,
-          loi: entry.loi,
-          ir: entry.ir,
-          count: entry.count,
           rate,
-          rateSource: entry.rates.length
-            ? `Median + ${markupPercent}%`
-            : globalMedian
-            ? `Estimated + ${markupPercent}%`
-            : "N/A",
+          count: cell.count,
+          hasData: cell.rates.length > 0,
         };
       })
-      .sort((a, b) => {
-        const countryCompare = a.country.localeCompare(b.country);
-        if (countryCompare !== 0) return countryCompare;
-        if (a.loi !== b.loi) return a.loi - b.loi;
-        return a.ir - b.ir;
-      });
-  }, [surveys, countryFilter, loiMin, loiMax, irMin, irMax, markupPercent]);
+    );
+  }, [surveys, countryFilter, markupPercent]);
+
+  // Calculate total surveys count
+  const totalSurveys = useMemo(() => {
+    return rateMatrix.flat().reduce((sum, cell) => sum + cell.count, 0);
+  }, [rateMatrix]);
 
   if (!user) {
     return <div className="rate-card-page">Please login to access Rate Card.</div>;
@@ -273,7 +294,7 @@ function RateCard() {
       <div className="page-header">
         <div>
           <h1>Rate Card</h1>
-          <p>Based on all Cint study pool entries (active + inactive) grouped by country, LOI, and IR.</p>
+          <p>Based on all Cint study pool entries (active + inactive). Rates shown are median + {markupPercent}% markup.</p>
         </div>
         <button className="refresh-button" onClick={fetchAllSurveys} disabled={loading}>
           {loading ? "Refreshing..." : "Refresh"}
@@ -291,65 +312,6 @@ function RateCard() {
           </select>
         </div>
 
-        <div className="filter-group">
-          <label>LOI (min)</label>
-          <div className="range-inputs">
-            <input
-              type="number"
-              placeholder="Min"
-              value={loiMin}
-              onChange={(e) => setLoiMin(e.target.value)}
-              min="0"
-            />
-            <span>to</span>
-            <input
-              type="number"
-              placeholder="Max"
-              value={loiMax}
-              onChange={(e) => setLoiMax(e.target.value)}
-              min="0"
-            />
-          </div>
-        </div>
-
-        <div className="filter-group">
-          <label>IR (%)</label>
-          <div className="range-inputs">
-            <input
-              type="number"
-              placeholder="Min"
-              value={irMin}
-              onChange={(e) => setIrMin(e.target.value)}
-              min="0"
-              max="100"
-            />
-            <span>to</span>
-            <input
-              type="number"
-              placeholder="Max"
-              value={irMax}
-              onChange={(e) => setIrMax(e.target.value)}
-              min="0"
-              max="100"
-            />
-          </div>
-        </div>
-
-        <button
-          className="clear-filters-btn"
-          onClick={() => {
-            setCountryFilter("");
-            setLoiMin("");
-            setLoiMax("");
-            setIrMin("");
-            setIrMax("");
-          }}
-        >
-          Clear Filters
-        </button>
-      </div>
-
-      <div className="page-controls">
         <label className="markup-control">
           <span>Markup %</span>
           <input
@@ -361,7 +323,8 @@ function RateCard() {
             onChange={(event) => setMarkupPercent(Number(event.target.value))}
           />
         </label>
-        <div className="count-pill">{rateRows.length} combinations</div>
+
+        <div className="count-pill">{totalSurveys} surveys</div>
       </div>
 
       {error && (
@@ -372,37 +335,45 @@ function RateCard() {
       )}
 
       <div className="table-card">
-        <table className="data-table">
+        <table className="matrix-table">
           <thead>
             <tr>
-              <th>Country</th>
-              <th>LOI</th>
-              <th>IR</th>
-              <th>Surveys</th>
-              <th>Rate (USD)</th>
-              <th>Rate Source</th>
+              <th className="corner-cell">IR \ LOI</th>
+              {LOI_RANGES.map((loiRange) => (
+                <th key={loiRange.label}>{loiRange.label}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {rateRows.map((row) => (
-              <tr key={`${row.country}-${row.loi}-${row.ir}`}>
-                <td>{row.country}</td>
-                <td>{row.loi} min</td>
-                <td>{row.ir}%</td>
-                <td>{row.count}</td>
-                <td>{row.rate !== null && !isNaN(row.rate) ? `$${row.rate.toFixed(2)}` : "N/A"}</td>
-                <td>{row.rateSource}</td>
+            {IR_RANGES.map((irRange, irIdx) => (
+              <tr key={irRange.label}>
+                <th className="row-header">{irRange.label}</th>
+                {LOI_RANGES.map((loiRange, loiIdx) => {
+                  const cell = rateMatrix[irIdx][loiIdx];
+                  return (
+                    <td
+                      key={`${irRange.label}-${loiRange.label}`}
+                      className={`rate-cell ${cell.hasData ? "has-data" : "estimated"}`}
+                      title={`${cell.count} surveys`}
+                    >
+                      {cell.rate !== null && !isNaN(cell.rate)
+                        ? `$${cell.rate.toFixed(2)}`
+                        : "-"}
+                      {cell.count > 0 && (
+                        <span className="cell-count">({cell.count})</span>
+                      )}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
-            {!loading && rateRows.length === 0 && (
-              <tr>
-                <td colSpan={6} className="empty-row">
-                  No Cint combinations available for rate card.
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
+      </div>
+
+      <div className="legend">
+        <span className="legend-item"><span className="legend-dot has-data"></span> Median rate from data</span>
+        <span className="legend-item"><span className="legend-dot estimated"></span> Estimated (global median)</span>
       </div>
     </div>
   );
