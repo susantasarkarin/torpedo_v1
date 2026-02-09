@@ -66,6 +66,12 @@
   gap: 6px;
 }
 
+.select-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .filter-group label {
   font-size: 12px;
   font-weight: 600;
@@ -86,6 +92,12 @@
   outline: none;
   border-color: #2563eb;
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.country-count {
+  font-size: 11px;
+  color: #6b7280;
+  margin-left: 4px;
 }
 
 .markup-control {

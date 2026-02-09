@@ -259,12 +259,17 @@ function RateCard() {
   // Get unique countries for dropdown
   const availableCountries = useMemo(() => {
     const countries = new Set();
-    surveys.forEach((survey) => {
+    console.log("Processing surveys for countries:", surveys.length);
+    surveys.forEach((survey, idx) => {
       const country = getCountryCode(survey);
+      if (idx < 5) {
+        console.log(`Survey ${idx}: country_language=${survey.country_language}, country=${survey.country}, extracted=${country}`);
+      }
       if (country !== "N/A" && !country.startsWith("ID:")) {
         countries.add(country);
       }
     });
+    console.log("Available countries:", Array.from(countries));
     return Array.from(countries).sort();
   }, [surveys]);
 
@@ -382,11 +387,24 @@ function RateCard() {
       <div className="filters-section">
         <div className="filter-group">
           <label>Country</label>
-          <select value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)}>
-            {availableCountries.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
+          <div className="select-row">
+            <select 
+              value={countryFilter} 
+              onChange={(e) => setCountryFilter(e.target.value)}
+              disabled={loading || availableCountries.length === 0}
+            >
+              {loading ? (
+                <option value="">Loading...</option>
+              ) : availableCountries.length === 0 ? (
+                <option value="">No countries found</option>
+              ) : (
+                availableCountries.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))
+              )}
+            </select>
+            <span className="country-count">({availableCountries.length} countries)</span>
+          </div>
         </div>
 
         <label className="markup-control">
