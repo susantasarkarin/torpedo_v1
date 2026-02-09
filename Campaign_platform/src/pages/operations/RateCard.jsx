@@ -72,38 +72,45 @@ function RateCard() {
   const previousRatesRef = useRef({});
 
   const fetchAllSurveys = useCallback(async () => {
-    if (!token) return;
+    console.log("fetchAllSurveys called, token:", token ? "present" : "missing");
     setLoading(true);
     setError(null);
 
     try {
-      // Only fetch CINT surveys
+      // Only fetch CINT surveys - no auth required
       const cintQuery = "/api/cint/surveys?page=1&page_size=500000&show_all=true";
-      const cintResponse = await fetch(buildApiUrl(cintQuery), {
+      const apiUrl = buildApiUrl(cintQuery);
+      console.log("Fetching CINT surveys from:", apiUrl);
+      
+      const cintResponse = await fetch(apiUrl, {
         headers: {
-          Authorization: token,
           "Content-Type": "application/json",
         },
       });
 
+      console.log("CINT API response status:", cintResponse.status);
+      
       let cintData = null;
       if (cintResponse.ok) {
         cintData = await cintResponse.json();
-        console.log("CINT API response:", cintData);
+        console.log("CINT API response - total surveys:", cintData.total);
       } else {
-        console.error("CINT API failed with status:", cintResponse.status);
+        const errorText = await cintResponse.text();
+        console.error("CINT API failed with status:", cintResponse.status, "body:", errorText);
         // Try fallback URL
         try {
           const fallbackUrl = `https://torpedo.cogentixresearch.com${cintQuery}`;
+          console.log("Trying fallback URL:", fallbackUrl);
           const fallbackResponse = await fetch(fallbackUrl, {
             headers: {
-              Authorization: token,
               "Content-Type": "application/json",
             },
           });
           if (fallbackResponse.ok) {
             cintData = await fallbackResponse.json();
-            console.log("CINT fallback response:", cintData);
+            console.log("CINT fallback response - total:", cintData.total);
+          } else {
+            console.error("Fallback also failed:", fallbackResponse.status);
           }
         } catch (fallbackError) {
           console.warn("CINT fallback fetch failed:", fallbackError);
@@ -128,16 +135,14 @@ function RateCard() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   // Initial fetch and auto-refresh
   useEffect(() => {
-    if (token) {
-      fetchAllSurveys();
-      const interval = setInterval(fetchAllSurveys, AUTO_REFRESH_INTERVAL);
-      return () => clearInterval(interval);
-    }
-  }, [token, fetchAllSurveys]);
+    fetchAllSurveys();
+    const interval = setInterval(fetchAllSurveys, AUTO_REFRESH_INTERVAL);
+    return () => clearInterval(interval);
+  }, [fetchAllSurveys]);
 
   const getCountryCode = (survey) => {
     const countryLanguage = survey.country_language;
