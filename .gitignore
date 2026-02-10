@@ -10,6 +10,9 @@
 *.env
 !.env.example
 
+# VM settings with sensitive data
+vm_settings.json
+
 # Python
 __pycache__/
 *.py[cod]
