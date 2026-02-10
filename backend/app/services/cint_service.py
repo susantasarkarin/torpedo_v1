@@ -1289,7 +1289,13 @@ class CintService:
                     **link_data
                 )
                 
-                logger.info(f"Retrieved entry link for survey {survey_id}")
+                # Cache the fetched entry link to MongoDB
+                if self.cint_entry_links_collection is not None:
+                    self._store_entry_link(supplier_link)
+                    logger.info(f"Retrieved and cached entry link for survey {survey_id}")
+                else:
+                    logger.info(f"Retrieved entry link for survey {survey_id}")
+                
                 return {"success": True, "link": supplier_link}
             
             return {"success": False, "error": "Entry link not found"}
