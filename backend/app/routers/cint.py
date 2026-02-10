@@ -481,7 +481,18 @@ async def get_entry_link(
     try:
         logger.info(f"Retrieving entry link for survey {survey_id}")
         
-        # Call CintService to get entry link
+        # First check MongoDB cache
+        cached_link = await cint_service.get_entry_link_by_survey_id(survey_id)
+        if cached_link:
+            logger.info(f"Found cached entry link for survey {survey_id}")
+            return EntryLinkResponse(
+                success=True,
+                message="Entry link retrieved from cache",
+                link=cached_link,
+                data={"link": cached_link}
+            )
+        
+        # If not cached, fetch from Cint API (will auto-cache on success)
         result = await cint_service.get_entry_link(survey_id)
         
         if not result or not result.get("success"):
