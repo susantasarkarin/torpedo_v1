@@ -11,8 +11,10 @@ function Workflow() {
   const location = useLocation()
   const navigate = useNavigate()
 
-  const { selectedTemplate, list } = location.state || {}
+  const { selectedTemplate, list, contacts: initialContacts } = location.state || {}
+  console.log("🔍 Workflow received:", { selectedTemplate, list, contactsCount: initialContacts?.length || 0, initialContacts })
   const [contacts, setContacts] = useState([])
+  const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
 
@@ -59,8 +61,30 @@ function Workflow() {
     return res
   }
 
-  // 🔹 Fetch contacts for selected list
+  // 🔹 Fetch templates and contacts
   useEffect(() => {
+    // Fetch templates
+    const fetchTemplates = async () => {
+      try {
+        const res = await apiFetch('/email-campaigns/templates')
+        const data = await res.json()
+        if (res.ok) {
+          setTemplates(data.templates || [])
+        }
+      } catch (err) {
+        console.error("❌ Fetch templates failed:", err)
+      }
+    }
+    fetchTemplates()
+
+    // If contacts passed directly from AI Leads, use them
+    if (initialContacts && initialContacts.length > 0) {
+      setContacts(initialContacts)
+      setSampleData(initialContacts[0])
+      return
+    }
+
+    // Otherwise fetch from list
     if (!list) return
     const fetchContacts = async () => {
       try {
@@ -88,7 +112,7 @@ function Workflow() {
       }
     }
     fetchContacts()
-  }, [list])
+  }, [list, initialContacts])
 
   // Workflow handlers
   const addStep = () => {
@@ -130,6 +154,7 @@ function Workflow() {
   }
 
   const updateStep = (stepId, updates) => {
+    console.log("📝 Updating step:", { stepId, updates })
     setWorkflowSteps(
       workflowSteps.map(step =>
         step.id === stepId ? { ...step, ...updates } : step
@@ -193,41 +218,63 @@ function Workflow() {
 
   // 🔹 Send workflow
   const handleSendWorkflow = async () => {
-    if (!selectedTemplate) {
-      alert("No template selected!")
+    console.log("🚀 SENDING WORKFLOW - Current State:", { 
+      workflowSteps, 
+      firstStepTemplate: workflowSteps[0]?.template,
+      contactsCount: contacts.length 
+    })
+    
+    // Check if any step has a template selected
+    const hasTemplate = workflowSteps.some(step => step.template && step.template.trim() !== '')
+    if (!hasTemplate) {
+      alert("Please select a template for at least one step!")
       return
     }
+    
     if (contacts.length === 0) {
-      alert("No contacts loaded for this list!")
+      alert("No contacts loaded!")
       return
     }
 
-    if (!window.confirm(`Send workflow to ${contacts.length} contacts?\n\nThis will enroll them in the ${workflowSteps.length}-step workflow.`)) {
+    if (!window.confirm(`Send emails to ${contacts.length} contacts?`)) {
       return
     }
 
     try {
       setSending(true)
-      const res = await apiFetch(`/workflows/execute`, {
+      
+      // Get first email step with template
+      const firstEmailStep = workflowSteps.find(step => step.type === 'email' && step.template)
+      
+      // Get lead IDs from contacts
+      const leadIds = contacts.map(c => c._id)
+      
+      console.log("📤 Sending API request:", { 
+        leadIds, 
+        template_id: firstEmailStep.template,
+        url: buildApiUrl('/email-campaigns/send-bulk')
+      })
+      
+      const res = await apiFetch(`/email-campaigns/send-bulk`, {
         method: "POST",
         body: JSON.stringify({
-          contacts: contacts,
-          template: selectedTemplate,
-          workflow: workflowSteps,
+          lead_ids: leadIds,
+          template_id: firstEmailStep.template
         }),
       })
 
+      console.log("📥 API Response status:", res.status)
       const data = await res.json()
+      console.log("📥 API Response data:", data)
+      
       if (res.ok) {
-        alert(`✅ ${data.message}\n\n${contacts.length} contacts enrolled in workflow`)
-        setTimeout(() => {
-          navigate("/admin/sales/campaign")
-        }, 2000)
+        alert(`✅ ${data.message}\\n\\n${data.sent_count} emails sent successfully!`)
+        navigate("/admin/sales/campaign/ai-leads")
       } else {
         alert("❌ Send failed: " + data.detail)
       }
     } catch (err) {
-      console.error("Workflow send error:", err)
+      console.error("❌ Workflow send error:", err)
       alert("Error executing workflow: " + err.message)
     } finally {
       setSending(false)
@@ -348,13 +395,18 @@ function Workflow() {
 
                     <div className="config-row">
                       <label>Template</label>
-                      <input
-                        type="text"
-                        placeholder="Select template"
+                      <select
                         value={step.template}
                         onChange={(e) => updateStep(step.id, { template: e.target.value })}
-                        className="template-input"
-                      />
+                        className="template-select"
+                      >
+                        <option value="">Select template</option>
+                        {templates.map(t => (
+                          <option key={t._id} value={t._id}>
+                            {t.name} - {t.category}
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
                     <div className="config-row">
