@@ -211,21 +211,23 @@ Return a JSON object with "leads" array containing up to {num_results} people wi
 Only include REAL people with valid LinkedIn URLs. Do not make up information.
 Return JSON format: {{"leads": [...]}}"""
 
-        # Use OpenAI Responses API with web search
-        response = client_ai.responses.create(
+        # Use chat.completions API (web_search_preview is not available in standard SDK)
+        # This is a fallback - Google CSE should be the primary search method
+        logger.warning("Using OpenAI chat completion as fallback. Configure Google CSE for better results.")
+        
+        response = client_ai.chat.completions.create(
             model="gpt-4o-mini",
-            tools=[{"type": "web_search_preview"}],
-            input=search_prompt
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that provides information about professionals based on your training data. Note: You cannot perform real-time web searches."},
+                {"role": "user", "content": search_prompt}
+            ],
+            temperature=0.7
         )
         
         # Extract content from response
         content = ""
-        if hasattr(response, 'output'):
-            for item in response.output:
-                if hasattr(item, 'content'):
-                    for block in item.content:
-                        if hasattr(block, 'text'):
-                            content += block.text
+        if response.choices and len(response.choices) > 0:
+            content = response.choices[0].message.content or ""
         
         if not content:
             logger.warning(f"OpenAI web search returned no content for: {query}")

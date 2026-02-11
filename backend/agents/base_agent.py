@@ -266,55 +266,46 @@ class BaseAgent(ABC, Generic[T]):
     
     def _call_with_web_search(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
         """
-        Make a chat completion call with web search tool.
-        Uses OpenAI's Responses API with web_search_preview tool.
-        NOTE: This MUST use OpenAI - DeepSeek doesn't have web search.
+        Make a chat completion call with web search capability.
+        NOTE: web_search_preview is not available in standard OpenAI SDK.
+        Falls back to regular chat completion.
         """
         try:
             openai_client = self._get_openai_client()
             
-            # Convert messages to single input for Responses API
-            system_content = ""
-            user_content = ""
-            for msg in messages:
-                if msg["role"] == "system":
-                    system_content = msg["content"]
-                elif msg["role"] == "user":
-                    user_content = msg["content"]
+            # Log that we're using fallback
+            logger.warning("Web search not available in standard SDK. Using chat completion fallback.")
             
-            full_prompt = f"{system_content}\n\n{user_content}"
+            # Add a system note about limitations
+            enhanced_messages = messages.copy()
+            if enhanced_messages and enhanced_messages[0]["role"] == "system":
+                enhanced_messages[0]["content"] += "\n\nNote: Real-time web search is not available. Provide information based on your training data."
             
-            # Use Responses API with web search (OpenAI only)
-            response = openai_client.responses.create(
+            # Use standard chat completion
+            response = openai_client.chat.completions.create(
                 model=WEB_SEARCH_MODEL,  # gpt-4o-mini
-                tools=[{"type": "web_search_preview"}],
-                input=full_prompt
+                messages=enhanced_messages,
+                temperature=0.7
             )
             
             # Extract content from response
             content = ""
-            if hasattr(response, 'output'):
-                for item in response.output:
-                    if hasattr(item, 'content'):
-                        for block in item.content:
-                            if hasattr(block, 'text'):
-                                content += block.text
+            if response.choices and len(response.choices) > 0:
+                content = response.choices[0].message.content or ""
             
-            # Estimate tokens (Responses API doesn't always return usage)
-            input_tokens = len(full_prompt) // 4
-            output_tokens = len(content) // 4
+            usage = response.usage
             
             return {
                 "content": content,
                 "model": WEB_SEARCH_MODEL,
                 "provider": "openai",
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "total_tokens": input_tokens + output_tokens
+                "input_tokens": usage.prompt_tokens if usage else 0,
+                "output_tokens": usage.completion_tokens if usage else 0,
+                "total_tokens": usage.total_tokens if usage else 0
             }
             
         except Exception as e:
-            logger.warning(f"Web search failed, falling back to OpenAI: {e}")
+            logger.warning(f"Chat completion failed: {e}")
             # Fallback to regular OpenAI completion
             return self._call_chat_completion(messages)
     

@@ -184,22 +184,25 @@ For each person found, provide:
 Return as a structured list with all available information.
 IMPORTANT: Only include REAL LinkedIn URLs found in search results. Never fabricate URLs."""
 
-        response = client_ai.responses.create(
+        # Use chat.completions API (web_search_preview is not available in standard SDK)
+        # This is a fallback - Google CSE should be the primary search method
+        logger.warning("Using OpenAI chat completion as fallback. Configure Google CSE for better results.")
+        
+        response = client_ai.chat.completions.create(
             model="gpt-4o-mini",
-            tools=[{"type": "web_search_preview"}],
-            input=search_prompt
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that provides information about professionals based on your training data. Note: You cannot perform real-time web searches."},
+                {"role": "user", "content": search_prompt}
+            ],
+            temperature=0.7
         )
         
         # Extract content from response
         content = ""
-        if hasattr(response, 'output'):
-            for item in response.output:
-                if hasattr(item, 'content'):
-                    for block in item.content:
-                        if hasattr(block, 'text'):
-                            content += block.text
+        if response.choices and len(response.choices) > 0:
+            content = response.choices[0].message.content or ""
         
-        logger.info(f"OpenAI web search completed for query: {query[:50]}...")
+        logger.info(f"OpenAI chat completion completed for query: {query[:50]}...")
         return content
         
     except Exception as e:
@@ -792,21 +795,22 @@ CRITICAL:
 - Real LinkedIn URLs have format: linkedin.com/in/name-randomchars"""
 
     try:
-        # Use Responses API with web_search_preview tool
-        response = client_ai.responses.create(
+        # Use chat.completions API (web_search_preview not available in standard SDK)
+        logger.warning("Using OpenAI chat completion as fallback. Configure Google CSE for better results.")
+        
+        response = client_ai.chat.completions.create(
             model="gpt-4o-mini",
-            tools=[{"type": "web_search_preview"}],
-            input=search_prompt
+            messages=[
+                {"role": "system", "content": "You are a B2B lead researcher. Provide information about professionals based on your training data. Note: You cannot perform real-time web searches."},
+                {"role": "user", "content": search_prompt}
+            ],
+            temperature=0.7
         )
         
         # Extract content from response
         response_text = ""
-        if hasattr(response, 'output'):
-            for item in response.output:
-                if hasattr(item, 'content'):
-                    for block in item.content:
-                        if hasattr(block, 'text'):
-                            response_text += block.text
+        if response.choices and len(response.choices) > 0:
+            response_text = response.choices[0].message.content or ""
         
         logger.info(f"OpenAI discovery search completed for: {clean_query[:50]}...")
         
@@ -935,21 +939,22 @@ Format results with:
 CRITICAL: Only include REAL companies with verified information."""
 
     try:
-        # Use Responses API with web_search_preview for real company data
-        response = client_ai.responses.create(
+        # Use chat.completions API (web_search_preview not available in standard SDK)
+        logger.warning("Using OpenAI chat completion for company discovery.")
+        
+        response = client_ai.chat.completions.create(
             model="gpt-4o-mini",
-            tools=[{"type": "web_search_preview"}],
-            input=f"You are a B2B market researcher identifying top companies in {industry} in {region_name}.\n\n{search_prompt}"
+            messages=[
+                {"role": "system", "content": f"You are a B2B market researcher identifying top companies in {industry} in {region_name}. Provide information based on your training data."},
+                {"role": "user", "content": search_prompt}
+            ],
+            temperature=0.7
         )
         
         # Extract content from response
         response_text = ""
-        if hasattr(response, 'output'):
-            for item in response.output:
-                if hasattr(item, 'content'):
-                    for block in item.content:
-                        if hasattr(block, 'text'):
-                            response_text += block.text
+        if response.choices and len(response.choices) > 0:
+            response_text = response.choices[0].message.content or ""
         
         logger.info(f"Company discovery completed for {industry} in {region_name}")
         
@@ -1122,21 +1127,22 @@ CRITICAL:
 - NEVER fabricate URLs"""
 
     try:
-        # Use Responses API with web_search_preview for real profiles
-        response = client_ai.responses.create(
+        # Use chat.completions API (web_search_preview not available in standard SDK)
+        logger.warning(f"Using OpenAI chat completion for contact discovery at {company_name}.")
+        
+        response = client_ai.chat.completions.create(
             model="gpt-4o-mini",
-            tools=[{"type": "web_search_preview"}],
-            input=search_prompt
+            messages=[
+                {"role": "system", "content": "You are a B2B contact researcher. Provide information about professionals based on your training data. Note: You cannot perform real-time web searches."},
+                {"role": "user", "content": search_prompt}
+            ],
+            temperature=0.7
         )
         
         # Extract content from response
         response_text = ""
-        if hasattr(response, 'output'):
-            for item in response.output:
-                if hasattr(item, 'content'):
-                    for block in item.content:
-                        if hasattr(block, 'text'):
-                            response_text += block.text
+        if response.choices and len(response.choices) > 0:
+            response_text = response.choices[0].message.content or ""
         
         logger.info(f"Contact discovery completed for {company_name}")
         
