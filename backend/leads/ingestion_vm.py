@@ -172,17 +172,30 @@ async def search_linkedin_leads_openai(
     deduplicate: bool = True
 ) -> List[dict]:
     """
-    Search LinkedIn profiles using OpenAI's web_search_preview tool.
-    This is the fallback when Google CSE is not configured.
+    DEPRECATED: DO NOT USE FOR NEW LEAD GENERATION.
+    
+    This function is kept for backward compatibility only.
+    New lead generation MUST use Google CSE via search_linkedin_leads().
+    
+    ChatGPT/OpenAI should only be used for:
+    - Parsing/structuring Google CSE results
+    - Enriching existing leads with missing information
+    - NOT for discovering new leads
     
     Args:
-        query: Search query (e.g., "CEO SaaS San Francisco")
+        query: Search query
         num_results: Max number of leads to return
         deduplicate: Filter out existing leads
         
     Returns:
-        List of lead dictionaries
+        Empty list (function is deprecated)
     """
+    logger.warning(
+        "search_linkedin_leads_openai() is DEPRECATED. "
+        "Use Google CSE via search_linkedin_leads() for lead discovery. "
+        "ChatGPT is only for parsing/enrichment, not new lead generation."
+    )
+    return []  # Return empty - do not generate leads from ChatGPT
     api_key = get_openai_api_key()
     if not api_key:
         logger.error("OpenAI API key not configured")
@@ -260,14 +273,18 @@ async def search_linkedin_leads(
     deduplicate: bool = True
 ) -> List[dict]:
     """
-    Search LinkedIn profiles using Google Search -> OpenAI Extraction.
-    Falls back to OpenAI web search if Google CSE is not configured.
+    Search LinkedIn profiles using Google CSE -> OpenAI Extraction.
+    
+    ARCHITECTURE:
+        - Google CSE is REQUIRED for lead discovery (no fallback to ChatGPT)
+        - OpenAI is used ONLY for parsing/structuring Google results
+        - OpenAI is used ONLY for enriching existing leads with missing fields
+        - NO new lead generation from ChatGPT/OpenAI
     
     COST OPTIMIZATION:
         - Checks cache first
-        - Uses Google Search (cheaper/reliable) for discovery when available
-        - Falls back to OpenAI web_search_preview if Google is not configured
-        - Uses OpenAI for parsing/structuring
+        - Uses Google CSE (primary source) for discovery
+        - OpenAI for parsing/structuring only (not web search)
     """
     # Clean query
     clean_query = re.sub(r'site:linkedin\.com[^\s]*\s*', '', query, flags=re.IGNORECASE).strip()
@@ -279,7 +296,7 @@ async def search_linkedin_leads(
     
     # ===== CACHE CHECK =====
     if not skip_cache:
-        cached = get_cached_response(cache_key, provider="openai_web")
+        cached = get_cached_response(cache_key, provider="google_cse")
         if cached:
             # Apply deduplication to cached results
             if deduplicate and cached:
@@ -287,33 +304,26 @@ async def search_linkedin_leads(
                 return unique_leads
             return cached
     
-    # ===== CHECK IF GOOGLE CSE IS AVAILABLE =====
+    # ===== GOOGLE CSE IS REQUIRED =====
     google_api_key, google_cse_id = get_google_api_credentials()
     
     if not google_api_key or not google_cse_id:
-        # Fall back to OpenAI web search
-        logger.info(f"Google CSE not configured, using OpenAI web search for: {clean_query}")
-        leads = await search_linkedin_leads_openai(clean_query, num_results, deduplicate)
-        
-        # Cache the results
-        if leads:
-            cache_response(cache_key, leads, provider="openai_web")
-        
-        return leads
+        # Google CSE is required - do NOT fallback to ChatGPT for lead generation
+        logger.error("Google CSE not configured. Lead discovery requires Google CSE.")
+        raise ValueError(
+            "Google Custom Search Engine is required for lead discovery. "
+            "Please configure GOOGLE_API_KEY and GOOGLE_CSE_ID in Settings or .env file. "
+            "Visit https://console.cloud.google.com/apis/credentials to get your API key."
+        )
     
     # ===== GOOGLE SEARCH =====
     # We perform the search first to get raw data
     search_results = await perform_google_search(search_query, num_results)
     
     if not search_results:
-        # Try OpenAI web search as fallback
-        logger.info(f"Google returned no results, trying OpenAI web search for: {clean_query}")
-        leads = await search_linkedin_leads_openai(clean_query, num_results, deduplicate)
-        
-        if leads:
-            cache_response(cache_key, leads, provider="openai_web")
-        
-        return leads
+        # No results from Google - return empty (do NOT fallback to ChatGPT)
+        logger.info(f"Google CSE returned no results for: {clean_query}")
+        return []
     
     # Prepare search results for AI parsing
     search_context = []
@@ -405,7 +415,7 @@ Verify the LinkedIn URL is a profile URL (/in/).
             
     # ===== CACHE RESPONSE =====
     if leads:
-        cache_response(cache_key, leads, provider="openai_web")
+        cache_response(cache_key, leads, provider="google_cse")
     
     # ===== DEDUPLICATION =====
     if deduplicate and leads:

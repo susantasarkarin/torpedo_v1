@@ -122,26 +122,31 @@ MR_TARGET_ROLES = [
 
 async def perform_openai_web_search(query: str, num_results: int = 10) -> str:
     """
-    Perform web search using OpenAI's Responses API with web_search_preview tool.
+    DEPRECATED: DO NOT USE FOR NEW LEAD GENERATION.
     
-    This replaces Google CSE for finding LinkedIn profiles of market research
-    and consumer insights professionals.
+    This function is deprecated. New lead generation MUST use Google CSE.
+    ChatGPT/OpenAI should only be used for:
+    - Parsing/structuring Google CSE results  
+    - Enriching existing leads with missing information
+    - NOT for discovering new leads
     
     Args:
-        query: Search query for finding professionals
-        num_results: Number of results to request
+        query: Search query (unused - function is deprecated)
+        num_results: Number of results (unused - function is deprecated)
         
     Returns:
-        Raw text response from OpenAI web search
+        Empty string (function is deprecated)
     """
-    api_key = get_openai_api_key()
-    
-    if not api_key:
-        raise ValueError("OpenAI API key not configured. Please set it in Settings.")
-    
-    try:
-        from openai import OpenAI
-        client_ai = OpenAI(api_key=api_key)
+    logger.warning(
+        "perform_openai_web_search() is DEPRECATED. "
+        "Use Google CSE for lead discovery. "
+        "ChatGPT is only for parsing/enrichment, not new lead generation."
+    )
+    raise ValueError(
+        "OpenAI web search for lead generation is deprecated. "
+        "Please use Google CSE via the AI Database discovery endpoints. "
+        "Configure GOOGLE_API_KEY and GOOGLE_CSE_ID in Settings."
+    )
         
         # Use Responses API with web_search_preview tool
         search_prompt = f"""Search the web and find {num_results} LinkedIn profiles matching this criteria:
@@ -715,10 +720,12 @@ async def search_linkedin_leads_discovery(
     skip_cache: bool = False
 ) -> List[dict]:
     """
-    Search LinkedIn using OpenAI Web Search (Responses API) for discovery.
+    Search LinkedIn using Google CSE for discovery.
     
-    NOW USES OpenAI's web_search_preview tool for REAL web search results.
-    This finds market research and consumer insights professionals.
+    ARCHITECTURE:
+        - Google CSE is REQUIRED for lead discovery
+        - OpenAI is used ONLY for parsing/structuring Google results
+        - NO new lead generation from ChatGPT
     
     Args:
         query: Full search query
@@ -734,92 +741,31 @@ async def search_linkedin_leads_discovery(
     
     # ===== CACHE CHECK =====
     if not skip_cache:
-        cached = get_cached_response(cache_key, provider="openai_web")
+        cached = get_cached_response(cache_key, provider="google_cse")
         if cached:
             return cached
     
-    # ===== OPENAI WEB SEARCH =====
-    api_key = get_openai_api_key()
+    # ===== GOOGLE CSE IS REQUIRED =====
+    google_api_key, google_cse_id = get_google_api_credentials()
     
-    if not api_key:
-        raise ValueError("OpenAI API Key is required. Configure in Settings.")
-    
-    try:
-        from openai import OpenAI
-        client_ai = OpenAI(api_key=api_key)
-    except ImportError:
-        raise ValueError("OpenAI package not installed.")
-    
-    # Extract search criteria from the query
-    clean_query = re.sub(r'site:linkedin\.com[^\s]*\s*', '', query, flags=re.IGNORECASE).strip()
-    
-    search_prompt = f"""Search the web for LinkedIn profiles of market research and consumer insights professionals matching: {clean_query}
-
-**TARGET AUDIENCE - Decision makers who purchase:**
-- Market research services and online panels
-- Consumer insights research  
-- Survey fieldwork and data collection
-- Analytics and dashboarding solutions
-
-**PREFERRED ROLES (prioritize these):**
-- Director/VP/Head of Consumer Insights
-- Director/VP/Head of Market Research
-- Research & Analytics Director/Manager
-- Customer Insights Lead/Manager
-- Brand/Shopper Insights Manager
-- Category Insights Director
-- Voice of Customer Manager
-
-**TARGET INDUSTRIES:**
-CPG/FMCG, Retail, E-commerce, Healthcare/Pharma, Financial Services/Banking,
-Insurance, Telecom, Media & Entertainment, Airlines/Travel, Automotive, Technology
-
-**EXCLUDE:** CEO, CTO, CFO, Founders, Software Engineers, generic Sales/Marketing roles
-
-Find up to {num_results} REAL professionals with LinkedIn profiles.
-
-For each person, provide:
-1. Full Name
-2. Job Title (must be insights/research/analytics focused)
-3. Company Name
-4. LinkedIn Profile URL (MUST be REAL URL from search results)
-5. Location (city, country)
-6. Company Industry
-7. Seniority Level (VP, Director, Senior Manager, Manager)
-8. Department (Insights, Research, Analytics)
-
-CRITICAL:
-- ONLY include insights/research/analytics professionals
-- ONLY use LinkedIn URLs actually found in search results
-- NEVER fabricate or guess URLs
-- Real LinkedIn URLs have format: linkedin.com/in/name-randomchars"""
-
-    try:
-        # Use chat.completions API (web_search_preview not available in standard SDK)
-        logger.warning("Using OpenAI chat completion as fallback. Configure Google CSE for better results.")
-        
-        response = client_ai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a B2B lead researcher. Provide information about professionals based on your training data. Note: You cannot perform real-time web searches."},
-                {"role": "user", "content": search_prompt}
-            ],
-            temperature=0.7
+    if not google_api_key or not google_cse_id:
+        logger.error("Google CSE not configured. Lead discovery requires Google CSE.")
+        raise ValueError(
+            "Google Custom Search Engine is required for lead discovery. "
+            "Please configure GOOGLE_API_KEY and GOOGLE_CSE_ID in Settings. "
+            "ChatGPT is NOT used for new lead generation - only for parsing/enrichment."
         )
-        
-        # Extract content from response
-        response_text = ""
-        if response.choices and len(response.choices) > 0:
-            response_text = response.choices[0].message.content or ""
-        
-        logger.info(f"OpenAI discovery search completed for: {clean_query[:50]}...")
-        
-    except Exception as e:
-        logger.error(f"OpenAI web search failed: {e}")
-        raise ValueError(f"OpenAI API error: {str(e)}")
     
-    # Parse response
-    leads = parse_openai_web_search_response(response_text, num_results)
+    # ===== GOOGLE CSE SEARCH =====
+    from .ingestion_vm import search_linkedin_leads
+    
+    # Use the main Google CSE search function
+    leads = await search_linkedin_leads(
+        query=query,
+        num_results=num_results,
+        skip_cache=skip_cache,
+        deduplicate=True
+    )
     
     # Update source to discovery
     for lead in leads:
@@ -827,7 +773,7 @@ CRITICAL:
     
     # ===== CACHE RESPONSE =====
     if leads:
-        cache_response(cache_key, leads, provider="openai_web")
+        cache_response(cache_key, leads, provider="google_cse")
     
     return leads
 
@@ -869,7 +815,12 @@ async def discover_top_companies(
     skip_cache: bool = False
 ) -> List[dict]:
     """
-    Phase 1: Discover top companies in a specific industry and region.
+    Phase 1: Discover top companies in a specific industry and region using Google CSE.
+    
+    ARCHITECTURE:
+        - Google CSE is REQUIRED for company discovery
+        - OpenAI is used ONLY for parsing/structuring Google results
+        - NO new company discovery from ChatGPT
     
     Args:
         industry: Industry segment (e.g., "CPG/FMCG", "Retail")
@@ -887,110 +838,123 @@ async def discover_top_companies(
     
     # ===== CACHE CHECK =====
     if not skip_cache:
-        cached = get_cached_response(cache_key, provider="openai_companies")
+        cached = get_cached_response(cache_key, provider="google_cse")
         if cached:
             return cached
     
-    # ===== OPENAI API CALL =====
+    # ===== GOOGLE CSE IS REQUIRED =====
+    google_api_key, google_cse_id = get_google_api_credentials()
+    
+    if not google_api_key or not google_cse_id:
+        logger.error("Google CSE not configured. Company discovery requires Google CSE.")
+        raise ValueError(
+            "Google Custom Search Engine is required for company discovery. "
+            "Please configure GOOGLE_API_KEY and GOOGLE_CSE_ID in Settings. "
+            "ChatGPT is NOT used for new lead/company generation."
+        )
+    
+    # ===== GOOGLE CSE SEARCH FOR COMPANIES =====
+    # Search for company LinkedIn pages
+    search_query = f"top {industry} companies {region_name} site:linkedin.com/company"
+    
+    try:
+        from .ingestion_vm import perform_google_search
+        search_results = await perform_google_search(search_query, num_companies * 2)
+        
+        if not search_results:
+            logger.warning(f"Google CSE returned no company results for {industry} in {region_name}")
+            return []
+        
+    except Exception as e:
+        logger.error(f"Google CSE search failed: {e}")
+        return []
+    
+    # ===== OPENAI EXTRACTION (PARSING ONLY - NOT DISCOVERY) =====
     api_key = get_openai_api_key()
     
     if not api_key:
-        raise ValueError("OpenAI API Key is required. Configure in Settings.")
+        # Basic parsing without AI
+        companies = []
+        for result in search_results[:num_companies]:
+            company = {
+                "company_name": result.get("title", "").split("|")[0].strip().replace(" | LinkedIn", ""),
+                "company_linkedin_url": result.get("link", ""),
+                "company_industry": industry,
+                "region": region,
+                "description": result.get("snippet", "")
+            }
+            if company["company_name"] and "linkedin.com/company" in company.get("company_linkedin_url", ""):
+                companies.append(company)
+        return companies
     
     try:
         from openai import OpenAI
-    except ImportError:
-        raise ValueError("OpenAI package not installed.")
-    
-    client_ai = OpenAI(api_key=api_key)
-    
-    # Determine if this is a market research company search
-    is_research_company = "research" in industry.lower() or "panel" in industry.lower()
-    
-    search_prompt = f"""Search the web to find the top {num_companies} companies in the {industry} industry in {region_name}.
-
-**REQUIREMENTS:**
-- Find REAL, established companies (not startups unless significant)
-- Companies should have substantial market presence in {region_name}
-- Include company LinkedIn page URL if available
-
-**For each company, provide:**
-1. Company name
-2. Company LinkedIn URL (https://www.linkedin.com/company/...)
-3. Company website/domain
-4. Headquarters location
-5. Employee count range
-6. Brief description of what they do
-7. Whether they likely have consumer insights/market research needs
-
-{"**NOTE: These are MARKET RESEARCH/PANEL companies - we will pitch Online Panel Services and Questionnaire Programming to them.**" if is_research_company else "**NOTE: These are END-CLIENT companies who need market research services - we will pitch Consumer Insights, Sample/Panel purchasing, Analytics, and Dashboarding.**"}
-
-Format results with:
-- company_name: Company name
-- company_linkedin_url: LinkedIn company page URL
-- company_domain: Website domain
-- company_headquarters: HQ location
-- company_size: Employee range (e.g., "1001-5000")
-- company_industry: Specific industry
-- description: Brief company description
-- is_research_company: true/false (whether they are a market research/panel company)
-- research_needs: Description of likely research/insights needs
-
-CRITICAL: Only include REAL companies with verified information."""
-
-    try:
-        # Use chat.completions API (web_search_preview not available in standard SDK)
-        logger.warning("Using OpenAI chat completion for company discovery.")
+        client_ai = OpenAI(api_key=api_key)
         
+        # Prepare search results for AI parsing
+        search_context = json.dumps([{
+            "title": r.get("title", ""),
+            "link": r.get("link", ""),
+            "snippet": r.get("snippet", "")
+        } for r in search_results], indent=2)
+        
+        is_research_company = "research" in industry.lower() or "panel" in industry.lower()
+        
+        extraction_prompt = f"""Extract company information from these Google search results.
+These are LinkedIn company pages for {industry} companies in {region_name}.
+
+SEARCH RESULTS:
+{search_context}
+
+Extract up to {num_companies} companies. For each company provide:
+- company_name: Company name (from LinkedIn page title)
+- company_linkedin_url: The LinkedIn company URL (from link)
+- company_domain: Company website if mentioned
+- company_headquarters: HQ location if mentioned  
+- company_size: Employee range if mentioned
+- company_industry: "{industry}"
+- description: Brief description from snippet
+- is_research_company: {str(is_research_company).lower()}
+- region: "{region}"
+
+Return a JSON object with "companies" array.
+ONLY use information from the search results - do not generate new companies."""
+
         response = client_ai.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": f"You are a B2B market researcher identifying top companies in {industry} in {region_name}. Provide information based on your training data."},
-                {"role": "user", "content": search_prompt}
+                {"role": "system", "content": "Extract company data from search results. Return valid JSON only. Do not generate new companies."},
+                {"role": "user", "content": extraction_prompt}
             ],
-            temperature=0.7
+            temperature=0.0,
+            response_format={"type": "json_object"}
         )
         
-        # Extract content from response
-        response_text = ""
-        if response.choices and len(response.choices) > 0:
-            response_text = response.choices[0].message.content or ""
+        content = response.choices[0].message.content
+        data = json.loads(content)
+        companies = data.get("companies", [])[:num_companies]
         
-        logger.info(f"Company discovery completed for {industry} in {region_name}")
+        logger.info(f"Extracted {len(companies)} companies for {industry} in {region_name}")
         
     except Exception as e:
-        logger.error(f"OpenAI web search failed for company discovery: {e}")
-        raise ValueError(f"OpenAI API error: {str(e)}")
-    
-    # Parse response
-    companies = []
-    try:
-        json_match = re.search(r'\[[\s\S]*\]', response_text)
-        if json_match:
-            data = json.loads(json_match.group())
-            if isinstance(data, list):
-                for item in data[:num_companies]:
-                    company = {
-                        "company_name": str(item.get("company_name", "")).strip(),
-                        "company_linkedin_url": str(item.get("company_linkedin_url", "")).strip(),
-                        "company_domain": str(item.get("company_domain", "")).strip(),
-                        "company_headquarters": str(item.get("company_headquarters", "")).strip(),
-                        "company_size": str(item.get("company_size", "")).strip(),
-                        "company_industry": str(item.get("company_industry", industry)).strip(),
-                        "description": str(item.get("description", "")).strip(),
-                        "is_research_company": item.get("is_research_company", False),
-                        "research_needs": str(item.get("research_needs", "")).strip(),
-                        "region": region
-                    }
-                    if company["company_name"]:
-                        companies.append(company)
-    except json.JSONDecodeError:
-        # Try parsing structured text if JSON fails
-        companies = parse_company_list_from_text(response_text, num_companies, industry, region)
+        logger.error(f"OpenAI extraction failed: {e}")
+        # Fallback to basic parsing
+        companies = []
+        for result in search_results[:num_companies]:
+            company = {
+                "company_name": result.get("title", "").split("|")[0].strip().replace(" | LinkedIn", ""),
+                "company_linkedin_url": result.get("link", ""),
+                "company_industry": industry,
+                "region": region
+            }
+            if company["company_name"]:
+                companies.append(company)
     
     # ===== CACHE RESPONSE =====
     if companies:
-        cache_response(cache_key, companies, provider="openai_companies")
+        cache_response(cache_key, companies, provider="google_cse")
+    
+    return companies
     
     return companies
 
@@ -1041,7 +1005,12 @@ async def find_decision_makers_in_company(
     skip_cache: bool = False
 ) -> List[dict]:
     """
-    Phase 2: Find decision makers within a specific company.
+    Phase 2: Find decision makers within a specific company using Google CSE.
+    
+    ARCHITECTURE:
+        - Google CSE is REQUIRED for contact discovery
+        - OpenAI is used ONLY for parsing/structuring Google results
+        - NO new contact discovery from ChatGPT
     
     Args:
         company: Company data dictionary from Phase 1
@@ -1060,98 +1029,127 @@ async def find_decision_makers_in_company(
     
     # ===== CACHE CHECK =====
     if not skip_cache:
-        cached = get_cached_response(cache_key, provider="openai_contacts")
+        cached = get_cached_response(cache_key, provider="google_cse")
         if cached:
             return cached
     
-    # ===== OPENAI WEB SEARCH =====
+    # ===== GOOGLE CSE IS REQUIRED =====
+    google_api_key, google_cse_id = get_google_api_credentials()
+    
+    if not google_api_key or not google_cse_id:
+        logger.error("Google CSE not configured. Contact discovery requires Google CSE.")
+        raise ValueError(
+            "Google Custom Search Engine is required for contact discovery. "
+            "Please configure GOOGLE_API_KEY and GOOGLE_CSE_ID in Settings. "
+            "ChatGPT is NOT used for new lead/contact generation."
+        )
+    
+    # Different target roles based on company type
+    if is_research_company:
+        target_roles = ["Operations", "Field Operations", "Sample", "Panel", "Research Operations", "Project", "Technology", "Procurement", "Vendor"]
+        service_pitch = "Online Panel Services, Questionnaire Programming, Survey Scripting, Data Collection"
+    else:
+        target_roles = ["Consumer Insights", "Market Research", "Customer Insights", "Analytics", "Research Insights", "Brand Insights", "Shopper Insights", "Data Analytics"]
+        service_pitch = "Consumer Insights, Online Sample/Panel Purchasing, Market Research, Analytics, Dashboarding"
+    
+    # ===== GOOGLE CSE SEARCH FOR CONTACTS =====
+    # Build search query for LinkedIn profiles at this company
+    role_terms = " OR ".join(target_roles[:3])  # Use top 3 roles
+    search_query = f'site:linkedin.com/in "{company_name}" ({role_terms}) Director OR VP OR Head OR Manager'
+    
+    try:
+        from .ingestion_vm import perform_google_search
+        search_results = await perform_google_search(search_query, num_contacts * 3)
+        
+        if not search_results:
+            logger.warning(f"Google CSE returned no contact results for {company_name}")
+            return []
+        
+    except Exception as e:
+        logger.error(f"Google CSE search failed: {e}")
+        return []
+    
+    # ===== OPENAI EXTRACTION (PARSING ONLY - NOT DISCOVERY) =====
     api_key = get_openai_api_key()
     
     if not api_key:
-        raise ValueError("OpenAI API Key is required.")
+        # Basic parsing without AI
+        leads = []
+        for result in search_results[:num_contacts]:
+            if "linkedin.com/in/" in result.get("link", ""):
+                title_parts = result.get("title", "").split("-")
+                lead = {
+                    "full_name": title_parts[0].strip() if title_parts else "",
+                    "job_title": title_parts[1].strip() if len(title_parts) > 1 else "",
+                    "linkedin_url": result.get("link", ""),
+                    "source": "google_cse"
+                }
+                if lead["full_name"]:
+                    leads.append(lead)
+        return leads
     
     try:
         from openai import OpenAI
         client_ai = OpenAI(api_key=api_key)
-    except ImportError:
-        raise ValueError("OpenAI package not installed.")
-    
-    # Different target roles based on company type
-    if is_research_company:
-        target_roles = """**TARGET ROLES for Market Research/Panel Company:**
-- Director/VP of Operations
-- Director/VP of Field Operations  
-- Head of Sample/Panel Operations
-- Research Operations Manager
-- Project Director/Manager
-- Director of Technology/IT
-- Procurement Manager
-- Vendor Manager"""
-        service_pitch = "Online Panel Services, Questionnaire Programming, Survey Scripting, Data Collection"
-    else:
-        target_roles = """**TARGET ROLES for End-Client Company:**
-- Director/VP/Head of Consumer Insights
-- Director/VP/Head of Market Research
-- Director/VP of Customer Insights
-- Director/VP of Analytics
-- Research & Insights Manager
-- Brand Insights Manager
-- Shopper Insights Manager
-- Customer Analytics Lead
-- Head of Data & Analytics"""
-        service_pitch = "Consumer Insights, Online Sample/Panel Purchasing, Market Research, Analytics, Dashboarding"
-    
-    search_prompt = f"""Search the web for LinkedIn profiles of decision makers at {company_name} who would purchase: {service_pitch}
-
-{target_roles}
-
-Find up to {num_contacts} REAL professionals at {company_name}.
-
-**Company Context:**
-- Company: {company_name}
-- Industry: {company.get("company_industry", "")}
-- Company LinkedIn: {company.get("company_linkedin_url", "")}
-- Company Website: {company.get("company_domain", "")}
-
-For each person found, provide:
-1. Full name
-2. Job title
-3. LinkedIn profile URL (MUST be REAL URL from search results)
-4. Location
-5. Seniority level (VP, Director, Senior Manager, Manager)
-6. Department
-
-CRITICAL:
-- ONLY include people who work at {company_name}
-- ONLY use REAL LinkedIn URLs from search results
-- NEVER fabricate URLs"""
-
-    try:
-        # Use chat.completions API (web_search_preview not available in standard SDK)
-        logger.warning(f"Using OpenAI chat completion for contact discovery at {company_name}.")
         
+        # Prepare search results for AI parsing
+        search_context = json.dumps([{
+            "title": r.get("title", ""),
+            "link": r.get("link", ""),
+            "snippet": r.get("snippet", "")
+        } for r in search_results], indent=2)
+        
+        extraction_prompt = f"""Extract contact information from these Google search results.
+These are LinkedIn profiles of potential decision makers at {company_name}.
+
+SEARCH RESULTS:
+{search_context}
+
+Extract up to {num_contacts} contacts who work at "{company_name}". For each person provide:
+- full_name: Person's full name (from LinkedIn title)
+- job_title: Their job title at {company_name}
+- linkedin_url: Their LinkedIn profile URL (from link - must contain linkedin.com/in/)
+- location: Location if visible in snippet
+- seniority_level: VP, Director, Senior Manager, or Manager
+- department: Their department/function
+
+**CRITICAL RULES:**
+- ONLY include people whose profile indicates they work at {company_name}
+- ONLY use URLs from the search results - NEVER generate/fabricate URLs
+- Skip any results that are company pages (linkedin.com/company/)
+
+Return a JSON object with "contacts" array."""
+
         response = client_ai.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a B2B contact researcher. Provide information about professionals based on your training data. Note: You cannot perform real-time web searches."},
-                {"role": "user", "content": search_prompt}
+                {"role": "system", "content": "Extract contact data from search results. Return valid JSON only. Do not generate new contacts."},
+                {"role": "user", "content": extraction_prompt}
             ],
-            temperature=0.7
+            temperature=0.0,
+            response_format={"type": "json_object"}
         )
         
-        # Extract content from response
-        response_text = ""
-        if response.choices and len(response.choices) > 0:
-            response_text = response.choices[0].message.content or ""
+        content = response.choices[0].message.content
+        data = json.loads(content)
+        leads = data.get("contacts", [])[:num_contacts]
         
-        logger.info(f"Contact discovery completed for {company_name}")
+        logger.info(f"Extracted {len(leads)} contacts for {company_name}")
         
     except Exception as e:
-        logger.error(f"OpenAI web search failed for {company_name}: {e}")
-        raise ValueError(f"OpenAI API error: {str(e)}")
-    
-    # Parse response
-    leads = parse_openai_web_search_response(response_text, num_contacts)
+        logger.error(f"OpenAI extraction failed: {e}")
+        # Fallback to basic parsing
+        leads = []
+        for result in search_results[:num_contacts]:
+            if "linkedin.com/in/" in result.get("link", ""):
+                title_parts = result.get("title", "").split("-")
+                lead = {
+                    "full_name": title_parts[0].strip() if title_parts else "",
+                    "job_title": title_parts[1].strip() if len(title_parts) > 1 else "",
+                    "linkedin_url": result.get("link", "")
+                }
+                if lead["full_name"]:
+                    leads.append(lead)
     
     # Add company context to each lead
     for lead in leads:
@@ -1164,11 +1162,11 @@ CRITICAL:
         lead["is_research_company"] = is_research_company
         lead["service_pitch"] = service_pitch
         lead["region"] = company.get("region", "")
-        lead["source"] = "ai_discovery"
+        lead["source"] = "google_cse"
     
     # ===== CACHE RESPONSE =====
     if leads:
-        cache_response(cache_key, leads, provider="openai_contacts")
+        cache_response(cache_key, leads, provider="google_cse")
     
     return leads
 
