@@ -1413,6 +1413,26 @@ function AILeads() {
       {selectedIds.size > 0 && (
         <div className="selection-bar">
           <span>{selectedIds.size} lead(s) selected</span>
+          <button 
+            className="btn btn-sm" 
+            onClick={() => {
+              const selectedLeads = leads.filter(l => selectedIds.has(l._id))
+              console.log("🚀 Sending to workflow:", { 
+                selectedLeadsCount: selectedLeads.length, 
+                selectedLeads,
+                selectedIds: Array.from(selectedIds)
+              })
+              navigate("/admin/sales/campaign/workflow", {
+                state: { 
+                  contacts: selectedLeads,
+                  list: { name: "AI Database Leads" }
+                }
+              })
+            }}
+            style={{ backgroundColor: "#9333ea", color: "#fff", borderColor: "#9333ea" }}
+          >
+            🔄 Create Workflow
+          </button>
           <button className="btn btn-sm btn-primary" onClick={() => handleClassify(Array.from(selectedIds))}>
             🤖 Classify Selected
           </button>

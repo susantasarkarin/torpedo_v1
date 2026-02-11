@@ -939,6 +939,14 @@ try:
 except Exception as e:
     print(f"⚠️ Prompt Management router not included: {e}")
 
+# Email Campaigns router (Bulk email sending with templates and signatures)
+try:
+    from routers import email_campaigns as email_campaigns_router
+    app.include_router(email_campaigns_router.router)
+    print("✅ Email Campaigns router included")
+except Exception as e:
+    print(f"⚠️ Email Campaigns router not included: {e}")
+
 # Campaign Automation router
 try:
     from routers import campaign_automation as campaign_automation_router
