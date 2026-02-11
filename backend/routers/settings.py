@@ -794,57 +794,8 @@ async def get_cost_analytics(request: Request = None, days: int = 7) -> Dict[str
             "total_cost_usd": round(sum(r["cost_usd"] for r in openai_result), 4)
         }
         
-        # ============ Perplexity Usage ============
-        perplexity_collection = email_db.get_collection('perplexity_usage_logs')
-        discovery_cache_collection = email_db.get_collection('discovery_cache')
-        
-        perplexity_pipeline = [
-            {"$match": {"timestamp": {"$gte": since}}},
-            {"$group": {
-                "_id": "$model",
-                "requests": {"$sum": 1},
-                "successes": {"$sum": {"$cond": ["$success", 1, 0]}},
-                "failures": {"$sum": {"$cond": ["$success", 0, 1]}}
-            }}
-        ]
-        perplexity_result = list(perplexity_collection.aggregate(perplexity_pipeline))
-        
-        # Calculate Perplexity costs
-        perplexity_model_costs = {"sonar": 0.005, "sonar-pro": 0.02}
-        perplexity_total_cost = 0
-        perplexity_by_model = []
-        for r in perplexity_result:
-            model = r["_id"] or "sonar"
-            cost_per_req = perplexity_model_costs.get(model, 0.005)
-            model_cost = r["requests"] * cost_per_req
-            perplexity_total_cost += model_cost
-            perplexity_by_model.append({
-                "model": model,
-                "requests": r["requests"],
-                "successes": r["successes"],
-                "failures": r["failures"],
-                "cost_usd": round(model_cost, 4)
-            })
-        
-        # Check Perplexity cache stats
-        try:
-            perplexity_cache_total = discovery_cache_collection.count_documents({})
-            perplexity_cache_recent = discovery_cache_collection.count_documents({
-                "created_at": {"$gte": since}
-            })
-        except:
-            perplexity_cache_total = 0
-            perplexity_cache_recent = 0
-        
-        perplexity_usage = {
-            "by_model": perplexity_by_model,
-            "total_requests": sum(r["requests"] for r in perplexity_result),
-            "total_cost_usd": round(perplexity_total_cost, 4),
-            "cache": {
-                "total_entries": perplexity_cache_total,
-                "entries_last_period": perplexity_cache_recent
-            }
-        }
+        # NOTE: Perplexity usage tracking removed - Perplexity integration has been deprecated.
+        # Use Google CSE + OpenAI for AI discovery instead.
         
         # ============ Daily Breakdown ============
         daily_breakdown = []
@@ -878,23 +829,15 @@ async def get_cost_analytics(request: Request = None, days: int = 7) -> Dict[str
                 "created_at": {"$gte": day_start, "$lt": day_end}
             })
             
-            # Perplexity for day
-            perplexity_day = list(perplexity_collection.aggregate([
-                {"$match": {"timestamp": {"$gte": day_start, "$lt": day_end}}},
-                {"$group": {"_id": None, "requests": {"$sum": 1}, "cost": {"$sum": "$cost_usd"}}}
-            ]))
-            
             cse_queries = cse_day[0]["queries"] if cse_day else 0
             openai_requests = openai_day[0]["requests"] if openai_day else 0
             openai_cost = openai_day[0]["cost"] if openai_day else 0
-            perplexity_requests = perplexity_day[0]["requests"] if perplexity_day else 0
-            perplexity_cost = perplexity_day[0]["cost"] if perplexity_day else 0
             cache_hits = cache_day[0]["hits"] if cache_day else 0
             cache_misses = cache_day[0]["misses"] if cache_day else 0
             leads_count = leads_day if leads_day else 0
             
             cse_cost_day = round(cse_queries * 0.005, 4)
-            total_day_cost = round(cse_cost_day + openai_cost + perplexity_cost, 4)
+            total_day_cost = round(cse_cost_day + openai_cost, 4)
             cost_per_lead = round(total_day_cost / leads_count, 4) if leads_count > 0 else 0
             
             daily_breakdown.append({
@@ -903,8 +846,6 @@ async def get_cost_analytics(request: Request = None, days: int = 7) -> Dict[str
                 "cse_cost_usd": cse_cost_day,
                 "openai_requests": openai_requests,
                 "openai_cost_usd": round(openai_cost, 4),
-                "perplexity_requests": perplexity_requests,
-                "perplexity_cost_usd": round(perplexity_cost, 4),
                 "cache_hits": cache_hits,
                 "cache_misses": cache_misses,
                 "cache_hit_rate": round(cache_hits / (cache_hits + cache_misses), 4) if (cache_hits + cache_misses) > 0 else 0,
@@ -948,8 +889,8 @@ async def get_cost_analytics(request: Request = None, days: int = 7) -> Dict[str
                 "message": f"Projected monthly cost (${projections['monthly_projection_usd']}) exceeds budget (${projections['monthly_budget_usd']})."
             })
         
-        # Include Perplexity in total cost
-        total_cost_period = cse_usage["estimated_cost_usd"] + openai_usage["total_cost_usd"] + perplexity_usage["total_cost_usd"]
+        # Calculate total cost (CSE + OpenAI)
+        total_cost_period = cse_usage["estimated_cost_usd"] + openai_usage["total_cost_usd"]
         
         return {
             "success": True,
@@ -961,7 +902,6 @@ async def get_cost_analytics(request: Request = None, days: int = 7) -> Dict[str
             },
             "google_cse": cse_usage,
             "openai": openai_usage,
-            "perplexity": perplexity_usage,
             "daily_breakdown": daily_breakdown,
             "projections": projections,
             "recommendations": recommendations,
@@ -999,40 +939,8 @@ Return JSON.""",
         "temperature": 0.1,
         "max_output_tokens": 300
     },
-    "perplexity_company_discovery": {
-        "name": "Perplexity Company Discovery",
-        "description": "System prompt for Perplexity AI to discover target companies for lead generation",
-        "system_prompt": """You are a B2B market research expert. Your task is to discover and list companies that match specific targeting criteria.
-
-Output Format: Return a JSON array of companies with the following structure:
-[
-  {
-    "name": "Company Name",
-    "domain": "company.com",
-    "industry": "Industry/Sector",
-    "size": "Startup|SMB|Mid-Market|Enterprise",
-    "headquarters": "City, Country",
-    "description": "Brief 1-line description"
-  }
-]
-
-Rules:
-- Only include real, verifiable companies
-- Focus on companies likely to have the requested decision-makers
-- Prioritize companies with active hiring or growth signals
-- Include a mix of company sizes unless specified
-- Ensure domain is accurate (verify mentally before including)
-- Do NOT include companies that have shut down or been acquired""",
-        "user_prompt_template": """Find {count} companies matching these criteria:
-Industry: {industry}
-Location: {location}
-Additional criteria: {criteria}
-
-Return ONLY a valid JSON array, no other text.""",
-        "model": "sonar",
-        "temperature": 0.2,
-        "max_output_tokens": 2000
-    },
+    # NOTE: perplexity_company_discovery prompt removed - Perplexity integration deprecated.
+    # Use Google CSE + OpenAI for AI discovery instead.
     "gemini_classify_lead": {
         "name": "Gemini Lead Classification",
         "description": "Gemini prompt for real-time lead classification from emails - optimized for free tier",
@@ -1597,12 +1505,12 @@ async def get_prompts_documentation(request: Request = None) -> Dict[str, Any]:
                     "use_case": "Lead classification (legacy), web search queries",
                     "prompts": []
                 },
-                "perplexity": {
-                    "provider": "Perplexity AI",
-                    "tier": "Paid - Sonar (~$0.005 per request)",
-                    "models": ["sonar", "sonar-pro"],
-                    "cost": "$5-15/month",
-                    "use_case": "Company discovery, market research",
+                "google_cse": {
+                    "provider": "Google Custom Search",
+                    "tier": "Free (100 queries/day)",
+                    "models": ["Custom Search API v1"],
+                    "cost": "$0/month (free tier)",
+                    "use_case": "LinkedIn profile discovery, AI Database searches",
                     "prompts": []
                 }
             },
@@ -1715,8 +1623,8 @@ async def get_prompts_documentation(request: Request = None) -> Dict[str, Any]:
                 engine = "gemini"
             elif "openai" in prompt_key.lower() or "gpt" in model.lower():
                 engine = "openai"
-            elif "perplexity" in prompt_key.lower() or "sonar" in model.lower():
-                engine = "perplexity"
+            elif "google" in prompt_key.lower() or "cse" in prompt_key.lower():
+                engine = "google_cse"
             else:
                 engine = "other"
             

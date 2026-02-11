@@ -196,7 +196,7 @@ function AILeads() {
   });
   const [gmailImportProgress, setGmailImportProgress] = useState(null);
 
-  // AI Discovery State (Perplexity Direct - no Google CSE needed)
+  // AI Discovery State (Google CSE + OpenAI)
   const [discoveryStep, setDiscoveryStep] = useState(1); // 1=search, 2=preview contacts
   const [discoveryIndustry, setDiscoveryIndustry] = useState("");
 
@@ -709,7 +709,7 @@ function AILeads() {
                   } else if (status.status === "stopped") {
                     alert(`⏹️ Search stopped. Imported ${status.total_imported} leads so far.`);
                   } else if (status.status === "api_error") {
-                    alert(`🔴 API Error: Check your Perplexity/OpenAI API keys in Settings. Imported ${status.total_imported} leads before error.`);
+                    alert(`🔴 API Error: Check your Google CSE/OpenAI API keys in Settings. Imported ${status.total_imported} leads before error.`);
                   } else if (status.status === "paused") {
                     // Don't alert for paused - user can see in control panel
                   }
@@ -1752,12 +1752,12 @@ function AILeads() {
                 <div className="error-alert">{importError}</div>
               )}
 
-              {/* AI Discovery (Perplexity Direct) */}
+              {/* AI Discovery (Google CSE + OpenAI) */}
               {importMethod === "ai-discovery" && (
                 <div className="import-form">
                   <h3>🔮 AI-Powered Lead Discovery</h3>
                   <p className="form-hint">
-                    Use Perplexity AI to discover contacts directly. Streamlined 2-step pipeline: Perplexity finds contacts → OpenAI enriches. Cost: ~$0.001/lead
+                    Use Google Search to discover LinkedIn profiles, then OpenAI enriches the data. Free tier: 100 queries/day.
                   </p>
                   
                   {discoveryError && (
@@ -1766,7 +1766,7 @@ function AILeads() {
                   
                   {discoveryStatus && !discoveryStatus.enabled && (
                     <div className="warning-alert" style={{ background: '#fef3c7', border: '1px solid #f59e0b', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
-                      ⚠️ Perplexity discovery is not configured. Please add your API key in <a href="/admin/settings">Settings</a>.
+                      ⚠️ Google Search discovery is not configured. Please add your API key in <a href="/admin/settings">Settings</a>.
                     </div>
                   )}
                   

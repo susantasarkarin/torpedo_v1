@@ -405,8 +405,7 @@ class CostEstimator:
         SourceProvider.CLEARBIT: 0.05,      # $0.05 per domain
         SourceProvider.HUNTLY: 0.015,       # $0.015 per record
         SourceProvider.OPENAI: 0.002,       # Variable based on tokens
-        SourceProvider.PERPLEXITY: 0.001,   # Variable based on tokens
-        SourceProvider.GOOGLE_SEARCH: 0.005, # $0.005 per search
+        SourceProvider.GOOGLE_SEARCH: 0.005, # $0.005 per search (free tier: 100/day)
         SourceProvider.INTERNAL_DB: 0.0,    # Free
         SourceProvider.USER_IMPORT: 0.0,    # Free
         SourceProvider.LINKEDIN: 0.0,       # API access varies

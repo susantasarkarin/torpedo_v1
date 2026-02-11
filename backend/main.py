@@ -469,7 +469,11 @@ async def system_health():
             health["warnings"].append("No emails synced in last 24 hours")
     except Exception as e:
         health["checks"]["email_sync_24h"] = {"status": "error", "error": str(e)}
-    
+
+    # Initialize lead collections
+    leads_raw_collection = gmail_db.get_collection('leads_raw')
+    leads_enriched_collection = gmail_db.get_collection('leads_enriched')
+
     # Check 3: Lead Ingestion Activity (last 24h)
     try:
         leads_today = leads_raw_collection.count_documents({

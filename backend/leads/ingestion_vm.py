@@ -34,6 +34,11 @@ from .deduplication import (
     add_to_dedup_index,
     log_rejected_duplicate
 )
+from .google_rate_limit import (
+    can_make_query,
+    record_query,
+    get_usage_stats
+)
 
 load_dotenv()
 
@@ -101,6 +106,12 @@ async def perform_google_search(query: str, num_results: int = 10) -> List[dict]
     Returns:
         List of Google Search result items
     """
+    # Check rate limits before making API call
+    allowed, reason = can_make_query()
+    if not allowed:
+        logger.warning(f"Google Search rate limited: {reason}")
+        return []
+    
     api_key, cse_id = get_google_api_credentials()
     
     if not api_key or not cse_id:
@@ -131,6 +142,9 @@ async def perform_google_search(query: str, num_results: int = 10) -> List[dict]
                 response = await client.get(url, params=params, timeout=15.0)
                 
                 if response.status_code == 200:
+                    # Record successful API call for rate limiting
+                    record_query(query)
+                    
                     data = response.json()
                     items = data.get('items', [])
                     results.extend(items)

@@ -2207,35 +2207,37 @@ class ImportDiscoveredContactsRequest(BaseModel):
 async def get_discovery_status():
     """
     GET /leads/discover/status
-    Check if Perplexity discovery is enabled and configured.
+    Check if Google CSE discovery is enabled and configured.
     """
     try:
-        from .perplexity_client import (
-            is_perplexity_enabled, get_perplexity_settings, check_rate_limit
-        )
+        from .ingestion_vm import get_google_api_credentials
+        from .google_rate_limit import get_usage_stats, can_make_query
         
-        enabled = is_perplexity_enabled()
-        settings = get_perplexity_settings()
-        rate_allowed, rate_message = check_rate_limit()
+        api_key, cse_id = get_google_api_credentials()
+        configured = bool(api_key and cse_id)
+        
+        # Get rate limit status
+        usage_stats = get_usage_stats()
+        rate_allowed, rate_message = can_make_query()
         
         return {
-            "enabled": enabled,
-            "configured": enabled,  # API key exists and enabled
+            "enabled": configured,
+            "configured": configured,
+            "provider": "google_cse",
             "settings": {
-                "hourly_limit": settings.get("hourly_limit", 50),
-                "daily_limit": settings.get("daily_limit", 200),
-                "default_model": settings.get("default_model", "sonar"),
+                "hourly_limit": usage_stats.get("hourly_limit", 50),
+                "daily_limit": usage_stats.get("daily_limit", 100),
+            },
+            "usage": {
+                "today_queries": usage_stats.get("today_queries", 0),
+                "daily_remaining": usage_stats.get("daily_remaining", 0),
+                "hourly_queries": usage_stats.get("hourly_queries", 0),
+                "hourly_remaining": usage_stats.get("hourly_remaining", 0),
             },
             "rate_limit": {
                 "allowed": rate_allowed,
                 "message": rate_message
             }
-        }
-    except ImportError:
-        return {
-            "enabled": False,
-            "configured": False,
-            "error": "Perplexity client not available"
         }
     except Exception as e:
         return {
@@ -2245,110 +2247,9 @@ async def get_discovery_status():
         }
 
 
-@router.post("/discover/companies")
-async def discover_companies_endpoint(request: DiscoverCompaniesRequest):
-    """
-    POST /leads/discover/companies
-    Discover companies using Perplexity AI.
-    
-    Returns list of companies for user selection (checkbox selection in UI).
-    Next step: User selects companies → POST /leads/discover/contacts
-    """
-    try:
-        from .perplexity_client import (
-            is_perplexity_enabled, discover_companies, check_rate_limit
-        )
-        
-        if not is_perplexity_enabled():
-            raise HTTPException(
-                status_code=400, 
-                detail="Perplexity discovery is not enabled. Configure API key in Settings."
-            )
-        
-        rate_allowed, rate_message = check_rate_limit()
-        if not rate_allowed:
-            raise HTTPException(status_code=429, detail=rate_message)
-        
-        result = await discover_companies(
-            industry=request.industry,
-            location=request.location,
-            count=request.count,
-            criteria=request.criteria
-        )
-        
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=500, 
-                detail=result.get("error", "Discovery failed")
-            )
-        
-        # Parse the content to extract company list
-        content = result.get("content", "")
-        companies = _parse_company_list(content)
-        
-        return {
-            "success": True,
-            "companies": companies,
-            "total_found": len(companies),
-            "query": f"{request.criteria} {request.industry} in {request.location}".strip(),
-            "from_cache": result.get("from_cache", False),
-            "raw_content": content  # For debugging
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Discovery error: {str(e)}")
-
-
-def _parse_company_list(content: str) -> List[Dict[str, str]]:
-    """
-    Parse Perplexity response to extract company list.
-    Handles various formats (numbered lists, bullet points, etc.)
-    """
-    companies = []
-    lines = content.split('\n')
-    
-    current_company = {}
-    
-    for line in lines:
-        line = line.strip()
-        if not line:
-            if current_company:
-                companies.append(current_company)
-                current_company = {}
-            continue
-        
-        # Try to extract company info from numbered/bulleted lists
-        # Patterns: "1. Company Name - description" or "• Company Name: description"
-        import re
-        
-        # Pattern: numbered or bulleted list item with company name
-        match = re.match(r'^[\d\.\)\-\•\*]+\s*\**([^:\-\n]+?)(?:\**)?[\:\-\–]?\s*(.*)$', line)
-        if match:
-            name = match.group(1).strip().strip('*').strip()
-            description = match.group(2).strip() if match.group(2) else ""
-            
-            if name and len(name) > 1 and len(name) < 100:
-                companies.append({
-                    "name": name,
-                    "description": description[:200] if description else "",
-                    "selected": False
-                })
-                continue
-        
-        # If line looks like a continuation/description, append to last company
-        if companies and not any(c in line[:3] for c in '0123456789.•*-'):
-            if len(companies[-1].get("description", "")) < 200:
-                companies[-1]["description"] = (
-                    companies[-1].get("description", "") + " " + line
-                ).strip()[:200]
-    
-    # Add last company if pending
-    if current_company:
-        companies.append(current_company)
-    
-    return companies[:50]  # Limit to 50 companies
+# NOTE: Company discovery via Perplexity has been removed.
+# Use POST /leads/discover/contacts directly with company list,
+# or POST /leads/discover/companies (Phase 1) which uses discover_top_companies.
 
 
 @router.post("/discover/contacts")
@@ -2745,7 +2646,15 @@ async def get_ai_database_status():
     Returns counts by status and whether refill is needed.
     """
     try:
-        from .perplexity_client import is_perplexity_enabled
+        from .ingestion_vm import get_google_api_credentials
+        from .google_rate_limit import get_usage_stats
+        
+        # Check if Google CSE is configured
+        api_key, cse_id = get_google_api_credentials()
+        google_cse_configured = bool(api_key and cse_id)
+        
+        # Get Google CSE usage stats
+        usage_stats = get_usage_stats()
         
         # Count companies by status
         pipeline = [
@@ -2759,7 +2668,6 @@ async def get_ai_database_status():
         
         # Check if refill is needed (below 100 pending companies)
         needs_refill = pending < 100
-        perplexity_enabled = is_perplexity_enabled()
         
         # Get recent companies for display
         recent_companies = list(ai_companies_collection.find(
@@ -2784,7 +2692,12 @@ async def get_ai_database_status():
             },
             "needs_refill": needs_refill,
             "refill_threshold": 100,
-            "perplexity_enabled": perplexity_enabled,
+            "google_cse_configured": google_cse_configured,
+            "google_cse_usage": {
+                "today_queries": usage_stats.get("today_queries", 0),
+                "daily_limit": usage_stats.get("daily_limit", 100),
+                "daily_remaining": usage_stats.get("daily_remaining", 100),
+            },
             "recent_companies": recent_companies
         }
         
@@ -2806,7 +2719,7 @@ class RefillCompaniesRequest(BaseModel):
 
 
 class DirectDiscoveryRequest(BaseModel):
-    """Request model for direct contact discovery (Option 1 - no Google CSE)"""
+    """Request model for direct contact discovery using Google CSE + OpenAI"""
     designation: str = "Manager"
     industry: str = "technology"
     location: str = "United States"
@@ -2818,68 +2731,88 @@ class DirectDiscoveryRequest(BaseModel):
 async def discover_leads_direct(request: DirectDiscoveryRequest):
     """
     POST /leads/ai-database/discover-leads
-    OPTIMIZED: Direct lead discovery using Perplexity + OpenAI only.
-    
-    This is the recommended approach - bypasses Google CSE entirely.
-    Cost: ~$0.0013/lead vs ~$0.006/lead with Google CSE
+    Lead discovery using Google Custom Search + OpenAI enrichment.
     
     Flow:
-    1. Perplexity discovers contacts with LinkedIn patterns
-    2. OpenAI enriches/classifies leads
+    1. Build search query from parameters
+    2. Google CSE finds LinkedIn profiles
+    3. OpenAI extracts/enriches lead data
+    4. Import to database with auto-classification
+    
+    Cost: ~$0.005 per search (free tier: 100/day)
     """
     try:
-        from .perplexity_client import discover_contacts_direct, is_perplexity_enabled
+        from .ingestion_vm import search_linkedin_leads, get_google_api_credentials
+        from .google_rate_limit import can_make_query, record_query, get_usage_stats
         from .service import import_leads
         from .models import LeadRaw
         
-        if not is_perplexity_enabled():
+        # Check if Google CSE is configured
+        api_key, cse_id = get_google_api_credentials()
+        if not api_key or not cse_id:
             raise HTTPException(
                 status_code=400,
-                detail="Perplexity API not configured. Add API key in Settings."
+                detail="Google CSE not configured. Add GOOGLE_API_KEY and GOOGLE_CSE_ID in Settings."
             )
         
-        # Direct contact discovery
-        result = await discover_contacts_direct(
-            designation=request.designation,
-            industry=request.industry,
-            location=request.location,
-            count=request.count,
-            criteria=request.criteria
+        # Check rate limit
+        allowed, message = can_make_query()
+        if not allowed:
+            usage = get_usage_stats()
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded: {message}. Today: {usage['today_queries']}/{usage['daily_limit']}"
+            )
+        
+        # Build search query
+        # Format: "designation" industry location site:linkedin.com/in/
+        query_parts = []
+        if request.designation:
+            query_parts.append(f'"{request.designation}"')
+        if request.industry:
+            query_parts.append(request.industry)
+        if request.location:
+            query_parts.append(request.location)
+        if request.criteria:
+            query_parts.append(request.criteria)
+        
+        query = " ".join(query_parts)
+        
+        # Search for LinkedIn profiles
+        leads_data = await search_linkedin_leads(
+            query=query,
+            num_results=min(request.count, 10),  # Google CSE max 10 per query
+            deduplicate=True
         )
         
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=500,
-                detail=result.get("error", "Discovery failed")
-            )
+        # Record the API usage
+        record_query(1)
         
-        contacts = result.get("contacts", [])
-        
-        if not contacts:
+        if not leads_data:
             return {
                 "success": True,
-                "message": "No contacts found matching criteria",
+                "message": "No contacts found matching criteria. Try different search terms.",
                 "leads_imported": 0,
-                "raw_response": result.get("content", "")[:500]
+                "query_used": query
             }
         
-        # Convert to leads and import with auto-classification
+        # Convert to LeadRaw and import
         leads = []
-        for contact in contacts:
-            linkedin_url = contact.get("linkedin_url", "")
+        for data in leads_data:
+            linkedin_url = data.get("linkedin_url", "")
             if linkedin_url and not linkedin_url.startswith("http"):
                 linkedin_url = f"https://{linkedin_url}"
             
             lead = LeadRaw(
-                name=contact.get("name", "Unknown"),
-                title=contact.get("title", request.designation),
-                company_name=contact.get("company", ""),
+                name=data.get("name", "Unknown"),
+                title=data.get("title", request.designation),
+                company_name=data.get("company_name", ""),
                 linkedin_url=linkedin_url,
-                snippet=f"AI Discovery: {request.designation} at {request.industry} companies",
-                location=contact.get("location", request.location),
-                email="",
-                source="ai_direct_discovery",
-                import_batch_id=f"direct_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+                snippet=data.get("snippet", f"AI Discovery: {request.designation} at {request.industry}"),
+                location=data.get("location", request.location),
+                email=data.get("email", ""),
+                source="google_cse_discovery",
+                import_batch_id=f"discovery_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
             )
             leads.append(lead)
         
@@ -2888,12 +2821,13 @@ async def discover_leads_direct(request: DirectDiscoveryRequest):
         
         return {
             "success": True,
-            "contacts_found": len(contacts),
+            "contacts_found": len(leads_data),
             "leads_imported": import_result.get("imported", 0),
             "duplicates": import_result.get("duplicates", 0),
-            "method": "perplexity_direct",
-            "cost_estimate": f"${len(contacts) * 0.0013:.4f}",
-            "contacts": contacts[:5]  # Return sample for UI display
+            "method": "google_cse_openai",
+            "query_used": query,
+            "cost_estimate": "$0.00 (free tier)" if get_usage_stats()["today_queries"] <= 100 else f"${0.005:.4f}",
+            "contacts": leads_data[:5]  # Return sample for UI display
         }
         
     except HTTPException:
@@ -2902,105 +2836,8 @@ async def discover_leads_direct(request: DirectDiscoveryRequest):
         raise HTTPException(status_code=500, detail=f"Discovery error: {str(e)}")
 
 
-@router.post("/ai-database/refill")
-async def refill_ai_database(request: RefillCompaniesRequest, background_tasks: BackgroundTasks):
-    """
-    POST /leads/ai-database/refill
-    LEGACY: Discover companies for the company database.
-    
-    NOTE: For direct lead generation, use /ai-database/discover-leads instead.
-    This endpoint is kept for backward compatibility with the company-first workflow.
-    """
-    try:
-        from .perplexity_client import (
-            is_perplexity_enabled, discover_companies, check_rate_limit
-        )
-        
-        if not is_perplexity_enabled():
-            raise HTTPException(
-                status_code=400, 
-                detail="Perplexity discovery is not enabled. Configure API key in Settings."
-            )
-        
-        rate_allowed, rate_message = check_rate_limit()
-        if not rate_allowed:
-            raise HTTPException(status_code=429, detail=rate_message)
-        
-        # Check current pending count
-        pending_count = ai_companies_collection.count_documents({"status": CompanyStatus.PENDING})
-        
-        if pending_count >= 100 and request.count <= 100:
-            return {
-                "success": True,
-                "message": f"Database already has {pending_count} pending companies. No refill needed.",
-                "added": 0
-            }
-        
-        # Discover companies via Perplexity
-        result = await discover_companies(
-            industry=request.industry,
-            location=request.location,
-            count=request.count,
-            criteria=request.criteria
-        )
-        
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=500, 
-                detail=result.get("error", "Discovery failed")
-            )
-        
-        # Parse and insert companies
-        content = result.get("content", "")
-        companies = _parse_company_list(content)
-        
-        added = 0
-        duplicates = 0
-        
-        for company in companies:
-            try:
-                domain = company.get("domain", "").lower().strip()
-                if not domain:
-                    # Try to extract from name
-                    name = company.get("name", "")
-                    domain = name.lower().replace(" ", "").replace(",", "")[:30] + ".com"
-                
-                doc = {
-                    "name": company.get("name", "Unknown"),
-                    "domain": domain,
-                    "industry": company.get("industry", request.industry),
-                    "size": company.get("size", "Unknown"),
-                    "headquarters": company.get("headquarters", request.location),
-                    "description": company.get("description", ""),
-                    "status": CompanyStatus.PENDING,
-                    "discovered_at": datetime.utcnow(),
-                    "discovery_query": f"{request.criteria} {request.industry} in {request.location}".strip(),
-                    "last_searched": None,
-                    "leads_found": 0
-                }
-                
-                ai_companies_collection.insert_one(doc)
-                added += 1
-                
-            except Exception as e:
-                if "duplicate key" in str(e).lower():
-                    duplicates += 1
-                else:
-                    print(f"Error adding company: {e}")
-        
-        return {
-            "success": True,
-            "message": f"Added {added} new companies to AI database",
-            "added": added,
-            "duplicates": duplicates,
-            "total_parsed": len(companies),
-            "query": f"{request.criteria} {request.industry} in {request.location}".strip()
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Refill error: {str(e)}")
+# NOTE: /ai-database/refill endpoint removed - was using Perplexity which is no longer supported.
+# Use /ai-database/discover-leads with Google CSE instead.
 
 
 @router.get("/ai-database/companies")
@@ -3047,105 +2884,8 @@ async def get_ai_database_companies(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/ai-database/process-batch")
-async def process_ai_database_batch(
-    batch_size: int = 10,
-    designation: str = "Manager",
-    industry: str = "technology",
-    location: str = "United States",
-    background_tasks: BackgroundTasks = None
-):
-    """
-    POST /leads/ai-database/process-batch
-    OPTIMIZED: Direct contact discovery using Perplexity only (no Google CSE).
-    
-    New flow (2 APIs instead of 3):
-    1. Perplexity discovers contacts directly with LinkedIn patterns
-    2. OpenAI enriches/classifies leads
-    
-    Cost savings: ~76% reduction (eliminates $0.005 × 5 Google CSE calls per company)
-    """
-    try:
-        from .perplexity_client import discover_contacts_direct, is_perplexity_enabled
-        from .service import import_leads
-        from .models import LeadRaw
-        
-        if not is_perplexity_enabled():
-            raise HTTPException(
-                status_code=400,
-                detail="Perplexity API not configured. Add API key in Settings."
-            )
-        
-        total_leads = 0
-        processed = 0
-        errors = []
-        
-        # Process in batches - each Perplexity call returns multiple contacts
-        contacts_per_request = 10
-        num_requests = max(1, batch_size // contacts_per_request)
-        
-        for i in range(num_requests):
-            try:
-                # Direct contact discovery - NO Google CSE needed
-                result = await discover_contacts_direct(
-                    designation=designation,
-                    industry=industry,
-                    location=location,
-                    count=contacts_per_request,
-                    criteria=""
-                )
-                
-                if not result.get("success"):
-                    errors.append(f"Request {i+1}: {result.get('error', 'Unknown error')}")
-                    continue
-                
-                contacts = result.get("contacts", [])
-                
-                if contacts:
-                    # Convert to LeadRaw and import with auto-classification
-                    leads = []
-                    for contact in contacts:
-                        linkedin_url = contact.get("linkedin_url", "")
-                        if linkedin_url and not linkedin_url.startswith("http"):
-                            linkedin_url = f"https://{linkedin_url}"
-                        
-                        lead = LeadRaw(
-                            name=contact.get("name", "Unknown"),
-                            title=contact.get("title", designation),
-                            company_name=contact.get("company", ""),
-                            linkedin_url=linkedin_url,
-                            snippet=f"Discovered via AI pipeline - {industry}",
-                            location=contact.get("location", location),
-                            email="",  # Will be enriched by OpenAI
-                            source="ai_pipeline_v2",
-                            import_batch_id=f"ai_direct_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{i}"
-                        )
-                        leads.append(lead)
-                    
-                    if leads:
-                        import_result = import_leads(leads, auto_classify=True)
-                        leads_found = import_result.get("imported", 0)
-                        total_leads += leads_found
-                
-                processed += 1
-                
-            except Exception as e:
-                errors.append(f"Request {i+1}: {str(e)}")
-        
-        return {
-            "success": True,
-            "processed": processed,
-            "leads_found": total_leads,
-            "batch_size": batch_size,
-            "method": "perplexity_direct",
-            "cost_per_lead": "$0.0013 (vs $0.006 with Google CSE)",
-            "errors": errors if errors else None
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Batch processing error: {str(e)}")
+# NOTE: /ai-database/process-batch endpoint removed - was using Perplexity which is no longer supported.
+# Use /ai-database/discover-leads with Google CSE instead.
 
 
 @router.delete("/ai-database/clear")
@@ -3250,184 +2990,137 @@ async def create_workbook(request: dict = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/ai-database/discover-companies")
-async def discover_companies_direct(request: CompanyDiscoveryRequest):
+# NOTE: The following Perplexity-dependent endpoints have been removed:
+# - POST /ai-database/discover-companies
+# - POST /ai-database/discover-jobs
+# - POST /ai-database/discover-local
+# Use POST /ai-database/discover-leads with Google CSE + OpenAI instead.
+
+
+# ============== GOOGLE CSE HEALTH & USAGE ENDPOINTS ==============
+
+@router.get("/ai-database/google-health")
+async def get_google_cse_health():
     """
-    POST /leads/ai-database/discover-companies
-    Discover companies using Perplexity AI.
+    GET /leads/ai-database/google-health
+    Check if Google CSE API is properly configured and working.
     """
     try:
-        from .perplexity_client import is_perplexity_enabled
+        from .ingestion_vm import get_google_api_credentials, perform_google_search
         
-        if not is_perplexity_enabled():
-            raise HTTPException(
-                status_code=400,
-                detail="Perplexity API not configured. Add API key in Settings."
-            )
+        api_key, cse_id = get_google_api_credentials()
         
-        # Use existing refill logic but return companies directly
-        from .perplexity_client import discover_companies
+        if not api_key:
+            return {
+                "status": "not_configured",
+                "message": "GOOGLE_API_KEY not set. Add it in Settings or .env file.",
+                "setup_url": "https://console.cloud.google.com/apis/credentials"
+            }
         
-        result = await discover_companies(
-            industry=request.industry,
-            count=request.count
-        )
+        if not cse_id:
+            return {
+                "status": "not_configured",
+                "message": "GOOGLE_CSE_ID not set. Create a Custom Search Engine and add the ID.",
+                "setup_url": "https://programmablesearchengine.google.com/"
+            }
         
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=500,
-                detail=result.get("error", "Company discovery failed")
-            )
+        # Test the API with a simple query
+        try:
+            test_results = await perform_google_search("test site:linkedin.com", num_results=1)
+            
+            if test_results is not None:
+                return {
+                    "status": "valid",
+                    "message": "Google CSE is configured and working correctly.",
+                    "api_key_prefix": api_key[:8] + "...",
+                    "cse_id_prefix": cse_id[:8] + "..."
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": "API responded but returned no results. Check CSE configuration."
+                }
+        except Exception as api_error:
+            error_msg = str(api_error)
+            if "403" in error_msg or "forbidden" in error_msg.lower():
+                return {
+                    "status": "invalid_key",
+                    "message": "API key is invalid or Custom Search API is not enabled.",
+                    "setup_url": "https://console.cloud.google.com/apis/library/customsearch.googleapis.com"
+                }
+            elif "429" in error_msg:
+                return {
+                    "status": "quota_exceeded",
+                    "message": "Daily quota exceeded. Free tier: 100 queries/day."
+                }
+            else:
+                return {
+                    "status": "error",
+                    "message": f"API test failed: {error_msg}"
+                }
         
-        companies = result.get("companies", [])
-        
-        # Create a workbook for this discovery
-        workbooks_collection = db.get_collection("ai_workbooks")
-        workbook = {
-            "name": f"Companies in {request.industry}",
-            "tags": [request.industry, request.location],
-            "created_at": datetime.utcnow(),
-            "last_opened": datetime.utcnow(),
-            "owner": "You",
-            "access": "Edit",
-            "is_favorite": False,
-            "leads_count": len(companies),
-            "discovery_type": "companies"
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Health check failed: {str(e)}"
         }
-        workbooks_collection.insert_one(workbook)
+
+
+@router.get("/ai-database/google-usage")
+async def get_google_cse_usage():
+    """
+    GET /leads/ai-database/google-usage
+    Get Google CSE usage statistics and rate limit status.
+    """
+    try:
+        from .google_rate_limit import get_usage_stats, estimate_monthly_cost, get_historical_usage
+        
+        stats = get_usage_stats()
+        cost_estimate = estimate_monthly_cost()
+        history = get_historical_usage(7)
         
         return {
             "success": True,
-            "count": len(companies),
-            "companies": companies[:10],
-            "cost_estimate": f"${len(companies) * 0.001:.4f}"
+            "today": {
+                "queries": stats["today_queries"],
+                "limit": stats["daily_limit"],
+                "remaining": stats["daily_remaining"],
+                "percentage_used": round((stats["today_queries"] / stats["daily_limit"]) * 100, 1) if stats["daily_limit"] > 0 else 0
+            },
+            "hourly": {
+                "queries": stats["hourly_queries"],
+                "limit": stats["hourly_limit"],
+                "remaining": stats["hourly_remaining"]
+            },
+            "monthly_estimate": cost_estimate,
+            "rate_limit_enabled": stats["rate_limit_enabled"],
+            "history": history
         }
         
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Company discovery error: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 
-@router.post("/ai-database/discover-jobs")
-async def discover_jobs(request: JobDiscoveryRequest):
+@router.post("/ai-database/google-usage/reset")
+async def reset_google_cse_usage():
     """
-    POST /leads/ai-database/discover-jobs
-    Discover job postings using Perplexity AI.
+    POST /leads/ai-database/google-usage/reset
+    Reset today's Google CSE usage counter (admin function).
     """
     try:
-        from .perplexity_client import is_perplexity_enabled, call_perplexity
+        from .google_rate_limit import reset_daily_counter
         
-        if not is_perplexity_enabled():
-            raise HTTPException(
-                status_code=400,
-                detail="Perplexity API not configured. Add API key in Settings."
-            )
-        
-        prompt = f"""Find {request.count} current job postings for "{request.job_title}" positions in {request.location}.
-
-For each job, provide:
-1. Job title
-2. Company name
-3. Location
-4. Job posting URL (if available)
-5. Brief description
-
-Format as a JSON array with keys: title, company, location, url, description"""
-
-        result = await call_perplexity(prompt, model="llama-3.1-sonar-small-128k-online")
-        
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=500,
-                detail=result.get("error", "Job discovery failed")
-            )
-        
-        # Create a workbook for this discovery
-        workbooks_collection = db.get_collection("ai_workbooks")
-        workbook = {
-            "name": f"{request.job_title} Jobs - {request.location}",
-            "tags": ["jobs", request.job_title, request.location],
-            "created_at": datetime.utcnow(),
-            "last_opened": datetime.utcnow(),
-            "owner": "You",
-            "access": "Edit",
-            "is_favorite": False,
-            "leads_count": request.count,
-            "discovery_type": "jobs"
-        }
-        workbooks_collection.insert_one(workbook)
+        stats = reset_daily_counter()
         
         return {
             "success": True,
-            "count": request.count,
-            "content": result.get("content", ""),
-            "cost_estimate": f"${0.001:.4f}"
+            "message": "Usage counter reset successfully",
+            "stats": stats
         }
         
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Job discovery error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.post("/ai-database/discover-local")
-async def discover_local_businesses(request: LocalBusinessDiscoveryRequest):
-    """
-    POST /leads/ai-database/discover-local
-    Discover local businesses using Perplexity AI.
-    """
-    try:
-        from .perplexity_client import is_perplexity_enabled, call_perplexity
-        
-        if not is_perplexity_enabled():
-            raise HTTPException(
-                status_code=400,
-                detail="Perplexity API not configured. Add API key in Settings."
-            )
-        
-        prompt = f"""Find {request.count} {request.business_type} businesses in {request.location}.
-
-For each business, provide:
-1. Business name
-2. Address
-3. Phone number (if available)
-4. Website (if available)
-5. Brief description or specialty
-
-Format as a JSON array with keys: name, address, phone, website, description"""
-
-        result = await call_perplexity(prompt, model="llama-3.1-sonar-small-128k-online")
-        
-        if not result.get("success"):
-            raise HTTPException(
-                status_code=500,
-                detail=result.get("error", "Local business discovery failed")
-            )
-        
-        # Create a workbook for this discovery
-        workbooks_collection = db.get_collection("ai_workbooks")
-        workbook = {
-            "name": f"{request.business_type.title()}s in {request.location}",
-            "tags": ["local", request.business_type, request.location],
-            "created_at": datetime.utcnow(),
-            "last_opened": datetime.utcnow(),
-            "owner": "You",
-            "access": "Edit",
-            "is_favorite": False,
-            "leads_count": request.count,
-            "discovery_type": "local"
-        }
-        workbooks_collection.insert_one(workbook)
-        
-        return {
-            "success": True,
-            "count": request.count,
-            "content": result.get("content", ""),
-            "cost_estimate": f"${0.001:.4f}"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Local business discovery error: {str(e)}")

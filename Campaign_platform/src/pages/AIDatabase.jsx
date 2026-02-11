@@ -955,7 +955,7 @@ function AIDatabase() {
               {importMethod === "ai-discovery" && (
                 <div className="import-panel-content">
                   <p className="panel-description">
-                    Use AI to discover contacts based on your criteria. Powered by Perplexity AI.
+                    Use AI to discover contacts based on your criteria. Powered by Google Search + OpenAI.
                   </p>
                   
                   <div className="form-group">

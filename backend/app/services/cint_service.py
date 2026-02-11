@@ -1088,10 +1088,10 @@ class CintService:
         api_base = os.getenv("API_BASE", "https://torpedo.cogentixresearch.com")
         frontend_url = os.getenv("FRONTEND_URL", "https://surveyfieldwork.com")
         
-        success_url = f"{api_base}/cint-response?status=complete&mid=[%MID%]&revenue=[%REVENUE%]"
-        failure_url = f"{api_base}/cint-response?status=terminate&mid=[%MID%]"
-        over_quota_url = f"{api_base}/cint-response?status=quota_full&mid=[%MID%]"
-        quality_term_url = f"{api_base}/cint-response?status=quality_terminate&mid=[%MID%]"
+        success_url = f"{api_base}/cint-response?status=complete&pid=[%PID%]&mid=[%MID%]&revenue=[%REVENUE%]"
+        failure_url = f"{api_base}/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]"
+        over_quota_url = f"{api_base}/cint-response?status=quota_full&pid=[%PID%]&mid=[%MID%]"
+        quality_term_url = f"{api_base}/cint-response?status=quality_terminate&pid=[%PID%]&mid=[%MID%]"
         default_url = f"{frontend_url}/survey"
         
         link_config = SupplierLinkCreate(

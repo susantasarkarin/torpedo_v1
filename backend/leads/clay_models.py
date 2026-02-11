@@ -42,7 +42,6 @@ class SourceProvider(str, Enum):
     HUNTLY = "huntly"
     CLEARBIT = "clearbit"
     OPENAI = "openai"
-    PERPLEXITY = "perplexity"
     GOOGLE_SEARCH = "google_search"
     LINKEDIN = "linkedin"
     CRUNCHBASE = "crunchbase"
