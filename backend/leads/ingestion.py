@@ -147,72 +147,6 @@ async def perform_openai_web_search(query: str, num_results: int = 10) -> str:
         "Please use Google CSE via the AI Database discovery endpoints. "
         "Configure GOOGLE_API_KEY and GOOGLE_CSE_ID in Settings."
     )
-        
-        # Use Responses API with web_search_preview tool
-        search_prompt = f"""Search the web and find {num_results} LinkedIn profiles matching this criteria:
-
-SEARCH QUERY: {query}
-
-TARGET AUDIENCE - Market Research & Consumer Insights Professionals who:
-- Work at major brands, retailers, or consumer companies
-- Purchase market research services, online panels, and consumer insights
-- Hold decision-making authority for research budgets
-
-PREFERRED JOB TITLES (prioritize these):
-- Director/VP/Head of Consumer Insights
-- Director/VP/Head of Market Research  
-- Research & Analytics Director/Manager
-- Customer Insights Lead/Manager
-- Brand/Shopper Insights Manager
-- Category Insights Director
-- Voice of Customer Manager
-
-INDUSTRIES TO FOCUS ON:
-CPG/FMCG, Retail, E-commerce, Healthcare/Pharma, Financial Services, 
-Insurance, Telecom, Media, Airlines/Travel, Automotive, Technology
-
-EXCLUDE:
-- CEOs, CTOs, CFOs, Founders (unless at research agencies)
-- Software Engineers, Developers
-- Generic Sales/Marketing roles without insights focus
-- Recruiters, HR professionals
-
-For each person found, provide:
-1. Full Name
-2. Job Title (must be insights/research/analytics focused)
-3. Company Name
-4. LinkedIn Profile URL (MUST be real URL from search results)
-5. Location (city, country)
-6. Company Industry
-7. Seniority Level (VP, Director, Senior Manager, Manager)
-
-Return as a structured list with all available information.
-IMPORTANT: Only include REAL LinkedIn URLs found in search results. Never fabricate URLs."""
-
-        # Use chat.completions API (web_search_preview is not available in standard SDK)
-        # This is a fallback - Google CSE should be the primary search method
-        logger.warning("Using OpenAI chat completion as fallback. Configure Google CSE for better results.")
-        
-        response = client_ai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant that provides information about professionals based on your training data. Note: You cannot perform real-time web searches."},
-                {"role": "user", "content": search_prompt}
-            ],
-            temperature=0.7
-        )
-        
-        # Extract content from response
-        content = ""
-        if response.choices and len(response.choices) > 0:
-            content = response.choices[0].message.content or ""
-        
-        logger.info(f"OpenAI chat completion completed for query: {query[:50]}...")
-        return content
-        
-    except Exception as e:
-        logger.error(f"OpenAI web search failed: {e}")
-        raise ValueError(f"OpenAI web search error: {str(e)}")
 
 
 async def perform_google_search(query: str, num_results: int = 10) -> List[dict]:
@@ -284,75 +218,40 @@ async def search_linkedin_leads(
     start: int = 1,
     skip_cache: bool = False,
     deduplicate: bool = True,
-    use_openai_search: bool = True
+    use_openai_search: bool = False  # Disabled - use Google CSE
 ) -> List[dict]:
     """
     Search LinkedIn profiles for market research & consumer insights professionals.
     
-    NOW USES OpenAI Web Search (Responses API with web_search_preview tool)
-    instead of Google CSE for better results and no separate API key needed.
+    USES GOOGLE CSE for lead discovery. OpenAI is only for parsing/enrichment.
     
     Args:
         query: Search query (designation, industry, location, etc.)
         num_results: Number of results to find
-        start: Pagination start (legacy, ignored for OpenAI search)
+        start: Pagination start for Google CSE
         skip_cache: Force fresh search
         deduplicate: Remove duplicates from results
-        use_openai_search: Use OpenAI web search (default True)
+        use_openai_search: DEPRECATED - always uses Google CSE now
         
     Returns:
         List of lead dictionaries with LinkedIn profile information
     """
     # Clean query
     clean_query = re.sub(r'site:linkedin\.com[^\s]*\s*', '', query, flags=re.IGNORECASE).strip()
-    cache_key = f"openai_linkedin_search:{clean_query}:{num_results}"
+    cache_key = f"google_linkedin_search:{clean_query}:{num_results}:{start}"
     
     # ===== CACHE CHECK =====
     if not skip_cache:
-        cached = get_cached_response(cache_key, provider="openai_web")
+        cached = get_cached_response(cache_key, provider="google_cse")
         if cached:
             if deduplicate and cached:
                 unique_leads, duplicates = check_duplicates_batch(cached)
                 return unique_leads
             return cached
     
-    # ===== OPENAI WEB SEARCH (PRIMARY) =====
-    if use_openai_search:
-        try:
-            # Construct optimized search query for market research professionals
-            search_query = f"{clean_query} LinkedIn profile market research consumer insights"
-            
-            # Perform OpenAI web search
-            raw_response = await perform_openai_web_search(search_query, num_results)
-            
-            if not raw_response:
-                logger.warning(f"No results from OpenAI web search for: {clean_query}")
-                return []
-            
-            # Parse the response to extract leads
-            leads = parse_openai_web_search_response(raw_response, num_results)
-            
-            if leads:
-                # Set source
-                for lead in leads:
-                    lead["source"] = "openai_search"
-                
-                # Cache results
-                cache_response(cache_key, leads, provider="openai_web")
-                
-                # Deduplicate
-                if deduplicate:
-                    unique_leads, duplicates = check_duplicates_batch(leads)
-                    return unique_leads
-                
-                return leads
-                
-        except Exception as e:
-            logger.error(f"OpenAI web search failed: {e}")
-            # Fall through to Google CSE fallback
-    
-    # ===== GOOGLE CSE FALLBACK =====
+    # ===== GOOGLE CSE (PRIMARY) =====
     search_query = f"{clean_query} site:linkedin.com/in/"
+    logger.info(f"[Google CSE] Searching: {search_query[:80]}...")
     search_results = await perform_google_search(search_query, num_results)
     
     if not search_results:
@@ -363,7 +262,11 @@ async def search_linkedin_leads(
     leads = await extract_leads_from_google_results(search_results, clean_query)
     
     if leads:
-        cache_response(cache_key, leads, provider="openai_web")
+        # Set source to google_search
+        for lead in leads:
+            lead["source"] = "google_search"
+        
+        cache_response(cache_key, leads, provider="google_cse")
         
         if deduplicate:
             unique_leads, duplicates = check_duplicates_batch(leads)
