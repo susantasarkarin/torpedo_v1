@@ -165,6 +165,8 @@ function AILeads() {
   const [webSearchDesignation, setWebSearchDesignation] = useState("");
   const [webSearchCountries, setWebSearchCountries] = useState([]); // Multi-select
   const [webSearchSeniorities, setWebSearchSeniorities] = useState([]); // Multi-select
+  const [webSearchIndustry, setWebSearchIndustry] = useState(""); // Industry/vertical filter
+  const [webSearchCustomQuery, setWebSearchCustomQuery] = useState(""); // Additional search criteria
   // Note: No target count - job runs continuously until stopped
   const [webSearchProgress, setWebSearchProgress] = useState(null);
   const [webSearchJobId, setWebSearchJobId] = useState(null); // Background job ID
@@ -626,14 +628,19 @@ function AILeads() {
         const hasDesignation = webSearchDesignation.trim();
         const hasCountries = webSearchCountries.length > 0;
         const hasSeniorities = webSearchSeniorities.length > 0;
+        const hasIndustry = webSearchIndustry.trim();
+        const hasCustomQuery = webSearchCustomQuery.trim();
         
-        if (!hasDesignation && !hasCountries && !hasSeniorities) {
-          setImportError("Please select at least one filter (Designation, Country, or Seniority)");
+        if (!hasDesignation && !hasCountries && !hasSeniorities && !hasIndustry && !hasCustomQuery) {
+          setImportError("Please enter at least one filter (Designation, Country, Seniority, Industry, or Custom Criteria)");
           setImporting(false);
           return;
         }
         
         setWebSearchProgress({ status: "Starting background search...", found: 0, imported: 0 });
+        
+        // Parse industries from comma-separated input
+        const industries = webSearchIndustry ? webSearchIndustry.split(",").map(i => i.trim()).filter(Boolean) : [];
         
         res = await fetch(buildApiUrl(`/leads/import/web-search`), {
           method: "POST",
@@ -641,7 +648,9 @@ function AILeads() {
           body: JSON.stringify({
             designation: webSearchDesignation,
             countries: webSearchCountries,
-            seniorities: webSearchSeniorities
+            seniorities: webSearchSeniorities,
+            industries: industries,
+            custom_query: webSearchCustomQuery
           }),
         });
         
@@ -1759,163 +1768,11 @@ function AILeads() {
                 >
                   📧 Gmail
                 </button>
-                <button 
-                  className={`method-tab ${importMethod === "ai-discovery" ? "active" : ""}`}
-                  onClick={() => { setImportMethod("ai-discovery"); setCsvImportStep(1); resetDiscovery(); checkDiscoveryStatus(); }}
-                >
-                  🔮 AI Discovery
-                </button>
               </div>
 
               {/* Error Display */}
               {importError && (
                 <div className="error-alert">{importError}</div>
-              )}
-
-              {/* AI Discovery (Google CSE + OpenAI) */}
-              {importMethod === "ai-discovery" && (
-                <div className="import-form">
-                  <h3>🔮 AI-Powered Lead Discovery</h3>
-                  <p className="form-hint">
-                    Use Google Search to discover LinkedIn profiles, then OpenAI enriches the data. Free tier: 100 queries/day.
-                  </p>
-                  
-                  {discoveryError && (
-                    <div className="error-alert">{discoveryError}</div>
-                  )}
-                  
-                  {discoveryStatus && !discoveryStatus.enabled && (
-                    <div className="warning-alert" style={{ background: '#fef3c7', border: '1px solid #f59e0b', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
-                      ⚠️ Google Search discovery is not configured. Please add your API key in <a href="/admin/settings">Settings</a>.
-                    </div>
-                  )}
-                  
-                  {/* Step 1: Search for Leads Directly */}
-                  {discoveryStep === 1 && (
-                    <div className="discovery-step">
-                      <h4>Step 1: Discover Leads</h4>
-                      <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                        <div className="form-group">
-                          <label>Target Designation *</label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            placeholder="e.g., CEO, VP Sales, Director of Marketing"
-                            value={discoveryDesignation}
-                            onChange={(e) => setDiscoveryDesignation(e.target.value)}
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label>Industry *</label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            placeholder="e.g., fintech, healthtech, SaaS"
-                            value={discoveryIndustry}
-                            onChange={(e) => setDiscoveryIndustry(e.target.value)}
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label>Location (optional)</label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            placeholder="e.g., California, India, Europe"
-                            value={discoveryLocation}
-                            onChange={(e) => setDiscoveryLocation(e.target.value)}
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label>Additional Criteria (optional)</label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            placeholder="e.g., funded startups, enterprise, B2B"
-                            value={discoveryCriteria}
-                            onChange={(e) => setDiscoveryCriteria(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      <button 
-                        className="btn btn-primary" 
-                        onClick={handleDiscoverCompanies}
-                        disabled={discoveryLoading || !discoveryIndustry || !discoveryDesignation || (discoveryStatus && !discoveryStatus.enabled)}
-                        style={{ marginTop: '1rem' }}
-                      >
-                        {discoveryLoading ? "Discovering..." : "🔍 Discover Leads"}
-                      </button>
-                    </div>
-                  )}
-                  
-                  {/* Step 2: Preview Discovered Contacts */}
-                  {discoveryStep === 2 && (
-                    <div className="discovery-step">
-                      <h4>Step 2: Preview Contacts ({selectedContacts.length}/{discoveryContacts.length})</h4>
-                      <p className="form-hint-small">Leads have been auto-imported. Review or adjust selection below:</p>
-                      
-                      <div style={{ marginBottom: '0.5rem' }}>
-                        <label style={{ cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={selectedContacts.length === discoveryContacts.length && discoveryContacts.length > 0}
-                            onChange={toggleAllContacts}
-                          />
-                          <span style={{ marginLeft: '0.5rem' }}>Select All</span>
-                        </label>
-                      </div>
-                      
-                      <div style={{ maxHeight: '350px', overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
-                        <table style={{ width: '100%', fontSize: '0.875rem', borderCollapse: 'collapse' }}>
-                          <thead style={{ background: '#f9fafb', position: 'sticky', top: 0 }}>
-                            <tr>
-                              <th style={{ padding: '0.75rem', textAlign: 'left' }}>Select</th>
-                              <th style={{ padding: '0.75rem', textAlign: 'left' }}>Name</th>
-                              <th style={{ padding: '0.75rem', textAlign: 'left' }}>Title</th>
-                              <th style={{ padding: '0.75rem', textAlign: 'left' }}>Company</th>
-                              <th style={{ padding: '0.75rem', textAlign: 'left' }}>Link</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {discoveryContacts.map((contact, idx) => (
-                              <tr key={idx} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                                <td style={{ padding: '0.75rem' }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedContacts.some(c => c.linkedin_url === contact.linkedin_url)}
-                                    onChange={() => toggleContactSelection(contact)}
-                                  />
-                                </td>
-                                <td style={{ padding: '0.75rem' }}>{contact.name || '-'}</td>
-                                <td style={{ padding: '0.75rem' }}>{contact.title || '-'}</td>
-                                <td style={{ padding: '0.75rem' }}>{contact.discovered_company || contact.company_name || '-'}</td>
-                                <td style={{ padding: '0.75rem' }}>
-                                  {contact.linkedin_url && (
-                                    <a href={contact.linkedin_url} target="_blank" rel="noopener noreferrer">
-                                      LinkedIn ↗
-                                    </a>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      
-                      <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
-                        <button className="btn btn-secondary" onClick={() => setDiscoveryStep(1)}>
-                          ← New Search
-                        </button>
-                        <button 
-                          className="btn btn-primary" 
-                          onClick={() => { fetchLeads(); setShowImportModal(false); }}
-                          disabled={discoveryLoading}
-                        >
-                          ✅ Done - View Leads
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
               )}
 
               {/* Web Search (Enhanced with Multi-Select Filters) */}
@@ -2105,7 +1962,31 @@ function AILeads() {
                       </div>
                     </div>
                     
-                    {/* Target count removed - job runs continuously until stopped, controlled by rate limits */}
+                    {/* Industry / Vertical - Text input with comma-separated values */}
+                    <div className="form-group">
+                      <label>Industry / Vertical (optional, comma-separated)</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g., SaaS, fintech, healthcare"
+                        value={webSearchIndustry}
+                        onChange={(e) => setWebSearchIndustry(e.target.value)}
+                      />
+                      <small className="form-hint-small">Enter industries separated by commas. Leave empty to search all industries.</small>
+                    </div>
+                    
+                    {/* Additional Criteria - Text input for custom search terms */}
+                    <div className="form-group">
+                      <label>Additional Criteria (optional)</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g., funded startup, Series B, B2B"
+                        value={webSearchCustomQuery}
+                        onChange={(e) => setWebSearchCustomQuery(e.target.value)}
+                      />
+                      <small className="form-hint-small">Add any extra keywords to refine your search</small>
+                    </div>
                   </div>
                   
                   {webSearchProgress && (

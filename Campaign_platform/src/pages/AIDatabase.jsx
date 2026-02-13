@@ -98,14 +98,16 @@ function AIDatabase() {
   const [gmailImporting, setGmailImporting] = useState(false)
   const [gmailImportProgress, setGmailImportProgress] = useState(null)
 
-  // Import Method state (tabs: web-search, csv, gmail, ai-discovery)
+  // Import Method state (tabs: web-search, csv, gmail)
   const [importMethod, setImportMethod] = useState("web-search")
   const [showImportPanel, setShowImportPanel] = useState(false)
   
-  // Web Search state
+  // Web Search state (includes Industry and Additional Criteria from former AI Discovery)
   const [webSearchDesignation, setWebSearchDesignation] = useState("")
   const [webSearchCountries, setWebSearchCountries] = useState([])
   const [webSearchSeniorities, setWebSearchSeniorities] = useState([])
+  const [webSearchIndustry, setWebSearchIndustry] = useState("")
+  const [webSearchCustomQuery, setWebSearchCustomQuery] = useState("")
   const [webSearchProgress, setWebSearchProgress] = useState(null)
   const [searchControl, setSearchControl] = useState({
     global_paused: false,
@@ -113,14 +115,6 @@ function AIDatabase() {
     circuit_breaker_open: false,
     active_jobs_count: 0
   })
-  
-  // AI Discovery state
-  const [discoveryIndustry, setDiscoveryIndustry] = useState("")
-  const [discoveryLocation, setDiscoveryLocation] = useState("")
-  const [discoveryCriteria, setDiscoveryCriteria] = useState("")
-  const [discoveryDesignation, setDiscoveryDesignation] = useState("")
-  const [discoveryLoading, setDiscoveryLoading] = useState(false)
-  const [discoveryError, setDiscoveryError] = useState("")
   
   // Workbooks/Files state
   const [workbooks, setWorkbooks] = useState([])
@@ -682,12 +676,6 @@ function AIDatabase() {
             >
               📧 Gmail
             </button>
-            <button 
-              className={`import-tab ${importMethod === "ai-discovery" ? "active" : ""}`}
-              onClick={() => { setImportMethod("ai-discovery"); setShowImportPanel(true); }}
-            >
-              🔮 AI Discovery
-            </button>
           </div>
 
           {/* Import Panel Content */}
@@ -772,6 +760,32 @@ function AIDatabase() {
                         ))}
                       </div>
                       <small className="selected-count">{webSearchSeniorities.length} selected</small>
+                    </div>
+                  </div>
+                  
+                  <div className="form-row">
+                    <div className="form-group">
+                      <label>Industry / Vertical (optional)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g., SaaS, fintech, healthcare"
+                        value={webSearchIndustry}
+                        onChange={(e) => setWebSearchIndustry(e.target.value)}
+                        className="form-input"
+                      />
+                      <small className="form-hint">Enter industries separated by commas. Leave empty to search all.</small>
+                    </div>
+                    
+                    <div className="form-group">
+                      <label>Additional Criteria (optional)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g., funded startup, Series B, B2B"
+                        value={webSearchCustomQuery}
+                        onChange={(e) => setWebSearchCustomQuery(e.target.value)}
+                        className="form-input"
+                      />
+                      <small className="form-hint">Add any extra keywords to refine your search</small>
                     </div>
                   </div>
                   
@@ -948,74 +962,6 @@ function AIDatabase() {
                       </div>
                     </>
                   )}
-                </div>
-              )}
-              
-              {/* AI Discovery Panel */}
-              {importMethod === "ai-discovery" && (
-                <div className="import-panel-content">
-                  <p className="panel-description">
-                    Use AI to discover contacts based on your criteria. Powered by Google Search + OpenAI.
-                  </p>
-                  
-                  <div className="form-group">
-                    <label>Industry</label>
-                    <input
-                      type="text"
-                      placeholder="e.g., SaaS, Fintech, Healthcare"
-                      value={discoveryIndustry}
-                      onChange={(e) => setDiscoveryIndustry(e.target.value)}
-                      className="form-input"
-                    />
-                  </div>
-                  
-                  <div className="form-group">
-                    <label>Location</label>
-                    <input
-                      type="text"
-                      placeholder="e.g., USA, Europe, Asia Pacific"
-                      value={discoveryLocation}
-                      onChange={(e) => setDiscoveryLocation(e.target.value)}
-                      className="form-input"
-                    />
-                  </div>
-                  
-                  <div className="form-group">
-                    <label>Target Designation</label>
-                    <input
-                      type="text"
-                      placeholder="e.g., CEO, VP of Sales, Marketing Director"
-                      value={discoveryDesignation}
-                      onChange={(e) => setDiscoveryDesignation(e.target.value)}
-                      className="form-input"
-                    />
-                  </div>
-                  
-                  <div className="form-group">
-                    <label>Additional Criteria</label>
-                    <textarea
-                      placeholder="e.g., Companies with 50-500 employees, Recently funded startups"
-                      value={discoveryCriteria}
-                      onChange={(e) => setDiscoveryCriteria(e.target.value)}
-                      className="form-textarea"
-                      rows={3}
-                    />
-                  </div>
-                  
-                  {discoveryError && (
-                    <div className="error-message">{discoveryError}</div>
-                  )}
-                  
-                  <div className="panel-actions">
-                    <button className="btn-cancel" onClick={() => setShowImportPanel(false)}>Cancel</button>
-                    <button 
-                      className="btn-import"
-                      disabled={discoveryLoading}
-                      onClick={() => navigate("/admin/sales/campaign/ai-leads/manage")}
-                    >
-                      {discoveryLoading ? "Discovering..." : "🔮 Discover Contacts"}
-                    </button>
-                  </div>
                 </div>
               )}
             </div>

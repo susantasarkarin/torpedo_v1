@@ -1365,7 +1365,7 @@ class CintService:
         if mid:
             params["mid"] = mid
         else:
-            params["mid"] = str(uuid.uuid4())[:16]
+            params["mid"] = uuid.uuid4().hex[:16]  # 16 hex chars, no dashes
         
         # Add any additional parameters
         params.update(additional_params)

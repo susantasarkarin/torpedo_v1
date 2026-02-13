@@ -410,17 +410,20 @@ async def auto_create_entry_links_for_all(
     if cint_service is None:
         raise HTTPException(status_code=503, detail="Cint service not initialized")
     
-    # Get active surveys without entry links
+    # Get live surveys without entry links
+    # Note: is_active may be None for older records, so we use is_live=True 
+    # and exclude deactivated surveys instead
     query = {
-        "is_active": True,
-        "is_live": True  # Only process live surveys
+        "is_live": True,
+        "message_reason": {"$ne": "deactivated"}  # Exclude explicitly deactivated surveys
     }
     if cint_service.cint_entry_links_collection is not None:
         existing_ids = cint_service.cint_entry_links_collection.distinct("survey_id")
         if existing_ids:
             query["survey_id"] = {"$nin": existing_ids}
     projection = {"survey_id": 1, "is_live": 1}
-    cursor = cint_service.cint_surveys_collection.find(query, projection)
+    # Sort by most recent first (updated_at descending) - newer surveys more likely to be active in CINT
+    cursor = cint_service.cint_surveys_collection.find(query, projection).sort("updated_at", -1)
     if limit > 0:
         cursor = cursor.limit(limit)
     surveys = list(cursor)
@@ -452,7 +455,7 @@ async def auto_create_entry_links_for_all(
             if result.get("success"):
                 created += 1
             else:
-                errors.append({"survey_id": survey_id, "error": result.get("message")})
+                errors.append({"survey_id": survey_id, "error": result.get("error") or result.get("message")})
         except Exception as e:
             errors.append({"survey_id": survey_id, "error": str(e)})
     
@@ -511,6 +514,126 @@ async def get_entry_link(
         logger.error(f"Error retrieving entry link: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+# ============================================
+# On-Demand Entry Link (CPX-style workflow)
+# ============================================
+
+@router.get("/survey-link/{survey_id}")
+async def get_or_create_survey_link(
+    survey_id: int,
+    respondent_id: str = Query(..., description="Unique respondent identifier"),
+    country_code: str = Query(default="US", description="ISO country code (e.g., US, GB, CA)"),
+    redirect: bool = Query(default=False, description="If true, return HTTP 302 redirect instead of JSON"),
+    pid: Optional[str] = Query(None, description="Panelist ID (defaults to respondent_id)"),
+    mid: Optional[str] = Query(None, description="Session/Market ID"),
+    cint_service = Depends(get_cint_service),
+):
+    """
+    Get or create entry link on-demand (CPX-style workflow)
+    
+    This endpoint implements an on-demand approach similar to CPX:
+    1. Check cache for existing entry link
+    2. If not cached, create via Cint API and cache
+    3. Build complete URL with respondent parameters
+    4. Return JSON or HTTP 302 redirect
+    
+    Benefits over bulk pre-creation:
+    - Only creates links for surveys respondents actually need
+    - Automatically handles inactive surveys (404 from Cint)
+    - Reduces wasted API calls on stale surveys
+    
+    Args:
+        survey_id: Cint survey ID
+        respondent_id: Unique respondent identifier
+        country_code: ISO country code
+        redirect: If true, redirect to survey; if false, return JSON
+        pid: Panelist ID (optional, defaults to respondent_id)
+        mid: Session/Market ID (optional)
+    
+    Returns:
+        JSON with entry_link or HTTP 302 redirect
+    """
+    from fastapi.responses import RedirectResponse
+    
+    try:
+        logger.info(f"On-demand entry link request for survey {survey_id}, respondent {respondent_id}")
+        
+        # Step 1: Check cache for existing entry link
+        cached_link = await cint_service.get_entry_link_by_survey_id(survey_id)
+        
+        if cached_link and cached_link.live_link:
+            logger.info(f"Using cached entry link for survey {survey_id}")
+            entry_url = cint_service.build_entry_link(
+                live_link=cached_link.live_link,
+                respondent_id=respondent_id,
+                country_code=country_code,
+                pid=pid or respondent_id,
+                mid=mid,
+            )
+            
+            if redirect:
+                return RedirectResponse(url=entry_url, status_code=302)
+            
+            return {
+                "success": True,
+                "entry_link": entry_url,
+                "survey_id": survey_id,
+                "cached": True,
+            }
+        
+        # Step 2: Not cached - create via Cint API
+        logger.info(f"Creating entry link on-demand for survey {survey_id}")
+        result = await cint_service._auto_create_entry_link(survey_id)
+        
+        if result.get("success") and result.get("link"):
+            link = result["link"]
+            live_link = link.live_link if hasattr(link, 'live_link') else link.get("live_link")
+            
+            if live_link:
+                entry_url = cint_service.build_entry_link(
+                    live_link=live_link,
+                    respondent_id=respondent_id,
+                    country_code=country_code,
+                    pid=pid or respondent_id,
+                    mid=mid,
+                )
+                
+                if redirect:
+                    return RedirectResponse(url=entry_url, status_code=302)
+                
+                return {
+                    "success": True,
+                    "entry_link": entry_url,
+                    "survey_id": survey_id,
+                    "cached": False,
+                }
+        
+        # Step 3: Failed - handle based on status code
+        status_code = result.get("status_code", 500)
+        error_msg = result.get("error", "Unknown error")
+        
+        if status_code == 404:
+            # Survey no longer active in Cint - mark as inactive
+            logger.warning(f"Survey {survey_id} not found in Cint API (404) - marking inactive")
+            await cint_service.mark_survey_inactive(survey_id)
+            raise HTTPException(
+                status_code=404,
+                detail=f"Survey {survey_id} is no longer available in Cint"
+            )
+        
+        logger.error(f"Failed to create entry link for survey {survey_id}: {error_msg}")
+        raise HTTPException(
+            status_code=status_code if status_code >= 400 else 500,
+            detail=f"Failed to create entry link: {error_msg}"
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in on-demand entry link: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================

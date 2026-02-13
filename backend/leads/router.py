@@ -212,11 +212,13 @@ class WebSearchRequest(BaseModel):
     designation: str = ""  # e.g., "CEO", "VP Sales" - comma separated for multiple
     countries: List[str] = []  # Multiple countries supported
     seniorities: List[str] = []  # Multiple seniority levels supported
+    industries: List[str] = []  # Industry/vertical filters (e.g., "SaaS", "fintech")
     custom_query: str = ""  # Additional search terms
     # Note: No target_count - job runs indefinitely until stopped, controlled by rate limits
     # Legacy single-value fields for backward compatibility
     country: str = ""
     seniority: str = ""
+    industry: str = ""  # Single industry for backward compatibility
 
 
 class GoogleSheetRequest(BaseModel):
@@ -327,7 +329,8 @@ def check_and_reset_daily_limit(job_id: str) -> bool:
 # ============== QUERY GENERATOR ==============
 
 def generate_query_combinations(designations: List[str], countries: List[str], 
-                                 seniorities: List[str], custom_query: str) -> List[str]:
+                                 seniorities: List[str], custom_query: str,
+                                 industries: List[str] = None) -> List[str]:
     """Generate diverse search query combinations"""
     
     seniority_variations = {
@@ -344,13 +347,17 @@ def generate_query_combinations(designations: List[str], countries: List[str],
         "Unpaid": ["Volunteer", "Board Member", "Advisory Board"]
     }
     
-    industry_modifiers = [
+    # Use user-provided industries, or default to common ones for broader search
+    default_industry_modifiers = [
         "", "Technology", "Software", "IT", "Finance", "Banking", "Healthcare",
         "Manufacturing", "Retail", "E-commerce", "Marketing", "Consulting",
         "Telecommunications", "Insurance", "Real Estate", "Pharmaceuticals",
         "Automotive", "Energy", "Education", "Media", "Entertainment",
         "Logistics", "Supply Chain", "FMCG", "Consumer Goods", "B2B", "SaaS"
     ]
+    
+    # If user specified industries, use those (with empty string for flexibility)
+    industry_modifiers = [""] + industries if industries else default_industry_modifiers
     
     query_combinations = []
     
@@ -426,7 +433,8 @@ async def run_web_search_job(job_id: str):
             config.get("designations", []),
             config.get("countries", []),
             config.get("seniorities", []),
-            config.get("custom_query", "")
+            config.get("custom_query", ""),
+            config.get("industries", [])
         )
         update_job(job_id, {"query_combinations": query_combinations})
     
@@ -678,9 +686,10 @@ async def import_from_web_search(
         countries = request.countries if request.countries else ([request.country] if request.country else [])
         seniorities = request.seniorities if request.seniorities else ([request.seniority] if request.seniority else [])
         designations = [d.strip() for d in request.designation.split(",")] if request.designation else []
+        industries = request.industries if request.industries else ([request.industry] if request.industry else [])
         
-        if not designations and not countries and not seniorities and not request.custom_query:
-            raise ValueError("At least one search filter (designation, country, seniority, or custom_query) is required")
+        if not designations and not countries and not seniorities and not request.custom_query and not industries:
+            raise ValueError("At least one search filter (designation, country, seniority, industry, or custom_query) is required")
         
         # No target limit - job runs continuously until stopped (controlled by rate limits)
         target_count = 999999999  # Effectively unlimited
@@ -690,6 +699,7 @@ async def import_from_web_search(
             "designations": designations,
             "countries": countries,
             "seniorities": seniorities,
+            "industries": industries,
             "custom_query": request.custom_query
         }
         

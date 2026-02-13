@@ -1319,7 +1319,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     # PID = Panelist ID (traffic_id for tracking)
                     # MID = Unique session ID (prevents entry link reuse per client feedback)
                     import uuid
-                    session_mid = str(uuid.uuid4())[:16]  # Unique session identifier
+                    session_mid = uuid.uuid4().hex[:16]  # 16 hex chars, no dashes
                     entry_link = f"{live_link}{traffic_id}&MID={session_mid}"
                     print(f"🔗 Final CINT entry link: {entry_link[:100]}... (MID={session_mid})")
 
