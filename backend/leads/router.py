@@ -938,14 +938,16 @@ async def list_web_search_jobs(
         result = []
         for job in jobs:
             progress_percent = 0
-            if job["target_count"] > 0:
-                progress_percent = round((job["total_imported"] / job["target_count"]) * 100, 1)
+            target_count = job.get("target_count", 0)
+            total_imported = job.get("total_imported", 0)
+            if target_count > 0:
+                progress_percent = round((total_imported / target_count) * 100, 1)
             
             result.append({
-                "job_id": job["job_id"],
-                "status": job["status"],
-                "target_count": job["target_count"],
-                "total_imported": job["total_imported"],
+                "job_id": job.get("job_id", ""),
+                "status": job.get("status", "unknown"),
+                "target_count": target_count,
+                "total_imported": total_imported,
                 "progress_percent": progress_percent,
                 "created_at": job["created_at"].isoformat() if job.get("created_at") else None,
                 "config": job.get("config", {})
