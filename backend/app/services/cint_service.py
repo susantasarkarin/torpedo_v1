@@ -1082,26 +1082,15 @@ class CintService:
         return processed
 
     async def _auto_create_entry_link(self, survey_id: int) -> Dict[str, Any]:
-        """Auto-create entry link for a survey with default redirect URLs."""
-        import os
+        """Auto-create entry link for a survey.
         
-        api_base = os.getenv("API_BASE", "https://torpedo.cogentixresearch.com")
-        frontend_url = os.getenv("FRONTEND_URL", "https://surveyfieldwork.com")
-        
-        success_url = f"{api_base}/cint-response?status=complete&pid=[%PID%]&mid=[%MID%]&revenue=[%REVENUE%]"
-        failure_url = f"{api_base}/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]"
-        over_quota_url = f"{api_base}/cint-response?status=quota_full&pid=[%PID%]&mid=[%MID%]"
-        quality_term_url = f"{api_base}/cint-response?status=quality_terminate&pid=[%PID%]&mid=[%MID%]"
-        default_url = f"{frontend_url}/survey"
-        
+        Note: Redirects are configured via Lucid Supplier Portal "Submit Redirect Form"
+        per client guidance. We only provide minimal required parameters here.
+        """
+        # Use minimal config - redirects are set in Lucid Supplier Portal
         link_config = SupplierLinkCreate(
             supplier_link_type_code="OWS",
             tracking_type_code="NONE",
-            default_link=default_url,
-            success_link=success_url,
-            failure_link=failure_url,
-            over_quota_link=over_quota_url,
-            quality_termination_link=quality_term_url,
         )
         
         existing = await self.get_entry_link(survey_id)
@@ -1353,22 +1342,30 @@ class CintService:
             live_link: Base live link from Cint
             respondent_id: Unique respondent ID
             country_code: ISO country code
-            pid: Panelist ID (optional)
-            mid: Session/Market ID (optional)
+            pid: Panelist ID (optional, defaults to respondent_id)
+            mid: Session/Market ID (optional, auto-generated if not provided)
             **additional_params: Additional query parameters
 
         Returns:
             Complete entry link with all parameters
         """
+        import uuid
+        
         params = {
             "rid": respondent_id,
             "cc": country_code,
         }
         
+        # PID defaults to respondent_id if not provided
         if pid:
             params["pid"] = pid
+        
+        # MID is required per Lucid docs - auto-generate if not provided
+        # Unique session ID prevents entry link reuse per client feedback
         if mid:
             params["mid"] = mid
+        else:
+            params["mid"] = str(uuid.uuid4())[:16]
         
         # Add any additional parameters
         params.update(additional_params)
@@ -1443,6 +1440,49 @@ class CintService:
             logger.error(f"Error querying opportunity {survey_id}: {str(e)}")
         
         return None
+
+    async def mark_survey_inactive(self, survey_id: int, reason: str = "404_from_cint_api") -> bool:
+        """
+        Mark a survey as inactive (e.g., when Cint API returns 404)
+        
+        This is called when:
+        - Cint API returns 404 for entry link creation
+        - Survey is no longer available in Cint system
+        - Manual deactivation is needed
+        
+        Args:
+            survey_id: Cint survey ID
+            reason: Reason for deactivation
+        
+        Returns:
+            True if updated, False if survey not found or error
+        """
+        if self.cint_surveys_collection is None:
+            return False
+        
+        try:
+            result = self.cint_surveys_collection.update_one(
+                {"survey_id": survey_id},
+                {
+                    "$set": {
+                        "is_active": False,
+                        "is_live": False,
+                        "deactivated_at": datetime.now(timezone.utc),
+                        "deactivation_reason": reason,
+                    }
+                }
+            )
+            
+            if result.modified_count > 0:
+                logger.info(f"Marked survey {survey_id} as inactive: {reason}")
+                return True
+            else:
+                logger.warning(f"Survey {survey_id} not found for deactivation")
+                return False
+        
+        except Exception as e:
+            logger.error(f"Error marking survey {survey_id} inactive: {e}")
+            return False
 
     async def get_entry_link_by_survey_id(self, survey_id: int) -> Optional[SupplierLink]:
         """

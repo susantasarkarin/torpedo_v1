@@ -1281,15 +1281,11 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 # Entry link doesn't exist - try to create one
                                 print(f"📝 No entry link exists for survey {survey_id}, creating one...")
                                 create_url = f"https://api.samplicio.us/Supply/v1/SupplierLinks/Create/{survey_id}/{cint_supplier_code}"
-                                api_base = os.getenv("API_BASE", "https://torpedo.cogentixresearch.com")
+                                # Use minimal payload - redirects are configured via Lucid Supplier Portal
+                                # "Submit Redirect Form" per client guidance
                                 create_payload = {
                                     "SupplierLinkTypeCode": "OWS",
-                                    "TrackingTypeCode": "NONE",
-                                    "DefaultLink": "https://surveyfieldwork.com/survey",
-                                    "SuccessLink": f"{api_base}/cint-response?status=complete&pid=[%PID%]&mid=[%MID%]&revenue=[%REVENUE%]",
-                                    "FailureLink": f"{api_base}/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]",
-                                    "OverQuotaLink": f"{api_base}/cint-response?status=quota_full&pid=[%PID%]&mid=[%MID%]",
-                                    "QualityTerminationLink": f"{api_base}/cint-response?status=quality_terminate&pid=[%PID%]&mid=[%MID%]"
+                                    "TrackingTypeCode": "NONE"
                                 }
                                 create_resp = httpx.post(create_url, json=create_payload, headers=headers, timeout=15)
                                 if create_resp.status_code in [200, 201]:
@@ -1318,10 +1314,14 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         print(f"❌ Could not get entry link for CINT survey {survey_id}")
                         return False
 
-                    # Build final entry link with SFWID as PID
+                    # Build final entry link with PID and MID per Lucid docs
                     # LiveLink format: https://www.samplicio.us/s/default.aspx?SID=uuid&PID=
-                    entry_link = f"{live_link}{traffic_id}"
-                    print(f"🔗 Final CINT entry link: {entry_link[:100]}...")
+                    # PID = Panelist ID (traffic_id for tracking)
+                    # MID = Unique session ID (prevents entry link reuse per client feedback)
+                    import uuid
+                    session_mid = str(uuid.uuid4())[:16]  # Unique session identifier
+                    entry_link = f"{live_link}{traffic_id}&MID={session_mid}"
+                    print(f"🔗 Final CINT entry link: {entry_link[:100]}... (MID={session_mid})")
 
                     allocation_success = True
 
