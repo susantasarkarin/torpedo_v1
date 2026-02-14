@@ -15,7 +15,7 @@ import json
 import httpx
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
 import logging
 from pymongo import MongoClient
 from pymongo.collection import Collection
@@ -1351,31 +1351,26 @@ class CintService:
         """
         import uuid
         
-        params = {
-            "rid": respondent_id,
-            "cc": country_code,
-        }
-        
-        # PID defaults to respondent_id if not provided
-        if pid:
-            params["pid"] = pid
-        
-        # MID is required per Lucid docs - auto-generate if not provided
-        # Unique session ID prevents entry link reuse per client feedback
-        if mid:
-            params["mid"] = mid
-        else:
-            params["mid"] = uuid.uuid4().hex[:16]  # 16 hex chars, no dashes
-        
+        panelist_id = pid or respondent_id
+        session_mid = mid or uuid.uuid4().hex[:16]  # 16 hex chars, no dashes
+
+        parsed = urlparse(live_link)
+        query_params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+
+        # Remove lowercase params if they already exist
+        query_params.pop("pid", None)
+        query_params.pop("mid", None)
+
+        # Enforce expected case for Lucid/Cint
+        query_params["PID"] = panelist_id
+        query_params["MID"] = session_mid
+        query_params["rid"] = respondent_id
+        query_params["cc"] = country_code
+
         # Add any additional parameters
-        params.update(additional_params)
-        
-        # Build query string
-        query_string = urlencode(params)
-        
-        # Append to live link
-        separator = "&" if "?" in live_link else "?"
-        entry_url = f"{live_link}{separator}{query_string}"
+        query_params.update(additional_params)
+
+        entry_url = urlunparse(parsed._replace(query=urlencode(query_params)))
         
         # Validate length (Cint requires < 1999 characters)
         if len(entry_url) >= 1999:

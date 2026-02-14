@@ -324,6 +324,12 @@ async def cint_callback(
                 traffic_record = url_parameters_collection.find_one({"_id": lookup_id})
                 if traffic_record:
                     print(f"✅ Found traffic record by string _id: {lookup_id}")
+
+            # Try lookup by stored CINT MID (if PID did not resolve)
+            if not traffic_record and mid:
+                traffic_record = url_parameters_collection.find_one({"cint_mid": mid})
+                if traffic_record:
+                    print(f"✅ Found traffic record by cint_mid: {mid}")
         
         if not traffic_record:
             print(f"⚠️ Traffic record not found for pid={pid}, mid={mid}")
@@ -1215,7 +1221,20 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     # CINT uses format like "eng_us", "eng_gb", "eng_in", "spa_mx", etc.
                     country_suffix = country_code.lower() if country_code else ""
 
-                    cint_query = {"is_active_in_pool": True}
+                    # Prefer is_active_in_pool when available; otherwise fall back to is_active/is_live
+                    cint_query = {
+                        "$or": [
+                            {"is_active_in_pool": True},
+                            {
+                                "is_active_in_pool": {"$exists": False},
+                                "is_active": True,
+                                "$or": [
+                                    {"is_live": True},
+                                    {"is_live": {"$exists": False}}
+                                ]
+                            },
+                        ]
+                    }
 
                     # Add country filter if we have a country code
                     if country_suffix:
@@ -1314,13 +1333,32 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         print(f"❌ Could not get entry link for CINT survey {survey_id}")
                         return False
 
-                    # Build final entry link with PID and MID per Lucid docs
-                    # LiveLink format: https://www.samplicio.us/s/default.aspx?SID=uuid&PID=
+                    # Build final entry link with PID and MID per Lucid docs using shared builder
                     # PID = Panelist ID (traffic_id for tracking)
                     # MID = Unique session ID (prevents entry link reuse per client feedback)
                     import uuid
                     session_mid = uuid.uuid4().hex[:16]  # 16 hex chars, no dashes
-                    entry_link = f"{live_link}{traffic_id}&MID={session_mid}"
+                    
+                    # Use cint_service.build_entry_link if available for guaranteed uppercase PID/MID
+                    if cint_service:
+                        entry_link = cint_service.build_entry_link(
+                            live_link=live_link,
+                            respondent_id=traffic_id,
+                            country_code=country_code or "",
+                            pid=traffic_id,
+                            mid=session_mid,
+                        )
+                    else:
+                        # Fallback: manual build with uppercase enforcement
+                        from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+                        parsed = urlparse(live_link)
+                        params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+                        params.pop("pid", None)
+                        params.pop("mid", None)
+                        params["PID"] = traffic_id
+                        params["MID"] = session_mid
+                        entry_link = urlunparse(parsed._replace(query=urlencode(params)))
+                    
                     print(f"🔗 Final CINT entry link: {entry_link[:100]}... (MID={session_mid})")
 
                     allocation_success = True
@@ -1340,8 +1378,15 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 "assignedSurveyId": survey_id,
                                 "redirectUrl": entry_link,
                                 "surveySource": "CINT",
+                                "cint_mid": session_mid,
                                 "updatedAt": datetime.utcnow().isoformat(),
                             }}
+                        )
+
+                    if url_parameters_collection is not None:
+                        url_parameters_collection.update_one(
+                            {"_id": ObjectId(traffic_id)},
+                            {"$set": {"cint_mid": session_mid}}
                         )
 
                     print(f"✅ CINT allocated survey {survey_id} to SFWID={traffic_id}")
