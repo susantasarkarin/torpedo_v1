@@ -778,7 +778,7 @@ async def cpx_callback(
                                             live_link = resp.json().get("SupplierLink", {}).get("LiveLink")
                                             
                                             if live_link:
-                                                # Build CINT entry link with new MID
+                                                # Build CINT entry link with new MID and standard params
                                                 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
                                                 cint_mid = uuid.uuid4().hex[:16]
                                                 
@@ -788,6 +788,8 @@ async def cpx_callback(
                                                 params.pop("mid", None)
                                                 params["PID"] = traffic_id
                                                 params["MID"] = cint_mid
+                                                params["rid"] = traffic_id
+                                                params["cc"] = user_country or ""
                                                 cint_entry_link = urlunparse(parsed._replace(query=urlencode(params)))
                                                 
                                                 # Mark fallback attempted and store CINT info
