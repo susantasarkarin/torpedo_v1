@@ -1425,12 +1425,19 @@ function AILeads() {
           <button 
             className="btn btn-sm" 
             onClick={() => {
-              const selectedLeads = leads.filter(l => selectedIds.has(l._id))
+              // Use displayLeads instead of leads to match current tab's data source
+              const currentDisplayLeads = getDisplayLeads();
+              const selectedLeads = currentDisplayLeads.filter(l => selectedIds.has(l._id));
               console.log("🚀 Sending to workflow:", { 
                 selectedLeadsCount: selectedLeads.length, 
                 selectedLeads,
-                selectedIds: Array.from(selectedIds)
+                selectedIds: Array.from(selectedIds),
+                activeTab
               })
+              if (selectedLeads.length === 0) {
+                alert("No leads found. Please ensure selected leads are from the current tab.");
+                return;
+              }
               navigate("/admin/sales/campaign/workflow", {
                 state: { 
                   contacts: selectedLeads,
