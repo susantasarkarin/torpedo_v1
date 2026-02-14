@@ -734,8 +734,9 @@ async def cpx_callback(
                             cint_collection = client["cint_research"]["cint_surveys"]
                             entry_links_collection = client["cint_research"]["cint_entry_links"]
                             
-                            # Get user's country from traffic record
-                            user_country = traffic_record.get("countryCode", "").lower()
+                            # Get user's country and respondent ID from traffic record
+                            user_country = traffic_record.get("countryCode", "")
+                            respondent_id = traffic_record.get("respondentId") or traffic_id
                             
                             cint_query = {
                                 "$and": [
@@ -811,10 +812,10 @@ async def cpx_callback(
                                                 params = dict(parse_qsl(parsed.query, keep_blank_values=True))
                                                 params.pop("pid", None)
                                                 params.pop("mid", None)
-                                                params["PID"] = traffic_id
+                                                params["PID"] = respondent_id
                                                 params["MID"] = cint_mid
-                                                params["rid"] = traffic_id
-                                                params["cc"] = user_country or ""
+                                                params["rid"] = respondent_id
+                                                params["cc"] = (user_country or "").upper()
                                                 cint_entry_link = urlunparse(parsed._replace(query=urlencode(params)))
                                                 
                                                 # Mark fallback attempted and store CINT info
