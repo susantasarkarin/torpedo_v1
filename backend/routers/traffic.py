@@ -749,14 +749,17 @@ async def cpx_callback(
                             if user_country:
                                 cint_query["country_language"] = {"$regex": f"_{user_country}$", "$options": "i"}
                             
-                            cint_surveys = list(cint_collection.find(cint_query).limit(50))
+                            cint_surveys = list(cint_collection.find(cint_query).limit(150))
                             
                             if cint_surveys:
                                 import random
                                 random.shuffle(cint_surveys)
                                 
-                                # Try multiple surveys until one works
-                                for selected_survey in cint_surveys[:5]:
+                                # Try surveys until one works (limited to 100)
+                                success = False
+                                for selected_survey in cint_surveys[:100]:
+                                    if success:
+                                        break
                                     cint_survey_id = str(selected_survey.get('survey_id') or selected_survey.get('_id'))
                                     
                                     try:
@@ -833,18 +836,21 @@ async def cpx_callback(
                                                     )
                                                 
                                                 print(f"✅ CINT fallback: Redirecting SFWID={traffic_id} to survey {cint_survey_id} (cint_mid={cint_mid})")
+                                                success = True
                                                 return RedirectResponse(url=cint_entry_link)
                                         else:
-                                            print(f"⚠️ CINT fallback: Survey {cint_survey_id} returned {resp.status_code}, marking inactive")
+                                            print(f"⚠️ CINT fallback: Survey {cint_survey_id} returned {resp.status_code}, marking inactive and trying next")
                                             cint_collection.update_one(
                                                 {"survey_id": int(cint_survey_id)},
                                                 {"$set": {"is_active": False, "is_active_in_pool": False}}
                                             )
+                                            continue
                                     except Exception as survey_err:
-                                        print(f"⚠️ CINT fallback: Survey {cint_survey_id} failed: {survey_err}")
+                                        print(f"⚠️ CINT fallback: Survey {cint_survey_id} failed: {survey_err}, trying next")
                                         continue
                                 
-                                print(f"⚠️ CINT fallback: All {len(cint_surveys[:5])} surveys failed for country {user_country}")
+                                if not success:
+                                    print(f"⚠️ CINT fallback: All surveys exhausted for country {user_country}")
                             else:
                                 print(f"⚠️ CINT fallback: No active surveys for country {user_country}")
                         finally:
