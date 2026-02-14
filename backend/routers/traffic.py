@@ -697,14 +697,133 @@ async def cpx_callback(
             except Exception as log_error:
                 print(f"⚠️ Failed to log callback: {log_error}")
         
-        # Step 7: Redirect to vendor or error page
-        if vendor_redirect_url:
-            print(f"➡️ Redirecting to vendor: {vendor_redirect_url}")
-            return RedirectResponse(url=vendor_redirect_url)
+        # Step 7: Handle redirect based on status
+        # COMPLETE → vendor complete URL
+        # TERMINATE/SCREENOUT → try CINT fallback before vendor terminate URL
+        
+        if new_status == "COMPLETE":
+            # Complete: redirect to vendor complete URL
+            if vendor_redirect_url:
+                print(f"➡️ Complete - Redirecting to vendor: {vendor_redirect_url}")
+                return RedirectResponse(url=vendor_redirect_url)
+            else:
+                print(f"➡️ No vendor redirect URL found, redirecting to thank you page")
+                return RedirectResponse(url=f"{FRONTEND_URL}/thankyou")
         else:
-            # Redirect to error page if no vendor URL found
-            print(f"➡️ No vendor redirect URL found, redirecting to error page")
-            return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
+            # TERMINATED/SCREENOUT: Try CINT fallback
+            print(f"🔄 CPX terminated/screened out - attempting CINT fallback for SFWID={traffic_id}")
+            
+            # Check if already tried CINT (prevent infinite loop)
+            cint_already_tried = traffic_record.get("cint_fallback_attempted", False)
+            
+            if not cint_already_tried:
+                try:
+                    from pymongo import MongoClient
+                    import os
+                    import httpx
+                    import uuid
+                    
+                    mongo_uri = os.getenv("MONGO_URI")
+                    cint_api_key = os.getenv("CINT_API_KEY")
+                    cint_supplier_code = os.getenv("CINT_SUPPLIER_CODE")
+                    
+                    if mongo_uri and cint_api_key and cint_supplier_code:
+                        client = MongoClient(mongo_uri)
+                        
+                        try:
+                            cint_collection = client["cint_research"]["cint_surveys"]
+                            entry_links_collection = client["cint_research"]["cint_entry_links"]
+                            
+                            # Get user's country from traffic record
+                            user_country = traffic_record.get("countryCode", "").lower()
+                            
+                            cint_query = {
+                                "$or": [
+                                    {"is_active_in_pool": True},
+                                    {
+                                        "is_active_in_pool": {"$exists": False},
+                                        "is_active": True,
+                                        "$or": [
+                                            {"is_live": True},
+                                            {"is_live": {"$exists": False}}
+                                        ]
+                                    },
+                                ]
+                            }
+                            
+                            if user_country:
+                                cint_query["country_language"] = {"$regex": f"_{user_country}$", "$options": "i"}
+                            
+                            cint_surveys = list(cint_collection.find(cint_query).limit(50))
+                            
+                            if cint_surveys:
+                                import random
+                                selected_survey = random.choice(cint_surveys)
+                                cint_survey_id = str(selected_survey.get('survey_id') or selected_survey.get('_id'))
+                                
+                                # Get or create entry link
+                                entry_link_doc = entry_links_collection.find_one({"survey_id": int(cint_survey_id)})
+                                live_link = entry_link_doc.get('live_link') if entry_link_doc else None
+                                
+                                if not live_link:
+                                    # Fetch from CINT API
+                                    api_url = f"https://api.samplicio.us/Supply/v1/SupplierLinks/BySurveyNumber/{cint_survey_id}/{cint_supplier_code}"
+                                    headers = {"Authorization": cint_api_key, "Content-Type": "application/json"}
+                                    resp = httpx.get(api_url, headers=headers, timeout=10)
+                                    if resp.status_code == 200:
+                                        live_link = resp.json().get("SupplierLink", {}).get("LiveLink")
+                                
+                                if live_link:
+                                    # Build CINT entry link with new MID
+                                    from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+                                    cint_mid = uuid.uuid4().hex[:16]
+                                    
+                                    parsed = urlparse(live_link)
+                                    params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+                                    params.pop("pid", None)
+                                    params.pop("mid", None)
+                                    params["PID"] = traffic_id
+                                    params["MID"] = cint_mid
+                                    cint_entry_link = urlunparse(parsed._replace(query=urlencode(params)))
+                                    
+                                    # Mark fallback attempted and store CINT info
+                                    if url_parameters_collection is not None:
+                                        url_parameters_collection.update_one(
+                                            {"_id": ObjectId(traffic_id)},
+                                            {"$set": {
+                                                "cint_fallback_attempted": True,
+                                                "cint_survey_id": cint_survey_id,
+                                                "cint_mid": cint_mid,
+                                                "cint_entry_link": cint_entry_link,
+                                                "status": "CPX_TERMINATED_CINT_FALLBACK",
+                                                "updatedAt": datetime.utcnow()
+                                            }}
+                                        )
+                                    
+                                    print(f"✅ CINT fallback: Redirecting SFWID={traffic_id} to survey {cint_survey_id} (cint_mid={cint_mid})")
+                                    return RedirectResponse(url=cint_entry_link)
+                                else:
+                                    print(f"⚠️ CINT fallback: No entry link for survey {cint_survey_id}")
+                            else:
+                                print(f"⚠️ CINT fallback: No active surveys for country {user_country}")
+                        finally:
+                            client.close()
+                    else:
+                        print(f"⚠️ CINT fallback: Missing credentials")
+                except Exception as cint_err:
+                    print(f"⚠️ CINT fallback error: {cint_err}")
+                    import traceback
+                    traceback.print_exc()
+            else:
+                print(f"⚠️ CINT fallback already attempted for SFWID={traffic_id}, sending to vendor terminate")
+            
+            # Fallback to vendor terminate URL if CINT fallback fails
+            if vendor_redirect_url:
+                print(f"➡️ Terminate - Redirecting to vendor: {vendor_redirect_url}")
+                return RedirectResponse(url=vendor_redirect_url)
+            else:
+                print(f"➡️ No vendor redirect URL found, redirecting to error page")
+                return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
     except Exception as e:
         print(f"❌ Error in CPX callback: {e}")
@@ -1054,12 +1173,12 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # Provider is selected based on hash of traffic_id (deterministic 50/50 split)
         # ===============================================================================
         
-        # Determine primary provider based on hash of traffic_id (SFWID)
-        # This ensures deterministic, reproducible alternation
-        traffic_id_hash = hash(traffic_id) if traffic_id else 0
-        primary_provider = "CPX" if (traffic_id_hash % 2 == 0) else "CINT"
+        # CPX-FIRST ALLOCATION STRATEGY
+        # Always try CPX first, fallback to CINT if CPX fails or has no surveys
+        # On CPX terminate/screenout, user will be redirected to CINT via /cpx-response handler
+        primary_provider = "CPX"
         
-        print(f"🔀 Provider alternation: SFWID={traffic_id}, hash={traffic_id_hash % 2}, primary={primary_provider}")
+        print(f"🔀 Provider strategy: CPX first, CINT fallback. SFWID={traffic_id}")
         print(f"🆔 Using SFWID '{traffic_id}' as respondent ID for both CPX and CINT")
         
         # DEBUG: Log allocation check
@@ -1118,9 +1237,13 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 print(f"📍 CPX: IP={client_ip}, SFWID={traffic_id}")
                 print(f"🔑 Using SFWID '{traffic_id}' as ext_user_id for CPX")
                 
+                # Generate CPX session MID and pass in subid_1 for tracking
+                import uuid
+                cpx_mid = uuid.uuid4().hex[:16]
+                
                 result = cpx_service.fetch_and_allocate_for_respondent(
                     vendor_user_id=traffic_id,           # Use SFWID as ext_user_id
-                    internal_tracking_id=traffic_id,     # Use SFWID as subid_1 too
+                    internal_tracking_id=f"{traffic_id}_{cpx_mid}",  # SFWID + MID in subid_1
                     user_ip=client_ip,
                     user_agent=client_user_agent,
                     country_code=country_code,
@@ -1145,14 +1268,16 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         entry_link=entry_link
                     )
                     
-                    # Update traffic record
+                    # Update traffic record with CPX MID
                     if traffic_service:
                         traffic_service.assign_survey_to_traffic(
                             traffic_id=traffic_id,
                             survey_id=str(survey_id),
                             redirect_url=entry_link
                         )
-                    else:
+                    
+                    # Always store CPX MID for tracking
+                    if url_parameters_collection is not None:
                         url_parameters_collection.update_one(
                             {"_id": ObjectId(traffic_id)},
                             {"$set": {
@@ -1160,11 +1285,12 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 "assignedSurveyId": str(survey_id),
                                 "redirectUrl": entry_link,
                                 "surveySource": "CPX",
+                                "cpx_mid": cpx_mid,
                                 "updatedAt": datetime.utcnow().isoformat(),
                             }}
                         )
                     
-                    print(f"✅ CPX allocated survey {survey_id} to SFWID={traffic_id}")
+                    print(f"✅ CPX allocated survey {survey_id} to SFWID={traffic_id} (cpx_mid={cpx_mid})")
                     return True
                 else:
                     print(f"⚠️ CPX returned no surveys: {result.get('error', 'unknown')}")
