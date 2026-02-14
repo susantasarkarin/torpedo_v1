@@ -564,6 +564,8 @@ class CintService:
             "epc": survey.get("EPC") or 0,
             "conversion": survey.get("Conversion") or 0,
             "is_live": True,
+            "is_active": True,
+            "message_reason": None,
             "live_link": live_link,
             "test_link": survey.get("TestLink") or "",
             "study_type": survey.get("StudyType"),
