@@ -767,18 +767,10 @@ async def cpx_callback(
                                         create_url = f"https://api.samplicio.us/Supply/v1/SupplierLinks/Create/{cint_survey_id}/{cint_supplier_code}"
                                         headers = {"Authorization": cint_api_key, "Content-Type": "application/json"}
                                         
-                                        # Backend callback base URL
-                                        callback_base = os.getenv("PUBLIC_BACKEND_URL", "https://torpedo.cogentixresearch.com")
-                                        frontend_base = os.getenv("PUBLIC_FRONTEND_URL", "https://surveyfieldwork.com")
-                                        
+                                        # Use minimal payload - redirects are configured in CINT Supplier Portal (SR-0721)
                                         create_payload = {
                                             "SupplierLinkTypeCode": "OWS",
-                                            "TrackingTypeCode": "NONE",
-                                            "DefaultLink": f"{frontend_base}/survey",
-                                            "SuccessLink": f"{callback_base}/cint-response?status=complete&pid=[%PID%]&mid=[%MID%]&revenue=[%REVENUE%]",
-                                            "FailureLink": f"{callback_base}/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]",
-                                            "OverQuotaLink": f"{callback_base}/cint-response?status=quota_full&pid=[%PID%]&mid=[%MID%]",
-                                            "QualityTerminationLink": f"{callback_base}/cint-response?status=quality_terminate&pid=[%PID%]&mid=[%MID%]"
+                                            "TrackingTypeCode": "NONE"
                                         }
                                         resp = httpx.post(create_url, json=create_payload, headers=headers, timeout=15)
                                         
