@@ -765,19 +765,50 @@ async def cpx_callback(
                                     cint_survey_id = str(selected_survey.get('survey_id') or selected_survey.get('_id'))
                                     
                                     try:
-                                        # Always create a fresh entry link
+                                        # Always create a fresh entry link with redirect URLs
                                         create_url = f"https://api.samplicio.us/Supply/v1/SupplierLinks/Create/{cint_survey_id}/{cint_supplier_code}"
                                         headers = {"Authorization": cint_api_key, "Content-Type": "application/json"}
+                                        
+                                        # Backend callback base URL
+                                        callback_base = os.getenv("PUBLIC_BACKEND_URL", "https://torpedo.cogentixresearch.com")
+                                        frontend_base = os.getenv("PUBLIC_FRONTEND_URL", "https://surveyfieldwork.com")
+                                        
                                         create_payload = {
                                             "SupplierLinkTypeCode": "OWS",
-                                            "TrackingTypeCode": "NONE"
+                                            "TrackingTypeCode": "NONE",
+                                            "DefaultLink": f"{frontend_base}/survey",
+                                            "SuccessLink": f"{callback_base}/cint-response?status=complete&mid=[%MID%]&revenue=[%REVENUE%]",
+                                            "FailureLink": f"{callback_base}/cint-response?status=terminate&mid=[%MID%]",
+                                            "OverQuotaLink": f"{callback_base}/cint-response?status=quota_full&mid=[%MID%]",
+                                            "QualityTerminationLink": f"{callback_base}/cint-response?status=quality_terminate&mid=[%MID%]"
                                         }
                                         resp = httpx.post(create_url, json=create_payload, headers=headers, timeout=15)
                                         
                                         if resp.status_code in [200, 201]:
-                                            live_link = resp.json().get("SupplierLink", {}).get("LiveLink")
+                                            supplier_link_data = resp.json().get("SupplierLink", {})
+                                            live_link = supplier_link_data.get("LiveLink")
                                             
                                             if live_link:
+                                                # Store the created entry link for tracking
+                                                try:
+                                                    entry_links_collection.update_one(
+                                                        {"survey_id": int(cint_survey_id)},
+                                                        {"$set": {
+                                                            "survey_id": int(cint_survey_id),
+                                                            "survey_number": int(cint_survey_id),
+                                                            "live_link": live_link,
+                                                            "test_link": supplier_link_data.get("TestLink"),
+                                                            "cpi": supplier_link_data.get("CPI"),
+                                                            "created_at": datetime.utcnow(),
+                                                            "updated_at": datetime.utcnow(),
+                                                            "created_via": "cpx_fallback"
+                                                        }},
+                                                        upsert=True
+                                                    )
+                                                    print(f"✅ Stored entry link for survey {cint_survey_id}")
+                                                except Exception as store_err:
+                                                    print(f"⚠️ Failed to store entry link: {store_err}")
+                                                
                                                 # Build CINT entry link with new MID and standard params
                                                 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
                                                 cint_mid = uuid.uuid4().hex[:16]
