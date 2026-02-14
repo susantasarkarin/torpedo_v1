@@ -87,6 +87,7 @@ temp/
 *.temp
 *.bak
 *.backup
+tmpclaude-*/
 
 # Database dumps
 *.sql
