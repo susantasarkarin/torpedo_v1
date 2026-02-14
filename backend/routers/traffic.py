@@ -758,52 +758,65 @@ async def cpx_callback(
                             
                             if cint_surveys:
                                 import random
-                                selected_survey = random.choice(cint_surveys)
-                                cint_survey_id = str(selected_survey.get('survey_id') or selected_survey.get('_id'))
+                                random.shuffle(cint_surveys)
                                 
-                                # Get or create entry link
-                                entry_link_doc = entry_links_collection.find_one({"survey_id": int(cint_survey_id)})
-                                live_link = entry_link_doc.get('live_link') if entry_link_doc else None
+                                # Try multiple surveys until one works
+                                for selected_survey in cint_surveys[:5]:
+                                    cint_survey_id = str(selected_survey.get('survey_id') or selected_survey.get('_id'))
+                                    
+                                    try:
+                                        # Always create a fresh entry link
+                                        create_url = f"https://api.samplicio.us/Supply/v1/SupplierLinks/Create/{cint_survey_id}/{cint_supplier_code}"
+                                        headers = {"Authorization": cint_api_key, "Content-Type": "application/json"}
+                                        create_payload = {
+                                            "SupplierLinkTypeCode": "OWS",
+                                            "TrackingTypeCode": "NONE"
+                                        }
+                                        resp = httpx.post(create_url, json=create_payload, headers=headers, timeout=15)
+                                        
+                                        if resp.status_code in [200, 201]:
+                                            live_link = resp.json().get("SupplierLink", {}).get("LiveLink")
+                                            
+                                            if live_link:
+                                                # Build CINT entry link with new MID
+                                                from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+                                                cint_mid = uuid.uuid4().hex[:16]
+                                                
+                                                parsed = urlparse(live_link)
+                                                params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+                                                params.pop("pid", None)
+                                                params.pop("mid", None)
+                                                params["PID"] = traffic_id
+                                                params["MID"] = cint_mid
+                                                cint_entry_link = urlunparse(parsed._replace(query=urlencode(params)))
+                                                
+                                                # Mark fallback attempted and store CINT info
+                                                if url_parameters_collection is not None:
+                                                    url_parameters_collection.update_one(
+                                                        {"_id": ObjectId(traffic_id)},
+                                                        {"$set": {
+                                                            "cint_fallback_attempted": True,
+                                                            "cint_survey_id": cint_survey_id,
+                                                            "cint_mid": cint_mid,
+                                                            "cint_entry_link": cint_entry_link,
+                                                            "status": "CPX_TERMINATED_CINT_FALLBACK",
+                                                            "updatedAt": datetime.utcnow()
+                                                        }}
+                                                    )
+                                                
+                                                print(f"✅ CINT fallback: Redirecting SFWID={traffic_id} to survey {cint_survey_id} (cint_mid={cint_mid})")
+                                                return RedirectResponse(url=cint_entry_link)
+                                        else:
+                                            print(f"⚠️ CINT fallback: Survey {cint_survey_id} returned {resp.status_code}, marking inactive")
+                                            cint_collection.update_one(
+                                                {"survey_id": int(cint_survey_id)},
+                                                {"$set": {"is_active": False, "is_active_in_pool": False}}
+                                            )
+                                    except Exception as survey_err:
+                                        print(f"⚠️ CINT fallback: Survey {cint_survey_id} failed: {survey_err}")
+                                        continue
                                 
-                                if not live_link:
-                                    # Fetch from CINT API
-                                    api_url = f"https://api.samplicio.us/Supply/v1/SupplierLinks/BySurveyNumber/{cint_survey_id}/{cint_supplier_code}"
-                                    headers = {"Authorization": cint_api_key, "Content-Type": "application/json"}
-                                    resp = httpx.get(api_url, headers=headers, timeout=10)
-                                    if resp.status_code == 200:
-                                        live_link = resp.json().get("SupplierLink", {}).get("LiveLink")
-                                
-                                if live_link:
-                                    # Build CINT entry link with new MID
-                                    from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
-                                    cint_mid = uuid.uuid4().hex[:16]
-                                    
-                                    parsed = urlparse(live_link)
-                                    params = dict(parse_qsl(parsed.query, keep_blank_values=True))
-                                    params.pop("pid", None)
-                                    params.pop("mid", None)
-                                    params["PID"] = traffic_id
-                                    params["MID"] = cint_mid
-                                    cint_entry_link = urlunparse(parsed._replace(query=urlencode(params)))
-                                    
-                                    # Mark fallback attempted and store CINT info
-                                    if url_parameters_collection is not None:
-                                        url_parameters_collection.update_one(
-                                            {"_id": ObjectId(traffic_id)},
-                                            {"$set": {
-                                                "cint_fallback_attempted": True,
-                                                "cint_survey_id": cint_survey_id,
-                                                "cint_mid": cint_mid,
-                                                "cint_entry_link": cint_entry_link,
-                                                "status": "CPX_TERMINATED_CINT_FALLBACK",
-                                                "updatedAt": datetime.utcnow()
-                                            }}
-                                        )
-                                    
-                                    print(f"✅ CINT fallback: Redirecting SFWID={traffic_id} to survey {cint_survey_id} (cint_mid={cint_mid})")
-                                    return RedirectResponse(url=cint_entry_link)
-                                else:
-                                    print(f"⚠️ CINT fallback: No entry link for survey {cint_survey_id}")
+                                print(f"⚠️ CINT fallback: All {len(cint_surveys[:5])} surveys failed for country {user_country}")
                             else:
                                 print(f"⚠️ CINT fallback: No active surveys for country {user_country}")
                         finally:
