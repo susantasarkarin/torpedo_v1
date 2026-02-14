@@ -738,16 +738,10 @@ async def cpx_callback(
                             user_country = traffic_record.get("countryCode", "").lower()
                             
                             cint_query = {
-                                "$or": [
-                                    {"is_active_in_pool": True},
-                                    {
-                                        "is_active_in_pool": {"$exists": False},
-                                        "is_active": True,
-                                        "$or": [
-                                            {"is_live": True},
-                                            {"is_live": {"$exists": False}}
-                                        ]
-                                    },
+                                "$and": [
+                                    {"$or": [{"is_active": True}, {"is_active": {"$exists": False}}]},
+                                    {"$or": [{"is_live": True}, {"is_live": {"$exists": False}}]},
+                                    {"$or": [{"is_active_in_pool": True}, {"is_active_in_pool": {"$exists": False}}]}
                                 ]
                             }
                             
@@ -777,10 +771,10 @@ async def cpx_callback(
                                             "SupplierLinkTypeCode": "OWS",
                                             "TrackingTypeCode": "NONE",
                                             "DefaultLink": f"{frontend_base}/survey",
-                                            "SuccessLink": f"{callback_base}/cint-response?status=complete&mid=[%MID%]&revenue=[%REVENUE%]",
-                                            "FailureLink": f"{callback_base}/cint-response?status=terminate&mid=[%MID%]",
-                                            "OverQuotaLink": f"{callback_base}/cint-response?status=quota_full&mid=[%MID%]",
-                                            "QualityTerminationLink": f"{callback_base}/cint-response?status=quality_terminate&mid=[%MID%]"
+                                            "SuccessLink": f"{callback_base}/cint-response?status=complete&pid=[%PID%]&mid=[%MID%]&revenue=[%REVENUE%]",
+                                            "FailureLink": f"{callback_base}/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]",
+                                            "OverQuotaLink": f"{callback_base}/cint-response?status=quota_full&pid=[%PID%]&mid=[%MID%]",
+                                            "QualityTerminationLink": f"{callback_base}/cint-response?status=quality_terminate&pid=[%PID%]&mid=[%MID%]"
                                         }
                                         resp = httpx.post(create_url, json=create_payload, headers=headers, timeout=15)
                                         
