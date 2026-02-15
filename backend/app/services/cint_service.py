@@ -336,7 +336,7 @@ class CintService:
         Surveys that pass the filter criteria get is_active_in_pool=true,
         others get is_active_in_pool=false.
         
-        This is similar to CPX's sync_active_status_by_filters method.
+        NOTE: Simplified to only check CPI. LOI and IR filters have been removed.
         
         Returns:
             Dictionary with counts of active/inactive surveys
@@ -351,20 +351,17 @@ class CintService:
             }
         
         try:
-            # Get current filter settings
+            # Get current filter settings (only CPI matters now)
             filter_settings = self.get_filter_settings()
-            max_loi = filter_settings.get("max_loi", 20)
             min_cpi = filter_settings.get("min_cpi", 1.0)
-            min_incidence = filter_settings.get("min_incidence", 60)
             
-            logger.info(f"📊 Syncing CINT active status with filters: max_loi={max_loi}, min_cpi={min_cpi}, min_incidence={min_incidence}")
+            logger.info(f"📊 Syncing CINT active status with CPI filter: min_cpi={min_cpi}")
             
             # Count ALL surveys first
             total_surveys = self.cint_surveys_collection.count_documents({})
             
             # Build query for surveys that PASS the filters (active surveys)
-            # Surveys need: LOI <= max_loi, payout >= min_cpi, incidence >= min_incidence
-            # Also require is_live=True
+            # Surveys need: is_live=True AND payout >= min_cpi (ONLY these 2 criteria)
             active_query = {
                 "$and": [
                     {"$or": [
@@ -372,25 +369,10 @@ class CintService:
                         {"is_live": {"$exists": False}}
                     ]},
                     {"$or": [
-                        {"length_of_interview": {"$lte": max_loi}},
-                        {"bid_length_of_interview": {"$lte": max_loi}},
-                        {"loi": {"$lte": max_loi}},
-                        {"length_of_interview": {"$exists": False}},
-                        {"length_of_interview": None},
-                        {"length_of_interview": 0}
-                    ]},
-                    {"$or": [
                         {"payout": {"$gte": min_cpi}},
                         {"revenue_per_interview.value": {"$gte": str(min_cpi)}},
                         # Handle numeric revenue_per_interview.value
                         {"$expr": {"$gte": [{"$toDouble": {"$ifNull": ["$revenue_per_interview.value", "0"]}}, min_cpi]}}
-                    ]},
-                    {"$or": [
-                        {"bid_incidence": {"$gte": min_incidence}},
-                        {"conversion": {"$gte": min_incidence}},
-                        {"bid_incidence": {"$exists": False}},
-                        {"bid_incidence": None},
-                        {"bid_incidence": 0}
                     ]}
                 ]
             }
@@ -420,9 +402,7 @@ class CintService:
                 "active": actual_active,
                 "inactive": actual_inactive,
                 "filters_applied": {
-                    "max_loi": max_loi,
-                    "min_cpi": min_cpi,
-                    "min_incidence": min_incidence
+                    "min_cpi": min_cpi
                 }
             }
             

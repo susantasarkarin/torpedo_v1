@@ -121,6 +121,7 @@ class SurveyActivationService:
             filters = self._get_default_filters()
         
         logger.info(f"🔄 Starting survey sync with filters: {filters}")
+        logger.info(f"📝 Note: CPX surveys excluded from pool sync (only used for CPX terminate fallback)")
             
         stats = {
             "cpx_activated": 0,
@@ -131,10 +132,13 @@ class SurveyActivationService:
             "cint_total": 0
         }
 
-        # 1. Sync CPX
-        self._sync_provider("CPX", self.cpx_surveys, filters, stats)
+        # Skip CPX - they're only used for CPX first allocation, not for regular pool sync
+        # CPX surveys are always available for the CPX-first allocation strategy
+        if self.cpx_surveys:
+            stats["cpx_total"] = self.cpx_surveys.count_documents({})
+            logger.info(f"🔄 Skipping {stats['cpx_total']} CPX surveys (used for CPX-first allocation only)")
         
-        # 2. Sync CINT
+        # Only sync CINT surveys to the pool
         self._sync_provider("CINT", self.cint_surveys, filters, stats)
         
         # Update last sync time
@@ -208,89 +212,53 @@ class SurveyActivationService:
         Evaluate if a survey meets the activation criteria.
         
         A survey is eligible if:
-        - It is live/active (not deactivated)
-        - LOI <= max_loi filter
-        - Payout >= min_cpi filter
-        - Incidence/IR >= min_ir filter (optional)
-        """
-        # Check if survey is live (CINT has is_live, CPX surveys are live if they have a live_link)
-        if provider.upper() == "CINT":
-            if not survey.get("is_live", False):  # Default to False if missing
-                return False
-            if survey.get("message_reason") == "deactivated":
-                return False
-        elif provider.upper() == "CPX":
-            # CPX surveys are live if they have a live_link
-            if not (survey.get("live_link") or survey.get("entry_link")):
-                return False
-
-        # Get filter thresholds with sensible defaults matching settings UI
-        max_loi = filters.get("max_loi", 20)  # Default 20 minutes
-        min_cpi = filters.get("min_cpi", 1.0)  # Default $1.00
-        min_ir = filters.get("min_ir", filters.get("min_incidence", 5))  # Default 5%
-
-        # Filter: LOI (length of interview in minutes)
-        # CINT uses length_of_interview or bid_length_of_interview, CPX uses loi
-        loi = 0
-        if provider.upper() == "CINT":
-            loi = survey.get("length_of_interview") or survey.get("bid_length_of_interview") or survey.get("loi") or 0
-        else:
-            loi = survey.get("loi") or survey.get("length_of_interview") or 0
+        - It is live/active (not deactivated) - CINT only
+        - Payout/CPI >= min_cpi filter (ONLY CPI, no LOI/IR filters)
         
-        try:
-            loi = float(loi) if loi else 0
-        except (ValueError, TypeError):
-            loi = 0
-            
-        if loi > 0 and loi > max_loi:
+        Note: CPX surveys are excluded from pool sync. They're only used for fallback.
+        """
+        # Only process CINT surveys for pool activation
+        if provider.upper() != "CINT":
             return False
             
-        # Filter: Payout / CPI
-        # CINT may have payout or RPI in raw_data, CPX uses payout or cpi
-        payout = 0
-        if provider.upper() == "CINT":
-            payout = survey.get("payout", 0)
-            # Check raw_data.RPI.value (main source for CINT payout)
-            if not payout and "raw_data" in survey:
-                raw_data = survey.get("raw_data", {})
-                if isinstance(raw_data, dict):
-                    rpi = raw_data.get("RPI", {})
-                    if isinstance(rpi, dict):
-                        payout = rpi.get("value", 0)
-                    elif isinstance(rpi, (int, float)):
-                        payout = rpi
-            # Fallback to revenue_per_interview
-            if not payout and "revenue_per_interview" in survey:
-                rpi = survey["revenue_per_interview"]
+        # Check if survey is live
+        if not survey.get("is_live", False):  # Default to False if missing
+            return False
+        if survey.get("message_reason") == "deactivated":
+            return False
+
+        # Get CPI threshold (only filter we use now)
+        min_cpi = filters.get("min_cpi", 1.0)  # Default $1.00
+            
+        # Filter: Payout / CPI (ONLY filter that matters)
+        # CINT may have payout or RPI in raw_data
+        payout = survey.get("payout", 0)
+        
+        # Check raw_data.RPI.value (main source for CINT payout)
+        if not payout and "raw_data" in survey:
+            raw_data = survey.get("raw_data", {})
+            if isinstance(raw_data, dict):
+                rpi = raw_data.get("RPI", {})
                 if isinstance(rpi, dict):
                     payout = rpi.get("value", 0)
                 elif isinstance(rpi, (int, float)):
                     payout = rpi
-        else:
-            payout = survey.get("payout") or survey.get("cpi") or 0
+        
+        # Fallback to revenue_per_interview
+        if not payout and "revenue_per_interview" in survey:
+            rpi = survey["revenue_per_interview"]
+            if isinstance(rpi, dict):
+                payout = rpi.get("value", 0)
+            elif isinstance(rpi, (int, float)):
+                payout = rpi
             
         try:
             payout = float(payout) if payout else 0
         except (ValueError, TypeError):
             payout = 0
             
+        # Only check CPI - surveys must meet minimum payout threshold
         if payout < min_cpi:
-            return False
-            
-        # Filter: Conversion/Incidence Rate
-        # CINT uses bid_incidence, CPX uses conversion_rate
-        ir = 0
-        if provider.upper() == "CINT":
-            ir = survey.get("bid_incidence") or survey.get("incidence_rate") or survey.get("conversion_rate") or 0
-        else:
-            ir = survey.get("conversion_rate") or survey.get("incidence_rate") or 0
-            
-        try:
-            ir = float(ir) if ir else 0
-        except (ValueError, TypeError):
-            ir = 0
-            
-        if ir > 0 and ir < min_ir:
             return False
             
         return True
