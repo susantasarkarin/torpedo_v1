@@ -1146,6 +1146,12 @@ async def import_from_csv(
     try:
         # Read file content
         content = await file.read()
+        max_upload_bytes = 500 * 1024 * 1024
+        if len(content) > max_upload_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail="CSV file is too large. Max allowed size is 500MB."
+            )
         csv_content = content.decode("utf-8")
         
         # Parse CSV

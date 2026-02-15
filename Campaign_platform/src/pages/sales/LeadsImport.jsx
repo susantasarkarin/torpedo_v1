@@ -446,7 +446,7 @@ function LeadsImport() {
                 Drop your CSV file here, or click to browse
               </p>
               <p style={{ margin: "0.5rem 0 0", color: "#6b7280", fontSize: "0.875rem" }}>
-                Supports .csv files up to 10MB
+                Supports .csv files up to 500MB
               </p>
               <input
                 ref={fileInputRef}

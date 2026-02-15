@@ -2166,7 +2166,7 @@ function AILeads() {
                       >
                         <div className="dropzone-icon">📤</div>
                         <p>Drop your CSV file here, or click to browse</p>
-                        <span className="dropzone-hint">Supports .csv files</span>
+                        <span className="dropzone-hint">Supports .csv files up to 500MB</span>
                         <input
                           ref={fileInputRef}
                           type="file"
