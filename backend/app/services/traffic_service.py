@@ -513,12 +513,25 @@ class TrafficService:
         Returns:
             Dictionary with records and pagination info
         """
+        def _serialize_datetime(value):
+            """Safely serialize datetime or string to ISO format"""
+            if value is None:
+                return None
+            if isinstance(value, datetime):
+                return value.isoformat()
+            if isinstance(value, str):
+                return value  # Already a string, return as-is
+            return str(value)
+        
         try:
             # Build query
             query = {}
             
             if status:
-                query["status"] = status.upper()
+                # Handle both uppercase and lowercase status values in the database
+                status_upper = status.upper()
+                status_lower = status.lower()
+                query["status"] = {"$in": [status_upper, status_lower, status]}
             
             if survey_id:
                 query["assignedSurveyId"] = survey_id
@@ -539,31 +552,34 @@ class TrafficService:
             skip = (page - 1) * page_size
             total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 0
             
-            # Fetch records
+            # Fetch records - sort by createdAt if exists, fall back to _id for old records
             records = list(
                 self.traffic_collection.find(query)
-                .sort("createdAt", -1)
+                .sort([("createdAt", -1), ("timestamp", -1), ("_id", -1)])
                 .skip(skip)
                 .limit(page_size)
             )
             
-            # Serialize for JSON response
+            # Serialize for JSON response - handle both old and new schema
             serialized_records = []
             for record in records:
+                # Get createdAt, falling back to timestamp for old records
+                created_at = record.get("createdAt") or record.get("timestamp")
+                
                 serialized = {
                     "_id": str(record.get("_id", "")),
                     "vendorId": record.get("vendorId", ""),
                     "countryCode": record.get("countryCode", ""),
                     "respondentId": record.get("respondentId", ""),
-                    "status": record.get("status", ""),
+                    "status": record.get("status", "").upper() if record.get("status") else "",
                     "assignedSurveyId": record.get("assignedSurveyId"),
                     "redirectUrl": record.get("redirectUrl"),
                     "outUrl": record.get("outUrl"),
                     "cpxCallbackUrl": record.get("cpxCallbackUrl"),
-                    "createdAt": record.get("createdAt").isoformat() if record.get("createdAt") else None,
-                    "updatedAt": record.get("updatedAt").isoformat() if record.get("updatedAt") else None,
-                    "assignedAt": record.get("assignedAt").isoformat() if record.get("assignedAt") else None,
-                    "completedAt": record.get("completedAt").isoformat() if record.get("completedAt") else None,
+                    "createdAt": _serialize_datetime(created_at),
+                    "updatedAt": _serialize_datetime(record.get("updatedAt")),
+                    "assignedAt": _serialize_datetime(record.get("assignedAt")),
+                    "completedAt": _serialize_datetime(record.get("completedAt")),
                     "params": record.get("params", {}),
                 }
                 serialized_records.append(serialized)

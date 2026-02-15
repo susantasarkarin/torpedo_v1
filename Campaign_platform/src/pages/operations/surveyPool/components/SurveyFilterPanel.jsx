@@ -19,39 +19,13 @@ export default function SurveyFilterPanel({
 
       <div className="filter-grid">
         <div className="filter-group">
-          <label className="filter-label">Min Length of Interview (LOI)</label>
+          <label className="filter-label">Min CPI ($)</label>
           <input
             type="number"
-            name="min_loi"
-            value={filters.min_loi || ''}
+            name="min_cpi"
+            value={filters.min_cpi || ''}
             onChange={handleInputChange}
-            placeholder="e.g., 5"
-            className="filter-input"
-            min="0"
-          />
-        </div>
-
-        <div className="filter-group">
-          <label className="filter-label">Max Length of Interview (LOI)</label>
-          <input
-            type="number"
-            name="max_loi"
-            value={filters.max_loi || ''}
-            onChange={handleInputChange}
-            placeholder="e.g., 20"
-            className="filter-input"
-            min="0"
-          />
-        </div>
-
-        <div className="filter-group">
-          <label className="filter-label">Min Payout ($)</label>
-          <input
-            type="number"
-            name="min_payout"
-            value={filters.min_payout || ''}
-            onChange={handleInputChange}
-            placeholder="e.g., 1.50"
+            placeholder="e.g., 1.00"
             className="filter-input"
             min="0"
             step="0.10"

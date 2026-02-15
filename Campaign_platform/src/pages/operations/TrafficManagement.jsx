@@ -103,12 +103,12 @@ export default function TrafficManagement() {
     fetchStats()
   }, [currentPage, recordsPerPage, statusFilter])
 
-  // Auto-refresh every 30 seconds
+  // Auto-refresh every 5 seconds for faster data visibility
   useEffect(() => {
     const interval = setInterval(() => {
       fetchRecords()
       fetchStats()
-    }, 30000) // 30 seconds
+    }, 5000) // 5 seconds - reduced from 30s for faster updates
     return () => clearInterval(interval)
   }, [currentPage, recordsPerPage, statusFilter, search])
 

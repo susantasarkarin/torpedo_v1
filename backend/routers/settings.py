@@ -191,7 +191,7 @@ async def save_app_settings(
 @router.get("/survey-filters")
 async def get_survey_filter_settings(request: Request = None) -> Dict[str, Any]:
     """
-    Get survey filter settings (Max LOI, Min CPI, Deletion Period)
+    Get survey filter settings (Min CPI, Deletion Period)
     """
     try:
         # Verify session
@@ -203,9 +203,7 @@ async def get_survey_filter_settings(request: Request = None) -> Dict[str, Any]:
         
         # Default filter values
         filters = {
-            "max_loi": stored.get("max_loi", 20),  # Maximum Length of Interview in minutes
             "min_cpi": stored.get("min_cpi", 1.0),  # Minimum Cost Per Interview in dollars
-            "min_incidence": stored.get("min_incidence", 60),  # Minimum Incidence/Conversion Rate percentage
             "deletion_period_days": stored.get("deletion_period_days", 7),  # Days before surveys are deleted
             "auto_refresh_enabled": stored.get("auto_refresh_enabled", True),
             "refresh_interval_seconds": stored.get("refresh_interval_seconds", 60),
@@ -231,7 +229,6 @@ async def save_survey_filter_settings(
     
     Body:
     {
-        "max_loi": 20,
         "min_cpi": 1.0,
         "deletion_period_days": 7,
         "auto_refresh_enabled": true,
@@ -244,16 +241,12 @@ async def save_survey_filter_settings(
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
         
-        allowed_keys = ["max_loi", "min_cpi", "min_incidence", "deletion_period_days", "auto_refresh_enabled", "refresh_interval_seconds"]
+        allowed_keys = ["min_cpi", "deletion_period_days", "auto_refresh_enabled", "refresh_interval_seconds"]
         filtered = {k: v for k, v in filters.items() if k in allowed_keys and v is not None}
         
         # Validation
-        if "max_loi" in filtered:
-            filtered["max_loi"] = max(1, min(120, int(filtered["max_loi"])))
         if "min_cpi" in filtered:
             filtered["min_cpi"] = max(0.01, min(100, float(filtered["min_cpi"])))
-        if "min_incidence" in filtered:
-            filtered["min_incidence"] = max(0, min(100, int(filtered["min_incidence"])))
         if "deletion_period_days" in filtered:
             filtered["deletion_period_days"] = max(1, min(30, int(filtered["deletion_period_days"])))
         if "refresh_interval_seconds" in filtered:

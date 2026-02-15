@@ -49,16 +49,14 @@ async def sync_surveys(
     
     This endpoint:
     1. Iterates through all downloaded surveys in CPX and CINT collections
-    2. Evaluates each survey against filter criteria (LOI, CPI, IR)
+    2. Evaluates each survey against filter criteria (CPI)
     3. Marks matching surveys as is_active_in_pool=True
     4. Marks non-matching surveys as is_active_in_pool=False
     5. Updates the allocation engine accordingly
     
     Optional body:
     {
-        "max_loi": 30,      // Maximum length of interview in minutes
-        "min_cpi": 0.5,     // Minimum cost per interview in USD
-        "min_ir": 5         // Minimum incidence rate percentage
+        "min_cpi": 0.5     // Minimum cost per interview in USD
     }
     
     If no filters provided, uses saved settings from database.
@@ -166,9 +164,7 @@ async def save_filter_settings(
     
     Body:
     {
-        "max_loi": 30,      // Maximum length of interview in minutes
-        "min_cpi": 0.5,     // Minimum cost per interview in USD  
-        "min_ir": 5         // Minimum incidence rate percentage
+        "min_cpi": 0.5     // Minimum cost per interview in USD
     }
     
     After saving, triggers a re-sync to apply new filters.

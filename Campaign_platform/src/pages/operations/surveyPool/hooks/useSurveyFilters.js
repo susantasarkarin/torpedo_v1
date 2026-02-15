@@ -8,9 +8,7 @@ import { buildApiUrl } from "../../../../config"
  */
 function useSurveyFilters(token) {
   const [filters, setFilters] = useState({
-    min_loi: null,
-    max_loi: null,
-    min_payout: null,
+    min_cpi: null,
     country: null,
     category: null,
   });
@@ -33,7 +31,7 @@ function useSurveyFilters(token) {
     }
 
     try {
-      const response = await fetch('/cpx/filter-settings', {
+      const response = await fetch(buildApiUrl('/survey-pool/filters'), {
         method: 'GET',
         headers: {
           'Authorization': token,
@@ -75,7 +73,7 @@ function useSurveyFilters(token) {
       setError(null);
 
       try {
-        const response = await fetch(buildApiUrl(`/cpx/filter-settings`), {
+        const response = await fetch(buildApiUrl(`/survey-pool/filters`), {
           method: 'POST',
           headers: {
             'Authorization': token,

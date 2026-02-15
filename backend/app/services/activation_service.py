@@ -121,7 +121,6 @@ class SurveyActivationService:
             filters = self._get_default_filters()
         
         logger.info(f"🔄 Starting survey sync with filters: {filters}")
-        logger.info(f"📝 Note: CPX surveys excluded from pool sync (only used for CPX terminate fallback)")
             
         stats = {
             "cpx_activated": 0,
@@ -132,13 +131,10 @@ class SurveyActivationService:
             "cint_total": 0
         }
 
-        # Skip CPX - they're only used for CPX first allocation, not for regular pool sync
-        # CPX surveys are always available for the CPX-first allocation strategy
-        if self.cpx_surveys:
-            stats["cpx_total"] = self.cpx_surveys.count_documents({})
-            logger.info(f"🔄 Skipping {stats['cpx_total']} CPX surveys (used for CPX-first allocation only)")
+        # 1. Sync CPX (disabled - keep all CPX surveys inactive in pool)
+        self._sync_provider("CPX", self.cpx_surveys, filters, stats)
         
-        # Only sync CINT surveys to the pool
+        # 2. Sync CINT
         self._sync_provider("CINT", self.cint_surveys, filters, stats)
         
         # Update last sync time
@@ -212,55 +208,54 @@ class SurveyActivationService:
         Evaluate if a survey meets the activation criteria.
         
         A survey is eligible if:
-        - It is live/active (not deactivated) - CINT only
-        - Payout/CPI >= min_cpi filter (ONLY CPI, no LOI/IR filters)
-        
-        Note: CPX surveys are excluded from pool sync. They're only used for fallback.
+        - It is live/active (not deactivated)
+        - Payout > min_cpi filter
         """
-        # Only process CINT surveys for pool activation
-        if provider.upper() != "CINT":
-            return False
-            
-        # Check if survey is live
-        if not survey.get("is_live", False):  # Default to False if missing
-            return False
-        if survey.get("message_reason") == "deactivated":
+        # Check if survey is live (CINT has is_live, CPX surveys are live if they have a live_link)
+        if provider.upper() == "CINT":
+            if not survey.get("is_live", False):  # Default to False if missing
+                return False
+            if survey.get("message_reason") == "deactivated":
+                return False
+        elif provider.upper() == "CPX":
+            # CPX is removed from the study pool
             return False
 
-        # Get CPI threshold (only filter we use now)
+        # Get filter thresholds with sensible defaults matching settings UI
         min_cpi = filters.get("min_cpi", 1.0)  # Default $1.00
-            
-        # Filter: Payout / CPI (ONLY filter that matters)
-        # CINT may have payout or RPI in raw_data
-        payout = survey.get("payout", 0)
-        
-        # Check raw_data.RPI.value (main source for CINT payout)
-        if not payout and "raw_data" in survey:
-            raw_data = survey.get("raw_data", {})
-            if isinstance(raw_data, dict):
-                rpi = raw_data.get("RPI", {})
+
+        # Filter: Payout / CPI
+        # CINT may have payout or RPI in raw_data, CPX uses payout or cpi
+        payout = 0
+        if provider.upper() == "CINT":
+            payout = survey.get("payout", 0)
+            # Check raw_data.RPI.value (main source for CINT payout)
+            if not payout and "raw_data" in survey:
+                raw_data = survey.get("raw_data", {})
+                if isinstance(raw_data, dict):
+                    rpi = raw_data.get("RPI", {})
+                    if isinstance(rpi, dict):
+                        payout = rpi.get("value", 0)
+                    elif isinstance(rpi, (int, float)):
+                        payout = rpi
+            # Fallback to revenue_per_interview
+            if not payout and "revenue_per_interview" in survey:
+                rpi = survey["revenue_per_interview"]
                 if isinstance(rpi, dict):
                     payout = rpi.get("value", 0)
                 elif isinstance(rpi, (int, float)):
                     payout = rpi
-        
-        # Fallback to revenue_per_interview
-        if not payout and "revenue_per_interview" in survey:
-            rpi = survey["revenue_per_interview"]
-            if isinstance(rpi, dict):
-                payout = rpi.get("value", 0)
-            elif isinstance(rpi, (int, float)):
-                payout = rpi
+        else:
+            payout = survey.get("payout") or survey.get("cpi") or 0
             
         try:
             payout = float(payout) if payout else 0
         except (ValueError, TypeError):
             payout = 0
             
-        # Only check CPI - surveys must meet minimum payout threshold
-        if payout < min_cpi:
+        if payout <= min_cpi:
             return False
-            
+
         return True
 
     def _upsert_to_allocator(self, provider: str, survey_doc: Dict):
@@ -315,21 +310,17 @@ class SurveyActivationService:
         try:
             stored = self.settings_collection.find_one({"_id": "survey_filters"})
             if stored:
-                logger.info(f"Loaded filter settings from DB: max_loi={stored.get('max_loi')}, min_cpi={stored.get('min_cpi')}, min_incidence={stored.get('min_incidence')}")
+                logger.info(f"Loaded filter settings from DB: min_cpi={stored.get('min_cpi')}")
                 return {
-                    "max_loi": stored.get("max_loi", 20),
                     "min_cpi": stored.get("min_cpi", 1.0),
-                    "min_ir": stored.get("min_incidence", 60)  # Match CINT default of 60%
                 }
         except Exception as e:
             logger.warning(f"Could not load filter settings: {e}")
             
         # Default values matching the settings UI defaults
-        logger.info("Using default filter settings: max_loi=20, min_cpi=1.0, min_ir=60")
+        logger.info("Using default filter settings: min_cpi=1.0")
         return {
-            "max_loi": 20,
             "min_cpi": 1.0,
-            "min_ir": 60  # 60% minimum incidence - matches CINT default
         }
     
     def get_active_surveys_from_pool(self, provider: str = None, limit: int = 100) -> List[Dict]:
@@ -344,15 +335,6 @@ class SurveyActivationService:
             List of active survey documents
         """
         active_surveys = []
-        
-        if provider is None or provider.upper() == "CPX":
-            cpx_active = list(self.cpx_surveys.find(
-                {"is_active_in_pool": True}
-            ).limit(limit))
-            for s in cpx_active:
-                s["_id"] = str(s["_id"])
-                s["provider"] = "CPX"
-            active_surveys.extend(cpx_active)
         
         if provider is None or provider.upper() == "CINT":
             cint_active = list(self.cint_surveys.find(

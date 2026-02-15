@@ -336,7 +336,7 @@ class CintService:
         Surveys that pass the filter criteria get is_active_in_pool=true,
         others get is_active_in_pool=false.
         
-        NOTE: Simplified to only check CPI. LOI and IR filters have been removed.
+        This is similar to CPX's sync_active_status_by_filters method.
         
         Returns:
             Dictionary with counts of active/inactive surveys
@@ -351,17 +351,17 @@ class CintService:
             }
         
         try:
-            # Get current filter settings (only CPI matters now)
+            # Get current filter settings
             filter_settings = self.get_filter_settings()
             min_cpi = filter_settings.get("min_cpi", 1.0)
             
-            logger.info(f"📊 Syncing CINT active status with CPI filter: min_cpi={min_cpi}")
+            logger.info(f"📊 Syncing CINT active status with filters: min_cpi={min_cpi}")
             
             # Count ALL surveys first
             total_surveys = self.cint_surveys_collection.count_documents({})
             
             # Build query for surveys that PASS the filters (active surveys)
-            # Surveys need: is_live=True AND payout >= min_cpi (ONLY these 2 criteria)
+            # Surveys need: is_live=True and payout > min_cpi
             active_query = {
                 "$and": [
                     {"$or": [
@@ -369,10 +369,10 @@ class CintService:
                         {"is_live": {"$exists": False}}
                     ]},
                     {"$or": [
-                        {"payout": {"$gte": min_cpi}},
-                        {"revenue_per_interview.value": {"$gte": str(min_cpi)}},
+                        {"payout": {"$gt": min_cpi}},
+                        {"revenue_per_interview.value": {"$gt": str(min_cpi)}},
                         # Handle numeric revenue_per_interview.value
-                        {"$expr": {"$gte": [{"$toDouble": {"$ifNull": ["$revenue_per_interview.value", "0"]}}, min_cpi]}}
+                        {"$expr": {"$gt": [{"$toDouble": {"$ifNull": ["$revenue_per_interview.value", "0"]}}, min_cpi]}}
                     ]}
                 ]
             }
@@ -402,7 +402,7 @@ class CintService:
                 "active": actual_active,
                 "inactive": actual_inactive,
                 "filters_applied": {
-                    "min_cpi": min_cpi
+                    "min_cpi": min_cpi,
                 }
             }
             

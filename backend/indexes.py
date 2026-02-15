@@ -332,10 +332,12 @@ def setup_indexes(db_manager=None):
     
     # URL Parameters collection
     url_params = traffic_db["url_parameters"]
-    create_index_safe(url_params, "vendor_id")
+    create_index_safe(url_params, "vendorId")  # Fixed: snake_case → camelCase
     create_index_safe(url_params, "status")
-    create_index_safe(url_params, "created_at")
+    create_index_safe(url_params, "createdAt")  # Fixed: snake_case → camelCase
     create_index_safe(url_params, "callback_key", unique=True, sparse=True)  # P0.15: CPX callback idempotency
+    # Compound index for list query optimization (sort by createdAt DESC, filter by status)
+    create_index_safe(url_params, [("createdAt", DESCENDING), ("status", ASCENDING)])
     
     # CPX Callback Logs
     cpx_callback_logs = traffic_db["cpx_callback_logs"]
