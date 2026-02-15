@@ -67,6 +67,7 @@ try:
     from .routers import panel as panel_router
     from .routers import mail_operations as mail_operations_router
     from .routers import prompt_management as prompt_management_router
+    from .routers import automation as automation_router
 except Exception:
     # Fallback to absolute import for other runtimes
     from routers import traffic as traffic_router
@@ -90,6 +91,7 @@ except Exception:
     from leads import router as leads_router
     from routers import mail_operations as mail_operations_router
     from routers import prompt_management as prompt_management_router
+    from routers import automation as automation_router
 
 # Ensure stdout/stderr use UTF-8 on Windows consoles to avoid UnicodeEncodeError
 import sys
@@ -898,6 +900,13 @@ try:
     print("✅ Multi-Agent System router included")
 except Exception as e:
     print(f"⚠️ Multi-Agent System router not included: {e}")
+
+# Automation System router (Autonomous lead routing, email optimization, schedule optimization)
+try:
+    app.include_router(automation_router.router)
+    print("✅ Automation System router included")
+except Exception as e:
+    print(f"⚠️ Automation System router not included: {e}")
 
 # Panel (Survey Panel User Portal) router
 try:

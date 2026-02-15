@@ -160,31 +160,31 @@ class CampaignClayIntegration:
     ) -> Dict[str, Any]:
         """
         Sync completed workbook rows back to campaign leads
-        
+
         Actions:
         - "attach": Add new leads to campaign
         - "update": Update existing leads
         - "replace": Replace all campaign leads
         """
-        
+
         from .import_gating import ImportGatingManager
         from .workbook_engine import WorkbookExecutionEngine
-        
+
         # Get campaign
         campaign = self.campaigns_collection.find_one({"_id": campaign_id})
         if not campaign:
             raise ValueError(f"Campaign {campaign_id} not found")
-        
+
         # Get workbook rows
         workbooks_db = self.db['workbook_rows']
         rows = list(workbooks_db.find({
             "workbook_id": workbook_id,
             "row_index": {"$in": row_ids}
         }))
-        
+
         if not rows:
             return {"status": "error", "message": "No rows found"}
-        
+
         # Extract lead data from rows
         leads = []
         for row in rows:
@@ -200,11 +200,11 @@ class CampaignClayIntegration:
                 "row_id": row.get("_id")
             }
             leads.append(lead)
-        
+
         # Apply deduplication
         config = await self.get_or_create_clay_config(campaign_id)
         gating = ImportGatingManager()
-        
+
         dedup_rules = [
             DeduplicationRule(
                 name=rule.get("name"),
@@ -213,16 +213,16 @@ class CampaignClayIntegration:
             )
             for rule in config.deduplication_rules
         ]
-        
+
         # Check for duplicates
         unique_leads, duplicate_groups = gating.deduplication_engine.detect_duplicates_in_batch(
             leads,
             dedup_rules
         )
-        
+
         # Sync to campaign
         leads_collection = self.db.get_collection(f"campaign_{campaign_id}_leads")
-        
+
         if action == "attach":
             # Add new leads
             if unique_leads:
@@ -240,7 +240,7 @@ class CampaignClayIntegration:
             leads_collection.delete_many({})
             if unique_leads:
                 leads_collection.insert_many(unique_leads)
-        
+
         # Update campaign stats
         self.campaigns_collection.update_one(
             {"_id": campaign_id},
@@ -252,7 +252,7 @@ class CampaignClayIntegration:
                 }
             }
         )
-        
+
         return {
             "status": "success",
             "campaign_id": campaign_id,
@@ -260,6 +260,37 @@ class CampaignClayIntegration:
             "duplicates_found": len(duplicate_groups),
             "action": action
         }
+
+    async def auto_route_qualified_leads(
+        self,
+        campaign_id: str,
+        enable_decision_logging: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Autonomously route qualified leads to campaign based on ICP matching.
+        Uses strict 0.85+ confidence threshold.
+
+        Full audit trail logged for GDPR/CAN-SPAM compliance.
+
+        Args:
+            campaign_id: Campaign to route leads to
+            enable_decision_logging: If True, log routing decisions for compliance
+
+        Returns:
+            Routing results with counts and decision audit trail
+        """
+        from ..automation.lead_router import LeadRouter
+        from ..automation.decision_logger import DecisionLogger
+
+        # Initialize router with decision logging
+        decision_logger = None
+        if enable_decision_logging:
+            decision_logger = DecisionLogger(self.db)
+
+        router = LeadRouter(self.db, decision_logger=decision_logger)
+
+        # Route qualified leads with 0.85+ confidence threshold
+        return router.route_qualified_leads(campaign_id, auto_route=True)
     
     async def get_campaign_clay_stats(self, campaign_id: str) -> Dict[str, Any]:
         """
