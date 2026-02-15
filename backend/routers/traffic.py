@@ -12,6 +12,8 @@ from typing import Dict, Any, Optional, List
 import os
 import random
 import base64
+import time
+import hashlib
 
 # URL validation utility for redirect safety
 try:
@@ -25,6 +27,39 @@ except ImportError:
             return True, ""
 
 router = APIRouter(tags=["traffic-flow"])  # No prefix - routes are at root level
+
+# ============== TRAFFIC LIST CACHING ==============
+_traffic_list_cache: Dict[str, Dict[str, Any]] = {}
+TRAFFIC_CACHE_TTL_SECONDS = 5  # 5 seconds TTL for fast refresh under high traffic
+
+def _get_traffic_cache_key(prefix: str, **kwargs) -> str:
+    """Generate a cache key from parameters"""
+    params = sorted((k, v) for k, v in kwargs.items() if v is not None)
+    param_str = "&".join(f"{k}={v}" for k, v in params)
+    return f"traffic:{prefix}:{hashlib.md5(param_str.encode()).hexdigest()}"
+
+def _get_traffic_cached(key: str) -> Optional[Any]:
+    """Get value from cache if not expired"""
+    if key in _traffic_list_cache:
+        entry = _traffic_list_cache[key]
+        if time.time() < entry['expires_at']:
+            return entry['value']
+        del _traffic_list_cache[key]
+    return None
+
+def _set_traffic_cached(key: str, value: Any, ttl: int = TRAFFIC_CACHE_TTL_SECONDS):
+    """Set value in cache with TTL"""
+    _traffic_list_cache[key] = {'value': value, 'expires_at': time.time() + ttl}
+    # Cleanup expired entries if cache grows too large
+    if len(_traffic_list_cache) > 100:
+        now = time.time()
+        expired = [k for k, v in _traffic_list_cache.items() if now >= v['expires_at']]
+        for k in expired:
+            del _traffic_list_cache[k]
+
+def invalidate_traffic_cache():
+    """Clear traffic list cache after mutations (inserts, updates, deletes)"""
+    _traffic_list_cache.clear()
 
 # Configuration for traffic flow redirects - always from environment file
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://surveyfieldwork.com")
@@ -747,7 +782,8 @@ async def cpx_callback(
                             }
                             
                             if user_country:
-                                cint_query["country_language"] = {"$regex": f"_{user_country}$", "$options": "i"}
+                                # Use country_code field (added by migration) for direct matching
+                                cint_query["country_code"] = user_country.upper()
                             
                             cint_surveys = list(cint_collection.find(cint_query).limit(150))
                             
@@ -763,22 +799,51 @@ async def cpx_callback(
                                     cint_survey_id = str(selected_survey.get('survey_id') or selected_survey.get('_id'))
                                     
                                     try:
-                                        # Always create a fresh entry link with redirect URLs
-                                        create_url = f"https://api.samplicio.us/Supply/v1/SupplierLinks/Create/{cint_survey_id}/{cint_supplier_code}"
                                         headers = {"Authorization": cint_api_key, "Content-Type": "application/json"}
+                                        live_link = None
                                         
-                                        # Use minimal payload - redirects are configured in CINT Supplier Portal (SR-0721)
-                                        create_payload = {
-                                            "SupplierLinkTypeCode": "OWS",
-                                            "TrackingTypeCode": "NONE"
-                                        }
-                                        resp = httpx.post(create_url, json=create_payload, headers=headers, timeout=15)
+                                        # First, try to get existing entry link
+                                        get_url = f"https://api.samplicio.us/Supply/v1/SupplierLinks/BySurveyNumber/{cint_survey_id}/{cint_supplier_code}"
+                                        get_resp = httpx.get(get_url, headers=headers, timeout=15)
                                         
-                                        if resp.status_code in [200, 201]:
-                                            supplier_link_data = resp.json().get("SupplierLink", {})
+                                        if get_resp.status_code == 200:
+                                            supplier_link_data = get_resp.json().get("SupplierLink", {})
                                             live_link = supplier_link_data.get("LiveLink")
-                                            
                                             if live_link:
+                                                print(f"✅ CINT fallback: Using existing entry link for survey {cint_survey_id}")
+                                        
+                                        # If GET failed or no LiveLink, try to create
+                                        if not live_link:
+                                            create_url = f"https://api.samplicio.us/Supply/v1/SupplierLinks/Create/{cint_survey_id}/{cint_supplier_code}"
+                                            create_payload = {
+                                                "SupplierLinkTypeCode": "OWS",
+                                                "TrackingTypeCode": "NONE",
+                                                "SuccessLink": "https://torpedo.cogentixresearch.com/cint-response?status=complete&pid=[%PID%]&mid=[%MID%]&revenue=[%REVENUE%]",
+                                                "FailureLink": "https://torpedo.cogentixresearch.com/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]",
+                                                "OverQuotaLink": "https://torpedo.cogentixresearch.com/cint-response?status=quota_full&pid=[%PID%]&mid=[%MID%]",
+                                                "QualityTerminationLink": "https://torpedo.cogentixresearch.com/cint-response?status=quality_terminate&pid=[%PID%]&mid=[%MID%]"
+                                            }
+                                            create_resp = httpx.post(create_url, json=create_payload, headers=headers, timeout=15)
+                                            
+                                            if create_resp.status_code in [200, 201]:
+                                                supplier_link_data = create_resp.json().get("SupplierLink", {})
+                                                live_link = supplier_link_data.get("LiveLink")
+                                                if live_link:
+                                                    print(f"✅ CINT fallback: Created new entry link for survey {cint_survey_id}")
+                                            elif create_resp.status_code == 409:
+                                                # Conflict - link exists but GET failed, skip without marking inactive
+                                                print(f"⚠️ CINT fallback: Survey {cint_survey_id} link exists (409), trying next survey")
+                                                continue
+                                            else:
+                                                # Other errors - mark as inactive
+                                                print(f"⚠️ CINT fallback: Survey {cint_survey_id} returned {create_resp.status_code}, marking inactive and trying next")
+                                                cint_collection.update_one(
+                                                    {"survey_id": int(cint_survey_id)},
+                                                    {"$set": {"is_active": False, "is_active_in_pool": False}}
+                                                )
+                                                continue
+                                        
+                                        if live_link:
                                                 # Store the created entry link for tracking
                                                 try:
                                                     entry_links_collection.update_one(
@@ -1945,6 +2010,7 @@ async def list_traffic_records(
     status: Optional[str] = Query(None, description="Filter by status"),
     search: Optional[str] = Query(None, description="Search term"),
     survey_id: Optional[str] = Query(None, description="Filter by survey ID"),
+    bypass_cache: bool = Query(False, description="Force fresh data"),
 ):
     """
     List all traffic records with pagination and optional filters
@@ -1959,6 +2025,18 @@ async def list_traffic_records(
         if traffic_service is None:
             raise HTTPException(status_code=503, detail="Traffic service not initialized")
         
+        # Check cache first (skip if bypass_cache or search query)
+        cache_key = _get_traffic_cache_key(
+            "list", page=page, page_size=page_size, 
+            status=status, search=search, survey_id=survey_id
+        )
+        
+        # Don't cache search queries as they're usually unique
+        if not bypass_cache and not search:
+            cached_result = _get_traffic_cached(cache_key)
+            if cached_result is not None:
+                return cached_result
+        
         result = traffic_service.list_traffic_records(
             page=page,
             page_size=page_size,
@@ -1966,6 +2044,10 @@ async def list_traffic_records(
             search=search,
             survey_id=survey_id,
         )
+        
+        # Cache the result (skip search queries)
+        if not search:
+            _set_traffic_cached(cache_key, result)
         
         return result
         
