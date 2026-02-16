@@ -1013,3 +1013,196 @@ async def cleanup_old_async_operations(
         raise HTTPException(status_code=503, detail="Async task system not configured")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# POTENTIAL CLIENT ENRICHMENT ENDPOINTS
+# Uses OpenAI Web Search to gather lead/company information
+# ============================================================
+
+@router.get("/potential-clients/enriched")
+async def get_enriched_potential_clients(
+    limit: int = Query(100, ge=1, le=500, description="Maximum records to return"),
+    skip: int = Query(0, ge=0, description="Records to skip for pagination"),
+    min_confidence: float = Query(0.0, ge=0.0, le=1.0, description="Minimum confidence score filter")
+):
+    """
+    Get all enriched potential clients with their lead/company data.
+    Returns cached enrichment data from web search.
+    """
+    try:
+        from leads.web_search_enrichment import get_all_enriched_leads, get_enrichment_stats
+        
+        leads = get_all_enriched_leads(limit=limit, skip=skip, min_confidence=min_confidence)
+        stats = get_enrichment_stats()
+        
+        return {
+            "leads": leads,
+            "count": len(leads),
+            "stats": stats
+        }
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=f"Enrichment module not available: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching enriched leads: {str(e)}")
+
+
+@router.get("/potential-clients/enriched/{company_name}")
+async def get_enriched_client(company_name: str = Path(..., description="Company name to look up")):
+    """
+    Get enriched data for a specific potential client by company name.
+    Returns cached data if available.
+    """
+    try:
+        from leads.web_search_enrichment import get_enriched_lead
+        
+        lead = get_enriched_lead(company_name)
+        
+        if not lead:
+            raise HTTPException(status_code=404, detail=f"No enriched data found for {company_name}")
+        
+        return lead
+    except HTTPException:
+        raise
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=f"Enrichment module not available: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching enriched lead: {str(e)}")
+
+
+@router.post("/potential-clients/enrich")
+async def enrich_potential_client(
+    company_name: str = Body(..., embed=True, description="Company name to enrich"),
+    additional_context: Optional[str] = Body(None, embed=True, description="Additional context for enrichment"),
+    force_refresh: bool = Body(False, embed=True, description="Force fresh web search, bypass cache")
+):
+    """
+    Enrich a single potential client using OpenAI web search.
+    Performs live web search to gather company and lead contact information.
+    
+    Returns detailed lead and company data including:
+    - Lead Information: email, name, LinkedIn, title, department, seniority, etc.
+    - Company Details: founded, headquarters, industry, employee count, revenue range, etc.
+    """
+    try:
+        from leads.web_search_enrichment import enrich_company_with_websearch
+        
+        result = enrich_company_with_websearch(
+            company_name=company_name,
+            additional_context=additional_context,
+            force_refresh=force_refresh
+        )
+        
+        if result.get("error"):
+            raise HTTPException(status_code=422, detail=result["error"])
+        
+        return result
+    except HTTPException:
+        raise
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=f"Enrichment module not available: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error enriching client: {str(e)}")
+
+
+@router.post("/potential-clients/enrich-batch")
+async def batch_enrich_potential_clients(
+    company_names: List[str] = Body(..., embed=True, description="List of company names to enrich"),
+    delay_seconds: float = Body(2.0, embed=True, description="Delay between API calls")
+):
+    """
+    Batch enrich multiple potential clients using OpenAI web search.
+    Includes rate limiting to avoid API throttling.
+    
+    Max 10 companies per batch for safety. Use auto-enrich for larger batches.
+    """
+    if len(company_names) > 10:
+        raise HTTPException(
+            status_code=400, 
+            detail="Maximum 10 companies per batch. Use auto-enrich for larger lists."
+        )
+    
+    try:
+        from leads.web_search_enrichment import batch_enrich_companies
+        
+        results = batch_enrich_companies(
+            company_names=company_names,
+            delay_between_requests=delay_seconds
+        )
+        
+        success_count = len([r for r in results if r.get("success", False)])
+        
+        return {
+            "results": results,
+            "total": len(company_names),
+            "success_count": success_count,
+            "failure_count": len(company_names) - success_count
+        }
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=f"Enrichment module not available: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error batch enriching clients: {str(e)}")
+
+
+@router.post("/potential-clients/auto-enrich")
+async def auto_enrich_new_potential_clients(
+    company_names: List[str] = Body(..., embed=True, description="List of all current company names")
+):
+    """
+    Auto-enrich new potential clients that haven't been enriched yet.
+    Compares against existing enriched data and only processes new companies.
+    
+    Rate limited to 10 companies per call, with 3 second delays between requests.
+    Returns count of enriched vs remaining to process.
+    """
+    try:
+        from leads.web_search_enrichment import auto_enrich_new_companies
+        import asyncio
+        
+        result = await auto_enrich_new_companies(company_names)
+        return result
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=f"Enrichment module not available: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error auto-enriching clients: {str(e)}")
+
+
+@router.get("/potential-clients/enrichment-stats")
+async def get_potential_client_enrichment_stats():
+    """
+    Get statistics about potential client enrichment.
+    Includes total enriched, high confidence count, and recent activity.
+    """
+    try:
+        from leads.web_search_enrichment import get_enrichment_stats
+        
+        stats = get_enrichment_stats()
+        return stats
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=f"Enrichment module not available: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/potential-clients/unenriched")
+async def get_unenriched_potential_clients(
+    company_names: List[str] = Query(..., description="List of all company names to check")
+):
+    """
+    Get list of companies that haven't been enriched yet.
+    Useful for identifying which companies need enrichment.
+    """
+    try:
+        from leads.web_search_enrichment import get_unenriched_companies
+        
+        unenriched = get_unenriched_companies(company_names)
+        
+        return {
+            "unenriched": unenriched,
+            "count": len(unenriched),
+            "total_checked": len(company_names)
+        }
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=f"Enrichment module not available: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

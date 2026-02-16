@@ -118,3 +118,267 @@
   margin-top: 4px;
   color: #7f1d1d;
 }
+
+/* Header Actions */
+.header-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.auto-enrich-button {
+  border: none;
+  background: #059669;
+  color: #ffffff;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auto-enrich-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Enrichment Stats Bar */
+.enrichment-stats-bar {
+  display: flex;
+  gap: 24px;
+  background: #ffffff;
+  padding: 12px 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: #374151;
+}
+
+.enrichment-stats-bar span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Enrichment badges and buttons */
+.enriched-row {
+  background-color: #f0fdf4;
+}
+
+.client-name-link {
+  color: #2563eb;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.client-name-link:hover {
+  text-decoration: underline;
+}
+
+.enrichment-badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.enrichment-badge.enriched {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.enrichment-badge.not-enriched {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.enrich-button,
+.view-button {
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.enrich-button {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.view-button {
+  background: #e0e7ff;
+  color: #1e40af;
+}
+
+.enriching-spinner {
+  color: #6b7280;
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Enrichment Modal */
+.enrichment-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.enrichment-modal {
+  background: #ffffff;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 800px;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #1f2937;
+  color: #ffffff;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  color: #ffffff;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.modal-content {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.enrichment-section {
+  margin-bottom: 24px;
+}
+
+.enrichment-section h3 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 8px;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.field span {
+  font-size: 14px;
+  color: #1f2937;
+}
+
+.field a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.field a:hover {
+  text-decoration: underline;
+}
+
+.enrichment-meta {
+  display: flex;
+  gap: 24px;
+  padding: 12px 16px;
+  background: #f9fafb;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.citations-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.citations-list li {
+  margin-bottom: 8px;
+}
+
+.citations-list a {
+  color: #2563eb;
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.citations-list a:hover {
+  text-decoration: underline;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+
+.refresh-enrichment-button {
+  background: #059669;
+  color: #ffffff;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.refresh-enrichment-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.close-modal-button {
+  background: #e5e7eb;
+  color: #374151;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}

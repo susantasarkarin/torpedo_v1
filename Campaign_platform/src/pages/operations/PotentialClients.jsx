@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { buildApiUrl } from "../../config";
 import "./PotentialClients.css";
@@ -25,6 +25,14 @@ function PotentialClients() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
+  
+  // Enrichment state
+  const [enrichedLeads, setEnrichedLeads] = useState({});
+  const [enrichingCompany, setEnrichingCompany] = useState(null);
+  const [selectedClient, setSelectedClient] = useState(null);
+  const [showEnrichmentPanel, setShowEnrichmentPanel] = useState(false);
+  const [enrichmentStats, setEnrichmentStats] = useState(null);
+  const [autoEnriching, setAutoEnriching] = useState(false);
 
   useEffect(() => {
     if (token) {
@@ -208,6 +216,118 @@ function PotentialClients() {
     return items;
   }, [persistedClients, currentCounts, search]);
 
+  // Fetch enriched leads data
+  const fetchEnrichedLeads = useCallback(async () => {
+    try {
+      const response = await fetch(buildApiUrl("/operations/potential-clients/enriched?limit=500"), {
+        headers: {
+          Authorization: token,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const leadsMap = {};
+        (data.leads || []).forEach((lead) => {
+          if (lead.company) {
+            leadsMap[lead.company.toLowerCase()] = lead;
+          }
+        });
+        setEnrichedLeads(leadsMap);
+        setEnrichmentStats(data.stats);
+      }
+    } catch (err) {
+      console.error("Error fetching enriched leads:", err);
+    }
+  }, [token]);
+
+  // Fetch enriched data when component mounts
+  useEffect(() => {
+    if (token) {
+      fetchEnrichedLeads();
+    }
+  }, [token, fetchEnrichedLeads]);
+
+  // Enrich a single company
+  const enrichCompany = async (companyName) => {
+    setEnrichingCompany(companyName);
+    try {
+      const response = await fetch(buildApiUrl("/operations/potential-clients/enrich"), {
+        method: "POST",
+        headers: {
+          Authorization: token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          company_name: companyName,
+          force_refresh: false,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setEnrichedLeads((prev) => ({
+          ...prev,
+          [companyName.toLowerCase()]: data,
+        }));
+        setSelectedClient(data);
+        setShowEnrichmentPanel(true);
+      } else {
+        const errorData = await response.json();
+        alert(`Enrichment failed: ${errorData.detail || "Unknown error"}`);
+      }
+    } catch (err) {
+      console.error("Error enriching company:", err);
+      alert(`Enrichment error: ${err.message}`);
+    } finally {
+      setEnrichingCompany(null);
+    }
+  };
+
+  // Auto-enrich all new companies
+  const autoEnrichAll = async () => {
+    const companyNames = clientStats.map((c) => c.name);
+    if (companyNames.length === 0) return;
+
+    setAutoEnriching(true);
+    try {
+      const response = await fetch(buildApiUrl("/operations/potential-clients/auto-enrich"), {
+        method: "POST",
+        headers: {
+          Authorization: token,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ company_names: companyNames }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        alert(`Auto-enrichment complete!\nEnriched: ${data.enriched}\nRemaining: ${data.remaining}`);
+        fetchEnrichedLeads();
+      }
+    } catch (err) {
+      console.error("Error auto-enriching:", err);
+      alert(`Auto-enrichment error: ${err.message}`);
+    } finally {
+      setAutoEnriching(false);
+    }
+  };
+
+  // View enriched data for a client
+  const viewEnrichment = (clientName) => {
+    const enriched = enrichedLeads[clientName.toLowerCase()];
+    if (enriched) {
+      setSelectedClient(enriched);
+      setShowEnrichmentPanel(true);
+    }
+  };
+
+  // Check if a client is enriched
+  const isEnriched = (clientName) => {
+    return !!enrichedLeads[clientName.toLowerCase()];
+  };
+
   if (!user) {
     return <div className="potential-clients-page">Please login to access Potential Clients.</div>;
   }
@@ -219,10 +339,28 @@ function PotentialClients() {
           <h1>Potential Client</h1>
           <p>Unique client names extracted from the Study Pool.</p>
         </div>
-        <button className="refresh-button" onClick={fetchAllSurveys} disabled={loading}>
-          {loading ? "Refreshing..." : "Refresh"}
-        </button>
+        <div className="header-actions">
+          <button 
+            className="auto-enrich-button" 
+            onClick={autoEnrichAll} 
+            disabled={autoEnriching || loading}
+            title="Auto-enrich all new companies using AI web search"
+          >
+            {autoEnriching ? "Auto Enriching..." : "Auto Enrich All"}
+          </button>
+          <button className="refresh-button" onClick={fetchAllSurveys} disabled={loading}>
+            {loading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
       </div>
+
+      {enrichmentStats && (
+        <div className="enrichment-stats-bar">
+          <span>Enriched: {enrichmentStats.total_enriched}</span>
+          <span>High Confidence: {enrichmentStats.high_confidence_count}</span>
+          <span>Last 24h: {enrichmentStats.enrichments_last_24h}</span>
+        </div>
+      )}
 
       <div className="page-controls">
         <input
@@ -248,18 +386,58 @@ function PotentialClients() {
             <tr>
               <th>Client Name</th>
               <th>Surveys</th>
+              <th>Enrichment</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {clientStats.map((client) => (
-              <tr key={client.name}>
-                <td>{client.name}</td>
-                <td>{client.count}</td>
-              </tr>
-            ))}
+            {clientStats.map((client) => {
+              const enriched = enrichedLeads[client.name.toLowerCase()];
+              return (
+                <tr key={client.name} className={enriched ? "enriched-row" : ""}>
+                  <td>
+                    <span 
+                      className="client-name-link"
+                      onClick={() => enriched ? viewEnrichment(client.name) : enrichCompany(client.name)}
+                    >
+                      {client.name}
+                    </span>
+                  </td>
+                  <td>{client.count}</td>
+                  <td>
+                    {enriched ? (
+                      <span className="enrichment-badge enriched">
+                        ✓ {Math.round((enriched.confidence_score || 0) * 100)}%
+                      </span>
+                    ) : (
+                      <span className="enrichment-badge not-enriched">Not Enriched</span>
+                    )}
+                  </td>
+                  <td>
+                    {enrichingCompany === client.name ? (
+                      <span className="enriching-spinner">Enriching...</span>
+                    ) : enriched ? (
+                      <button 
+                        className="view-button" 
+                        onClick={() => viewEnrichment(client.name)}
+                      >
+                        View
+                      </button>
+                    ) : (
+                      <button 
+                        className="enrich-button" 
+                        onClick={() => enrichCompany(client.name)}
+                      >
+                        Enrich
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
             {!loading && clientStats.length === 0 && (
               <tr>
-                <td colSpan={2} className="empty-row">
+                <td colSpan={4} className="empty-row">
                   No client names found in the Study Pool.
                 </td>
               </tr>
@@ -267,6 +445,177 @@ function PotentialClients() {
           </tbody>
         </table>
       </div>
+
+      {/* Enrichment Panel Modal */}
+      {showEnrichmentPanel && selectedClient && (
+        <div className="enrichment-modal-overlay" onClick={() => setShowEnrichmentPanel(false)}>
+          <div className="enrichment-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>{selectedClient.company}</h2>
+              <button className="close-button" onClick={() => setShowEnrichmentPanel(false)}>×</button>
+            </div>
+            
+            <div className="modal-content">
+              <div className="enrichment-section">
+                <h3>Lead Information</h3>
+                <div className="field-grid">
+                  <div className="field">
+                    <label>Lead Stage</label>
+                    <span>{selectedClient.lead_stage || "—"}</span>
+                  </div>
+                  <div className="field">
+                    <label>Lead Name</label>
+                    <span>{selectedClient.lead_name || "—"}</span>
+                  </div>
+                  <div className="field">
+                    <label>Email</label>
+                    <span>{selectedClient.email || "—"}</span>
+                  </div>
+                  <div className="field">
+                    <label>LinkedIn</label>
+                    <span>
+                      {selectedClient.linkedin_url ? (
+                        <a href={selectedClient.linkedin_url} target="_blank" rel="noopener noreferrer">
+                          View Profile
+                        </a>
+                      ) : "—"}
+                    </span>
+                  </div>
+                  <div className="field">
+                    <label>Title</label>
+                    <span>{selectedClient.title || "—"}</span>
+                  </div>
+                  <div className="field">
+                    <label>Location</label>
+                    <span>{selectedClient.location || "—"}</span>
+                  </div>
+                  <div className="field">
+                    <label>Lead Source</label>
+                    <span>{selectedClient.lead_source || "Cint API client list"}</span>
+                  </div>
+                  <div className="field">
+                    <label>Seniority Level</label>
+                    <span>{selectedClient.seniority_level || "—"}</span>
+                  </div>
+                  <div className="field">
+                    <label>Department</label>
+                    <span>{selectedClient.department || "—"}</span>
+                  </div>
+                  <div className="field">
+                    <label>Persona</label>
+                    <span>{selectedClient.persona || "—"}</span>
+                  </div>
+                  <div className="field">
+                    <label>Buying Role</label>
+                    <span>{selectedClient.buying_role || "—"}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="enrichment-section">
+                <h3>Company Details</h3>
+                <div className="field-grid">
+                  <div className="field">
+                    <label>Company Founded</label>
+                    <span>{selectedClient.company_founded || "—"}</span>
+                  </div>
+                  <div className="field">
+                    <label>Headquarters</label>
+                    <span>{selectedClient.company_headquarters || "—"}</span>
+                  </div>
+                  <div className="field">
+                    <label>Company LinkedIn</label>
+                    <span>
+                      {selectedClient.company_linkedin_url ? (
+                        <a href={selectedClient.company_linkedin_url} target="_blank" rel="noopener noreferrer">
+                          View Company
+                        </a>
+                      ) : "—"}
+                    </span>
+                  </div>
+                  <div className="field">
+                    <label>Employee Count</label>
+                    <span>{selectedClient.company_employee_count_range || "—"}</span>
+                  </div>
+                  <div className="field">
+                    <label>Industry</label>
+                    <span>{selectedClient.company_industry || "—"}</span>
+                  </div>
+                  <div className="field">
+                    <label>Company Size</label>
+                    <span>{selectedClient.company_size || "—"}</span>
+                  </div>
+                  <div className="field">
+                    <label>Company Type</label>
+                    <span>{selectedClient.company_type || "—"}</span>
+                  </div>
+                  <div className="field">
+                    <label>Revenue Range</label>
+                    <span>{selectedClient.company_revenue_range || "—"}</span>
+                  </div>
+                  <div className="field">
+                    <label>Domain</label>
+                    <span>{selectedClient.company_domain || "—"}</span>
+                  </div>
+                  <div className="field">
+                    <label>Website</label>
+                    <span>
+                      {selectedClient.company_website ? (
+                        <a href={selectedClient.company_website} target="_blank" rel="noopener noreferrer">
+                          {selectedClient.company_website}
+                        </a>
+                      ) : "—"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {selectedClient.summary && (
+                <div className="enrichment-section">
+                  <h3>Summary</h3>
+                  <p>{selectedClient.summary}</p>
+                </div>
+              )}
+
+              <div className="enrichment-meta">
+                <span>Confidence: {Math.round((selectedClient.confidence_score || 0) * 100)}%</span>
+                <span>Source: {selectedClient.enrichment_source}</span>
+                {selectedClient.enriched_at && (
+                  <span>Updated: {new Date(selectedClient.enriched_at).toLocaleDateString()}</span>
+                )}
+              </div>
+
+              {selectedClient.citations && selectedClient.citations.length > 0 && (
+                <div className="enrichment-section">
+                  <h3>Sources</h3>
+                  <ul className="citations-list">
+                    {selectedClient.citations.slice(0, 5).map((cite, idx) => (
+                      <li key={idx}>
+                        <a href={cite.url} target="_blank" rel="noopener noreferrer">
+                          {cite.title || cite.url}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer">
+              <button 
+                className="refresh-enrichment-button"
+                onClick={() => enrichCompany(selectedClient.company)}
+                disabled={enrichingCompany === selectedClient.company}
+              >
+                {enrichingCompany === selectedClient.company ? "Refreshing..." : "Refresh Data"}
+              </button>
+              <button className="close-modal-button" onClick={() => setShowEnrichmentPanel(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

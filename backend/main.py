@@ -1823,6 +1823,39 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️ Could not schedule mail segregation job: {e}")
     
+    # ----------------------------
+    # Potential Client Auto-Enrichment (every 30 minutes)
+    # Uses OpenAI web search to enrich new companies from survey pool
+    # Feature flag: POTENTIAL_CLIENT_ENRICHMENT_ENABLED=true (default: false)
+    # ----------------------------
+    try:
+        enrichment_enabled = os.getenv("POTENTIAL_CLIENT_ENRICHMENT_ENABLED", "false").lower() == "true"
+        if scheduler.running and enrichment_enabled:
+            def background_potential_client_enrichment():
+                """Auto-enrich new potential clients from survey pool using OpenAI web search."""
+                try:
+                    from tasks.enrichment_tasks import check_new_potential_clients
+                    result = check_new_potential_clients()
+                    if result.get("unenriched_count", 0) > 0:
+                        print(f"[PotentialClientEnrich] Found {result['unenriched_count']} new companies to enrich")
+                    else:
+                        print("[PotentialClientEnrich] All companies already enriched")
+                except Exception as e:
+                    print(f"[PotentialClientEnrich] Error: {e}")
+            
+            scheduler.add_job(
+                background_potential_client_enrichment,
+                IntervalTrigger(seconds=1800),  # Every 30 minutes
+                id="potential_client_enrichment",
+                name="Potential Client Auto-Enrichment",
+                replace_existing=True
+            )
+            print("✅ Potential client enrichment job scheduled (every 30 min, uses OpenAI web search)")
+        elif not enrichment_enabled:
+            print("ℹ️ Potential client enrichment disabled (set POTENTIAL_CLIENT_ENRICHMENT_ENABLED=true to enable)")
+    except Exception as e:
+        print(f"⚠️ Could not schedule potential client enrichment job: {e}")
+    
     # ============== STARTUP SUMMARY BANNER ==============
     print("\n" + "=" * 60)
     print(f"🚀 {APP_NAME} v{APP_VERSION} STARTED SUCCESSFULLY")
@@ -1847,6 +1880,10 @@ async def startup_event():
             print("   • Email Classification: Active (every 2 min, batch=10)")
         else:
             print("   • Email Classification: Disabled (EMAIL_CLASSIFICATION_ENABLED=false)")
+        if enrichment_enabled:
+            print("   • Potential Client Enrichment: Active (every 30 min, OpenAI web search)")
+        else:
+            print("   • Potential Client Enrichment: Disabled (POTENTIAL_CLIENT_ENRICHMENT_ENABLED=false)")
     else:
         print("   • CPX Survey Refresh: Inactive")
         print("   • Cint Survey Refresh: Inactive")
