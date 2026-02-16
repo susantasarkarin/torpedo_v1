@@ -96,16 +96,15 @@ def get_enrichment_logs_collection():
 
 # ============== OPENAI CLIENT ==============
 
-_openai_client: Optional[OpenAI] = None
-
-
 def get_openai_client() -> OpenAI:
-    """Get or create OpenAI client singleton."""
-    global _openai_client
-    if _openai_client is None:
+    """Get OpenAI client - reuses the singleton from openai_wrapper for consistency."""
+    try:
+        from leads.openai_wrapper import get_openai_client as get_wrapper_client
+        return get_wrapper_client()
+    except ImportError:
+        # Fallback if openai_wrapper not available
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            # Try to get from database settings
             try:
                 mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
                 client = MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
@@ -117,8 +116,7 @@ def get_openai_client() -> OpenAI:
         
         if not api_key:
             raise ValueError("OPENAI_API_KEY not configured")
-        _openai_client = OpenAI(api_key=api_key)
-    return _openai_client
+        return OpenAI(api_key=api_key)
 
 
 # ============== RATE LIMITING ==============
