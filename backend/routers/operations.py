@@ -1094,7 +1094,16 @@ async def enrich_potential_client(
         )
         
         if result.get("error"):
-            raise HTTPException(status_code=422, detail=result["error"])
+            error_msg = result["error"]
+            # Provide clearer error messages for known issues
+            if "401" in str(error_msg) or "invalid_api_key" in str(error_msg).lower():
+                raise HTTPException(
+                    status_code=503, 
+                    detail="OpenAI API key is invalid or expired. Please update the API key in Settings."
+                )
+            elif "rate limit" in str(error_msg).lower():
+                raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
+            raise HTTPException(status_code=422, detail=error_msg)
         
         return result
     except HTTPException:
