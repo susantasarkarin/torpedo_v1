@@ -254,29 +254,45 @@ def enrich_company_with_websearch(
         client = get_openai_client()
         prompt = build_enrichment_prompt(company_name, additional_context)
         
-        # Use the Responses API with web_search tool
-        response = client.responses.create(
-            model=OPENAI_WEBSEARCH_MODEL,
-            tools=[{"type": "web_search"}],
-            input=prompt
-        )
-        
-        # Extract the response text
         response_text = ""
         citations = []
         
-        for item in response.output:
-            if item.type == "message":
-                for content in item.content:
-                    if hasattr(content, 'text'):
-                        response_text = content.text
-                    if hasattr(content, 'annotations'):
-                        for annotation in content.annotations:
-                            if hasattr(annotation, 'url'):
-                                citations.append({
-                                    "url": annotation.url,
-                                    "title": getattr(annotation, 'title', '')
-                                })
+        # Try the Responses API with web_search tool first
+        try:
+            response = client.responses.create(
+                model=OPENAI_WEBSEARCH_MODEL,
+                tools=[{"type": "web_search"}],
+                input=prompt
+            )
+            
+            # Extract the response text from Responses API
+            for item in response.output:
+                if item.type == "message":
+                    for content in item.content:
+                        if hasattr(content, 'text'):
+                            response_text = content.text
+                        if hasattr(content, 'annotations'):
+                            for annotation in content.annotations:
+                                if hasattr(annotation, 'url'):
+                                    citations.append({
+                                        "url": annotation.url,
+                                        "title": getattr(annotation, 'title', '')
+                                    })
+        except Exception as api_err:
+            # Fallback to regular chat completions if Responses API not available
+            logger.info(f"Responses API not available, falling back to chat completions: {api_err}")
+            
+            chat_response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You are a business research assistant. Respond only with JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=2000
+            )
+            response_text = chat_response.choices[0].message.content
+            # No citations in fallback mode
         
         # Parse JSON response
         # Clean up markdown if present
