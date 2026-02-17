@@ -154,6 +154,10 @@ templates_collection = db["templates"]
 reports_collection = db["reports"]
 projects_collection = db["projects"]
 vendors_collection = db["vendors"]  # Vendors collection for CPX callback handling
+operations_clients_collection = db["clients"]  # Operations clients collection
+
+# Finance DB vendors collection for syncing
+finance_vendors_collection = None  # Will be initialized with finance_db later
 
 # CPX Research collections
 try:
@@ -3169,6 +3173,8 @@ async def import_leads_csv(file: UploadFile = File(...)):
 # Finance DB for customers (canonical entity for accounts/clients/customers)
 finance_db = client["finance_db"]
 finance_customers_collection = finance_db["customers"]
+# Update finance_vendors_collection now that finance_db is available
+finance_vendors_collection = finance_db["vendors"]
 
 # Create a contact
 @app.post("/contacts/")
@@ -3244,8 +3250,59 @@ async def create_contact(contact_data: Dict[str, Any] = Body(...)):
         
         # Store the linked customer ID in the contact
         contact_data["linked_customer_id"] = linked_customer_id
+        
+        # Auto-sync to Operations Clients if methodology is "online" or "API"
+        linked_operations_client_id = None
+        methodology = contact_data.get("methodology", "").lower()
+        if methodology in ["online", "api"] and contact_data.get("companyName"):
+            # Check if operations client already exists for this company
+            existing_ops_client = operations_clients_collection.find_one({"name": contact_data["companyName"]})
+            
+            if existing_ops_client:
+                # Update existing operations client
+                linked_operations_client_id = str(existing_ops_client["_id"])
+                update_fields = {"updated_at": datetime.utcnow()}
+                if contact_data.get("companyEmail"):
+                    update_fields["email"] = contact_data["companyEmail"]
+                if contact_data.get("companyHeadquarters"):
+                    update_fields["address"] = contact_data["companyHeadquarters"]
+                
+                operations_clients_collection.update_one(
+                    {"_id": existing_ops_client["_id"]},
+                    {"$set": update_fields}
+                )
+            else:
+                # Create new operations client
+                ops_client_data = {
+                    "name": contact_data["companyName"],
+                    "email": contact_data.get("companyEmail", ""),
+                    "phone": contact_data.get("companyPhone", ""),
+                    "address": contact_data.get("companyHeadquarters", ""),
+                    "contact_person": contact_data.get("name", ""),
+                    "contact_email": contact_data.get("email", ""),
+                    "methodology": methodology,
+                    "status": "active",
+                    "linked_contact_id": None,  # Will be set after contact is created
+                    "linked_finance_customer_id": linked_customer_id,
+                    "notes": f"Auto-created from Sales Contact",
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                }
+                result_ops_client = operations_clients_collection.insert_one(ops_client_data)
+                linked_operations_client_id = str(result_ops_client.inserted_id)
+        
+        # Store the linked operations client ID in the contact
+        contact_data["linked_operations_client_id"] = linked_operations_client_id
+        
         result = contacts_collection.insert_one(contact_data)
         contact_data["_id"] = str(result.inserted_id)
+        
+        # Update operations client with contact reference if created
+        if linked_operations_client_id:
+            operations_clients_collection.update_one(
+                {"_id": ObjectId(linked_operations_client_id)},
+                {"$set": {"linked_contact_id": str(result.inserted_id)}}
+            )
         
         return {"message": "Contact created successfully", "contact": contact_data}
     except HTTPException:
@@ -3418,8 +3475,77 @@ async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
                             )
 
         vendor_data["vid"] = generate_vid()
+        vendor_data["createdAt"] = datetime.utcnow()
+        vendor_data["updatedAt"] = datetime.utcnow()
+        
         result = vendors_collection.insert_one(vendor_data)
         vendor_data["_id"] = str(result.inserted_id)
+        
+        # Auto-sync to Finance Vendors: create corresponding billing vendor
+        linked_finance_vendor_id = None
+        try:
+            # Check if finance vendor already exists for this vendor name
+            existing_finance_vendor = finance_vendors_collection.find_one({"name": vendor_data.get("vendorName")})
+            
+            if existing_finance_vendor:
+                # Link to existing finance vendor
+                linked_finance_vendor_id = str(existing_finance_vendor["_id"])
+                # Update the link
+                finance_vendors_collection.update_one(
+                    {"_id": existing_finance_vendor["_id"]},
+                    {"$set": {
+                        "linked_panel_vendor_id": str(result.inserted_id),
+                        "linked_panel_vid": vendor_data.get("vid"),
+                        "updated_at": datetime.utcnow()
+                    }}
+                )
+            else:
+                # Create new finance vendor
+                finance_vendor_data = {
+                    "name": vendor_data.get("vendorName", ""),
+                    "vendor_type": vendor_data.get("vendorType", "Panel"),
+                    "email": vendor_data.get("vendorEmail", ""),
+                    "phone": vendor_data.get("vendorPhone", ""),
+                    "gst_treatment": "unregistered",
+                    "gstin": "",
+                    "pan": "",
+                    "billing_address": {
+                        "line1": vendor_data.get("vendorAddress", ""),
+                        "line2": "",
+                        "city": "",
+                        "state": "",
+                        "pincode": "",
+                        "country": "India",
+                    },
+                    "payment_terms": 30,
+                    "currency": "INR",
+                    "opening_balance": 0,
+                    "status": "active",
+                    "linked_panel_vendor_id": str(result.inserted_id),
+                    "linked_panel_vid": vendor_data.get("vid"),
+                    "notes": f"Auto-created from Panel Vendor",
+                    "total_payables": 0,
+                    "total_paid": 0,
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                }
+                result_finance = finance_vendors_collection.insert_one(finance_vendor_data)
+                linked_finance_vendor_id = str(result_finance.inserted_id)
+            
+            # Update panel vendor with finance vendor link
+            vendors_collection.update_one(
+                {"_id": result.inserted_id},
+                {"$set": {"linked_finance_vendor_id": linked_finance_vendor_id}}
+            )
+            vendor_data["linked_finance_vendor_id"] = linked_finance_vendor_id
+        except Exception as sync_error:
+            # Log error but don't fail the vendor creation
+            print(f"⚠️ Finance vendor sync warning: {sync_error}")
+        
+        # Note: Operations vendors use the same collection (email_automation.vendors)
+        # so no separate sync needed - the vendor is already in operations scope
+        # The methodology check is handled by the frontend filtering
+        
         return {"message": "Vendor created successfully", "vendor": vendor_data}
     except HTTPException:
         raise
