@@ -109,7 +109,9 @@ if incomplete_records:
         print(f"     Failure reason: {failure_reason}")
         if attempts:
             print(f"     Allocation attempts: {len(attempts)}")
-            for attempt in attempts[-3:]:  # Show last 3 attempts
+            # Show last 3 attempts (or fewer if less than 3 exist) for brevity
+            # Most recent attempts are usually most relevant for diagnosing current issues
+            for attempt in attempts[-3:]:
                 status = "✅" if attempt.get("success") else "❌"
                 provider = attempt.get("provider", "?")
                 reason = attempt.get("failure_reason", "success")

@@ -1263,37 +1263,38 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             allocation_error = f"Invalid client IP ({client_ip}) - cannot call survey API"
         
         # ============================================
+        # HELPER FUNCTION: Record Allocation Failure
+        # ============================================
+        def record_failure(provider: str, reason: str) -> None:
+            """Record allocation failure and update shared state"""
+            nonlocal allocation_error
+            print(f"⚠️ {provider} allocation failed: {reason}")
+            if traffic_service:
+                traffic_service.record_allocation_attempt(traffic_id, provider, False, reason)
+            allocation_error = reason
+        
+        # ============================================
         # HELPER FUNCTION: CPX Allocation
         # ============================================
         def try_cpx_allocation():
             nonlocal allocation_success, entry_link, survey_id, allocation_error
             
             if not cpx_service:
-                failure_reason = "CPX service not available"
-                print(f"⚠️ {failure_reason}")
-                if traffic_service:
-                    traffic_service.record_allocation_attempt(traffic_id, "CPX", False, failure_reason)
-                allocation_error = failure_reason
+                record_failure("CPX", "CPX service not available")
                 return False
                 
             # WebView Detection
             is_webview, webview_signature = is_webview_user_agent(client_user_agent)
             if is_webview:
-                failure_reason = f"WebView blocked: {webview_signature}"
                 print(f"🚫 CPX WEBVIEW BLOCK: User agent contains WebView signature '{webview_signature}'")
-                if traffic_service:
-                    traffic_service.record_allocation_attempt(traffic_id, "CPX", False, failure_reason)
-                allocation_error = failure_reason
+                record_failure("CPX", f"WebView blocked: {webview_signature}")
                 return False
             
             # Guard check using SFWID (traffic_id) as ext_user_id
             guard_result = check_cpx_entry_guard(traffic_id, client_ip, client_user_agent)
             if not guard_result["allowed"]:
-                failure_reason = f"Entry guard block: {guard_result['reason']}"
                 print(f"🚫 CPX ENTRY GUARD BLOCK: {guard_result['reason']} (existing status: {guard_result['existing_status']})")
-                if traffic_service:
-                    traffic_service.record_allocation_attempt(traffic_id, "CPX", False, failure_reason)
-                allocation_error = failure_reason
+                record_failure("CPX", f"Entry guard block: {guard_result['reason']}")
                 return False
             
             try:
@@ -1362,13 +1363,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     print(f"✅ CPX allocated survey {survey_id} to SFWID={traffic_id} (cpx_mid={cpx_mid})")
                     return True
                 else:
-                    failure_reason = f"No surveys available: {result.get('error', 'unknown')}"
                     print(f"⚠️ CPX returned no surveys: {result.get('error', 'unknown')}")
-                    allocation_error = failure_reason
-                    
-                    # Record failed allocation
-                    if traffic_service:
-                        traffic_service.record_allocation_attempt(traffic_id, "CPX", False, failure_reason)
+                    record_failure("CPX", f"No surveys available: {result.get('error', 'unknown')}")
                     
                     # Mark as LOCKED since CPX API was called
                     update_cpx_entry_guard_status(
@@ -1380,13 +1376,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     return False
                     
             except Exception as e:
-                failure_reason = f"API error: {str(e)}"
                 print(f"⚠️ CPX allocation error: {e}")
-                allocation_error = failure_reason
-                
-                # Record failed allocation
-                if traffic_service:
-                    traffic_service.record_allocation_attempt(traffic_id, "CPX", False, failure_reason)
+                record_failure("CPX", f"API error: {str(e)}")
                 
                 update_cpx_entry_guard_status(
                     ext_user_id=traffic_id,
@@ -1409,11 +1400,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 
                 mongo_uri = os.getenv("MONGO_URI")
                 if not mongo_uri:
-                    failure_reason = "MONGO_URI not configured for CINT"
-                    print(f"❌ {failure_reason}")
-                    if traffic_service:
-                        traffic_service.record_allocation_attempt(traffic_id, "CINT", False, failure_reason)
-                    allocation_error = failure_reason
+                    record_failure("CINT", "MONGO_URI not configured for CINT")
                     return False
                 
                 # CINT API credentials
@@ -1421,11 +1408,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 cint_supplier_code = os.getenv("CINT_SUPPLIER_CODE")
                 
                 if not cint_api_key or not cint_supplier_code:
-                    failure_reason = "CINT API credentials not configured"
-                    print(f"❌ {failure_reason}")
-                    if traffic_service:
-                        traffic_service.record_allocation_attempt(traffic_id, "CINT", False, failure_reason)
-                    allocation_error = failure_reason
+                    record_failure("CINT", "CINT API credentials not configured")
                     return False
                 
                 client = MongoClient(mongo_uri)
@@ -1462,11 +1445,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     cint_surveys = list(cint_collection.find(cint_query).limit(50))
 
                     if not cint_surveys:
-                        failure_reason = f"No active CINT surveys for country: {country_suffix or 'any'}"
-                        print(f"⚠️ {failure_reason}")
-                        if traffic_service:
-                            traffic_service.record_allocation_attempt(traffic_id, "CINT", False, failure_reason)
-                        allocation_error = failure_reason
+                        print(f"⚠️ No active CINT surveys for country: {country_suffix or 'any'}")
+                        record_failure("CINT", f"No active CINT surveys for country: {country_suffix or 'any'}")
                         return False
 
                     # Select a random survey
@@ -1474,11 +1454,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     raw_survey_id = selected_survey.get('survey_id') or selected_survey.get('_id')
 
                     if not raw_survey_id:
-                        failure_reason = "Selected survey has no survey_id or _id field"
-                        print(f"⚠️ {failure_reason}")
-                        if traffic_service:
-                            traffic_service.record_allocation_attempt(traffic_id, "CINT", False, failure_reason)
-                        allocation_error = failure_reason
+                        print(f"⚠️ Selected survey has no survey_id or _id field")
+                        record_failure("CINT", "Selected survey has no survey_id or _id field")
                         return False
 
                     survey_id = str(raw_survey_id)
@@ -1504,12 +1481,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         )
                         
                         if not result.get("success") or not result.get("live_link"):
-                            failure_reason = f"Entry link creation failed: {result.get('error', 'unknown')}"
                             print(f"❌ Could not create respondent entry link for CINT survey {survey_id}: {result.get('error')}")
-                            
-                            if traffic_service:
-                                traffic_service.record_allocation_attempt(traffic_id, "CINT", False, failure_reason)
-                            allocation_error = failure_reason
+                            record_failure("CINT", f"Entry link creation failed: {result.get('error', 'unknown')}")
                             
                             # If survey inactive, mark it
                             if result.get("should_mark_inactive"):
@@ -1523,11 +1496,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         print(f"🔗 CINT respondent entry link: {entry_link[:100]}...")
                         
                     except Exception as entrylink_err:
-                        failure_reason = f"Entry link service error: {str(entrylink_err)}"
                         print(f"❌ CINT entry link service error: {entrylink_err}")
-                        if traffic_service:
-                            traffic_service.record_allocation_attempt(traffic_id, "CINT", False, failure_reason)
-                        allocation_error = failure_reason
+                        record_failure("CINT", f"Entry link service error: {str(entrylink_err)}")
                         return False
 
                     allocation_success = True
@@ -1562,11 +1532,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     return True
 
                 except Exception as e:
-                    failure_reason = f"Database query error: {str(e)}"
                     print(f"⚠️ CINT allocation error: {e}")
-                    if traffic_service:
-                        traffic_service.record_allocation_attempt(traffic_id, "CINT", False, failure_reason)
-                    allocation_error = failure_reason
+                    record_failure("CINT", f"Database query error: {str(e)}")
                     import traceback
                     traceback.print_exc()
                     return False
@@ -1574,11 +1541,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     client.close()
 
             except Exception as outer_e:
-                failure_reason = f"Setup error: {str(outer_e)}"
                 print(f"⚠️ CINT allocation setup failed: {outer_e}")
-                if traffic_service:
-                    traffic_service.record_allocation_attempt(traffic_id, "CINT", False, failure_reason)
-                allocation_error = failure_reason
+                record_failure("CINT", f"Setup error: {str(outer_e)}")
                 import traceback
                 traceback.print_exc()
                 return False
