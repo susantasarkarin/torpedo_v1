@@ -1530,11 +1530,14 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 # Entry link doesn't exist - try to create one
                                 print(f"📝 No entry link exists for survey {survey_id}, creating one...")
                                 create_url = f"https://api.samplicio.us/Supply/v1/SupplierLinks/Create/{survey_id}/{cint_supplier_code}"
-                                # Use minimal payload - redirects are configured via Lucid Supplier Portal
-                                # "Submit Redirect Form" per client guidance
+                                # Include redirect URLs to ensure proper handling on entry rejection
                                 create_payload = {
                                     "SupplierLinkTypeCode": "OWS",
-                                    "TrackingTypeCode": "NONE"
+                                    "TrackingTypeCode": "NONE",
+                                    "SuccessLink": "https://torpedo.cogentixresearch.com/cint-response?status=complete&pid=[%PID%]&mid=[%MID%]&revenue=[%REVENUE%]",
+                                    "FailureLink": "https://torpedo.cogentixresearch.com/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]",
+                                    "OverQuotaLink": "https://torpedo.cogentixresearch.com/cint-response?status=quota_full&pid=[%PID%]&mid=[%MID%]",
+                                    "QualityTerminationLink": "https://torpedo.cogentixresearch.com/cint-response?status=quality_terminate&pid=[%PID%]&mid=[%MID%]"
                                 }
                                 create_resp = httpx.post(create_url, json=create_payload, headers=headers, timeout=15)
                                 if create_resp.status_code in [200, 201]:

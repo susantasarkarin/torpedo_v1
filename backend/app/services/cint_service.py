@@ -1068,9 +1068,9 @@ class CintService:
     ) -> Dict[str, Any]:
         """Auto-create entry link for a survey.
         
-        Note: Redirects are configured via Cint Supplier Portal (SR-0721)
-        with appended demographic parameters. We only provide minimal
-        required parameters here (OWS + NONE tracking).
+        Redirect URLs are passed at entry link creation to ensure proper
+        handling even when Cint rejects respondents at entry (403).
+        Portal-level redirects (SR-0721) provide additional demographic params.
         
         Args:
             survey_id: Cint survey ID
@@ -1094,11 +1094,17 @@ class CintService:
                 logger.debug(f"Entry link for survey {survey_id} fetched from API")
                 return {**existing, "source": "api_fetch"}
         
-        # Step 3: Create new entry link with minimal config
-        # Redirects are managed in Cint Supplier Portal
+        # Step 3: Create new entry link with redirect URLs
+        # These ensure proper redirect even on entry rejection (403)
+        # [%PID%] and [%MID%] are Cint macros replaced at runtime
+        base_url = "https://torpedo.cogentixresearch.com"
         link_config = SupplierLinkCreate(
             supplier_link_type_code="OWS",
             tracking_type_code="NONE",
+            success_link=f"{base_url}/cint-response?status=complete&pid=[%PID%]&mid=[%MID%]&revenue=[%REVENUE%]",
+            failure_link=f"{base_url}/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]",
+            over_quota_link=f"{base_url}/cint-response?status=quota_full&pid=[%PID%]&mid=[%MID%]",
+            quality_termination_link=f"{base_url}/cint-response?status=quality_terminate&pid=[%PID%]&mid=[%MID%]",
         )
         
         result = await self.create_entry_link(survey_id, link_config)
