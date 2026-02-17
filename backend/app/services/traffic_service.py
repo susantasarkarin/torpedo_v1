@@ -81,6 +81,8 @@ class TrafficService:
                 "assignedSurveyId": None,
                 "redirectUrl": None,
                 "outUrl": None,
+                "allocationAttempts": [],  # Track allocation attempts
+                "allocationFailureReason": None,  # Last failure reason
             }
             
             result = self.traffic_collection.insert_one(traffic_record)
@@ -396,6 +398,68 @@ class TrafficService:
                 
         except Exception as e:
             print(f"❌ Error updating traffic status: {e}")
+            return False
+    
+    def record_allocation_attempt(
+        self,
+        traffic_id: str,
+        provider: str,
+        success: bool,
+        failure_reason: str = None,
+        survey_id: str = None
+    ) -> bool:
+        """
+        Record an allocation attempt for debugging and analytics
+        
+        Args:
+            traffic_id: Traffic record ObjectId
+            provider: Provider name (CPX, CINT, etc.)
+            success: Whether allocation succeeded
+            failure_reason: Reason for failure if not successful
+            survey_id: Survey ID if allocated
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            attempt = {
+                "provider": provider,
+                "success": success,
+                "timestamp": datetime.utcnow(),
+                "survey_id": survey_id,
+                "failure_reason": failure_reason
+            }
+            
+            update_data = {
+                "updatedAt": datetime.utcnow()
+            }
+            
+            # Push attempt to array
+            result = self.traffic_collection.update_one(
+                {"_id": ObjectId(traffic_id)},
+                {
+                    "$push": {"allocationAttempts": attempt},
+                    "$set": update_data
+                }
+            )
+            
+            # If this was a failure, update the last failure reason
+            if not success and failure_reason:
+                self.traffic_collection.update_one(
+                    {"_id": ObjectId(traffic_id)},
+                    {"$set": {"allocationFailureReason": failure_reason}}
+                )
+            
+            if result.modified_count > 0:
+                status_icon = "✅" if success else "❌"
+                print(f"{status_icon} Recorded {provider} allocation attempt for {traffic_id}: {'success' if success else failure_reason}")
+                return True
+            else:
+                print(f"⚠️ Traffic record {traffic_id} not found for allocation tracking")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error recording allocation attempt: {e}")
             return False
     
     def get_traffic_stats(self, survey_id: Optional[str] = None) -> Dict[str, Any]:

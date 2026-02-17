@@ -78,6 +78,18 @@ if incomplete_records:
         count = hour_counts[hour]
         print(f"  Hour {hour:02d}:00       {count:5}")
     
+    # Analyze allocation failures
+    allocation_failures = {}
+    for rec in incomplete_records:
+        failure_reason = rec.get("allocationFailureReason", "Unknown")
+        allocation_failures[failure_reason] = allocation_failures.get(failure_reason, 0) + 1
+    
+    if allocation_failures:
+        print(f"\n📌 Allocation Failure Reasons:")
+        for reason, count in sorted(allocation_failures.items(), key=lambda x: x[1], reverse=True):
+            percentage = (count / len(incomplete_records)) * 100
+            print(f"  {reason:50} {count:5} ({percentage:5.1f}%)")
+    
     # Sample recent INCOMPLETE records
     print(f"\n📌 Sample Recent INCOMPLETE Records (last 5):")
     recent_incompletes = sorted(incomplete_records, key=lambda x: x.get("createdAt", datetime.min), reverse=True)[:5]
@@ -87,18 +99,36 @@ if incomplete_records:
         country = rec.get("countryCode", "N/A")
         survey_id = rec.get("assignedSurveyId", "NONE")
         created = rec.get("createdAt", "N/A")
+        failure_reason = rec.get("allocationFailureReason", "Not recorded")
+        attempts = rec.get("allocationAttempts", [])
         print(f"\n  {idx}. ID: {record_id}")
         print(f"     Vendor: {vendor_id}, Country: {country}, Survey: {survey_id}")
         print(f"     Created: {created}")
         print(f"     Has redirect URL: {bool(rec.get('redirectUrl'))}")
         print(f"     Has out URL: {bool(rec.get('outUrl'))}")
+        print(f"     Failure reason: {failure_reason}")
+        if attempts:
+            print(f"     Allocation attempts: {len(attempts)}")
+            for attempt in attempts[-3:]:  # Show last 3 attempts
+                status = "✅" if attempt.get("success") else "❌"
+                provider = attempt.get("provider", "?")
+                reason = attempt.get("failure_reason", "success")
+                print(f"       {status} {provider}: {reason}")
 
 print(f"\n{'='*70}")
-print("\n💡 Possible reasons for high INCOMPLETE rates:")
-print("   1. Users clicking entry link but not starting survey")
-print("   2. Survey allocation succeeded but user never received callback")
-print("   3. Users abandoning survey before any status callback fires")
-print("   4. Network/timeout issues preventing status updates")
-print("   5. Missing or incorrect callback URLs in provider configuration")
+print("\n💡 Common reasons for INCOMPLETE status with no survey assignment:")
+print("   1. CPX WebView Block - User using in-app browser (Facebook/Instagram/LinkedIn)")
+print("   2. CPX Entry Guard Block - Duplicate attempt or fraud prevention")
+print("   3. No Surveys Available - Neither CPX nor CINT have matching surveys")
+print("   4. Invalid IP Address - Local/private IP cannot be used for survey APIs")
+print("   5. Country Mismatch - No surveys available for user's country")
+print("   6. API Errors - CPX or CINT service temporarily unavailable")
+print("   7. Configuration Issues - Missing API credentials or database connection")
+print("\n📊 To reduce INCOMPLETE rates:")
+print("   • Ensure adequate survey inventory for all supported countries")
+print("   • Monitor CPX/CINT API availability and error rates")
+print("   • Review entry guard thresholds if blocking legitimate users")
+print("   • Add fallback survey pools for common failure scenarios")
+print("   • Implement retry mechanism for temporary failures")
 
 client.close()
