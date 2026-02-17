@@ -291,8 +291,227 @@ async def handle_respondent_outcomes_webhook(
 
 
 # ============================================
-# Entry Link Management
+# Respondent-Level Entry Links (CORRECT MODEL)
 # ============================================
+# These endpoints use the isolated CintEntryLinkService
+# Entry links are created PER RESPONDENT, not per survey
+
+@router.post("/respondent-link")
+async def create_respondent_entry_link(
+    survey_id: str = Query(..., description="Cint survey/study ID"),
+    respondent_id: str = Query(..., description="Internal respondent ID"),
+):
+    """
+    Create respondent-level entry link for Cint survey.
+    
+    CRITICAL: This is the CORRECT endpoint for Cint Exchange.
+    Entry links are created PER RESPONDENT, not cached or reused.
+    
+    Args:
+        survey_id: Cint survey/study ID (from webhook)
+        respondent_id: Internal respondent/user ID
+    
+    Returns:
+        JSON with live_link for immediate redirect
+    """
+    from app.services.cint_entrylink_service import create_cint_respondent_link
+    
+    try:
+        result = await create_cint_respondent_link(
+            survey_id=survey_id,
+            respondent_id=respondent_id,
+            provider="CINT",
+        )
+        
+        if result.get("success"):
+            return result
+        
+        status_code = result.get("status_code", 500)
+        if status_code == 404:
+            raise HTTPException(status_code=404, detail="Survey not found or inactive")
+        elif status_code == 403:
+            raise HTTPException(status_code=403, detail="Authentication failed")
+        else:
+            raise HTTPException(status_code=status_code, detail=result.get("error", "Unknown error"))
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating respondent entry link: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/respondent-link/redirect")
+async def respondent_entry_link_redirect(
+    survey_id: str = Query(..., description="Cint survey/study ID"),
+    respondent_id: str = Query(..., description="Internal respondent ID"),
+):
+    """
+    Create respondent entry link and redirect directly.
+    
+    Use this endpoint when you want immediate redirect to survey.
+    
+    Args:
+        survey_id: Cint survey/study ID
+        respondent_id: Internal respondent ID
+    
+    Returns:
+        HTTP 302 redirect to survey
+    """
+    from fastapi.responses import RedirectResponse
+    from app.services.cint_entrylink_service import create_cint_respondent_link
+    
+    try:
+        result = await create_cint_respondent_link(
+            survey_id=survey_id,
+            respondent_id=respondent_id,
+            provider="CINT",
+        )
+        
+        if result.get("success") and result.get("live_link"):
+            return RedirectResponse(url=result["live_link"], status_code=302)
+        
+        # Error - redirect to error page
+        error = result.get("error", "unknown")
+        return RedirectResponse(
+            url=f"https://torpedo.cogentixresearch.com/survey-error?error={error}",
+            status_code=302
+        )
+    
+    except Exception as e:
+        logger.error(f"Error in respondent redirect: {e}")
+        return RedirectResponse(
+            url=f"https://torpedo.cogentixresearch.com/survey-error?error=system",
+            status_code=302
+        )
+
+
+@router.post("/status")
+async def cint_status_callback(
+    request: Request,
+    status: str = Query(None, description="Cint status: complete, screenout, quota_full, terminate"),
+    respondent_id: str = Query(None, description="Respondent ID we sent"),
+    survey_id: str = Query(None, description="Survey ID"),
+    transaction_id: str = Query(None, description="Cint transaction ID"),
+    revenue: float = Query(None, description="Revenue/payout amount"),
+):
+    """
+    Status callback handler for Cint respondent outcomes.
+    
+    This endpoint receives callbacks from Cint after a respondent completes
+    or terminates from a survey.
+    
+    ISOLATED FROM CPX: This handler is Cint-specific and must not share
+    any logic with CPX status handlers.
+    
+    Status mapping:
+        complete → CREDIT USER
+        screenout → MARK SOFT_FAIL
+        quota_full → BLOCK SURVEY
+        terminate → MARK FAIL
+    
+    Args:
+        status: Cint status code
+        respondent_id: Our internal respondent ID
+        survey_id: Cint survey ID
+        transaction_id: Cint transaction ID (optional)
+        revenue: Payout amount (for completes)
+    
+    Returns:
+        JSON confirmation or redirect
+    """
+    from app.services.cint_entrylink_service import map_cint_status, get_internal_action
+    from fastapi.responses import RedirectResponse
+    
+    # Also try to get params from request body for POST
+    body_params = {}
+    try:
+        body_params = await request.json()
+    except:
+        pass
+    
+    # Merge query params with body params (query takes priority)
+    final_status = status or body_params.get("status")
+    final_respondent_id = respondent_id or body_params.get("respondent_id")
+    final_survey_id = survey_id or body_params.get("survey_id")
+    final_transaction_id = transaction_id or body_params.get("transaction_id")
+    final_revenue = revenue or body_params.get("revenue")
+    
+    logger.info(f"[CINT STATUS] Callback: status={final_status}, respondent={final_respondent_id}, survey={final_survey_id}")
+    
+    if not final_status:
+        logger.warning("[CINT STATUS] Missing status parameter")
+        return {"success": False, "error": "Missing status parameter"}
+    
+    if not final_respondent_id:
+        logger.warning("[CINT STATUS] Missing respondent_id parameter")
+        return {"success": False, "error": "Missing respondent_id parameter"}
+    
+    try:
+        # Map status to internal format
+        internal_status = map_cint_status(final_status)
+        internal_action = get_internal_action(final_status)
+        
+        # TODO: Implement actual user crediting/marking logic
+        # This should update the traffic record and credit the user if complete
+        logger.info(f"[CINT STATUS] Mapped: {final_status} → {internal_status} (action: {internal_action})")
+        
+        # For now, log and acknowledge
+        # In production: update traffic record, credit user wallet, etc.
+        
+        return {
+            "success": True,
+            "status": final_status,
+            "internal_status": internal_status,
+            "action": internal_action,
+            "respondent_id": final_respondent_id,
+            "survey_id": final_survey_id,
+            "revenue": final_revenue,
+        }
+    
+    except Exception as e:
+        logger.error(f"[CINT STATUS] Error processing callback: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/status")
+async def cint_status_callback_get(
+    status: str = Query(None, description="Cint status"),
+    respondent_id: str = Query(None, description="Respondent ID"),
+    survey_id: str = Query(None, description="Survey ID"),
+    transaction_id: str = Query(None, description="Transaction ID"),
+    revenue: float = Query(None, description="Revenue amount"),
+):
+    """
+    GET version of status callback (some systems use GET for callbacks).
+    Delegates to POST handler.
+    """
+    from app.services.cint_entrylink_service import map_cint_status, get_internal_action
+    
+    logger.info(f"[CINT STATUS GET] status={status}, respondent={respondent_id}")
+    
+    if not status or not respondent_id:
+        return {"success": False, "error": "Missing required parameters"}
+    
+    internal_status = map_cint_status(status)
+    internal_action = get_internal_action(status)
+    
+    return {
+        "success": True,
+        "status": status,
+        "internal_status": internal_status,
+        "action": internal_action,
+        "respondent_id": respondent_id,
+        "survey_id": survey_id,
+        "revenue": revenue,
+    }
+
+
+# ============================================
+# Entry Link Management (PROJECT-LEVEL - DEPRECATED FOR CINT)
+# ============================================
+# WARNING: These endpoints use PROJECT-level entry links.
+# For Cint Exchange, use /respondent-link endpoints above instead.
 
 @router.post("/entry-links/{survey_id}")
 async def create_entry_link(

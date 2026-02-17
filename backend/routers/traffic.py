@@ -792,6 +792,7 @@ async def cpx_callback(
                                 random.shuffle(cint_surveys)
                                 
                                 # Try surveys until one works (limited to 100)
+                                # Use RESPONDENT-LEVEL entry links (not project-level)
                                 success = False
                                 for selected_survey in cint_surveys[:100]:
                                     if success:
@@ -799,109 +800,55 @@ async def cpx_callback(
                                     cint_survey_id = str(selected_survey.get('survey_id') or selected_survey.get('_id'))
                                     
                                     try:
-                                        headers = {"Authorization": cint_api_key, "Content-Type": "application/json"}
-                                        live_link = None
+                                        # Use respondent-level entry link (Cint Exchange correct model)
+                                        from app.services.cint_entrylink_service import CintEntryLinkService
                                         
-                                        # First, try to get existing entry link
-                                        get_url = f"https://api.samplicio.us/Supply/v1/SupplierLinks/BySurveyNumber/{cint_survey_id}/{cint_supplier_code}"
-                                        get_resp = httpx.get(get_url, headers=headers, timeout=15)
+                                        entrylink_service = CintEntryLinkService(
+                                            api_key=cint_api_key,
+                                            encryption_key=os.getenv("CINT_ENCRYPTION_KEY") or os.getenv("CINT_WEBHOOK_SECRET"),
+                                        )
                                         
-                                        if get_resp.status_code == 200:
-                                            supplier_link_data = get_resp.json().get("SupplierLink", {})
-                                            live_link = supplier_link_data.get("LiveLink")
-                                            if live_link:
-                                                print(f"✅ CINT fallback: Using existing entry link for survey {cint_survey_id}")
+                                        import asyncio
+                                        result = asyncio.get_event_loop().run_until_complete(
+                                            entrylink_service.create_entry_link(
+                                                survey_id=cint_survey_id,
+                                                respondent_id=respondent_id,
+                                            )
+                                        )
                                         
-                                        # If GET failed or no LiveLink, try to create
-                                        if not live_link:
-                                            create_url = f"https://api.samplicio.us/Supply/v1/SupplierLinks/Create/{cint_survey_id}/{cint_supplier_code}"
-                                            create_payload = {
-                                                "SupplierLinkTypeCode": "OWS",
-                                                "TrackingTypeCode": "NONE",
-                                                "SuccessLink": "https://torpedo.cogentixresearch.com/cint-response?status=complete&pid=[%PID%]&mid=[%MID%]&revenue=[%REVENUE%]",
-                                                "FailureLink": "https://torpedo.cogentixresearch.com/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]",
-                                                "OverQuotaLink": "https://torpedo.cogentixresearch.com/cint-response?status=quota_full&pid=[%PID%]&mid=[%MID%]",
-                                                "QualityTerminationLink": "https://torpedo.cogentixresearch.com/cint-response?status=quality_terminate&pid=[%PID%]&mid=[%MID%]"
-                                            }
-                                            create_resp = httpx.post(create_url, json=create_payload, headers=headers, timeout=15)
+                                        if result.get("success") and result.get("live_link"):
+                                            cint_entry_link = result["live_link"]
                                             
-                                            if create_resp.status_code in [200, 201]:
-                                                supplier_link_data = create_resp.json().get("SupplierLink", {})
-                                                live_link = supplier_link_data.get("LiveLink")
-                                                if live_link:
-                                                    print(f"✅ CINT fallback: Created new entry link for survey {cint_survey_id}")
-                                            elif create_resp.status_code == 409:
-                                                # Conflict - link exists but GET failed, skip without marking inactive
-                                                print(f"⚠️ CINT fallback: Survey {cint_survey_id} link exists (409), trying next survey")
-                                                continue
-                                            else:
-                                                # Other errors - mark as inactive
-                                                print(f"⚠️ CINT fallback: Survey {cint_survey_id} returned {create_resp.status_code}, marking inactive and trying next")
-                                                cint_collection.update_one(
-                                                    {"survey_id": int(cint_survey_id)},
-                                                    {"$set": {"is_active": False, "is_active_in_pool": False}}
+                                            # Mark fallback attempted and store CINT info
+                                            if url_parameters_collection is not None:
+                                                url_parameters_collection.update_one(
+                                                    {"_id": ObjectId(traffic_id)},
+                                                    {"$set": {
+                                                        "cint_fallback_attempted": True,
+                                                        "cint_survey_id": cint_survey_id,
+                                                        "cint_entry_link": cint_entry_link,
+                                                        "status": "CPX_TERMINATED_CINT_FALLBACK",
+                                                        "updatedAt": datetime.utcnow()
+                                                    }}
                                                 )
-                                                continue
+                                            
+                                            print(f"✅ CINT fallback (respondent-level): Redirecting SFWID={traffic_id} to survey {cint_survey_id}")
+                                            success = True
+                                            return RedirectResponse(url=cint_entry_link)
                                         
-                                        if live_link:
-                                                # Store the created entry link for tracking
-                                                try:
-                                                    entry_links_collection.update_one(
-                                                        {"survey_id": int(cint_survey_id)},
-                                                        {"$set": {
-                                                            "survey_id": int(cint_survey_id),
-                                                            "survey_number": int(cint_survey_id),
-                                                            "live_link": live_link,
-                                                            "test_link": supplier_link_data.get("TestLink"),
-                                                            "cpi": supplier_link_data.get("CPI"),
-                                                            "created_at": datetime.utcnow(),
-                                                            "updated_at": datetime.utcnow(),
-                                                            "created_via": "cpx_fallback"
-                                                        }},
-                                                        upsert=True
-                                                    )
-                                                    print(f"✅ Stored entry link for survey {cint_survey_id}")
-                                                except Exception as store_err:
-                                                    print(f"⚠️ Failed to store entry link: {store_err}")
-                                                
-                                                # Build CINT entry link with new MID and standard params
-                                                from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
-                                                cint_mid = uuid.uuid4().hex[:16]
-                                                
-                                                parsed = urlparse(live_link)
-                                                params = dict(parse_qsl(parsed.query, keep_blank_values=True))
-                                                params.pop("pid", None)
-                                                params.pop("mid", None)
-                                                params["PID"] = respondent_id
-                                                params["MID"] = cint_mid
-                                                params["rid"] = respondent_id
-                                                params["cc"] = (user_country or "").upper()
-                                                cint_entry_link = urlunparse(parsed._replace(query=urlencode(params)))
-                                                
-                                                # Mark fallback attempted and store CINT info
-                                                if url_parameters_collection is not None:
-                                                    url_parameters_collection.update_one(
-                                                        {"_id": ObjectId(traffic_id)},
-                                                        {"$set": {
-                                                            "cint_fallback_attempted": True,
-                                                            "cint_survey_id": cint_survey_id,
-                                                            "cint_mid": cint_mid,
-                                                            "cint_entry_link": cint_entry_link,
-                                                            "status": "CPX_TERMINATED_CINT_FALLBACK",
-                                                            "updatedAt": datetime.utcnow()
-                                                        }}
-                                                    )
-                                                
-                                                print(f"✅ CINT fallback: Redirecting SFWID={traffic_id} to survey {cint_survey_id} (cint_mid={cint_mid})")
-                                                success = True
-                                                return RedirectResponse(url=cint_entry_link)
-                                        else:
-                                            print(f"⚠️ CINT fallback: Survey {cint_survey_id} returned {resp.status_code}, marking inactive and trying next")
+                                        elif result.get("should_mark_inactive"):
+                                            # Survey not found / inactive - mark it
+                                            print(f"⚠️ CINT fallback: Survey {cint_survey_id} inactive (404), marking and trying next")
                                             cint_collection.update_one(
                                                 {"survey_id": int(cint_survey_id)},
                                                 {"$set": {"is_active": False, "is_active_in_pool": False}}
                                             )
                                             continue
+                                        
+                                        else:
+                                            print(f"⚠️ CINT fallback: Survey {cint_survey_id} failed: {result.get('error')}, trying next")
+                                            continue
+                                            
                                     except Exception as survey_err:
                                         print(f"⚠️ CINT fallback: Survey {cint_survey_id} failed: {survey_err}, trying next")
                                         continue
@@ -1490,109 +1437,41 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
 
                     print(f"🎯 CINT selected survey: {survey_id} (country: {selected_survey.get('country_language')})")
 
-                    # First check MongoDB cache for entry link
-                    entry_links_collection = client["cint_research"]["cint_entry_links"]
-                    entry_link_doc = entry_links_collection.find_one({"survey_id": int(survey_id)})
-
-                    live_link = None
-                    if entry_link_doc:
-                        live_link = entry_link_doc.get('live_link') or entry_link_doc.get('LiveLink')
-                        print(f"✅ Found cached entry link for survey {survey_id}")
-
-                    # If no cached entry link, fetch from CINT API
-                    if not live_link:
-                        print(f"📡 Fetching entry link from CINT API for survey {survey_id}...")
-                        api_url = f"https://api.samplicio.us/Supply/v1/SupplierLinks/BySurveyNumber/{survey_id}/{cint_supplier_code}"
-                        headers = {"Authorization": cint_api_key, "Content-Type": "application/json"}
-
-                        try:
-                            resp = httpx.get(api_url, headers=headers, timeout=10)
-                            if resp.status_code == 200:
-                                api_data = resp.json()
-                                supplier_link = api_data.get("SupplierLink", {})
-                                live_link = supplier_link.get("LiveLink")
-
-                                if live_link:
-                                    # Cache the entry link for future use
-                                    entry_links_collection.update_one(
-                                        {"survey_id": int(survey_id)},
-                                        {"$set": {
-                                            "survey_id": int(survey_id),
-                                            "live_link": live_link,
-                                            "test_link": supplier_link.get("TestLink"),
-                                            "supplier_link_type_code": supplier_link.get("SupplierLinkTypeCode"),
-                                            "updated_at": datetime.utcnow()
-                                        }},
-                                        upsert=True
-                                    )
-                                    print(f"✅ Fetched and cached entry link for survey {survey_id}")
-                            elif resp.status_code == 404:
-                                # Entry link doesn't exist - try to create one
-                                print(f"📝 No entry link exists for survey {survey_id}, creating one...")
-                                create_url = f"https://api.samplicio.us/Supply/v1/SupplierLinks/Create/{survey_id}/{cint_supplier_code}"
-                                # Include redirect URLs to ensure proper handling on entry rejection
-                                create_payload = {
-                                    "SupplierLinkTypeCode": "OWS",
-                                    "TrackingTypeCode": "NONE",
-                                    "SuccessLink": "https://torpedo.cogentixresearch.com/cint-response?status=complete&pid=[%PID%]&mid=[%MID%]&revenue=[%REVENUE%]",
-                                    "FailureLink": "https://torpedo.cogentixresearch.com/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]",
-                                    "OverQuotaLink": "https://torpedo.cogentixresearch.com/cint-response?status=quota_full&pid=[%PID%]&mid=[%MID%]",
-                                    "QualityTerminationLink": "https://torpedo.cogentixresearch.com/cint-response?status=quality_terminate&pid=[%PID%]&mid=[%MID%]"
-                                }
-                                create_resp = httpx.post(create_url, json=create_payload, headers=headers, timeout=15)
-                                if create_resp.status_code in [200, 201]:
-                                    create_data = create_resp.json()
-                                    live_link = create_data.get("SupplierLink", {}).get("LiveLink")
-                                    if live_link:
-                                        # Cache it
-                                        entry_links_collection.update_one(
-                                            {"survey_id": int(survey_id)},
-                                            {"$set": {
-                                                "survey_id": int(survey_id),
-                                                "live_link": live_link,
-                                                "updated_at": datetime.utcnow()
-                                            }},
-                                            upsert=True
-                                        )
-                                        print(f"✅ Created and cached entry link for survey {survey_id}")
-                                else:
-                                    print(f"⚠️ Failed to create entry link: {create_resp.status_code}")
-                            else:
-                                print(f"⚠️ CINT API error: {resp.status_code}")
-                        except Exception as api_err:
-                            print(f"⚠️ CINT API call failed: {api_err}")
-
-                    if not live_link:
-                        print(f"❌ Could not get entry link for CINT survey {survey_id}")
-                        return False
-
-                    # Build final entry link with PID and MID per Lucid docs using shared builder
-                    # PID = Panelist ID (traffic_id for tracking)
-                    # MID = Unique session ID (prevents entry link reuse per client feedback)
-                    import uuid
-                    session_mid = uuid.uuid4().hex[:16]  # 16 hex chars, no dashes
+                    # Use RESPONDENT-LEVEL entry link (Cint Exchange correct model)
+                    # NO caching - create fresh per respondent
+                    from app.services.cint_entrylink_service import CintEntryLinkService
                     
-                    # Use cint_service.build_entry_link if available for guaranteed uppercase PID/MID
-                    if cint_service:
-                        entry_link = cint_service.build_entry_link(
-                            live_link=live_link,
-                            respondent_id=traffic_id,
-                            country_code=country_code or "",
-                            pid=traffic_id,
-                            mid=session_mid,
+                    try:
+                        entrylink_service = CintEntryLinkService(
+                            api_key=cint_api_key,
+                            encryption_key=os.getenv("CINT_ENCRYPTION_KEY") or os.getenv("CINT_WEBHOOK_SECRET"),
                         )
-                    else:
-                        # Fallback: manual build with uppercase enforcement
-                        from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
-                        parsed = urlparse(live_link)
-                        params = dict(parse_qsl(parsed.query, keep_blank_values=True))
-                        params.pop("pid", None)
-                        params.pop("mid", None)
-                        params["PID"] = traffic_id
-                        params["MID"] = session_mid
-                        entry_link = urlunparse(parsed._replace(query=urlencode(params)))
-                    
-                    print(f"🔗 Final CINT entry link: {entry_link[:100]}... (MID={session_mid})")
+                        
+                        import asyncio
+                        result = asyncio.get_event_loop().run_until_complete(
+                            entrylink_service.create_entry_link(
+                                survey_id=survey_id,
+                                respondent_id=traffic_id,
+                            )
+                        )
+                        
+                        if not result.get("success") or not result.get("live_link"):
+                            print(f"❌ Could not create respondent entry link for CINT survey {survey_id}: {result.get('error')}")
+                            
+                            # If survey inactive, mark it
+                            if result.get("should_mark_inactive"):
+                                cint_collection.update_one(
+                                    {"survey_id": int(survey_id)},
+                                    {"$set": {"is_active": False, "is_active_in_pool": False}}
+                                )
+                            return False
+                        
+                        entry_link = result["live_link"]
+                        print(f"🔗 CINT respondent entry link: {entry_link[:100]}...")
+                        
+                    except Exception as entrylink_err:
+                        print(f"❌ CINT entry link service error: {entrylink_err}")
+                        return False
 
                     allocation_success = True
 
@@ -1611,19 +1490,12 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 "assignedSurveyId": survey_id,
                                 "redirectUrl": entry_link,
                                 "surveySource": "CINT",
-                                "cint_mid": session_mid,
+                                "cint_entry_link_type": "RESPONDENT",  # Mark as respondent-level link
                                 "updatedAt": datetime.utcnow().isoformat(),
                             }}
                         )
 
-                    if url_parameters_collection is not None:
-                        url_parameters_collection.update_one(
-                            {"_id": ObjectId(traffic_id)},
-                            {"$set": {"cint_mid": session_mid}}
-                        )
-
                     print(f"✅ CINT allocated survey {survey_id} to SFWID={traffic_id}")
-                    print(f"   Entry link: {entry_link[:100]}...")
                     return True
 
                 except Exception as e:
