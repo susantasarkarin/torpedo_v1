@@ -526,6 +526,7 @@ async def get_or_create_survey_link(
     respondent_id: str = Query(..., description="Unique respondent identifier"),
     country_code: str = Query(default="US", description="ISO country code (e.g., US, GB, CA)"),
     redirect: bool = Query(default=False, description="If true, return HTTP 302 redirect instead of JSON"),
+    force_refresh: bool = Query(default=False, description="If true, bypass cache and fetch/create from Cint API"),
     pid: Optional[str] = Query(None, description="Panelist ID (defaults to respondent_id)"),
     mid: Optional[str] = Query(None, description="Session/Market ID"),
     cint_service = Depends(get_cint_service),
@@ -560,8 +561,10 @@ async def get_or_create_survey_link(
     try:
         logger.info(f"On-demand entry link request for survey {survey_id}, respondent {respondent_id}")
         
-        # Step 1: Check cache for existing entry link
-        cached_link = await cint_service.get_entry_link_by_survey_id(survey_id)
+        # Step 1: Check cache for existing entry link (unless force_refresh)
+        cached_link = None
+        if not force_refresh:
+            cached_link = await cint_service.get_entry_link_by_survey_id(survey_id)
         
         if cached_link and cached_link.live_link:
             logger.info(f"Using cached entry link for survey {survey_id}")
@@ -583,9 +586,9 @@ async def get_or_create_survey_link(
                 "cached": True,
             }
         
-        # Step 2: Not cached - create via Cint API
-        logger.info(f"Creating entry link on-demand for survey {survey_id}")
-        result = await cint_service._auto_create_entry_link(survey_id)
+        # Step 2: Not cached (or force_refresh) - create via Cint API
+        logger.info(f"Creating entry link on-demand for survey {survey_id} (force_refresh={force_refresh})")
+        result = await cint_service._auto_create_entry_link(survey_id, force_refresh=force_refresh)
         
         if result.get("success") and result.get("link"):
             link = result["link"]

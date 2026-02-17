@@ -1063,23 +1063,48 @@ class CintService:
         logger.info(f"Processed {len(processed)} opportunities (entry links created: {entry_links_created})")
         return processed
 
-    async def _auto_create_entry_link(self, survey_id: int) -> Dict[str, Any]:
+    async def _auto_create_entry_link(
+        self, survey_id: int, force_refresh: bool = False
+    ) -> Dict[str, Any]:
         """Auto-create entry link for a survey.
         
-        Note: Redirects are configured via Lucid Supplier Portal "Submit Redirect Form"
-        per client guidance. We only provide minimal required parameters here.
+        Note: Redirects are configured via Cint Supplier Portal (SR-0721)
+        with appended demographic parameters. We only provide minimal
+        required parameters here (OWS + NONE tracking).
+        
+        Args:
+            survey_id: Cint survey ID
+            force_refresh: If True, bypass cache and fetch/create from API
+        
+        Returns:
+            Dict with success status and SupplierLink object
         """
-        # Use minimal config - redirects are set in Lucid Supplier Portal
+        # Step 1: Check local MongoDB cache first (fast)
+        if not force_refresh:
+            cached = await self.get_entry_link_by_survey_id(survey_id)
+            if cached and cached.live_link:
+                logger.debug(f"Entry link for survey {survey_id} found in cache")
+                return {"success": True, "link": cached, "source": "cache"}
+        
+        # Step 2: Try to fetch from Cint API (may already exist)
+        existing = await self.get_entry_link(survey_id)
+        if existing.get("success") and existing.get("link"):
+            link = existing.get("link")
+            if hasattr(link, 'live_link') and link.live_link:
+                logger.debug(f"Entry link for survey {survey_id} fetched from API")
+                return {**existing, "source": "api_fetch"}
+        
+        # Step 3: Create new entry link with minimal config
+        # Redirects are managed in Cint Supplier Portal
         link_config = SupplierLinkCreate(
             supplier_link_type_code="OWS",
             tracking_type_code="NONE",
         )
         
-        existing = await self.get_entry_link(survey_id)
-        if existing.get("success") and existing.get("link"):
-            return existing
-        
-        return await self.create_entry_link(survey_id, link_config)
+        result = await self.create_entry_link(survey_id, link_config)
+        if result.get("success"):
+            result["source"] = "created"
+        return result
 
     def _upsert_opportunity(self, opportunity: CintOpportunity) -> None:
         """
@@ -1143,16 +1168,16 @@ class CintService:
             # Parse response
             api_response = response.json()
 
-            # DEBUG: Log the entire API response to understand its structure
-            logger.info(f"[ENTRY LINK DEBUG] Cint API response for survey {survey_id}: {json.dumps(api_response, indent=2)[:500]}")
-            logger.info(f"[ENTRY LINK DEBUG] Response keys: {list(api_response.keys()) if isinstance(api_response, dict) else type(api_response)}")
+            # Debug logging for response structure (use debug level to avoid log spam)
+            logger.debug(f"[ENTRY LINK] Cint API response for survey {survey_id}: {json.dumps(api_response, indent=2)[:500]}")
+            logger.debug(f"[ENTRY LINK] Response keys: {list(api_response.keys()) if isinstance(api_response, dict) else type(api_response)}")
 
             # Extract supplier link from response
             if "SupplierLink" in api_response:
                 link_data = api_response["SupplierLink"]
 
-                logger.info(f"[ENTRY LINK DEBUG] SupplierLink data keys: {list(link_data.keys())}")
-                logger.info(f"[ENTRY LINK DEBUG] SupplierLink has live_link: {'LiveLink' in link_data or 'live_link' in link_data}")
+                logger.debug(f"[ENTRY LINK] SupplierLink data keys: {list(link_data.keys())}")
+                logger.debug(f"[ENTRY LINK] SupplierLink has LiveLink: {'LiveLink' in link_data}")
 
                 # Create SupplierLink object
                 supplier_link = SupplierLink(
@@ -1161,7 +1186,7 @@ class CintService:
                     **link_data
                 )
 
-                logger.info(f"[ENTRY LINK DEBUG] Created SupplierLink object with live_link: {supplier_link.live_link}")
+                logger.debug(f"[ENTRY LINK] Created SupplierLink object with live_link: {supplier_link.live_link}")
 
                 # Store in MongoDB if collection provided
                 if self.cint_entry_links_collection is not None:
@@ -1170,12 +1195,24 @@ class CintService:
                 logger.info(f"Entry link created for survey {survey_id}")
                 return {"success": True, "link": supplier_link}
 
-            logger.warning(f"[ENTRY LINK DEBUG] No 'SupplierLink' key in response. Full response: {api_response}")
+            logger.warning(f"[ENTRY LINK] No 'SupplierLink' key in response. Full response: {api_response}")
             return {"success": False, "error": "Invalid API response - missing SupplierLink key"}
         
         except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to create entry link: {e.response.status_code}")
-            return {"success": False, "error": str(e), "status_code": e.response.status_code}
+            status_code = e.response.status_code
+            
+            # Handle 409 Conflict - entry link already exists
+            # This ensures idempotency: calling create multiple times is safe
+            if status_code == 409:
+                logger.info(f"Entry link already exists for survey {survey_id} (409 Conflict), fetching existing")
+                existing = await self.get_entry_link(survey_id)
+                if existing.get("success") and existing.get("link"):
+                    return {**existing, "source": "existing_409"}
+                # If fetch also fails, return the original 409 error
+                logger.warning(f"Failed to fetch existing entry link after 409 for survey {survey_id}")
+            
+            logger.error(f"Failed to create entry link: {status_code}")
+            return {"success": False, "error": str(e), "status_code": status_code}
         except Exception as e:
             logger.error(f"Failed to create entry link: {str(e)}")
             return {"success": False, "error": str(e)}

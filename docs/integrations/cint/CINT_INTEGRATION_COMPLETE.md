@@ -5,6 +5,23 @@ The Cint integration has been reviewed and all critical issues identified from t
 
 ---
 
+## Redirect Configuration (Cint Supplier Portal)
+
+Redirects are managed in the **Cint Supplier Portal** under record **SR-0721**.
+
+**DO NOT** send redirect URLs in API entry link creation calls - they are configured portal-side.
+
+| Redirect Type | Base URL |
+|---------------|----------|
+| Complete | `https://torpedo.cogentixresearch.com/cint-response?status=complete&pid=[%PID%]&mid=[%MID%]&revenue=[%REVENUE%]` |
+| Termination | `https://torpedo.cogentixresearch.com/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]` |
+| Over Quota | `https://torpedo.cogentixresearch.com/cint-response?status=quota_full&pid=[%PID%]&mid=[%MID%]` |
+| Quality Term | `https://torpedo.cogentixresearch.com/cint-response?status=quality_terminate&pid=[%PID%]&mid=[%MID%]` |
+
+**Appended Parameters** (configured in portal): Survey ID (`[%RSFN%]`), demographics (AGE, GENDER, HHI, STATE, DMA, ETHNICITY, etc.), and status info (`[%InitialStatus%]`, `[%ClientStatus%]`).
+
+---
+
 ## Issues Fixed
 
 ### ✅ Issue 1: Webhook Error Handling
@@ -45,6 +62,27 @@ The Cint integration has been reviewed and all critical issues identified from t
 - Logs skipped surveys for monitoring
 
 **Impact:** Reduces unnecessary API calls and prevents 404 errors during bulk operations.
+
+---
+
+### ✅ Issue 4: Entry Link Creation Improvements (2026-02-17)
+
+**409 Conflict Handling**
+- `create_entry_link()` now handles HTTP 409 (already exists) gracefully
+- On 409: automatically fetches and returns existing entry link
+- Ensures idempotency - calling create multiple times is safe
+
+**Cache-First Flow Optimization**
+- `_auto_create_entry_link()` now checks MongoDB cache before API call
+- Validates cached entry link has valid `live_link` before returning
+- Added `force_refresh` parameter to bypass cache when needed
+- Supports `force_refresh=true` query param in `/survey-link/{survey_id}` endpoint
+
+**Debug Logging**
+- Downgraded `[ENTRY LINK DEBUG]` logs from `info` to `debug` level
+- Reduces log noise in production while keeping debug capability
+
+**Impact:** Improved idempotency, reduced redundant API calls, cleaner logs.
 
 ---
 
