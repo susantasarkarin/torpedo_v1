@@ -321,11 +321,8 @@ def initialize_scheduler(loop=None):
         
         # Start scheduler
         if not scheduler.running:
-            if loop:
-                scheduler.start()
-            else:
-                # If no loop provided, assume running in asyncio context
-                asyncio.create_task(scheduler.start())
+            # scheduler.start() is synchronous in APScheduler
+            scheduler.start()
             
             logger.info("[Scheduler] ✅ Background scheduler started successfully")
             logger.info("[Scheduler] Jobs scheduled:")
