@@ -801,20 +801,54 @@ async def cpx_callback(
                                     
                                     try:
                                         # Use respondent-level entry link (Cint Exchange correct model)
-                                        from app.services.cint_entrylink_service import CintEntryLinkService
+                                        # SYNC httpx to avoid event loop issues in FastAPI async context
+                                        import hmac
+                                        import hashlib
                                         
-                                        entrylink_service = CintEntryLinkService(
-                                            api_key=cint_api_key,
-                                            encryption_key=os.getenv("CINT_ENCRYPTION_KEY") or os.getenv("CINT_WEBHOOK_SECRET"),
-                                        )
+                                        cint_encryption_key = os.getenv("CINT_ENCRYPTION_KEY") or os.getenv("CINT_WEBHOOK_SECRET")
+                                        cint_supplier_code = os.getenv("CINT_SUPPLIER_CODE", "6777")
+                                        cint_callback_url = os.getenv("CINT_STATUS_CALLBACK_URL", "https://torpedo.cogentixresearch.com/api/cint/status")
                                         
-                                        import asyncio
-                                        result = asyncio.get_event_loop().run_until_complete(
-                                            entrylink_service.create_entry_link(
-                                                survey_id=cint_survey_id,
-                                                respondent_id=respondent_id,
+                                        # Generate HMAC-SHA256 secure hash
+                                        message = f"{cint_supplier_code}{cint_survey_id}{respondent_id}"
+                                        secure_hash = hmac.new(
+                                            cint_encryption_key.encode('utf-8'),
+                                            message.encode('utf-8'),
+                                            hashlib.sha256
+                                        ).hexdigest()
+                                        
+                                        # Sync HTTP call to CINT entry link API
+                                        cint_payload = {
+                                            "survey_id": str(cint_survey_id),
+                                            "supplier_code": cint_supplier_code,
+                                            "respondent_id": respondent_id,
+                                            "secure_hash": secure_hash,
+                                            "return_url": cint_callback_url,
+                                        }
+                                        cint_headers = {
+                                            "Authorization": cint_api_key,
+                                            "Content-Type": "application/json",
+                                            "Accept": "application/json",
+                                        }
+                                        
+                                        with httpx.Client(timeout=30.0) as sync_client:
+                                            cint_resp = sync_client.post(
+                                                "https://api.samplicio.us/supply/v1/entrylinks",
+                                                json=cint_payload,
+                                                headers=cint_headers,
                                             )
-                                        )
+                                        
+                                        if cint_resp.status_code in (200, 201):
+                                            cint_data = cint_resp.json()
+                                            live_link = cint_data.get("live_link") or cint_data.get("LiveLink")
+                                            if live_link:
+                                                result = {"success": True, "live_link": live_link}
+                                            else:
+                                                result = {"success": False, "error": "No live_link in response"}
+                                        elif cint_resp.status_code == 404:
+                                            result = {"success": False, "error": "Survey not found/inactive", "should_mark_inactive": True}
+                                        else:
+                                            result = {"success": False, "error": f"CINT API error {cint_resp.status_code}"}
                                         
                                         if result.get("success") and result.get("live_link"):
                                             cint_entry_link = result["live_link"]
@@ -1477,21 +1511,55 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
 
                     # Use RESPONDENT-LEVEL entry link (Cint Exchange correct model)
                     # NO caching - create fresh per respondent
-                    from app.services.cint_entrylink_service import CintEntryLinkService
-                    
+                    # Use SYNC httpx to avoid event loop issues in FastAPI async context
                     try:
-                        entrylink_service = CintEntryLinkService(
-                            api_key=cint_api_key,
-                            encryption_key=os.getenv("CINT_ENCRYPTION_KEY") or os.getenv("CINT_WEBHOOK_SECRET"),
-                        )
+                        import hmac
+                        import hashlib
                         
-                        import asyncio
-                        result = asyncio.get_event_loop().run_until_complete(
-                            entrylink_service.create_entry_link(
-                                survey_id=survey_id,
-                                respondent_id=traffic_id,
+                        cint_encryption_key = os.getenv("CINT_ENCRYPTION_KEY") or os.getenv("CINT_WEBHOOK_SECRET")
+                        cint_supplier_code = os.getenv("CINT_SUPPLIER_CODE", "6777")
+                        cint_callback_url = os.getenv("CINT_STATUS_CALLBACK_URL", "https://torpedo.cogentixresearch.com/api/cint/status")
+                        
+                        # Generate HMAC-SHA256 secure hash
+                        message = f"{cint_supplier_code}{survey_id}{traffic_id}"
+                        secure_hash = hmac.new(
+                            cint_encryption_key.encode('utf-8'),
+                            message.encode('utf-8'),
+                            hashlib.sha256
+                        ).hexdigest()
+                        
+                        # Sync HTTP call to CINT entry link API
+                        cint_payload = {
+                            "survey_id": str(survey_id),
+                            "supplier_code": cint_supplier_code,
+                            "respondent_id": traffic_id,
+                            "secure_hash": secure_hash,
+                            "return_url": cint_callback_url,
+                        }
+                        cint_headers = {
+                            "Authorization": cint_api_key,
+                            "Content-Type": "application/json",
+                            "Accept": "application/json",
+                        }
+                        
+                        with httpx.Client(timeout=30.0) as sync_client:
+                            cint_resp = sync_client.post(
+                                "https://api.samplicio.us/supply/v1/entrylinks",
+                                json=cint_payload,
+                                headers=cint_headers,
                             )
-                        )
+                        
+                        if cint_resp.status_code in (200, 201):
+                            cint_data = cint_resp.json()
+                            live_link = cint_data.get("live_link") or cint_data.get("LiveLink")
+                            if live_link:
+                                result = {"success": True, "live_link": live_link}
+                            else:
+                                result = {"success": False, "error": "No live_link in response"}
+                        elif cint_resp.status_code == 404:
+                            result = {"success": False, "error": "Survey not found/inactive", "should_mark_inactive": True}
+                        else:
+                            result = {"success": False, "error": f"CINT API error {cint_resp.status_code}: {cint_resp.text[:100]}"}
                         
                         if not result.get("success") or not result.get("live_link"):
                             entrylink_error = result.get('error', 'Unknown entry link error')
