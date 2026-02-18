@@ -8,10 +8,12 @@ This folder contains comprehensive documentation for the Cint survey integration
 - **[Cint Entry Link API Guide](./CINT_ENTRY_LINK_API.md)** - Complete API documentation with examples
 - **[How to Access Entry Link JSON](./HOW_TO_ACCESS_ENTRY_LINK_JSON.md)** - Quick access guide
 - **[JSON Example File](./cint_entry_link_json_example.json)** - Raw JSON format reference
+- **[Respondent Payloads API](./RESPONDENT_PAYLOADS_API.md)** - Retrieve recent respondent payloads (New! ⭐)
 
-**API Endpoint:**
+**API Endpoints:**
 ```
-GET /api/cint/entry-link-json-format
+GET /api/cint/entry-link-json-format     # Get JSON format documentation
+GET /api/cint/respondent-payloads?limit=10  # Get last N respondent payloads
 ```
 
 ### Integration Documentation
@@ -27,6 +29,7 @@ If you need to integrate with the Cint Entry Link API:
 1. Start with **[CINT_ENTRY_LINK_API.md](./CINT_ENTRY_LINK_API.md)** for complete API documentation
 2. Use **[HOW_TO_ACCESS_ENTRY_LINK_JSON.md](./HOW_TO_ACCESS_ENTRY_LINK_JSON.md)** for quick access methods
 3. Reference **[cint_entry_link_json_example.json](./cint_entry_link_json_example.json)** for the exact JSON structure
+4. Check **[RESPONDENT_PAYLOADS_API.md](./RESPONDENT_PAYLOADS_API.md)** to retrieve recent respondent data
 
 ### For Integration Testing
 If you need to test or troubleshoot the integration:
@@ -65,6 +68,16 @@ The Cint Entry Link API creates respondent-specific survey URLs. Each link is un
 ```
 
 ## 🚀 Quick Start
+
+### Get Respondent Payloads (New! ⭐)
+
+Get the last 10 respondent entry link payloads:
+
+```bash
+curl http://localhost:8000/api/cint/respondent-payloads?limit=10
+```
+
+This returns the actual entry link payloads sent for recent respondents, along with their outcome data (status, payout, etc.).
 
 ### Get JSON Format (3 ways)
 
@@ -119,6 +132,7 @@ live_link = response.json()["live_link"]
 | Document | Purpose | Audience |
 |----------|---------|----------|
 | [CINT_ENTRY_LINK_API.md](./CINT_ENTRY_LINK_API.md) | Complete Entry Link API guide | Developers |
+| [RESPONDENT_PAYLOADS_API.md](./RESPONDENT_PAYLOADS_API.md) | Get recent respondent payloads | Developers |
 | [HOW_TO_ACCESS_ENTRY_LINK_JSON.md](./HOW_TO_ACCESS_ENTRY_LINK_JSON.md) | Access guide | All users |
 | [cint_entry_link_json_example.json](./cint_entry_link_json_example.json) | JSON reference | Developers |
 | [CINT_INTEGRATION_COMPLETE.md](./CINT_INTEGRATION_COMPLETE.md) | Integration overview | Integration team |
@@ -146,9 +160,12 @@ live_link = response.json()["live_link"]
 ## 🆘 Need Help?
 
 1. **Entry Link JSON Format**: See [CINT_ENTRY_LINK_API.md](./CINT_ENTRY_LINK_API.md)
-2. **Integration Issues**: See [CINT_DIAGNOSTIC_GUIDE.md](./CINT_DIAGNOSTIC_GUIDE.md)
-3. **API Questions**: Check endpoint `GET /api/cint/entry-link-json-format`
-4. **Cint Support**: Email support@cint.com
+2. **Get Respondent Payloads**: See [RESPONDENT_PAYLOADS_API.md](./RESPONDENT_PAYLOADS_API.md)
+3. **Integration Issues**: See [CINT_DIAGNOSTIC_GUIDE.md](./CINT_DIAGNOSTIC_GUIDE.md)
+4. **API Questions**: Check endpoints:
+   - `GET /api/cint/entry-link-json-format`
+   - `GET /api/cint/respondent-payloads?limit=10`
+5. **Cint Support**: Email support@cint.com
 
 ---
 

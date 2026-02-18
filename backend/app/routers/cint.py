@@ -1569,6 +1569,103 @@ async def get_entry_link_json_format():
     }
 
 
+@router.get("/respondent-payloads")
+async def get_respondent_payloads(
+    limit: int = Query(10, ge=1, le=100, description="Number of recent respondent payloads to return"),
+    cint_service = Depends(get_cint_service),
+):
+    """
+    Get the entry link payloads for the last N respondents.
+    
+    This endpoint retrieves recent respondent outcome records from the database
+    and reconstructs the entry link payloads that were sent to the Cint API.
+    
+    Note: The secure_hash is not stored and will be shown as "[REDACTED]" for security.
+    To generate a new secure_hash, use: HMAC_SHA256(supplier_code + survey_id + respondent_id, encryption_key)
+    
+    Args:
+        limit: Number of recent respondents to return (default: 10, max: 100)
+    
+    Returns:
+        List of respondent entry link payloads with additional outcome data
+    """
+    try:
+        # Get respondent outcomes collection
+        if cint_service.cint_outcomes_collection is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Database not available. Cannot retrieve respondent data."
+            )
+        
+        # Query last N respondents, sorted by received_at descending
+        outcomes = list(
+            cint_service.cint_outcomes_collection
+            .find()
+            .sort("received_at", -1)
+            .limit(limit)
+        )
+        
+        if not outcomes:
+            return {
+                "success": True,
+                "count": 0,
+                "respondents": [],
+                "message": "No respondent data found in database"
+            }
+        
+        # Reconstruct entry link payloads from stored data
+        respondent_payloads = []
+        
+        for outcome in outcomes:
+            # Get supplier code (default to 6777)
+            supplier_code = os.getenv("CINT_SUPPLIER_CODE", "6777")
+            
+            # Reconstruct the entry link payload that was sent to Cint
+            payload = {
+                "survey_id": str(outcome.get("survey_id")),
+                "supplier_code": supplier_code,
+                "respondent_id": outcome.get("respondent_id"),
+                "secure_hash": "[REDACTED - Use HMAC_SHA256(supplier_code + survey_id + respondent_id, encryption_key)]",
+                "return_url": os.getenv("CINT_STATUS_CALLBACK_URL", "https://torpedo.cogentixresearch.com/api/cint/status")
+            }
+            
+            # Add outcome data for context
+            respondent_info = {
+                "entry_link_payload": payload,
+                "outcome": {
+                    "session_id": outcome.get("session_id"),
+                    "final_status": outcome.get("final_status"),
+                    "marketplace_status": outcome.get("marketplace_status"),
+                    "client_status": outcome.get("client_status"),
+                    "payout": outcome.get("payout"),
+                    "currency": outcome.get("currency", "USD"),
+                    "entry_date": outcome.get("entry_date").isoformat() if outcome.get("entry_date") else None,
+                    "last_date": outcome.get("last_date").isoformat() if outcome.get("last_date") else None,
+                    "received_at": outcome.get("received_at").isoformat() if outcome.get("received_at") else None,
+                },
+                "api_endpoint": "POST https://api.samplicio.us/supply/v1/entrylinks",
+            }
+            
+            respondent_payloads.append(respondent_info)
+        
+        return {
+            "success": True,
+            "count": len(respondent_payloads),
+            "respondents": respondent_payloads,
+            "note": "secure_hash is redacted for security. Generate using: HMAC_SHA256(supplier_code + survey_id + respondent_id, encryption_key)",
+            "retrieved_at": datetime.utcnow().isoformat() + "Z"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving respondent payloads: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve respondent payloads: {str(e)}"
+        )
+
+
 # ============================================
 # Legacy Fulcrum API - Survey Sync
 # ============================================
