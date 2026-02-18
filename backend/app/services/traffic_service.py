@@ -81,9 +81,6 @@ class TrafficService:
                 "assignedSurveyId": None,
                 "redirectUrl": None,
                 "outUrl": None,
-                # Allocation diagnostics (populated by routers/traffic.py)
-                "allocationAttempts": [],
-                "allocationFailureReason": None,
             }
             
             result = self.traffic_collection.insert_one(traffic_record)
@@ -95,51 +92,6 @@ class TrafficService:
         except Exception as e:
             print(f"❌ Error creating traffic record: {e}")
             raise
-
-    def record_allocation_attempt(
-        self,
-        traffic_id: str,
-        provider: str,
-        success: bool,
-        survey_id: Optional[str] = None,
-        failure_reason: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> bool:
-        """Record a CPX/CINT allocation attempt on a traffic record.
-
-        This creates an audit trail to explain why records remain INCOMPLETE.
-        """
-        try:
-            attempt = {
-                "provider": str(provider),
-                "success": bool(success),
-                "timestamp": datetime.utcnow(),
-            }
-            if survey_id is not None:
-                attempt["survey_id"] = str(survey_id)
-            if failure_reason:
-                attempt["failure_reason"] = str(failure_reason)
-            if metadata:
-                attempt["metadata"] = metadata
-
-            set_fields: Dict[str, Any] = {"updatedAt": datetime.utcnow()}
-            if success:
-                set_fields["allocationFailureReason"] = None
-            elif failure_reason:
-                set_fields["allocationFailureReason"] = str(failure_reason)
-
-            result = self.traffic_collection.update_one(
-                {"_id": ObjectId(traffic_id)},
-                {
-                    "$push": {"allocationAttempts": attempt},
-                    "$set": set_fields,
-                },
-            )
-
-            return result.matched_count > 0
-        except Exception as e:
-            print(f"❌ Error recording allocation attempt for traffic {traffic_id}: {e}")
-            return False
     
     def get_new_traffic_batch(self, batch_size: int = 100) -> List[Dict[str, Any]]:
         """
