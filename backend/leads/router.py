@@ -2094,7 +2094,7 @@ async def move_lead_to_contacts_endpoint(lead_id: str, payload: dict = Body(None
     """
     POST /leads/{lead_id}/move-to-contacts
     Moves an enriched lead into the Contacts pipeline by setting its stage.
-    Also creates/links a Sales Account when transitioning into contact stages.
+    Also creates/links a Sales Account and Finance Customer when transitioning into contact stages.
     """
     import re
     from bson import ObjectId
@@ -2117,6 +2117,7 @@ async def move_lead_to_contacts_endpoint(lead_id: str, payload: dict = Body(None
 
     old_stage = existing_lead.get("stage")
     account_created = None
+    finance_customer_created = None
     update_data = {
         "stage": stage,
         "updated_at": datetime.utcnow().isoformat(),
@@ -2129,6 +2130,7 @@ async def move_lead_to_contacts_endpoint(lead_id: str, payload: dict = Body(None
         if company_name or company_domain:
             mongo_client = get_client()
             accounts_collection = mongo_client["email_automation"]["sales_accounts"]
+            finance_customers_collection = mongo_client["finance_db"]["customers"]
 
             account_conditions = []
             if company_domain:
@@ -2144,6 +2146,75 @@ async def move_lead_to_contacts_endpoint(lead_id: str, payload: dict = Body(None
                 account_query = None
 
             existing_account = accounts_collection.find_one(account_query) if account_query else None
+            
+            # Also check for existing finance customer
+            finance_customer_query = {"company_name": {"$regex": f"^{re.escape(company_name)}$", "$options": "i"}} if company_name else None
+            existing_finance_customer = finance_customers_collection.find_one(finance_customer_query) if finance_customer_query else None
+            
+            # Generate customer number for finance customer
+            def generate_customer_number():
+                last_customer = finance_customers_collection.find_one(
+                    {"customer_number": {"$regex": r"^CUST-\d+$"}},
+                    sort=[("customer_number", -1)]
+                )
+                if last_customer and last_customer.get("customer_number"):
+                    try:
+                        last_num = int(last_customer["customer_number"].replace("CUST-", ""))
+                        return f"CUST-{str(last_num + 1).zfill(5)}"
+                    except ValueError:
+                        pass
+                count = finance_customers_collection.count_documents({}) + 1
+                return f"CUST-{str(count).zfill(5)}"
+            
+            # Create or get finance customer ID
+            linked_finance_customer_id = None
+            if not existing_finance_customer:
+                # Create new finance customer
+                finance_customer_data = {
+                    "name": company_name or company_domain,
+                    "customer_number": generate_customer_number(),
+                    "customer_type": "business",
+                    "company_name": company_name,
+                    "email": existing_lead.get("email", ""),
+                    "phone": existing_lead.get("phone", ""),
+                    "gst_treatment": "unregistered",
+                    "gstin": "",
+                    "pan": "",
+                    "billing_address": {
+                        "line1": existing_lead.get("company_headquarters") or existing_lead.get("companyHeadquarters") or "",
+                        "line2": "",
+                        "city": "",
+                        "state": "",
+                        "pincode": "",
+                        "country": "India",
+                    },
+                    "shipping_address": {
+                        "line1": existing_lead.get("company_headquarters") or existing_lead.get("companyHeadquarters") or "",
+                        "line2": "",
+                        "city": "",
+                        "state": "",
+                        "pincode": "",
+                        "country": "India",
+                    },
+                    "same_as_billing": True,
+                    "payment_terms": 30,
+                    "credit_limit": 0,
+                    "currency": "INR",
+                    "opening_balance": 0,
+                    "total_receivables": 0,
+                    "total_paid": 0,
+                    "notes": f"Auto-created from lead: {existing_lead.get('name', '')}",
+                    "status": "active",
+                    "source_lead_id": lead_id,
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                }
+                finance_result = finance_customers_collection.insert_one(finance_customer_data)
+                linked_finance_customer_id = str(finance_result.inserted_id)
+                finance_customer_data["_id"] = linked_finance_customer_id
+                finance_customer_created = finance_customer_data
+            else:
+                linked_finance_customer_id = str(existing_finance_customer["_id"])
 
             if not existing_account:
                 account_data = {
@@ -2158,6 +2229,7 @@ async def move_lead_to_contacts_endpoint(lead_id: str, payload: dict = Body(None
                     "revenue_range": existing_lead.get("company_revenue_range") or existing_lead.get("companyRevenueRange"),
                     "company_type": existing_lead.get("company_type") or existing_lead.get("companyType"),
                     "company_linkedin_url": existing_lead.get("company_linkedin_url") or existing_lead.get("companyLinkedinUrl"),
+                    "linked_finance_customer_id": linked_finance_customer_id,
                     "created_at": datetime.utcnow(),
                     "updated_at": datetime.utcnow(),
                     "created_from_lead_id": lead_id,
@@ -2170,18 +2242,38 @@ async def move_lead_to_contacts_endpoint(lead_id: str, payload: dict = Body(None
             else:
                 account_id = str(existing_account["_id"])
                 update_data["account_id"] = account_id
+                # Update existing account with finance customer link if not already linked
+                account_update = {"updated_at": datetime.utcnow()}
+                if not existing_account.get("linked_finance_customer_id") and linked_finance_customer_id:
+                    account_update["linked_finance_customer_id"] = linked_finance_customer_id
                 if lead_id not in existing_account.get("contact_ids", []):
                     accounts_collection.update_one(
                         {"_id": existing_account["_id"]},
-                        {"$addToSet": {"contact_ids": lead_id}, "$set": {"updated_at": datetime.utcnow()}},
+                        {"$addToSet": {"contact_ids": lead_id}, "$set": account_update},
                     )
+                else:
+                    accounts_collection.update_one(
+                        {"_id": existing_account["_id"]},
+                        {"$set": account_update},
+                    )
+            
+            # Store finance customer id in lead data
+            if linked_finance_customer_id:
+                update_data["linked_finance_customer_id"] = linked_finance_customer_id
 
     leads_enriched_collection.update_one({"_id": obj_id}, {"$set": update_data})
     updated = get_enriched_lead_by_id(lead_id)
     response = {"success": True, "lead": updated, "message": "Lead moved to Contacts successfully"}
     if account_created:
         response["account_created"] = account_created
-        response["message"] = "Lead moved to Contacts and Sales Account created successfully"
+        if finance_customer_created:
+            response["finance_customer_created"] = finance_customer_created
+            response["message"] = "Lead moved to Contacts with Sales Account and Finance Customer created successfully"
+        else:
+            response["message"] = "Lead moved to Contacts and Sales Account created successfully"
+    elif finance_customer_created:
+        response["finance_customer_created"] = finance_customer_created
+        response["message"] = "Lead moved to Contacts with Finance Customer created successfully"
     return response
 
 

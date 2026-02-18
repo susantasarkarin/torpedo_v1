@@ -202,7 +202,7 @@ export default function SurveyPool() {
     
     try {
       // Fetch CINT surveys (mounted at /api/cint in backend)
-      const cintQuery = `/api/cint/surveys?page=1&page_size=1000&show_all=true`;
+      const cintQuery = `/api/cint/surveys?page=1&page_size=50&show_all=true`;
       const cintResponse = await fetch(buildApiUrl(cintQuery), {
         headers: {
           'Authorization': token,

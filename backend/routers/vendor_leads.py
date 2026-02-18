@@ -446,6 +446,7 @@ async def bulk_transfer_from_ai_database(data: dict = Body(...)):
 async def convert_to_vendor(lead_id: str, data: dict = Body(...)):
     """
     Convert a qualified vendor lead to a full vendor (Panel or Billing).
+    Also creates a corresponding record in the Finance module for both types.
     
     Body:
     {
@@ -470,41 +471,65 @@ async def convert_to_vendor(lead_id: str, data: dict = Body(...)):
     if lead.get("status") == "converted":
         raise HTTPException(status_code=400, detail="Lead already converted to vendor")
     
-    # Create vendor in appropriate collection
-    if vendor_type == "billing":
-        # Billing vendor goes to finance_db.vendors
-        finance_db = client["finance_db"]
-        billing_vendors = finance_db["vendors"]
-        
-        # Generate vendor number
-        last_vendor = billing_vendors.find_one(sort=[("vendor_number", -1)])
+    # Access finance_db for vendor creation
+    finance_db = client["finance_db"]
+    finance_vendors = finance_db["vendors"]
+    
+    # Helper function to generate vendor number
+    def generate_vendor_number():
+        last_vendor = finance_vendors.find_one(
+            {"vendor_number": {"$regex": r"^VEND-\d+$"}},
+            sort=[("vendor_number", -1)]
+        )
         if last_vendor and last_vendor.get("vendor_number"):
             try:
                 num = int(last_vendor["vendor_number"].replace("VEND-", ""))
-                new_num = f"VEND-{num + 1:05d}"
+                return f"VEND-{num + 1:05d}"
             except:
-                new_num = "VEND-00001"
-        else:
-            new_num = "VEND-00001"
+                pass
+        count = finance_vendors.count_documents({}) + 1
+        return f"VEND-{count:05d}"
+    
+    finance_vendor_created = None
+    
+    # Create vendor in appropriate collection
+    if vendor_type == "billing":
+        # Billing vendor goes to finance_db.vendors
+        vendor_number = generate_vendor_number()
         
         vendor = {
             "name": lead.get("name", ""),
-            "vendor_number": new_num,
+            "vendor_number": vendor_number,
             "vendor_type": additional_data.get("vendor_subtype", "supplier"),
             "company_name": lead.get("company", ""),
             "email": lead.get("email", ""),
             "phone": lead.get("phone", ""),
             "status": "active",
-            "gst_treatment": additional_data.get("gst_treatment", ""),
+            "gst_treatment": additional_data.get("gst_treatment", "unregistered"),
+            "gstin": additional_data.get("gstin", ""),
+            "pan": additional_data.get("pan", ""),
+            "billing_address": {
+                "line1": additional_data.get("address", ""),
+                "line2": "",
+                "city": additional_data.get("city", ""),
+                "state": additional_data.get("state", ""),
+                "pincode": additional_data.get("pincode", ""),
+                "country": additional_data.get("country", "India"),
+            },
             "payment_terms": additional_data.get("payment_terms", 30),
+            "currency": additional_data.get("currency", "INR"),
+            "opening_balance": 0,
+            "total_payables": 0,
+            "total_paid": 0,
             "source_vendor_lead_id": str(obj_id),
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
-            **{k: v for k, v in additional_data.items() if k not in ["vendor_subtype", "gst_treatment", "payment_terms"]}
+            **{k: v for k, v in additional_data.items() if k not in ["vendor_subtype", "gst_treatment", "payment_terms", "gstin", "pan", "address", "city", "state", "pincode", "country", "currency"]}
         }
         
-        result = billing_vendors.insert_one(vendor)
+        result = finance_vendors.insert_one(vendor)
         vendor["_id"] = str(result.inserted_id)
+        finance_vendor_created = vendor
         
     else:
         # Panel vendor goes to email_automation.panel_vendors
@@ -528,21 +553,75 @@ async def convert_to_vendor(lead_id: str, data: dict = Body(...)):
         
         result = panel_vendors.insert_one(vendor)
         vendor["_id"] = str(result.inserted_id)
+        panel_vendor_id = str(result.inserted_id)
+        
+        # Also create a corresponding finance vendor record for panel vendors
+        vendor_number = generate_vendor_number()
+        finance_vendor = {
+            "name": lead.get("name", "") or lead.get("company", ""),
+            "vendor_number": vendor_number,
+            "vendor_type": "panel",
+            "company_name": lead.get("company", ""),
+            "email": lead.get("email", ""),
+            "phone": lead.get("phone", ""),
+            "status": "active",
+            "gst_treatment": "unregistered",
+            "gstin": "",
+            "pan": "",
+            "billing_address": {
+                "line1": "",
+                "line2": "",
+                "city": "",
+                "state": "",
+                "pincode": "",
+                "country": "India",
+            },
+            "payment_terms": 30,
+            "currency": "INR",
+            "opening_balance": 0,
+            "total_payables": 0,
+            "total_paid": 0,
+            "notes": f"Auto-created from panel vendor conversion",
+            "linked_panel_vendor_id": panel_vendor_id,
+            "source_vendor_lead_id": str(obj_id),
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+        }
+        finance_result = finance_vendors.insert_one(finance_vendor)
+        finance_vendor["_id"] = str(finance_result.inserted_id)
+        finance_vendor_created = finance_vendor
+        
+        # Update panel vendor with linked finance vendor id
+        panel_vendors.update_one(
+            {"_id": result.inserted_id},
+            {"$set": {"linked_finance_vendor_id": str(finance_result.inserted_id)}}
+        )
+        vendor["linked_finance_vendor_id"] = str(finance_result.inserted_id)
     
     # Update vendor lead status to converted
+    update_data = {
+        "status": "converted",
+        "converted_to_vendor_type": vendor_type,
+        "converted_vendor_id": str(result.inserted_id),
+        "converted_at": datetime.utcnow()
+    }
+    if finance_vendor_created:
+        update_data["linked_finance_vendor_id"] = finance_vendor_created["_id"]
+    
     vendor_leads_collection.update_one(
         {"_id": obj_id},
-        {"$set": {
-            "status": "converted",
-            "converted_to_vendor_type": vendor_type,
-            "converted_vendor_id": str(result.inserted_id),
-            "converted_at": datetime.utcnow()
-        }}
+        {"$set": update_data}
     )
     
-    return {
+    response = {
         "success": True,
         "vendor": vendor,
         "vendor_type": vendor_type,
         "message": f"Lead converted to {vendor_type} vendor successfully"
     }
+    
+    if finance_vendor_created:
+        response["finance_vendor"] = finance_vendor_created
+        response["message"] = f"Lead converted to {vendor_type} vendor with Finance record created successfully"
+    
+    return response

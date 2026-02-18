@@ -158,6 +158,75 @@ def create_or_update_contact_on_win(rfq: Dict[str, Any]) -> Optional[str]:
         return None
 
 
+def promote_lead_to_contacts_on_quoted(rfq: Dict[str, Any]) -> Optional[str]:
+    """
+    Auto-promote lead to Contacts stage when RFQ status changes to 'quoted'.
+    This moves the lead into the active sales pipeline in Contacts section.
+    Returns lead_id if updated, None on error.
+    """
+    try:
+        email = rfq.get("contact_email", "").lower().strip()
+        lead_id = rfq.get("lead_id")
+        
+        lead = None
+        
+        # Try to find lead by lead_id first
+        if lead_id:
+            try:
+                lead = email_leads_collection.find_one({"_id": ObjectId(lead_id)})
+            except:
+                pass
+        
+        # Fallback to contact_email
+        if not lead and email:
+            lead = email_leads_collection.find_one({"email": {"$regex": f"^{email}$", "$options": "i"}})
+        
+        if not lead:
+            logger.warning(f"RFQ {rfq.get('rfq_id')} quoted but no linked lead found for {email}")
+            return None
+        
+        now = datetime.utcnow()
+        
+        # Only promote if not already in contacts or a more advanced stage
+        current_stage = lead.get("lead_stage", "leads")
+        if current_stage == "contacts":
+            # Already in contacts, just add tag
+            existing_tags = lead.get("tags", [])
+            if "rfq-quoted" not in existing_tags:
+                email_leads_collection.update_one(
+                    {"_id": lead["_id"]},
+                    {"$addToSet": {"tags": "rfq-quoted"}, "$set": {"updated_at": now}}
+                )
+            logger.info(f"Lead {lead['_id']} already in contacts, added rfq-quoted tag")
+            return str(lead["_id"])
+        
+        # Promote to contacts stage
+        update_data = {
+            "lead_stage": "contacts",
+            "stage": "discovery_call",  # Default contact stage
+            "updated_at": now,
+            "promoted_to_contacts_at": now,
+            "promoted_from_rfq": rfq.get("rfq_id"),
+        }
+        
+        # Add rfq-quoted tag
+        existing_tags = lead.get("tags", [])
+        if "rfq-quoted" not in existing_tags:
+            update_data["tags"] = existing_tags + ["rfq-quoted"]
+        
+        email_leads_collection.update_one(
+            {"_id": lead["_id"]},
+            {"$set": update_data}
+        )
+        
+        logger.info(f"Promoted lead {lead['_id']} to contacts from RFQ {rfq.get('rfq_id')} quote")
+        return str(lead["_id"])
+        
+    except Exception as e:
+        logger.error(f"Error promoting lead to contacts on RFQ quoted: {e}")
+        return None
+
+
 # ============== PYDANTIC MODELS ==============
 
 class RFQCreate(BaseModel):
@@ -272,25 +341,56 @@ def rfq_to_response(rfq: Dict[str, Any]) -> Dict[str, Any]:
     final_value = rfq.get("manual_value") if rfq.get("manual_value") is not None else rfq.get("extracted_value")
     final_currency = rfq.get("manual_currency") if rfq.get("manual_currency") else rfq.get("extracted_currency", "USD")
     
-    # Get lead name if lead_id exists
+    # Get lead_id and lead_name - ensure lead_id is always populated if possible
+    lead_id = rfq.get("lead_id")
     lead_name = None
-    if rfq.get("lead_id"):
-        lead = email_leads_collection.find_one({"_id": ObjectId(rfq["lead_id"])})
-        if lead:
-            lead_name = lead.get("name") or lead.get("email")
+    lead = None
     
-    # If no lead_id, try to find by contact_email
-    if not lead_name and rfq.get("contact_email"):
-        lead = email_leads_collection.find_one({"email": rfq["contact_email"]})
+    if lead_id:
+        # Verify lead exists
+        try:
+            lead = email_leads_collection.find_one({"_id": ObjectId(lead_id)})
+            if lead:
+                lead_name = lead.get("name") or lead.get("first_name", "") + " " + lead.get("last_name", "") or lead.get("email")
+                lead_name = lead_name.strip() if lead_name else None
+        except:
+            pass
+    
+    # If no valid lead_id or lead not found, try to find by contact_email
+    if not lead and rfq.get("contact_email"):
+        contact_email = rfq.get("contact_email", "").lower().strip()
+        lead = email_leads_collection.find_one({"email": {"$regex": f"^{contact_email}$", "$options": "i"}})
+        
         if lead:
-            lead_name = lead.get("name") or lead.get("email")
+            lead_id = str(lead["_id"])
+            lead_name = lead.get("name") or lead.get("first_name", "") + " " + lead.get("last_name", "") or lead.get("email")
+            lead_name = lead_name.strip() if lead_name else None
+            
+            # Backfill lead_id in the RFQ document for future queries
+            try:
+                rfqs_collection.update_one(
+                    {"_id": rfq["_id"]},
+                    {"$set": {"lead_id": lead_id}}
+                )
+            except Exception as e:
+                logger.warning(f"Failed to backfill lead_id for RFQ {rfq.get('rfq_id')}: {e}")
+    
+    # If still no lead, try sender_email as fallback
+    if not lead and rfq.get("sender_email") and rfq.get("sender_email") != rfq.get("contact_email"):
+        sender_email = rfq.get("sender_email", "").lower().strip()
+        lead = email_leads_collection.find_one({"email": {"$regex": f"^{sender_email}$", "$options": "i"}})
+        
+        if lead:
+            lead_id = str(lead["_id"])
+            lead_name = lead.get("name") or lead.get("first_name", "") + " " + lead.get("last_name", "") or lead.get("email")
+            lead_name = lead_name.strip() if lead_name else None
     
     return {
         "_id": str(rfq["_id"]),
         "rfq_id": rfq.get("rfq_id", ""),
         "contact_email": rfq.get("contact_email", ""),
-        "lead_id": rfq.get("lead_id"),
-        "lead_name": lead_name,
+        "lead_id": lead_id,
+        "lead_name": lead_name or rfq.get("sender_name") or rfq.get("contact_email"),
         "title": rfq.get("title", ""),
         "description": rfq.get("description", ""),
         "extracted_value": rfq.get("extracted_value"),
@@ -616,8 +716,15 @@ async def update_rfq(rfq_id: str, rfq_data: RFQUpdate) -> Dict[str, Any]:
     
     # P1.2: Auto-create/update contact when RFQ is won
     contact_id = None
+    promoted_lead_id = None
+    
     if rfq_data.status == "won" and current_status != "won":
         contact_id = create_or_update_contact_on_win(updated_rfq)
+    
+    # Auto-promote lead to Contacts when RFQ is quoted
+    # This moves the lead into the active sales pipeline for follow-up
+    if rfq_data.status == "quoted" and current_status != "quoted":
+        promoted_lead_id = promote_lead_to_contacts_on_quoted(updated_rfq)
     
     response = {
         "success": True,
@@ -628,6 +735,11 @@ async def update_rfq(rfq_id: str, rfq_data: RFQUpdate) -> Dict[str, Any]:
     if contact_id:
         response["contact_created"] = True
         response["contact_id"] = contact_id
+    
+    if promoted_lead_id:
+        response["lead_promoted_to_contacts"] = True
+        response["promoted_lead_id"] = promoted_lead_id
+        response["message"] = "RFQ updated and lead promoted to Contacts"
     
     return response
 

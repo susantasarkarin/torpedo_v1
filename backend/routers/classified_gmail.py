@@ -7,7 +7,7 @@ Integrates with email_processor.py for classification and enrichment
 import os
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
@@ -15,6 +15,9 @@ from bson import ObjectId
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Import name extraction utility
+from leads.gmail_leads_service import extract_name_from_email
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +42,37 @@ mail_pool_collection = email_db["mail_pool"]
 leads_raw_collection = leads_db["leads_raw"]
 vendor_leads_collection = leads_db["vendor_leads"]
 enrichment_logs_collection = email_db["enrichment_logs"]
+email_leads_collection = email_db["email_leads"]
+
+# Gmail workspace database for sent email tracking
+torpedo_gmail_db = mongo_client["torpedo_gmail"]
+email_metadata_collection = torpedo_gmail_db["email_metadata"]
+
+
+# ============== HELPER: CHECK IF WE'VE REPLIED TO SENDER ==============
+
+def has_sent_email_to(email_address: str) -> bool:
+    """
+    Check if we have previously sent an email to this address.
+    Used to determine if a classified email should be auto-moved to leads.
+    Contacts we've interacted with are higher quality leads.
+    """
+    if not email_address:
+        return False
+    
+    email_lower = email_address.lower().strip()
+    
+    # Check torpedo_gmail.email_metadata for sent emails to this address
+    sent_to_contact = email_metadata_collection.find_one({
+        "direction": "sent",
+        "$or": [
+            {"to_email": email_lower},
+            {"to_email": {"$regex": email_lower, "$options": "i"}},
+            {"recipients": {"$elemMatch": {"$regex": email_lower, "$options": "i"}}}
+        ]
+    })
+    
+    return sent_to_contact is not None
 
 
 # ============== MODELS ==============
@@ -314,13 +348,21 @@ async def move_to_leads(
         if classified.get("moved_to_leads"):
             raise HTTPException(status_code=400, detail="Email already moved to leads")
         
+        # Extract name properly - use display name first, fallback to email parsing
+        sender_email = classified.get("sender_email", "")
+        sender_name = classified.get("sender_name", "")
+        
+        # Use extract_name_from_email to properly parse names from email format
+        # This handles cases like "john.doe@company.com" → "John", "Doe"
+        full_name, first_name, last_name = extract_name_from_email(sender_email, sender_name)
+        
         # Create lead document
         lead_doc = {
             "source": "classified_gmail",
-            "email": classified.get("sender_email"),
-            "full_name": classified.get("sender_name", ""),
-            "first_name": classified.get("sender_name", "").split()[0] if classified.get("sender_name") else "",
-            "last_name": " ".join(classified.get("sender_name", "").split()[1:]) if classified.get("sender_name") else "",
+            "email": sender_email,
+            "full_name": full_name,
+            "first_name": first_name,
+            "last_name": last_name,
             "title": next(
                 (c.get("title") for c in classified.get("contacts", []) if c.get("title")),
                 ""
@@ -498,15 +540,84 @@ async def process_batch(
                         {"_id": existing["_id"]},
                         {"$set": classified_doc}
                     )
+                    classified_id = existing["_id"]
                 else:
                     # Insert new
-                    classified_gmail_collection.insert_one(classified_doc)
+                    result = classified_gmail_collection.insert_one(classified_doc)
+                    classified_id = result.inserted_id
                 
                 # Mark as classified in mail_pool
                 mail_pool_collection.update_one(
                     {"_id": email["_id"]},
                     {"$set": {"classified": True, "classified_at": datetime.utcnow()}}
                 )
+                
+                # ========== AUTO-MOVE CLIENT EMAILS FROM REPLIED-TO CONTACTS ==========
+                # If email is classified as CLIENT and we've previously sent emails to this sender,
+                # auto-move to leads since they are higher quality (existing relationship)
+                sender_email = classified_doc.get("sender_email", "")
+                segment = classified_doc.get("segment", "")
+                already_moved = classified_doc.get("moved_to_leads", False)
+                
+                if segment == "CLIENT" and sender_email and not already_moved:
+                    if has_sent_email_to(sender_email):
+                        try:
+                            # Auto-move to leads
+                            full_name, first_name, last_name = extract_name_from_email(
+                                sender_email, 
+                                classified_doc.get("sender_name", "")
+                            )
+                            
+                            auto_lead_doc = {
+                                "source": "classified_gmail",
+                                "email": sender_email,
+                                "full_name": full_name,
+                                "first_name": first_name,
+                                "last_name": last_name,
+                                "title": next(
+                                    (c.get("title") for c in classified_doc.get("contacts", []) if c.get("title")),
+                                    ""
+                                ),
+                                "company_name": next(
+                                    (c.get("company") for c in classified_doc.get("contacts", []) if c.get("company")),
+                                    ""
+                                ),
+                                "segment": "CLIENT",
+                                "category": classified_doc.get("category"),
+                                "confidence_score": classified_doc.get("confidence_score", 0),
+                                "email_summary": classified_doc.get("summary"),
+                                "email_sentiment": classified_doc.get("sentiment"),
+                                "classification_segment": segment,
+                                "classified_email_id": classified_doc.get("email_id"),
+                                "contacts": classified_doc.get("contacts", []),
+                                "stage": "new",
+                                "created_at": datetime.utcnow(),
+                                "created_from": "classified_gmail",
+                                "auto_moved": True,  # Flag to indicate auto-move
+                                "notes": "Auto-moved: Existing email relationship detected"
+                            }
+                            
+                            lead_result = leads_raw_collection.insert_one(auto_lead_doc)
+                            lead_id = str(lead_result.inserted_id)
+                            
+                            # Update classified email with move info
+                            classified_gmail_collection.update_one(
+                                {"_id": classified_id},
+                                {
+                                    "$set": {
+                                        "moved_to_leads": True,
+                                        "moved_at": datetime.utcnow(),
+                                        "moved_by": "auto",
+                                        "lead_id": lead_id,
+                                        "auto_moved": True
+                                    }
+                                }
+                            )
+                            
+                            logger.info(f"Auto-moved CLIENT email from {sender_email} to leads (existing relationship)")
+                        except Exception as auto_move_error:
+                            logger.warning(f"Auto-move failed for {sender_email}: {auto_move_error}")
+                # ========== END AUTO-MOVE ==========
                 
                 processed_count += 1
             except Exception as e:
