@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Get Last 10 Cint Respondent Payloads
+Get Last N Cint Respondent Payloads
 
-This script connects to MongoDB and retrieves the last 10 respondent payloads
+This script connects to MongoDB and retrieves the last N respondent payloads
 that were sent to Cint. It reconstructs the full payload data including:
 - survey_id
 - supplier_code  

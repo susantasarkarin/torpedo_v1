@@ -57,7 +57,7 @@ echo "  Limit:   $LIMIT payloads"
 echo ""
 
 # Test SSH connection
-echo -e "${YELLOW}[1/2] Testing SSH connection...${NC}"
+echo -e "${YELLOW}[1/3] Testing SSH connection...${NC}"
 if ! ssh -o ConnectTimeout=5 "${VM_USER}@${VM_HOST}" "echo 'Connected'" 2>/dev/null | grep -q "Connected"; then
     echo -e "${RED}Error: Cannot connect to VM${NC}"
     echo ""
