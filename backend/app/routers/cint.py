@@ -1427,6 +1427,148 @@ async def health_check():
     }
 
 
+@router.get("/entry-link-json-format")
+async def get_entry_link_json_format():
+    """
+    Get the JSON format/structure for Cint Entry Link API
+    
+    This endpoint returns the complete JSON payload structure, field descriptions,
+    hash generation algorithm, and usage examples for the Cint Entry Link API.
+    
+    Returns:
+        Complete JSON documentation with:
+        - API endpoint URL
+        - Request headers and body structure
+        - Field descriptions and requirements
+        - HMAC-SHA256 hash generation instructions
+        - Response formats (success and errors)
+        - Status callback information
+        - Implementation notes
+    """
+    return {
+        "api_endpoint": "POST https://api.samplicio.us/supply/v1/entrylinks",
+        "description": "Cint Entry Link API - Creates respondent-specific survey entry links",
+        "authentication": {
+            "type": "API Key",
+            "header": "Authorization",
+            "value": "YOUR_CINT_API_KEY"
+        },
+        "request_headers": {
+            "Authorization": "YOUR_CINT_API_KEY",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        },
+        "request_body": {
+            "survey_id": "123456",
+            "supplier_code": "6777",
+            "respondent_id": "USER_12345",
+            "secure_hash": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6",
+            "return_url": "https://torpedo.cogentixresearch.com/api/cint/status"
+        },
+        "field_descriptions": {
+            "survey_id": {
+                "type": "string",
+                "required": True,
+                "description": "The Cint survey/study ID received from the opportunities webhook"
+            },
+            "supplier_code": {
+                "type": "string",
+                "required": True,
+                "description": "Your unique Cint supplier code (e.g., '6777')",
+                "default": "6777"
+            },
+            "respondent_id": {
+                "type": "string",
+                "required": True,
+                "description": "Your internal unique identifier for the respondent/user"
+            },
+            "secure_hash": {
+                "type": "string",
+                "required": True,
+                "description": "HMAC-SHA256 hash for security verification. See hash_generation section."
+            },
+            "return_url": {
+                "type": "string",
+                "required": True,
+                "description": "Callback URL where Cint will send respondent outcome status (complete, screenout, etc.)"
+            }
+        },
+        "hash_generation": {
+            "algorithm": "HMAC-SHA256",
+            "description": "Generate the secure_hash by concatenating supplier_code + survey_id + respondent_id, then computing HMAC-SHA256 with your encryption key",
+            "formula": "HMAC_SHA256(supplier_code + survey_id + respondent_id, encryption_key)",
+            "example": {
+                "supplier_code": "6777",
+                "survey_id": "123456",
+                "respondent_id": "USER_12345",
+                "encryption_key": "your_encryption_key",
+                "message": "6777123456USER_12345",
+                "secure_hash": "computed_hmac_sha256_hex_value"
+            },
+            "python_code": "import hmac\nimport hashlib\n\nmessage = f\"{supplier_code}{survey_id}{respondent_id}\"\nsecure_hash = hmac.new(\n    encryption_key.encode('utf-8'),\n    message.encode('utf-8'),\n    hashlib.sha256\n).hexdigest()"
+        },
+        "response_success": {
+            "status_code": 200,
+            "body": {
+                "live_link": "https://surveys.samplicio.us/router/default.aspx?SID=ABC123&PID=USER_12345&...",
+                "survey_id": "123456",
+                "respondent_id": "USER_12345"
+            },
+            "description": "The live_link is the respondent-specific URL to redirect them to the survey"
+        },
+        "response_errors": {
+            "404": {
+                "description": "Survey not found or no longer active",
+                "action": "Mark survey as inactive in your system"
+            },
+            "403": {
+                "description": "Authentication failed - invalid API key",
+                "action": "Verify your API key is correct"
+            },
+            "408": {
+                "description": "Request timeout",
+                "action": "Retry the request after a short delay"
+            },
+            "500": {
+                "description": "Internal server error",
+                "action": "Retry the request or contact Cint support"
+            }
+        },
+        "important_notes": [
+            "Entry links are respondent-specific and must be generated per user",
+            "Do NOT cache or reuse entry links across multiple respondents",
+            "The secure_hash ensures request authenticity and prevents tampering",
+            "The return_url receives status callbacks (complete, screenout, quota_full, etc.)",
+            "Survey IDs come from the Cint opportunities webhook subscription",
+            "Each respondent should get a fresh entry link when they start a survey"
+        ],
+        "status_callbacks": {
+            "description": "After the respondent completes or exits the survey, Cint sends a status callback to your return_url",
+            "callback_parameters": {
+                "status": "complete | screenout | quota_full | terminate | overquota | quality_terminate",
+                "respondent_id": "The respondent_id you provided",
+                "survey_id": "The survey_id",
+                "transaction_id": "Cint's internal transaction ID",
+                "revenue": "Revenue earned (for completed surveys)"
+            },
+            "status_meanings": {
+                "complete": "Survey completed successfully - credit user",
+                "screenout": "Respondent didn't qualify - no credit",
+                "quota_full": "Survey quota reached - no credit, block survey",
+                "terminate": "Survey terminated by respondent or system",
+                "overquota": "Quota exceeded - block survey",
+                "quality_terminate": "Terminated for quality reasons"
+            }
+        },
+        "implementation_reference": {
+            "service_file": "backend/app/services/cint_entrylink_service.py",
+            "router_file": "backend/app/routers/cint.py",
+            "models_file": "backend/app/models/cint.py",
+            "example_file": "docs/integrations/cint/cint_entry_link_json_example.json"
+        }
+    }
+
+
 # ============================================
 # Legacy Fulcrum API - Survey Sync
 # ============================================
