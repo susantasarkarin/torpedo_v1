@@ -70,7 +70,7 @@ async function getLastCintPayloads(limit = 10) {
         
         // Build detailed payload information for each log
         for (const log of cintLogs) {
-            
+            const surveyId = log.survey_id;
             const respondentId = log.rid || log.respondent_id;
             
             // Get survey details from the joined data

@@ -14,6 +14,8 @@ that were sent to Cint. It reconstructs the full payload data including:
 
 Usage:
     python scripts/get_last_cint_payloads.py
+    python scripts/get_last_cint_payloads.py --limit 20
+    python scripts/get_last_cint_payloads.py --json output.json
     
 Or on VM via SSH:
     ssh user@vm "cd /path/to/campaign_platform && python scripts/get_last_cint_payloads.py"
