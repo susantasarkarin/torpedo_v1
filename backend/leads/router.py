@@ -2089,6 +2089,102 @@ async def update_lead_by_id_endpoint(lead_id: str, data: dict = Body(...)):
         return {"success": True, "lead": get_enriched_lead_by_id(lead_id), "message": "No changes made"}
 
 
+@router.post("/{lead_id}/move-to-contacts")
+async def move_lead_to_contacts_endpoint(lead_id: str, payload: dict = Body(None)):
+    """
+    POST /leads/{lead_id}/move-to-contacts
+    Moves an enriched lead into the Contacts pipeline by setting its stage.
+    Also creates/links a Sales Account when transitioning into contact stages.
+    """
+    import re
+    from bson import ObjectId
+    from database import get_client
+
+    CONTACT_STAGES = ["discovery_call", "presentation", "rfq_pricing", "negotiation",
+                      "won", "lost", "onboarding", "project_execution", "payment", "retention"]
+
+    # Validate lead_id
+    try:
+        obj_id = ObjectId(lead_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid lead ID format")
+
+    stage = (payload or {}).get("stage") or "discovery_call"
+
+    existing_lead = leads_enriched_collection.find_one({"_id": obj_id})
+    if not existing_lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    old_stage = existing_lead.get("stage")
+    account_created = None
+    update_data = {
+        "stage": stage,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+
+    if stage in CONTACT_STAGES and old_stage not in CONTACT_STAGES:
+        company_name = existing_lead.get("company_name") or existing_lead.get("companyName")
+        company_domain = existing_lead.get("company_domain") or existing_lead.get("companyDomain")
+
+        if company_name or company_domain:
+            mongo_client = get_client()
+            accounts_collection = mongo_client["email_automation"]["sales_accounts"]
+
+            account_conditions = []
+            if company_domain:
+                account_conditions.append({"website": {"$regex": re.escape(company_domain), "$options": "i"}})
+            if company_name:
+                account_conditions.append({"company_name": {"$regex": f"^{re.escape(company_name)}$", "$options": "i"}})
+
+            if len(account_conditions) == 1:
+                account_query = account_conditions[0]
+            elif len(account_conditions) > 1:
+                account_query = {"$or": account_conditions}
+            else:
+                account_query = None
+
+            existing_account = accounts_collection.find_one(account_query) if account_query else None
+
+            if not existing_account:
+                account_data = {
+                    "account_name": company_name or company_domain,
+                    "company_name": company_name,
+                    "industry": existing_lead.get("company_industry") or existing_lead.get("companyIndustry"),
+                    "website": existing_lead.get("company_website") or existing_lead.get("companyWebsite") or (f"https://{company_domain}" if company_domain else None),
+                    "address": existing_lead.get("company_headquarters") or existing_lead.get("companyHeadquarters"),
+                    "status": "prospect",
+                    "employee_count": existing_lead.get("company_employee_count") or existing_lead.get("companyEmployeeCount"),
+                    "employee_count_range": existing_lead.get("company_employee_count_range") or existing_lead.get("companyEmployeeCountRange"),
+                    "revenue_range": existing_lead.get("company_revenue_range") or existing_lead.get("companyRevenueRange"),
+                    "company_type": existing_lead.get("company_type") or existing_lead.get("companyType"),
+                    "company_linkedin_url": existing_lead.get("company_linkedin_url") or existing_lead.get("companyLinkedinUrl"),
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                    "created_from_lead_id": lead_id,
+                    "contact_ids": [lead_id],
+                }
+                result = accounts_collection.insert_one(account_data)
+                account_data["_id"] = str(result.inserted_id)
+                account_created = account_data
+                update_data["account_id"] = str(result.inserted_id)
+            else:
+                account_id = str(existing_account["_id"])
+                update_data["account_id"] = account_id
+                if lead_id not in existing_account.get("contact_ids", []):
+                    accounts_collection.update_one(
+                        {"_id": existing_account["_id"]},
+                        {"$addToSet": {"contact_ids": lead_id}, "$set": {"updated_at": datetime.utcnow()}},
+                    )
+
+    leads_enriched_collection.update_one({"_id": obj_id}, {"$set": update_data})
+    updated = get_enriched_lead_by_id(lead_id)
+    response = {"success": True, "lead": updated, "message": "Lead moved to Contacts successfully"}
+    if account_created:
+        response["account_created"] = account_created
+        response["message"] = "Lead moved to Contacts and Sales Account created successfully"
+    return response
+
+
 @router.delete("/{lead_id}")
 async def delete_lead_by_id_endpoint(lead_id: str):
     """

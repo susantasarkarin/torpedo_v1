@@ -3053,34 +3053,8 @@ async def bulk_delete_leads(data: Dict[str, Any] = Body(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Bulk delete error: {str(e)}")
 
-# Move lead to contacts (RFQ stage)
-@app.post("/leads/{lead_id}/move-to-contacts")
-async def move_lead_to_contacts(lead_id: str, stage_data: Dict[str, Any] = Body(...)):
-    try:
-        # Find the lead
-        lead = leads_collection.find_one({"_id": ObjectId(lead_id)})
-        if not lead:
-            raise HTTPException(status_code=404, detail="Lead not found")
-        
-        # Create contact from lead data
-        contact_data = {k: v for k, v in lead.items() if k != "_id"}
-        contact_data["stage"] = stage_data.get("stage", "RFQ")
-        contact_data["movedFromLeadAt"] = datetime.utcnow()
-        contact_data["createdAt"] = lead.get("createdAt", datetime.utcnow())
-        contact_data["updatedAt"] = datetime.utcnow()
-        
-        # Insert into contacts
-        result = contacts_collection.insert_one(contact_data)
-        contact_data["_id"] = str(result.inserted_id)
-        
-        # Delete from leads
-        leads_collection.delete_one({"_id": ObjectId(lead_id)})
-        
-        return {"message": "Lead moved to contacts successfully", "contact": contact_data}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Move lead error: {str(e)}")
+# NOTE: /leads/{lead_id}/move-to-contacts is implemented in backend/leads/router.py
+# against the enriched leads collection (which powers the Leads/Contacts UI).
 
 
 # Import leads from CSV - USES CANONICAL INGESTION PIPELINE
