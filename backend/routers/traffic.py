@@ -1504,7 +1504,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         cint_query["country_language"] = {"$regex": f"_{country_suffix}$", "$options": "i"}
                     print(f"🌍 CINT filtering surveys for country: {country_suffix}")
 
-                    cint_surveys = list(cint_collection.find(cint_query).limit(50))
+                    cint_surveys = list(cint_collection.find(cint_query).limit(1000))
 
                     if not cint_surveys:
                         print(f"⚠️ No active CINT surveys available for country: {country_suffix or 'any'}")
@@ -1512,7 +1512,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         return False
 
                     # Shuffle surveys and try up to MAX_CINT_ATTEMPTS
-                    MAX_CINT_ATTEMPTS = 5
+                    MAX_CINT_ATTEMPTS = 1000
                     random.shuffle(cint_surveys)
                     surveys_to_try = cint_surveys[:MAX_CINT_ATTEMPTS]
                     
