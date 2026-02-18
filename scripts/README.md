@@ -2,6 +2,10 @@
 
 This folder contains utility and operational scripts organized by domain.
 
+## Quick Links
+
+- **[Get Last Cint Payloads](README_CINT_PAYLOADS.md)** - Retrieve the last N respondent payloads sent to Cint from VM
+
 ## Structure
 
 ### `/cint/`
@@ -16,6 +20,8 @@ CINT survey platform related scripts for analysis, checking status, and maintena
 - `fix_cint_is_active.py` - Fix active status flags
 - `test_cint_api.py` - Test CINT API endpoints
 - `validate_cint_surveys.py` - Validate survey data integrity
+
+**NEW:** See [README_CINT_PAYLOADS.md](README_CINT_PAYLOADS.md) for scripts to retrieve respondent payloads sent to Cint.
 
 ### `/entry_links/`
 Survey entry link generation and verification scripts.
