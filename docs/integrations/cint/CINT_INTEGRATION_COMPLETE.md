@@ -355,4 +355,18 @@ Monitor API usage and implement rate limiting if approaching Cint API limits.
 
 **Integration Status:** Ready for production testing with live survey traffic.
 
-**Last Updated:** 2026-02-08
+---
+
+## Additional Resources
+
+- **[Cint Entry Link API Guide](./CINT_ENTRY_LINK_API.md)** - Complete documentation for the Cint Entry Link API, including JSON payload structure, HMAC hash generation, and code examples
+- **[How to Access Entry Link JSON](./HOW_TO_ACCESS_ENTRY_LINK_JSON.md)** - Quick guide on accessing the entry link JSON format via API or documentation
+- **[Diagnostic Guide](./CINT_DIAGNOSTIC_GUIDE.md)** - Troubleshooting and diagnostic tools
+- **[Status Report](./CINT_STATUS_REPORT.md)** - Current integration status
+
+**API Endpoint for Entry Link JSON Format:**
+```
+GET /api/cint/entry-link-json-format
+```
+
+**Last Updated:** 2026-02-18
