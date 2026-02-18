@@ -42,23 +42,41 @@ async function getLastCintPayloads(limit = 10) {
         
         const payloads = [];
         
-        // Get all allocation logs sorted by timestamp (most recent first)
-        const allLogs = await allocationLog.find({}).sort({ timestamp: -1 }).toArray();
+        // Use aggregation pipeline to efficiently filter for CINT allocations
+        // This joins with surveys collection and filters in the database
+        const pipeline = [
+            // Sort by timestamp descending (most recent first)
+            { $sort: { timestamp: -1 } },
+            
+            // Join with surveys collection to get provider info
+            { $lookup: {
+                from: 'surveys',
+                localField: 'survey_id',
+                foreignField: '_id',
+                as: 'survey'
+            }},
+            
+            // Unwind the survey array
+            { $unwind: { path: '$survey', preserveNullAndEmptyArrays: false } },
+            
+            // Filter for CINT provider only
+            { $match: { 'survey.provider': 'CINT' } },
+            
+            // Limit to requested number of results
+            { $limit: limit }
+        ];
         
-        // Filter for CINT allocations
-        for (const log of allLogs) {
-            if (payloads.length >= limit) break;
-            
-            const surveyId = log.survey_id;
-            if (!surveyId) continue;
-            
-            // Get survey to check provider
-            const survey = await surveysCollection.findOne({ _id: surveyId });
-            if (!survey || survey.provider !== 'CINT') continue;
+        const cintLogs = await allocationLog.aggregate(pipeline).toArray();
+        
+        // Build detailed payload information for each log
+        for (const log of cintLogs) {
             
             const respondentId = log.rid || log.respondent_id;
-            const externalSurveyId = survey.external_id;
-            const surveyName = survey.name;
+            
+            // Get survey details from the joined data
+            const survey = log.survey;
+            const externalSurveyId = survey?.external_id;
+            const surveyName = survey?.name;
             
             // Get respondent details
             const respondent = await respondentsCollection.findOne({ rid: respondentId });
@@ -87,7 +105,7 @@ async function getLastCintPayloads(limit = 10) {
                 ip_address: log.ip_address,
                 user_agent: log.user_agent,
                 survey_name: surveyName,
-                survey_status: survey.status
+                survey_status: survey?.status
             };
             
             const fullRecord = {

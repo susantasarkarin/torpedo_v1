@@ -65,28 +65,39 @@ def get_last_cint_payloads(limit: int = 10) -> List[Dict[str, Any]]:
     payloads = []
     
     try:
-        # Get all allocation logs sorted by timestamp (most recent first)
-        all_logs = list(allocation_log.find().sort('timestamp', -1))
+        # Use aggregation pipeline to efficiently filter for CINT allocations
+        # This joins with surveys collection and filters in the database
+        pipeline = [
+            # Sort by timestamp descending (most recent first)
+            {'$sort': {'timestamp': -1}},
+            
+            # Join with surveys collection to get provider info
+            {'$lookup': {
+                'from': 'surveys',
+                'localField': 'survey_id',
+                'foreignField': '_id',
+                'as': 'survey'
+            }},
+            
+            # Unwind the survey array
+            {'$unwind': {'path': '$survey', 'preserveNullAndEmptyArrays': False}},
+            
+            # Filter for CINT provider only
+            {'$match': {'survey.provider': 'CINT'}},
+            
+            # Limit to requested number of results
+            {'$limit': limit}
+        ]
         
-        # Filter for CINT allocations
-        cint_logs = []
-        for log in all_logs:
-            # Get survey to check provider
-            survey_id = log.get('survey_id')
-            if survey_id:
-                survey = surveys_collection.find_one({'_id': survey_id})
-                if survey and survey.get('provider') == 'CINT':
-                    cint_logs.append(log)
-                    if len(cint_logs) >= limit:
-                        break
+        cint_logs = list(allocation_log.aggregate(pipeline))
         
         # Build detailed payload information for each log
         for log in cint_logs:
             survey_id = log.get('survey_id')
             respondent_id = log.get('rid') or log.get('respondent_id')
             
-            # Get survey details
-            survey = surveys_collection.find_one({'_id': survey_id})
+            # Get survey details from the joined data
+            survey = log.get('survey')
             external_survey_id = survey.get('external_id') if survey else None
             survey_name = survey.get('name') if survey else None
             
