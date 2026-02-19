@@ -1430,26 +1430,14 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     raw_suffix = country_code.lower() if country_code else ""
                     country_suffix = COUNTRY_CODE_TO_CINT_SUFFIX.get(raw_suffix, raw_suffix)
 
-                    # Prefer is_active_in_pool when available; otherwise fall back to is_active/is_live
-                    cint_query = {
-                        "$or": [
-                            {"is_active_in_pool": True},
-                            {
-                                "is_active_in_pool": {"$exists": False},
-                                "is_active": True,
-                                "$or": [
-                                    {"is_live": True},
-                                    {"is_live": {"$exists": False}}
-                                ]
-                            },
-                        ]
-                    }
+                    # Use is_active=True for survey selection (is_active_in_pool is often False for most countries)
+                    cint_query = {"is_active": True}
 
                     # Add country filter if we have a country code
                     if country_suffix:
                         # Filter by country_language ending with user's country code
                         cint_query["country_language"] = {"$regex": f"_{country_suffix}$", "$options": "i"}
-                    print(f"🌍 CINT filtering surveys for country: {country_suffix}")
+                    print(f"🌍 CINT query: {cint_query}")
 
                     cint_surveys = list(cint_collection.find(cint_query).limit(1000))
 
@@ -1682,12 +1670,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     country_suffix = COUNTRY_CODE_TO_CINT_SUFFIX.get(raw_suffix, raw_suffix)
                     print(f"   📦 CINT BACKUP: raw_suffix={raw_suffix}, country_suffix={country_suffix}")
                     
-                    cint_query = {
-                        "$or": [
-                            {"is_active_in_pool": True},
-                            {"is_active_in_pool": {"$exists": False}, "is_active": True}
-                        ]
-                    }
+                    # Use is_active=True for survey selection (is_active_in_pool is often False)
+                    cint_query = {"is_active": True}
                     if country_suffix:
                         cint_query["country_language"] = {"$regex": f"_{country_suffix}$", "$options": "i"}
                     
