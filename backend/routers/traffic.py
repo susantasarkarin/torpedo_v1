@@ -1284,6 +1284,22 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 import uuid
                 cpx_mid = uuid.uuid4().hex[:16]
                 
+                # Log CPX API payload
+                cpx_payload = {
+                    "vendor_user_id": traffic_id,
+                    "internal_tracking_id": f"{traffic_id}_{cpx_mid}",
+                    "user_ip": client_ip,
+                    "user_agent": client_user_agent[:100] + "..." if len(client_user_agent) > 100 else client_user_agent,
+                    "country_code": country_code,
+                    "email": user_email,
+                    "birthday_day": birthday_day,
+                    "birthday_month": birthday_month,
+                    "birthday_year": birthday_year,
+                    "gender": gender,
+                    "zip_code": zip_code,
+                }
+                print(f"📤 CPX API PAYLOAD: {cpx_payload}")
+                
                 result = cpx_service.fetch_and_allocate_for_respondent(
                     vendor_user_id=traffic_id,           # Use SFWID as ext_user_id
                     internal_tracking_id=f"{traffic_id}_{cpx_mid}",  # SFWID + MID in subid_1
@@ -1297,6 +1313,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     gender=gender,
                     zip_code=zip_code,
                 )
+                
+                # Log CPX API response
+                print(f"📥 CPX API RESPONSE: success={result.get('success')}, survey_id={result.get('survey_id')}, error={result.get('error')}")
                 
                 if result.get("success"):
                     entry_link = result.get("entry_link", "")
@@ -1488,6 +1507,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                             "return_url": cint_callback_url,
                         }
                         
+                        # Log CINT API payload
+                        print(f"   📤 CINT PRIMARY API: survey_id={sid}, supplier_code={cint_supplier_code}, respondent_id={traffic_id}")
+                        
                         try:
                             with httpx.Client(timeout=10.0) as client:
                                 resp = client.post(
@@ -1495,6 +1517,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                     json=cint_payload,
                                     headers=cint_headers,
                                 )
+                            
+                            # Log response status
+                            print(f"   📥 CINT PRIMARY RESPONSE: status={resp.status_code}, survey_id={sid}")
                             
                             if resp.status_code in (200, 201):
                                 data = resp.json()
@@ -1625,8 +1650,11 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 import hashlib
                 from concurrent.futures import ThreadPoolExecutor, as_completed
                 
+                print(f"   📦 CINT BACKUP PREFETCH: Starting for country_code={country_code}")
+                
                 mongo_uri = os.getenv("MONGO_URI")
                 if not mongo_uri:
+                    print(f"   ❌ CINT BACKUP: MONGO_URI not set")
                     return []
                 
                 cint_api_key = os.getenv("CINT_API_KEY")
@@ -1634,7 +1662,10 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 cint_encryption_key = os.getenv("CINT_ENCRYPTION_KEY") or os.getenv("CINT_WEBHOOK_SECRET")
                 cint_callback_url = os.getenv("CINT_STATUS_CALLBACK_URL", "https://torpedo.cogentixresearch.com/api/cint/status")
                 
+                print(f"   📦 CINT BACKUP: API_KEY={'SET' if cint_api_key else 'MISSING'}, SUPPLIER_CODE={cint_supplier_code}, ENCRYPTION_KEY={'SET' if cint_encryption_key else 'MISSING'}")
+                
                 if not all([cint_api_key, cint_supplier_code, cint_encryption_key]):
+                    print(f"   ❌ CINT BACKUP: Missing credentials")
                     return []
                 
                 client = MongoClient(mongo_uri)
@@ -1649,6 +1680,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     }
                     raw_suffix = country_code.lower() if country_code else ""
                     country_suffix = COUNTRY_CODE_TO_CINT_SUFFIX.get(raw_suffix, raw_suffix)
+                    print(f"   📦 CINT BACKUP: raw_suffix={raw_suffix}, country_suffix={country_suffix}")
                     
                     cint_query = {
                         "$or": [
@@ -1659,8 +1691,12 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     if country_suffix:
                         cint_query["country_language"] = {"$regex": f"_{country_suffix}$", "$options": "i"}
                     
+                    print(f"   📦 CINT BACKUP: Query={cint_query}")
                     cint_surveys = list(cint_collection.find(cint_query).limit(100))
+                    print(f"   📦 CINT BACKUP: Found {len(cint_surveys)} surveys in DB matching query")
+                    
                     if not cint_surveys:
+                        print(f"   ❌ CINT BACKUP: No surveys found in cint_research.cint_surveys for country {country_suffix}")
                         return []
                     
                     random.shuffle(cint_surveys)
@@ -1691,6 +1727,10 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                             "secure_hash": secure_hash,
                             "return_url": cint_callback_url,
                         }
+                        
+                        # Log CINT API payload (first few only to avoid spam)
+                        print(f"   📤 CINT ENTRY LINK API: survey_id={sid}, supplier_code={cint_supplier_code}, respondent_id={traffic_id}")
+                        
                         try:
                             with httpx.Client(timeout=8.0) as c:
                                 resp = c.post(
@@ -1698,13 +1738,26 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                     json=payload,
                                     headers=cint_headers,
                                 )
+                            
+                            # Log CINT API response
+                            print(f"   📥 CINT API RESPONSE: status={resp.status_code}, survey_id={sid}")
+                            
                             if resp.status_code in (200, 201):
                                 data = resp.json()
                                 live_link = data.get("live_link") or data.get("LiveLink")
                                 if live_link:
+                                    print(f"   ✅ CINT ENTRY LINK SUCCESS: survey {sid} -> {live_link[:80]}...")
                                     return {"survey_id": sid, "live_link": live_link}
-                        except:
-                            pass
+                                else:
+                                    print(f"   ⚠️ CINT ENTRY LINK: No live_link in response: {data}")
+                            else:
+                                try:
+                                    error_body = resp.text[:200]
+                                except:
+                                    error_body = "N/A"
+                                print(f"   ❌ CINT API ERROR: status={resp.status_code}, body={error_body}")
+                        except Exception as cint_err:
+                            print(f"   ❌ CINT API EXCEPTION: survey_id={sid}, error={str(cint_err)[:100]}")
                         return None
                     
                     # Try surveys in parallel batches to find num_backups live ones
@@ -1744,6 +1797,18 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         actual_provider = None
         cint_backup_surveys = []  # Will be populated for waterfall
         
+        # ============================================
+        # DIAGNOSTIC: Log service availability
+        # ============================================
+        print(f"🔍 WATERFALL DIAGNOSTIC START:")
+        print(f"   CPX service available: {cpx_service is not None}")
+        print(f"   CINT service available: {cint_service is not None}")
+        print(f"   vendor_id: {vendor_id}")
+        print(f"   country_code: {country_code}")
+        print(f"   traffic_id (SFWID): {traffic_id}")
+        print(f"   client_ip: {client_ip}")
+        print(f"   allocation_error (pre-check): {allocation_error}")
+        
         # Skip allocation only for critical errors (invalid IP)
         if allocation_error:
             print(f"⏭️ Skipping survey allocation due to critical error: {allocation_error}")
@@ -1751,6 +1816,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             # Try CPX first (primary)
             print("🔄 Trying CPX (primary)...")
             cpx_success = try_cpx_allocation()
+            print(f"   CPX allocation result: {'SUCCESS' if cpx_success else 'FAILED'}")
             if cpx_success:
                 actual_provider = "CPX"
             
@@ -1758,6 +1824,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             # This runs in parallel and is fast
             print("🔄 Pre-fetching CINT backup surveys for waterfall...")
             cint_backup_surveys = prefetch_cint_backup_surveys(num_backups=5)
+            print(f"   CINT backups fetched: {len(cint_backup_surveys)}")
             
             # Store backups in traffic record
             if cint_backup_surveys and url_parameters_collection is not None:
@@ -1801,6 +1868,14 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 
                 print(f"✅ CINT backup used as primary: survey {survey_id}")
                 record_allocation_attempt("CINT", True, None, survey_id)
+            elif not cpx_success and not cint_backup_surveys:
+                # Both CPX and CINT failed - set diagnostic error message
+                allocation_error = "CPX: No surveys. CINT: No backup surveys available for this country."
+                print(f"❌ ALLOCATION FAILED: {allocation_error}")
+        else:
+            print(f"⏭️ Skipping allocation: allocation_success={allocation_success}, vendor_id={vendor_id}, country_code={country_code}, traffic_id={traffic_id}")
+        
+        print(f"🔍 WATERFALL DIAGNOSTIC END: allocation_success={allocation_success}, actual_provider={actual_provider}")
         
         # If allocation failed and no CINT backups, TERMINATE the respondent
         if not allocation_success and traffic_id:
@@ -1831,14 +1906,18 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             "primary_provider": primary_provider
         }
         
-        # Include allocation error for debugging (only if allocation failed)
-        if not allocation_success and allocation_error:
+        # Include allocation error for debugging (whenever allocation failed)
+        if not allocation_success:
+            # Always set an error message if allocation failed
+            if not allocation_error:
+                allocation_error = f"Both CPX and CINT allocation failed. CINT backups: {len(cint_backup_surveys)}"
             response_data["allocation_error"] = allocation_error
             response_data["debug_info"] = {
                 "client_ip": client_ip,
                 "country_code": country_code,
                 "cpx_service_available": cpx_service is not None,
-                "cint_service_available": cint_service is not None
+                "cint_service_available": cint_service is not None,
+                "cint_backup_count": len(cint_backup_surveys)
             }
         
         return response_data
