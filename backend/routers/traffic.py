@@ -1511,118 +1511,155 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         record_allocation_attempt("CINT", False, f"No active CINT surveys for country: {country_suffix or 'any'}")
                         return False
 
-                    # Shuffle surveys and try up to MAX_CINT_ATTEMPTS
-                    # Using 50 attempts to find a live survey before giving up
+                    # ============================================
+                    # PARALLEL BATCH CINT ALLOCATION (Fast)
+                    # ============================================
+                    # Try surveys in parallel batches of 10 for near-instant response
+                    # Uses ThreadPoolExecutor for reliable concurrent requests
+                    import hmac
+                    import hashlib
+                    from concurrent.futures import ThreadPoolExecutor, as_completed
+                    
                     MAX_CINT_ATTEMPTS = 50
+                    BATCH_SIZE = 10  # Process 10 surveys in parallel per batch
+                    
                     random.shuffle(cint_surveys)
                     surveys_to_try = cint_surveys[:MAX_CINT_ATTEMPTS]
                     
-                    print(f"🎯 CINT found {len(cint_surveys)} surveys, will try up to {len(surveys_to_try)}")
-                    
-                    import hmac
-                    import hashlib
+                    print(f"🎯 CINT found {len(cint_surveys)} surveys, will try up to {len(surveys_to_try)} in parallel batches of {BATCH_SIZE}")
                     
                     cint_encryption_key = os.getenv("CINT_ENCRYPTION_KEY") or os.getenv("CINT_WEBHOOK_SECRET")
                     cint_supplier_code = os.getenv("CINT_SUPPLIER_CODE", "6777")
                     cint_callback_url = os.getenv("CINT_STATUS_CALLBACK_URL", "https://torpedo.cogentixresearch.com/api/cint/status")
                     
-                    last_error = None
-                    attempted_surveys = []
+                    cint_headers = {
+                        "Authorization": cint_api_key,
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                    }
                     
-                    for attempt_num, selected_survey in enumerate(surveys_to_try, 1):
-                        raw_survey_id = selected_survey.get('survey_id') or selected_survey.get('_id')
-                        
+                    # Function to try a single survey (runs in thread pool)
+                    def try_single_survey(survey_data):
+                        raw_survey_id = survey_data.get('survey_id') or survey_data.get('_id')
                         if not raw_survey_id:
-                            continue
+                            return None
                         
-                        survey_id = str(raw_survey_id)
-                        attempted_surveys.append(survey_id)
+                        sid = str(raw_survey_id)
+                        message = f"{cint_supplier_code}{sid}{traffic_id}"
+                        secure_hash = hmac.new(
+                            cint_encryption_key.encode('utf-8'),
+                            message.encode('utf-8'),
+                            hashlib.sha256
+                        ).hexdigest()
                         
-                        print(f"🎯 CINT attempt {attempt_num}/{len(surveys_to_try)}: survey {survey_id} (country: {selected_survey.get('country_language')})")
+                        cint_payload = {
+                            "survey_id": sid,
+                            "supplier_code": cint_supplier_code,
+                            "respondent_id": traffic_id,
+                            "secure_hash": secure_hash,
+                            "return_url": cint_callback_url,
+                        }
                         
                         try:
-                            # Generate HMAC-SHA256 secure hash
-                            message = f"{cint_supplier_code}{survey_id}{traffic_id}"
-                            secure_hash = hmac.new(
-                                cint_encryption_key.encode('utf-8'),
-                                message.encode('utf-8'),
-                                hashlib.sha256
-                            ).hexdigest()
-                            
-                            # Sync HTTP call to CINT entry link API
-                            cint_payload = {
-                                "survey_id": str(survey_id),
-                                "supplier_code": cint_supplier_code,
-                                "respondent_id": traffic_id,
-                                "secure_hash": secure_hash,
-                                "return_url": cint_callback_url,
-                            }
-                            cint_headers = {
-                                "Authorization": cint_api_key,
-                                "Content-Type": "application/json",
-                                "Accept": "application/json",
-                            }
-                            
-                            with httpx.Client(timeout=30.0) as sync_client:
-                                cint_resp = sync_client.post(
+                            with httpx.Client(timeout=10.0) as client:
+                                resp = client.post(
                                     "https://api.samplicio.us/supply/v1/entrylinks",
                                     json=cint_payload,
                                     headers=cint_headers,
                                 )
                             
-                            if cint_resp.status_code in (200, 201):
-                                cint_data = cint_resp.json()
-                                live_link = cint_data.get("live_link") or cint_data.get("LiveLink")
+                            if resp.status_code in (200, 201):
+                                data = resp.json()
+                                live_link = data.get("live_link") or data.get("LiveLink")
                                 if live_link:
-                                    # SUCCESS! Record and return
-                                    entry_link = live_link
-                                    print(f"🔗 CINT respondent entry link (attempt {attempt_num}): {entry_link[:100]}...")
-                                    record_allocation_attempt("CINT", True, None, survey_id)
-                                    allocation_success = True
-                                    
-                                    # Update traffic record
-                                    if traffic_service:
-                                        traffic_service.assign_survey_to_traffic(
-                                            traffic_id=traffic_id,
-                                            survey_id=survey_id,
-                                            redirect_url=entry_link
-                                        )
-                                    else:
-                                        url_parameters_collection.update_one(
-                                            {"_id": ObjectId(traffic_id)},
-                                            {"$set": {
-                                                "status": "INCOMPLETE",
-                                                "assignedSurveyId": survey_id,
-                                                "redirectUrl": entry_link,
-                                                "surveySource": "CINT",
-                                                "cint_entry_link_type": "RESPONDENT",
-                                                "updatedAt": datetime.utcnow().isoformat(),
-                                            }}
-                                        )
-                                    
-                                    print(f"✅ CINT allocated survey {survey_id} to SFWID={traffic_id} (attempt {attempt_num})")
-                                    return True
-                                else:
-                                    last_error = "No live_link in response"
-                            elif cint_resp.status_code == 404:
-                                last_error = "Survey not found/inactive"
-                                # Mark this survey as inactive
-                                cint_collection.update_one(
-                                    {"survey_id": int(survey_id)},
-                                    {"$set": {"is_active": False, "is_active_in_pool": False}}
-                                )
-                                print(f"⚠️ CINT survey {survey_id} returned 404, marked inactive")
-                            else:
-                                last_error = f"CINT API error {cint_resp.status_code}"
-                                print(f"⚠️ CINT survey {survey_id}: {last_error}")
+                                    return {"success": True, "survey_id": sid, "live_link": live_link}
+                            elif resp.status_code == 404:
+                                # Mark inactive (don't block)
+                                try:
+                                    cint_collection.update_one(
+                                        {"survey_id": int(sid)},
+                                        {"$set": {"is_active": False, "is_active_in_pool": False}}
+                                    )
+                                except:
+                                    pass
+                            return {"success": False, "survey_id": sid, "error": f"Status {resp.status_code}"}
+                        except Exception as e:
+                            return {"success": False, "survey_id": sid, "error": str(e)[:50]}
+                    
+                    # Process in parallel batches using ThreadPoolExecutor
+                    last_error = None
+                    found_result = None
+                    
+                    try:
+                        for batch_num in range(0, len(surveys_to_try), BATCH_SIZE):
+                            if found_result:  # Exit early if we found a live survey
+                                break
+                                
+                            batch = surveys_to_try[batch_num:batch_num + BATCH_SIZE]
+                            batch_idx = batch_num // BATCH_SIZE + 1
+                            total_batches = (len(surveys_to_try) + BATCH_SIZE - 1) // BATCH_SIZE
                             
-                        except Exception as entrylink_err:
-                            last_error = str(entrylink_err)[:100]
-                            print(f"⚠️ CINT survey {survey_id} error: {last_error}")
+                            print(f"🚀 CINT batch {batch_idx}/{total_batches}: Testing {len(batch)} surveys in parallel...")
+                            
+                            # Run batch in parallel threads
+                            with ThreadPoolExecutor(max_workers=BATCH_SIZE) as executor:
+                                futures = {executor.submit(try_single_survey, s): s for s in batch}
+                                
+                                for future in as_completed(futures):
+                                    result = future.result()
+                                    if result and result.get("success"):
+                                        found_result = result
+                                        # Cancel remaining futures in this batch
+                                        for f in futures:
+                                            f.cancel()
+                                        break
+                            
+                            if not found_result:
+                                print(f"   Batch {batch_idx}: No live surveys found, trying next batch...")
+                        
+                        if found_result:
+                            entry_link = found_result["live_link"]
+                            survey_id = found_result["survey_id"]
+                            print(f"🔗 CINT live link found: {entry_link[:100]}...")
+                            record_allocation_attempt("CINT", True, None, survey_id)
+                            allocation_success = True
+                            
+                            # Update traffic record
+                            if traffic_service:
+                                traffic_service.assign_survey_to_traffic(
+                                    traffic_id=traffic_id,
+                                    survey_id=survey_id,
+                                    redirect_url=entry_link
+                                )
+                            else:
+                                url_parameters_collection.update_one(
+                                    {"_id": ObjectId(traffic_id)},
+                                    {"$set": {
+                                        "status": "INCOMPLETE",
+                                        "assignedSurveyId": survey_id,
+                                        "redirectUrl": entry_link,
+                                        "surveySource": "CINT",
+                                        "cint_entry_link_type": "RESPONDENT",
+                                        "updatedAt": datetime.utcnow().isoformat(),
+                                    }}
+                                )
+                            
+                            print(f"✅ CINT allocated survey {survey_id} to SFWID={traffic_id} (parallel batch)")
+                            return True
+                        else:
+                            last_error = "All parallel batches failed"
+                    except Exception as parallel_err:
+                        last_error = f"Parallel error: {str(parallel_err)[:80]}"
+                        print(f"⚠️ CINT parallel batch error: {last_error}")
                     
                     # All attempts failed
-                    print(f"❌ CINT: All {len(attempted_surveys)} surveys failed. Last error: {last_error}")
-                    record_allocation_attempt("CINT", False, f"Tried {len(attempted_surveys)} surveys, all failed: {last_error}")
+                    print(f"❌ CINT: All {len(surveys_to_try)} surveys failed (tested in parallel). Last error: {last_error}")
+                    record_allocation_attempt("CINT", False, f"Tried {len(surveys_to_try)} surveys in parallel, all failed: {last_error}")
+                    return False
+                    
+                    # All attempts failed
+                    print(f"❌ CINT: All {len(surveys_to_try)} surveys failed (tested in parallel). Last error: {last_error}")
+                    record_allocation_attempt("CINT", False, f"Tried {len(surveys_to_try)} surveys in parallel, all failed: {last_error}")
                     return False
 
                 except Exception as e:
