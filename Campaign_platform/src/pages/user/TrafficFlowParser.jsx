@@ -50,10 +50,19 @@ async function fetchClientIP() {
 
 // Fetch IPv4 specifically - CRITICAL for CPX
 // These services return IPv4 which matches what CPX sees when user clicks survey
+// Also extracts country code from ipinfo.io for validation against URL country
 async function fetchClientIPv4() {
   const ipServices = [
-    { url: "https://api.ipify.org?format=json", parser: (data) => data.ip },
-    { url: "https://ipinfo.io/json", parser: (data) => data.ip },
+    { 
+      url: "https://ipinfo.io/json", 
+      parser: (data) => ({ ip: data.ip, country: data.country }), // ipinfo.io returns country
+      hasCountry: true
+    },
+    { 
+      url: "https://api.ipify.org?format=json", 
+      parser: (data) => ({ ip: data.ip, country: null }), // ipify doesn't return country
+      hasCountry: false
+    },
   ];
 
   for (const service of ipServices) {
@@ -69,17 +78,20 @@ async function fetchClientIPv4() {
 
       if (response.ok) {
         const contentType = response.headers.get("content-type") || "";
-        let ip;
+        let result;
         if (contentType.includes("application/json")) {
           const data = await response.json();
-          ip = service.parser(data);
+          result = service.parser(data);
         } else {
           const text = await response.text();
-          ip = service.parser(text);
+          result = service.parser(text);
         }
-        if (ip && ip.match(/^[\d.:a-fA-F]+$/)) {
-          console.log(`✅ Fetched client IP: ${ip} from ${service.url}`);
-          return { ip, source: service.url };
+        if (result.ip && result.ip.match(/^[\d.:a-fA-F]+$/)) {
+          console.log(`✅ Fetched client IP: ${result.ip} from ${service.url}`);
+          if (result.country) {
+            console.log(`🌍 IP country detected: ${result.country}`);
+          }
+          return { ip: result.ip, source: service.url, ipCountry: result.country };
         }
       }
     } catch (err) {
@@ -87,7 +99,7 @@ async function fetchClientIPv4() {
     }
   }
   console.error("❌ Could not fetch client IP from any service");
-  return { ip: null, source: null };
+  return { ip: null, source: null, ipCountry: null };
 }
 
 // Generate device fingerprint for fraud detection
@@ -342,6 +354,7 @@ export default function TrafficFlowParser() {
           // IP data from server-side prefetch (fast) or fallback
           clientIp: ipResult.ip || null,
           ipSource: ipResult.source || "none",
+          ipCountry: ipResult.ipCountry || null, // IP-detected country for validation
           deviceFingerprint: fingerprint?.hash || "",
           fingerprintComponents: fingerprint?.components || {},
           fingerprintSource: "client",
@@ -395,10 +408,18 @@ export default function TrafficFlowParser() {
             console.log(`🔍 Debug info:`, debugInfo);
           }
           
-          // Show user-friendly message - this is a VALID outcome, not a failure
-          const errorMsg = allocationError 
-            ? `No surveys available for your profile: ${allocationError}`
-            : "No surveys are currently available for your profile. This is normal - please check back later.";
+          // Show user-friendly message
+          // Country mismatch errors should be shown directly (they're already user-friendly)
+          // Other errors get the generic prefix
+          let errorMsg;
+          if (allocationError && allocationError.includes("only available for participants")) {
+            // Country mismatch - show the error directly
+            errorMsg = allocationError;
+          } else if (allocationError) {
+            errorMsg = `No surveys available for your profile: ${allocationError}`;
+          } else {
+            errorMsg = "No surveys are currently available for your profile. This is normal - please check back later.";
+          }
           setError(errorMsg);
           setLoading(false);
           isClickProcessingRef.current = false;  // TASK 8: Reset click guard on no surveys

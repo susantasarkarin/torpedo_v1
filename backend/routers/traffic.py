@@ -1512,7 +1512,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         return False
 
                     # Shuffle surveys and try up to MAX_CINT_ATTEMPTS
-                    MAX_CINT_ATTEMPTS = 1000
+                    # Using 50 attempts to find a live survey before giving up
+                    MAX_CINT_ATTEMPTS = 50
                     random.shuffle(cint_surveys)
                     surveys_to_try = cint_surveys[:MAX_CINT_ATTEMPTS]
                     
@@ -1622,10 +1623,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     # All attempts failed
                     print(f"❌ CINT: All {len(attempted_surveys)} surveys failed. Last error: {last_error}")
                     record_allocation_attempt("CINT", False, f"Tried {len(attempted_surveys)} surveys, all failed: {last_error}")
-
-                    # NOTE: Success path moved inline to the retry loop above
-                    # This code block retained for error handling only
-                    return True
+                    return False
 
                 except Exception as e:
                     print(f"⚠️ CINT allocation error: {e}")
@@ -1644,11 +1642,17 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 return False
         
         # ============================================
-        # MAIN ALLOCATION LOGIC: Alternate CPX/CINT
+        # MAIN ALLOCATION LOGIC: CPX first, CINT fallback
         # ============================================
+        # Strategy: Try CPX first. If CPX returns no surveys (common for some countries),
+        # fallback to CINT with up to 50 API calls to find a live survey.
+        # If both fail, terminate the respondent.
         actual_provider = None  # Track which provider was actually used
         
-        if not allocation_success and vendor_id and country_code and traffic_id:
+        # Skip allocation only for critical errors (invalid IP)
+        if allocation_error:
+            print(f"⏭️ Skipping survey allocation due to critical error: {allocation_error}")
+        elif not allocation_success and vendor_id and country_code and traffic_id:
             if primary_provider == "CPX":
                 # Try CPX first, fallback to CINT
                 print("🔄 Trying CPX (primary)...")
@@ -1670,13 +1674,16 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         
         # If BOTH providers failed, TERMINATE the respondent (not leave as INCOMPLETE)
         if not allocation_success and traffic_id:
-            print(f"❌ Both CPX and CINT failed, TERMINATING respondent SFWID={traffic_id}")
+            termination_reason = "no_survey_available"
+            
+            print(f"❌ Both CPX and CINT failed (50 CINT attempts), TERMINATING respondent SFWID={traffic_id}")
             try:
                 url_parameters_collection.update_one(
                     {"_id": ObjectId(traffic_id)},
                     {"$set": {
                         "status": "TERMINATED",
-                        "terminationReason": "no_survey_available",
+                        "terminationReason": termination_reason,
+                        "allocationFailureReason": allocation_error or "No live surveys available from CPX or CINT",
                         "updatedAt": datetime.utcnow().isoformat(),
                     }}
                 )

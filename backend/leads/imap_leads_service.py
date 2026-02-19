@@ -798,6 +798,13 @@ def create_or_update_rfq(email_data: Dict[str, Any], lead_id: str = None, rfq_de
     if not contact_email:
         return None
     
+    # If no lead_id provided, try to find an existing lead by email
+    if not lead_id:
+        existing_lead = email_leads_collection.find_one({"email": {"$regex": f"^{contact_email}$", "$options": "i"}})
+        if existing_lead:
+            lead_id = str(existing_lead["_id"])
+            logger.info(f"Found existing lead {lead_id} for RFQ contact {contact_email}")
+    
     # Extract value from email
     extracted_value, currency = extract_rfq_value(
         email_data.get("body", ""),
@@ -824,6 +831,11 @@ def create_or_update_rfq(email_data: Dict[str, Any], lead_id: str = None, rfq_de
             "$push": {"source_emails": source_email},
             "$set": {"updated_at": datetime.utcnow()}
         }
+        
+        # Backfill lead_id if not set on existing RFQ
+        if lead_id and not existing_rfq.get("lead_id"):
+            update_data["$set"]["lead_id"] = lead_id
+            logger.info(f"Backfilling lead_id {lead_id} for existing RFQ {existing_rfq['rfq_id']}")
         
         # Update extracted value if new value is higher
         if extracted_value and (not existing_rfq.get("extracted_value") or extracted_value > existing_rfq.get("extracted_value", 0)):

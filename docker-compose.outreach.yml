@@ -1,0 +1,215 @@
+version: '3.8'
+
+services:
+  # ==========================================================================
+  # Redis - Message broker for Celery
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: torpedo-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - torpedo-network
+
+  # ==========================================================================
+  # MongoDB - Main database
+  # ==========================================================================
+  mongodb:
+    image: mongo:7
+    container_name: torpedo-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: torpedo-password
+      MONGO_INITDB_DATABASE: torpedo
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - torpedo-network
+
+  # ==========================================================================
+  # PostgreSQL - Optional alternative to MongoDB
+  # ==========================================================================
+  postgresql:
+    image: postgres:16-alpine
+    container_name: torpedo-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: torpedo
+      POSTGRES_PASSWORD: torpedo-password
+      POSTGRES_DB: torpedo
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U torpedo"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - torpedo-network
+    profiles:
+      - postgres
+
+  # ==========================================================================
+  # FastAPI Backend
+  # ==========================================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: torpedo-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MONGODB_URI=mongodb://root:torpedo-password@mongodb:27017/torpedo?authSource=admin
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=development
+    volumes:
+      - ./backend:/app
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - torpedo-network
+
+  # ==========================================================================
+  # Celery Worker - Process async tasks
+  # ==========================================================================
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: torpedo-celery-worker
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MONGODB_URI=mongodb://root:torpedo-password@mongodb:27017/torpedo?authSource=admin
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - redis
+      - mongodb
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=4
+    networks:
+      - torpedo-network
+
+  # ==========================================================================
+  # Celery Beat - Scheduler for periodic tasks
+  # ==========================================================================
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: torpedo-celery-beat
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MONGODB_URI=mongodb://root:torpedo-password@mongodb:27017/torpedo?authSource=admin
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - redis
+      - mongodb
+    command: celery -A app.celery_app beat --loglevel=info
+    networks:
+      - torpedo-network
+
+  # ==========================================================================
+  # Flower - Celery monitoring dashboard
+  # ==========================================================================
+  flower:
+    image: mher/flower:2.0
+    container_name: torpedo-flower
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+      - celery-worker
+    command: celery -A app.celery_app flower --port=5555 --broker=redis://redis:6379/0
+    networks:
+      - torpedo-network
+    profiles:
+      - monitoring
+
+  # ==========================================================================
+  # React Frontend (if available)
+  # ==========================================================================
+  frontend:
+    build:
+      context: ./Campaign_platform
+      dockerfile: Dockerfile
+    container_name: torpedo-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000/api
+    volumes:
+      - ./Campaign_platform:/app
+    depends_on:
+      - backend
+    networks:
+      - torpedo-network
+    profiles:
+      - frontend
+
+volumes:
+  redis_data:
+  mongodb_data:
+  postgres_data:
+
+networks:
+  torpedo-network:
+    driver: bridge
+
+# =============================================================================
+# Usage
+# =============================================================================
+# Start all services:
+#   docker-compose up -d
+#
+# Start with monitoring:
+#   docker-compose --profile monitoring up -d
+#
+# Start with frontend:
+#   docker-compose --profile frontend up -d
+#
+# Start with PostgreSQL instead of MongoDB:
+#   docker-compose --profile postgres up -d
+#
+# View logs:
+#   docker-compose logs -f backend
+#   docker-compose logs -f celery-worker
+#
+# Stop all:
+#   docker-compose down
+#
+# Clean everything:
+#   docker-compose down -v
