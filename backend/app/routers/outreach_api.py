@@ -280,3 +280,157 @@ async def test_ai_connection(ai_client = Depends(get_ai_client)):
     except Exception as e:
         logger.error(f"AI connection test failed: {e}")
         raise HTTPException(status_code=500, detail=f"AI connection failed: {str(e)}")
+
+
+# =============================================================================
+# Webhook Endpoints for Email Provider Events
+# =============================================================================
+
+class WebhookOpenEvent(BaseModel):
+    """Open event from email provider."""
+    tracking_id: str
+
+
+class WebhookClickEvent(BaseModel):
+    """Click event from email provider."""
+    tracking_id: str
+    url: str
+
+
+class WebhookBounceEvent(BaseModel):
+    """Bounce event from email provider."""
+    message_id: str
+    reason: str = "unknown"
+
+
+class WebhookComplaintEvent(BaseModel):
+    """Complaint/spam event from email provider."""
+    message_id: str
+    reason: str = "unknown"
+
+
+class WebhookReplyEvent(BaseModel):
+    """Reply event from email provider."""
+    message_id: str
+    from_email: EmailStr
+    body_text: str
+
+
+@router.post("/webhook/open")
+async def webhook_open_event(event: WebhookOpenEvent, background_tasks: BackgroundTasks):
+    """
+    Webhook endpoint for email open events.
+    
+    Expected from: SES, SendGrid, Mailgun, or other email provider.
+    """
+    try:
+        logger.info(f"Received open event for tracking_id: {event.tracking_id}")
+        
+        # Import here to avoid circular imports
+        from tasks.outreach_tasks import process_webhook_event_task
+        
+        # Queue for async processing
+        process_webhook_event_task.delay('open', {'tracking_id': event.tracking_id})
+        
+        return {"status": "accepted", "event_type": "open"}
+        
+    except Exception as e:
+        logger.error(f"Error processing open webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/webhook/click")
+async def webhook_click_event(event: WebhookClickEvent, background_tasks: BackgroundTasks):
+    """
+    Webhook endpoint for email link click events.
+    """
+    try:
+        logger.info(f"Received click event for tracking_id: {event.tracking_id} on {event.url}")
+        
+        # Import here to avoid circular imports
+        from tasks.outreach_tasks import process_webhook_event_task
+        
+        # Queue for async processing
+        process_webhook_event_task.delay('click', {'tracking_id': event.tracking_id, 'url': event.url})
+        
+        return {"status": "accepted", "event_type": "click"}
+        
+    except Exception as e:
+        logger.error(f"Error processing click webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/webhook/bounce")
+async def webhook_bounce_event(event: WebhookBounceEvent, background_tasks: BackgroundTasks):
+    """
+    Webhook endpoint for email bounce events.
+    
+    Bounces mark a lead as undeliverable and signal sender reputation issues.
+    """
+    try:
+        logger.info(f"Received bounce event for message_id: {event.message_id} ({event.reason})")
+        
+        # Import here to avoid circular imports
+        from tasks.outreach_tasks import process_webhook_event_task
+        
+        # Queue for async processing
+        process_webhook_event_task.delay('bounce', {'message_id': event.message_id, 'reason': event.reason})
+        
+        return {"status": "accepted", "event_type": "bounce"}
+        
+    except Exception as e:
+        logger.error(f"Error processing bounce webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/webhook/complaint")
+async def webhook_complaint_event(event: WebhookComplaintEvent, background_tasks: BackgroundTasks):
+    """
+    Webhook endpoint for spam complaint events.
+    
+    Complaints damage sender reputation and should trigger immediate lead unsubscribe.
+    """
+    try:
+        logger.info(f"Received complaint event for message_id: {event.message_id} ({event.reason})")
+        
+        # Import here to avoid circular imports
+        from tasks.outreach_tasks import process_webhook_event_task
+        
+        # Queue for async processing
+        process_webhook_event_task.delay('complaint', {'message_id': event.message_id, 'reason': event.reason})
+        
+        return {"status": "accepted", "event_type": "complaint"}
+        
+    except Exception as e:
+        logger.error(f"Error processing complaint webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/webhook/reply")
+async def webhook_reply_event(event: WebhookReplyEvent, background_tasks: BackgroundTasks):
+    """
+    Webhook endpoint for reply events.
+    
+    Replies indicate engagement and can be processed for auto-respond or manual review.
+    """
+    try:
+        logger.info(f"Received reply event for message_id: {event.message_id} from {event.from_email}")
+        
+        # Import here to avoid circular imports
+        from tasks.outreach_tasks import process_webhook_event_task
+        
+        # Queue for async processing
+        process_webhook_event_task.delay(
+            'reply',
+            {
+                'message_id': event.message_id,
+                'from_email': event.from_email,
+                'body_text': event.body_text
+            }
+        )
+        
+        return {"status": "accepted", "event_type": "reply"}
+        
+    except Exception as e:
+        logger.error(f"Error processing reply webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

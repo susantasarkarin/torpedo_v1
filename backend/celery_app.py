@@ -24,6 +24,7 @@ celery_app = Celery(
         'tasks.finance_tasks',
         'tasks.sales_tasks',
         'tasks.traffic_tasks',
+        'tasks.outreach_tasks',
     ]
 )
 
@@ -72,6 +73,7 @@ celery_app.conf.update(
         'backend.tasks.finance_tasks.*': {'queue': 'finance', 'routing_key': 'finance.task'},
         'backend.tasks.sales_tasks.*': {'queue': 'sales', 'routing_key': 'sales.task'},
         'backend.tasks.traffic_tasks.*': {'queue': 'traffic', 'routing_key': 'traffic.task'},
+        'backend.tasks.outreach_tasks.*': {'queue': 'api_tasks', 'routing_key': 'outreach.#'},
         # Route survey tasks to dedicated queue
         'backend.tasks.traffic_tasks.fetch_and_broadcast_cpx_surveys': {'queue': 'surveys', 'routing_key': 'surveys.cpx'},
         'backend.tasks.survey_tasks.*': {'queue': 'surveys', 'routing_key': 'surveys.task'},

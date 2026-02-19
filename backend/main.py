@@ -68,6 +68,7 @@ try:
     from .routers import mail_operations as mail_operations_router
     from .routers import prompt_management as prompt_management_router
     from .routers import automation as automation_router
+    from .app.routers import outreach_api as outreach_api_router
 except Exception:
     # Fallback to absolute import for other runtimes
     from routers import traffic as traffic_router
@@ -92,6 +93,7 @@ except Exception:
     from routers import mail_operations as mail_operations_router
     from routers import prompt_management as prompt_management_router
     from routers import automation as automation_router
+    from app.routers import outreach_api as outreach_api_router
 
 # Ensure stdout/stderr use UTF-8 on Windows consoles to avoid UnicodeEncodeError
 import sys
@@ -911,6 +913,13 @@ try:
     print("✅ Automation System router included")
 except Exception as e:
     print(f"⚠️ Automation System router not included: {e}")
+
+# Outreach System router (AI-powered cold outreach with orchestration)
+try:
+    app.include_router(outreach_api_router.router, prefix="/api/outreach", tags=["AI Outreach"])
+    print("✅ Outreach System router included")
+except Exception as e:
+    print(f"⚠️ Outreach System router not included: {e}")
 
 # Panel (Survey Panel User Portal) router
 try:

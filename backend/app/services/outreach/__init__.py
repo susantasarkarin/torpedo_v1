@@ -59,6 +59,9 @@ from .guardrails import (
     OutreachLimits,
     RiskLevel
 )
+from .scheduler import OutreachSchedulerService
+from .webhook_handler import OutreachWebhookHandler
+from .email_sender import EmailSenderService, SendEmailResult
 from .master_prompts import (
     MASTER_SYSTEM_PROMPT,
     LEAD_INTELLIGENCE_PROMPT,
@@ -114,4 +117,10 @@ __all__ = [
     "GuardrailsService",
     "OutreachLimits",
     "RiskLevel",
+
+    # Infra services
+    "OutreachSchedulerService",
+    "OutreachWebhookHandler",
+    "EmailSenderService",
+    "SendEmailResult",
 ]
