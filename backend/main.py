@@ -916,7 +916,7 @@ except Exception as e:
 
 # Outreach System router (AI-powered cold outreach with orchestration)
 try:
-    app.include_router(outreach_api_router.router, prefix="/api/outreach", tags=["AI Outreach"])
+    app.include_router(outreach_api_router.router, tags=["AI Outreach"])
     print("✅ Outreach System router included")
 except Exception as e:
     print(f"⚠️ Outreach System router not included: {e}")
