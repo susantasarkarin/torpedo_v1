@@ -251,6 +251,7 @@ def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
     supplier_code = os.getenv("CINT_SUPPLIER_CODE", "6777")
     
     if not api_key or not supplier_code:
+        print(f"   ❌ CINT entry link: Missing credentials (API_KEY={'set' if api_key else 'MISSING'}, SUPPLIER_CODE={supplier_code})")
         return ""
     
     headers = {
@@ -260,11 +261,12 @@ def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
     }
     
     # Callback URLs with [%PID%] placeholder — CINT replaces with our traffic_id
+    # DefaultLink: where CINT sends respondent on survey error/closed — redirect back to us for waterfall
     callback_base = CINT_CALLBACK_BASE
     create_payload = {
         "SupplierLinkTypeCode": "OWS",
         "TrackingTypeCode": "NONE",
-        "DefaultLink": f"https://surveyfieldwork.com/survey",
+        "DefaultLink": f"{callback_base}/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]&reason=default_link",
         "SuccessLink": f"{callback_base}/cint-response?status=complete&pid=[%PID%]&mid=[%MID%]&revenue=[%REVENUE%]",
         "FailureLink": f"{callback_base}/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]",
         "OverQuotaLink": f"{callback_base}/cint-response?status=quota_full&pid=[%PID%]&mid=[%MID%]",
@@ -277,23 +279,62 @@ def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
         with httpx.Client(timeout=15.0) as client:
             # Step 1: Try to create SupplierLink
             create_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/Create/{survey_id}/{supplier_code}"
+            
+            # Log full request payload
+            print(f"   📤 CINT SupplierLinks/Create REQUEST:")
+            print(f"      URL: {create_url}")
+            print(f"      Payload: {create_payload}")
+            
             resp = client.post(create_url, json=create_payload, headers=headers)
             
+            # Log full response
+            print(f"   📥 CINT SupplierLinks/Create RESPONSE:")
+            print(f"      Status: {resp.status_code}")
+            try:
+                resp_body = resp.json()
+                print(f"      Body: {resp_body}")
+            except:
+                print(f"      Body (raw): {resp.text[:500]}")
+                resp_body = {}
+            
             if resp.status_code in (200, 201):
-                data = resp.json()
-                sl = data.get("SupplierLink", {})
+                sl = resp_body.get("SupplierLink", {})
                 live_link = sl.get("LiveLink", "")
                 print(f"   ✅ CINT SupplierLink CREATED for survey {survey_id}")
+                print(f"      LiveLink: {live_link}")
+                print(f"      CPI: {sl.get('CPI')}")
             
             elif resp.status_code == 409:
                 # Already exists — GET existing link
                 get_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/BySurveyNumber/{survey_id}/{supplier_code}"
+                print(f"   📤 CINT SupplierLink already exists (409), fetching: GET {get_url}")
                 get_resp = client.get(get_url, headers=headers)
+                
+                print(f"   📥 CINT GET SupplierLink RESPONSE: Status={get_resp.status_code}")
+                try:
+                    get_body = get_resp.json()
+                    print(f"      Body: {get_body}")
+                except:
+                    get_body = {}
+                    print(f"      Body (raw): {get_resp.text[:500]}")
+                
                 if get_resp.status_code == 200:
-                    data = get_resp.json()
-                    sl = data.get("SupplierLink", {})
+                    sl = get_body.get("SupplierLink", {})
                     live_link = sl.get("LiveLink", "")
+                    
+                    # Check if existing link has wrong DefaultLink — update if needed
+                    existing_default = sl.get("DefaultLink", "")
+                    expected_default = f"{callback_base}/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]&reason=default_link"
+                    if existing_default and "cint-response" not in existing_default:
+                        print(f"   ⚠️ Existing SupplierLink has wrong DefaultLink: {existing_default}")
+                        print(f"   🔄 Updating SupplierLink with correct redirect URLs...")
+                        # Update the existing link with correct callback URLs
+                        update_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/Update/{survey_id}/{supplier_code}"
+                        update_resp = client.put(update_url, json=create_payload, headers=headers)
+                        print(f"   📥 CINT SupplierLink UPDATE: Status={update_resp.status_code}")
+                    
                     print(f"   ✅ CINT SupplierLink EXISTS for survey {survey_id}")
+                    print(f"      LiveLink: {live_link}")
                 else:
                     print(f"   ❌ CINT GET SupplierLink failed: status={get_resp.status_code}")
             
@@ -306,7 +347,7 @@ def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
             # LiveLink format: https://www.samplicio.us/s/default.aspx?SID=xxx&PID=
             # Append our traffic_id as the PID value
             entry_url = f"{live_link}{traffic_id}"
-            print(f"   🔗 CINT entry link: {entry_url[:100]}...")
+            print(f"   🔗 CINT entry link (respondent-specific): {entry_url}")
             return entry_url
         
         return ""
