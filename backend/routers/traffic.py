@@ -435,7 +435,7 @@ def get_next_cint_waterfall_link(traffic_record: dict, traffic_id: str) -> dict:
     tried = traffic_record.get("cintTriedSurveyIds", [])
     attempt_count = traffic_record.get("cintAttemptCount", 0)
     
-    MAX_CINT_ATTEMPTS = 5
+    MAX_CINT_ATTEMPTS = 15  # Increased: try more surveys since offerwall data is often stale
     
     if attempt_count >= MAX_CINT_ATTEMPTS:
         print(f"   ⚠️ CINT waterfall: Max attempts ({MAX_CINT_ATTEMPTS}) reached")
@@ -448,8 +448,8 @@ def get_next_cint_waterfall_link(traffic_record: dict, traffic_id: str) -> dict:
         print(f"   ⚠️ CINT waterfall: No untried candidates left (tried={len(tried)}, total={len(candidates)})")
         return None
     
-    # Try each untried candidate until one works (max 3 per batch for speed)
-    for survey_id in untried[:3]:  # Try up to 3 to avoid blocking too long
+    # Try each untried candidate until one works (max 10 per batch - need more since offerwall is stale)
+    for survey_id in untried[:10]:  # Try up to 10 - 403s are common, need to try more
         entry_link = create_cint_entry_link(survey_id, traffic_id)
         
         if entry_link:
@@ -1715,8 +1715,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 
                 print(f"🎯 CINT: {len(candidates)} offerwall candidates, trying SupplierLinks API...")
                 
-                # Try candidates one by one until we get a working entry link (max 5 for speed)
-                for idx, sid in enumerate(candidates[:5]):
+                # Try candidates one by one until we get a working entry link (max 15 - 403s are common)
+                for idx, sid in enumerate(candidates[:15]):
                     link = create_cint_entry_link(sid, traffic_id)
                     if link:
                         entry_link = link
