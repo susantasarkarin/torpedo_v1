@@ -1197,14 +1197,26 @@ async def get_cpx_callback_logs(
         elif success_filter == "false":
             query["success"] = False
         
-        # Get total count
-        total = cpx_callback_logs_collection.count_documents(query)
+        # Get stats with single aggregation (replaces 3 separate count_documents calls)
+        stats_pipeline = [
+            {"$facet": {
+                "filtered": [{"$match": query}, {"$count": "count"}] if query else [{"$count": "count"}],
+                "success": [{"$match": {"success": True}}, {"$count": "count"}],
+                "failed": [{"$match": {"success": False}}, {"$count": "count"}]
+            }}
+        ]
+        stats_result = list(cpx_callback_logs_collection.aggregate(stats_pipeline))
+        stats_data = stats_result[0] if stats_result else {}
+        
+        total = stats_data.get("filtered", [{}])[0].get("count", 0) if stats_data.get("filtered") else 0
+        success_count = stats_data.get("success", [{}])[0].get("count", 0) if stats_data.get("success") else 0
+        failed_count = stats_data.get("failed", [{}])[0].get("count", 0) if stats_data.get("failed") else 0
         
         # Calculate pagination
         skip = (page - 1) * page_size
         total_pages = (total + page_size - 1) // page_size if total > 0 else 1
         
-        # Fetch logs (newest first)
+        # Fetch logs (newest first) - only fetch page_size records
         logs = list(
             cpx_callback_logs_collection.find(query)
             .sort("timestamp", -1)
@@ -1217,10 +1229,6 @@ async def get_cpx_callback_logs(
             log["_id"] = str(log["_id"])
             if log.get("timestamp"):
                 log["timestamp"] = log["timestamp"].isoformat()
-        
-        # Get stats
-        success_count = cpx_callback_logs_collection.count_documents({"success": True})
-        failed_count = cpx_callback_logs_collection.count_documents({"success": False})
         
         return {
             "logs": logs,
