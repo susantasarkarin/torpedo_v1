@@ -383,35 +383,12 @@ def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
             entry_url = f"{live_link}{traffic_id}"
             print(f"   🔗 CINT entry link (respondent-specific): {entry_url}")
             
-            # ===== PRE-VALIDATE LiveLink before redirecting respondent =====
-            # CINT's router (rx.samplicio.us) returns 403 for closed surveys.
-            # HEAD validation with 3s timeout (fast fail)
-            try:
-                print(f"   🔍 Validating LiveLink (HEAD)...")
-                head_resp = client.head(entry_url, timeout=3.0)
-                print(f"   📥 LiveLink HEAD status: {head_resp.status_code}")
-                
-                if head_resp.status_code == 403:
-                    print(f"   ❌ LiveLink REJECTED (403) — survey {survey_id} is closed/dead")
-                    return ""
-                
-                # CINT sometimes 302-redirects to error page
-                if head_resp.status_code in (301, 302, 303, 307, 308):
-                    redirect_location = head_resp.headers.get("location", "")
-                    print(f"   🔀 LiveLink redirects to: {redirect_location}")
-                    if "error" in redirect_location.lower() or "rx.samplicio.us/error" in redirect_location.lower():
-                        print(f"   ❌ LiveLink redirects to CINT error page — survey {survey_id} is dead")
-                        return ""
-                
-                if head_resp.status_code >= 400:
-                    print(f"   ❌ LiveLink returned {head_resp.status_code} — survey {survey_id} may be dead")
-                    return ""
-                
-                print(f"   ✅ LiveLink validated OK (status {head_resp.status_code})")
-            except Exception as validate_err:
-                # If validation itself fails (timeout, network error), still allow the redirect
-                # Better to let the respondent try than block on a transient network issue
-                print(f"   ⚠️ LiveLink validation failed (allowing anyway): {validate_err}")
+            # ===== SKIP HEAD VALIDATION =====
+            # CINT blocks HEAD requests with 403 even for live surveys.
+            # GET works fine (302 redirect). SupplierLinks/Create already
+            # validates the survey is live - if Create succeeds, survey is available.
+            # Removing HEAD validation fixes 100% false-negative terminations.
+            print(f"   ✅ LiveLink ready (skipping HEAD validation - CINT blocks HEAD)")
             
             return entry_url
         
