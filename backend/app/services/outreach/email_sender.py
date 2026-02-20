@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import smtplib
 import ssl
+import uuid
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
@@ -35,17 +36,30 @@ class EmailSenderService:
 
 	async def send_email(
 		self,
-		sender: SenderAccount,
-		to_email: str,
-		subject: str,
-		body_text: str,
+		sender: Optional[SenderAccount] = None,
+		to_email: str = "",
+		subject: str = "",
+		body_text: str = "",
 		to_name: str = "",
 		body_html: Optional[str] = None,
 		reply_to: Optional[str] = None,
 		tracking_id: Optional[str] = None,
+		**legacy_kwargs,
 	) -> SendEmailResult:
 		"""Send an email using sender-level SMTP credentials."""
 		try:
+			if sender is None:
+				sender = legacy_kwargs.get("sender_account")
+
+			if not to_email:
+				to_email = legacy_kwargs.get("recipient_email") or legacy_kwargs.get("to") or ""
+
+			if not sender:
+				return SendEmailResult(success=False, provider="smtp", error="Missing sender account")
+
+			if not to_email:
+				return SendEmailResult(success=False, provider="smtp", error="Missing recipient email")
+
 			message = self._build_message(
 				sender=sender,
 				to_email=to_email,
@@ -70,8 +84,9 @@ class EmailSenderService:
 				smtp.login(smtp_username, smtp_password)
 				smtp.send_message(message)
 
+			message_id = message.get("Message-ID") or f"<{uuid.uuid4()}@{sender.email.split('@')[-1]}>"
 			logger.info("Outreach email sent to %s using %s", to_email, sender.email)
-			return SendEmailResult(success=True, provider="smtp", message_id=message.get("Message-ID"))
+			return SendEmailResult(success=True, provider="smtp", message_id=message_id)
 		except Exception as exc:
 			logger.error("Failed to send outreach email to %s: %s", to_email, exc)
 			return SendEmailResult(success=False, provider="smtp", error=str(exc))

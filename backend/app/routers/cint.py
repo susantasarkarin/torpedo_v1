@@ -140,7 +140,12 @@ async def handle_opportunities_webhook(
         async def _process_webhook_background():
             """Background task to process webhook without blocking responses"""
             try:
-                processed = await cint_service.process_opportunity_webhook(request_body)
+                # auto_create_entry_links=False: SupplierLinks are created on-demand
+                # during the waterfall in traffic.py, not eagerly here.
+                # This saves hundreds of API calls per webhook (huge perf win).
+                processed = await cint_service.process_opportunity_webhook(
+                    request_body, auto_create_entry_links=False
+                )
                 
                 # Update allocation metrics if extension available
                 if cint_allocation is not None and processed:
