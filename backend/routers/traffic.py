@@ -128,6 +128,231 @@ def set_cpx_postback_logs_collection(collection: Collection):
 
 
 # ============================================
+# CINT WATERFALL HELPERS (module-level)
+# ============================================
+# Map 2-letter country code to CINT CountryLanguageID
+CINT_COUNTRY_LANGUAGE_MAP = {
+    "us": 9, "gb": 8, "uk": 8, "in": 7, "au": 5, "ca": 6,
+    "de": 4, "fr": 5, "es": 6, "mx": 115, "br": 108, "it": 11,
+    "nl": 10, "za": 49, "sg": 50, "nz": 57, "ph": 58, "ie": 43,
+}
+
+CINT_API_BASE = "https://api.samplicio.us"
+CINT_CALLBACK_BASE = "https://torpedo.cogentixresearch.com"
+
+
+def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) -> list:
+    """
+    Fetch live survey candidates from CINT's offerwall API (fresh, real-time).
+    Returns list of survey number strings matching the country.
+    """
+    import httpx
+    
+    api_key = os.getenv("CINT_API_KEY")
+    supplier_code = os.getenv("CINT_SUPPLIER_CODE", "6777")
+    
+    if not api_key or not supplier_code:
+        print("   ❌ CINT offerwall: Missing API_KEY or SUPPLIER_CODE")
+        return []
+    
+    cc = (country_code or "").lower()
+    country_lang_id = CINT_COUNTRY_LANGUAGE_MAP.get(cc)
+    
+    if not country_lang_id:
+        print(f"   ⚠️ CINT offerwall: No CountryLanguageID mapping for '{cc}'")
+        # Still fetch all and return random ones
+    
+    try:
+        headers = {
+            "Authorization": api_key,
+            "Accept": "application/json",
+        }
+        url = f"{CINT_API_BASE}/Supply/v1/Surveys/AllOfferwall/{supplier_code}"
+        
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(url, headers=headers)
+        
+        if resp.status_code != 200:
+            print(f"   ❌ CINT offerwall API: status={resp.status_code}")
+            return []
+        
+        surveys = resp.json().get("Surveys", [])
+        print(f"   📡 CINT offerwall: {len(surveys)} total surveys from API")
+        
+        # Filter by country
+        if country_lang_id:
+            filtered = [s for s in surveys if s.get("CountryLanguageID") == country_lang_id]
+            print(f"   📡 CINT offerwall: {len(filtered)} surveys for CountryLanguageID={country_lang_id} (country={cc})")
+        else:
+            filtered = surveys
+        
+        if not filtered:
+            print(f"   ⚠️ CINT offerwall: No surveys for country={cc}")
+            return []
+        
+        # Shuffle and return survey numbers
+        random.shuffle(filtered)
+        candidates = [str(s.get("SurveyNumber")) for s in filtered[:limit] if s.get("SurveyNumber")]
+        print(f"   📡 CINT offerwall: Selected {len(candidates)} candidates")
+        return candidates
+        
+    except Exception as e:
+        print(f"   ❌ CINT offerwall error: {e}")
+        return []
+
+
+def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
+    """
+    Create a respondent-specific CINT entry link for survey_id + traffic_id.
+    
+    Flow:
+    1. POST SupplierLinks/Create to get LiveLink (or handle 409 if already exists)
+    2. GET existing SupplierLink if 409
+    3. Append traffic_id to LiveLink's PID= parameter
+    
+    Returns the full respondent-specific URL, or empty string on failure.
+    """
+    import httpx
+    
+    api_key = os.getenv("CINT_API_KEY")
+    supplier_code = os.getenv("CINT_SUPPLIER_CODE", "6777")
+    
+    if not api_key or not supplier_code:
+        return ""
+    
+    headers = {
+        "Authorization": api_key,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    
+    # Callback URLs with [%PID%] placeholder — CINT replaces with our traffic_id
+    callback_base = CINT_CALLBACK_BASE
+    create_payload = {
+        "SupplierLinkTypeCode": "OWS",
+        "TrackingTypeCode": "NONE",
+        "DefaultLink": f"https://surveyfieldwork.com/survey",
+        "SuccessLink": f"{callback_base}/cint-response?status=complete&pid=[%PID%]&mid=[%MID%]&revenue=[%REVENUE%]",
+        "FailureLink": f"{callback_base}/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]",
+        "OverQuotaLink": f"{callback_base}/cint-response?status=quota_full&pid=[%PID%]&mid=[%MID%]",
+        "QualityTerminationLink": f"{callback_base}/cint-response?status=quality_terminate&pid=[%PID%]&mid=[%MID%]",
+    }
+    
+    live_link = ""
+    
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            # Step 1: Try to create SupplierLink
+            create_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/Create/{survey_id}/{supplier_code}"
+            resp = client.post(create_url, json=create_payload, headers=headers)
+            
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                sl = data.get("SupplierLink", {})
+                live_link = sl.get("LiveLink", "")
+                print(f"   ✅ CINT SupplierLink CREATED for survey {survey_id}")
+            
+            elif resp.status_code == 409:
+                # Already exists — GET existing link
+                get_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/BySurveyNumber/{survey_id}/{supplier_code}"
+                get_resp = client.get(get_url, headers=headers)
+                if get_resp.status_code == 200:
+                    data = get_resp.json()
+                    sl = data.get("SupplierLink", {})
+                    live_link = sl.get("LiveLink", "")
+                    print(f"   ✅ CINT SupplierLink EXISTS for survey {survey_id}")
+                else:
+                    print(f"   ❌ CINT GET SupplierLink failed: status={get_resp.status_code}")
+            
+            elif resp.status_code == 404:
+                print(f"   ❌ CINT survey {survey_id} not found (404) — survey closed")
+            else:
+                print(f"   ❌ CINT SupplierLink Create failed: status={resp.status_code}")
+        
+        if live_link:
+            # LiveLink format: https://www.samplicio.us/s/default.aspx?SID=xxx&PID=
+            # Append our traffic_id as the PID value
+            entry_url = f"{live_link}{traffic_id}"
+            print(f"   🔗 CINT entry link: {entry_url[:100]}...")
+            return entry_url
+        
+        return ""
+        
+    except Exception as e:
+        print(f"   ❌ CINT entry link error for survey {survey_id}: {e}")
+        return ""
+
+
+def get_next_cint_waterfall_link(traffic_record: dict, traffic_id: str) -> dict:
+    """
+    Try to get the next CINT survey link in the waterfall.
+    
+    Reads cintCandidateIds from traffic record, tries candidates one by one
+    until an entry link is successfully created.
+    
+    Returns: {"survey_id": str, "entry_link": str, "attempt": int} or None
+    """
+    candidates = traffic_record.get("cintCandidateIds", [])
+    tried = traffic_record.get("cintTriedSurveyIds", [])
+    attempt_count = traffic_record.get("cintAttemptCount", 0)
+    
+    MAX_CINT_ATTEMPTS = 5
+    
+    if attempt_count >= MAX_CINT_ATTEMPTS:
+        print(f"   ⚠️ CINT waterfall: Max attempts ({MAX_CINT_ATTEMPTS}) reached")
+        return None
+    
+    # Find untried candidates
+    untried = [c for c in candidates if c not in tried]
+    
+    if not untried:
+        print(f"   ⚠️ CINT waterfall: No untried candidates left (tried={len(tried)}, total={len(candidates)})")
+        return None
+    
+    # Try each untried candidate until one works
+    for survey_id in untried[:10]:  # Try up to 10 to find one that works
+        entry_link = create_cint_entry_link(survey_id, traffic_id)
+        
+        if entry_link:
+            new_attempt = attempt_count + 1
+            new_tried = tried + [survey_id]
+            
+            # Update traffic record
+            if url_parameters_collection is not None:
+                url_parameters_collection.update_one(
+                    {"_id": ObjectId(traffic_id)},
+                    {"$set": {
+                        "cintAttemptCount": new_attempt,
+                        "cintTriedSurveyIds": new_tried,
+                        "currentCintSurveyId": survey_id,
+                        "currentCintLink": entry_link,
+                        "status": f"CINT_WATERFALL_{new_attempt}",
+                        "updatedAt": datetime.utcnow()
+                    }}
+                )
+            
+            print(f"   ✅ CINT waterfall #{new_attempt}: survey {survey_id}")
+            return {
+                "survey_id": survey_id,
+                "entry_link": entry_link,
+                "attempt": new_attempt
+            }
+        else:
+            # This survey is dead, add to tried
+            tried.append(survey_id)
+    
+    # All tried candidates failed — update tried list
+    if url_parameters_collection is not None:
+        url_parameters_collection.update_one(
+            {"_id": ObjectId(traffic_id)},
+            {"$set": {"cintTriedSurveyIds": tried, "updatedAt": datetime.utcnow()}}
+        )
+    
+    print(f"   ❌ CINT waterfall: All candidates failed")
+    return None
+
+
+# ============================================
 # TASK 3: CPX Entry Guards - Single-Use ext_user_id
 # ============================================
 # This prevents the same ext_user_id from being used multiple times
@@ -403,41 +628,18 @@ async def cint_callback(
             print(f"✅ Cint COMPLETE: Redirecting to {redirect_url}")
             return RedirectResponse(url=redirect_url)
         
-        # TERMINATED/QUOTA_FULL/QUALITY_TERM: Try next CINT backup (waterfall)
-        print(f"🔄 Cint terminated - checking for more CINT backups")
+        # TERMINATED/QUOTA_FULL/QUALITY_TERM: Try next CINT waterfall survey
+        print(f"🔄 Cint terminated - trying next CINT waterfall survey")
         
-        cint_backups = traffic_record.get("cintBackupSurveys", [])
-        backup_index = traffic_record.get("cintBackupIndex", 0)
+        cint_result = get_next_cint_waterfall_link(traffic_record, str(traffic_record["_id"]))
         
-        if cint_backups and backup_index < len(cint_backups):
-            # Get next backup survey
-            backup_survey = cint_backups[backup_index]
-            cint_entry_link = backup_survey.get("live_link")
-            cint_survey_id = backup_survey.get("survey_id")
-            
-            if cint_entry_link:
-                # Update backup index for next potential fallback
-                if url_parameters_collection is not None:
-                    url_parameters_collection.update_one(
-                        {"_id": traffic_record["_id"]},
-                        {"$set": {
-                            "cintBackupIndex": backup_index + 1,
-                            "currentCintSurveyId": cint_survey_id,
-                            "currentCintLink": cint_entry_link,
-                            "status": f"CINT_WATERFALL_{backup_index + 1}",
-                            "updatedAt": datetime.utcnow()
-                        }}
-                    )
-                
-                print(f"✅ CINT waterfall #{backup_index + 1}: Redirecting to next backup survey {cint_survey_id}")
-                return RedirectResponse(url=cint_entry_link)
-            else:
-                print(f"⚠️ CINT backup #{backup_index + 1} has no live_link")
+        if cint_result:
+            print(f"✅ CINT waterfall #{cint_result['attempt']}: Redirecting to survey {cint_result['survey_id']}")
+            return RedirectResponse(url=cint_result["entry_link"])
         else:
-            remaining = len(cint_backups) - backup_index if cint_backups else 0
-            print(f"⚠️ No more CINT backups (index={backup_index}, total={len(cint_backups)}, remaining={remaining})")
+            print(f"⚠️ CINT waterfall exhausted (max 5 attempts)")
         
-        # No more backups - redirect to vendor terminate URL
+        # No more waterfall options - redirect to vendor terminate URL
         redirect_url = f"{FRONTEND_URL}/survey-error"
         if vendor_id and vendors_collection is not None:
             vendor = vendors_collection.find_one({"vendorId": vendor_id})
@@ -449,7 +651,7 @@ async def cint_callback(
             separator = "&" if "?" in redirect_url else "?"
             redirect_url = f"{redirect_url}{separator}id={respondent_id}"
         
-        print(f"✅ Cint callback: All backups exhausted, redirecting to {redirect_url}")
+        print(f"✅ Cint callback: Waterfall exhausted, redirecting to {redirect_url}")
         return RedirectResponse(url=redirect_url)
         
     except Exception as e:
@@ -795,42 +997,18 @@ async def cpx_callback(
                 print(f"➡️ No vendor redirect URL found, redirecting to thank you page")
                 return RedirectResponse(url=f"{FRONTEND_URL}/thankyou")
         else:
-            # TERMINATED/SCREENOUT: Use pre-fetched CINT backups (waterfall)
-            print(f"🔄 CPX terminated/screened out - using pre-fetched CINT backups for SFWID={traffic_id}")
+            # TERMINATED/SCREENOUT: Try CINT waterfall (on-demand entry link creation)
+            print(f"🔄 CPX terminated/screened out - trying CINT waterfall for SFWID={traffic_id}")
             
-            # Get pre-fetched CINT backup surveys
-            cint_backups = traffic_record.get("cintBackupSurveys", [])
-            backup_index = traffic_record.get("cintBackupIndex", 0)
+            cint_result = get_next_cint_waterfall_link(traffic_record, traffic_id)
             
-            if cint_backups and backup_index < len(cint_backups):
-                # Get next backup survey
-                backup_survey = cint_backups[backup_index]
-                cint_entry_link = backup_survey.get("live_link")
-                cint_survey_id = backup_survey.get("survey_id")
-                
-                if cint_entry_link:
-                    # Update backup index for next potential fallback
-                    if url_parameters_collection is not None:
-                        url_parameters_collection.update_one(
-                            {"_id": ObjectId(traffic_id)},
-                            {"$set": {
-                                "cintBackupIndex": backup_index + 1,
-                                "currentCintSurveyId": cint_survey_id,
-                                "currentCintLink": cint_entry_link,
-                                "status": f"CINT_WATERFALL_{backup_index + 1}",
-                                "updatedAt": datetime.utcnow()
-                            }}
-                        )
-                    
-                    print(f"✅ CINT waterfall #{backup_index + 1}: Redirecting SFWID={traffic_id} to survey {cint_survey_id}")
-                    return RedirectResponse(url=cint_entry_link)
-                else:
-                    print(f"⚠️ CINT backup #{backup_index + 1} has no live_link, falling through")
+            if cint_result:
+                print(f"✅ CINT waterfall #{cint_result['attempt']}: Redirecting SFWID={traffic_id} to survey {cint_result['survey_id']}")
+                return RedirectResponse(url=cint_result["entry_link"])
             else:
-                remaining = len(cint_backups) - backup_index if cint_backups else 0
-                print(f"⚠️ No more CINT backups available (index={backup_index}, total={len(cint_backups)}, remaining={remaining})")
+                print(f"⚠️ No CINT waterfall links available for SFWID={traffic_id}")
             
-            # Fallback to vendor terminate URL if no CINT backups available
+            # Fallback to vendor terminate URL if no CINT links available
             if vendor_redirect_url:
                 print(f"➡️ Terminate - Redirecting to vendor: {vendor_redirect_url}")
                 return RedirectResponse(url=vendor_redirect_url)
@@ -1380,395 +1558,78 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 return False
         
         # ============================================
-        # HELPER FUNCTION: CINT Allocation
+        # HELPER FUNCTION: CINT Allocation (uses SupplierLinks API)
         # ============================================
         def try_cint_allocation():
             nonlocal allocation_success, entry_link, survey_id, allocation_error
             
             try:
-                from pymongo import MongoClient
-                import os
-                import httpx
+                # Fetch fresh candidates from CINT offerwall API
+                candidates = fetch_cint_offerwall_candidates(country_code, limit=50)
                 
-                mongo_uri = os.getenv("MONGO_URI")
-                if not mongo_uri:
-                    print("❌ MONGO_URI not configured for CINT")
-                    record_allocation_attempt("CINT", False, "MONGO_URI not configured")
+                if not candidates:
+                    print(f"⚠️ No CINT surveys on offerwall for country={country_code}")
+                    record_allocation_attempt("CINT", False, f"No CINT offerwall surveys for {country_code}")
                     return False
                 
-                # CINT API credentials
-                cint_api_key = os.getenv("CINT_API_KEY")
-                cint_supplier_code = os.getenv("CINT_SUPPLIER_CODE")
+                print(f"🎯 CINT: {len(candidates)} offerwall candidates, trying SupplierLinks API...")
                 
-                if not cint_api_key or not cint_supplier_code:
-                    print("❌ CINT API credentials not configured")
-                    record_allocation_attempt("CINT", False, "CINT API credentials not configured")
-                    return False
+                # Try candidates one by one until we get a working entry link
+                for idx, sid in enumerate(candidates[:20]):
+                    link = create_cint_entry_link(sid, traffic_id)
+                    if link:
+                        entry_link = link
+                        survey_id = sid
+                        allocation_success = True
+                        
+                        # Store remaining candidates for waterfall
+                        remaining = [c for c in candidates if c != sid]
+                        
+                        # Update traffic record
+                        if url_parameters_collection is not None:
+                            url_parameters_collection.update_one(
+                                {"_id": ObjectId(traffic_id)},
+                                {"$set": {
+                                    "status": "INCOMPLETE",
+                                    "assignedSurveyId": survey_id,
+                                    "redirectUrl": entry_link,
+                                    "surveySource": "CINT",
+                                    "currentCintSurveyId": survey_id,
+                                    "cintCandidateIds": remaining,
+                                    "cintAttemptCount": 1,
+                                    "cintTriedSurveyIds": [sid],
+                                    "updatedAt": datetime.utcnow().isoformat(),
+                                }}
+                            )
+                        
+                        print(f"✅ CINT allocated survey {survey_id} (attempt {idx+1})")
+                        record_allocation_attempt("CINT", True, None, survey_id)
+                        return True
                 
-                client = MongoClient(mongo_uri)
-
-                try:
-                    # Get active CINT surveys matching user's country
-                    cint_collection = client["cint_research"]["cint_surveys"]
-
-                    # Map country code to CINT country_language suffix
-                    # CINT uses format like "eng_us", "eng_gb", "eng_in", "spa_mx", etc.
-                    # NOTE: CINT uses "gb" for UK (Great Britain), not "uk"
-                    COUNTRY_CODE_TO_CINT_SUFFIX = {
-                        "uk": "gb",  # UK → Great Britain
-                        "gb": "gb",
-                        "us": "us",
-                        "in": "in",
-                        "au": "au",
-                        "ca": "ca",
-                        "de": "de",
-                        "fr": "fr",
-                        "es": "es",
-                        "mx": "mx",
-                        "br": "br",
-                    }
-                    raw_suffix = country_code.lower() if country_code else ""
-                    country_suffix = COUNTRY_CODE_TO_CINT_SUFFIX.get(raw_suffix, raw_suffix)
-
-                    # Use is_active=True for survey selection (is_active_in_pool is often False for most countries)
-                    cint_query = {"is_active": True}
-
-                    # Add country filter if we have a country code
-                    if country_suffix:
-                        # Filter by country_language ending with user's country code
-                        cint_query["country_language"] = {"$regex": f"_{country_suffix}$", "$options": "i"}
-                    print(f"🌍 CINT query: {cint_query}")
-
-                    cint_surveys = list(cint_collection.find(cint_query).limit(1000))
-
-                    if not cint_surveys:
-                        print(f"⚠️ No active CINT surveys available for country: {country_suffix or 'any'}")
-                        record_allocation_attempt("CINT", False, f"No active CINT surveys for country: {country_suffix or 'any'}")
-                        return False
-
-                    # ============================================
-                    # PARALLEL BATCH CINT ALLOCATION (Fast)
-                    # ============================================
-                    # Try surveys in parallel batches of 10 for near-instant response
-                    # Uses ThreadPoolExecutor for reliable concurrent requests
-                    import hmac
-                    import hashlib
-                    from concurrent.futures import ThreadPoolExecutor, as_completed
-                    
-                    MAX_CINT_ATTEMPTS = 50
-                    BATCH_SIZE = 10  # Process 10 surveys in parallel per batch
-                    
-                    random.shuffle(cint_surveys)
-                    surveys_to_try = cint_surveys[:MAX_CINT_ATTEMPTS]
-                    
-                    print(f"🎯 CINT found {len(cint_surveys)} surveys, will try up to {len(surveys_to_try)} in parallel batches of {BATCH_SIZE}")
-                    
-                    cint_encryption_key = os.getenv("CINT_ENCRYPTION_KEY") or os.getenv("CINT_WEBHOOK_SECRET")
-                    cint_supplier_code = os.getenv("CINT_SUPPLIER_CODE", "6777")
-                    cint_callback_url = os.getenv("CINT_STATUS_CALLBACK_URL", "https://torpedo.cogentixresearch.com/api/cint/status")
-                    
-                    cint_headers = {
-                        "Authorization": cint_api_key,
-                        "Content-Type": "application/json",
-                        "Accept": "application/json",
-                    }
-                    
-                    # Function to try a single survey (runs in thread pool)
-                    def try_single_survey(survey_data):
-                        raw_survey_id = survey_data.get('survey_id') or survey_data.get('_id')
-                        if not raw_survey_id:
-                            return None
-                        
-                        sid = str(raw_survey_id)
-                        message = f"{cint_supplier_code}{sid}{traffic_id}"
-                        secure_hash = hmac.new(
-                            cint_encryption_key.encode('utf-8'),
-                            message.encode('utf-8'),
-                            hashlib.sha256
-                        ).hexdigest()
-                        
-                        cint_payload = {
-                            "survey_id": sid,
-                            "supplier_code": cint_supplier_code,
-                            "respondent_id": traffic_id,
-                            "secure_hash": secure_hash,
-                            "return_url": cint_callback_url,
-                        }
-                        
-                        # Log CINT API payload
-                        print(f"   📤 CINT PRIMARY API: survey_id={sid}, supplier_code={cint_supplier_code}, respondent_id={traffic_id}")
-                        
-                        try:
-                            with httpx.Client(timeout=10.0) as client:
-                                resp = client.post(
-                                    "https://api.samplicio.us/supply/v1/entrylinks",
-                                    json=cint_payload,
-                                    headers=cint_headers,
-                                )
-                            
-                            # Log response status
-                            print(f"   📥 CINT PRIMARY RESPONSE: status={resp.status_code}, survey_id={sid}")
-                            
-                            if resp.status_code in (200, 201):
-                                data = resp.json()
-                                live_link = data.get("live_link") or data.get("LiveLink")
-                                if live_link:
-                                    return {"success": True, "survey_id": sid, "live_link": live_link}
-                            elif resp.status_code == 404:
-                                # Mark inactive (don't block)
-                                try:
-                                    cint_collection.update_one(
-                                        {"survey_id": int(sid)},
-                                        {"$set": {"is_active": False, "is_active_in_pool": False}}
-                                    )
-                                except:
-                                    pass
-                            return {"success": False, "survey_id": sid, "error": f"Status {resp.status_code}"}
-                        except Exception as e:
-                            return {"success": False, "survey_id": sid, "error": str(e)[:50]}
-                    
-                    # Process in parallel batches using ThreadPoolExecutor
-                    last_error = None
-                    found_result = None
-                    
-                    try:
-                        for batch_num in range(0, len(surveys_to_try), BATCH_SIZE):
-                            if found_result:  # Exit early if we found a live survey
-                                break
-                                
-                            batch = surveys_to_try[batch_num:batch_num + BATCH_SIZE]
-                            batch_idx = batch_num // BATCH_SIZE + 1
-                            total_batches = (len(surveys_to_try) + BATCH_SIZE - 1) // BATCH_SIZE
-                            
-                            print(f"🚀 CINT batch {batch_idx}/{total_batches}: Testing {len(batch)} surveys in parallel...")
-                            
-                            # Run batch in parallel threads
-                            with ThreadPoolExecutor(max_workers=BATCH_SIZE) as executor:
-                                futures = {executor.submit(try_single_survey, s): s for s in batch}
-                                
-                                for future in as_completed(futures):
-                                    result = future.result()
-                                    if result and result.get("success"):
-                                        found_result = result
-                                        # Cancel remaining futures in this batch
-                                        for f in futures:
-                                            f.cancel()
-                                        break
-                            
-                            if not found_result:
-                                print(f"   Batch {batch_idx}: No live surveys found, trying next batch...")
-                        
-                        if found_result:
-                            entry_link = found_result["live_link"]
-                            survey_id = found_result["survey_id"]
-                            print(f"🔗 CINT live link found: {entry_link[:100]}...")
-                            record_allocation_attempt("CINT", True, None, survey_id)
-                            allocation_success = True
-                            
-                            # Update traffic record
-                            if traffic_service:
-                                traffic_service.assign_survey_to_traffic(
-                                    traffic_id=traffic_id,
-                                    survey_id=survey_id,
-                                    redirect_url=entry_link
-                                )
-                            else:
-                                url_parameters_collection.update_one(
-                                    {"_id": ObjectId(traffic_id)},
-                                    {"$set": {
-                                        "status": "INCOMPLETE",
-                                        "assignedSurveyId": survey_id,
-                                        "redirectUrl": entry_link,
-                                        "surveySource": "CINT",
-                                        "cint_entry_link_type": "RESPONDENT",
-                                        "updatedAt": datetime.utcnow().isoformat(),
-                                    }}
-                                )
-                            
-                            print(f"✅ CINT allocated survey {survey_id} to SFWID={traffic_id} (parallel batch)")
-                            return True
-                        else:
-                            last_error = "All parallel batches failed"
-                    except Exception as parallel_err:
-                        last_error = f"Parallel error: {str(parallel_err)[:80]}"
-                        print(f"⚠️ CINT parallel batch error: {last_error}")
-                    
-                    # All attempts failed
-                    print(f"❌ CINT: All {len(surveys_to_try)} surveys failed (tested in parallel). Last error: {last_error}")
-                    record_allocation_attempt("CINT", False, f"Tried {len(surveys_to_try)} surveys in parallel, all failed: {last_error}")
-                    return False
-                    
-                    # All attempts failed
-                    print(f"❌ CINT: All {len(surveys_to_try)} surveys failed (tested in parallel). Last error: {last_error}")
-                    record_allocation_attempt("CINT", False, f"Tried {len(surveys_to_try)} surveys in parallel, all failed: {last_error}")
-                    return False
-
-                except Exception as e:
-                    print(f"⚠️ CINT allocation error: {e}")
-                    record_allocation_attempt("CINT", False, f"CINT allocation error: {str(e)[:100]}")
-                    import traceback
-                    traceback.print_exc()
-                    return False
-                finally:
-                    client.close()
-
-            except Exception as outer_e:
-                print(f"⚠️ CINT allocation setup failed: {outer_e}")
-                record_allocation_attempt("CINT", False, f"CINT setup failed: {str(outer_e)[:100]}")
+                # All candidates failed
+                print(f"❌ CINT: All offerwall candidates failed SupplierLinks creation")
+                record_allocation_attempt("CINT", False, "All offerwall candidates failed")
+                return False
+                
+            except Exception as e:
+                print(f"⚠️ CINT allocation error: {e}")
+                record_allocation_attempt("CINT", False, f"CINT error: {str(e)[:100]}")
                 import traceback
                 traceback.print_exc()
                 return False
         
         # ============================================
-        # HELPER: Pre-fetch CINT Backup Surveys
+        # HELPER: Fetch CINT Candidates from Offerwall API
         # ============================================
-        def prefetch_cint_backup_surveys(num_backups=5):
+        def get_cint_candidates():
             """
-            Pre-fetch multiple live CINT survey entry links in parallel.
-            These are stored for waterfall redirect on CPX/CINT termination.
-            Returns list of {survey_id, live_link} dicts.
+            Fetch live CINT survey candidates from the offerwall API.
+            Returns list of survey_id strings for this country.
             """
-            backup_surveys = []
-            
-            try:
-                from pymongo import MongoClient
-                import os
-                import httpx
-                import hmac
-                import hashlib
-                from concurrent.futures import ThreadPoolExecutor, as_completed
-                
-                print(f"   📦 CINT BACKUP PREFETCH: Starting for country_code={country_code}")
-                
-                mongo_uri = os.getenv("MONGO_URI")
-                if not mongo_uri:
-                    print(f"   ❌ CINT BACKUP: MONGO_URI not set")
-                    return []
-                
-                cint_api_key = os.getenv("CINT_API_KEY")
-                cint_supplier_code = os.getenv("CINT_SUPPLIER_CODE")
-                cint_encryption_key = os.getenv("CINT_ENCRYPTION_KEY") or os.getenv("CINT_WEBHOOK_SECRET")
-                cint_callback_url = os.getenv("CINT_STATUS_CALLBACK_URL", "https://torpedo.cogentixresearch.com/api/cint/status")
-                
-                print(f"   📦 CINT BACKUP: API_KEY={'SET' if cint_api_key else 'MISSING'}, SUPPLIER_CODE={cint_supplier_code}, ENCRYPTION_KEY={'SET' if cint_encryption_key else 'MISSING'}")
-                
-                if not all([cint_api_key, cint_supplier_code, cint_encryption_key]):
-                    print(f"   ❌ CINT BACKUP: Missing credentials")
-                    return []
-                
-                client = MongoClient(mongo_uri)
-                try:
-                    cint_collection = client["cint_research"]["cint_surveys"]
-                    
-                    # Get country suffix
-                    COUNTRY_CODE_TO_CINT_SUFFIX = {
-                        "uk": "gb", "gb": "gb", "us": "us", "in": "in",
-                        "au": "au", "ca": "ca", "de": "de", "fr": "fr",
-                        "es": "es", "mx": "mx", "br": "br",
-                    }
-                    raw_suffix = country_code.lower() if country_code else ""
-                    country_suffix = COUNTRY_CODE_TO_CINT_SUFFIX.get(raw_suffix, raw_suffix)
-                    print(f"   📦 CINT BACKUP: raw_suffix={raw_suffix}, country_suffix={country_suffix}")
-                    
-                    # Use is_active=True for survey selection (is_active_in_pool is often False)
-                    cint_query = {"is_active": True}
-                    if country_suffix:
-                        cint_query["country_language"] = {"$regex": f"_{country_suffix}$", "$options": "i"}
-                    
-                    print(f"   📦 CINT BACKUP: Query={cint_query}")
-                    cint_surveys = list(cint_collection.find(cint_query).limit(100))
-                    print(f"   📦 CINT BACKUP: Found {len(cint_surveys)} surveys in DB matching query")
-                    
-                    if not cint_surveys:
-                        print(f"   ❌ CINT BACKUP: No surveys found in cint_research.cint_surveys for country {country_suffix}")
-                        return []
-                    
-                    random.shuffle(cint_surveys)
-                    print(f"🔄 Pre-fetching {num_backups} CINT backup surveys from {len(cint_surveys)} candidates...")
-                    
-                    cint_headers = {
-                        "Authorization": cint_api_key,
-                        "Content-Type": "application/json",
-                        "Accept": "application/json",
-                    }
-                    
-                    def try_get_entry_link(survey_data):
-                        raw_id = survey_data.get('survey_id') or survey_data.get('_id')
-                        if not raw_id:
-                            return None
-                        sid = str(raw_id)
-                        message = f"{cint_supplier_code}{sid}{traffic_id}"
-                        secure_hash = hmac.new(
-                            cint_encryption_key.encode('utf-8'),
-                            message.encode('utf-8'),
-                            hashlib.sha256
-                        ).hexdigest()
-                        
-                        payload = {
-                            "survey_id": sid,
-                            "supplier_code": cint_supplier_code,
-                            "respondent_id": traffic_id,
-                            "secure_hash": secure_hash,
-                            "return_url": cint_callback_url,
-                        }
-                        
-                        # Log CINT API payload (first few only to avoid spam)
-                        print(f"   📤 CINT ENTRY LINK API: survey_id={sid}, supplier_code={cint_supplier_code}, respondent_id={traffic_id}")
-                        
-                        try:
-                            with httpx.Client(timeout=8.0) as c:
-                                resp = c.post(
-                                    "https://api.samplicio.us/supply/v1/entrylinks",
-                                    json=payload,
-                                    headers=cint_headers,
-                                )
-                            
-                            # Log CINT API response
-                            print(f"   📥 CINT API RESPONSE: status={resp.status_code}, survey_id={sid}")
-                            
-                            if resp.status_code in (200, 201):
-                                data = resp.json()
-                                live_link = data.get("live_link") or data.get("LiveLink")
-                                if live_link:
-                                    print(f"   ✅ CINT ENTRY LINK SUCCESS: survey {sid} -> {live_link[:80]}...")
-                                    return {"survey_id": sid, "live_link": live_link}
-                                else:
-                                    print(f"   ⚠️ CINT ENTRY LINK: No live_link in response: {data}")
-                            else:
-                                try:
-                                    error_body = resp.text[:200]
-                                except:
-                                    error_body = "N/A"
-                                print(f"   ❌ CINT API ERROR: status={resp.status_code}, body={error_body}")
-                        except Exception as cint_err:
-                            print(f"   ❌ CINT API EXCEPTION: survey_id={sid}, error={str(cint_err)[:100]}")
-                        return None
-                    
-                    # Try surveys in parallel batches to find num_backups live ones
-                    BATCH_SIZE = 10
-                    for batch_start in range(0, len(cint_surveys), BATCH_SIZE):
-                        if len(backup_surveys) >= num_backups:
-                            break
-                        batch = cint_surveys[batch_start:batch_start + BATCH_SIZE]
-                        with ThreadPoolExecutor(max_workers=BATCH_SIZE) as executor:
-                            futures = [executor.submit(try_get_entry_link, s) for s in batch]
-                            for future in as_completed(futures):
-                                if len(backup_surveys) >= num_backups:
-                                    break
-                                result = future.result()
-                                if result:
-                                    backup_surveys.append(result)
-                                    print(f"   ✅ Backup {len(backup_surveys)}: survey {result['survey_id']}")
-                    
-                    print(f"📦 Pre-fetched {len(backup_surveys)} CINT backup surveys")
-                    
-                finally:
-                    client.close()
-                    
-            except Exception as e:
-                print(f"⚠️ CINT backup pre-fetch error: {e}")
-            
-            return backup_surveys
+            print(f"   📦 CINT CANDIDATE SELECTION: Fetching from offerwall API for country_code={country_code}")
+            candidates = fetch_cint_offerwall_candidates(country_code, limit=50)
+            print(f"📦 Got {len(candidates)} CINT candidate survey IDs from offerwall")
+            return candidates
         
         # ============================================
         # MAIN ALLOCATION LOGIC: CPX first + CINT backups
@@ -1804,57 +1665,60 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             if cpx_success:
                 actual_provider = "CPX"
             
-            # ALWAYS pre-fetch CINT backups (for waterfall on terminate)
-            # This runs in parallel and is fast
-            print("🔄 Pre-fetching CINT backup surveys for waterfall...")
-            cint_backup_surveys = prefetch_cint_backup_surveys(num_backups=5)
-            print(f"   CINT backups fetched: {len(cint_backup_surveys)}")
+            # Get CINT candidate survey IDs from offerwall API (fresh, real-time)
+            print("🔄 Fetching CINT candidate surveys from offerwall API...")
+            cint_candidate_ids = get_cint_candidates()
+            print(f"   CINT candidates from offerwall: {len(cint_candidate_ids)}")
             
-            # Store backups in traffic record
-            if cint_backup_surveys and url_parameters_collection is not None:
+            # Store candidate IDs in traffic record for waterfall
+            if cint_candidate_ids and url_parameters_collection is not None:
                 url_parameters_collection.update_one(
                     {"_id": ObjectId(traffic_id)},
                     {"$set": {
-                        "cintBackupSurveys": cint_backup_surveys,
-                        "cintBackupIndex": 0,  # Next backup to use
+                        "cintCandidateIds": cint_candidate_ids,
+                        "cintAttemptCount": 0,
+                        "cintTriedSurveyIds": [],
                         "updatedAt": datetime.utcnow().isoformat()
                     }}
                 )
-                print(f"💾 Stored {len(cint_backup_surveys)} CINT backups for waterfall")
+                print(f"💾 Stored {len(cint_candidate_ids)} CINT candidate IDs for waterfall")
             
-            # If CPX failed, use first CINT backup as primary
-            if not cpx_success and cint_backup_surveys:
-                first_backup = cint_backup_surveys[0]
-                entry_link = first_backup["live_link"]
-                survey_id = first_backup["survey_id"]
-                allocation_success = True
-                actual_provider = "CINT"
-                
-                # Update traffic record with CINT as primary
-                if traffic_service:
-                    traffic_service.assign_survey_to_traffic(
-                        traffic_id=traffic_id,
-                        survey_id=survey_id,
-                        redirect_url=entry_link
-                    )
+            # If CPX failed, try to get first CINT survey entry link on-demand
+            if not cpx_success and cint_candidate_ids:
+                print("🔄 CPX failed - trying first CINT survey on-demand...")
+                # Build a minimal traffic_record dict for the helper
+                temp_record = {
+                    "cintCandidateIds": cint_candidate_ids,
+                    "cintTriedSurveyIds": [],
+                    "cintAttemptCount": 0,
+                }
+                cint_result = get_next_cint_waterfall_link(temp_record, traffic_id)
+                if cint_result:
+                    entry_link = cint_result["entry_link"]
+                    survey_id = cint_result["survey_id"]
+                    allocation_success = True
+                    actual_provider = "CINT"
+                    
+                    # Update traffic record with CINT as primary
+                    if url_parameters_collection is not None:
+                        url_parameters_collection.update_one(
+                            {"_id": ObjectId(traffic_id)},
+                            {"$set": {
+                                "status": "INCOMPLETE",
+                                "assignedSurveyId": survey_id,
+                                "redirectUrl": entry_link,
+                                "surveySource": "CINT",
+                                "updatedAt": datetime.utcnow().isoformat(),
+                            }}
+                        )
+                    
+                    print(f"✅ CINT used as primary: survey {survey_id}")
+                    record_allocation_attempt("CINT", True, None, survey_id)
                 else:
-                    url_parameters_collection.update_one(
-                        {"_id": ObjectId(traffic_id)},
-                        {"$set": {
-                            "status": "INCOMPLETE",
-                            "assignedSurveyId": survey_id,
-                            "redirectUrl": entry_link,
-                            "surveySource": "CINT",
-                            "cintBackupIndex": 1,  # Next backup is index 1
-                            "updatedAt": datetime.utcnow().isoformat(),
-                        }}
-                    )
-                
-                print(f"✅ CINT backup used as primary: survey {survey_id}")
-                record_allocation_attempt("CINT", True, None, survey_id)
-            elif not cpx_success and not cint_backup_surveys:
-                # Both CPX and CINT failed - set diagnostic error message
-                allocation_error = "CPX: No surveys. CINT: No backup surveys available for this country."
+                    allocation_error = "CPX: No surveys. CINT: No live surveys from offerwall."
+                    print(f"❌ ALLOCATION FAILED: {allocation_error}")
+            elif not cpx_success and not cint_candidate_ids:
+                allocation_error = "CPX: No surveys. CINT: No surveys on offerwall for this country."
                 print(f"❌ ALLOCATION FAILED: {allocation_error}")
         else:
             print(f"⏭️ Skipping allocation: allocation_success={allocation_success}, vendor_id={vendor_id}, country_code={country_code}, traffic_id={traffic_id}")
