@@ -291,6 +291,91 @@ def _cleanup_stale_surveys_in_db(live_survey_ids: Set[str]) -> dict:
 
 
 # ============================================
+# DELETE OLD SURVEYS (>3 days)
+# ============================================
+
+def _delete_old_surveys(max_age_days: int = 3) -> dict:
+    """
+    Permanently delete inactive survey documents older than max_age_days.
+    Also deletes documents with no received_at field (orphans).
+    
+    Processes in batches to avoid locking the collection.
+    
+    Args:
+        max_age_days: Delete inactive surveys older than this (default: 3 days)
+    
+    Returns:
+        {"deleted_old": int, "deleted_orphans": int, "error": str or None}
+    """
+    from pymongo import MongoClient
+    
+    mongo_uri = os.getenv("MONGO_URI")
+    if not mongo_uri:
+        return {"deleted_old": 0, "deleted_orphans": 0, "error": "MONGO_URI not set"}
+    
+    try:
+        client = MongoClient(mongo_uri)
+        try:
+            cint_db = client["cint_research"]
+            cint_collection = cint_db["cint_surveys"]
+            
+            cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+            BATCH_SIZE = 500
+            
+            # 1. Delete inactive surveys older than cutoff
+            total_deleted_old = 0
+            while True:
+                # Find a batch of IDs to delete
+                old_docs = list(cint_collection.find(
+                    {
+                        "is_active": False,
+                        "received_at": {"$lt": cutoff},
+                    },
+                    {"_id": 1},
+                ).limit(BATCH_SIZE))
+                
+                if not old_docs:
+                    break
+                
+                ids = [d["_id"] for d in old_docs]
+                result = cint_collection.delete_many({"_id": {"$in": ids}})
+                total_deleted_old += result.deleted_count
+                time.sleep(0.05)  # Small sleep between batches
+            
+            # 2. Delete orphan documents with no received_at field
+            #    (these are leftover docs that can never be aged out)
+            total_deleted_orphans = 0
+            while True:
+                orphan_docs = list(cint_collection.find(
+                    {
+                        "received_at": {"$exists": False},
+                        "is_active": False,
+                    },
+                    {"_id": 1},
+                ).limit(BATCH_SIZE))
+                
+                if not orphan_docs:
+                    break
+                
+                ids = [d["_id"] for d in orphan_docs]
+                result = cint_collection.delete_many({"_id": {"$in": ids}})
+                total_deleted_orphans += result.deleted_count
+                time.sleep(0.05)
+            
+            return {
+                "deleted_old": total_deleted_old,
+                "deleted_orphans": total_deleted_orphans,
+                "error": None,
+            }
+            
+        finally:
+            client.close()
+            
+    except Exception as e:
+        return {"deleted_old": 0, "deleted_orphans": 0, "error": f"Delete error: {str(e)[:200]}"}
+
+
+# ============================================
 # MAIN CLEANUP TASK (called by scheduler)
 # ============================================
 
@@ -303,8 +388,9 @@ def run_cint_survey_cleanup():
     
     Steps:
     1. Refresh offerwall cache from CINT API
-    2. Clean up stale surveys in MongoDB
-    3. Log stats
+    2. Mark stale surveys as inactive in MongoDB
+    3. Delete inactive surveys older than 3 days
+    4. Log stats
     """
     start_time = time.time()
     
@@ -324,11 +410,9 @@ def run_cint_survey_cleanup():
             f"{refresh_result.get('countries', 0)} countries"
         )
         
-        # Step 2: Clean up stale surveys in DB
+        # Step 2: Mark stale surveys as inactive
         live_ids = get_live_survey_ids()
         cleanup_result = _cleanup_stale_surveys_in_db(live_ids)
-        
-        elapsed = time.time() - start_time
         
         if cleanup_result.get("error"):
             logger.warning(f"[CintCleanup] ⚠️ DB cleanup warning: {cleanup_result['error']}")
@@ -338,14 +422,32 @@ def run_cint_survey_cleanup():
             
             if deactivated > 0:
                 logger.info(
-                    f"[CintCleanup] 🧹 Cleaned up {deactivated}/{checked} stale surveys "
-                    f"(offerwall has {len(live_ids)} live). Took {elapsed:.1f}s"
+                    f"[CintCleanup] 🧹 Deactivated {deactivated}/{checked} stale surveys "
+                    f"(offerwall has {len(live_ids)} live)"
                 )
             else:
                 logger.info(
                     f"[CintCleanup] ✅ Pool is clean — {checked} active in DB, "
-                    f"{len(live_ids)} live on offerwall. Took {elapsed:.1f}s"
+                    f"{len(live_ids)} live on offerwall"
                 )
+        
+        # Step 3: Delete old inactive surveys (>3 days)
+        delete_result = _delete_old_surveys(max_age_days=3)
+        
+        if delete_result.get("error"):
+            logger.warning(f"[CintCleanup] ⚠️ Delete warning: {delete_result['error']}")
+        else:
+            deleted_old = delete_result.get("deleted_old", 0)
+            deleted_orphans = delete_result.get("deleted_orphans", 0)
+            
+            if deleted_old > 0 or deleted_orphans > 0:
+                logger.info(
+                    f"[CintCleanup] 🗑️ Deleted {deleted_old} surveys older than 3 days"
+                    f"{f', {deleted_orphans} orphans (no date)' if deleted_orphans > 0 else ''}"
+                )
+        
+        elapsed = time.time() - start_time
+        logger.info(f"[CintCleanup] ⏱️ Cleanup completed in {elapsed:.1f}s")
         
     except Exception as e:
         elapsed = time.time() - start_time
@@ -387,6 +489,7 @@ def trigger_cleanup_now() -> dict:
     
     live_ids = get_live_survey_ids()
     cleanup = _cleanup_stale_surveys_in_db(live_ids)
+    delete = _delete_old_surveys(max_age_days=3)
     
     return {
         "status": "ok",
@@ -394,5 +497,7 @@ def trigger_cleanup_now() -> dict:
         "offerwall_countries": refresh.get("countries", 0),
         "db_checked": cleanup.get("checked", 0),
         "db_deactivated": cleanup.get("deactivated", 0),
+        "deleted_old": delete.get("deleted_old", 0),
+        "deleted_orphans": delete.get("deleted_orphans", 0),
         "elapsed": round(time.time() - start, 2),
     }
