@@ -291,41 +291,44 @@ def _cleanup_stale_surveys_in_db(live_survey_ids: Set[str]) -> dict:
 
 
 # ============================================
-# DELETE OLD SURVEYS (>3 days)
+# DELETE OLD SURVEYS (>3 days) — CINT + CPX
 # ============================================
 
 def _delete_old_surveys(max_age_days: int = 3) -> dict:
     """
-    Permanently delete inactive survey documents older than max_age_days.
-    Also deletes documents with no received_at field (orphans).
+    Permanently delete old survey documents from BOTH cint_surveys and cpx_surveys.
     
-    Processes in batches to avoid locking the collection.
+    CINT: deletes inactive surveys older than max_age_days (by received_at),
+          plus orphan docs with no received_at field.
+    CPX:  deletes surveys older than max_age_days (by last_updated),
+          since CPX docs use last_updated instead of received_at.
+    
+    Processes in batches to avoid locking collections.
     
     Args:
-        max_age_days: Delete inactive surveys older than this (default: 3 days)
+        max_age_days: Delete surveys older than this (default: 3 days)
     
     Returns:
-        {"deleted_old": int, "deleted_orphans": int, "error": str or None}
+        {"cint_deleted": int, "cint_orphans": int, "cpx_deleted": int, "error": str or None}
     """
     from pymongo import MongoClient
     
     mongo_uri = os.getenv("MONGO_URI")
     if not mongo_uri:
-        return {"deleted_old": 0, "deleted_orphans": 0, "error": "MONGO_URI not set"}
+        return {"cint_deleted": 0, "cint_orphans": 0, "cpx_deleted": 0, "error": "MONGO_URI not set"}
     
     try:
         client = MongoClient(mongo_uri)
         try:
-            cint_db = client["cint_research"]
-            cint_collection = cint_db["cint_surveys"]
-            
             cutoff = datetime.utcnow() - timedelta(days=max_age_days)
             BATCH_SIZE = 500
             
-            # 1. Delete inactive surveys older than cutoff
-            total_deleted_old = 0
+            # ---- CINT: cint_research.cint_surveys ----
+            cint_collection = client["cint_research"]["cint_surveys"]
+            
+            # 1a. Delete inactive CINT surveys older than cutoff (by received_at)
+            cint_deleted = 0
             while True:
-                # Find a batch of IDs to delete
                 old_docs = list(cint_collection.find(
                     {
                         "is_active": False,
@@ -339,12 +342,11 @@ def _delete_old_surveys(max_age_days: int = 3) -> dict:
                 
                 ids = [d["_id"] for d in old_docs]
                 result = cint_collection.delete_many({"_id": {"$in": ids}})
-                total_deleted_old += result.deleted_count
-                time.sleep(0.05)  # Small sleep between batches
+                cint_deleted += result.deleted_count
+                time.sleep(0.05)
             
-            # 2. Delete orphan documents with no received_at field
-            #    (these are leftover docs that can never be aged out)
-            total_deleted_orphans = 0
+            # 1b. Delete CINT orphan documents with no received_at field
+            cint_orphans = 0
             while True:
                 orphan_docs = list(cint_collection.find(
                     {
@@ -359,12 +361,35 @@ def _delete_old_surveys(max_age_days: int = 3) -> dict:
                 
                 ids = [d["_id"] for d in orphan_docs]
                 result = cint_collection.delete_many({"_id": {"$in": ids}})
-                total_deleted_orphans += result.deleted_count
+                cint_orphans += result.deleted_count
+                time.sleep(0.05)
+            
+            # ---- CPX: cpx_research.cpx_surveys ----
+            cpx_collection = client["cpx_research"]["cpx_surveys"]
+            
+            # 2. Delete CPX surveys older than cutoff (by last_updated)
+            #    CPX docs don't have is_active, they use is_active_in_pool
+            cpx_deleted = 0
+            while True:
+                old_docs = list(cpx_collection.find(
+                    {
+                        "last_updated": {"$lt": cutoff},
+                    },
+                    {"_id": 1},
+                ).limit(BATCH_SIZE))
+                
+                if not old_docs:
+                    break
+                
+                ids = [d["_id"] for d in old_docs]
+                result = cpx_collection.delete_many({"_id": {"$in": ids}})
+                cpx_deleted += result.deleted_count
                 time.sleep(0.05)
             
             return {
-                "deleted_old": total_deleted_old,
-                "deleted_orphans": total_deleted_orphans,
+                "cint_deleted": cint_deleted,
+                "cint_orphans": cint_orphans,
+                "cpx_deleted": cpx_deleted,
                 "error": None,
             }
             
@@ -372,7 +397,7 @@ def _delete_old_surveys(max_age_days: int = 3) -> dict:
             client.close()
             
     except Exception as e:
-        return {"deleted_old": 0, "deleted_orphans": 0, "error": f"Delete error: {str(e)[:200]}"}
+        return {"cint_deleted": 0, "cint_orphans": 0, "cpx_deleted": 0, "error": f"Delete error: {str(e)[:200]}"}
 
 
 # ============================================
@@ -431,20 +456,25 @@ def run_cint_survey_cleanup():
                     f"{len(live_ids)} live on offerwall"
                 )
         
-        # Step 3: Delete old inactive surveys (>3 days)
+        # Step 3: Delete old surveys (>3 days) from both CINT and CPX
         delete_result = _delete_old_surveys(max_age_days=3)
         
         if delete_result.get("error"):
             logger.warning(f"[CintCleanup] ⚠️ Delete warning: {delete_result['error']}")
         else:
-            deleted_old = delete_result.get("deleted_old", 0)
-            deleted_orphans = delete_result.get("deleted_orphans", 0)
+            cint_del = delete_result.get("cint_deleted", 0)
+            cint_orph = delete_result.get("cint_orphans", 0)
+            cpx_del = delete_result.get("cpx_deleted", 0)
             
-            if deleted_old > 0 or deleted_orphans > 0:
-                logger.info(
-                    f"[CintCleanup] 🗑️ Deleted {deleted_old} surveys older than 3 days"
-                    f"{f', {deleted_orphans} orphans (no date)' if deleted_orphans > 0 else ''}"
-                )
+            if cint_del > 0 or cint_orph > 0 or cpx_del > 0:
+                parts = []
+                if cint_del > 0:
+                    parts.append(f"CINT: {cint_del} old")
+                if cint_orph > 0:
+                    parts.append(f"{cint_orph} orphans")
+                if cpx_del > 0:
+                    parts.append(f"CPX: {cpx_del} old")
+                logger.info(f"[CintCleanup] 🗑️ Deleted surveys >3 days — {', '.join(parts)}")
         
         elapsed = time.time() - start_time
         logger.info(f"[CintCleanup] ⏱️ Cleanup completed in {elapsed:.1f}s")
@@ -497,7 +527,8 @@ def trigger_cleanup_now() -> dict:
         "offerwall_countries": refresh.get("countries", 0),
         "db_checked": cleanup.get("checked", 0),
         "db_deactivated": cleanup.get("deactivated", 0),
-        "deleted_old": delete.get("deleted_old", 0),
-        "deleted_orphans": delete.get("deleted_orphans", 0),
+        "cint_deleted": delete.get("cint_deleted", 0),
+        "cint_orphans": delete.get("cint_orphans", 0),
+        "cpx_deleted": delete.get("cpx_deleted", 0),
         "elapsed": round(time.time() - start, 2),
     }
