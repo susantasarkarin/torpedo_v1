@@ -132,38 +132,53 @@ async def handle_opportunities_webhook(
         logger.info(f"CINT WEBHOOK DEBUG - Raw payload keys: {list(request_body.keys()) if isinstance(request_body, dict) else 'list'}")
         logger.info(f"CINT WEBHOOK DEBUG - Payload sample: {str(request_body)[:500]}")
         
-        # Process through CintService
-        processed = await cint_service.process_opportunity_webhook(request_body)
-        
-        # Update allocation metrics if extension available
-        if cint_allocation is not None and processed:
-            for opp in processed:
-                await cint_allocation.update_opportunity_from_webhook(
-                    opp.survey_id,
-                    opp.dict()
-                )
-        
-        # Broadcast to WebSocket clients
-        if WEBSOCKET_AVAILABLE and connection_manager and processed:
+        # ============================================
+        # PERFORMANCE: Process webhook in background
+        # Acknowledge CINT immediately (< 200ms) to avoid blocking
+        # the event loop. Real processing happens asynchronously.
+        # ============================================
+        async def _process_webhook_background():
+            """Background task to process webhook without blocking responses"""
             try:
-                # Convert processed opportunities to serializable format
-                surveys_data = []
-                for opp in processed:
-                    opp_dict = opp.dict() if hasattr(opp, 'dict') else opp
-                    surveys_data.append(opp_dict)
+                processed = await cint_service.process_opportunity_webhook(request_body)
                 
-                await connection_manager.broadcast(
-                    "cint_surveys",
-                    {
-                        "type": "surveys_update",
-                        "surveys": surveys_data,
-                        "count": len(surveys_data),
-                        "source": "webhook"
-                    }
-                )
-                logger.info(f"Broadcast {len(surveys_data)} surveys to WebSocket clients")
-            except Exception as ws_err:
-                logger.warning(f"Failed to broadcast to WebSocket: {ws_err}")
+                # Update allocation metrics if extension available
+                if cint_allocation is not None and processed:
+                    for opp in processed:
+                        await cint_allocation.update_opportunity_from_webhook(
+                            opp.survey_id,
+                            opp.dict()
+                        )
+                
+                # Broadcast to WebSocket clients
+                if WEBSOCKET_AVAILABLE and connection_manager and processed:
+                    try:
+                        surveys_data = []
+                        for opp in processed:
+                            opp_dict = opp.dict() if hasattr(opp, 'dict') else opp
+                            surveys_data.append(opp_dict)
+                        
+                        await connection_manager.broadcast(
+                            "cint_surveys",
+                            {
+                                "type": "surveys_update",
+                                "surveys": surveys_data,
+                                "count": len(surveys_data),
+                                "source": "webhook"
+                            }
+                        )
+                        logger.info(f"Broadcast {len(surveys_data)} surveys to WebSocket clients")
+                    except Exception as ws_err:
+                        logger.warning(f"Failed to broadcast to WebSocket: {ws_err}")
+                
+                logger.info(f"Background webhook processing complete: {len(processed)} surveys")
+            except Exception as bg_err:
+                logger.error(f"Background webhook processing failed: {bg_err}")
+        
+        # Fire-and-forget: process in background
+        asyncio.create_task(_process_webhook_background())
+        
+        # Return immediately to CINT (< 200ms response time)
         
         return {
             "success": True,

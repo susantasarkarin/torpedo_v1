@@ -14,6 +14,8 @@ import random
 import base64
 import time
 import hashlib
+import asyncio
+import httpx
 
 # URL validation utility for redirect safety
 try:
@@ -140,6 +142,25 @@ CINT_COUNTRY_LANGUAGE_MAP = {
 CINT_API_BASE = "https://api.samplicio.us"
 CINT_CALLBACK_BASE = "https://torpedo.cogentixresearch.com"
 
+# ============== SHARED HTTP CLIENT (Connection Pooling) ==============
+# Reuse connections across requests instead of creating new client per call
+_cint_http_client: Optional[httpx.Client] = None
+
+def _get_cint_client() -> httpx.Client:
+    """Get or create a shared httpx.Client with connection pooling."""
+    global _cint_http_client
+    if _cint_http_client is None or _cint_http_client.is_closed:
+        _cint_http_client = httpx.Client(
+            timeout=5.0,
+            limits=httpx.Limits(
+                max_connections=20,
+                max_keepalive_connections=10,
+                keepalive_expiry=30
+            ),
+            follow_redirects=False
+        )
+    return _cint_http_client
+
 
 def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) -> list:
     """
@@ -203,8 +224,8 @@ def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) -> list:
         }
         url = f"{CINT_API_BASE}/Supply/v1/Surveys/AllOfferwall/{supplier_code}"
         
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.get(url, headers=headers)
+        client = _get_cint_client()
+        resp = client.get(url, headers=headers, timeout=5.0)
         
         if resp.status_code != 200:
             print(f"   ❌ CINT offerwall API: status={resp.status_code}")
@@ -246,7 +267,6 @@ def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
     
     Returns the full respondent-specific URL, or empty string on failure.
     """
-    import httpx
     
     # Quick cache check — skip surveys that dropped from the offerwall
     try:
@@ -290,72 +310,72 @@ def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
     live_link = ""
     
     try:
-        with httpx.Client(timeout=15.0) as client:
-            # Step 1: Try to create SupplierLink
-            create_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/Create/{survey_id}/{supplier_code}"
+        client = _get_cint_client()
+        # Step 1: Try to create SupplierLink (5s timeout for speed)
+        create_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/Create/{survey_id}/{supplier_code}"
+        
+        # Log full request payload
+        print(f"   📤 CINT SupplierLinks/Create REQUEST:")
+        print(f"      URL: {create_url}")
+        print(f"      Payload: {create_payload}")
+        
+        resp = client.post(create_url, json=create_payload, headers=headers, timeout=5.0)
+        
+        # Log full response
+        print(f"   📥 CINT SupplierLinks/Create RESPONSE:")
+        print(f"      Status: {resp.status_code}")
+        try:
+            resp_body = resp.json()
+            print(f"      Body: {resp_body}")
+        except:
+            print(f"      Body (raw): {resp.text[:500]}")
+            resp_body = {}
+        
+        if resp.status_code in (200, 201):
+            sl = resp_body.get("SupplierLink", {})
+            live_link = sl.get("LiveLink", "")
+            print(f"   ✅ CINT SupplierLink CREATED for survey {survey_id}")
+            print(f"      LiveLink: {live_link}")
+            print(f"      CPI: {sl.get('CPI')}")
+        
+        elif resp.status_code == 409:
+            # Already exists — GET existing link
+            get_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/BySurveyNumber/{survey_id}/{supplier_code}"
+            print(f"   📤 CINT SupplierLink already exists (409), fetching: GET {get_url}")
+            get_resp = client.get(get_url, headers=headers, timeout=5.0)
             
-            # Log full request payload
-            print(f"   📤 CINT SupplierLinks/Create REQUEST:")
-            print(f"      URL: {create_url}")
-            print(f"      Payload: {create_payload}")
-            
-            resp = client.post(create_url, json=create_payload, headers=headers)
-            
-            # Log full response
-            print(f"   📥 CINT SupplierLinks/Create RESPONSE:")
-            print(f"      Status: {resp.status_code}")
+            print(f"   📥 CINT GET SupplierLink RESPONSE: Status={get_resp.status_code}")
             try:
-                resp_body = resp.json()
-                print(f"      Body: {resp_body}")
+                get_body = get_resp.json()
+                print(f"      Body: {get_body}")
             except:
-                print(f"      Body (raw): {resp.text[:500]}")
-                resp_body = {}
+                get_body = {}
+                print(f"      Body (raw): {get_resp.text[:500]}")
             
-            if resp.status_code in (200, 201):
-                sl = resp_body.get("SupplierLink", {})
+            if get_resp.status_code == 200:
+                sl = get_body.get("SupplierLink", {})
                 live_link = sl.get("LiveLink", "")
-                print(f"   ✅ CINT SupplierLink CREATED for survey {survey_id}")
+                
+                # Check if existing link has wrong DefaultLink — update if needed
+                existing_default = sl.get("DefaultLink", "")
+                expected_default = f"{callback_base}/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]&reason=default_link"
+                if existing_default and "cint-response" not in existing_default:
+                    print(f"   ⚠️ Existing SupplierLink has wrong DefaultLink: {existing_default}")
+                    print(f"   🔄 Updating SupplierLink with correct redirect URLs...")
+                    # Update the existing link with correct callback URLs
+                    update_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/Update/{survey_id}/{supplier_code}"
+                    update_resp = client.put(update_url, json=create_payload, headers=headers, timeout=5.0)
+                    print(f"   📥 CINT SupplierLink UPDATE: Status={update_resp.status_code}")
+                
+                print(f"   ✅ CINT SupplierLink EXISTS for survey {survey_id}")
                 print(f"      LiveLink: {live_link}")
-                print(f"      CPI: {sl.get('CPI')}")
-            
-            elif resp.status_code == 409:
-                # Already exists — GET existing link
-                get_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/BySurveyNumber/{survey_id}/{supplier_code}"
-                print(f"   📤 CINT SupplierLink already exists (409), fetching: GET {get_url}")
-                get_resp = client.get(get_url, headers=headers)
-                
-                print(f"   📥 CINT GET SupplierLink RESPONSE: Status={get_resp.status_code}")
-                try:
-                    get_body = get_resp.json()
-                    print(f"      Body: {get_body}")
-                except:
-                    get_body = {}
-                    print(f"      Body (raw): {get_resp.text[:500]}")
-                
-                if get_resp.status_code == 200:
-                    sl = get_body.get("SupplierLink", {})
-                    live_link = sl.get("LiveLink", "")
-                    
-                    # Check if existing link has wrong DefaultLink — update if needed
-                    existing_default = sl.get("DefaultLink", "")
-                    expected_default = f"{callback_base}/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]&reason=default_link"
-                    if existing_default and "cint-response" not in existing_default:
-                        print(f"   ⚠️ Existing SupplierLink has wrong DefaultLink: {existing_default}")
-                        print(f"   🔄 Updating SupplierLink with correct redirect URLs...")
-                        # Update the existing link with correct callback URLs
-                        update_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/Update/{survey_id}/{supplier_code}"
-                        update_resp = client.put(update_url, json=create_payload, headers=headers)
-                        print(f"   📥 CINT SupplierLink UPDATE: Status={update_resp.status_code}")
-                    
-                    print(f"   ✅ CINT SupplierLink EXISTS for survey {survey_id}")
-                    print(f"      LiveLink: {live_link}")
-                else:
-                    print(f"   ❌ CINT GET SupplierLink failed: status={get_resp.status_code}")
-            
-            elif resp.status_code == 404:
-                print(f"   ❌ CINT survey {survey_id} not found (404) — survey closed")
             else:
-                print(f"   ❌ CINT SupplierLink Create failed: status={resp.status_code}")
+                print(f"   ❌ CINT GET SupplierLink failed: status={get_resp.status_code}")
+        
+        elif resp.status_code == 404:
+            print(f"   ❌ CINT survey {survey_id} not found (404) — survey closed")
+        else:
+            print(f"   ❌ CINT SupplierLink Create failed: status={resp.status_code}")
         
         if live_link:
             # LiveLink format: https://www.samplicio.us/s/default.aspx?SID=xxx&PID=
@@ -365,31 +385,29 @@ def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
             
             # ===== PRE-VALIDATE LiveLink before redirecting respondent =====
             # CINT's router (rx.samplicio.us) returns 403 for closed surveys.
-            # This happens BEFORE any callback URLs fire, so the respondent
-            # gets stuck on a CINT error page. We validate here to catch this.
+            # HEAD validation with 3s timeout (fast fail)
             try:
-                with httpx.Client(timeout=8.0, follow_redirects=False) as validate_client:
-                    print(f"   🔍 Validating LiveLink (HEAD)...")
-                    head_resp = validate_client.head(entry_url)
-                    print(f"   📥 LiveLink HEAD status: {head_resp.status_code}")
-                    
-                    if head_resp.status_code == 403:
-                        print(f"   ❌ LiveLink REJECTED (403) — survey {survey_id} is closed/dead")
+                print(f"   🔍 Validating LiveLink (HEAD)...")
+                head_resp = client.head(entry_url, timeout=3.0)
+                print(f"   📥 LiveLink HEAD status: {head_resp.status_code}")
+                
+                if head_resp.status_code == 403:
+                    print(f"   ❌ LiveLink REJECTED (403) — survey {survey_id} is closed/dead")
+                    return ""
+                
+                # CINT sometimes 302-redirects to error page
+                if head_resp.status_code in (301, 302, 303, 307, 308):
+                    redirect_location = head_resp.headers.get("location", "")
+                    print(f"   🔀 LiveLink redirects to: {redirect_location}")
+                    if "error" in redirect_location.lower() or "rx.samplicio.us/error" in redirect_location.lower():
+                        print(f"   ❌ LiveLink redirects to CINT error page — survey {survey_id} is dead")
                         return ""
-                    
-                    # CINT sometimes 302-redirects to error page
-                    if head_resp.status_code in (301, 302, 303, 307, 308):
-                        redirect_location = head_resp.headers.get("location", "")
-                        print(f"   🔀 LiveLink redirects to: {redirect_location}")
-                        if "error" in redirect_location.lower() or "rx.samplicio.us/error" in redirect_location.lower():
-                            print(f"   ❌ LiveLink redirects to CINT error page — survey {survey_id} is dead")
-                            return ""
-                    
-                    if head_resp.status_code >= 400:
-                        print(f"   ❌ LiveLink returned {head_resp.status_code} — survey {survey_id} may be dead")
-                        return ""
-                    
-                    print(f"   ✅ LiveLink validated OK (status {head_resp.status_code})")
+                
+                if head_resp.status_code >= 400:
+                    print(f"   ❌ LiveLink returned {head_resp.status_code} — survey {survey_id} may be dead")
+                    return ""
+                
+                print(f"   ✅ LiveLink validated OK (status {head_resp.status_code})")
             except Exception as validate_err:
                 # If validation itself fails (timeout, network error), still allow the redirect
                 # Better to let the respondent try than block on a transient network issue
@@ -430,8 +448,8 @@ def get_next_cint_waterfall_link(traffic_record: dict, traffic_id: str) -> dict:
         print(f"   ⚠️ CINT waterfall: No untried candidates left (tried={len(tried)}, total={len(candidates)})")
         return None
     
-    # Try each untried candidate until one works
-    for survey_id in untried[:10]:  # Try up to 10 to find one that works
+    # Try each untried candidate until one works (max 3 per batch for speed)
+    for survey_id in untried[:3]:  # Try up to 3 to avoid blocking too long
         entry_link = create_cint_entry_link(survey_id, traffic_id)
         
         if entry_link:
@@ -752,7 +770,8 @@ async def cint_callback(
         # TERMINATED/QUOTA_FULL/QUALITY_TERM: Try next CINT waterfall survey
         print(f"🔄 Cint terminated - trying next CINT waterfall survey")
         
-        cint_result = get_next_cint_waterfall_link(traffic_record, str(traffic_record["_id"]))
+        # Run waterfall in thread pool to avoid blocking event loop
+        cint_result = await asyncio.to_thread(get_next_cint_waterfall_link, traffic_record, str(traffic_record["_id"]))
         
         if cint_result:
             print(f"✅ CINT waterfall #{cint_result['attempt']}: Redirecting to survey {cint_result['survey_id']}")
@@ -1121,7 +1140,8 @@ async def cpx_callback(
             # TERMINATED/SCREENOUT: Try CINT waterfall (on-demand entry link creation)
             print(f"🔄 CPX terminated/screened out - trying CINT waterfall for SFWID={traffic_id}")
             
-            cint_result = get_next_cint_waterfall_link(traffic_record, traffic_id)
+            # Run waterfall in thread pool to avoid blocking event loop
+            cint_result = await asyncio.to_thread(get_next_cint_waterfall_link, traffic_record, traffic_id)
             
             if cint_result:
                 print(f"✅ CINT waterfall #{cint_result['attempt']}: Redirecting SFWID={traffic_id} to survey {cint_result['survey_id']}")
@@ -1695,8 +1715,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 
                 print(f"🎯 CINT: {len(candidates)} offerwall candidates, trying SupplierLinks API...")
                 
-                # Try candidates one by one until we get a working entry link
-                for idx, sid in enumerate(candidates[:20]):
+                # Try candidates one by one until we get a working entry link (max 5 for speed)
+                for idx, sid in enumerate(candidates[:5]):
                     link = create_cint_entry_link(sid, traffic_id)
                     if link:
                         entry_link = link
@@ -1779,16 +1799,23 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         if allocation_error:
             print(f"⏭️ Skipping survey allocation due to critical error: {allocation_error}")
         elif not allocation_success and vendor_id and country_code and traffic_id:
-            # Try CPX first (primary)
+            # ============================================
+            # PERFORMANCE: Run blocking I/O in thread pool
+            # CPX and CINT APIs use synchronous httpx.Client.
+            # asyncio.to_thread() prevents blocking the event loop
+            # so other concurrent requests can be served.
+            # ============================================
+            
+            # Try CPX first (primary) — run in thread to avoid blocking
             print("🔄 Trying CPX (primary)...")
-            cpx_success = try_cpx_allocation()
+            cpx_success = await asyncio.to_thread(try_cpx_allocation)
             print(f"   CPX allocation result: {'SUCCESS' if cpx_success else 'FAILED'}")
             if cpx_success:
                 actual_provider = "CPX"
             
-            # Get CINT candidate survey IDs from offerwall API (fresh, real-time)
+            # Get CINT candidate survey IDs from offerwall cache (usually instant)
             print("🔄 Fetching CINT candidate surveys from offerwall API...")
-            cint_candidate_ids = get_cint_candidates()
+            cint_candidate_ids = await asyncio.to_thread(get_cint_candidates)
             print(f"   CINT candidates from offerwall: {len(cint_candidate_ids)}")
             
             # Store candidate IDs in traffic record for waterfall
@@ -1813,7 +1840,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     "cintTriedSurveyIds": [],
                     "cintAttemptCount": 0,
                 }
-                cint_result = get_next_cint_waterfall_link(temp_record, traffic_id)
+                # Run waterfall in thread pool — this is the BIGGEST blocking call
+                # (tries up to 3 CINT surveys × POST+HEAD = up to 24s of HTTP I/O)
+                cint_result = await asyncio.to_thread(get_next_cint_waterfall_link, temp_record, traffic_id)
                 if cint_result:
                     entry_link = cint_result["entry_link"]
                     survey_id = cint_result["survey_id"]
