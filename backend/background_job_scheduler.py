@@ -319,6 +319,25 @@ def initialize_scheduler(loop=None):
             max_instances=1
         )
         
+        # CINT survey pool cleanup every 5 minutes
+        # Refreshes offerwall cache + marks stale surveys inactive in DB
+        try:
+            try:
+                from .tasks.cint_survey_cleanup import async_cint_survey_cleanup
+            except ImportError:
+                from tasks.cint_survey_cleanup import async_cint_survey_cleanup
+            
+            scheduler.add_job(
+                async_cint_survey_cleanup,
+                CronTrigger(minute="*/5"),
+                id="cint_survey_cleanup",
+                name="CINT Survey Pool Cleanup",
+                max_instances=1
+            )
+            logger.info("[Scheduler] Added CINT survey pool cleanup (every 5 min)")
+        except Exception as e:
+            logger.warning(f"[Scheduler] Could not add CINT cleanup job: {e}")
+        
         # Start scheduler
         if not scheduler.running:
             # scheduler.start() is synchronous in APScheduler

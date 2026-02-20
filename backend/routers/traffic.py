@@ -143,11 +143,49 @@ CINT_CALLBACK_BASE = "https://torpedo.cogentixresearch.com"
 
 def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) -> list:
     """
-    Fetch live survey candidates from CINT's offerwall API (fresh, real-time).
-    Returns list of survey number strings matching the country.
+    Fetch live survey candidates for a country.
+    
+    Uses the in-memory offerwall cache (refreshed every 5 min by cleanup task).
+    Falls back to a direct API call only if the cache is empty/stale.
+    Returns list of survey number strings.
     """
     import httpx
     
+    cc = (country_code or "").lower()
+    country_lang_id = CINT_COUNTRY_LANGUAGE_MAP.get(cc)
+    
+    # --- Try cache first (zero latency) ---
+    try:
+        try:
+            from tasks.cint_survey_cleanup import get_cached_surveys_for_country, get_cached_offerwall
+        except ImportError:
+            from .tasks.cint_survey_cleanup import get_cached_surveys_for_country, get_cached_offerwall
+        
+        cache_info = get_cached_offerwall()
+        
+        if cache_info.get("last_updated") and country_lang_id:
+            cached = get_cached_surveys_for_country(country_lang_id)
+            if cached:
+                random.shuffle(cached)
+                candidates = [str(s.get("SurveyNumber")) for s in cached[:limit] if s.get("SurveyNumber")]
+                print(f"   📡 CINT offerwall (CACHED): {len(candidates)} candidates for country={cc} (cache age: {(datetime.utcnow() - cache_info['last_updated']).seconds}s)")
+                return candidates
+            else:
+                print(f"   ⚠️ CINT cache: No surveys for CountryLanguageID={country_lang_id}, falling back to API")
+        elif cache_info.get("last_updated") and not country_lang_id:
+            # No country mapping — use all cached surveys
+            all_surveys = cache_info.get("surveys", [])
+            if all_surveys:
+                random.shuffle(all_surveys)
+                candidates = [str(s.get("SurveyNumber")) for s in all_surveys[:limit] if s.get("SurveyNumber")]
+                print(f"   📡 CINT offerwall (CACHED, all countries): {len(candidates)} candidates")
+                return candidates
+        else:
+            print(f"   ⚠️ CINT cache empty/stale, falling back to direct API call")
+    except Exception as cache_err:
+        print(f"   ⚠️ Cache read error: {cache_err}, falling back to API")
+    
+    # --- Fallback: Direct API call ---
     api_key = os.getenv("CINT_API_KEY")
     supplier_code = os.getenv("CINT_SUPPLIER_CODE", "6777")
     
@@ -155,12 +193,8 @@ def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) -> list:
         print("   ❌ CINT offerwall: Missing API_KEY or SUPPLIER_CODE")
         return []
     
-    cc = (country_code or "").lower()
-    country_lang_id = CINT_COUNTRY_LANGUAGE_MAP.get(cc)
-    
     if not country_lang_id:
         print(f"   ⚠️ CINT offerwall: No CountryLanguageID mapping for '{cc}'")
-        # Still fetch all and return random ones
     
     try:
         headers = {
@@ -177,7 +211,7 @@ def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) -> list:
             return []
         
         surveys = resp.json().get("Surveys", [])
-        print(f"   📡 CINT offerwall: {len(surveys)} total surveys from API")
+        print(f"   📡 CINT offerwall (API): {len(surveys)} total surveys")
         
         # Filter by country
         if country_lang_id:
@@ -190,7 +224,6 @@ def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) -> list:
             print(f"   ⚠️ CINT offerwall: No surveys for country={cc}")
             return []
         
-        # Shuffle and return survey numbers
         random.shuffle(filtered)
         candidates = [str(s.get("SurveyNumber")) for s in filtered[:limit] if s.get("SurveyNumber")]
         print(f"   📡 CINT offerwall: Selected {len(candidates)} candidates")
