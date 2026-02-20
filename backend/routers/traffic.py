@@ -239,13 +239,27 @@ def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
     Create a respondent-specific CINT entry link for survey_id + traffic_id.
     
     Flow:
-    1. POST SupplierLinks/Create to get LiveLink (or handle 409 if already exists)
-    2. GET existing SupplierLink if 409
+    1. Check offerwall cache — skip if survey is no longer live
+    2. POST SupplierLinks/Create to get LiveLink (or handle 409 if already exists)
     3. Append traffic_id to LiveLink's PID= parameter
+    4. HEAD-validate the LiveLink to catch closed surveys (403) before redirect
     
     Returns the full respondent-specific URL, or empty string on failure.
     """
     import httpx
+    
+    # Quick cache check — skip surveys that dropped from the offerwall
+    try:
+        try:
+            from tasks.cint_survey_cleanup import is_survey_live
+        except ImportError:
+            from .tasks.cint_survey_cleanup import is_survey_live
+        
+        if not is_survey_live(str(survey_id)):
+            print(f"   ⏭️ CINT survey {survey_id} not in offerwall cache — skipping")
+            return ""
+    except Exception:
+        pass  # Cache unavailable — proceed anyway
     
     api_key = os.getenv("CINT_API_KEY")
     supplier_code = os.getenv("CINT_SUPPLIER_CODE", "6777")
@@ -348,6 +362,39 @@ def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
             # Append our traffic_id as the PID value
             entry_url = f"{live_link}{traffic_id}"
             print(f"   🔗 CINT entry link (respondent-specific): {entry_url}")
+            
+            # ===== PRE-VALIDATE LiveLink before redirecting respondent =====
+            # CINT's router (rx.samplicio.us) returns 403 for closed surveys.
+            # This happens BEFORE any callback URLs fire, so the respondent
+            # gets stuck on a CINT error page. We validate here to catch this.
+            try:
+                with httpx.Client(timeout=8.0, follow_redirects=False) as validate_client:
+                    print(f"   🔍 Validating LiveLink (HEAD)...")
+                    head_resp = validate_client.head(entry_url)
+                    print(f"   📥 LiveLink HEAD status: {head_resp.status_code}")
+                    
+                    if head_resp.status_code == 403:
+                        print(f"   ❌ LiveLink REJECTED (403) — survey {survey_id} is closed/dead")
+                        return ""
+                    
+                    # CINT sometimes 302-redirects to error page
+                    if head_resp.status_code in (301, 302, 303, 307, 308):
+                        redirect_location = head_resp.headers.get("location", "")
+                        print(f"   🔀 LiveLink redirects to: {redirect_location}")
+                        if "error" in redirect_location.lower() or "rx.samplicio.us/error" in redirect_location.lower():
+                            print(f"   ❌ LiveLink redirects to CINT error page — survey {survey_id} is dead")
+                            return ""
+                    
+                    if head_resp.status_code >= 400:
+                        print(f"   ❌ LiveLink returned {head_resp.status_code} — survey {survey_id} may be dead")
+                        return ""
+                    
+                    print(f"   ✅ LiveLink validated OK (status {head_resp.status_code})")
+            except Exception as validate_err:
+                # If validation itself fails (timeout, network error), still allow the redirect
+                # Better to let the respondent try than block on a transient network issue
+                print(f"   ⚠️ LiveLink validation failed (allowing anyway): {validate_err}")
+            
             return entry_url
         
         return ""
