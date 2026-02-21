@@ -7,10 +7,9 @@ import { buildApiUrl } from "../../config"
 
 // Status badge color mapping
 const statusColors = {
-  INCOMPLETE: { bg: "#fff3e0", color: "#e65100" },
-  COMPLETE: { bg: "#e8f5e9", color: "#2e7d32" },
-  TERMINATED: { bg: "#ffebee", color: "#c62828" },
-  QUOTAFULL: { bg: "#f3e5f5", color: "#7b1fa2" },
+  "Complete": { bg: "#e8f5e9", color: "#2e7d32" },
+  "Incomplete": { bg: "#fff3e0", color: "#e65100" },
+  "Quota Full": { bg: "#f3e5f5", color: "#7b1fa2" },
 }
 
 export default function TrafficManagement() {
@@ -314,10 +313,9 @@ export default function TrafficManagement() {
             }}
           >
             <option value="">All Statuses</option>
-            <option value="INCOMPLETE">INCOMPLETE</option>
-            <option value="COMPLETE">COMPLETE</option>
-            <option value="TERMINATED">TERMINATED</option>
-            <option value="QUOTAFULL">QUOTAFULL</option>
+            <option value="Complete">Complete</option>
+            <option value="Incomplete">Incomplete</option>
+            <option value="Quota Full">Quota Full</option>
           </select>
           <select
             value={recordsPerPage}

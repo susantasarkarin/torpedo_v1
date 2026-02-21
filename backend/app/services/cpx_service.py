@@ -16,6 +16,15 @@ class CPXService:
     # IMPORTANT: We STRIP subid_1/subid_2 from href - CPX tracks via ext_user_id in k= param
     CLICK_URL = "https://click.cpx-research.com/"
     
+    def __init__(
+        self,
+        app_id: str,
+        ext_user_id: str,
+        secure_hash_key: str,
+        api_timeout: int = 10,
+        fetch_limit: int = 100,
+        surveys_collection: Optional[Any] = None,
+        filters_collection: Optional[Any] = None,
         settings_collection: Optional[Any] = None,
         survey_allocation_service: Optional[Any] = None,
         async_cpx_surveys_collection: Optional[Any] = None,

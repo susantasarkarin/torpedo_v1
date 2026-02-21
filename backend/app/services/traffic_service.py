@@ -492,15 +492,40 @@ class TrafficService:
             print(f"❌ Error updating traffic status: {e}")
             return False
     
+    def _normalize_status(self, status: str) -> str:
+        """
+        Normalize raw status values to display categories:
+        - Complete
+        - Incomplete
+        - Quota Full
+        - Other (merged from other statuses)
+        """
+        if not status:
+            return "Incomplete"
+        
+        status_lower = status.lower()
+        
+        # Map to display categories
+        if "complete" in status_lower and "incomplete" not in status_lower:
+            return "Complete"
+        elif "quota" in status_lower or "quotafull" in status_lower:
+            return "Quota Full"
+        elif "incomplete" in status_lower:
+            return "Incomplete"
+        else:
+            # Merge all other statuses (terminated, fallback, etc.) as incomplete
+            return "Incomplete"
+    
     def get_traffic_stats(self, survey_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Get traffic statistics by status, optionally filtered by survey_id
+        Get traffic statistics by consolidated status (Complete, Incomplete, Quota Full)
+        Optionally filtered by survey_id
         
         Args:
             survey_id: Optional survey ID to filter stats
             
         Returns:
-            Dictionary with counts by status
+            Dictionary with counts by consolidated status
         """
         try:
             # Build match stage for filtering
@@ -524,16 +549,34 @@ class TrafficService:
             
             results = list(self.traffic_collection.aggregate(pipeline))
             
+            # Consolidate statuses
+            by_status = {}
+            total = 0
+            
+            for r in results:
+                raw_status = r["_id"]
+                count = r["count"]
+                normalized_status = self._normalize_status(raw_status)
+                
+                by_status[normalized_status] = by_status.get(normalized_status, 0) + count
+                total += count
+            
+            # Ensure all categories are present (even if 0)
+            display_statuses = ["Complete", "Incomplete", "Quota Full"]
+            for status in display_statuses:
+                if status not in by_status:
+                    by_status[status] = 0
+            
             stats = {
-                "total": sum(r["count"] for r in results),
-                "by_status": {r["_id"]: r["count"] for r in results}
+                "total": total,
+                "by_status": by_status
             }
             
             return stats
             
         except Exception as e:
             print(f"❌ Error getting traffic stats: {e}")
-            return {"total": 0, "by_status": {}}
+            return {"total": 0, "by_status": {"Complete": 0, "Incomplete": 0, "Quota Full": 0}}
     
     def get_all_surveys_traffic_stats(self) -> Dict[str, Dict[str, int]]:
         """
@@ -600,7 +643,7 @@ class TrafficService:
         Args:
             page: Page number (1-indexed)
             page_size: Records per page
-            status: Filter by status (NEW, INCOMPLETE, COMPLETE, etc.)
+            status: Filter by normalized status (Complete, Incomplete, Quota Full)
             search: Search in vendorId, respondentId, or countryCode
             survey_id: Filter by assigned survey ID
             
@@ -617,15 +660,36 @@ class TrafficService:
                 return value  # Already a string, return as-is
             return str(value)
         
+        def _normalize_status_for_filter(normalized_status: str) -> List[str]:
+            """Convert normalized display status back to raw database statuses for filtering"""
+            if not normalized_status:
+                return []
+            
+            status_lower = normalized_status.lower()
+            
+            if "complete" in status_lower and "incomplete" not in status_lower:
+                # Complete - match anything with "complete" but not "incomplete"
+                return ["complete", "COMPLETE"]
+            elif "quota" in status_lower:
+                # Quota Full - match quota-related statuses
+                return ["quotafull", "QUOTAFULL", "QUOTA_FULL", "quota_full"]
+            elif "incomplete" in status_lower:
+                # Incomplete - match incomplete and merged statuses
+                return ["incomplete", "INCOMPLETE", "terminated", "TERMINATED", 
+                       "CPX_TERMINATED_CINT_FALLBACK", "CINT_WATERFALL_1", 
+                       "CPX_FALLBACK", "fallback", "FALLBACK"]
+            
+            return []
+        
         try:
             # Build query
             query = {}
             
             if status:
-                # Handle both uppercase and lowercase status values in the database
-                status_upper = status.upper()
-                status_lower = status.lower()
-                query["status"] = {"$in": [status_upper, status_lower, status]}
+                # Convert normalized status to raw database status values
+                raw_statuses = _normalize_status_for_filter(status)
+                if raw_statuses:
+                    query["status"] = {"$in": raw_statuses}
             
             if survey_id:
                 query["assignedSurveyId"] = survey_id
@@ -659,13 +723,14 @@ class TrafficService:
             for record in records:
                 # Get createdAt, falling back to timestamp for old records
                 created_at = record.get("createdAt") or record.get("timestamp")
+                raw_status = record.get("status", "")
                 
                 serialized = {
                     "_id": str(record.get("_id", "")),
                     "vendorId": record.get("vendorId", ""),
                     "countryCode": record.get("countryCode", ""),
                     "respondentId": record.get("respondentId", ""),
-                    "status": record.get("status", "").upper() if record.get("status") else "",
+                    "status": self._normalize_status(raw_status),
                     "assignedSurveyId": record.get("assignedSurveyId"),
                     "redirectUrl": record.get("redirectUrl"),
                     "outUrl": record.get("outUrl"),
