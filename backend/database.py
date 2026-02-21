@@ -14,6 +14,7 @@ from typing import Optional, Dict
 from pymongo import MongoClient
 from pymongo.database import Database
 from pymongo.collection import Collection
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
 from dotenv import load_dotenv
 import threading
 
@@ -23,13 +24,15 @@ load_dotenv()
 class DatabaseManager:
     """
     Singleton MongoDB connection manager.
-    Provides a single MongoClient instance for the entire application.
+    Provides both synchronous and asynchronous client instances.
     """
     
     _instance: Optional['DatabaseManager'] = None
     _lock: threading.Lock = threading.Lock()
     _client: Optional[MongoClient] = None
+    _async_client: Optional[AsyncIOMotorClient] = None
     _databases: Dict[str, Database] = {}
+    _async_databases: Dict[str, AsyncIOMotorDatabase] = {}
     
     def __new__(cls) -> 'DatabaseManager':
         if cls._instance is None:
@@ -41,70 +44,81 @@ class DatabaseManager:
     def __init__(self):
         if self._client is None:
             self._initialize_client()
+        if self._async_client is None:
+            self._initialize_async_client()
     
     def _initialize_client(self):
-        """Initialize the MongoDB client with connection settings."""
+        """Initialize the synchronous MongoDB client."""
         mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-        
         try:
             self._client = MongoClient(
                 mongo_uri,
                 serverSelectionTimeoutMS=5000,
                 connectTimeoutMS=5000,
-                socketTimeoutMS=30000,
                 maxPoolSize=50,
                 minPoolSize=5,
                 retryWrites=True
             )
-            # Test connection
             self._client.admin.command('ping')
-            print("✅ MongoDB singleton client initialized successfully")
+            print("✅ MongoDB sync client initialized")
         except Exception as e:
-            print(f"❌ MongoDB connection failed: {e}")
+            print(f"❌ MongoDB sync connection failed: {e}")
+            raise
+
+    def _initialize_async_client(self):
+        """Initialize the asynchronous Motor client."""
+        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+        try:
+            self._async_client = AsyncIOMotorClient(
+                mongo_uri,
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=5000,
+                maxPoolSize=200,  # Higher pool size for async
+                minPoolSize=10,
+                retryWrites=True
+            )
+            print("✅ MongoDB async (Motor) client initialized")
+        except Exception as e:
+            print(f"❌ MongoDB async connection failed: {e}")
             raise
     
     @property
     def client(self) -> MongoClient:
-        """Get the MongoDB client instance."""
-        if self._client is None:
-            self._initialize_client()
         return self._client
+
+    @property
+    def async_client(self) -> AsyncIOMotorClient:
+        return self._async_client
     
     def get_database(self, db_name: str) -> Database:
-        """
-        Get a database instance. Caches database references.
-        
-        Args:
-            db_name: Name of the database
-            
-        Returns:
-            MongoDB Database instance
-        """
         if db_name not in self._databases:
             self._databases[db_name] = self.client[db_name]
         return self._databases[db_name]
+
+    def get_async_database(self, db_name: str) -> AsyncIOMotorDatabase:
+        if db_name not in self._async_databases:
+            self._async_databases[db_name] = self.async_client[db_name]
+        return self._async_databases[db_name]
     
     def get_collection(self, db_name: str, collection_name: str) -> Collection:
-        """
-        Get a collection instance.
-        
-        Args:
-            db_name: Name of the database
-            collection_name: Name of the collection
-            
-        Returns:
-            MongoDB Collection instance
-        """
         db = self.get_database(db_name)
+        return db[collection_name]
+
+    def get_async_collection(self, db_name: str, collection_name: str) -> AsyncIOMotorCollection:
+        db = self.get_async_database(db_name)
         return db[collection_name]
     
     def close(self):
-        """Close the MongoDB client connection."""
-        if self._client is not None:
+        """Close both clients."""
+        if self._client:
             self._client.close()
             self._client = None
-            self._databases = {}
-            print("✅ MongoDB client connection closed")
+        if self._async_client:
+            self._async_client.close()
+            self._async_client = None
+        self._databases = {}
+        self._async_databases = {}
+        print("✅ MongoDB connections closed")
 
 
 # ============== CONVENIENCE FUNCTIONS ==============
@@ -121,35 +135,33 @@ def get_db_manager() -> DatabaseManager:
 
 
 def get_client() -> MongoClient:
-    """Get the MongoDB client instance."""
+    """Get the MongoDB sync client instance."""
     return get_db_manager().client
 
 
+def get_async_client() -> AsyncIOMotorClient:
+    """Get the MongoDB async client instance."""
+    return get_db_manager().async_client
+
+
 def get_database(db_name: str) -> Database:
-    """
-    Get a database instance.
-    
-    Args:
-        db_name: Name of the database
-        
-    Returns:
-        MongoDB Database instance
-    """
+    """Get a synchronous database instance."""
     return get_db_manager().get_database(db_name)
 
 
+def get_async_database(db_name: str) -> AsyncIOMotorDatabase:
+    """Get an asynchronous database instance."""
+    return get_db_manager().get_async_database(db_name)
+
+
 def get_collection(db_name: str, collection_name: str) -> Collection:
-    """
-    Get a collection instance.
-    
-    Args:
-        db_name: Name of the database
-        collection_name: Name of the collection
-        
-    Returns:
-        MongoDB Collection instance
-    """
+    """Get a synchronous collection instance."""
     return get_db_manager().get_collection(db_name, collection_name)
+
+
+def get_async_collection(db_name: str, collection_name: str) -> AsyncIOMotorCollection:
+    """Get an asynchronous collection instance."""
+    return get_db_manager().get_async_collection(db_name, collection_name)
 
 
 # ============== DATABASE CONSTANTS ==============
@@ -275,8 +287,23 @@ def get_cpx_surveys_collection() -> Collection:
 
 
 def get_url_parameters_collection() -> Collection:
-    """Get the URL parameters collection (traffic)."""
+    """Get the URL parameters collection (traffic flow db)."""
     return get_collection(DB_TRAFFIC, COL_URL_PARAMETERS)
+
+
+def get_async_url_parameters_collection() -> AsyncIOMotorCollection:
+    """Get the async URL parameters collection (traffic flow db)."""
+    return get_async_collection(DB_TRAFFIC, COL_URL_PARAMETERS)
+
+
+def get_async_cpx_callback_logs_collection() -> AsyncIOMotorCollection:
+    """Get the async CPX callback logs collection (traffic flow db)."""
+    return get_async_collection(DB_TRAFFIC, COL_CPX_CALLBACK_LOGS)
+
+
+def get_async_vendors_collection() -> AsyncIOMotorCollection:
+    """Get the async vendors collection (email automation db)."""
+    return get_async_collection(DB_EMAIL_AUTOMATION, COL_VENDORS)
 
 
 def get_db():

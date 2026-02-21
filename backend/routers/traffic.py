@@ -16,6 +16,11 @@ import time
 import hashlib
 import asyncio
 import httpx
+from .database import (
+    get_async_url_parameters_collection,
+    get_async_vendors_collection,
+    get_async_cpx_callback_logs_collection
+)
 
 # URL validation utility for redirect safety
 try:
@@ -146,6 +151,24 @@ CINT_CALLBACK_BASE = "https://torpedo.cogentixresearch.com"
 # Reuse connections across requests instead of creating new client per call
 _cint_http_client: Optional[httpx.Client] = None
 
+_cint_async_client: Optional[httpx.AsyncClient] = None
+
+def _get_cint_async_client() -> httpx.AsyncClient:
+    """Get or create a shared httpx.AsyncClient with connection pooling."""
+    global _cint_async_client
+    if _cint_async_client is None or _cint_async_client.is_closed:
+        _cint_async_client = httpx.AsyncClient(
+            timeout=10.0,
+            limits=httpx.Limits(
+                max_connections=500,        # High connection limit for 10k users
+                max_keepalive_connections=100,
+                keepalive_expiry=30
+            ),
+            follow_redirects=False
+        )
+    return _cint_async_client
+
+
 def _get_cint_client() -> httpx.Client:
     """Get or create a shared httpx.Client with connection pooling."""
     global _cint_http_client
@@ -162,13 +185,11 @@ def _get_cint_client() -> httpx.Client:
     return _cint_http_client
 
 
-def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) -> list:
+async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) -> list:
     """
-    Fetch live survey candidates for a country.
+    Fetch live survey candidates for a country (Asynchronous).
     
-    Uses the in-memory offerwall cache (refreshed every 5 min by cleanup task).
-    Falls back to a direct API call only if the cache is empty/stale.
-    Returns list of survey number strings.
+    Uses the in-memory offerwall cache. Returns list of survey number strings.
     """
     import httpx
     
@@ -224,8 +245,8 @@ def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) -> list:
         }
         url = f"{CINT_API_BASE}/Supply/v1/Surveys/AllOfferwall/{supplier_code}"
         
-        client = _get_cint_client()
-        resp = client.get(url, headers=headers, timeout=5.0)
+        client = _get_cint_async_client()
+        resp = await client.get(url, headers=headers, timeout=10.0)
         
         if resp.status_code != 200:
             print(f"   ❌ CINT offerwall API: status={resp.status_code}")
@@ -255,15 +276,9 @@ def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) -> list:
         return []
 
 
-def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
+async def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
     """
-    Create a respondent-specific CINT entry link for survey_id + traffic_id.
-    
-    Flow:
-    1. Check offerwall cache — skip if survey is no longer live
-    2. POST SupplierLinks/Create to get LiveLink (or handle 409 if already exists)
-    3. Append traffic_id to LiveLink's PID= parameter
-    4. HEAD-validate the LiveLink to catch closed surveys (403) before redirect
+    Create a respondent-specific CINT entry link (Asynchronous).
     
     Returns the full respondent-specific URL, or empty string on failure.
     """
@@ -310,16 +325,15 @@ def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
     live_link = ""
     
     try:
-        client = _get_cint_client()
-        # Step 1: Try to create SupplierLink (5s timeout for speed)
+        client = _get_cint_async_client()
+        # Step 1: Try to create SupplierLink (10s timeout for speed)
         create_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/Create/{survey_id}/{supplier_code}"
         
         # Log full request payload
-        print(f"   📤 CINT SupplierLinks/Create REQUEST:")
+        print(f"   📤 CINT SupplierLinks/Create REQUEST (ASYNC):")
         print(f"      URL: {create_url}")
-        print(f"      Payload: {create_payload}")
         
-        resp = client.post(create_url, json=create_payload, headers=headers, timeout=5.0)
+        resp = await client.post(create_url, json=create_payload, headers=headers, timeout=10.0)
         
         # Log full response
         print(f"   📥 CINT SupplierLinks/Create RESPONSE:")
@@ -342,7 +356,7 @@ def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
             # Already exists — GET existing link
             get_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/BySurveyNumber/{survey_id}/{supplier_code}"
             print(f"   📤 CINT SupplierLink already exists (409), fetching: GET {get_url}")
-            get_resp = client.get(get_url, headers=headers, timeout=5.0)
+            get_resp = await client.get(get_url, headers=headers, timeout=10.0)
             
             print(f"   📥 CINT GET SupplierLink RESPONSE: Status={get_resp.status_code}")
             try:
@@ -364,7 +378,7 @@ def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
                     print(f"   🔄 Updating SupplierLink with correct redirect URLs...")
                     # Update the existing link with correct callback URLs
                     update_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/Update/{survey_id}/{supplier_code}"
-                    update_resp = client.put(update_url, json=create_payload, headers=headers, timeout=5.0)
+                    update_resp = await client.put(update_url, json=create_payload, headers=headers, timeout=10.0)
                     print(f"   📥 CINT SupplierLink UPDATE: Status={update_resp.status_code}")
                 
                 print(f"   ✅ CINT SupplierLink EXISTS for survey {survey_id}")
@@ -399,12 +413,9 @@ def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
         return ""
 
 
-def get_next_cint_waterfall_link(traffic_record: dict, traffic_id: str) -> dict:
+async def get_next_cint_waterfall_link(traffic_record: dict, traffic_id: str) -> dict:
     """
-    Try to get the next CINT survey link in the waterfall.
-    
-    Reads cintCandidateIds from traffic record, tries candidates one by one
-    until an entry link is successfully created.
+    Try to get the next CINT survey link in the waterfall (Asynchronous).
     
     Returns: {"survey_id": str, "entry_link": str, "attempt": int} or None
     """
@@ -426,26 +437,26 @@ def get_next_cint_waterfall_link(traffic_record: dict, traffic_id: str) -> dict:
         return None
     
     # Try each untried candidate until one works (max 10 per batch - need more since offerwall is stale)
-    for survey_id in untried[:10]:  # Try up to 10 - 403s are common, need to try more
-        entry_link = create_cint_entry_link(survey_id, traffic_id)
+    for survey_id in untried[:10]:
+        entry_link = await create_cint_entry_link(survey_id, traffic_id)
         
         if entry_link:
             new_attempt = attempt_count + 1
             new_tried = tried + [survey_id]
             
-            # Update traffic record
-            if url_parameters_collection is not None:
-                url_parameters_collection.update_one(
-                    {"_id": ObjectId(traffic_id)},
-                    {"$set": {
-                        "cintAttemptCount": new_attempt,
-                        "cintTriedSurveyIds": new_tried,
-                        "currentCintSurveyId": survey_id,
-                        "currentCintLink": entry_link,
-                        "status": f"CINT_WATERFALL_{new_attempt}",
-                        "updatedAt": datetime.utcnow()
-                    }}
-                )
+            # Update traffic record asynchronously
+            async_url_collection = get_async_url_parameters_collection()
+            await async_url_collection.update_one(
+                {"_id": ObjectId(traffic_id)},
+                {"$set": {
+                    "cintAttemptCount": new_attempt,
+                    "cintTriedSurveyIds": new_tried,
+                    "currentCintSurveyId": survey_id,
+                    "currentCintLink": entry_link,
+                    "status": f"CINT_WATERFALL_{new_attempt}",
+                    "updatedAt": datetime.utcnow()
+                }}
+            )
             
             print(f"   ✅ CINT waterfall #{new_attempt}: survey {survey_id}")
             return {
@@ -457,12 +468,12 @@ def get_next_cint_waterfall_link(traffic_record: dict, traffic_id: str) -> dict:
             # This survey is dead, add to tried
             tried.append(survey_id)
     
-    # All tried candidates failed — update tried list
-    if url_parameters_collection is not None:
-        url_parameters_collection.update_one(
-            {"_id": ObjectId(traffic_id)},
-            {"$set": {"cintTriedSurveyIds": tried, "updatedAt": datetime.utcnow()}}
-        )
+    # All tried candidates failed — update tried list asynchronously
+    async_url_collection = get_async_url_parameters_collection()
+    await async_url_collection.update_one(
+        {"_id": ObjectId(traffic_id)},
+        {"$set": {"cintTriedSurveyIds": tried, "updatedAt": datetime.utcnow()}}
+    )
     
     print(f"   ❌ CINT waterfall: All candidates failed")
     return None
@@ -660,7 +671,6 @@ async def cint_callback(
     """
     try:
         print(f"📥 Cint Callback received: status={status}, pid={pid}, mid={mid}, revenue={revenue}")
-        print(f"📥 Full callback URL: {request.url}")
         
         # Map Cint status to internal status
         status_mapping = {
@@ -672,40 +682,28 @@ async def cint_callback(
         new_status = status_mapping.get(status.lower(), "TERMINATED")
         redirect_type = "completeRD" if new_status == "COMPLETE" else "terminateRD"
         
-        # Primary lookup key is PID (traffic record ID), fallback to MID for legacy compatibility
+        # Primary lookup key is PID (traffic record ID)
         lookup_id = pid or mid
         if not lookup_id:
-            print("❌ Neither pid nor mid provided in callback")
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=missing_id")
         
-        # Find traffic record - PID is the traffic record ObjectId
+        # Find traffic record asynchronously
+        async_url_collection = get_async_url_parameters_collection()
         traffic_record = None
-        if url_parameters_collection is not None:
-            # Try PID as ObjectId first (preferred)
-            try:
-                traffic_record = url_parameters_collection.find_one({"_id": ObjectId(lookup_id)})
-                if traffic_record:
-                    print(f"✅ Found traffic record by ObjectId: {lookup_id}")
-            except:
-                pass
-            
-            # Try as respondentId (legacy fallback)
-            if not traffic_record:
-                traffic_record = url_parameters_collection.find_one({"respondentId": lookup_id})
-                if traffic_record:
-                    print(f"✅ Found traffic record by respondentId: {lookup_id}")
-            
-            # Try as string _id (edge case)
-            if not traffic_record:
-                traffic_record = url_parameters_collection.find_one({"_id": lookup_id})
-                if traffic_record:
-                    print(f"✅ Found traffic record by string _id: {lookup_id}")
-
-            # Try lookup by stored CINT MID (if PID did not resolve)
-            if not traffic_record and mid:
-                traffic_record = url_parameters_collection.find_one({"cint_mid": mid})
-                if traffic_record:
-                    print(f"✅ Found traffic record by cint_mid: {mid}")
+        
+        # Try PID as ObjectId first (preferred)
+        try:
+            traffic_record = await async_url_collection.find_one({"_id": ObjectId(lookup_id)})
+            if traffic_record:
+                print(f"✅ Found traffic record by ObjectId: {lookup_id}")
+        except:
+            pass
+        
+        if not traffic_record:
+            traffic_record = await async_url_collection.find_one({"respondentId": lookup_id})
+        
+        if not traffic_record and mid:
+            traffic_record = await async_url_collection.find_one({"cint_mid": mid})
         
         if not traffic_record:
             print(f"⚠️ Traffic record not found for pid={pid}, mid={mid}")
@@ -715,24 +713,24 @@ async def cint_callback(
         vendor_id = traffic_record.get("vendorId")
         respondent_id = traffic_record.get("respondentId", "")
         
-        # Update traffic status
-        if url_parameters_collection is not None:
-            url_parameters_collection.update_one(
-                {"_id": traffic_record["_id"]},
-                {"$set": {
-                    "status": new_status,
-                    "cint_mid": mid,  # Store Cint session ID for reference
-                    "cint_revenue": revenue,
-                    "updatedAt": datetime.utcnow(),
-                    "completedAt": datetime.utcnow() if new_status == "COMPLETE" else None
-                }}
-            )
+        # Update traffic status asynchronously
+        await async_url_collection.update_one(
+            {"_id": traffic_record["_id"]},
+            {"$set": {
+                "status": new_status,
+                "cint_mid": mid,
+                "cint_revenue": revenue,
+                "updatedAt": datetime.utcnow(),
+                "completedAt": datetime.utcnow() if new_status == "COMPLETE" else None
+            }}
+        )
         
         # If COMPLETE, redirect to vendor complete URL
         if new_status == "COMPLETE":
             redirect_url = f"{FRONTEND_URL}/thankyou"
-            if vendor_id and vendors_collection is not None:
-                vendor = vendors_collection.find_one({"vendorId": vendor_id})
+            if vendor_id:
+                async_vendors_col = get_async_vendors_collection()
+                vendor = await async_vendors_col.find_one({"vid": vendor_id})
                 if vendor:
                     redirect_url = vendor.get("completeRD", redirect_url)
             
@@ -741,34 +739,30 @@ async def cint_callback(
                 separator = "&" if "?" in redirect_url else "?"
                 redirect_url = f"{redirect_url}{separator}id={respondent_id}"
             
-            print(f"✅ Cint COMPLETE: Redirecting to {redirect_url}")
+            print(f"✅ Cint COMPLETE (ASYNC): Redirecting to {redirect_url}")
             return RedirectResponse(url=redirect_url)
         
-        # TERMINATED/QUOTA_FULL/QUALITY_TERM: Try next CINT waterfall survey
-        print(f"🔄 Cint terminated - trying next CINT waterfall survey")
-        
-        # Run waterfall in thread pool to avoid blocking event loop
-        cint_result = await asyncio.to_thread(get_next_cint_waterfall_link, traffic_record, str(traffic_record["_id"]))
+        # TERMINATED: Try next CINT waterfall survey (fully async)
+        print(f"🔄 Cint terminated - trying next CINT waterfall survey (ASYNC)")
+        cint_result = await get_next_cint_waterfall_link(traffic_record, str(traffic_record["_id"]))
         
         if cint_result:
             print(f"✅ CINT waterfall #{cint_result['attempt']}: Redirecting to survey {cint_result['survey_id']}")
             return RedirectResponse(url=cint_result["entry_link"])
-        else:
-            print(f"⚠️ CINT waterfall exhausted (max 5 attempts)")
         
         # No more waterfall options - redirect to vendor terminate URL
         redirect_url = f"{FRONTEND_URL}/survey-error"
-        if vendor_id and vendors_collection is not None:
-            vendor = vendors_collection.find_one({"vendorId": vendor_id})
+        if vendor_id:
+            async_vendors_col = get_async_vendors_collection()
+            vendor = await async_vendors_col.find_one({"vid": vendor_id})
             if vendor:
                 redirect_url = vendor.get("terminateRD", redirect_url)
         
-        # Append respondent ID
         if respondent_id:
             separator = "&" if "?" in redirect_url else "?"
             redirect_url = f"{redirect_url}{separator}id={respondent_id}"
         
-        print(f"✅ Cint callback: Waterfall exhausted, redirecting to {redirect_url}")
+        print(f"✅ Cint waterfall exhausted, redirecting to {redirect_url}")
         return RedirectResponse(url=redirect_url)
         
     except Exception as e:
@@ -811,327 +805,157 @@ async def cpx_callback(
     5. Update traffic status and redirect to vendor
     """
     try:
-        # Priority for status: 'status' param > 'msg' param (if it looks like a status) > default to "out"
-        # The 'status' param is the explicit status indicator
-        # The 'msg' param can be either status type OR a message_id
         if status:
-            # Explicit status parameter provided
             status_code = status
         elif msg and msg.lower() in ["complete", "out", "terminate", "quotafull", "quality_terminate"]:
-            # msg looks like a status value
             status_code = msg
         else:
-            # Default to "out" (terminate)
             status_code = "out"
         
         resolved_sfwid = sfwid or subid_1 or subid
-        print(f"📥 CPX Callback received: msg={msg}, status={status}, resolved_status={status_code}, trans_id={trans_id}, message_id={message_id}, rid={rid}, sfwid={resolved_sfwid}")
-        print(f"📥 Full callback URL: {request.url}")
+        print(f"📥 CPX Callback received: msg={msg}, resolved_status={status_code}, sfwid={resolved_sfwid}")
         
-        # sfwid from subid_1 is the PRIMARY identifier - it contains the SFWID (traffic record _id)
         if not resolved_sfwid:
-            print(f"❌ Missing sfwid parameter - cannot identify traffic record")
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
         decoded_sfwid = resolved_sfwid
-        print(f"✅ Using sfwid from query params: {decoded_sfwid}")
         
-        # Determine status based on msg ("out" treated as terminate)
         if status_code.lower() == "complete":
             new_status = "COMPLETE"
             redirect_type = "completeRD"
-        else:  # "out" = terminate
+        else: 
             new_status = "TERMINATED"
             redirect_type = "terminateRD"
         
-        # ============================================
-        # IMMEDIATE CALLBACK LOGGING: Log every callback attempt for monitoring
-        # This ensures visibility even if verification fails or times out
-        # ============================================
-        initial_log_id = None
-        if cpx_callback_logs_collection is not None:
-            try:
-                initial_log_entry = {
-                    "timestamp": datetime.utcnow(),
-                    "callback_url": str(request.url),
-                    "msg_param": msg,
-                    "status_param": status,
-                    "status_code": status_code,
-                    "new_status": new_status,
-                    "redirect_type": redirect_type,
-                    "decoded_sfwid": decoded_sfwid,
-                    "rid_received": rid,
-                    "trans_id": trans_id,
-                    "message_id": message_id,
-                    "event": "callback_received",
-                    "processing_status": "pending",
-                    "success": False,  # Will be updated after successful processing
-                    "verified": False  # Will be updated after postback verification
-                }
-                result = cpx_callback_logs_collection.insert_one(initial_log_entry)
-                initial_log_id = result.inserted_id
-                print(f"📝 Logged initial callback receipt: {initial_log_id}")
-            except Exception as log_error:
-                print(f"⚠️ Failed to log initial callback: {log_error}")
+        # Async DB collections
+        async_url_collection = get_async_url_parameters_collection()
+        async_vendors_col = get_async_vendors_collection()
+        async_logs_col = get_async_cpx_callback_logs_collection()
         
-        # P0.15: CPX Callback Idempotency Check
-        # Generate callback key: {click_id}:{conversion_type}:{hour_bucket}
+        # Immediate callback logging (Async)
+        initial_log_id = None
+        try:
+            initial_log_entry = {
+                "timestamp": datetime.utcnow(),
+                "callback_url": str(request.url),
+                "msg_param": msg,
+                "status_code": status_code,
+                "new_status": new_status,
+                "decoded_sfwid": decoded_sfwid,
+                "trans_id": trans_id,
+                "processing_status": "pending",
+                "success": False
+            }
+            log_result = await async_logs_col.insert_one(initial_log_entry)
+            initial_log_id = log_result.inserted_id
+        except Exception as log_error:
+            print(f"⚠️ Failed to log callback: {log_error}")
+        
+        # Idempotency Check (Async)
         hour_bucket = datetime.utcnow().strftime("%Y%m%d%H")
         callback_key = f"{decoded_sfwid}:{new_status}:{hour_bucket}"
         
-        # Check for existing callback with same key (within the hour)
-        if cpx_callback_logs_collection is not None:
-            existing_callback = cpx_callback_logs_collection.find_one({
-                "callback_key": callback_key,
-                "success": True
-            })
-            if existing_callback:
-                print(f"⚠️ Duplicate callback detected: {callback_key}")
-                # Return the same redirect as before
-                existing_redirect = existing_callback.get("vendor_redirect_url")
-                if existing_redirect:
-                    return RedirectResponse(url=existing_redirect)
-                return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
+        existing_callback = await async_logs_col.find_one({
+            "callback_key": callback_key,
+            "success": True
+        })
+        if existing_callback:
+            print(f"⚠️ Duplicate CPX callback: {callback_key}")
+            existing_redirect = existing_callback.get("vendor_redirect_url")
+            if existing_redirect:
+                return RedirectResponse(url=existing_redirect)
+            return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
-        # ============================================
-        # POSTBACK VERIFICATION: DISABLED
-        # The redirect URL is now the primary source of truth
-        # S2S postback verification has been permanently disabled
-        # ============================================
-        postback_verified = False  # Not using postback verification
-        print(f"ℹ️ Postback verification disabled - proceeding directly with redirect flow")
-        print(f"📋 Processing redirect: sfwid={decoded_sfwid}, status={new_status}, redirect_type={redirect_type}")
-        
-        # Step 1: Find the traffic record by _id (SFWID)
+        # Find traffic record asynchronously
         traffic_record = None
-        search_values = [decoded_sfwid]
+        try:
+            traffic_record = await async_url_collection.find_one({"_id": ObjectId(decoded_sfwid)})
+        except:
+            pass
         
-        print(f"🔍 Searching for traffic record with SFWID: {search_values}")
-        
-        if url_parameters_collection is not None:
-            for search_val in search_values:
-                if traffic_record:
-                    break
-                    
-                # Try to find by ObjectId first
-                try:
-                    traffic_record = url_parameters_collection.find_one({"_id": ObjectId(search_val)})
-                    if traffic_record:
-                        print(f"✅ Found traffic record by ObjectId: {search_val}")
-                except Exception as e:
-                    print(f"⚠️ ObjectId search failed for {search_val}: {e}")
-                
-                # Try as string _id (same field, different format)
-                if not traffic_record:
-                    traffic_record = url_parameters_collection.find_one({"_id": search_val})
-                    if traffic_record:
-                        print(f"✅ Found traffic record by string _id: {search_val}")
-                
-                # NOTE: respondentId fallback REMOVED - violates deterministic mapping
-                # SFWID must resolve to exactly one traffic record via _id field only
+        if not traffic_record:
+            traffic_record = await async_url_collection.find_one({"_id": decoded_sfwid})
         
         if not traffic_record:
             print(f"❌ No traffic record found for SFWID: {decoded_sfwid}")
-            # Redirect to error page
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
         traffic_id = str(traffic_record["_id"])
         vendor_id = traffic_record.get("vendorId")
-        original_respondent_id = traffic_record.get("respondentId")  # This is what we send to the vendor
+        original_respondent_id = traffic_record.get("respondentId")
         
-        print(f"📋 Found traffic record: SFWID={traffic_id}, vendorId={vendor_id}, respondentId={original_respondent_id}")
-        
-        # Step 2: Look up the vendor
-        # The vid parameter from URL is stored as vendorId in traffic record
-        # This should match vid in the vendors collection
+        # Look up vendor asynchronously
         vendor = None
         vendor_redirect_url = None
         
-        if vendors_collection is not None and vendor_id:
-            print(f"🔍 Looking up vendor with vid: {vendor_id}")
-            
-            # Try to find vendor by vid (try both string and original type)
-            vendor = vendors_collection.find_one({"vid": vendor_id})
-            if not vendor and isinstance(vendor_id, str):
-                # Try as integer if it's a numeric string
-                if vendor_id.isdigit():
-                    try:
-                        vendor = vendors_collection.find_one({"vid": int(vendor_id)})
-                    except ValueError:
-                        pass
-            
-            if not vendor and isinstance(vendor_id, int):
-                # Try as string
-                vendor = vendors_collection.find_one({"vid": str(vendor_id)})
-            
-            if vendor:
-                print(f"✅ Found vendor by vid: {vendor_id} - {vendor.get('vendorName')}")
-            else:
-                print(f"❌ Vendor not found by vid: {vendor_id}")
-                # Enhanced debugging
-                DEBUG_VENDOR_LIMIT = 10
-                all_vendors = list(vendors_collection.find({}, {"vid": 1, "vendorName": 1}))
-                print(f"📋 Available vendors (total {len(all_vendors)}):")
-                for v in all_vendors[:DEBUG_VENDOR_LIMIT]:  # Show first few for debugging
-                    print(f"  - vid: {v.get('vid')} ({type(v.get('vid')).__name__}), name: {v.get('vendorName')}")
-        else:
-            print(f"⚠️ vendors_collection is None or vendor_id is empty. vendor_id={vendor_id}")
-        
-        if vendor:
-            print(f"📋 Found vendor: {vendor.get('vendorName')}, vid: {vendor.get('vid')}")
-            print(f"📋 Vendor _id: {vendor.get('_id')}")
-            print(f"📋 Vendor redirect type: {redirect_type}")
-            print(f"📋 Full vendor document: {vendor}")
-            print(f"📋 Vendor {redirect_type}: {vendor.get(redirect_type, [])}")
-            
-            # Step 3: Get the appropriate redirect URL array
-            redirect_urls = vendor.get(redirect_type, [])
-            vendor_variable = vendor.get("vendorVariable", "rid")
-            
-            print(f"📋 Vendor variable name: {vendor_variable}")
-            print(f"📋 All redirect URLs in array: {redirect_urls}")
-            
-            if redirect_urls and len(redirect_urls) > 0:
-                # Use the first redirect URL
-                base_url = redirect_urls[0].strip()
-                print(f"📋 Base redirect URL (first in array): {base_url}")
+        if vendor_id:
+            vendor = await async_vendors_col.find_one({"vid": vendor_id})
+            if not vendor and str(vendor_id).isdigit():
+                vendor = await async_vendors_col.find_one({"vid": int(vendor_id)})
                 
-                if base_url:
-                    # Step 4: Append respondent ID using vendor's variable name
-                    # The URL might already have query params, so we need to append properly
-                    # Check if URL already ends with the variable placeholder (e.g., "&RID=" or "?RID=")
-                    if base_url.endswith(f"&{vendor_variable}=") or base_url.endswith(f"?{vendor_variable}="):
-                        # URL already has the variable with trailing =, just append the value
-                        vendor_redirect_url = f"{base_url}{original_respondent_id}"
-                    elif f"&{vendor_variable}=" in base_url or f"?{vendor_variable}=" in base_url:
-                        # URL already has the variable somewhere, don't duplicate it
-                        # Replace any placeholder value or append at the existing position
-                        vendor_redirect_url = base_url
-                        print(f"⚠️ URL already contains {vendor_variable}= parameter, using as-is")
-                    else:
-                        # Need to add the variable and value
+            if vendor:
+                redirect_urls = vendor.get(redirect_type, [])
+                vendor_variable = vendor.get("vendorVariable", "rid")
+                
+                if redirect_urls and len(redirect_urls) > 0:
+                    base_url = redirect_urls[0].strip()
+                    if base_url:
                         separator = "&" if "?" in base_url else "?"
                         vendor_redirect_url = f"{base_url}{separator}{vendor_variable}={original_respondent_id}"
-                    print(f"🔗 Constructed vendor redirect URL: {vendor_redirect_url}")
-            else:
-                print(f"⚠️ No redirect URLs configured for {redirect_type}")
-        else:
-            print(f"❌ Vendor not found for vendor_id: {vendor_id}")
-        
-        # Step 5: Update traffic record status
-        if traffic_service:
-            traffic_service.update_traffic_status(
-                traffic_id=traffic_id,
-                status=new_status,
-                redirect_url=str(request.url),
-                out_url=vendor_redirect_url
-            )
-        elif url_parameters_collection:
-            update_data = {
-                "status": new_status,
-                "updatedAt": datetime.utcnow(),
-                "cpxCallbackUrl": str(request.url)
-            }
-            if vendor_redirect_url:
-                update_data["outUrl"] = vendor_redirect_url
-            if new_status == "COMPLETE":
-                update_data["completedAt"] = datetime.utcnow()
-            
-            url_parameters_collection.update_one(
-                {"_id": ObjectId(traffic_id)},
-                {"$set": update_data}
-            )
-        
-        print(f"✅ Updated traffic record {traffic_id} status to {new_status}")
-        
-        # Step 6: Update the initial callback log with complete processing details
-        if cpx_callback_logs_collection is not None and initial_log_id:
-            try:
-                update_fields = {
-                    "callback_key": callback_key,  # P0.15: Idempotency key for deduplication
-                    "event": "callback_processed",
-                    "processing_status": "completed",
-                    "traffic_found": True,
-                    "traffic_id": traffic_id,
-                    "vendor_id": vendor_id,
-                    "respondent_id": original_respondent_id,
-                    "vendor_found": vendor is not None,
-                    "vendor_name": vendor.get("vendorName") if vendor else None,
-                    "vendor_redirect_url": vendor_redirect_url,
-                    "success": vendor_redirect_url is not None,
-                    "verified": postback_verified,
-                    "completed_at": datetime.utcnow()
-                }
-                cpx_callback_logs_collection.update_one(
-                    {"_id": initial_log_id},
-                    {"$set": update_fields}
-                )
-                print(f"📝 Updated CPX callback log with processing result")
-            except Exception as log_error:
-                print(f"⚠️ Failed to update callback log: {log_error}")
-        elif cpx_callback_logs_collection is not None:
-            # Fallback: insert new log if initial_log_id is not available
-            try:
-                log_entry = {
-                    "timestamp": datetime.utcnow(),
-                    "callback_key": callback_key,
-                    "callback_url": str(request.url),
-                    "msg_param": msg,
-                    "status_param": status,
-                    "message_id_param": message_id,
-                    "rid_received": rid,
-                    "decoded_sfwid": decoded_sfwid,
-                    "status_code": status_code,
-                    "new_status": new_status,
-                    "redirect_type": redirect_type,
-                    "event": "callback_processed",
-                    "processing_status": "completed",
-                    "traffic_found": True,
-                    "traffic_id": traffic_id,
-                    "vendor_id": vendor_id,
-                    "respondent_id": original_respondent_id,
-                    "vendor_found": vendor is not None,
-                    "vendor_name": vendor.get("vendorName") if vendor else None,
-                    "vendor_redirect_url": vendor_redirect_url,
-                    "success": vendor_redirect_url is not None,
-                    "verified": postback_verified
-                }
-                cpx_callback_logs_collection.insert_one(log_entry)
-                print(f"📝 Logged CPX callback (fallback insert)")
-            except Exception as log_error:
-                print(f"⚠️ Failed to log callback: {log_error}")
-        
-        # Step 7: Handle redirect based on status
-        # COMPLETE → vendor complete URL
-        # TERMINATE/SCREENOUT → try CINT fallback before vendor terminate URL
-        
+
+        # Update traffic record asynchronously
+        update_data = {
+            "status": new_status,
+            "updatedAt": datetime.utcnow(),
+            "cpxCallbackUrl": str(request.url)
+        }
+        if vendor_redirect_url:
+            update_data["outUrl"] = vendor_redirect_url
         if new_status == "COMPLETE":
-            # Complete: redirect to vendor complete URL
+            update_data["completedAt"] = datetime.utcnow()
+        
+        await async_url_collection.update_one(
+            {"_id": ObjectId(traffic_id)},
+            {"$set": update_data}
+        )
+        
+        # Update callback log asynchronously
+        if initial_log_id:
+            try:
+                await async_logs_col.update_one(
+                    {"_id": initial_log_id},
+                    {"$set": {
+                        "callback_key": callback_key,
+                        "processing_status": "completed",
+                        "traffic_id": traffic_id,
+                        "vendor_redirect_url": vendor_redirect_url,
+                        "success": vendor_redirect_url is not None,
+                        "completed_at": datetime.utcnow()
+                    }}
+                )
+            except Exception as log_error:
+                print(f"⚠️ Failed to update CPX log: {log_error}")
+        
+        # Handle final redirect
+        if new_status == "COMPLETE":
             if vendor_redirect_url:
-                print(f"➡️ Complete - Redirecting to vendor: {vendor_redirect_url}")
+                print(f"➡️ CPX Complete (ASYNC): Redirecting to vendor: {vendor_redirect_url}")
                 return RedirectResponse(url=vendor_redirect_url)
             else:
-                print(f"➡️ No vendor redirect URL found, redirecting to thank you page")
                 return RedirectResponse(url=f"{FRONTEND_URL}/thankyou")
         else:
-            # TERMINATED/SCREENOUT: Try CINT waterfall (on-demand entry link creation)
-            print(f"🔄 CPX terminated/screened out - trying CINT waterfall for SFWID={traffic_id}")
-            
-            # Run waterfall in thread pool to avoid blocking event loop
-            cint_result = await asyncio.to_thread(get_next_cint_waterfall_link, traffic_record, traffic_id)
+            # TERMINATED: Try CINT waterfall (fully async)
+            print(f"🔄 CPX terminated - trying CINT waterfall for SFWID={traffic_id} (ASYNC)")
+            cint_result = await get_next_cint_waterfall_link(traffic_record, traffic_id)
             
             if cint_result:
-                print(f"✅ CINT waterfall #{cint_result['attempt']}: Redirecting SFWID={traffic_id} to survey {cint_result['survey_id']}")
+                print(f"✅ CINT waterfall success redirect: {cint_result['survey_id']}")
                 return RedirectResponse(url=cint_result["entry_link"])
-            else:
-                print(f"⚠️ No CINT waterfall links available for SFWID={traffic_id}")
             
-            # Fallback to vendor terminate URL if no CINT links available
+            # Fallback to vendor terminate
             if vendor_redirect_url:
-                print(f"➡️ Terminate - Redirecting to vendor: {vendor_redirect_url}")
                 return RedirectResponse(url=vendor_redirect_url)
             else:
-                print(f"➡️ No vendor redirect URL found, redirecting to error page")
                 return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
     except Exception as e:
@@ -1197,26 +1021,14 @@ async def get_cpx_callback_logs(
         elif success_filter == "false":
             query["success"] = False
         
-        # Get stats with single aggregation (replaces 3 separate count_documents calls)
-        stats_pipeline = [
-            {"$facet": {
-                "filtered": [{"$match": query}, {"$count": "count"}] if query else [{"$count": "count"}],
-                "success": [{"$match": {"success": True}}, {"$count": "count"}],
-                "failed": [{"$match": {"success": False}}, {"$count": "count"}]
-            }}
-        ]
-        stats_result = list(cpx_callback_logs_collection.aggregate(stats_pipeline))
-        stats_data = stats_result[0] if stats_result else {}
-        
-        total = stats_data.get("filtered", [{}])[0].get("count", 0) if stats_data.get("filtered") else 0
-        success_count = stats_data.get("success", [{}])[0].get("count", 0) if stats_data.get("success") else 0
-        failed_count = stats_data.get("failed", [{}])[0].get("count", 0) if stats_data.get("failed") else 0
+        # Get total count
+        total = cpx_callback_logs_collection.count_documents(query)
         
         # Calculate pagination
         skip = (page - 1) * page_size
         total_pages = (total + page_size - 1) // page_size if total > 0 else 1
         
-        # Fetch logs (newest first) - only fetch page_size records
+        # Fetch logs (newest first)
         logs = list(
             cpx_callback_logs_collection.find(query)
             .sort("timestamp", -1)
@@ -1229,6 +1041,10 @@ async def get_cpx_callback_logs(
             log["_id"] = str(log["_id"])
             if log.get("timestamp"):
                 log["timestamp"] = log["timestamp"].isoformat()
+        
+        # Get stats
+        success_count = cpx_callback_logs_collection.count_documents({"success": True})
+        failed_count = cpx_callback_logs_collection.count_documents({"success": False})
         
         return {
             "logs": logs,

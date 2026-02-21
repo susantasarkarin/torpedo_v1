@@ -12,6 +12,7 @@ function Header() {
     if (path.includes("/sales/campaign/templates")) return "Email Templates";
     if (path.includes("/sales/campaign/workflow")) return "Campaign Workflow";
     if (path.includes("/sales/campaign/reports")) return "Campaign Reports";
+    if (path.includes("/sales/campaign/outreach-monitor")) return "Outreach Monitor";
     if (path.includes("/sales/campaign")) return "Campaign Management";
     if (path.includes("/sales/leads")) return "Lead Management";
     if (path.includes("/sales/contacts")) return "Contact Management";

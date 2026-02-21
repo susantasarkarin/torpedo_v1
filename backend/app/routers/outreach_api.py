@@ -5,11 +5,14 @@ Main REST API for the AI-powered cold outreach system.
 """
 
 import logging
-from typing import Optional
+from typing import Optional, Any
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel, EmailStr
 from openai import AsyncOpenAI
 import os
+from datetime import datetime
+from pymongo import MongoClient
+from bson import ObjectId
 
 from ..services.outreach import (
     OutreachOrchestrator,
@@ -22,6 +25,30 @@ from ..services.outreach import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/outreach", tags=["Outreach"])
+
+
+def get_outreach_db() -> Any:
+    mongo_uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+    mongo_db = os.getenv("OUTREACH_DB_NAME") or "email_automation"
+    client = MongoClient(mongo_uri)
+    return client[mongo_db]
+
+
+def apply_runtime_prompt_overrides() -> None:
+    """Load prompt overrides from DB and patch outreach prompt module in-memory."""
+    try:
+        from ..services.outreach import master_prompts
+
+        db = get_outreach_db()
+        prompt_collection = db["outreach_prompt_overrides"]
+        overrides = list(prompt_collection.find({}))
+        for doc in overrides:
+            key = doc.get("prompt_key")
+            content = doc.get("content")
+            if key and isinstance(content, str) and hasattr(master_prompts, key):
+                setattr(master_prompts, key, content)
+    except Exception as exc:
+        logger.warning("Failed applying runtime outreach prompt overrides: %s", exc)
 
 
 # =============================================================================
@@ -60,6 +87,10 @@ class GenerateFollowUpRequest(BaseModel):
     open_count: int = 0
 
 
+class PromptUpdateRequest(BaseModel):
+    content: str
+
+
 # =============================================================================
 # Dependencies
 # =============================================================================
@@ -93,6 +124,7 @@ async def process_lead(
     5. Return result
     """
     try:
+        apply_runtime_prompt_overrides()
         logger.info(f"Processing lead: {request.contact_email}")
         
         # Build company data
@@ -181,6 +213,7 @@ async def process_reply(
     Classifies the reply intent and generates appropriate action.
     """
     try:
+        apply_runtime_prompt_overrides()
         logger.info(f"Processing reply from {request.from_email}")
         
         # Initialize reply handler
@@ -221,6 +254,7 @@ async def generate_followup(
     Generate a follow-up email for a lead that hasn't replied.
     """
     try:
+        apply_runtime_prompt_overrides()
         logger.info(f"Generating follow-up for {request.contact_email}")
         
         from ..services.outreach import FollowUpRequest, GeneratedEmail
@@ -280,6 +314,195 @@ async def test_ai_connection(ai_client = Depends(get_ai_client)):
     except Exception as e:
         logger.error(f"AI connection test failed: {e}")
         raise HTTPException(status_code=500, detail=f"AI connection failed: {str(e)}")
+
+
+@router.get("/dashboard")
+async def outreach_dashboard(limit: int = 100):
+    """Return outreach KPIs and recent email activity for monitoring UI."""
+    try:
+        db = get_outreach_db()
+        emails = db["outreach_emails"]
+        senders = db["outreach_senders"]
+
+        pipeline = [
+            {
+                "$group": {
+                    "_id": "$status",
+                    "count": {"$sum": 1}
+                }
+            }
+        ]
+        status_rows = list(emails.aggregate(pipeline))
+        status_counts = {str(row.get("_id") or "unknown"): int(row.get("count", 0)) for row in status_rows}
+
+        sent_total = sum(
+            status_counts.get(k, 0)
+            for k in ["sent", "opened", "clicked", "replied", "bounced", "complained"]
+        )
+        opened_total = status_counts.get("opened", 0) + status_counts.get("clicked", 0) + status_counts.get("replied", 0)
+        clicked_total = status_counts.get("clicked", 0) + status_counts.get("replied", 0)
+        replied_total = status_counts.get("replied", 0)
+        bounced_total = status_counts.get("bounced", 0)
+
+        open_rate = round((opened_total / sent_total * 100), 2) if sent_total else 0.0
+        click_rate = round((clicked_total / sent_total * 100), 2) if sent_total else 0.0
+        reply_rate = round((replied_total / sent_total * 100), 2) if sent_total else 0.0
+        bounce_rate = round((bounced_total / sent_total * 100), 2) if sent_total else 0.0
+
+        recent_docs = list(
+            emails.find({})
+            .sort([("updated_at", -1), ("created_at", -1), ("_id", -1)])
+            .limit(max(1, min(limit, 500)))
+        )
+
+        sender_id_set = set()
+        for doc in recent_docs:
+            sender_id = doc.get("sender_id")
+            if sender_id is None:
+                continue
+            if isinstance(sender_id, str) and ObjectId.is_valid(sender_id):
+                sender_id_set.add(ObjectId(sender_id))
+            else:
+                sender_id_set.add(sender_id)
+        sender_map = {}
+        if sender_id_set:
+            for sender_doc in senders.find({"_id": {"$in": list(sender_id_set)}}):
+                sender_map[str(sender_doc.get("_id"))] = sender_doc.get("email")
+
+        def _iso(value):
+            if isinstance(value, datetime):
+                return value.isoformat()
+            return value
+
+        recent = []
+        for doc in recent_docs:
+            sender_id = doc.get("sender_id")
+            sender_id_str = str(sender_id) if sender_id is not None else None
+            recent.append(
+                {
+                    "id": str(doc.get("_id")),
+                    "to_email": doc.get("to_email") or doc.get("recipient_email") or doc.get("contact_email"),
+                    "subject": doc.get("subject", ""),
+                    "body": doc.get("body") or doc.get("body_text") or "",
+                    "status": doc.get("status", "unknown"),
+                    "sent_at": _iso(doc.get("sent_at")),
+                    "scheduled_for": _iso(doc.get("scheduled_for")),
+                    "updated_at": _iso(doc.get("updated_at")),
+                    "open_count": int(doc.get("open_count", 0) or 0),
+                    "click_count": int(doc.get("click_count", 0) or 0),
+                    "sender_id": sender_id_str,
+                    "sender_email": sender_map.get(sender_id_str),
+                    "provider": doc.get("provider"),
+                }
+            )
+
+        return {
+            "success": True,
+            "summary": {
+                "total": sum(status_counts.values()),
+                "sent": sent_total,
+                "opened": opened_total,
+                "clicked": clicked_total,
+                "replied": replied_total,
+                "bounced": bounced_total,
+                "complained": status_counts.get("complained", 0),
+                "queued": status_counts.get("queued", 0),
+                "failed": status_counts.get("failed", 0),
+                "open_rate": open_rate,
+                "click_rate": click_rate,
+                "reply_rate": reply_rate,
+                "bounce_rate": bounce_rate,
+            },
+            "status_counts": status_counts,
+            "recent": recent,
+        }
+    except Exception as e:
+        logger.error(f"Error building outreach dashboard: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/prompts")
+async def list_outreach_prompts():
+    """List editable outreach prompt templates."""
+    try:
+        apply_runtime_prompt_overrides()
+        from ..services.outreach import master_prompts
+
+        db = get_outreach_db()
+        prompt_collection = db["outreach_prompt_overrides"]
+
+        default_prompts = {
+            "MASTER_SYSTEM_PROMPT": master_prompts.MASTER_SYSTEM_PROMPT,
+            "LEAD_INTELLIGENCE_PROMPT": master_prompts.LEAD_INTELLIGENCE_PROMPT,
+            "LEAD_SCORING_PROMPT": master_prompts.LEAD_SCORING_PROMPT,
+            "EMAIL_GENERATION_PROMPT": master_prompts.EMAIL_GENERATION_PROMPT,
+            "FOLLOWUP_GENERATION_PROMPT": master_prompts.FOLLOWUP_GENERATION_PROMPT,
+            "REPLY_CLASSIFIER_PROMPT": master_prompts.REPLY_CLASSIFIER_PROMPT,
+            "AUTO_RESPONSE_PROMPT": master_prompts.AUTO_RESPONSE_PROMPT,
+            "SPAM_CHECK_PROMPT": master_prompts.SPAM_CHECK_PROMPT,
+        }
+
+        overrides = {
+            doc.get("prompt_key"): doc
+            for doc in prompt_collection.find({})
+        }
+
+        prompts = []
+        for key, default_value in default_prompts.items():
+            override_doc = overrides.get(key)
+            prompts.append(
+                {
+                    "prompt_key": key,
+                    "content": override_doc.get("content") if override_doc else default_value,
+                    "default_content": default_value,
+                    "is_overridden": bool(override_doc),
+                    "updated_at": override_doc.get("updated_at") if override_doc else None,
+                }
+            )
+
+        return {"success": True, "prompts": prompts}
+    except Exception as e:
+        logger.error(f"Error loading outreach prompts: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/prompts/{prompt_key}")
+async def update_outreach_prompt(prompt_key: str, request: PromptUpdateRequest):
+    """Update an outreach prompt override used by the monitoring UI."""
+    try:
+        if not request.content or not request.content.strip():
+            raise HTTPException(status_code=400, detail="Prompt content cannot be empty")
+
+        db = get_outreach_db()
+        prompt_collection = db["outreach_prompt_overrides"]
+
+        now = datetime.utcnow()
+        prompt_collection.update_one(
+            {"prompt_key": prompt_key},
+            {
+                "$set": {
+                    "prompt_key": prompt_key,
+                    "content": request.content,
+                    "updated_at": now,
+                }
+            },
+            upsert=True,
+        )
+
+        from ..services.outreach import master_prompts
+        if hasattr(master_prompts, prompt_key):
+            setattr(master_prompts, prompt_key, request.content)
+
+        return {
+            "success": True,
+            "prompt_key": prompt_key,
+            "updated_at": now.isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating outreach prompt {prompt_key}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =============================================================================

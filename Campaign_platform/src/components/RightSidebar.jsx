@@ -76,6 +76,12 @@ function RightSidebar() {
                     Reports
                   </Link>
                 </li>
+                <li className={`sidebar-item ${isActive("/admin/sales/campaign/outreach-monitor") ? "active" : ""}`}>
+                  <Link to="/admin/sales/campaign/outreach-monitor" className="sidebar-link submenu-link">
+                    <span className="sidebar-icon">📬</span>
+                    Outreach Monitor
+                  </Link>
+                </li>
               </ul>
             )}
           </li>

@@ -344,9 +344,7 @@ def setup_indexes(db_manager=None):
     create_index_safe(cpx_callback_logs, "timestamp")
     create_index_safe(cpx_callback_logs, "transaction_id")
     create_index_safe(cpx_callback_logs, "status")
-    create_index_safe(cpx_callback_logs, "success")  # For filtering by success/failure
     create_index_safe(cpx_callback_logs, [("timestamp", DESCENDING)])
-    create_index_safe(cpx_callback_logs, [("success", ASCENDING), ("timestamp", DESCENDING)])  # Compound for filtered queries
     
     # ============== CPX RESEARCH DATABASE ==============
     cpx_db = client["cpx_research"]
