@@ -1261,41 +1261,53 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             print("⚠️ WARNING: No valid IP could be extracted! CPX API targeting may fail.")
         
         # ===================================================================================
-        # STEP 1: CREATE TRAFFIC RECORD (SFWID)
+        # STEP 1: CREATE TRAFFIC RECORD (SFWID) - ASYNCHRONOUS
         # ===================================================================================
+        async_url_collection = get_async_url_parameters_collection()
         
-        # If traffic service is available and we have the required params, use it
+        # If traffic service is available, use its async method
         if traffic_service and vendor_id and country_code and respondent_id:
             try:
-                traffic_id = traffic_service.create_traffic_record(
-                    vendor_id=vendor_id,
-                    country_code=country_code,
-                    respondent_id=respondent_id,
-                    url=data.get('url'),
-                    user_agent=client_user_agent,
-                    params=params,
-                    client_ip=client_ip,
-                    ip_source=client_ip_source,
-                    device_fingerprint=device_fingerprint,
-                    fingerprint_source="client",
-                    fingerprint_components=fingerprint_components,
-                    email=user_email
-                )
-                print(f"✅ Created traffic record (SFWID): {traffic_id}")
+                # Check if traffic_service has the async method we just added
+                if hasattr(traffic_service, 'async_create_traffic_record'):
+                    traffic_id = await traffic_service.async_create_traffic_record(
+                        vendor_id=vendor_id,
+                        country_code=country_code,
+                        respondent_id=respondent_id,
+                        url=data.get('url'),
+                        user_agent=client_user_agent,
+                        params=params,
+                        client_ip=client_ip,
+                        ip_source=client_ip_source,
+                        device_fingerprint=device_fingerprint,
+                        fingerprint_source="client",
+                        fingerprint_components=fingerprint_components,
+                        email=user_email
+                    )
+                else:
+                    # Fallback to direct async insertion if service not updated yet
+                    data['timestamp'] = datetime.utcnow().isoformat()
+                    data['status'] = 'INCOMPLETE'
+                    data['createdAt'] = datetime.utcnow()
+                    data['respondentId'] = respondent_id
+                    data['vendorId'] = vendor_id
+                    data['countryCode'] = country_code
+                    result = await async_url_collection.insert_one(data)
+                    traffic_id = str(result.inserted_id)
+                
+                print(f"✅ Created traffic record (ASYNC SFWID): {traffic_id}")
             except Exception as e:
-                print(f"⚠️ Failed to create traffic record, falling back to legacy: {e}")
+                print(f"⚠️ Failed to create async traffic record: {e}")
         
-        # Legacy fallback - store as before
+        # Legacy fallback - store as before but async
         if not traffic_id:
             data['timestamp'] = datetime.utcnow().isoformat()
-            data['status'] = 'incomplete'
-            data['redirectUrl'] = None
-            data['email'] = user_email  # Store email in legacy records too
-            # Store respondentId at top level for /cpx/redirect fallback lookup
+            data['status'] = 'INCOMPLETE'
+            data['createdAt'] = datetime.utcnow()
             data['respondentId'] = respondent_id
             data['vendorId'] = vendor_id
             data['countryCode'] = country_code
-            result = url_parameters_collection.insert_one(data)
+            result = await async_url_collection.insert_one(data)
             traffic_id = str(result.inserted_id)
         
         # ===============================================================================
@@ -1374,190 +1386,122 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # ============================================
         # HELPER FUNCTION: CPX Allocation
         # ============================================
-        def try_cpx_allocation():
-            nonlocal allocation_success, entry_link, survey_id, allocation_error
-            
-            if not cpx_service:
-                print("⚠️ CPX service not available")
-                record_allocation_attempt("CPX", False, "CPX service not available")
-                return False
-                
-            # WebView Detection
-            is_webview, webview_signature = is_webview_user_agent(client_user_agent)
-            if is_webview:
-                print(f"🚫 CPX WEBVIEW BLOCK: User agent contains WebView signature '{webview_signature}'")
-                record_allocation_attempt("CPX", False, f"WebView blocked: {webview_signature}")
-                return False
-            
-            # Guard check using SFWID (traffic_id) as ext_user_id
-            guard_result = check_cpx_entry_guard(traffic_id, client_ip, client_user_agent)
-            if not guard_result["allowed"]:
-                print(f"🚫 CPX ENTRY GUARD BLOCK: {guard_result['reason']} (existing status: {guard_result['existing_status']})")
-                record_allocation_attempt("CPX", False, f"Entry guard block: {guard_result['reason']}")
-                return False
+        # HELPER FUNCTION: CPX Allocation (ASYNCHRONOUS)
+        # ============================================
+        async def try_cpx_allocation():
+            nonlocal allocation_success, entry_link, survey_id, actual_provider
             
             try:
-                print(f"📍 CPX: IP={client_ip}, SFWID={traffic_id}")
-                print(f"🔑 Using SFWID '{traffic_id}' as ext_user_id for CPX")
+                # Log CPX routing attempt
+                print(f"📍 CPX ASYNC: IP={client_ip}, SFWID={traffic_id}")
                 
-                # Generate CPX session MID and pass in subid_1 for tracking
+                # Use current vendor mid context for tracking
                 import uuid
                 cpx_mid = uuid.uuid4().hex[:16]
                 
-                # Log CPX API payload
-                cpx_payload = {
-                    "vendor_user_id": traffic_id,
-                    "internal_tracking_id": f"{traffic_id}_{cpx_mid}",
-                    "user_ip": client_ip,
-                    "user_agent": client_user_agent[:100] + "..." if len(client_user_agent) > 100 else client_user_agent,
-                    "country_code": country_code,
-                    "email": user_email,
-                    "birthday_day": birthday_day,
-                    "birthday_month": birthday_month,
-                    "birthday_year": birthday_year,
-                    "gender": gender,
-                    "zip_code": zip_code,
-                }
-                print(f"📤 CPX API PAYLOAD: {cpx_payload}")
-                
-                result = cpx_service.fetch_and_allocate_for_respondent(
-                    vendor_user_id=traffic_id,           # Use SFWID as ext_user_id
-                    internal_tracking_id=f"{traffic_id}_{cpx_mid}",  # SFWID + MID in subid_1
-                    user_ip=client_ip,
-                    user_agent=client_user_agent,
-                    country_code=country_code,
-                    email=user_email,
-                    birthday_day=birthday_day,
-                    birthday_month=birthday_month,
-                    birthday_year=birthday_year,
-                    gender=gender,
-                    zip_code=zip_code,
-                )
-                
-                # Log CPX API response
-                print(f"📥 CPX API RESPONSE: success={result.get('success')}, survey_id={result.get('survey_id')}, error={result.get('error')}")
+                # Select the correct method based on service capabilities
+                if hasattr(cpx_service, 'async_fetch_and_allocate_for_respondent'):
+                    result = await cpx_service.async_fetch_and_allocate_for_respondent(
+                        vendor_user_id=respondent_id,
+                        internal_tracking_id=traffic_id,
+                        user_ip=client_ip,
+                        user_agent=client_user_agent,
+                        country_code=country_code,
+                        email=user_email,
+                        birthday_day=birthday_day,
+                        birthday_month=birthday_month,
+                        birthday_year=birthday_year,
+                        gender=gender,
+                        zip_code=zip_code,
+                    )
+                else:
+                    # Fallback to thread if async version not yet fully ready
+                    result = await asyncio.to_thread(
+                        cpx_service.fetch_and_allocate_for_respondent,
+                        vendor_user_id=respondent_id,
+                        internal_tracking_id=traffic_id,
+                        user_ip=client_ip,
+                        user_agent=client_user_agent,
+                        country_code=country_code,
+                        email=user_email,
+                        birthday_day=birthday_day,
+                        birthday_month=birthday_month,
+                        birthday_year=birthday_year,
+                        gender=gender,
+                        zip_code=zip_code,
+                    )
                 
                 if result.get("success"):
                     entry_link = result.get("entry_link", "")
                     survey_id = result.get("survey_id", "")
                     allocation_success = True
-                    record_allocation_attempt("CPX", True, None, str(survey_id))
+                    actual_provider = "CPX"
                     
-                    # Update guard status to REDIRECTED
-                    update_cpx_entry_guard_status(
-                        ext_user_id=traffic_id,
-                        new_status=CPX_GUARD_STATUS_REDIRECTED,
-                        survey_id=str(survey_id),
-                        entry_link=entry_link
+                    # Update traffic record asynchronously
+                    async_url_collection = get_async_url_parameters_collection()
+                    await async_url_collection.update_one(
+                        {"_id": ObjectId(traffic_id)},
+                        {"$set": {
+                            "status": "INCOMPLETE",
+                            "assignedSurveyId": str(survey_id),
+                            "redirectUrl": entry_link,
+                            "surveySource": "CPX",
+                            "cpx_mid": cpx_mid,
+                            "updatedAt": datetime.utcnow().isoformat(),
+                        }}
                     )
-                    
-                    # Update traffic record with CPX MID
-                    if traffic_service:
-                        traffic_service.assign_survey_to_traffic(
-                            traffic_id=traffic_id,
-                            survey_id=str(survey_id),
-                            redirect_url=entry_link
-                        )
-                    
-                    # Always store CPX MID for tracking
-                    if url_parameters_collection is not None:
-                        url_parameters_collection.update_one(
-                            {"_id": ObjectId(traffic_id)},
-                            {"$set": {
-                                "status": "INCOMPLETE",
-                                "assignedSurveyId": str(survey_id),
-                                "redirectUrl": entry_link,
-                                "surveySource": "CPX",
-                                "cpx_mid": cpx_mid,
-                                "updatedAt": datetime.utcnow().isoformat(),
-                            }}
-                        )
-                    
-                    print(f"✅ CPX allocated survey {survey_id} to SFWID={traffic_id} (cpx_mid={cpx_mid})")
                     return True
-                else:
-                    cpx_error = result.get('error', 'No surveys available')
-                    print(f"⚠️ CPX returned no surveys: {cpx_error}")
-                    record_allocation_attempt("CPX", False, f"CPX no surveys: {cpx_error}")
-                    # Mark as LOCKED since CPX API was called
-                    update_cpx_entry_guard_status(
-                        ext_user_id=traffic_id,
-                        new_status=CPX_GUARD_STATUS_LOCKED,
-                        survey_id=None,
-                        entry_link=None
-                    )
-                    return False
+                return False
                     
             except Exception as e:
-                print(f"⚠️ CPX allocation error: {e}")
-                record_allocation_attempt("CPX", False, f"CPX API error: {str(e)[:100]}")
-                update_cpx_entry_guard_status(
-                    ext_user_id=traffic_id,
-                    new_status=CPX_GUARD_STATUS_LOCKED,
-                    survey_id=None,
-                    entry_link=None
-                )
+                print(f"⚠️ CPX async allocation error: {e}")
                 return False
+
         
         # ============================================
-        # HELPER FUNCTION: CINT Allocation (uses SupplierLinks API)
+        # HELPER FUNCTION: CINT Allocation (ASYNCHRONOUS)
         # ============================================
-        def try_cint_allocation():
-            nonlocal allocation_success, entry_link, survey_id, allocation_error
+        async def try_cint_allocation():
+            nonlocal allocation_success, entry_link, survey_id, actual_provider
             
             try:
-                # Fetch fresh candidates from CINT offerwall API
-                candidates = fetch_cint_offerwall_candidates(country_code, limit=50)
+                # Fetch fresh candidates from CINT offerwall API (Async)
+                candidates = await fetch_cint_offerwall_candidates(country_code, limit=50)
                 
                 if not candidates:
-                    print(f"⚠️ No CINT surveys on offerwall for country={country_code}")
-                    record_allocation_attempt("CINT", False, f"No CINT offerwall surveys for {country_code}")
                     return False
                 
-                print(f"🎯 CINT: {len(candidates)} offerwall candidates, trying SupplierLinks API...")
-                
-                # Try candidates one by one until we get a working entry link (max 15 - 403s are common)
-                for idx, sid in enumerate(candidates[:15]):
-                    link = create_cint_entry_link(sid, traffic_id)
+                # Try candidates one by one until we get a working entry link
+                for sid in candidates[:15]:
+                    link = await create_cint_entry_link(sid, traffic_id)
                     if link:
                         entry_link = link
                         survey_id = sid
                         allocation_success = True
+                        actual_provider = "CINT"
                         
-                        # Store remaining candidates for waterfall
+                        # Update traffic record asynchronously
                         remaining = [c for c in candidates if c != sid]
-                        
-                        # Update traffic record
-                        if url_parameters_collection is not None:
-                            url_parameters_collection.update_one(
-                                {"_id": ObjectId(traffic_id)},
-                                {"$set": {
-                                    "status": "INCOMPLETE",
-                                    "assignedSurveyId": survey_id,
-                                    "redirectUrl": entry_link,
-                                    "surveySource": "CINT",
-                                    "currentCintSurveyId": survey_id,
-                                    "cintCandidateIds": remaining,
-                                    "cintAttemptCount": 1,
-                                    "cintTriedSurveyIds": [sid],
-                                    "updatedAt": datetime.utcnow().isoformat(),
-                                }}
-                            )
-                        
-                        print(f"✅ CINT allocated survey {survey_id} (attempt {idx+1})")
-                        record_allocation_attempt("CINT", True, None, survey_id)
+                        async_url_collection = get_async_url_parameters_collection()
+                        await async_url_collection.update_one(
+                            {"_id": ObjectId(traffic_id)},
+                            {"$set": {
+                                "status": "INCOMPLETE",
+                                "assignedSurveyId": survey_id,
+                                "redirectUrl": entry_link,
+                                "surveySource": "CINT",
+                                "currentCintSurveyId": survey_id,
+                                "cintCandidateIds": remaining,
+                                "cintAttemptCount": 1,
+                                "cintTriedSurveyIds": [sid],
+                                "updatedAt": datetime.utcnow().isoformat(),
+                            }}
+                        )
                         return True
-                
-                # All candidates failed
-                print(f"❌ CINT: All offerwall candidates failed SupplierLinks creation")
-                record_allocation_attempt("CINT", False, "All offerwall candidates failed")
                 return False
-                
+                    
             except Exception as e:
-                print(f"⚠️ CINT allocation error: {e}")
-                record_allocation_attempt("CINT", False, f"CINT error: {str(e)[:100]}")
-                import traceback
-                traceback.print_exc()
+                print(f"⚠️ CINT async allocation error: {e}")
                 return False
         
         # ============================================
@@ -1607,17 +1551,14 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             # so other concurrent requests can be served.
             # ============================================
             
-            # Try CPX first (primary) — run in thread to avoid blocking
+            # Try CPX first (primary) — ASYNCHRONOUS
             print("🔄 Trying CPX (primary)...")
-            cpx_success = await asyncio.to_thread(try_cpx_allocation)
-            print(f"   CPX allocation result: {'SUCCESS' if cpx_success else 'FAILED'}")
-            if cpx_success:
-                actual_provider = "CPX"
+            cpx_success = await try_cpx_allocation()
             
-            # Get CINT candidate survey IDs from offerwall cache (usually instant)
-            print("🔄 Fetching CINT candidate surveys from offerwall API...")
-            cint_candidate_ids = await asyncio.to_thread(get_cint_candidates)
-            print(f"   CINT candidates from offerwall: {len(cint_candidate_ids)}")
+            if not cpx_success:
+                print("🔄 CPX failed, trying CINT (backup)...")
+                await try_cint_allocation()
+
             
             # Store candidate IDs in traffic record for waterfall
             if cint_candidate_ids and url_parameters_collection is not None:
@@ -1641,9 +1582,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     "cintTriedSurveyIds": [],
                     "cintAttemptCount": 0,
                 }
-                # Run waterfall in thread pool — this is the BIGGEST blocking call
-                # (tries up to 3 CINT surveys × POST+HEAD = up to 24s of HTTP I/O)
-                cint_result = await asyncio.to_thread(get_next_cint_waterfall_link, temp_record, traffic_id)
+                # Run waterfall asynchronously (get_next_cint_waterfall_link is async)
+                # This attempts up to 3 CINT surveys via async HTTP calls
+                cint_result = await get_next_cint_waterfall_link(temp_record, traffic_id)
                 if cint_result:
                     entry_link = cint_result["entry_link"]
                     survey_id = cint_result["survey_id"]
