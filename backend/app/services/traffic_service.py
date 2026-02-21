@@ -15,16 +15,75 @@ class TrafficService:
         self,
         traffic_collection: Any,
         surveys_collection: Any,
+        async_traffic_collection: Optional[Any] = None,
+        async_surveys_collection: Optional[Any] = None
     ):
         """
         Initialize Traffic Service
         
         Args:
-            traffic_collection: MongoDB collection for traffic records
-            surveys_collection: MongoDB collection for CPX surveys
+            traffic_collection: MongoDB collection for traffic records (Sync)
+            surveys_collection: MongoDB collection for CPX surveys (Sync)
+            async_traffic_collection: Motor collection for traffic records (Async)
+            async_surveys_collection: Motor collection for CPX surveys (Async)
         """
         self.traffic_collection = traffic_collection
         self.surveys_collection = surveys_collection
+        self.async_traffic_collection = async_traffic_collection
+        self.async_surveys_collection = async_surveys_collection
+    
+    async def async_create_traffic_record(
+        self,
+        vendor_id: str,
+        country_code: str,
+        respondent_id: str,
+        url: str = None,
+        user_agent: str = None,
+        params: Dict[str, Any] = None,
+        client_ip: str = None,
+        ip_source: str = None,
+        device_fingerprint: str = None,
+        fingerprint_source: str = None,
+        fingerprint_components: Dict[str, Any] = None,
+        email: str = None
+    ) -> str:
+        """Create a new traffic record (Asynchronous)"""
+        try:
+            traffic_record = {
+                "vendorId": vendor_id,
+                "countryCode": country_code,
+                "respondentId": respondent_id,
+                "status": "INCOMPLETE",
+                "createdAt": datetime.utcnow(),
+                "updatedAt": datetime.utcnow(),
+                "url": url,
+                "userAgent": user_agent,
+                "params": params or {},
+                "clientIp": client_ip,
+                "ipSource": ip_source,
+                "deviceFingerprint": device_fingerprint,
+                "fingerprintSource": fingerprint_source,
+                "fingerprintComponents": fingerprint_components or {},
+                "email": email,
+                "assignedSurveyId": None,
+                "redirectUrl": None,
+                "outUrl": None,
+            }
+            
+            # Use async collection if available, fallback to sync in thread
+            if self.async_traffic_collection is not None:
+                result = await self.async_traffic_collection.insert_one(traffic_record)
+            else:
+                import asyncio
+                result = await asyncio.to_thread(self.traffic_collection.insert_one, traffic_record)
+                
+            object_id = str(result.inserted_id)
+            print(f"✅ Created traffic record (ASYNC): {object_id}")
+            return object_id
+            
+        except Exception as e:
+            print(f"❌ Error creating traffic record (ASYNC): {e}")
+            raise
     
     def create_traffic_record(
         self,
@@ -120,6 +179,41 @@ class TrafficService:
             print(f"❌ Error fetching traffic batch: {e}")
             return []
     
+    async def async_assign_survey_to_traffic(
+        self,
+        traffic_id: str,
+        survey_id: str,
+        redirect_url: str
+    ) -> bool:
+        """Assign a survey to a traffic record (Asynchronous)"""
+        try:
+            update_fields = {
+                "status": "INCOMPLETE",
+                "assignedSurveyId": survey_id,
+                "redirectUrl": redirect_url,
+                "assignedAt": datetime.utcnow(),
+                "updatedAt": datetime.utcnow(),
+            }
+            
+            if self.async_traffic_collection is not None:
+                result = await self.async_traffic_collection.update_one(
+                    {"_id": ObjectId(traffic_id)},
+                    {"$set": update_fields}
+                )
+            else:
+                import asyncio
+                result = await asyncio.to_thread(
+                    self.traffic_collection.update_one,
+                    {"_id": ObjectId(traffic_id)},
+                    {"$set": update_fields}
+                )
+            
+            return result.modified_count > 0
+                
+        except Exception as e:
+            print(f"❌ Error assigning survey (ASYNC): {e}")
+            return False
+
     def assign_survey_to_traffic(
         self,
         traffic_id: str,

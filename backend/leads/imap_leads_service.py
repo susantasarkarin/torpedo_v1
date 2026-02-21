@@ -314,9 +314,20 @@ def get_email_body(msg) -> str:
 def extract_name_from_email(email_str: str) -> Tuple[str, str, str]:
     """Extract name and email from email string like 'John Doe <john@example.com>'"""
     name, email_addr = parseaddr(email_str)
+    
+    # Check if the extracted name is actually just the email address (common in some clients)
+    if name == email_addr:
+        name = ""
+        
+    is_fallback = False
     if not name and email_addr:
-        # Try to get name from email prefix
-        name = email_addr.split("@")[0].replace(".", " ").replace("_", " ").title()
+        # Try to get name from email prefix as a LAST resort
+        prefix = email_addr.split("@")[0]
+        # Skip generic prefixes
+        generic_prefixes = ["info", "sales", "support", "admin", "contact", "hello", "mail", "off", "office"]
+        if prefix.lower() not in generic_prefixes:
+            name = prefix.replace(".", " ").replace("_", " ").title()
+            is_fallback = True
     
     # Split into first and last name
     parts = name.split() if name else []
@@ -334,22 +345,31 @@ def extract_domain_from_email(email_addr: str) -> str:
 
 
 def parse_email_signature(body: str) -> Dict[str, str]:
-    """Try to extract information from email signature"""
+    """Try to extract information from email signature using regex"""
     info = {
+        "name": "",
         "title": "",
         "company": "",
         "phone": "",
         "linkedin": ""
     }
     
+    if not body:
+        return info
+        
     lines = body.split("\n")
     
-    # Look for signature patterns in last 15 lines
-    signature_lines = lines[-15:] if len(lines) > 15 else lines
+    # Look for signature patterns in last 20 lines (extended from 15)
+    signature_lines = lines[-20:] if len(lines) > 20 else lines
     
-    for line in signature_lines:
+    # Common signature start patterns
+    sign_off_patterns = [r'^Best regards,?', r'^Regards,?', r'^Thanks,?', r'^Sincerely,?', r'^Kind regards,?', r'^Cheers,?']
+    
+    for i, line in enumerate(signature_lines):
         line = line.strip()
-        
+        if not line:
+            continue
+            
         # LinkedIn URL
         linkedin_match = re.search(r'linkedin\.com/in/([a-zA-Z0-9\-]+)', line, re.I)
         if linkedin_match and not info["linkedin"]:
@@ -363,12 +383,26 @@ def parse_email_signature(body: str) -> Dict[str, str]:
         # Title patterns (common job titles)
         title_patterns = [
             r'(CEO|CTO|CFO|COO|CMO|CRO|VP|Director|Manager|Head of|Founder|Partner|President)',
-            r'(Sales|Marketing|Engineering|Operations|Product|Business Development)'
+            r'(Sales|Marketing|Engineering|Operations|Product|Business Development|Account Executive)'
         ]
         for pattern in title_patterns:
             if re.search(pattern, line, re.I) and not info["title"]:
                 info["title"] = line[:100]  # Take first 100 chars
                 break
+
+        # Attempt to find name - it's usually 1-2 lines after a sign-off or right before a title
+        for pattern in sign_off_patterns:
+            if re.match(pattern, line, re.I):
+                # The next non-empty line is likely the name
+                for j in range(i + 1, min(i + 4, len(signature_lines))):
+                    next_line = signature_lines[j].strip()
+                    if next_line and not any(re.match(p, next_line, re.I) for p in sign_off_patterns):
+                        # Basic check: name should be 2-3 words, no numbers, not a title
+                        if 1 <= len(next_line.split()) <= 4 and not any(char.isdigit() for char in next_line):
+                             if not any(re.search(tp, next_line, re.I) for tp in title_patterns):
+                                 if not info["name"]:
+                                     info["name"] = next_line
+                                     break
     
     return info
 
@@ -464,6 +498,13 @@ def fetch_emails_imap(
                 
                 # Extract signature info
                 sig_info = parse_email_signature(body)
+                
+                # Use signature name if header name is missing or generic
+                if not sender_name and sig_info.get("name"):
+                    sender_name = sig_info["name"]
+                    parts = sender_name.split()
+                    first_name = parts[0] if parts else ""
+                    last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
                 
                 email_data = {
                     "message_id": msg.get("Message-ID", str(msg_id)),
@@ -620,6 +661,13 @@ def fetch_emails_multi_folder(
                         
                         # Extract signature info
                         sig_info = parse_email_signature(body)
+                        
+                        # Use signature name if header name is missing or generic
+                        if not from_name and sig_info.get("name"):
+                            from_name = sig_info["name"]
+                            parts = from_name.split()
+                            first_name = parts[0] if parts else ""
+                            last_name = " ".join(parts[1:]) if len(parts) > 1 else ""
                         
                         # Get attachments
                         attachments = []

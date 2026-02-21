@@ -16,17 +16,9 @@ class CPXService:
     # IMPORTANT: We STRIP subid_1/subid_2 from href - CPX tracks via ext_user_id in k= param
     CLICK_URL = "https://click.cpx-research.com/"
     
-    def __init__(
-        self,
-        app_id: str,
-        ext_user_id: str,
-        secure_hash_key: str,
-        api_timeout: int = 30,
-        fetch_limit: int = 1000,
-        surveys_collection: Optional[Any] = None,
-        filters_collection: Optional[Any] = None,
         settings_collection: Optional[Any] = None,
         survey_allocation_service: Optional[Any] = None,
+        async_cpx_surveys_collection: Optional[Any] = None,
     ):
         """
         Initialize CPX Service
@@ -37,10 +29,11 @@ class CPXService:
             secure_hash_key: CPX Secure Hash Key
             api_timeout: API request timeout in seconds
             fetch_limit: Maximum number of surveys to fetch
-            surveys_collection: MongoDB collection for surveys (optional for testing)
-            filters_collection: MongoDB collection for filter settings (deprecated, use settings_collection)
-            settings_collection: MongoDB collection for app settings (torpedo_settings.app_settings)
-            survey_allocation_service: SurveyAllocationService instance for metrics (optional, needed for clicks/completes)
+            surveys_collection: MongoDB collection for surveys (Sync)
+            filters_collection: MongoDB collection for filter settings (deprecated)
+            settings_collection: MongoDB collection for app settings
+            survey_allocation_service: SurveyAllocationService instance
+            async_cpx_surveys_collection: Motor collection for surveys (Async)
         """
         self.app_id = app_id
         self.ext_user_id = ext_user_id
@@ -49,6 +42,7 @@ class CPXService:
         self.fetch_limit = fetch_limit
         self.settings_collection = settings_collection
         self.survey_allocation_service = survey_allocation_service
+        self.async_cpx_surveys_collection = async_cpx_surveys_collection
         
         # If collections are provided, use them; otherwise initialize from env
         if surveys_collection is not None:
@@ -490,6 +484,99 @@ class CPXService:
             return ""
         return code
     
+    async def async_fetch_and_allocate_for_respondent(
+        self,
+        vendor_user_id: str,
+        internal_tracking_id: str,
+        user_ip: str,
+        user_agent: str,
+        country_code: str = "",
+        email: Optional[str] = None,
+        birthday_day: Optional[int] = None,
+        birthday_month: Optional[int] = None,
+        birthday_year: Optional[int] = None,
+        gender: Optional[str] = None,
+        zip_code: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fetch and allocate CPX survey asynchronously (Non-blocking for 10k+ users)"""
+        import httpx
+        import asyncio
+        
+        # Validations (same as sync version)
+        if not all([vendor_user_id, internal_tracking_id, user_ip, user_agent]):
+            return {"success": False, "error": "Missing required parameters for CPX allocation"}
+        
+        try:
+            secure_hash = self._generate_secure_hash(vendor_user_id, self.secure_hash_key)
+            country_iso2 = self.normalize_country_code(country_code) if country_code else ""
+            
+            params = {
+                "app_id": self.app_id,
+                "ext_user_id": vendor_user_id,
+                "subid_1": internal_tracking_id,
+                "output_method": "api",
+                "ip_user": user_ip,
+                "user_agent": user_agent,
+                "limit": self.fetch_limit,
+                "secure_hash": secure_hash,
+            }
+            if country_iso2: params["user_country_code"] = country_iso2
+            if email: params["email"] = email
+            if birthday_day is not None: params["birthday_day"] = birthday_day
+            if birthday_month is not None: params["birthday_month"] = birthday_month
+            if birthday_year is not None: params["birthday_year"] = birthday_year
+            if gender: params["gender"] = gender
+            if zip_code: params["zip_code"] = zip_code
+
+            # Async HTTP call
+            async with httpx.AsyncClient(timeout=self.api_timeout) as client:
+                response = await client.get(self.BASE_URL, params=params)
+                response.raise_for_status()
+                data = response.json()
+
+            surveys = data.get("surveys", []) or (data.get("info", []) if data.get("count_available_surveys", 0) > 0 else [])
+            
+            if not surveys:
+                return {"success": False, "error": "No surveys available from CPX", "survey_id": ""}
+
+            # Selection (random for load balancing under high concurrency)
+            # Apply basic filters (loi < 40, payout > 0)
+            candidate_surveys = [s for s in surveys if int(s.get("loi", 0)) < 40 and float(s.get("payout", 0)) > 0]
+            if not candidate_surveys: candidate_surveys = surveys # Fallback
+            
+            selected = random.choice(candidate_surveys)
+            survey_id = str(selected.get("id") or selected.get("survey_id"))
+            entry_link = selected.get("href_new") or selected.get("href") or selected.get("live_link")
+
+            # Async background DB update
+            if self.async_cpx_surveys_collection:
+                asyncio.create_task(self.async_cpx_surveys_collection.update_one(
+                    {"_id": survey_id},
+                    {"$inc": {"click_count": 1}, "$set": {"last_clicked_at": datetime.utcnow()}},
+                    upsert=False
+                ))
+
+            # Clean metadata
+            clean_survey = {
+                "survey_id": survey_id,
+                "loi": selected.get("loi", 0),
+                "payout": selected.get("payout", 0),
+                "provider": "CPX",
+            }
+
+            return {
+                "success": True,
+                "entry_link": entry_link,
+                "survey_id": survey_id,
+                "vendor_user_id": vendor_user_id,
+                "internal_tracking_id": internal_tracking_id,
+                "survey": clean_survey,
+            }
+
+        except Exception as e:
+            print(f"❌ CPX async allocation error: {e}")
+            return {"success": False, "error": str(e)}
+
     def fetch_and_allocate_for_respondent(
         self,
         vendor_user_id: str,          # STABLE vendor-provided rid (ext_user_id for CPX)

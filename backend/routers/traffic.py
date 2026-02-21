@@ -16,7 +16,7 @@ import time
 import hashlib
 import asyncio
 import httpx
-from ..database import (
+from database import (
     get_async_url_parameters_collection,
     get_async_vendors_collection,
     get_async_cpx_callback_logs_collection
