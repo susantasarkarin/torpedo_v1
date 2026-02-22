@@ -887,6 +887,7 @@ async def cpx_callback(
                 "status_code": status_code,
                 "new_status": new_status,
                 "decoded_sfwid": decoded_sfwid,
+                "rid_received": rid,
                 "trans_id": trans_id,
                 "processing_status": "pending",
                 "success": False
@@ -945,8 +946,20 @@ async def cpx_callback(
                 if redirect_urls and len(redirect_urls) > 0:
                     base_url = redirect_urls[0].strip()
                     if base_url:
-                        separator = "&" if "?" in base_url else "?"
-                        vendor_redirect_url = f"{base_url}{separator}{vendor_variable}={original_respondent_id}"
+                        # Smarter URL construction to avoid double RID=
+                        if base_url.endswith(f"&{vendor_variable}=") or base_url.endswith(f"?{vendor_variable}="):
+                            vendor_redirect_url = f"{base_url}{original_respondent_id}"
+                        elif f"&{vendor_variable}=" in base_url or f"?{vendor_variable}=" in base_url:
+                            # If it's already there but has no value, we might have RID=&RID=
+                            # Best to just append if not clearly at the end
+                            if base_url.endswith(f"{vendor_variable}="):
+                                vendor_redirect_url = f"{base_url}{original_respondent_id}"
+                            else:
+                                separator = "&" if "?" in base_url else "?"
+                                vendor_redirect_url = f"{base_url}{separator}{vendor_variable}={original_respondent_id}"
+                        else:
+                            separator = "&" if "?" in base_url else "?"
+                            vendor_redirect_url = f"{base_url}{separator}{vendor_variable}={original_respondent_id}"
 
         # Update traffic record asynchronously
         update_data = {
@@ -973,6 +986,12 @@ async def cpx_callback(
                         "callback_key": callback_key,
                         "processing_status": "completed",
                         "traffic_id": traffic_id,
+                        "traffic_found": traffic_record is not None,
+                        "vendor_id": vendor_id,
+                        "vendor_found": vendor is not None,
+                        "vendor_name": vendor.get("name") if vendor else None,
+                        "respondent_id": original_respondent_id,
+                        "redirect_type": redirect_type,
                         "vendor_redirect_url": vendor_redirect_url,
                         "success": vendor_redirect_url is not None,
                         "completed_at": datetime.utcnow()
