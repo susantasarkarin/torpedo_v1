@@ -28,6 +28,7 @@ class CPXService:
         settings_collection: Optional[Any] = None,
         survey_allocation_service: Optional[Any] = None,
         async_cpx_surveys_collection: Optional[Any] = None,
+        async_client: Optional[Any] = None,
     ):
         """
         Initialize CPX Service
@@ -43,6 +44,7 @@ class CPXService:
             settings_collection: MongoDB collection for app settings
             survey_allocation_service: SurveyAllocationService instance
             async_cpx_surveys_collection: Motor collection for surveys (Async)
+            async_client: Shared httpx.AsyncClient for high-concurrency requests
         """
         self.app_id = app_id
         self.ext_user_id = ext_user_id
@@ -52,6 +54,7 @@ class CPXService:
         self.settings_collection = settings_collection
         self.survey_allocation_service = survey_allocation_service
         self.async_cpx_surveys_collection = async_cpx_surveys_collection
+        self._async_client = async_client
         
         # If collections are provided, use them; otherwise initialize from env
         if surveys_collection is not None:
@@ -537,11 +540,16 @@ class CPXService:
             if gender: params["gender"] = gender
             if zip_code: params["zip_code"] = zip_code
 
-            # Async HTTP call
-            async with httpx.AsyncClient(timeout=self.api_timeout) as client:
-                response = await client.get(self.BASE_URL, params=params)
-                response.raise_for_status()
-                data = response.json()
+            # Use shared AsyncClient if available for zero-overhead performance
+            if self._async_client and not self._async_client.is_closed:
+                response = await self._async_client.get(self.BASE_URL, params=params)
+            else:
+                # Fallback to temporary client if shared one not provided or closed
+                async with httpx.AsyncClient(timeout=self.api_timeout) as client:
+                    response = await client.get(self.BASE_URL, params=params)
+            
+            response.raise_for_status()
+            data = response.json()
 
             surveys = data.get("surveys", []) or (data.get("info", []) if data.get("count_available_surveys", 0) > 0 else [])
             

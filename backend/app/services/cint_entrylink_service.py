@@ -166,8 +166,11 @@ class CintEntryLinkService:
         if not respondent_id:
             raise ValueError("respondent_id is required")
         
-        # Generate secure hash
-        secure_hash = self.generate_secure_hash(str(survey_id), respondent_id)
+        # Task: PID should be the SHA256 hash of respondent id
+        hashed_id = hashlib.sha256(respondent_id.encode()).hexdigest()
+        
+        # Generate secure hash (must use the same ID as in payload)
+        secure_hash = self.generate_secure_hash(str(survey_id), hashed_id)
         
         # Build request
         callback_url = return_url or self.status_callback_url
@@ -175,7 +178,7 @@ class CintEntryLinkService:
         payload = {
             "survey_id": str(survey_id),
             "supplier_code": self.supplier_code,
-            "respondent_id": respondent_id,
+            "respondent_id": hashed_id,
             "secure_hash": secure_hash,
             "return_url": callback_url,
         }

@@ -336,6 +336,7 @@ def setup_indexes(db_manager=None):
     create_index_safe(url_params, "status")
     create_index_safe(url_params, "createdAt")  # Fixed: snake_case → camelCase
     create_index_safe(url_params, "callback_key", unique=True, sparse=True)  # P0.15: CPX callback idempotency
+    create_index_safe(url_params, "cint_hashed_pid")  # Task: Optimize CINT callback lookups
     # Compound index for list query optimization (sort by createdAt DESC, filter by status)
     create_index_safe(url_params, [("createdAt", DESCENDING), ("status", ASCENDING)])
     

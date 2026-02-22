@@ -1377,6 +1377,10 @@ class CintService:
         import uuid
         
         panelist_id = pid or respondent_id
+        # Task: PID should be the SHA256 hash of respondent id
+        import hashlib
+        panelist_id = hashlib.sha256(panelist_id.encode()).hexdigest()
+        
         session_mid = mid or uuid.uuid4().hex[:16]  # 16 hex chars, no dashes
 
         parsed = urlparse(live_link)
@@ -1389,7 +1393,8 @@ class CintService:
         # Enforce expected case for Lucid/Cint
         query_params["PID"] = panelist_id
         query_params["MID"] = session_mid
-        query_params["rid"] = respondent_id
+        # Task: rid should also be hashed if it's the respondent id
+        query_params["rid"] = panelist_id # Use the already hashed panelist_id
         query_params["cc"] = country_code
 
         # Add any additional parameters
