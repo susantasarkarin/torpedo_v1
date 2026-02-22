@@ -1371,6 +1371,11 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 # Log CPX routing attempt
                 print(f"📍 CPX ASYNC: IP={client_ip}, SFWID={traffic_id}")
                 
+                # Check if CPX service is available
+                if cpx_service is None:
+                    print("⚠️ CPX ASYNC: CPX service not available")
+                    return False
+                
                 # Use internal mid context for tracking
                 import uuid
                 cpx_mid = uuid.uuid4().hex[:16]
@@ -1492,13 +1497,13 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # ============================================
         # HELPER: Fetch CINT Candidates from Offerwall API
         # ============================================
-        def get_cint_candidates():
+        async def get_cint_candidates():
             """
             Fetch live CINT survey candidates from the offerwall API.
             Returns list of survey_id strings for this country.
             """
             print(f"   📦 CINT CANDIDATE SELECTION: Fetching from offerwall API for country_code={country_code}")
-            candidates = fetch_cint_offerwall_candidates(country_code, limit=50)
+            candidates = await fetch_cint_offerwall_candidates(country_code, limit=50)
             print(f"📦 Got {len(candidates)} CINT candidate survey IDs from offerwall")
             return candidates
         
@@ -1514,7 +1519,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         
         # Pre-fetch CINT candidates for future waterfall (low overhead, ensures we have them ready)
         if vendor_id and country_code:
-            cint_candidate_ids = get_cint_candidates()
+            cint_candidate_ids = await get_cint_candidates()
         
         # Skip allocation only for critical errors (invalid IP)
         if allocation_error:
@@ -1526,7 +1531,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             
             # Store candidate IDs in traffic record for waterfall on CPX terminate
             if cint_candidate_ids:
-                get_async_url_parameters_collection().update_one(
+                await get_async_url_parameters_collection().update_one(
                     {"_id": ObjectId(traffic_id)},
                     {"$set": {
                         "cintCandidateIds": cint_candidate_ids,
