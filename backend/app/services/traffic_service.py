@@ -498,22 +498,25 @@ class TrafficService:
         - Complete
         - Incomplete
         - Quota Full
+        - Terminate
         - Other (merged from other statuses)
         """
         if not status:
             return "Incomplete"
         
-        status_lower = status.lower()
+        status_lower = str(status).lower()
         
         # Map to display categories
         if "complete" in status_lower and "incomplete" not in status_lower:
             return "Complete"
-        elif "quota" in status_lower or "quotafull" in status_lower:
+        elif "quota" in status_lower or "quotafull" in status_lower or "overquota" in status_lower:
             return "Quota Full"
+        elif "terminate" in status_lower or "screenout" in status_lower or "term" in status_lower or status_lower == "out":
+            return "Terminate"
         elif "incomplete" in status_lower:
             return "Incomplete"
         else:
-            # Merge all other statuses (terminated, fallback, etc.) as incomplete
+            # For everything else, default to Incomplete
             return "Incomplete"
     
     def get_traffic_stats(self, survey_id: Optional[str] = None) -> Dict[str, Any]:
@@ -562,7 +565,7 @@ class TrafficService:
                 total += count
             
             # Ensure all categories are present (even if 0)
-            display_statuses = ["Complete", "Incomplete", "Quota Full"]
+            display_statuses = ["Complete", "Incomplete", "Quota Full", "Terminate"]
             for status in display_statuses:
                 if status not in by_status:
                     by_status[status] = 0
@@ -672,12 +675,17 @@ class TrafficService:
                 return ["complete", "COMPLETE"]
             elif "quota" in status_lower:
                 # Quota Full - match quota-related statuses
-                return ["quotafull", "QUOTAFULL", "QUOTA_FULL", "quota_full"]
+                return ["quotafull", "QUOTAFULL", "QUOTA_FULL", "quota_full", "overquota", "OVERQUOTA"]
             elif "incomplete" in status_lower:
                 # Incomplete - match incomplete and merged statuses
-                return ["incomplete", "INCOMPLETE", "terminated", "TERMINATED", 
-                       "CPX_TERMINATED_CINT_FALLBACK", "CINT_WATERFALL_1", 
+                return ["incomplete", "INCOMPLETE", 
+                       "CPX_TERMINATED_CINT_FALLBACK", "CINT_WATERFALL_1", "CINT_WATERFALL_2",
+                       "CINT_WATERFALL_3", "CINT_WATERFALL_4", "CINT_WATERFALL_5",
                        "CPX_FALLBACK", "fallback", "FALLBACK"]
+            elif "terminate" in status_lower:
+                # Terminate - match all termination statuses
+                return ["terminated", "TERMINATED", "screenout", "SCREENOUT", "out", "OUT", 
+                       "quality_terminate", "QUALITY_TERM", "TERMINATE", "terminate"]
             
             return []
         

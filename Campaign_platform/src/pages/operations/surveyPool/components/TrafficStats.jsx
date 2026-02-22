@@ -61,12 +61,12 @@ export default function TrafficStats({ token, refreshTrigger }) {
     return null;
   }
 
-  const statusOrder = ['INCOMPLETE', 'COMPLETE', 'TERMINATED', 'QUOTAFULL'];
+  const statusOrder = ['Complete', 'Incomplete', 'Quota Full', 'Terminate'];
   const statusColors = {
-    INCOMPLETE: '#ffc107',
-    COMPLETE: '#28a745',
-    TERMINATED: '#dc3545',
-    QUOTAFULL: '#6c757d',
+    'Incomplete': '#ffc107',
+    'Complete': '#28a745',
+    'Terminate': '#dc3545',
+    'Quota Full': '#6c757d',
   };
 
   return (
@@ -87,7 +87,7 @@ export default function TrafficStats({ token, refreshTrigger }) {
         {statusOrder.map((status) => {
           const count = stats.by_status[status] || 0;
           const percentage = stats.total > 0 ? ((count / stats.total) * 100).toFixed(1) : 0;
-          
+
           return (
             <div key={status} className="stat-card" style={{ borderLeftColor: statusColors[status] }}>
               <div className="stat-status">{status}</div>

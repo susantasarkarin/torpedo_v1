@@ -10,6 +10,7 @@ const statusColors = {
   "Complete": { bg: "#e8f5e9", color: "#2e7d32" },
   "Incomplete": { bg: "#fff3e0", color: "#e65100" },
   "Quota Full": { bg: "#f3e5f5", color: "#7b1fa2" },
+  "Terminate": { bg: "#ffebee", color: "#c62828" },
 }
 
 export default function TrafficManagement() {
@@ -316,6 +317,7 @@ export default function TrafficManagement() {
             <option value="Complete">Complete</option>
             <option value="Incomplete">Incomplete</option>
             <option value="Quota Full">Quota Full</option>
+            <option value="Terminate">Terminate</option>
           </select>
           <select
             value={recordsPerPage}
