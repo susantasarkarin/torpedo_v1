@@ -788,13 +788,12 @@ async def cint_callback(
             print(f"✅ Cint COMPLETE (ASYNC): Redirecting to {redirect_url}")
             return RedirectResponse(url=redirect_url)
         
-        # TERMINATED: Try next CINT waterfall survey (fully async)
-        print(f"🔄 Cint terminated - trying next CINT waterfall survey (ASYNC)")
-        cint_result = await get_next_cint_waterfall_link(traffic_record, str(traffic_record["_id"]))
-        
-        if cint_result:
-            print(f"✅ CINT waterfall #{cint_result['attempt']}: Redirecting to survey {cint_result['survey_id']}")
-            return RedirectResponse(url=cint_result["entry_link"])
+        # TERMINATED: CINT waterfall temporarily disabled
+        # TODO: Re-enable once cint_hashed_pid lookup is confirmed stable
+        # cint_result = await get_next_cint_waterfall_link(traffic_record, str(traffic_record["_id"]))
+        # if cint_result:
+        #     print(f"✅ CINT waterfall #{cint_result['attempt']}: Redirecting to survey {cint_result['survey_id']}")
+        #     return RedirectResponse(url=cint_result["entry_link"])
         
         # No more waterfall options - redirect to vendor terminate URL
         redirect_url = f"{FRONTEND_URL}/survey-error"
@@ -990,17 +989,16 @@ async def cpx_callback(
             else:
                 return RedirectResponse(url=f"{FRONTEND_URL}/thankyou")
         else:
-            # TERMINATED: Try CINT waterfall (fully async)
-            print(f"🔄 CPX terminated - trying CINT waterfall for SFWID={traffic_id} (ASYNC)")
-            cint_result = await get_next_cint_waterfall_link(traffic_record, traffic_id)
+            # TERMINATED: CINT waterfall temporarily disabled
+            # TODO: Re-enable once cint_hashed_pid lookup is confirmed stable
+            # cint_result = await get_next_cint_waterfall_link(traffic_record, traffic_id)
+            # if cint_result:
+            #     print(f"✅ CINT waterfall success redirect: {cint_result['survey_id']}")
+            #     return RedirectResponse(url=cint_result["entry_link"])
             
-            if cint_result:
-                print(f"✅ CINT waterfall success redirect: {cint_result['survey_id']}")
-                return RedirectResponse(url=cint_result["entry_link"])
-            
-            # Waterfall exhausted - use vendor terminate link
+            # Go straight to vendor terminate link
             if vendor_redirect_url:
-                print(f"➡️ CINT waterfall exhausted (ASYNC): Redirecting to vendor terminate: {vendor_redirect_url}")
+                print(f"➡️ CPX terminated: Redirecting to vendor terminate (CINT waterfall disabled): {vendor_redirect_url}")
                 return RedirectResponse(url=vendor_redirect_url)
             else:
                 return RedirectResponse(url=ZOHO_TERMINATE_URL)
