@@ -1610,7 +1610,6 @@ async def cpx_redirect(request: Request, id: str = Query(..., description="Traff
             """Check if URL is a valid CPX or CINT survey link"""
             valid_prefixes = [
                 "https://click.cpx-research.com/",
-                "https://offers.cpx-research.com/",
                 "https://samplicio.us/",
                 "https://www.samplicio.us/",
                 "https://s.samplicio.us/",
@@ -1831,7 +1830,7 @@ async def assign_survey_batch(
     Body:
     {
         "survey_id": "57572480",
-        "survey_url": "https://offers.cpx-research.com/index.php",
+        "survey_url": "https://click.cpx-research.com/index.php",
         "client_id": "10754",
         "batch_size": 100
     }

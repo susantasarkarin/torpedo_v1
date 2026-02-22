@@ -563,7 +563,9 @@ class CPXService:
             
             selected = random.choice(candidate_surveys)
             survey_id = str(selected.get("id") or selected.get("survey_id"))
-            entry_link = selected.get("href_new") or selected.get("href") or selected.get("live_link")
+            # CRITICAL: Use href (click.cpx-research.com) NOT href_new (offers.cpx-research.com)
+            # href is the correct click-tracking URL per CPX API contract
+            entry_link = selected.get("href") or selected.get("href_new") or selected.get("live_link")
 
             # Async background DB update
             if self.async_cpx_surveys_collection:
