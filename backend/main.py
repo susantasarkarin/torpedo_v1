@@ -618,12 +618,15 @@ if url_parameters_collection is not None:
     if cpx_surveys_collection is not None:
         try:
             from app.services.traffic_service import TrafficService
+            from database import get_async_collection
+            async_traffic_col = get_async_collection("traffic_flow_db", "url_parameters")
             traffic_service_instance = TrafficService(
                 traffic_collection=url_parameters_collection,
-                surveys_collection=cpx_surveys_collection
+                surveys_collection=cpx_surveys_collection,
+                async_traffic_collection=async_traffic_col  # Motor async collection for non-blocking inserts
             )
             traffic_router.set_traffic_service(traffic_service_instance)
-            print("✅ Traffic service initialized")
+            print("✅ Traffic service initialized (with async Motor collection)")
         except Exception as e:
             print(f"⚠️ Traffic service initialization issue: {e}")
     

@@ -1343,14 +1343,30 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         
         # Legacy fallback - store as before but async
         if not traffic_id:
-            data['timestamp'] = datetime.utcnow().isoformat()
-            data['status'] = 'INCOMPLETE'
-            data['createdAt'] = datetime.utcnow()
-            data['respondentId'] = respondent_id
-            data['vendorId'] = vendor_id
-            data['countryCode'] = country_code
-            result = await async_url_collection.insert_one(data)
-            traffic_id = str(result.inserted_id)
+            try:
+                # Build a clean record instead of inserting raw request data
+                # (raw data may contain non-BSON-serializable values)
+                fallback_record = {
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'status': 'INCOMPLETE',
+                    'createdAt': datetime.utcnow(),
+                    'updatedAt': datetime.utcnow(),
+                    'respondentId': respondent_id,
+                    'vendorId': vendor_id,
+                    'countryCode': country_code,
+                    'clientIp': client_ip,
+                    'ipSource': client_ip_source,
+                    'userAgent': client_user_agent,
+                    'deviceFingerprint': device_fingerprint,
+                    'params': params or {},
+                    'email': user_email,
+                }
+                result = await async_url_collection.insert_one(fallback_record)
+                traffic_id = str(result.inserted_id)
+                print(f"✅ Created traffic record (LEGACY FALLBACK): {traffic_id}")
+            except Exception as fallback_err:
+                print(f"⚠️ Legacy fallback traffic record creation also failed: {fallback_err}")
+                # traffic_id remains None; allocation block will be skipped gracefully
         
         # ===============================================================================
         # CPX-ONLY INITIAL ALLOCATION (As requested)
@@ -1422,19 +1438,22 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     allocation_success = True
                     actual_provider = "CPX"
                     
-                    # Update traffic record asynchronously
-                    async_url_collection = get_async_url_parameters_collection()
-                    await async_url_collection.update_one(
-                        {"_id": ObjectId(traffic_id)},
-                        {"$set": {
-                            "status": "INCOMPLETE",
-                            "assignedSurveyId": str(survey_id),
-                            "redirectUrl": entry_link,
-                            "surveySource": "CPX",
-                            "cpx_mid": cpx_mid,
-                            "updatedAt": datetime.utcnow().isoformat(),
-                        }}
-                    )
+                    # Update traffic record asynchronously (only if we have a valid traffic_id)
+                    if traffic_id:
+                        async_url_collection = get_async_url_parameters_collection()
+                        await async_url_collection.update_one(
+                            {"_id": ObjectId(traffic_id)},
+                            {"$set": {
+                                "status": "INCOMPLETE",
+                                "assignedSurveyId": str(survey_id),
+                                "redirectUrl": entry_link,
+                                "surveySource": "CPX",
+                                "cpx_mid": cpx_mid,
+                                "updatedAt": datetime.utcnow().isoformat(),
+                            }}
+                        )
+                    else:
+                        print("⚠️ CPX allocation succeeded but no traffic_id to update record")
                     return True
                 return False
                     
@@ -1530,17 +1549,20 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             cpx_success = await try_cpx_allocation()
             
             # Store candidate IDs in traffic record for waterfall on CPX terminate
-            if cint_candidate_ids:
-                await get_async_url_parameters_collection().update_one(
-                    {"_id": ObjectId(traffic_id)},
-                    {"$set": {
-                        "cintCandidateIds": cint_candidate_ids,
-                        "cintAttemptCount": 0,
-                        "cintTriedSurveyIds": [],
-                        "updatedAt": datetime.utcnow().isoformat()
-                    }}
-                )
-                print(f"💾 Stored {len(cint_candidate_ids)} CINT candidate IDs for waterfall")
+            if cint_candidate_ids and traffic_id:
+                try:
+                    await get_async_url_parameters_collection().update_one(
+                        {"_id": ObjectId(traffic_id)},
+                        {"$set": {
+                            "cintCandidateIds": cint_candidate_ids,
+                            "cintAttemptCount": 0,
+                            "cintTriedSurveyIds": [],
+                            "updatedAt": datetime.utcnow().isoformat()
+                        }}
+                    )
+                    print(f"💾 Stored {len(cint_candidate_ids)} CINT candidate IDs for waterfall")
+                except Exception as cint_update_err:
+                    print(f"⚠️ Failed to store CINT candidates (non-fatal): {cint_update_err}")
 
             if not cpx_success:
                 # If CPX fails (no surveys), we DON'T try CINT here as requested by "RID is changed to SFWID... entry link for CPX created"
