@@ -1268,15 +1268,31 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             print(f"📧 User email: {user_email}")
 
         # Extract CPX User Profiling Parameters (CRITICAL for survey matching)
-        birthday_day = data.get('birthday_day')
-        birthday_month = data.get('birthday_month')
-        birthday_year = data.get('birthday_year')
+        raw_day = data.get('birthday_day')
+        raw_month = data.get('birthday_month')
+        raw_year = data.get('birthday_year')
+        
+        # Safely convert to integers for formatting and provider use
+        def to_safe_int(val, default=None):
+            try:
+                if val is None or val == "": return default
+                return int(val)
+            except (ValueError, TypeError):
+                return default
+
+        birthday_day = to_safe_int(raw_day)
+        birthday_month = to_safe_int(raw_month)
+        birthday_year = to_safe_int(raw_year)
+        
         gender = data.get('gender', '').strip().lower()
         zip_code = data.get('zip_code', '').strip()
 
         # Log profiling data if provided
-        if birthday_day and birthday_month and birthday_year:
-            print(f"📅 User DOB: {birthday_year}-{birthday_month:02d}-{birthday_day:02d}")
+        if birthday_day is not None and birthday_month is not None and birthday_year is not None:
+            try:
+                print(f"📅 User DOB: {birthday_year}-{birthday_month:02d}-{birthday_day:02d}")
+            except Exception as e:
+                print(f"📅 User DOB: {birthday_year}-{birthday_month}-{birthday_day} (format error: {e})")
         if gender:
             print(f"⚧ User gender: {gender}")
         if zip_code:
