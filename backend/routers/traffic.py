@@ -412,18 +412,28 @@ async def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
         
         if live_link:
             # LiveLink format: https://www.samplicio.us/s/default.aspx?SID=xxx&PID=
-            # TASK: PID should be the SHA256 hash of respondent id (traffic_id)
+            # PID is the SHA256 hash of respondent id (traffic_id)
             hashed_pid = hashlib.sha256(traffic_id.encode()).hexdigest()
             entry_url = f"{live_link}{hashed_pid}"
             print(f"   🔗 CINT entry link (hashed PID): {entry_url}")
             
-            # ===== SKIP HEAD VALIDATION =====
-            # CINT blocks HEAD requests with 403 even for live surveys.
-            # GET works fine (302 redirect). SupplierLinks/Create already
-            # validates the survey is live - if Create succeeds, survey is available.
-            # Removing HEAD validation fixes 100% false-negative terminations.
-            print(f"   ✅ LiveLink ready (skipping HEAD validation - CINT blocks HEAD)")
+            # CRITICAL: Store the hashed PID in the traffic record so /cint-response
+            # can look up the record when CINT sends [%PID%] back in the callback URL.
+            # Without this, all respondents stay INCOMPLETE forever.
+            try:
+                async_url_collection = get_async_url_parameters_collection()
+                await async_url_collection.update_one(
+                    {"_id": ObjectId(traffic_id)},
+                    {"$set": {
+                        "cint_hashed_pid": hashed_pid,
+                        "updatedAt": datetime.utcnow().isoformat()
+                    }}
+                )
+                print(f"   💾 Stored cint_hashed_pid={hashed_pid[:16]}... for traffic_id={traffic_id}")
+            except Exception as store_err:
+                print(f"   ⚠️ Failed to store cint_hashed_pid (non-fatal): {store_err}")
             
+            print(f"   ✅ LiveLink ready (skipping HEAD validation - CINT blocks HEAD)")
             return entry_url
         
         return ""
@@ -717,23 +727,27 @@ async def cint_callback(
         async_url_collection = get_async_url_parameters_collection()
         traffic_record = None
         
-        # Try PID as ObjectId first (preferred)
-        try:
-            traffic_record = await async_url_collection.find_one({"_id": ObjectId(lookup_id)})
+        # CINT always sends back the SHA256 hashed PID in [%PID%] placeholder.
+        # So lookup by cint_hashed_pid is the PRIMARY path - try it first.
+        if lookup_id:
+            traffic_record = await async_url_collection.find_one({"cint_hashed_pid": lookup_id})
             if traffic_record:
-                print(f"✅ Found traffic record by ObjectId: {lookup_id}")
-        except:
-            pass
+                print(f"✅ Found traffic record by cint_hashed_pid: {lookup_id[:16]}...")
         
+        # Fallback: try as raw ObjectId (legacy, before hashed PID was used)
+        if not traffic_record:
+            try:
+                traffic_record = await async_url_collection.find_one({"_id": ObjectId(lookup_id)})
+                if traffic_record:
+                    print(f"✅ Found traffic record by ObjectId: {lookup_id}")
+            except:
+                pass
+        
+        # Fallback: try by respondentId
         if not traffic_record:
             traffic_record = await async_url_collection.find_one({"respondentId": lookup_id})
         
-        if not traffic_record:
-            # Task: Support lookup by hashed PID (SHA256)
-            traffic_record = await async_url_collection.find_one({"cint_hashed_pid": lookup_id})
-            if traffic_record:
-                print(f"✅ Found traffic record by hashed PID: {lookup_id}")
-        
+        # Fallback: try by MID
         if not traffic_record and mid:
             traffic_record = await async_url_collection.find_one({"cint_mid": mid})
         
