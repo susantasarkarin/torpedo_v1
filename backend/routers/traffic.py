@@ -14,7 +14,9 @@ import random
 import base64
 import time
 import hashlib
+import hmac
 import asyncio
+import uuid
 import httpx
 from database import (
     get_async_url_parameters_collection,
@@ -295,10 +297,82 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) ->
         return []
 
 
-async def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
+def _build_cint_entry_link(live_link: str, hashed_pid: str, mid: str, user_email: str = "") -> str:
+    """
+    Build a complete, correctly signed CINT entry link.
+
+    Per Cint documentation the entry link must include:
+      - SID   : returned in live_link from the Create-Link API
+      - PID   : unique respondent identifier (we use SHA-256 of traffic_id)
+      - MID   : unique session identifier (new UUID per session)
+      - cint_email : respondent email, hex-encoded SHA-256 hash (required)
+      - hash  : HMAC-SHA1 of the full URL (minus &hash=…) signed with the
+                Encryption Secret Key, then base64-url-safe encoded.
+
+    The hash MUST be the last query parameter.
+    """
+    secret_key = os.getenv("CINT_WEBHOOK_SECRET", "")
+    if not secret_key:
+        print("   ⚠️ CINT_WEBHOOK_SECRET not set — entry link will be missing hash")
+
+    # live_link already ends with "&PID=" or "?SID=…&PID="
+    # We strip any trailing "&PID=" suffix that the API may have appended so
+    # we can build the complete param string ourselves.
+    base = live_link
+    for suffix in ("&PID=", "?PID="):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+
+    # Determine right separator after existing base
+    sep = "&" if "?" in base else "?"
+
+    # --- Required parameters ---
+    # PID may only contain alphanumeric, underscore, dash (max 128 chars)
+    # We truncate the 64-char hex SHA-256 to 64 chars (always safe)
+    pid_value = hashed_pid[:64]
+
+    # MID: unique per session, alphanumeric/underscore/dash, max 128 chars
+    mid_value = mid[:128]
+
+    # cint_email: SHA-256 of the lowercase email, 64-char hex string
+    if user_email:
+        email_hash = hashlib.sha256(user_email.lower().strip().encode("utf-8")).hexdigest()
+    else:
+        # Cint requires a real email — if missing, omit the parameter
+        # rather than sending a dummy/invalid hash.
+        email_hash = ""
+
+    url_no_hash = f"{base}{sep}PID={pid_value}&MID={mid_value}"
+    if email_hash:
+        url_no_hash += f"&cint_email={email_hash}"
+
+    # --- Hash signature (REQUIRED, must be last) ---
+    if secret_key:
+        sig = hmac.new(
+            secret_key.encode("utf-8"),
+            url_no_hash.encode("utf-8"),
+            hashlib.sha1
+        ).digest()
+        hash_value = base64.b64encode(sig).decode("utf-8")
+        entry_url = f"{url_no_hash}&hash={hash_value}"
+    else:
+        entry_url = url_no_hash
+
+    # Safety guard: Cint session-terminates links > 1999 chars
+    if len(entry_url) > 1999:
+        print(f"   ⚠️ CINT entry link exceeds 1999 chars ({len(entry_url)}) — truncation risk!")
+
+    return entry_url
+
+
+async def create_cint_entry_link(survey_id: str, traffic_id: str, user_email: str = "") -> str:
     """
     Create a respondent-specific CINT entry link (Asynchronous).
-    
+
+    Builds a fully-compliant Cint Exchange entry link that includes:
+      PID, MID, cint_email, and the mandatory HMAC-SHA1 hash signature.
+
     Returns the full respondent-specific URL, or empty string on failure.
     """
     
@@ -328,7 +402,7 @@ async def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
         "Accept": "application/json",
     }
     
-    # Callback URLs with [%PID%] placeholder — CINT replaces with our traffic_id
+    # Callback URLs with [%PID%] placeholder — CINT replaces with our hashed PID
     # DefaultLink: where CINT sends respondent on survey error/closed — redirect back to us for waterfall
     callback_base = CINT_CALLBACK_BASE
     create_payload = {
@@ -391,11 +465,9 @@ async def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
                 
                 # Check if existing link has wrong DefaultLink — update if needed
                 existing_default = sl.get("DefaultLink", "")
-                expected_default = f"{callback_base}/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]&reason=default_link"
                 if existing_default and "cint-response" not in existing_default:
                     print(f"   ⚠️ Existing SupplierLink has wrong DefaultLink: {existing_default}")
                     print(f"   🔄 Updating SupplierLink with correct redirect URLs...")
-                    # Update the existing link with correct callback URLs
                     update_url = f"{CINT_API_BASE}/Supply/v1/SupplierLinks/Update/{survey_id}/{supplier_code}"
                     update_resp = await client.put(update_url, json=create_payload, headers=headers, timeout=10.0)
                     print(f"   📥 CINT SupplierLink UPDATE: Status={update_resp.status_code}")
@@ -411,11 +483,15 @@ async def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
             print(f"   ❌ CINT SupplierLink Create failed: status={resp.status_code}")
         
         if live_link:
-            # LiveLink format: https://www.samplicio.us/s/default.aspx?SID=xxx&PID=
-            # PID is the SHA256 hash of respondent id (traffic_id)
+            # PID: SHA-256 of traffic_id (unique, persistent respondent identifier)
             hashed_pid = hashlib.sha256(traffic_id.encode()).hexdigest()
-            entry_url = f"{live_link}{hashed_pid}"
-            print(f"   🔗 CINT entry link (hashed PID): {entry_url}")
+
+            # MID: unique per-session identifier (new UUID each time)
+            mid = uuid.uuid4().hex
+
+            # Build the complete, signed entry link
+            entry_url = _build_cint_entry_link(live_link, hashed_pid, mid, user_email)
+            print(f"   🔗 CINT entry link (signed): {entry_url}")
             
             # CRITICAL: Store the hashed PID in the traffic record so /cint-response
             # can look up the record when CINT sends [%PID%] back in the callback URL.
@@ -426,14 +502,14 @@ async def create_cint_entry_link(survey_id: str, traffic_id: str) -> str:
                     {"_id": ObjectId(traffic_id)},
                     {"$set": {
                         "cint_hashed_pid": hashed_pid,
+                        "cint_mid": mid,
                         "updatedAt": datetime.utcnow().isoformat()
                     }}
                 )
-                print(f"   💾 Stored cint_hashed_pid={hashed_pid[:16]}... for traffic_id={traffic_id}")
+                print(f"   💾 Stored cint_hashed_pid={hashed_pid[:16]}... mid={mid[:8]}... for traffic_id={traffic_id}")
             except Exception as store_err:
                 print(f"   ⚠️ Failed to store cint_hashed_pid (non-fatal): {store_err}")
             
-            print(f"   ✅ LiveLink ready (skipping HEAD validation - CINT blocks HEAD)")
             return entry_url
         
         return ""
@@ -472,8 +548,9 @@ async def get_next_cint_waterfall_link(traffic_record: dict, traffic_id: str) ->
     # We try at most (MAX_CINT_ATTEMPTS - current_attempt) candidates in this run
     remaining_attempts = MAX_CINT_ATTEMPTS - attempt_count
     
+    user_email = traffic_record.get("email", "")
     for survey_id in untried[:remaining_attempts]:
-        entry_link = await create_cint_entry_link(survey_id, traffic_id)
+        entry_link = await create_cint_entry_link(survey_id, traffic_id, user_email=user_email)
         
         if entry_link:
             new_attempt = attempt_count + 1
@@ -1507,8 +1584,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     return False
                 
                 # Try candidates one by one until we get a working entry link
+                # user_email is accessible from the enclosing /api/store scope
                 for sid in candidates[:15]:
-                    link = await create_cint_entry_link(sid, traffic_id)
+                    link = await create_cint_entry_link(sid, traffic_id, user_email=user_email)
                     if link:
                         entry_link = link
                         survey_id = sid
@@ -1518,7 +1596,6 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         # Update traffic record asynchronously
                         remaining = [c for c in candidates if c != sid]
                         async_url_collection = get_async_url_parameters_collection()
-                        import hashlib # Ensure hashlib is imported for SHA256
                         hashed_pid = hashlib.sha256(traffic_id.encode()).hexdigest()
                         await async_url_collection.update_one(
                             {"_id": ObjectId(traffic_id)},
