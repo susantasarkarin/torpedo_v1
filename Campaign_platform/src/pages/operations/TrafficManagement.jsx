@@ -155,7 +155,7 @@ export default function TrafficManagement() {
   // Delete selected records
   const handleDeleteSelected = async () => {
     if (selectedIds.length === 0) return
-    
+
     if (!window.confirm(`Are you sure you want to delete ${selectedIds.length} record(s)?`)) {
       return
     }
@@ -428,6 +428,38 @@ export default function TrafficManagement() {
                                 <div>
                                   <strong>Completed At:</strong> {formatDate(record.completedAt)}
                                 </div>
+                                {record.surveySource && (
+                                  <div>
+                                    <strong>Survey Source:</strong>{" "}
+                                    <span
+                                      className="source-badge"
+                                      style={{
+                                        backgroundColor:
+                                          record.surveySource === "CPX"
+                                            ? "#e3f2fd"
+                                            : record.surveySource === "CINT"
+                                              ? "#fff3e0"
+                                              : record.surveySource === "CINT_FALLBACK"
+                                                ? "#fce4ec"
+                                                : "#f5f5f5",
+                                        color:
+                                          record.surveySource === "CPX"
+                                            ? "#1565c0"
+                                            : record.surveySource === "CINT"
+                                              ? "#e65100"
+                                              : record.surveySource === "CINT_FALLBACK"
+                                                ? "#c62828"
+                                                : "#333",
+                                        padding: "2px 8px",
+                                        borderRadius: "4px",
+                                        fontSize: "12px",
+                                        fontWeight: "600",
+                                      }}
+                                    >
+                                      {record.surveySource}
+                                    </span>
+                                  </div>
+                                )}
                               </div>
                             </div>
                             {record.redirectUrl && (
@@ -450,6 +482,46 @@ export default function TrafficManagement() {
                                 <code className="redirect-url">{record.cpxCallbackUrl}</code>
                               </div>
                             )}
+                            {record.currentCintLink && (
+                              <div className="expanded-section">
+                                <h4>🔶 Cint Entry Link</h4>
+                                <code className="redirect-url">{record.currentCintLink}</code>
+                                {record.currentCintSurveyId && (
+                                  <div style={{ marginTop: "6px", fontSize: "12px", color: "#6c757d" }}>
+                                    <strong>Cint Survey ID:</strong> {record.currentCintSurveyId}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {record.cintCallbackUrl && (
+                              <div className="expanded-section">
+                                <h4>📥 Cint Callback URL</h4>
+                                <code className="redirect-url">{record.cintCallbackUrl}</code>
+                                {(record.cint_mid || record.cint_revenue) && (
+                                  <div style={{ marginTop: "6px", fontSize: "12px", color: "#6c757d" }}>
+                                    {record.cint_mid && <span><strong>MID:</strong> {record.cint_mid} </span>}
+                                    {record.cint_revenue && <span><strong>Revenue:</strong> {record.cint_revenue}</span>}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {record.cint_hashed_pid && (
+                              <div className="expanded-section">
+                                <h4>🔑 Cint Hashed PID</h4>
+                                <code className="redirect-url" style={{ fontSize: "11px" }}>{record.cint_hashed_pid}</code>
+                              </div>
+                            )}
+                            <div className="expanded-section">
+                              <h4>⚠️ Survey Error Redirect</h4>
+                              {(() => {
+                                const baseUrl = window.location.origin || "https://surveyfieldwork.com";
+                                return (
+                                  <code className="redirect-url">
+                                    {baseUrl}/survey-error?error=not_found
+                                  </code>
+                                );
+                              })()}
+                            </div>
                             {record.params && Object.keys(record.params).length > 0 && (
                               <div className="expanded-section">
                                 <h4>📦 Raw Parameters</h4>

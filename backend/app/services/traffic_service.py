@@ -742,6 +742,15 @@ class TrafficService:
                     "redirectUrl": record.get("redirectUrl"),
                     "outUrl": record.get("outUrl"),
                     "cpxCallbackUrl": record.get("cpxCallbackUrl"),
+                    # Cint-specific fields
+                    "surveySource": record.get("surveySource"),
+                    "currentCintLink": record.get("currentCintLink"),
+                    "currentCintSurveyId": record.get("currentCintSurveyId"),
+                    "cintCallbackUrl": record.get("cintCallbackUrl"),
+                    "cint_hashed_pid": record.get("cint_hashed_pid"),
+                    "cint_mid": record.get("cint_mid"),
+                    "cint_revenue": record.get("cint_revenue"),
+                    # Timestamps
                     "createdAt": _serialize_datetime(created_at),
                     "updatedAt": _serialize_datetime(record.get("updatedAt")),
                     "assignedAt": _serialize_datetime(record.get("assignedAt")),

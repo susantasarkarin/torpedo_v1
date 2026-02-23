@@ -830,6 +830,7 @@ async def cint_callback(
                 "status": new_status,
                 "cint_mid": mid,
                 "cint_revenue": revenue,
+                "cintCallbackUrl": str(request.url),
                 "updatedAt": datetime.utcnow(),
                 "completedAt": datetime.utcnow() if new_status == "COMPLETE" else None
             }}
@@ -2334,6 +2335,12 @@ async def export_traffic_records(
                 "redirect_url": record.get("redirectUrl", ""),  # Survey entry URL
                 "out_url": record.get("outUrl", ""),  # Client redirect URL (with respondent appended)
                 "cpx_callback_url": record.get("cpxCallbackUrl", ""),  # Callback URL from CPX
+                # Cint Fields
+                "survey_source": record.get("surveySource", ""),
+                "cint_entry_link": record.get("currentCintLink", ""),
+                "cint_callback_url": record.get("cintCallbackUrl", ""),
+                "cint_survey_id": record.get("currentCintSurveyId", ""),
+                "cint_hashed_pid": record.get("cint_hashed_pid", ""),
                 # Timestamps
                 "created_at": created_at.isoformat() if created_at else None,
                 "updated_at": updated_at.isoformat() if updated_at else None,
@@ -2444,9 +2451,14 @@ async def export_traffic_csv(
             "Country Code",
             "Respondent ID",
             "Survey ID",
+            "Survey Source",
             "Redirect URL",
             "Client URL (Out URL)",
             "CPX Callback URL",
+            "Cint Entry Link",
+            "Cint Callback URL",
+            "Cint Survey ID",
+            "Cint Hashed PID",
             "Created At",
             "Assigned At",
             "Completed At",
@@ -2465,9 +2477,14 @@ async def export_traffic_csv(
                 record.get("countryCode", ""),
                 record.get("respondentId", ""),
                 record.get("assignedSurveyId", ""),
+                record.get("surveySource", ""),
                 record.get("redirectUrl", ""),
                 record.get("outUrl", ""),
                 record.get("cpxCallbackUrl", ""),
+                record.get("currentCintLink", ""),
+                record.get("cintCallbackUrl", ""),
+                record.get("currentCintSurveyId", ""),
+                record.get("cint_hashed_pid", ""),
                 created_at.isoformat() if created_at else "",
                 assigned_at.isoformat() if assigned_at else "",
                 completed_at.isoformat() if completed_at else "",
