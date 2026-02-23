@@ -59,6 +59,38 @@ ENRICHMENT_REQUIRED_FIELDS = {'first_name', 'company'}  # If missing, trigger en
 
 VALID_SOURCES = {'gmail', 'websearch', 'csv'}
 VALID_CLASSIFICATIONS = {'client', 'vendor', 'irrelevant', 'unknown', 'pending'}
+VALID_BRACKETS = {'lead', 'contact', 'account'}
+
+
+def determine_lead_bracket(lead_data: Dict[str, Any]) -> str:
+    """
+    Categorize a lead into a bracket based on data completeness.
+    
+    Rules:
+    - 'contact': Has first_name + company + title/position (fully developed person record)
+    - 'account': Has company data but no individual person details (company-level record)
+    - 'lead': Everything else (raw/minimal entries needing enrichment)
+    
+    Returns: 'lead', 'contact', or 'account'
+    """
+    has_first_name = bool(lead_data.get('first_name'))
+    has_last_name = bool(lead_data.get('last_name'))
+    has_company = bool(lead_data.get('company') or lead_data.get('company_name'))
+    has_title = bool(lead_data.get('title'))
+    has_email = bool(lead_data.get('email'))
+    has_linkedin = bool(lead_data.get('linkedin_url'))
+    
+    # Contact: person with enough identity data
+    # Need at least name + company, or name + title, or name + linkedin
+    if has_first_name and (has_company or has_title or has_linkedin):
+        return 'contact'
+    
+    # Account: has company data but no person details
+    if has_company and not has_first_name and not has_email:
+        return 'account'
+    
+    # Default: lead (raw entry needing development)
+    return 'lead'
 
 
 def normalize_email(email: str) -> Optional[str]:
@@ -116,6 +148,7 @@ def normalize_payload(payload: Dict[str, Any], source: str, source_detail: str) 
         'classification': 'pending',
         'classification_confidence': 0.0,
         'enrichment_status': 'pending',
+        'lead_bracket': 'lead',  # Will be recalculated after enrichment
         'created_at': now,
         'updated_at': now,
     }
@@ -208,6 +241,8 @@ def sync_to_enriched(lead_data: Dict[str, Any], raw_lead_id: str) -> Optional[st
             # Timestamps
             'classified_at': lead_data.get('classified_at') or datetime.utcnow(),
             'updated_at': datetime.utcnow(),
+            # Lead bracket categorization
+            'lead_bracket': lead_data.get('lead_bracket', 'lead'),
         }
         
         # Remove None values to avoid overwriting with nulls
@@ -442,6 +477,9 @@ def ingest_lead(
                 else:
                     merged['classification_status'] = 'failed'
             
+            # Recalculate bracket after merging
+            merged['lead_bracket'] = determine_lead_bracket(merged)
+            
             # Update existing lead
             leads_raw.update_one(
                 {'_id': existing['_id']},
@@ -528,7 +566,10 @@ def ingest_lead(
                 else:
                     normalized['classification_status'] = 'failed'
             
-            # Step 5: Insert into leads_raw
+            # Step 5: Determine lead bracket
+            normalized['lead_bracket'] = determine_lead_bracket(normalized)
+            
+            # Step 6: Insert into leads_raw
             insert_result = leads_raw.insert_one(normalized)
             
             # Step 6: Sync to leads_enriched for frontend display (if classified)
@@ -635,6 +676,15 @@ SKIP_EMAIL_PATTERNS = [
 
 INTERNAL_DOMAINS = ['surveyfieldwork.com', 'cogentixresearch.com']
 
+# Personal email providers — don't derive company name from these
+PERSONAL_EMAIL_PROVIDERS = {
+    'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com',
+    'icloud.com', 'mail.com', 'protonmail.com', 'zoho.com', 'yandex.com',
+    'live.com', 'msn.com', 'me.com', 'mac.com', 'comcast.net',
+    'att.net', 'verizon.net', 'sbcglobal.net', 'cox.net',
+    'rediffmail.com', 'ymail.com', 'rocketmail.com',
+}
+
 
 def should_skip_email(email: str) -> bool:
     """Check if email should be skipped (system emails, internal, etc.)"""
@@ -656,10 +706,150 @@ def should_skip_email(email: str) -> bool:
     return False
 
 
+def _extract_name_parts(email_address: str, display_name: str = ""):
+    """
+    Extract first_name, last_name from display name or email address.
+    Returns (full_name, first_name, last_name).
+    """
+    # Priority 1: Display name
+    if display_name and display_name.strip():
+        name = display_name.strip().strip('"').strip("'")
+        # Remove email in angle brackets: "John Smith <john@example.com>"
+        name = re.sub(r'\s*<[^>]+>\s*', '', name)
+        # Remove email in parentheses: "John Smith (john@example.com)"
+        name = re.sub(r'\s*\([^)]+\)\s*', '', name)
+        name = name.strip()
+
+        if name:
+            parts = name.split()
+            if len(parts) >= 2:
+                return name, parts[0], " ".join(parts[1:])
+            return name, parts[0] if parts else "", ""
+
+    # Priority 2: Parse email local part (before @)
+    local_part = email_address.split('@')[0] if '@' in email_address else email_address
+
+    # Try common separators: john.smith, john_smith, john-smith
+    for sep in ['.', '_', '-']:
+        if sep in local_part:
+            parts = local_part.split(sep)
+            if len(parts) >= 2:
+                first = parts[0].capitalize()
+                last = ' '.join(p.capitalize() for p in parts[1:])
+                return f"{first} {last}", first, last
+
+    # Last resort: use local part as first name
+    return local_part.capitalize(), local_part.capitalize(), ""
+
+
+def _extract_company_from_domain(domain: str):
+    """
+    Derive company name from email domain.
+    Returns company name string or empty string for personal providers.
+    """
+    if not domain:
+        return ""
+
+    domain_lower = domain.lower()
+
+    # Don't derive company from personal providers
+    if domain_lower in PERSONAL_EMAIL_PROVIDERS:
+        return ""
+
+    # Extract company from domain: "acme.com" -> "Acme", "acme.co.uk" -> "Acme"
+    parts = domain_lower.split('.')
+    # Remove TLDs
+    tld_parts = {'com', 'org', 'net', 'co', 'io', 'uk', 'us', 'in', 'au', 'de', 'fr', 'ca', 'ai', 'app', 'dev'}
+    company_parts = [p for p in parts if p not in tld_parts]
+
+    if company_parts:
+        # Take first meaningful part, capitalize properly
+        raw = company_parts[0]
+        # Handle multi-word company names with hyphens
+        return ' '.join(word.capitalize() for word in raw.split('-'))
+
+    return ""
+
+
+def _parse_signature_fields(body: str):
+    """
+    Parse email body/signature for title, phone, LinkedIn URL, location and company.
+    Returns dict with extracted fields.
+    """
+    info = {}
+    if not body:
+        return info
+
+    # Only look at the last ~30 lines (signature area)
+    lines = body.strip().split('\n')
+    signature_area = '\n'.join(lines[-30:]) if len(lines) > 30 else body
+
+    # Title patterns
+    title_patterns = [
+        r'(?:title|position|role|designation)\s*[:\-]\s*([^\n]+)',
+        # "John Smith | VP of Sales | Acme Corp" — grab middle segment
+        r'^[A-Z][a-z]+\s+[A-Z][a-z]+\s*[|–\-]\s*([^|–\-\n]+)\s*[|–\-]',
+    ]
+    for pat in title_patterns:
+        m = re.search(pat, signature_area, re.IGNORECASE | re.MULTILINE)
+        if m:
+            info['title'] = m.group(1).strip()
+            break
+
+    # Phone patterns
+    phone_patterns = [
+        r'(?:phone|tel|mobile|cell|direct|office|fax)\s*[:\-]?\s*(\+?[\d\s\-\(\)\.]{7,20})',
+        r'(\+\d{1,3}[\s\-]?\(?\d{1,4}\)?[\s\-]?\d{3,4}[\s\-]?\d{3,4})',
+    ]
+    for pat in phone_patterns:
+        m = re.search(pat, signature_area, re.IGNORECASE)
+        if m:
+            phone = re.sub(r'[^\d+\-\(\)\s]', '', m.group(1)).strip()
+            if len(re.sub(r'[^\d]', '', phone)) >= 7:
+                info['phone'] = phone
+                break
+
+    # LinkedIn
+    linkedin_match = re.search(
+        r'(?:https?://)?(?:www\.)?linkedin\.com/in/([a-zA-Z0-9\-]+)',
+        signature_area, re.IGNORECASE
+    )
+    if linkedin_match:
+        info['linkedin_url'] = f"https://linkedin.com/in/{linkedin_match.group(1)}"
+
+    # Company from signature: "Company Name" on a standalone line or after "|"
+    company_patterns = [
+        r'(?:company|organization|org)\s*[:\-]\s*([^\n]+)',
+    ]
+    for pat in company_patterns:
+        m = re.search(pat, signature_area, re.IGNORECASE)
+        if m:
+            info['company'] = m.group(1).strip()
+            break
+
+    # Location
+    location_patterns = [
+        r'(?:location|address|city|based in)\s*[:\-]\s*([^\n]+)',
+    ]
+    for pat in location_patterns:
+        m = re.search(pat, signature_area, re.IGNORECASE)
+        if m:
+            info['location'] = m.group(1).strip()
+            break
+
+    return info
+
+
 def extract_lead_from_email(email_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Extract lead payload from an email document.
     Returns None if email should be skipped.
+    
+    Extracts:
+    - email, first_name, last_name, name
+    - company_name (from domain or signature)
+    - company_domain
+    - title, phone, linkedin_url (from signature)
     """
     from_email = email_doc.get('from_email', '')
     from_name = email_doc.get('from_name', '')
@@ -667,12 +857,35 @@ def extract_lead_from_email(email_doc: Dict[str, Any]) -> Optional[Dict[str, Any
     if should_skip_email(from_email):
         return None
     
-    # Extract domain for company
-    domain = from_email.split('@')[-1] if '@' in from_email else None
+    # Extract domain
+    domain = from_email.split('@')[-1].lower() if '@' in from_email else ''
     
-    return {
+    # Extract name parts (first, last)
+    full_name, first_name, last_name = _extract_name_parts(from_email, from_name)
+    
+    # Extract company from domain
+    company_name = _extract_company_from_domain(domain)
+    
+    # Parse email body/signature for additional fields
+    body = email_doc.get('body_text', email_doc.get('body', email_doc.get('snippet', '')))
+    sig_info = _parse_signature_fields(body) if body else {}
+    
+    # Prefer signature company over domain-derived company
+    if sig_info.get('company'):
+        company_name = sig_info['company']
+    
+    payload = {
         'email': from_email,
-        'name': from_name,
+        'name': full_name,
+        'first_name': first_name,
+        'last_name': last_name,
+        'company_name': company_name,
         'company_domain': domain,
+        'title': sig_info.get('title', ''),
+        'phone': sig_info.get('phone', ''),
+        'linkedin_url': sig_info.get('linkedin_url', ''),
+        'location': sig_info.get('location', ''),
         'source_email_id': str(email_doc.get('_id', '')),
     }
+    
+    return payload

@@ -564,6 +564,10 @@ class MailboxManager:
         """Get mailbox by ID"""
         return self.mailboxes_collection.find_one({"mailbox_id": mailbox_id})
     
+    def get_mailbox_by_email(self, email_address: str) -> Optional[Dict[str, Any]]:
+        """Get mailbox by email address"""
+        return self.mailboxes_collection.find_one({"email_address": email_address})
+    
     def list_mailboxes(
         self,
         active_only: bool = True,

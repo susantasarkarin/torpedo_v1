@@ -57,18 +57,18 @@ const COLUMN_ALIASES = {
 
 function AIDatabase() {
   const navigate = useNavigate()
-  
+
   // State
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState({ type: "", text: "" })
   const [activeTab, setActiveTab] = useState("all") // all, recents, favorites
   const [searchQuery, setSearchQuery] = useState("")
   const [aiPrompt, setAiPrompt] = useState("")
-  
+
   // Discovery state
   const [discovering, setDiscovering] = useState(false)
   const [discoveryType, setDiscoveryType] = useState(null) // 'people', 'companies', 'local'
-  
+
   // Modal state
   const [showModal, setShowModal] = useState(false)
   const [modalType, setModalType] = useState(null)
@@ -101,7 +101,7 @@ function AIDatabase() {
   // Import Method state (tabs: web-search, csv, gmail)
   const [importMethod, setImportMethod] = useState("web-search")
   const [showImportPanel, setShowImportPanel] = useState(false)
-  
+
   // Web Search state (includes Industry and Additional Criteria from former AI Discovery)
   const [webSearchDesignation, setWebSearchDesignation] = useState("")
   const [webSearchCountries, setWebSearchCountries] = useState([])
@@ -115,11 +115,11 @@ function AIDatabase() {
     circuit_breaker_open: false,
     active_jobs_count: 0
   })
-  
+
   // Workbooks/Files state
   const [workbooks, setWorkbooks] = useState([])
   const [workbooksLoading, setWorkbooksLoading] = useState(false)
-  
+
   // Status state
   const [status, setStatus] = useState(null)
 
@@ -202,7 +202,7 @@ function AIDatabase() {
   const autoMatchColumns = (columns) => {
     const mapping = {}
     const normalize = (str) => str.toLowerCase().replace(/[\s\-\.]/g, "_").replace(/[^a-z0-9_]/g, "")
-    
+
     columns.forEach((csvCol) => {
       const normalizedCsv = normalize(csvCol)
       for (const [dbField, aliases] of Object.entries(COLUMN_ALIASES)) {
@@ -238,7 +238,7 @@ function AIDatabase() {
         const columns = results.meta.fields || []
         setCsvColumns(columns)
         setCsvData(results.data)
-        
+
         const autoMapping = autoMatchColumns(columns)
         setColumnMapping(autoMapping)
         setCsvImportStep(2)
@@ -269,7 +269,7 @@ function AIDatabase() {
 
     try {
       const token = getAuthToken()
-      
+
       // Map CSV data to expected format
       const mappedData = csvData.map((row) => {
         const newRow = {}
@@ -287,7 +287,7 @@ function AIDatabase() {
       const blob = new Blob([csv], { type: "text/csv" })
       const formData = new FormData()
       formData.append("file", blob, "import.csv")
-      
+
       const res = await fetch(buildApiUrl(`/leads/import/csv`), {
         method: "POST",
         headers: { Authorization: token },
@@ -325,9 +325,9 @@ function AIDatabase() {
       const token = getAuthToken()
       const res = await fetch(buildApiUrl(`/leads/emails/extract`), {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json", 
-          Authorization: token 
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token
         },
         body: JSON.stringify({
           account_emails: selectedGmailAccounts.length > 0 ? selectedGmailAccounts : null,
@@ -342,9 +342,9 @@ function AIDatabase() {
           progress: 100,
           extracted: result.leads_extracted || 0
         })
-        setMessage({ 
-          type: "success", 
-          text: `Extracted ${result.leads_extracted || 0} leads from Gmail!` 
+        setMessage({
+          type: "success",
+          text: `Extracted ${result.leads_extracted || 0} leads from Gmail!`
         })
         setTimeout(() => {
           closeModal()
@@ -399,12 +399,12 @@ function AIDatabase() {
   const handleDiscovery = async () => {
     setDiscovering(true)
     setMessage({ type: "", text: "" })
-    
+
     try {
       const token = getAuthToken()
       let endpoint = ""
       let body = {}
-      
+
       switch (modalType) {
         case "people":
           endpoint = "/leads/ai-database/discover-leads"
@@ -439,7 +439,7 @@ function AIDatabase() {
             count: 20
           }
       }
-      
+
       const res = await fetch(buildApiUrl(`${endpoint}`), {
         method: "POST",
         headers: {
@@ -448,12 +448,12 @@ function AIDatabase() {
         },
         body: JSON.stringify(body)
       })
-      
+
       if (res.ok) {
         const data = await res.json()
         const leadCount = data.contacts_found || data.leads_imported || data.count || 0
-        setMessage({ 
-          type: "success", 
+        setMessage({
+          type: "success",
           text: `Successfully discovered ${leadCount} leads! ${data.cost_estimate ? `(Cost: ${data.cost_estimate})` : ''}`
         })
         closeModal()
@@ -473,19 +473,19 @@ function AIDatabase() {
   const handleAIPromptSubmit = async (e) => {
     e.preventDefault()
     if (!aiPrompt.trim()) return
-    
+
     setDiscovering(true)
     setMessage({ type: "", text: "" })
-    
+
     try {
       const token = getAuthToken()
-      
+
       // Parse the AI prompt to extract parameters
       const promptLower = aiPrompt.toLowerCase()
       let designation = ""
       let industry = ""
       let location = "USA"
-      
+
       // Simple parsing logic
       if (promptLower.includes("ceo") || promptLower.includes("founder")) {
         designation = "CEO, Founder"
@@ -496,7 +496,7 @@ function AIDatabase() {
       } else if (promptLower.includes("manager")) {
         designation = "Manager"
       }
-      
+
       // Extract industry keywords
       const industries = ["saas", "fintech", "healthcare", "ecommerce", "ai", "tech", "automotive", "retail"]
       for (const ind of industries) {
@@ -505,7 +505,7 @@ function AIDatabase() {
           break
         }
       }
-      
+
       const res = await fetch(buildApiUrl(`/leads/ai-database/discover-leads`), {
         method: "POST",
         headers: {
@@ -520,11 +520,11 @@ function AIDatabase() {
           ai_prompt: aiPrompt
         })
       })
-      
+
       if (res.ok) {
         const data = await res.json()
-        setMessage({ 
-          type: "success", 
+        setMessage({
+          type: "success",
           text: `Found ${data.contacts_found || data.leads_imported || 0} leads based on your query!`
         })
         setAiPrompt("")
@@ -538,6 +538,102 @@ function AIDatabase() {
       setMessage({ type: "error", text: error.message })
     } finally {
       setDiscovering(false)
+    }
+  }
+
+  // Handle Web Search - actually trigger the backend search
+  const handleWebSearch = async () => {
+    if (!webSearchDesignation.trim()) {
+      setMessage({ type: "error", text: "Please enter at least one designation/title" })
+      return
+    }
+
+    setDiscovering(true)
+    setMessage({ type: "", text: "" })
+    setWebSearchProgress({ status: "searching", found: 0 })
+
+    try {
+      const token = getAuthToken()
+
+      // Build the query parts from form fields
+      const designations = webSearchDesignation.split(",").map(d => d.trim()).filter(Boolean)
+      const countries = webSearchCountries.length > 0 ? webSearchCountries : ["United States"]
+      const seniorities = webSearchSeniorities
+      const industry = webSearchIndustry.trim()
+      const customQuery = webSearchCustomQuery.trim()
+
+      let totalFound = 0
+      let totalImported = 0
+      let errors = []
+
+      // Run searches for each designation + country combination
+      for (const designation of designations) {
+        for (const country of countries) {
+          try {
+            // Build criteria string from seniority + custom query
+            let criteria = ""
+            if (seniorities.length > 0) {
+              criteria += seniorities.join(" OR ")
+            }
+            if (customQuery) {
+              criteria += (criteria ? " " : "") + customQuery
+            }
+
+            const res = await fetch(buildApiUrl(`/leads/ai-database/discover-leads`), {
+              method: "POST",
+              headers: {
+                Authorization: token,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                designation: designation,
+                industry: industry || "Technology",
+                location: country,
+                count: 10,
+                criteria: criteria
+              })
+            })
+
+            if (res.ok) {
+              const data = await res.json()
+              const found = data.contacts_found || data.leads_imported || 0
+              totalFound += found
+              totalImported += data.leads_imported || 0
+              setWebSearchProgress({ status: "searching", found: totalFound })
+            } else if (res.status === 429) {
+              const error = await res.json()
+              errors.push(`Rate limited: ${getErrorMessage(error)}`)
+              break // Stop on rate limit
+            } else {
+              const error = await res.json()
+              errors.push(`${designation} in ${country}: ${getErrorMessage(error)}`)
+            }
+          } catch (err) {
+            errors.push(`${designation} in ${country}: ${err.message}`)
+          }
+        }
+      }
+
+      setWebSearchProgress({ status: "complete", found: totalFound })
+
+      if (totalFound > 0) {
+        setMessage({
+          type: "success",
+          text: `Found ${totalFound} leads, imported ${totalImported}!${errors.length > 0 ? ` (${errors.length} errors)` : ''}`
+        })
+      } else if (errors.length > 0) {
+        setMessage({ type: "error", text: errors[0] })
+      } else {
+        setMessage({ type: "info", text: "No leads found. Try different search criteria." })
+      }
+
+      loadWorkbooks()
+      loadStatus()
+    } catch (error) {
+      setMessage({ type: "error", text: error.message })
+    } finally {
+      setDiscovering(false)
+      setTimeout(() => setWebSearchProgress(null), 3000)
     }
   }
 
@@ -555,7 +651,7 @@ function AIDatabase() {
           created_at: new Date().toISOString()
         })
       })
-      
+
       if (res.ok) {
         loadWorkbooks()
         setMessage({ type: "success", text: "New workbook created!" })
@@ -578,7 +674,7 @@ function AIDatabase() {
   }
 
   const toggleFavorite = async (workbookId) => {
-    setWorkbooks(workbooks.map(w => 
+    setWorkbooks(workbooks.map(w =>
       w._id === workbookId ? { ...w, is_favorite: !w.is_favorite } : w
     ))
   }
@@ -591,7 +687,7 @@ function AIDatabase() {
     const minutes = Math.floor(diff / 60000)
     const hours = Math.floor(diff / 3600000)
     const days = Math.floor(diff / 86400000)
-    
+
     if (minutes < 60) return `${minutes} minutes ago`
     if (hours < 24) return `${hours} hours ago`
     if (days < 7) return `${days} days ago`
@@ -607,7 +703,7 @@ function AIDatabase() {
     }
     if (searchQuery) {
       return w.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-             (w.tags || []).some(t => t.toLowerCase().includes(searchQuery.toLowerCase()))
+        (w.tags || []).some(t => t.toLowerCase().includes(searchQuery.toLowerCase()))
     }
     return true
   })
@@ -628,8 +724,8 @@ function AIDatabase() {
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
               />
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 className="ai-prompt-submit"
                 disabled={discovering || !aiPrompt.trim()}
               >
@@ -637,7 +733,7 @@ function AIDatabase() {
               </button>
             </div>
           </form>
-          
+
           {/* Use Case Buttons */}
           <div className="use-case-buttons">
             <button className="use-case-btn" onClick={() => navigate("/admin/sales/campaign/ai-leads/manage")}>
@@ -658,19 +754,19 @@ function AIDatabase() {
         {/* Import Leads Section with Tabs */}
         <div className="import-leads-section">
           <div className="import-tabs-header">
-            <button 
+            <button
               className={`import-tab ${importMethod === "web-search" ? "active" : ""}`}
               onClick={() => { setImportMethod("web-search"); setShowImportPanel(true); }}
             >
               🌐 Web Search
             </button>
-            <button 
+            <button
               className={`import-tab ${importMethod === "csv" ? "active" : ""}`}
               onClick={() => { setImportMethod("csv"); setShowImportPanel(true); setCsvImportStep(1); }}
             >
               📄 CSV Upload
             </button>
-            <button 
+            <button
               className={`import-tab ${importMethod === "gmail" ? "active" : ""}`}
               onClick={() => { setImportMethod("gmail"); setShowImportPanel(true); fetchGmailAccounts(); }}
             >
@@ -698,11 +794,11 @@ function AIDatabase() {
                       </button>
                     </div>
                   )}
-                  
+
                   <p className="panel-description">
                     Configure filters to search for LinkedIn profiles. The system will search up to 10,000 leads using multiple query combinations.
                   </p>
-                  
+
                   <div className="form-group">
                     <label>Designation / Title (multiple, comma-separated)</label>
                     <input
@@ -714,7 +810,7 @@ function AIDatabase() {
                     />
                     <small className="form-hint">Enter job titles separated by commas</small>
                   </div>
-                  
+
                   <div className="form-row">
                     <div className="form-group">
                       <label>Countries / Regions (select multiple)</label>
@@ -738,7 +834,7 @@ function AIDatabase() {
                       </div>
                       <small className="selected-count">{webSearchCountries.length} selected</small>
                     </div>
-                    
+
                     <div className="form-group">
                       <label>Seniority Levels (select multiple)</label>
                       <div className="checkbox-grid">
@@ -762,7 +858,7 @@ function AIDatabase() {
                       <small className="selected-count">{webSearchSeniorities.length} selected</small>
                     </div>
                   </div>
-                  
+
                   <div className="form-row">
                     <div className="form-group">
                       <label>Industry / Vertical (optional)</label>
@@ -775,7 +871,7 @@ function AIDatabase() {
                       />
                       <small className="form-hint">Enter industries separated by commas. Leave empty to search all.</small>
                     </div>
-                    
+
                     <div className="form-group">
                       <label>Additional Criteria (optional)</label>
                       <input
@@ -788,26 +884,39 @@ function AIDatabase() {
                       <small className="form-hint">Add any extra keywords to refine your search</small>
                     </div>
                   </div>
-                  
+
+                  {/* Search Progress */}
+                  {webSearchProgress && (
+                    <div className={`search-progress-bar ${webSearchProgress.status}`}>
+                      <span className="progress-icon">{webSearchProgress.status === "complete" ? "✅" : "🔍"}</span>
+                      <span className="progress-text">
+                        {webSearchProgress.status === "searching"
+                          ? `Searching... Found ${webSearchProgress.found} leads so far`
+                          : `Complete! Found ${webSearchProgress.found} leads`}
+                      </span>
+                    </div>
+                  )}
+
                   <div className="panel-actions">
                     <button className="btn-cancel" onClick={() => setShowImportPanel(false)}>Cancel</button>
-                    <button 
+                    <button
                       className="btn-import"
-                      onClick={() => navigate("/admin/sales/campaign/ai-leads/manage")}
+                      onClick={handleWebSearch}
+                      disabled={discovering || !webSearchDesignation.trim()}
                     >
-                      ⭐ Import Leads
+                      {discovering ? "🔍 Searching..." : "⭐ Import Leads"}
                     </button>
                   </div>
                 </div>
               )}
-              
+
               {/* CSV Upload Panel */}
               {importMethod === "csv" && (
                 <div className="import-panel-content">
                   <p className="panel-description">
                     Upload a CSV file with your leads. Required field: Email. Optional: Name, Company, Title, etc.
                   </p>
-                  
+
                   {csvImportStep === 1 && (
                     <div className="csv-upload-area">
                       <input
@@ -817,7 +926,7 @@ function AIDatabase() {
                         onChange={handleCsvUpload}
                         style={{ display: "none" }}
                       />
-                      <div 
+                      <div
                         className="upload-dropzone"
                         onClick={() => fileInputRef.current?.click()}
                       >
@@ -827,7 +936,7 @@ function AIDatabase() {
                       </div>
                     </div>
                   )}
-                  
+
                   {csvImportStep === 2 && csvColumns.length > 0 && (
                     <div className="csv-mapping">
                       <h4>Map CSV Columns to Fields</h4>
@@ -853,7 +962,7 @@ function AIDatabase() {
                       </div>
                     </div>
                   )}
-                  
+
                   {csvImportStep === 3 && (
                     <div className="csv-preview">
                       <h4>Preview ({csvData.length} rows)</h4>
@@ -879,8 +988,8 @@ function AIDatabase() {
                       </div>
                       <div className="panel-actions">
                         <button className="btn-cancel" onClick={() => setCsvImportStep(2)}>Back</button>
-                        <button 
-                          className="btn-import" 
+                        <button
+                          className="btn-import"
                           disabled={csvImporting}
                           onClick={handleCsvImport}
                         >
@@ -889,7 +998,7 @@ function AIDatabase() {
                       </div>
                     </div>
                   )}
-                  
+
                   {csvImportStep === 1 && (
                     <div className="panel-actions">
                       <button className="btn-cancel" onClick={() => setShowImportPanel(false)}>Cancel</button>
@@ -897,19 +1006,19 @@ function AIDatabase() {
                   )}
                 </div>
               )}
-              
+
               {/* Gmail Import Panel */}
               {importMethod === "gmail" && (
                 <div className="import-panel-content">
                   <p className="panel-description">
                     Import contacts from your Gmail accounts. Select accounts and configure import options.
                   </p>
-                  
+
                   {gmailAccounts.length === 0 ? (
                     <div className="empty-state">
                       <span>📧</span>
                       <p>No Gmail accounts connected.</p>
-                      <button 
+                      <button
                         className="btn-secondary"
                         onClick={() => navigate("/admin/settings")}
                       >
@@ -937,7 +1046,7 @@ function AIDatabase() {
                           </label>
                         ))}
                       </div>
-                      
+
                       <div className="form-group">
                         <label>Max emails to scan</label>
                         <input
@@ -949,10 +1058,10 @@ function AIDatabase() {
                           className="form-input"
                         />
                       </div>
-                      
+
                       <div className="panel-actions">
                         <button className="btn-cancel" onClick={() => setShowImportPanel(false)}>Cancel</button>
-                        <button 
+                        <button
                           className="btn-import"
                           disabled={gmailImporting || selectedGmailAccounts.length === 0}
                           onClick={handleGmailImport}
@@ -1004,19 +1113,19 @@ function AIDatabase() {
 
         {/* Tabs */}
         <div className="workbooks-tabs">
-          <button 
+          <button
             className={`tab-btn ${activeTab === "all" ? "active" : ""}`}
             onClick={() => setActiveTab("all")}
           >
             All files
           </button>
-          <button 
+          <button
             className={`tab-btn ${activeTab === "recents" ? "active" : ""}`}
             onClick={() => setActiveTab("recents")}
           >
             Recents
           </button>
-          <button 
+          <button
             className={`tab-btn ${activeTab === "favorites" ? "active" : ""}`}
             onClick={() => setActiveTab("favorites")}
           >
@@ -1095,7 +1204,7 @@ function AIDatabase() {
                         <span className="file-name">{workbook.name}</span>
                       </td>
                       <td>
-                        <button 
+                        <button
                           className={`favorite-btn ${workbook.is_favorite ? "active" : ""}`}
                           onClick={() => toggleFavorite(workbook._id)}
                         >
@@ -1137,7 +1246,7 @@ function AIDatabase() {
               </h2>
               <button className="modal-close" onClick={closeModal}>×</button>
             </div>
-            
+
             <div className="modal-body">
               {modalType === "people" && (
                 <>
@@ -1180,7 +1289,7 @@ function AIDatabase() {
                   </div>
                 </>
               )}
-              
+
               {modalType === "companies" && (
                 <>
                   <div className="form-group">
@@ -1213,7 +1322,7 @@ function AIDatabase() {
                   </div>
                 </>
               )}
-              
+
               {modalType === "local" && (
                 <>
                   <div className="form-group">
@@ -1260,7 +1369,7 @@ function AIDatabase() {
                         onChange={(e) => handleCsvFileSelect(e.target.files[0])}
                         style={{ display: "none" }}
                       />
-                      <button 
+                      <button
                         className="upload-btn"
                         onClick={() => fileInputRef.current?.click()}
                       >
@@ -1269,7 +1378,7 @@ function AIDatabase() {
                       <p className="form-hint">Upload a CSV file with lead data (email required)</p>
                     </div>
                   )}
-                  
+
                   {csvImportStep === 2 && (
                     <>
                       <div className="csv-file-info">
@@ -1345,43 +1454,43 @@ function AIDatabase() {
                   {gmailImportProgress && (
                     <div className="import-progress">
                       <div className="progress-bar">
-                        <div 
-                          className="progress-fill" 
+                        <div
+                          className="progress-fill"
                           style={{ width: `${gmailImportProgress.progress}%` }}
                         />
                       </div>
-                      <p>{gmailImportProgress.status === "complete" 
-                        ? `✓ Extracted ${gmailImportProgress.extracted} leads` 
+                      <p>{gmailImportProgress.status === "complete"
+                        ? `✓ Extracted ${gmailImportProgress.extracted} leads`
                         : "Extracting leads..."}</p>
                     </div>
                   )}
                 </>
               )}
             </div>
-            
+
             <div className="modal-footer">
               <button className="btn-secondary" onClick={closeModal}>
                 Cancel
               </button>
               {modalType === "csv" ? (
-                <button 
-                  className="btn-primary" 
+                <button
+                  className="btn-primary"
                   onClick={handleCsvImport}
                   disabled={csvImporting || csvImportStep === 1 || !columnMapping.email}
                 >
                   {csvImporting ? "Importing..." : "📥 Import Leads"}
                 </button>
               ) : modalType === "gmail" ? (
-                <button 
-                  className="btn-primary" 
+                <button
+                  className="btn-primary"
                   onClick={handleGmailImport}
                   disabled={gmailImporting || gmailAccounts.length === 0}
                 >
                   {gmailImporting ? "Extracting..." : "📧 Extract Leads"}
                 </button>
               ) : (
-                <button 
-                  className="btn-primary" 
+                <button
+                  className="btn-primary"
                   onClick={handleDiscovery}
                   disabled={discovering}
                 >

@@ -392,6 +392,10 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
     if filters.seniority_level:
         query["seniority_level"] = filters.seniority_level.value
     
+    if filters.lead_bracket:
+        if filters.lead_bracket in ('lead', 'contact', 'account'):
+            query["lead_bracket"] = filters.lead_bracket
+    
     if filters.department:
         query["department"] = filters.department.value
     

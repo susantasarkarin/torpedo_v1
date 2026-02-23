@@ -144,6 +144,26 @@ class SendingEngine:
             
             # Get or assign mailbox (STICKY)
             mailbox_id = lead.get("assigned_mailbox_id")
+            
+            # Cold email routing override: route based on service type
+            if not mailbox_id:
+                try:
+                    from .cold_email_router import get_sender_for_lead
+                    routed_email, routed_name, service_type = get_sender_for_lead(
+                        lead, campaign
+                    )
+                    # Find matching mailbox by email address
+                    routed_mailbox = self.mailbox_manager.get_mailbox_by_email(routed_email)
+                    if routed_mailbox:
+                        mailbox_id = routed_mailbox.get("mailbox_id")
+                        logger.info(
+                            f"Cold email routing: {lead.get('email')} → "
+                            f"{routed_email} (service={service_type})"
+                        )
+                except Exception as e:
+                    logger.warning(f"Cold email routing failed, falling back to default: {e}")
+            
+            # Default mailbox assignment if routing didn't provide one
             if not mailbox_id:
                 mailbox_id, msg = self.mailbox_manager.assign_mailbox_to_lead(
                     lead_id,

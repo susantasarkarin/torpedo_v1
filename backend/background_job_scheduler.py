@@ -265,6 +265,129 @@ async def reset_error_tracking():
         logger.error(f"[Scheduler] Error in reset_error_tracking: {e}")
 
 
+async def background_enrich_leads():
+    """
+    Low-priority background job to enrich leads that need enrichment.
+    Runs every 30 minutes, processes a small batch (10 leads) to avoid
+    competing with higher-priority real-time operations.
+    """
+    try:
+        leads_raw = db["leads_raw"]
+        
+        # Find leads that need enrichment, oldest first
+        pending_leads = list(leads_raw.find(
+            {
+                "enrichment_status": {"$in": ["needed", "pending"]},
+                # Don't re-process recently failed ones
+                "$or": [
+                    {"last_enrichment_attempt": {"$exists": False}},
+                    {"last_enrichment_attempt": {"$lt": datetime.utcnow() - timedelta(hours=6)}}
+                ]
+            }
+        ).sort("created_at", 1).limit(10))  # Small batch, oldest first
+        
+        if not pending_leads:
+            logger.debug("[Enrichment] No leads pending enrichment")
+            return
+        
+        logger.info(f"[Enrichment] Processing {len(pending_leads)} leads for low-priority enrichment")
+        
+        enriched_count = 0
+        error_count = 0
+        
+        for lead in pending_leads:
+            try:
+                lead_id = str(lead['_id'])
+                email = lead.get('email', 'unknown')
+                
+                # Try to enrich using web search
+                try:
+                    from leads.web_search_enrichment import enrich_company_with_websearch
+                    
+                    # Build context from available lead data
+                    company = lead.get('company') or lead.get('company_name') or lead.get('company_domain', '')
+                    if not company:
+                        # Can't enrich without company info - mark as skipped
+                        leads_raw.update_one(
+                            {'_id': lead['_id']},
+                            {'$set': {
+                                'enrichment_status': 'skipped',
+                                'last_enrichment_attempt': datetime.utcnow()
+                            }}
+                        )
+                        continue
+                    
+                    context = f"Contact: {lead.get('name', '')} | Title: {lead.get('title', '')} | Email: {email}"
+                    result = await asyncio.to_thread(
+                        enrich_company_with_websearch,
+                        company,
+                        additional_context=context
+                    )
+                    
+                    if result:
+                        # Merge enrichment results back to the lead
+                        update_fields = {
+                            'enrichment_status': 'enriched',
+                            'enriched_at': datetime.utcnow(),
+                            'enrichment_source': 'openai_websearch',
+                            'last_enrichment_attempt': datetime.utcnow(),
+                        }
+                        
+                        # Copy enrichment fields
+                        enrichment_fields = [
+                            'company_name', 'company_domain', 'company_website',
+                            'company_employee_count', 'company_industry', 'company_type',
+                            'company_headquarters', 'company_revenue_range',
+                            'title', 'linkedin_url', 'location', 'phone'
+                        ]
+                        for field in enrichment_fields:
+                            if result.get(field) and not lead.get(field):
+                                update_fields[field] = result[field]
+                        
+                        # Recalculate lead bracket after enrichment
+                        merged = {**lead, **update_fields}
+                        from leads.canonical_ingestion import determine_lead_bracket
+                        update_fields['lead_bracket'] = determine_lead_bracket(merged)
+                        
+                        leads_raw.update_one(
+                            {'_id': lead['_id']},
+                            {'$set': update_fields}
+                        )
+                        enriched_count += 1
+                    else:
+                        # Mark as attempted so we don't retry too soon
+                        leads_raw.update_one(
+                            {'_id': lead['_id']},
+                            {'$set': {
+                                'last_enrichment_attempt': datetime.utcnow(),
+                                'enrichment_status': 'no_data'
+                            }}
+                        )
+                except ImportError:
+                    logger.warning("[Enrichment] web_search_enrichment module not available")
+                    return
+                    
+            except Exception as e:
+                error_count += 1
+                logger.error(f"[Enrichment] Error enriching lead {lead.get('email', '?')}: {e}")
+                # Mark the attempt
+                leads_raw.update_one(
+                    {'_id': lead['_id']},
+                    {'$set': {
+                        'last_enrichment_attempt': datetime.utcnow(),
+                        'enrichment_status': 'error'
+                    }}
+                )
+            
+            # Throttle between leads (2 second delay for low-priority)
+            await asyncio.sleep(2)
+        
+        logger.info(f"[Enrichment] Completed batch: {enriched_count} enriched, {error_count} errors")
+        
+    except Exception as e:
+        logger.error(f"[Enrichment] Error in background_enrich_leads: {e}")
+
+
 # ============== SCHEDULER INITIALIZATION ==============
 
 def initialize_scheduler(loop=None):
@@ -337,6 +460,16 @@ def initialize_scheduler(loop=None):
             logger.info("[Scheduler] Added CINT survey pool cleanup (every 5 min)")
         except Exception as e:
             logger.warning(f"[Scheduler] Could not add CINT cleanup job: {e}")
+        
+        # Low-priority lead enrichment every 30 minutes
+        scheduler.add_job(
+            background_enrich_leads,
+            CronTrigger(minute="*/30"),
+            id="background_enrichment",
+            name="Low-Priority Lead Enrichment",
+            max_instances=1
+        )
+        logger.info("[Scheduler] Added low-priority lead enrichment (every 30 min)")
         
         # Start scheduler
         if not scheduler.running:

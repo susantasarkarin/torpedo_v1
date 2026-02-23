@@ -571,6 +571,7 @@ class LeadFilterParams(BaseModel):
     min_confidence: Optional[float] = None
     status: Optional[ClassificationStatus] = None
     lead_stage: Optional[str] = None  # Filter by lead stage: ai_database, leads, contacts
+    lead_bracket: Optional[str] = None  # Filter by bracket: lead, contact, account
     source: Optional[str] = None  # Filter by source: google_search, csv_import, gmail, etc.
     search: Optional[str] = None
     page: int = 1
