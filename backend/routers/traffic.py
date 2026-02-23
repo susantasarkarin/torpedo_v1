@@ -139,7 +139,7 @@ def set_cpx_postback_logs_collection(collection: Collection):
 
 
 # ============================================
-# CINT WATERFALL HELPERS (module-level)
+# CINT FALLBACK HELPERS (module-level)
 # ============================================
 # Map 2-letter country code to CINT CountryLanguageID
 CINT_COUNTRY_LANGUAGE_MAP = {
@@ -403,7 +403,7 @@ async def create_cint_entry_link(survey_id: str, traffic_id: str, user_email: st
     }
     
     # Callback URLs with [%PID%] placeholder — CINT replaces with our hashed PID
-    # DefaultLink: where CINT sends respondent on survey error/closed — redirect back to us for waterfall
+    # DefaultLink: where CINT sends respondent on survey error/closed — terminates back to us
     callback_base = CINT_CALLBACK_BASE
     create_payload = {
         "SupplierLinkTypeCode": "OWS",
@@ -519,77 +519,64 @@ async def create_cint_entry_link(survey_id: str, traffic_id: str, user_email: st
         return ""
 
 
-async def get_next_cint_waterfall_link(traffic_record: dict, traffic_id: str) -> dict:
+async def get_random_cint_fallback_link(traffic_record: dict, traffic_id: str) -> dict:
     """
-    Try to get the next CINT survey link in the waterfall (Asynchronous).
-    Limits to 5 attempts as requested.
+    Pick ONE random CINT survey that fits the respondent's country and create an entry link.
     
-    Returns: {"survey_id": str, "entry_link": str, "attempt": int} or None
+    This replaces the old waterfall logic (which tried up to 5 surveys sequentially).
+    Now we simply pick a random survey from the offerwall, create an entry link,
+    and if it fails we give up and redirect to the vendor terminate URL.
+    
+    Returns: {"survey_id": str, "entry_link": str} or None
     """
-    candidates = traffic_record.get("cintCandidateIds", [])
-    tried = traffic_record.get("cintTriedSurveyIds", [])
-    attempt_count = traffic_record.get("cintAttemptCount", 0)
-    
-    # LIMIT: Try at most 5 different surveys as requested
-    MAX_CINT_ATTEMPTS = 5
-    
-    if attempt_count >= MAX_CINT_ATTEMPTS:
-        print(f"   ⚠️ CINT waterfall: Max attempts ({MAX_CINT_ATTEMPTS}) reached for SFWID={traffic_id}")
-        return None
-    
-    # Find untried candidates
-    untried = [c for c in candidates if c not in tried]
-    
-    if not untried:
-        print(f"   ⚠️ CINT waterfall: No untried candidates left (tried={len(tried)}, total={len(candidates)})")
-        return None
-    
-    # Sequential attempts (max 5) - optimized for high traffic
-    # We try at most (MAX_CINT_ATTEMPTS - current_attempt) candidates in this run
-    remaining_attempts = MAX_CINT_ATTEMPTS - attempt_count
-    
+    country_code = traffic_record.get("countryCode", "")
     user_email = traffic_record.get("email", "")
-    for survey_id in untried[:remaining_attempts]:
+    
+    try:
+        # Fetch live candidates from the CINT offerwall (uses cache when available)
+        candidates = await fetch_cint_offerwall_candidates(country_code, limit=50)
+        
+        if not candidates:
+            print(f"   ⚠️ CINT fallback: No candidates available for country={country_code}")
+            return None
+        
+        # Pick one at random (candidates are already shuffled by fetch_cint_offerwall_candidates)
+        survey_id = random.choice(candidates)
+        print(f"   🎲 CINT fallback: Randomly selected survey {survey_id} from {len(candidates)} candidates")
+        
+        # Try to create entry link for this survey
         entry_link = await create_cint_entry_link(survey_id, traffic_id, user_email=user_email)
         
-        if entry_link:
-            new_attempt = attempt_count + 1
-            new_tried = tried + [survey_id]
-            
-            # Update traffic record asynchronously
-            async_url_collection = get_async_url_parameters_collection()
-            hashed_pid = hashlib.sha256(traffic_id.encode()).hexdigest()
-            await async_url_collection.update_one(
-                {"_id": ObjectId(traffic_id)},
-                {"$set": {
-                    "cintAttemptCount": new_attempt,
-                    "cintTriedSurveyIds": new_tried,
-                    "currentCintSurveyId": survey_id,
-                    "currentCintLink": entry_link,
-                    "cint_hashed_pid": hashed_pid,
-                    "status": f"CINT_WATERFALL_{new_attempt}",
-                    "updatedAt": datetime.utcnow().isoformat()
-                }}
-            )
-            
-            print(f"   ✅ CINT waterfall SUCCESS attempt #{new_attempt}: survey {survey_id}")
-            return {
-                "survey_id": survey_id,
-                "entry_link": entry_link,
-                "attempt": new_attempt
-            }
-        else:
-            # Mark as tried even if failed (to avoid re-trying 404s)
-            attempt_count += 1
-            tried.append(survey_id)
-            
-            if attempt_count >= MAX_CINT_ATTEMPTS:
-                print(f"   🛑 CINT waterfall: Reached limit of {MAX_CINT_ATTEMPTS} attempts")
-                break
-    
-    # All candidates failed (exhausted 5 attempts)
-    print(f"   ❌ CINT waterfall: All candidates failed or 404'd after {attempt_count} attempts")
-    return None
+        if not entry_link:
+            print(f"   ❌ CINT fallback: Failed to create entry link for survey {survey_id}")
+            return None
+        
+        # Update traffic record with CINT fallback info
+        async_url_collection = get_async_url_parameters_collection()
+        hashed_pid = hashlib.sha256(traffic_id.encode()).hexdigest()
+        await async_url_collection.update_one(
+            {"_id": ObjectId(traffic_id)},
+            {"$set": {
+                "currentCintSurveyId": survey_id,
+                "currentCintLink": entry_link,
+                "cint_hashed_pid": hashed_pid,
+                "status": "CPX_TERMINATED_CINT_FALLBACK",
+                "surveySource": "CINT_FALLBACK",
+                "updatedAt": datetime.utcnow().isoformat()
+            }}
+        )
+        
+        print(f"   ✅ CINT fallback SUCCESS: survey {survey_id}")
+        return {
+            "survey_id": survey_id,
+            "entry_link": entry_link,
+        }
+        
+    except Exception as e:
+        print(f"   ❌ CINT fallback error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 
 # ============================================
@@ -865,14 +852,7 @@ async def cint_callback(
             print(f"✅ Cint COMPLETE (ASYNC): Redirecting to {redirect_url}")
             return RedirectResponse(url=redirect_url)
         
-        # TERMINATED: CINT waterfall temporarily disabled
-        # TODO: Re-enable once cint_hashed_pid lookup is confirmed stable
-        # cint_result = await get_next_cint_waterfall_link(traffic_record, str(traffic_record["_id"]))
-        # if cint_result:
-        #     print(f"✅ CINT waterfall #{cint_result['attempt']}: Redirecting to survey {cint_result['survey_id']}")
-        #     return RedirectResponse(url=cint_result["entry_link"])
-        
-        # No more waterfall options - redirect to vendor terminate URL
+        # TERMINATED from Cint: redirect to vendor terminate URL
         redirect_url = f"{FRONTEND_URL}/survey-error"
         if vendor_id:
             async_vendors_col = get_async_vendors_collection()
@@ -884,7 +864,7 @@ async def cint_callback(
             separator = "&" if "?" in redirect_url else "?"
             redirect_url = f"{redirect_url}{separator}id={respondent_id}"
         
-        print(f"✅ Cint waterfall exhausted, redirecting to {redirect_url}")
+        print(f"✅ Cint terminated, redirecting to {redirect_url}")
         return RedirectResponse(url=redirect_url)
         
     except Exception as e:
@@ -1085,16 +1065,18 @@ async def cpx_callback(
             else:
                 return RedirectResponse(url=f"{FRONTEND_URL}/thankyou")
         else:
-            # TERMINATED: CINT waterfall temporarily disabled
-            # TODO: Re-enable once cint_hashed_pid lookup is confirmed stable
-            # cint_result = await get_next_cint_waterfall_link(traffic_record, traffic_id)
-            # if cint_result:
-            #     print(f"✅ CINT waterfall success redirect: {cint_result['survey_id']}")
-            #     return RedirectResponse(url=cint_result["entry_link"])
+            # CPX TERMINATED: Try to redirect to a random CINT survey as fallback
+            try:
+                cint_result = await get_random_cint_fallback_link(traffic_record, traffic_id)
+                if cint_result:
+                    print(f"✅ CINT fallback: Redirecting CPX-terminated user to Cint survey {cint_result['survey_id']}")
+                    return RedirectResponse(url=cint_result["entry_link"])
+            except Exception as cint_err:
+                print(f"⚠️ CINT fallback failed: {cint_err}")
             
-            # Go straight to vendor terminate link
+            # CINT fallback failed — redirect to vendor terminate URL
             if vendor_redirect_url:
-                print(f"➡️ CPX terminated: Redirecting to vendor terminate (CINT waterfall disabled): {vendor_redirect_url}")
+                print(f"➡️ CPX terminated, CINT fallback failed: Redirecting to vendor terminate: {vendor_redirect_url}")
                 return RedirectResponse(url=vendor_redirect_url)
             else:
                 return RedirectResponse(url=ZOHO_TERMINATE_URL)
@@ -1594,7 +1576,6 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         actual_provider = "CINT"
                         
                         # Update traffic record asynchronously
-                        remaining = [c for c in candidates if c != sid]
                         async_url_collection = get_async_url_parameters_collection()
                         hashed_pid = hashlib.sha256(traffic_id.encode()).hexdigest()
                         await async_url_collection.update_one(
@@ -1605,9 +1586,6 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 "redirectUrl": entry_link,
                                 "surveySource": "CINT",
                                 "currentCintSurveyId": survey_id,
-                                "cintCandidateIds": remaining,
-                                "cintAttemptCount": 1,
-                                "cintTriedSurveyIds": [sid],
                                 "cint_hashed_pid": hashed_pid,
                                 "updatedAt": datetime.utcnow().isoformat(),
                             }}
@@ -1621,32 +1599,15 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 print(f"⚠️ CINT async allocation error: {e}")
                 return False
         
-        # ============================================
-        # HELPER: Fetch CINT Candidates from Offerwall API
-        # ============================================
-        async def get_cint_candidates():
-            """
-            Fetch live CINT survey candidates from the offerwall API.
-            Returns list of survey_id strings for this country.
-            """
-            print(f"   📦 CINT CANDIDATE SELECTION: Fetching from offerwall API for country_code={country_code}")
-            candidates = await fetch_cint_offerwall_candidates(country_code, limit=50)
-            print(f"📦 Got {len(candidates)} CINT candidate survey IDs from offerwall")
-            return candidates
         
         # ============================================
         # MAIN ALLOCATION LOGIC: CPX first
         # ============================================
-        # Strategy (as requested):
+        # Strategy:
         # 1. Try CPX first for primary survey
-        # 2. Pre-fetch CINT backup surveys but DON'T attempt allocation yet
-        # 3. Store backups for waterfall on terminate
+        # 2. If CPX terminates later, a random CINT survey is picked at callback time
+        # (No pre-fetching or waterfall — CINT fallback is done on-demand)
         actual_provider = None
-        cint_candidate_ids = []
-        
-        # Pre-fetch CINT candidates for future waterfall (low overhead, ensures we have them ready)
-        if vendor_id and country_code:
-            cint_candidate_ids = await get_cint_candidates()
         
         # Skip allocation only for critical errors (invalid IP)
         if allocation_error:
@@ -1655,22 +1616,6 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             # Try CPX (primary)
             print("🔄 Trying CPX (primary)...")
             cpx_success = await try_cpx_allocation()
-            
-            # Store candidate IDs in traffic record for waterfall on CPX terminate
-            if cint_candidate_ids and traffic_id:
-                try:
-                    await get_async_url_parameters_collection().update_one(
-                        {"_id": ObjectId(traffic_id)},
-                        {"$set": {
-                            "cintCandidateIds": cint_candidate_ids,
-                            "cintAttemptCount": 0,
-                            "cintTriedSurveyIds": [],
-                            "updatedAt": datetime.utcnow().isoformat()
-                        }}
-                    )
-                    print(f"💾 Stored {len(cint_candidate_ids)} CINT candidate IDs for waterfall")
-                except Exception as cint_update_err:
-                    print(f"⚠️ Failed to store CINT candidates (non-fatal): {cint_update_err}")
 
             if not cpx_success:
                 # If CPX fails (no surveys), we DON'T try CINT here as requested by "RID is changed to SFWID... entry link for CPX created"

@@ -679,8 +679,7 @@ class TrafficService:
             elif "incomplete" in status_lower:
                 # Incomplete - match incomplete and merged statuses
                 return ["incomplete", "INCOMPLETE", 
-                       "CPX_TERMINATED_CINT_FALLBACK", "CINT_WATERFALL_1", "CINT_WATERFALL_2",
-                       "CINT_WATERFALL_3", "CINT_WATERFALL_4", "CINT_WATERFALL_5",
+                       "CPX_TERMINATED_CINT_FALLBACK",
                        "CPX_FALLBACK", "fallback", "FALLBACK"]
             elif "terminate" in status_lower:
                 # Terminate - match all termination statuses
