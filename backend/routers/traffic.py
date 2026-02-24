@@ -871,38 +871,78 @@ async def cint_callback(
             {"$set": update_fields}
         )
         
+        # Helper: resolve vendor from vendor_id (try int and string variants)
+        async def _get_vendor(vid):
+            async_vendors_col = get_async_vendors_collection()
+            v = await async_vendors_col.find_one({"vid": vid})
+            if not v and isinstance(vid, str) and vid.isdigit():
+                v = await async_vendors_col.find_one({"vid": int(vid)})
+            if not v and isinstance(vid, int):
+                v = await async_vendors_col.find_one({"vid": str(vid)})
+            return v
+
+        def _extract_redirect_url(vendor_doc, field: str, fallback: str, respondent_id_val: str) -> str:
+            """Extract redirect URL from a vendor's list field and append respondent ID."""
+            urls = vendor_doc.get(field, [])
+            vendor_variable = vendor_doc.get("vendorVariable", "id")
+            # completeRD / terminateRD are stored as lists; take first non-empty entry
+            if isinstance(urls, list):
+                base_url = next((u.strip() for u in urls if u and u.strip()), None)
+            elif isinstance(urls, str) and urls.strip():
+                base_url = urls.strip()
+            else:
+                base_url = None
+
+            if not base_url:
+                base_url = fallback
+
+            if respondent_id_val:
+                if base_url.endswith(f"&{vendor_variable}=") or base_url.endswith(f"?{vendor_variable}="):
+                    return f"{base_url}{respondent_id_val}"
+                elif f"&{vendor_variable}=" in base_url or f"?{vendor_variable}=" in base_url:
+                    separator = "&" if "?" in base_url else "?"
+                    return f"{base_url}{separator}{vendor_variable}={respondent_id_val}"
+                else:
+                    separator = "&" if "?" in base_url else "?"
+                    return f"{base_url}{separator}{vendor_variable}={respondent_id_val}"
+            return base_url
+
         # If COMPLETE, redirect to vendor complete URL
         if new_status == "COMPLETE":
             redirect_url = f"{FRONTEND_URL}/thankyou"
             if vendor_id:
-                async_vendors_col = get_async_vendors_collection()
-                vendor = await async_vendors_col.find_one({"vid": vendor_id})
+                vendor = await _get_vendor(vendor_id)
                 if vendor:
-                    redirect_url = vendor.get("completeRD", redirect_url)
-            
-            # Append respondent ID
-            if respondent_id:
+                    redirect_url = _extract_redirect_url(vendor, "completeRD", redirect_url, respondent_id)
+                else:
+                    # No vendor found — still append respondent ID to fallback
+                    if respondent_id:
+                        separator = "&" if "?" in redirect_url else "?"
+                        redirect_url = f"{redirect_url}{separator}id={respondent_id}"
+            elif respondent_id:
                 separator = "&" if "?" in redirect_url else "?"
                 redirect_url = f"{redirect_url}{separator}id={respondent_id}"
-            
+
             print(f"✅ Cint COMPLETE (ASYNC): Redirecting to {redirect_url}")
             return RedirectResponse(url=redirect_url)
-        
-        # TERMINATED from Cint: redirect to vendor terminate URL
+
+        # TERMINATED / OVERQUOTA / QUALITY_TERM from Cint: redirect to vendor terminate URL
         redirect_url = f"{FRONTEND_URL}/survey-error"
         if vendor_id:
-            async_vendors_col = get_async_vendors_collection()
-            vendor = await async_vendors_col.find_one({"vid": vendor_id})
+            vendor = await _get_vendor(vendor_id)
             if vendor:
-                redirect_url = vendor.get("terminateRD", redirect_url)
-        
-        if respondent_id:
+                redirect_url = _extract_redirect_url(vendor, "terminateRD", redirect_url, respondent_id)
+            else:
+                if respondent_id:
+                    separator = "&" if "?" in redirect_url else "?"
+                    redirect_url = f"{redirect_url}{separator}id={respondent_id}"
+        elif respondent_id:
             separator = "&" if "?" in redirect_url else "?"
             redirect_url = f"{redirect_url}{separator}id={respondent_id}"
-        
-        print(f"✅ Cint terminated, redirecting to {redirect_url}")
+
+        print(f"✅ Cint {new_status}, redirecting to {redirect_url}")
         return RedirectResponse(url=redirect_url)
-        
+
     except Exception as e:
         print(f"❌ Cint callback error: {e}")
         import traceback
