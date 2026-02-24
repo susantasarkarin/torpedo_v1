@@ -347,15 +347,19 @@ def _build_cint_entry_link(live_link: str, hashed_pid: str, mid: str, user_email
     if email_hash:
         url_no_hash += f"&cint_email={email_hash}"
 
+    # Add trailing & before hashing as per Cint requirements
+    url_to_hash = url_no_hash + "&"
+
     # --- Hash signature (REQUIRED, must be last) ---
     if secret_key:
         sig = hmac.new(
             secret_key.encode("utf-8"),
-            url_no_hash.encode("utf-8"),
+            url_to_hash.encode("utf-8"),
             hashlib.sha1
         ).digest()
-        hash_value = base64.b64encode(sig).decode("utf-8")
-        entry_url = f"{url_no_hash}&hash={hash_value}"
+        # Use URL-safe Base64 without padding as per Cint documentation
+        hash_value = base64.urlsafe_b64encode(sig).decode("utf-8").rstrip("=")
+        entry_url = f"{url_to_hash}hash={hash_value}"
     else:
         entry_url = url_no_hash
 

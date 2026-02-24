@@ -17,6 +17,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
 from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
 import logging
+import base64
 from pymongo import MongoClient
 from pymongo.collection import Collection
 
@@ -1400,7 +1401,25 @@ class CintService:
         # Add any additional parameters
         query_params.update(additional_params)
 
-        entry_url = urlunparse(parsed._replace(query=urlencode(query_params)))
+        query_string = urlencode(query_params)
+        url_no_hash = urlunparse(parsed._replace(query=query_string))
+        
+        # Add trailing & before hashing as per Cint requirements
+        url_to_hash = url_no_hash + "&"
+
+        # --- Hash signature (REQUIRED, must be last) ---
+        secret_key = os.getenv("CINT_WEBHOOK_SECRET", "")
+        if secret_key:
+            sig = hmac.new(
+                secret_key.encode("utf-8"),
+                url_to_hash.encode("utf-8"),
+                hashlib.sha1
+            ).digest()
+            # Use URL-safe Base64 without padding as per Cint documentation
+            hash_value = base64.urlsafe_b64encode(sig).decode("utf-8").rstrip("=")
+            entry_url = f"{url_to_hash}hash={hash_value}"
+        else:
+            entry_url = url_no_hash
         
         # Validate length (Cint requires < 1999 characters)
         if len(entry_url) >= 1999:
