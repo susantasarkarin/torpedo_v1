@@ -761,20 +761,34 @@ async def cint_callback(
     status: str = Query(..., description="Response status: complete, terminate, quota_full, quality_terminate"),
     pid: str = Query(None, description="Participant ID (traffic record ID) - PRIMARY identifier"),
     mid: str = Query(None, description="Cint session ID (MID) - for logging only"),
-    revenue: str = Query(None, description="Revenue/payout amount")
+    revenue: str = Query(None, description="Revenue/payout amount"),
+    rpi: str = Query(None, description="Revenue per interview (appended by Cint)"),
+    survey_id: str = Query(None, description="Cint survey number [%RSFN%]"),
+    marketplace_status: str = Query(None, description="Cint marketplace status [%InitialStatus%]"),
+    client_status: str = Query(None, description="Cint client status [%ClientStatus%]"),
+    termed_qualification_id: str = Query(None, description="Qualification ID that caused termination"),
+    termed_quota_id: str = Query(None, description="Quota ID that caused termination"),
+    reason: str = Query(None, description="Termination reason (e.g. default_link)"),
 ):
     """
     Cint Survey Callback Handler
     
     URL format: /cint-response?status={status}&pid={pid}&mid={mid}&revenue={revenue}
     
-    - status: complete, terminate, quota_full, quality_terminate
-    - pid: The Participant ID (traffic record _id) - PRIMARY identifier for finding the record
-    - mid: The Cint session ID (MID) - for logging/debugging only
-    - revenue: The payout amount (REVENUE placeholder replaced by Cint)
+    Cint appends additional tracking parameters via Supplier Redirect template:
+    - survey_id: [%RSFN%] — Cint survey number
+    - marketplace_status: [%InitialStatus%] — Cint's initial marketplace status
+    - client_status: [%ClientStatus%] — Client-side status
+    - termed_qualification_id: [%TermedQualificationID%] — Qual that caused term
+    - termed_quota_id: [%TermedQuotaID%] — Quota that caused term
+    - rpi: [%REVENUE%] — Revenue per interview (duplicate of revenue)
+    - Demographic data (42=AGE, 43=GENDER, etc.) — captured in full query string
     """
     try:
         print(f"📥 Cint Callback received: status={status}, pid={pid}, mid={mid}, revenue={revenue}")
+        print(f"   📊 Cint extras: survey_id={survey_id}, marketplace_status={marketplace_status}, client_status={client_status}")
+        if termed_qualification_id or termed_quota_id:
+            print(f"   🚫 Termination reason: qual_id={termed_qualification_id}, quota_id={termed_quota_id}")
         
         # Map Cint status to internal status
         status_mapping = {
@@ -827,17 +841,34 @@ async def cint_callback(
         vendor_id = traffic_record.get("vendorId")
         respondent_id = traffic_record.get("respondentId", "")
         
+        # Build update with core fields + Cint-appended tracking data
+        update_fields = {
+            "status": new_status,
+            "cint_mid": mid,
+            "cint_revenue": revenue or rpi,  # Use rpi as fallback
+            "cintCallbackUrl": str(request.url),
+            "updatedAt": datetime.utcnow(),
+            "completedAt": datetime.utcnow() if new_status == "COMPLETE" else None,
+        }
+        
+        # Store Cint-appended tracking data (from Supplier Redirect template)
+        if survey_id:
+            update_fields["cint_survey_id"] = survey_id
+        if marketplace_status:
+            update_fields["cint_marketplace_status"] = marketplace_status
+        if client_status:
+            update_fields["cint_client_status"] = client_status
+        if termed_qualification_id:
+            update_fields["cint_termed_qualification_id"] = termed_qualification_id
+        if termed_quota_id:
+            update_fields["cint_termed_quota_id"] = termed_quota_id
+        if reason:
+            update_fields["cint_termination_reason"] = reason
+        
         # Update traffic status asynchronously
         await async_url_collection.update_one(
             {"_id": traffic_record["_id"]},
-            {"$set": {
-                "status": new_status,
-                "cint_mid": mid,
-                "cint_revenue": revenue,
-                "cintCallbackUrl": str(request.url),
-                "updatedAt": datetime.utcnow(),
-                "completedAt": datetime.utcnow() if new_status == "COMPLETE" else None
-            }}
+            {"$set": update_fields}
         )
         
         # If COMPLETE, redirect to vendor complete URL
