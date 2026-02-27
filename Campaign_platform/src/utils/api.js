@@ -237,10 +237,10 @@ const request = async (
   } = options;
 
   const url = buildUrl(endpoint, params);
-  
+
   // Generate cache key for GET requests
   const cacheKey = method === "GET" ? `${url}` : null;
-  
+
   // Check cache for GET requests
   if (method === "GET" && cache && cacheKey) {
     const cached = getCachedResponse(cacheKey);
@@ -248,12 +248,12 @@ const request = async (
       return cached;
     }
   }
-  
+
   // Deduplicate in-flight GET requests
   if (method === "GET" && cacheKey && inflightRequests.has(cacheKey)) {
     return inflightRequests.get(cacheKey);
   }
-  
+
   const requestHeaders = skipAuth
     ? { "Content-Type": "application/json", ...headers }
     : getHeaders(headers);
@@ -274,7 +274,7 @@ const request = async (
 
   let lastError;
   let attempt = 0;
-  
+
   // Create the request promise for deduplication
   const requestPromise = (async () => {
     while (attempt < retries) {
@@ -327,7 +327,7 @@ const request = async (
 
     throw lastError || new APIError("Request failed after retries", 0);
   })();
-  
+
   // Store in-flight GET requests for deduplication
   if (method === "GET" && cacheKey) {
     inflightRequests.set(cacheKey, requestPromise);
@@ -338,7 +338,7 @@ const request = async (
       inflightRequests.delete(cacheKey);
     }
   }
-  
+
   return requestPromise;
 };
 
@@ -509,9 +509,9 @@ const api = {
 
     return allItems;
   },
-  
+
   // ============== PERFORMANCE METHODS ==============
-  
+
   /**
    * Execute multiple GET requests in parallel
    * @param {Array} requests - Array of { endpoint, params, options } objects
@@ -524,7 +524,7 @@ const api = {
       )
     );
   },
-  
+
   /**
    * Execute multiple requests in parallel (any method)
    * @param {Array} requests - Array of { method, endpoint, data, options } objects
@@ -543,7 +543,7 @@ const api = {
       })
     );
   },
-  
+
   /**
    * Cached GET request (30 second TTL by default)
    * @param {string} endpoint - API endpoint
@@ -552,7 +552,7 @@ const api = {
    */
   getCached: (endpoint, params = {}, ttl = DEFAULT_CACHE_TTL) =>
     request("GET", endpoint, null, { params, cache: true, cacheTTL: ttl }),
-    
+
   /**
    * Clear response cache
    * @param {string} pattern - Optional pattern to match (clears all if null)

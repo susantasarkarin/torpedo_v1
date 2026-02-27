@@ -12,16 +12,16 @@ function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (isLoading) return
-    
+
     setIsLoading(true)
-    
+
     try {
       const response = await fetch(buildApiUrl(`/login/`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(credentials),
       })
-      
+
       const data = await response.json().catch(() => ({}))
 
       if (!response.ok) {
@@ -35,7 +35,7 @@ function Login() {
       localStorage.setItem("username", data.username)
       localStorage.setItem("role", data.role || "admin")
       localStorage.setItem("auth", "true")
-      
+
       // Use window.location for instant redirect (bypasses React Router overhead)
       window.location.href = "/admin/dashboard"
     } catch (error) {
@@ -96,16 +96,16 @@ function Login() {
         </div>
       </section>
 
-     <section className="login-right">
-  <video
-    className="video-bg"
-    src="/videos/login-hero.mp4"
-    autoPlay
-    loop
-    muted
-    playsInline
-  />
-</section>
+      <section className="login-right">
+        <video
+          className="video-bg"
+          src="/videos/login-hero.mp4"
+          autoPlay
+          loop
+          muted
+          playsInline
+        />
+      </section>
 
     </main>
   )
