@@ -78,7 +78,7 @@ function RFQ() {
       if (filters.status) params.append("status", filters.status)
       if (filters.priority) params.append("priority", filters.priority)
       
-      const url = buildApiUrl(`/rfq/?${params.toString()}`)
+      const url = buildApiUrl(`/api/rfq/?${params.toString()}`)
       const response = await fetch(url, {
         headers: { Authorization: token }
       })
@@ -111,7 +111,7 @@ function RFQ() {
   const loadStats = async () => {
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/rfq/stats`), {
+      const response = await fetch(buildApiUrl(`/api/rfq/stats`), {
         headers: { Authorization: token }
       })
       
@@ -162,8 +162,8 @@ function RFQ() {
     try {
       const token = localStorage.getItem("session_id")
       const endpoint = convertType === "estimate" 
-        ? buildApiUrl(`/rfq/${selectedRfq.rfq_id}/convert-to-estimate`)
-        : buildApiUrl(`/rfq/${selectedRfq.rfq_id}/convert-to-invoice`)
+        ? buildApiUrl(`/api/rfq/${selectedRfq.rfq_id}/convert-to-estimate`)
+        : buildApiUrl(`/api/rfq/${selectedRfq.rfq_id}/convert-to-invoice`)
       
       const body = {
         ...conversionForm,
@@ -208,7 +208,7 @@ function RFQ() {
     setSaving(true)
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/rfq/${rfqId}`), {
+      const response = await fetch(buildApiUrl(`/api/rfq/${rfqId}`), {
         method: "PUT",
         headers: { 
           Authorization: token,
@@ -240,7 +240,7 @@ function RFQ() {
   const updateRFQStatus = async (rfqId, newStatus) => {
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/rfq/${rfqId}`), {
+      const response = await fetch(buildApiUrl(`/api/rfq/${rfqId}`), {
         method: "PUT",
         headers: { 
           Authorization: token,
@@ -264,7 +264,7 @@ function RFQ() {
     
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/rfq/${rfqId}`), {
+      const response = await fetch(buildApiUrl(`/api/rfq/${rfqId}`), {
         method: "DELETE",
         headers: { Authorization: token }
       })
@@ -286,7 +286,7 @@ function RFQ() {
     
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/rfq/bulk-delete`), {
+      const response = await fetch(buildApiUrl(`/api/rfq/bulk-delete`), {
         method: "POST",
         headers: { 
           Authorization: token,
@@ -339,7 +339,7 @@ function RFQ() {
   const loadRfqDetails = async (rfqId) => {
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/rfq/${rfqId}`), {
+      const response = await fetch(buildApiUrl(`/api/rfq/${rfqId}`), {
         headers: { Authorization: token }
       })
       
@@ -360,7 +360,7 @@ function RFQ() {
       const body = {}
       body[field] = value
       
-      const response = await fetch(buildApiUrl(`/rfq/${rfqId}`), {
+      const response = await fetch(buildApiUrl(`/api/rfq/${rfqId}`), {
         method: "PUT",
         headers: { 
           Authorization: token,

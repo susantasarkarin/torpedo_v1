@@ -123,7 +123,7 @@ function ClientsPage() {
   // Fetch sales accounts for linking dropdown
   const fetchSalesAccounts = async () => {
     try {
-      const res = await fetch(buildApiUrl(`/sales/accounts`));
+      const res = await fetch(buildApiUrl(`/api/sales/accounts`));
       if (res.ok) {
         const data = await res.json();
         setSalesAccounts(data || []);
@@ -149,7 +149,7 @@ function ClientsPage() {
         // Unlink: find the current sales account and remove the link
         const currentAccountId = clientAccountLinks[clientId];
         if (currentAccountId) {
-          await fetch(buildApiUrl(`/sales/accounts/${currentAccountId}/unlink-operations-client`), {
+          await fetch(buildApiUrl(`/api/sales/accounts/${currentAccountId}/unlink-operations-client`), {
             method: "DELETE"
           });
           setClientAccountLinks(prev => {
@@ -162,13 +162,13 @@ function ClientsPage() {
         // First unlink from any previous account
         const currentAccountId = clientAccountLinks[clientId];
         if (currentAccountId && currentAccountId !== salesAccountId) {
-          await fetch(buildApiUrl(`/sales/accounts/${currentAccountId}/unlink-operations-client`), {
+          await fetch(buildApiUrl(`/api/sales/accounts/${currentAccountId}/unlink-operations-client`), {
             method: "DELETE"
           });
         }
         
         // Link to new account
-        await fetch(buildApiUrl(`/sales/accounts/${salesAccountId}/link-operations-client`), {
+        await fetch(buildApiUrl(`/api/sales/accounts/${salesAccountId}/link-operations-client`), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ client_id: clientId })

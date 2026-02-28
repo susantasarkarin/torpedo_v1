@@ -68,7 +68,7 @@ function Account() {
     }
 
     try {
-      const res = await fetch(buildApiUrl(`/sales/accounts`), {
+      const res = await fetch(buildApiUrl(`/api/sales/accounts`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -166,8 +166,8 @@ function Account() {
       const payload = uiAccountToAPIAccount(formData);
 
       const url = editingId
-        ? buildApiUrl(`/sales/accounts/${editingId}`)
-        : buildApiUrl(`/sales/accounts`);
+        ? buildApiUrl(`/api/sales/accounts/${editingId}`)
+        : buildApiUrl(`/api/sales/accounts`);
       const method = editingId ? "PUT" : "POST";
 
       const res = await fetch(url, {
@@ -213,7 +213,7 @@ function Account() {
     }
 
     try {
-      const res = await fetch(buildApiUrl(`/sales/accounts/${id}`), {
+      const res = await fetch(buildApiUrl(`/api/sales/accounts/${id}`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -251,7 +251,7 @@ function Account() {
     try {
       let deletedCount = 0;
       for (const id of selectedIds) {
-        const res = await fetch(buildApiUrl(`/sales/accounts/${id}`), {
+        const res = await fetch(buildApiUrl(`/api/sales/accounts/${id}`), {
           method: "DELETE",
           headers: {
             "Content-Type": "application/json",

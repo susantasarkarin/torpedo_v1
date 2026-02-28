@@ -584,7 +584,7 @@ export default function SalesDashboard() {
         role: role,
         target: target.toString()
       })
-      const response = await fetch(buildApiUrl(`/sales/dashboard?${params}`))
+      const response = await fetch(buildApiUrl(`/api/sales/dashboard?${params}`))
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       setData(await response.json())
     } catch (err) {

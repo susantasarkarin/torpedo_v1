@@ -66,7 +66,7 @@ function Operations() {
 
   const fetchRFQs = async () => {
     try {
-      const res = await fetch(buildApiUrl(`/rfq/?limit=100`), { headers: { Authorization: token() } });
+      const res = await fetch(buildApiUrl(`/api/rfq/?limit=100`), { headers: { Authorization: token() } });
       if (res.ok) {
         const data = await res.json();
         setRfqs(data.rfqs || []);

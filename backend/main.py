@@ -946,6 +946,7 @@ except Exception as e:
 # RFQ (Request for Quote) router
 try:
     app.include_router(rfq_router.router)
+    app.include_router(rfq_router.router, prefix="/api")
     print("✅ RFQ router included")
 except Exception as e:
     print(f"⚠️ RFQ router not included: {e}")
@@ -1005,6 +1006,7 @@ try:
     except ImportError:
         from routers import sales_dashboard as sales_dashboard_router
     app.include_router(sales_dashboard_router.router)
+    app.include_router(sales_dashboard_router.router, prefix="/api")
     print("✅ Sales Dashboard router included")
 except Exception as e:
     print(f"⚠️ Sales Dashboard router not included: {e}")
@@ -1016,6 +1018,7 @@ try:
     except ImportError:
         from routers import sales_accounts as sales_accounts_router
     app.include_router(sales_accounts_router.router)
+    app.include_router(sales_accounts_router.router, prefix="/api")
     print("✅ Sales Accounts router included")
 except Exception as e:
     print(f"⚠️ Sales Accounts router not included: {e}")

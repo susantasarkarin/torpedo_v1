@@ -347,7 +347,7 @@ function LeadDetail() {
   const fetchRFQs = async () => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl(`/rfq/by-lead/${leadId}`), {
+      const res = await fetch(buildApiUrl(`/api/rfq/by-lead/${leadId}`), {
         headers: {
           Authorization: sessionId,
         },
