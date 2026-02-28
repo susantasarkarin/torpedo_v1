@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { API_BASE_URL } from "../../config"; // adjust path as per your structure
 import "./ProjectsPage.css";
 import { buildApiUrl } from "../../config"
 
@@ -85,7 +84,7 @@ function ProjectsPage() {
 
     const fetchVendors = async () => {
       try {
-        const res = await fetch(buildApiUrl(`/vendors/`), {
+        const res = await fetch(buildApiUrl(`/api/vendors/`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
@@ -101,7 +100,8 @@ function ProjectsPage() {
 
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Failed to load vendors");
-        setVendors(data.vendors || []);
+        const vendorList = Array.isArray(data) ? data : (data.vendors || []);
+        setVendors(vendorList);
       } catch (err) {
         console.error("❌ Vendors fetch failed:", err.message);
       }
@@ -125,11 +125,11 @@ function ProjectsPage() {
 
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Failed to load clients");
-        // Filter for Online AND Active clients only (case-insensitive status check)
-        const onlineActiveClients = (data.customers || []).filter(
-          (c) => c.customer_type !== "business" && c.status?.toLowerCase() === "active"
+        const customerList = Array.isArray(data) ? data : (data.customers || []);
+        const activeClients = customerList.filter(
+          (c) => !c.status || String(c.status).toLowerCase() === "active"
         );
-        setClients(onlineActiveClients);
+        setClients(activeClients);
       } catch (err) {
         console.error("❌ Clients fetch failed:", err.message);
       }

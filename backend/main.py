@@ -3436,6 +3436,7 @@ def generate_vid():
             return vid
 
 @app.post("/vendors/")
+@app.post("/api/vendors/")
 async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
     try:
         # Validate required fields
@@ -3542,6 +3543,7 @@ async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=500, detail=f"Vendor creation error: {str(e)}")
 
 @app.get("/vendors/",dependencies=[Depends(verify_session)])
+@app.get("/api/vendors/",dependencies=[Depends(verify_session)])
 async def get_vendors():
     try:
         vendors = list(vendors_collection.find())
@@ -3552,6 +3554,7 @@ async def get_vendors():
         raise HTTPException(status_code=500, detail=f"Fetch vendors error: {str(e)}")
 
 @app.put("/vendors/{vendor_id}")
+@app.put("/api/vendors/{vendor_id}")
 async def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...)):
     try:
         vendor_data = {k: v for k, v in vendor_data.items() if k != "_id" and k != "vid"}
@@ -3581,6 +3584,7 @@ async def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...))
         raise HTTPException(status_code=500, detail=f"Vendor update error: {str(e)}")
 
 @app.delete("/vendors/{vendor_id}")
+@app.delete("/api/vendors/{vendor_id}")
 async def delete_vendor(vendor_id: str):
     """
     Soft delete a panel vendor with safety checks.
