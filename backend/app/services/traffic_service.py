@@ -45,7 +45,8 @@ class TrafficService:
         device_fingerprint: str = None,
         fingerprint_source: str = None,
         fingerprint_components: Dict[str, Any] = None,
-        email: str = None
+        email: str = None,
+        profiling_data: Dict[str, Any] = None
     ) -> str:
         """Create a new traffic record (Asynchronous)"""
         try:
@@ -65,6 +66,7 @@ class TrafficService:
                 "fingerprintSource": fingerprint_source,
                 "fingerprintComponents": fingerprint_components or {},
                 "email": email,
+                "profilingData": profiling_data or {},
                 "assignedSurveyId": None,
                 "redirectUrl": None,
                 "outUrl": None,
@@ -98,7 +100,8 @@ class TrafficService:
         device_fingerprint: str = None,
         fingerprint_source: str = None,
         fingerprint_components: Dict[str, Any] = None,
-        email: str = None
+        email: str = None,
+        profiling_data: Dict[str, Any] = None
     ) -> str:
         """
         Create a new traffic record
@@ -116,6 +119,7 @@ class TrafficService:
             fingerprint_source: Source of the fingerprint (e.g., 'client', 'server')
             fingerprint_components: Components used to generate the fingerprint
             email: User's email address (mandatory)
+            profiling_data: Optional user profiling payload (age/gender/etc)
             
         Returns:
             MongoDB ObjectId as string
@@ -137,6 +141,7 @@ class TrafficService:
                 "fingerprintSource": fingerprint_source,
                 "fingerprintComponents": fingerprint_components or {},
                 "email": email,
+                "profilingData": profiling_data or {},
                 "assignedSurveyId": None,
                 "redirectUrl": None,
                 "outUrl": None,
@@ -750,6 +755,8 @@ class TrafficService:
                     "cint_hashed_pid": record.get("cint_hashed_pid"),
                     "cint_mid": record.get("cint_mid"),
                     "cint_revenue": record.get("cint_revenue"),
+                    "cint_profiling_params": record.get("cint_profiling_params", {}),
+                    "profilingData": record.get("profilingData", {}),
                     # Timestamps
                     "createdAt": _serialize_datetime(created_at),
                     "updatedAt": _serialize_datetime(record.get("updatedAt")),

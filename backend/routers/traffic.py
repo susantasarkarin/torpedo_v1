@@ -9,6 +9,7 @@ from pymongo.collection import Collection
 from bson import ObjectId
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
+from urllib.parse import urlencode
 import os
 import random
 import base64
@@ -297,7 +298,69 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) ->
         return []
 
 
-def _build_cint_entry_link(live_link: str, hashed_pid: str, mid: str, user_email: str = "") -> str:
+def _derive_cint_profiling_params(
+    birthday_day: Optional[int] = None,
+    birthday_month: Optional[int] = None,
+    birthday_year: Optional[int] = None,
+    gender: str = "",
+    extra_profile_params: Optional[Dict[str, Any]] = None,
+) -> Dict[str, str]:
+    """
+    Build CINT profile variable parameters from respondent profile data.
+
+    Known CINT/Lucid profile IDs:
+    - 42: Age
+    - 43: Gender (1=Male, 2=Female, 3=Other/NA)
+    """
+    params: Dict[str, str] = {}
+
+    if isinstance(extra_profile_params, dict):
+        for raw_key, raw_value in extra_profile_params.items():
+            key = str(raw_key).strip() if raw_key is not None else ""
+            value = str(raw_value).strip() if raw_value is not None else ""
+            if key and value:
+                params[key] = value
+
+    if "42" not in params and birthday_day and birthday_month and birthday_year:
+        try:
+            today = datetime.utcnow().date()
+            age = today.year - birthday_year - (
+                (today.month, today.day) < (birthday_month, birthday_day)
+            )
+            if 13 <= age <= 100:
+                params["42"] = str(age)
+        except Exception:
+            pass
+
+    if "43" not in params and gender:
+        gender_norm = str(gender).strip().lower()
+        gender_map = {
+            "m": "1",
+            "male": "1",
+            "1": "1",
+            "f": "2",
+            "female": "2",
+            "2": "2",
+            "o": "3",
+            "other": "3",
+            "non-binary": "3",
+            "nonbinary": "3",
+            "3": "3",
+        }
+        mapped = gender_map.get(gender_norm)
+        if mapped:
+            params["43"] = mapped
+
+    return params
+
+
+def _build_cint_entry_link(
+    live_link: str,
+    hashed_pid: str,
+    mid: str,
+    user_email: str = "",
+    profiling_params: Optional[Dict[str, Any]] = None,
+) -> str:
     """
     Build a complete, correctly signed CINT entry link.
 
@@ -305,6 +368,7 @@ def _build_cint_entry_link(live_link: str, hashed_pid: str, mid: str, user_email
       - SID   : returned in live_link from the Create-Link API
       - PID   : unique respondent identifier (we use SHA-256 of traffic_id)
       - MID   : unique session identifier (new UUID per session)
+      - profile variables (optional): e.g. 42=AGE, 43=GENDER
       - cint_email : respondent email, hex-encoded SHA-256 hash (required)
       - hash  : HMAC-SHA1 of the full URL (minus &hash=…) signed with the
                 Encryption Secret Key, then base64-url-safe encoded.
@@ -343,9 +407,26 @@ def _build_cint_entry_link(live_link: str, hashed_pid: str, mid: str, user_email
         # rather than sending a dummy/invalid hash.
         email_hash = ""
 
-    url_no_hash = f"{base}{sep}PID={pid_value}&MID={mid_value}"
+    query_items: List[tuple[str, str]] = [
+        ("PID", pid_value),
+        ("MID", mid_value),
+    ]
+
     if email_hash:
-        url_no_hash += f"&cint_email={email_hash}"
+        query_items.append(("cint_email", email_hash))
+
+    if profiling_params:
+        reserved = {"pid", "mid", "cint_email", "hash"}
+        for raw_key, raw_value in sorted(profiling_params.items(), key=lambda kv: str(kv[0])):
+            key = str(raw_key).strip() if raw_key is not None else ""
+            value = str(raw_value).strip() if raw_value is not None else ""
+            if not key or not value:
+                continue
+            if key.lower() in reserved:
+                continue
+            query_items.append((key, value))
+
+    url_no_hash = f"{base}{sep}{urlencode(query_items)}"
 
     # Add trailing & before hashing as per Cint requirements
     url_to_hash = url_no_hash + "&"
@@ -370,12 +451,18 @@ def _build_cint_entry_link(live_link: str, hashed_pid: str, mid: str, user_email
     return entry_url
 
 
-async def create_cint_entry_link(survey_id: str, traffic_id: str, user_email: str = "") -> str:
+async def create_cint_entry_link(
+    survey_id: str,
+    traffic_id: str,
+    user_email: str = "",
+    profiling_params: Optional[Dict[str, Any]] = None,
+) -> str:
     """
     Create a respondent-specific CINT entry link (Asynchronous).
 
     Builds a fully-compliant Cint Exchange entry link that includes:
-      PID, MID, cint_email, and the mandatory HMAC-SHA1 hash signature.
+      PID, MID, optional profile vars (42/43/etc), cint_email,
+      and the mandatory HMAC-SHA1 hash signature.
 
     Returns the full respondent-specific URL, or empty string on failure.
     """
@@ -494,7 +581,15 @@ async def create_cint_entry_link(survey_id: str, traffic_id: str, user_email: st
             mid = uuid.uuid4().hex
 
             # Build the complete, signed entry link
-            entry_url = _build_cint_entry_link(live_link, hashed_pid, mid, user_email)
+            entry_url = _build_cint_entry_link(
+                live_link,
+                hashed_pid,
+                mid,
+                user_email,
+                profiling_params=profiling_params,
+            )
+            if profiling_params:
+                print(f"   CINT profiling params passed: {profiling_params}")
             print(f"   🔗 CINT entry link (signed): {entry_url}")
             
             # CRITICAL: Store the hashed PID in the traffic record so /cint-response
@@ -507,6 +602,7 @@ async def create_cint_entry_link(survey_id: str, traffic_id: str, user_email: st
                     {"$set": {
                         "cint_hashed_pid": hashed_pid,
                         "cint_mid": mid,
+                        "cint_profiling_params": profiling_params or {},
                         "updatedAt": datetime.utcnow().isoformat()
                     }}
                 )
@@ -535,6 +631,20 @@ async def get_random_cint_fallback_link(traffic_record: dict, traffic_id: str) -
     """
     country_code = traffic_record.get("countryCode", "")
     user_email = traffic_record.get("email", "")
+    profiling_data = traffic_record.get("profilingData", {}) or {}
+
+    cint_profiling_params = (
+        traffic_record.get("cint_profiling_params")
+        or profiling_data.get("cint_profile_params")
+        or {}
+    )
+    if not cint_profiling_params:
+        cint_profiling_params = _derive_cint_profiling_params(
+            birthday_day=profiling_data.get("birthday_day"),
+            birthday_month=profiling_data.get("birthday_month"),
+            birthday_year=profiling_data.get("birthday_year"),
+            gender=profiling_data.get("gender", ""),
+        )
     
     try:
         # Fetch live candidates from the CINT offerwall (uses cache when available)
@@ -549,7 +659,12 @@ async def get_random_cint_fallback_link(traffic_record: dict, traffic_id: str) -
         print(f"   🎲 CINT fallback: Randomly selected survey {survey_id} from {len(candidates)} candidates")
         
         # Try to create entry link for this survey
-        entry_link = await create_cint_entry_link(survey_id, traffic_id, user_email=user_email)
+        entry_link = await create_cint_entry_link(
+            survey_id,
+            traffic_id,
+            user_email=user_email,
+            profiling_params=cint_profiling_params,
+        )
         
         if not entry_link:
             print(f"   ❌ CINT fallback: Failed to create entry link for survey {survey_id}")
@@ -564,6 +679,7 @@ async def get_random_cint_fallback_link(traffic_record: dict, traffic_id: str) -
                 "currentCintSurveyId": survey_id,
                 "currentCintLink": entry_link,
                 "cint_hashed_pid": hashed_pid,
+                "cint_profiling_params": cint_profiling_params,
                 "status": "CPX_TERMINATED_CINT_FALLBACK",
                 "surveySource": "CINT_FALLBACK",
                 "updatedAt": datetime.utcnow().isoformat()
@@ -1453,6 +1569,21 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         gender = data.get('gender', '').strip().lower()
         zip_code = data.get('zip_code', '').strip()
 
+        cint_profiling_params = _derive_cint_profiling_params(
+            birthday_day=birthday_day,
+            birthday_month=birthday_month,
+            birthday_year=birthday_year,
+            gender=gender,
+        )
+        profiling_data = {
+            "birthday_day": birthday_day,
+            "birthday_month": birthday_month,
+            "birthday_year": birthday_year,
+            "gender": gender,
+            "zip_code": zip_code,
+            "cint_profile_params": cint_profiling_params,
+        }
+
         # Log profiling data if provided
         if birthday_day is not None and birthday_month is not None and birthday_year is not None:
             try:
@@ -1463,6 +1594,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             print(f"⚧ User gender: {gender}")
         if zip_code:
             print(f"📮 User zip/postal code: {zip_code}")
+
+        if cint_profiling_params:
+            print(f"CINT profiling params prepared: {cint_profiling_params}")
 
         # Log IP extraction for debugging
         if not client_ip:
@@ -1490,7 +1624,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         device_fingerprint=device_fingerprint,
                         fingerprint_source="client",
                         fingerprint_components=fingerprint_components,
-                        email=user_email
+                        email=user_email,
+                        profiling_data=profiling_data,
                     )
                 else:
                     # Fallback to direct async insertion if service not updated yet
@@ -1526,6 +1661,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     'deviceFingerprint': device_fingerprint,
                     'params': params or {},
                     'email': user_email,
+                    'profilingData': profiling_data,
                 }
                 result = await async_url_collection.insert_one(fallback_record)
                 traffic_id = str(result.inserted_id)
@@ -1644,7 +1780,12 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 # Try candidates one by one until we get a working entry link
                 # user_email is accessible from the enclosing /api/store scope
                 for sid in candidates[:15]:
-                    link = await create_cint_entry_link(sid, traffic_id, user_email=user_email)
+                    link = await create_cint_entry_link(
+                        sid,
+                        traffic_id,
+                        user_email=user_email,
+                        profiling_params=cint_profiling_params,
+                    )
                     if link:
                         entry_link = link
                         survey_id = sid
@@ -1663,6 +1804,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 "surveySource": "CINT",
                                 "currentCintSurveyId": survey_id,
                                 "cint_hashed_pid": hashed_pid,
+                                "cint_profiling_params": cint_profiling_params,
                                 "updatedAt": datetime.utcnow().isoformat(),
                             }}
                         )
