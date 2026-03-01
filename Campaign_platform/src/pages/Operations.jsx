@@ -22,6 +22,7 @@ function Operations() {
 
   // Dashboard data
   const [kpis, setKpis] = useState(null);
+  const [trafficStats, setTrafficStats] = useState({ total: 0, by_status: {} });
   const [recentActivity, setRecentActivity] = useState([]);
   const [trafficSnapshot, setTrafficSnapshot] = useState([]);
 
@@ -60,10 +61,11 @@ function Operations() {
     try {
       const sessionToken = token();
       const authHeaders = sessionToken ? { Authorization: sessionToken } : {};
-      const [kpiResult, activityResult, trafficResult] = await Promise.allSettled([
+      const [kpiResult, activityResult, trafficStatsResult, trafficResult] = await Promise.allSettled([
         fetch(buildApiUrl(`/api/operations/dashboard/kpis`), { headers: authHeaders }),
         fetch(buildApiUrl(`/api/operations/dashboard/recent-activity?limit=8`), { headers: authHeaders }),
-        fetch(buildApiUrl(`/api/traffic/list?page=1&page_size=500`), { headers: authHeaders }),
+        fetch(buildApiUrl(`/api/traffic/stats`), { headers: authHeaders }),
+        fetch(buildApiUrl(`/api/traffic/list?page=1&page_size=100`), { headers: authHeaders }),
       ]);
 
       let loadedAnyDashboardData = false;
@@ -90,6 +92,17 @@ function Operations() {
         const activityData = await parseJsonIfPossible(activityResult.value);
         if (activityData) {
           setRecentActivity(activityData.activities || []);
+          loadedAnyDashboardData = true;
+        }
+      }
+
+      if (trafficStatsResult.status === "fulfilled" && trafficStatsResult.value.ok) {
+        const statsData = await parseJsonIfPossible(trafficStatsResult.value);
+        if (statsData) {
+          setTrafficStats({
+            total: Number(statsData.total || 0),
+            by_status: statsData.by_status || {},
+          });
           loadedAnyDashboardData = true;
         }
       }
@@ -486,55 +499,26 @@ function Operations() {
       countryClicks[countryCode] = (countryClicks[countryCode] || 0) + 1;
     });
 
-    const hasTrafficData = Object.values(dayMap).some((entry) => entry.clicks > 0);
-
-    const fallbackPattern = [0.15, 0.11, 0.13, 0.12, 0.17, 0.18, 0.14];
-    const fallbackTotalClicks = Math.max(0, Math.round((kpis?.traffic?.total || 0) * 0.12));
-    const fallbackTotalCompletes = Math.max(0, Math.round((kpis?.traffic?.completed || 0) * 0.12));
-
-    const fallbackClicksSeries = fallbackPattern.map((weight) => Math.round(fallbackTotalClicks * weight));
-    const fallbackCompletesSeries = fallbackPattern.map((weight, index) => {
-      const adjustedWeight = Math.max(0.05, weight - (index % 3 === 0 ? 0.03 : 0.01));
-      return Math.round(fallbackTotalCompletes * adjustedWeight);
-    });
+    const getStatusCount = (statusKey) => Number(trafficStats?.by_status?.[statusKey] || 0);
+    const totalTrafficRecords = Number(trafficStats?.total || 0);
+    const completeCount = getStatusCount("Complete");
+    const incompleteCount = getStatusCount("Incomplete");
+    const quotaFullCount = getStatusCount("Quota Full");
+    const terminateCount = getStatusCount("Terminate");
 
     const dailyPerformance = sevenDayRange.map((date, index) => {
       const key = dayKeys[index];
       const label = date.toLocaleDateString("en-US", { weekday: "short" });
-      const clicks = hasTrafficData ? dayMap[key].clicks : fallbackClicksSeries[index] || 0;
-      const completes = hasTrafficData ? dayMap[key].completes : Math.min(clicks, fallbackCompletesSeries[index] || 0);
+      const clicks = dayMap[key].clicks;
+      const completes = dayMap[key].completes;
       const outs = Math.max(0, clicks - completes);
-      const users = hasTrafficData ? dayMap[key].users.size : Math.max(0, Math.round(clicks * 0.66));
+      const users = dayMap[key].users.size;
       return { key, day: label, clicks, completes, outs, users };
     });
 
     const totalClicks = dailyPerformance.reduce((sum, day) => sum + day.clicks, 0);
     const totalCompletes = dailyPerformance.reduce((sum, day) => sum + day.completes, 0);
-    const totalActiveUsers = hasTrafficData
-      ? uniqueUsers.size
-      : dailyPerformance.reduce((sum, day) => sum + day.users, 0);
-
-    const receivedRevenue = Number(kpis?.revenue?.total_received || 0);
-    const totalCompletedAllTime = Number(kpis?.traffic?.completed || 0);
-    const estimatedRevenue7d = totalCompletedAllTime > 0
-      ? (receivedRevenue / totalCompletedAllTime) * totalCompletes
-      : 0;
-
-    const fallbackCountrySplit = [
-      ["US", 0.23],
-      ["IN", 0.18],
-      ["GB", 0.14],
-      ["CA", 0.12],
-      ["AU", 0.10],
-      ["DE", 0.08],
-      ["FR", 0.07],
-      ["BR", 0.08],
-    ];
-    if (Object.keys(countryClicks).length === 0 && totalClicks > 0) {
-      fallbackCountrySplit.forEach(([country, ratio]) => {
-        countryClicks[country] = Math.max(1, Math.round(totalClicks * ratio));
-      });
-    }
+    const totalActiveUsers = uniqueUsers.size;
 
     const topCountries = Object.entries(countryClicks)
       .sort((a, b) => b[1] - a[1])
@@ -575,31 +559,38 @@ function Operations() {
 
         <div className="ops-kpi-grid">
           <div className="ops-kpi-card">
-            <div className="ops-kpi-label">Clicks (last 7 days)</div>
+            <div className="ops-kpi-label">Total Records</div>
             <div className="ops-kpi-value-row">
-              <span className="ops-kpi-icon success">A</span>
-              <span className="ops-kpi-value">{formatNumber(totalClicks)}</span>
+              <span className="ops-kpi-icon info">T</span>
+              <span className="ops-kpi-value">{formatNumber(totalTrafficRecords)}</span>
             </div>
           </div>
           <div className="ops-kpi-card">
-            <div className="ops-kpi-label">Active Users (last 7 days)</div>
+            <div className="ops-kpi-label">Incomplete</div>
             <div className="ops-kpi-value-row">
-              <span className="ops-kpi-icon warning">U</span>
-              <span className="ops-kpi-value">{formatNumber(totalActiveUsers)}</span>
+              <span className="ops-kpi-icon warning">I</span>
+              <span className="ops-kpi-value">{formatNumber(incompleteCount)}</span>
             </div>
           </div>
           <div className="ops-kpi-card">
-            <div className="ops-kpi-label">Estimated Revenue (7 days)</div>
+            <div className="ops-kpi-label">Complete</div>
             <div className="ops-kpi-value-row">
-              <span className="ops-kpi-icon info">$</span>
-              <span className="ops-kpi-value">{formatCurrency(estimatedRevenue7d || 0)}</span>
+              <span className="ops-kpi-icon success">C</span>
+              <span className="ops-kpi-value">{formatNumber(completeCount)}</span>
             </div>
           </div>
           <div className="ops-kpi-card">
-            <div className="ops-kpi-label">Outstanding Balance</div>
+            <div className="ops-kpi-label">Quota Full</div>
             <div className="ops-kpi-value-row">
-              <span className="ops-kpi-icon danger">B</span>
-              <span className="ops-kpi-value">{formatCurrency(kpis?.revenue?.total_outstanding || 0)}</span>
+              <span className="ops-kpi-icon info">Q</span>
+              <span className="ops-kpi-value">{formatNumber(quotaFullCount)}</span>
+            </div>
+          </div>
+          <div className="ops-kpi-card">
+            <div className="ops-kpi-label">Terminate</div>
+            <div className="ops-kpi-value-row">
+              <span className="ops-kpi-icon danger">X</span>
+              <span className="ops-kpi-value">{formatNumber(terminateCount)}</span>
             </div>
           </div>
         </div>
