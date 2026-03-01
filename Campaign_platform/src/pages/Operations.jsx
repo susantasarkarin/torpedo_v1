@@ -58,20 +58,54 @@ function Operations() {
     setLoading(true);
     setError(null);
     try {
+      const authHeaders = { Authorization: token() || "" };
       const [kpiRes, activityRes, trafficRes] = await Promise.all([
-        fetch(buildApiUrl(`/operations/dashboard/kpis`), { headers: { Authorization: token() } }),
-        fetch(buildApiUrl(`/operations/dashboard/recent-activity?limit=8`), { headers: { Authorization: token() } }),
-        fetch(buildApiUrl(`/api/traffic/list?page=1&page_size=500`), { headers: { Authorization: token() } }),
+        fetch(buildApiUrl(`/api/operations/dashboard/kpis`), { headers: authHeaders }),
+        fetch(buildApiUrl(`/api/operations/dashboard/recent-activity?limit=8`), { headers: authHeaders }),
+        fetch(buildApiUrl(`/api/traffic/list?page=1&page_size=500`), { headers: authHeaders }),
       ]);
 
-      if (kpiRes.ok) setKpis(await kpiRes.json());
-      if (activityRes.ok) {
-        const data = await activityRes.json();
-        setRecentActivity(data.activities || []);
+      let loadedAnyDashboardData = false;
+      let dashboardFailed = true;
+
+      const parseJsonIfPossible = async (res) => {
+        const contentType = res.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) return null;
+        try {
+          return await res.json();
+        } catch {
+          return null;
+        }
+      };
+
+      if (kpiRes.ok) {
+        const kpiData = await parseJsonIfPossible(kpiRes);
+        if (kpiData) {
+          setKpis(kpiData);
+          loadedAnyDashboardData = true;
+          dashboardFailed = false;
+        }
       }
+
+      if (activityRes.ok) {
+        const activityData = await parseJsonIfPossible(activityRes);
+        if (activityData) {
+          setRecentActivity(activityData.activities || []);
+          loadedAnyDashboardData = true;
+          dashboardFailed = false;
+        }
+      }
+
       if (trafficRes.ok) {
-        const data = await trafficRes.json();
-        setTrafficSnapshot(data.records || []);
+        const trafficData = await parseJsonIfPossible(trafficRes);
+        if (trafficData) {
+          setTrafficSnapshot(trafficData.records || []);
+          loadedAnyDashboardData = true;
+        }
+      }
+
+      if (!loadedAnyDashboardData || dashboardFailed) {
+        setError("Failed to load dashboard");
       }
     } catch (err) {
       console.error("Dashboard error:", err);
@@ -100,7 +134,7 @@ function Operations() {
 
   const fetchProjects = async () => {
     try {
-      const res = await fetch(buildApiUrl(`/operations/projects/?limit=50`), { headers: { Authorization: token() } });
+      const res = await fetch(buildApiUrl(`/api/operations/projects/?limit=50`), { headers: { Authorization: token() || "" } });
       if (res.ok) {
         const data = await res.json();
         setProjects(data.projects || []);
@@ -112,7 +146,7 @@ function Operations() {
 
   const fetchAccounts = async () => {
     try {
-      const res = await fetch(buildApiUrl(`/operations/accounts/`), { headers: { Authorization: token() } });
+      const res = await fetch(buildApiUrl(`/api/operations/accounts/`), { headers: { Authorization: token() || "" } });
       if (res.ok) {
         const data = await res.json();
         setAccounts(data.accounts || []);
