@@ -41,7 +41,7 @@ function VendorsPage() {
 
     const fetchVendors = async () => {
       try {
-        const res = await fetch(buildApiUrl(`/vendors/`), {
+        const res = await fetch(buildApiUrl(`/api/vendors/`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
@@ -104,8 +104,8 @@ function VendorsPage() {
       delete payload.vid;
 
       const url = editingId
-        ? buildApiUrl(`/vendors/${editingId}`)
-        : buildApiUrl(`/vendors/`);
+        ? buildApiUrl(`/api/vendors/${editingId}`)
+        : buildApiUrl(`/api/vendors/`);
       const method = editingId ? "PUT" : "POST";
 
       const res = await fetch(url, {
@@ -155,7 +155,7 @@ function VendorsPage() {
     }
 
     try {
-      const res = await fetch(buildApiUrl(`/vendors/${id}`), {
+      const res = await fetch(buildApiUrl(`/api/vendors/${id}`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
