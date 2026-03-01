@@ -22,9 +22,15 @@ function Operations() {
 
   // Dashboard data
   const [kpis, setKpis] = useState(null);
-  const [trafficStats, setTrafficStats] = useState({ total: 0, by_status: {} });
+  const [trafficStats, setTrafficStats] = useState({
+    total: 0,
+    by_status: {},
+    daily: [],
+    active_users_total: 0,
+    completes_by_source: { CPX: 0, CINT: 0, UNKNOWN: 0 },
+    country_clicks: [],
+  });
   const [recentActivity, setRecentActivity] = useState([]);
-  const [trafficSnapshot, setTrafficSnapshot] = useState([]);
 
   // RFQ data
   const [rfqs, setRfqs] = useState([]);
@@ -53,6 +59,13 @@ function Operations() {
     fetchVendorEmails();
   }, []);
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchDashboardData();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   // ==================== FETCH FUNCTIONS ====================
 
   const fetchDashboardData = async () => {
@@ -61,11 +74,10 @@ function Operations() {
     try {
       const sessionToken = token();
       const authHeaders = sessionToken ? { Authorization: sessionToken } : {};
-      const [kpiResult, activityResult, trafficStatsResult, trafficResult] = await Promise.allSettled([
+      const [kpiResult, activityResult, trafficStatsResult] = await Promise.allSettled([
         fetch(buildApiUrl(`/api/operations/dashboard/kpis`), { headers: authHeaders }),
         fetch(buildApiUrl(`/api/operations/dashboard/recent-activity?limit=8`), { headers: authHeaders }),
-        fetch(buildApiUrl(`/api/traffic/stats`), { headers: authHeaders }),
-        fetch(buildApiUrl(`/api/traffic/list?page=1&page_size=100`), { headers: authHeaders }),
+        fetch(buildApiUrl(`/api/traffic/dashboard-stats?days=7`), { headers: authHeaders }),
       ]);
 
       let loadedAnyDashboardData = false;
@@ -102,20 +114,11 @@ function Operations() {
           setTrafficStats({
             total: Number(statsData.total || 0),
             by_status: statsData.by_status || {},
+            daily: Array.isArray(statsData.daily) ? statsData.daily : [],
+            active_users_total: Number(statsData.active_users_total || 0),
+            completes_by_source: statsData.completes_by_source || { CPX: 0, CINT: 0, UNKNOWN: 0 },
+            country_clicks: Array.isArray(statsData.country_clicks) ? statsData.country_clicks : [],
           });
-          loadedAnyDashboardData = true;
-        }
-      }
-
-      if (trafficResult.status === "fulfilled" && trafficResult.value.ok) {
-        const trafficData = await parseJsonIfPossible(trafficResult.value);
-        if (trafficData) {
-          const records = Array.isArray(trafficData)
-            ? trafficData
-            : Array.isArray(trafficData.records)
-            ? trafficData.records
-            : [];
-          setTrafficSnapshot(records);
           loadedAnyDashboardData = true;
         }
       }
@@ -459,45 +462,35 @@ function Operations() {
     const now = new Date();
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
-    const sevenDayRange = Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(now);
-      date.setHours(0, 0, 0, 0);
-      date.setDate(date.getDate() - (6 - index));
-      return date;
+    const rawDaily = Array.isArray(trafficStats?.daily) ? trafficStats.daily : [];
+    let dailyPerformance = rawDaily.map((item) => {
+      const dateKey = String(item?.date || "");
+      const dayDate = dateKey ? new Date(`${dateKey}T00:00:00`) : null;
+      const dayLabel = dayDate && !Number.isNaN(dayDate.getTime())
+        ? dayDate.toLocaleDateString("en-US", { weekday: "short" })
+        : dateKey;
+      const clicks = Number(item?.clicks || 0);
+      const completes = Number(item?.completes || 0);
+      const outs = Number(item?.outs ?? Math.max(0, clicks - completes));
+      const users = Number(item?.active_users || 0);
+      return { key: dateKey, day: dayLabel, clicks, completes, outs, users };
     });
-
-    const dayKeys = sevenDayRange.map((date) => date.toISOString().split("T")[0]);
-    const dayMap = dayKeys.reduce((acc, key) => {
-      acc[key] = { clicks: 0, completes: 0, users: new Set() };
-      return acc;
-    }, {});
-
-    const countryClicks = {};
-    const uniqueUsers = new Set();
-
-    trafficSnapshot.forEach((record) => {
-      const rawDate = record?.createdAt || record?.updatedAt || record?.completedAt;
-      if (!rawDate) return;
-      const parsedDate = new Date(rawDate);
-      if (Number.isNaN(parsedDate.getTime())) return;
-      const dayKey = parsedDate.toISOString().split("T")[0];
-      if (!dayMap[dayKey]) return;
-
-      dayMap[dayKey].clicks += 1;
-      const status = String(record?.status || "").toLowerCase();
-      if (status.includes("complete") && !status.includes("incomplete")) {
-        dayMap[dayKey].completes += 1;
-      }
-
-      const userKey = record?.respondentId || record?._id;
-      if (userKey) {
-        dayMap[dayKey].users.add(userKey);
-        uniqueUsers.add(userKey);
-      }
-
-      const countryCode = String(record?.countryCode || "").trim().toUpperCase() || "NA";
-      countryClicks[countryCode] = (countryClicks[countryCode] || 0) + 1;
-    });
+    if (dailyPerformance.length === 0) {
+      dailyPerformance = Array.from({ length: 7 }, (_, index) => {
+        const date = new Date(now);
+        date.setHours(0, 0, 0, 0);
+        date.setDate(date.getDate() - (6 - index));
+        const key = date.toISOString().split("T")[0];
+        return {
+          key,
+          day: date.toLocaleDateString("en-US", { weekday: "short" }),
+          clicks: 0,
+          completes: 0,
+          outs: 0,
+          users: 0,
+        };
+      });
+    }
 
     const getStatusCount = (statusKey) => Number(trafficStats?.by_status?.[statusKey] || 0);
     const totalTrafficRecords = Number(trafficStats?.total || 0);
@@ -505,25 +498,20 @@ function Operations() {
     const incompleteCount = getStatusCount("Incomplete");
     const quotaFullCount = getStatusCount("Quota Full");
     const terminateCount = getStatusCount("Terminate");
-
-    const dailyPerformance = sevenDayRange.map((date, index) => {
-      const key = dayKeys[index];
-      const label = date.toLocaleDateString("en-US", { weekday: "short" });
-      const clicks = dayMap[key].clicks;
-      const completes = dayMap[key].completes;
-      const outs = Math.max(0, clicks - completes);
-      const users = dayMap[key].users.size;
-      return { key, day: label, clicks, completes, outs, users };
-    });
+    const cpxCompletes = Number(trafficStats?.completes_by_source?.CPX || 0);
+    const cintCompletes = Number(trafficStats?.completes_by_source?.CINT || 0);
 
     const totalClicks = dailyPerformance.reduce((sum, day) => sum + day.clicks, 0);
     const totalCompletes = dailyPerformance.reduce((sum, day) => sum + day.completes, 0);
-    const totalActiveUsers = uniqueUsers.size;
+    const totalActiveUsers = Number(trafficStats?.active_users_total || 0);
 
-    const topCountries = Object.entries(countryClicks)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
-      .map(([code, clicks]) => ({ code, clicks }));
+    const topCountries = (Array.isArray(trafficStats?.country_clicks) ? trafficStats.country_clicks : [])
+      .map((entry) => ({
+        code: String(entry?.code || "NA").toUpperCase(),
+        clicks: Number(entry?.clicks || 0),
+      }))
+      .filter((entry) => entry.clicks > 0)
+      .slice(0, 8);
     const maxCountryClicks = topCountries[0]?.clicks || 1;
 
     const countryPointMap = {
@@ -591,6 +579,20 @@ function Operations() {
             <div className="ops-kpi-value-row">
               <span className="ops-kpi-icon danger">X</span>
               <span className="ops-kpi-value">{formatNumber(terminateCount)}</span>
+            </div>
+          </div>
+          <div className="ops-kpi-card">
+            <div className="ops-kpi-label">CPX Completes</div>
+            <div className="ops-kpi-value-row">
+              <span className="ops-kpi-icon success">P</span>
+              <span className="ops-kpi-value">{formatNumber(cpxCompletes)}</span>
+            </div>
+          </div>
+          <div className="ops-kpi-card">
+            <div className="ops-kpi-label">CINT Completes</div>
+            <div className="ops-kpi-value-row">
+              <span className="ops-kpi-icon info">N</span>
+              <span className="ops-kpi-value">{formatNumber(cintCompletes)}</span>
             </div>
           </div>
         </div>

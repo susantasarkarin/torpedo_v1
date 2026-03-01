@@ -3,7 +3,7 @@ Traffic Service
 Handles traffic record creation, batch processing, and survey assignment
 """
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pymongo import MongoClient
 from bson import ObjectId
 
@@ -523,6 +523,184 @@ class TrafficService:
         else:
             # For everything else, default to Incomplete
             return "Incomplete"
+
+    def _is_complete_status(self, status: Any) -> bool:
+        """Check whether a raw status value represents a complete."""
+        status_lower = str(status or "").lower()
+        return "complete" in status_lower and "incomplete" not in status_lower
+
+    def _safe_parse_datetime(self, value: Any) -> Optional[datetime]:
+        """Parse mixed datetime values safely (datetime, iso string, unix ts)."""
+        if value is None:
+            return None
+
+        if isinstance(value, datetime):
+            if value.tzinfo is not None:
+                return value.astimezone(timezone.utc).replace(tzinfo=None)
+            return value
+
+        if isinstance(value, (int, float)):
+            ts = float(value)
+            # milliseconds epoch support
+            if ts > 1e12:
+                ts /= 1000.0
+            try:
+                return datetime.utcfromtimestamp(ts)
+            except Exception:
+                return None
+
+        if isinstance(value, str):
+            raw = value.strip()
+            if not raw:
+                return None
+
+            candidate = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+            try:
+                parsed = datetime.fromisoformat(candidate)
+                if parsed.tzinfo is not None:
+                    parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+                return parsed
+            except Exception:
+                pass
+
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%m/%d/%Y, %I:%M:%S %p", "%m/%d/%Y %I:%M:%S %p"):
+                try:
+                    return datetime.strptime(raw, fmt)
+                except Exception:
+                    continue
+
+        return None
+
+    def get_dashboard_traffic_stats(
+        self,
+        days: int = 7,
+        survey_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Build dashboard-friendly traffic stats:
+        - by_status + total
+        - daily clicks/completes/outs/active_users for N days
+        - completes split by survey source (CPX vs CINT)
+        - top country click distribution
+        """
+        try:
+            window_days = max(1, min(int(days or 7), 30))
+            now_utc = datetime.utcnow()
+            start_day = (now_utc - timedelta(days=window_days - 1)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+
+            query: Dict[str, Any] = {}
+            if survey_id:
+                query["assignedSurveyId"] = survey_id
+
+            # Initialize day buckets in ascending order
+            day_keys: List[str] = []
+            day_buckets: Dict[str, Dict[str, Any]] = {}
+            for offset in range(window_days):
+                day = start_day + timedelta(days=offset)
+                key = day.strftime("%Y-%m-%d")
+                day_keys.append(key)
+                day_buckets[key] = {
+                    "date": key,
+                    "clicks": 0,
+                    "completes": 0,
+                    "outs": 0,
+                    "active_users": set(),
+                }
+
+            by_status = {"Complete": 0, "Incomplete": 0, "Quota Full": 0, "Terminate": 0}
+            total = 0
+            completes_by_source = {"CPX": 0, "CINT": 0, "UNKNOWN": 0}
+            country_clicks: Dict[str, int] = {}
+            active_users_total = set()
+
+            projection = {
+                "status": 1,
+                "createdAt": 1,
+                "updatedAt": 1,
+                "completedAt": 1,
+                "respondentId": 1,
+                "countryCode": 1,
+                "surveySource": 1,
+            }
+
+            for record in self.traffic_collection.find(query, projection):
+                raw_status = record.get("status", "")
+                normalized_status = self._normalize_status(raw_status)
+                by_status[normalized_status] = by_status.get(normalized_status, 0) + 1
+                total += 1
+
+                created_dt = (
+                    self._safe_parse_datetime(record.get("createdAt"))
+                    or self._safe_parse_datetime(record.get("updatedAt"))
+                    or self._safe_parse_datetime(record.get("completedAt"))
+                )
+                if created_dt:
+                    day_key = created_dt.strftime("%Y-%m-%d")
+                    if day_key in day_buckets:
+                        bucket = day_buckets[day_key]
+                        bucket["clicks"] += 1
+
+                        user_key = record.get("respondentId") or str(record.get("_id"))
+                        if user_key:
+                            user_key = str(user_key)
+                            bucket["active_users"].add(user_key)
+                            active_users_total.add(user_key)
+
+                        country_code = str(record.get("countryCode") or "").strip().upper() or "NA"
+                        country_clicks[country_code] = country_clicks.get(country_code, 0) + 1
+
+                        if self._is_complete_status(raw_status):
+                            bucket["completes"] += 1
+
+                if self._is_complete_status(raw_status):
+                    source = str(record.get("surveySource") or "").strip().upper()
+                    if source == "CPX":
+                        completes_by_source["CPX"] += 1
+                    elif source.startswith("CINT"):
+                        completes_by_source["CINT"] += 1
+                    else:
+                        completes_by_source["UNKNOWN"] += 1
+
+            daily = []
+            for key in day_keys:
+                bucket = day_buckets[key]
+                clicks = int(bucket["clicks"])
+                completes = int(bucket["completes"])
+                daily.append({
+                    "date": key,
+                    "clicks": clicks,
+                    "completes": completes,
+                    "outs": max(0, clicks - completes),
+                    "active_users": len(bucket["active_users"]),
+                })
+
+            top_countries = [
+                {"code": code, "clicks": clicks}
+                for code, clicks in sorted(country_clicks.items(), key=lambda item: item[1], reverse=True)[:12]
+            ]
+
+            return {
+                "total": total,
+                "by_status": by_status,
+                "daily": daily,
+                "active_users_total": len(active_users_total),
+                "completes_by_source": completes_by_source,
+                "country_clicks": top_countries,
+                "generated_at": now_utc.isoformat(),
+            }
+        except Exception as e:
+            print(f"❌ Error building dashboard traffic stats: {e}")
+            return {
+                "total": 0,
+                "by_status": {"Complete": 0, "Incomplete": 0, "Quota Full": 0, "Terminate": 0},
+                "daily": [],
+                "active_users_total": 0,
+                "completes_by_source": {"CPX": 0, "CINT": 0, "UNKNOWN": 0},
+                "country_clicks": [],
+                "generated_at": datetime.utcnow().isoformat(),
+            }
     
     def get_traffic_stats(self, survey_id: Optional[str] = None) -> Dict[str, Any]:
         """

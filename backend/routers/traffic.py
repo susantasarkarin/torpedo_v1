@@ -2065,6 +2065,42 @@ async def get_traffic_stats(
         raise HTTPException(status_code=500, detail=f"Stats error: {str(e)}")
 
 
+@router.get("/api/traffic/dashboard-stats")
+async def get_dashboard_traffic_stats(
+    request: Request,
+    days: int = Query(7, ge=1, le=30, description="Number of days for daily trend"),
+    survey_id: str = Query(None, description="Optional survey ID to filter stats"),
+    bypass_cache: bool = Query(False, description="Force fresh stats"),
+):
+    """
+    Get dashboard-oriented traffic stats:
+    totals, status split, daily trend, top countries, and completes by source.
+    Requires authentication.
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+
+        if traffic_service is None:
+            raise HTTPException(status_code=503, detail="Traffic service not initialized")
+
+        cache_key = _get_traffic_cache_key("dashboard_stats", days=days, survey_id=survey_id)
+        if not bypass_cache:
+            cached = _get_traffic_cached(cache_key)
+            if cached is not None:
+                return cached
+
+        stats = traffic_service.get_dashboard_traffic_stats(days=days, survey_id=survey_id)
+        _set_traffic_cached(cache_key, stats, ttl=15)
+        return stats
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting dashboard traffic stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Dashboard stats error: {str(e)}")
+
+
 @router.get("/traffic/surveys-stats")
 async def get_all_surveys_traffic_stats(request: Request):
     """
