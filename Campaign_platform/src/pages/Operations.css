@@ -986,6 +986,44 @@
   color: #101828;
 }
 
+.ops-ir-summary {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.2rem;
+}
+
+.ops-ir-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  color: #334155;
+}
+
+.ops-ir-item strong {
+  margin-left: auto;
+  font-size: 0.84rem;
+  color: #0f172a;
+}
+
+.ops-ir-label {
+  font-weight: 600;
+}
+
+.ops-ir-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+}
+
+.ops-ir-dot.cint {
+  background: #22c55e;
+}
+
+.ops-ir-dot.cpx {
+  background: #4f7df4;
+}
+
 .ops-mini-chart {
   margin-top: 0.5rem;
 }

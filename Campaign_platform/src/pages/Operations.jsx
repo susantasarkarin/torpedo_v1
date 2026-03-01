@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { API_BASE_URL as API_URL, buildApiUrl } from "../config";
+import { buildApiUrl } from "../config";
 import {
   ResponsiveContainer,
   LineChart,
@@ -28,6 +28,7 @@ function Operations() {
     daily: [],
     active_users_total: 0,
     completes_by_source: { CPX: 0, CINT: 0, UNKNOWN: 0 },
+    ir_by_source: { CPX: 0, CINT: 0 },
     country_clicks: [],
   });
   const [recentActivity, setRecentActivity] = useState([]);
@@ -117,6 +118,7 @@ function Operations() {
             daily: Array.isArray(statsData.daily) ? statsData.daily : [],
             active_users_total: Number(statsData.active_users_total || 0),
             completes_by_source: statsData.completes_by_source || { CPX: 0, CINT: 0, UNKNOWN: 0 },
+            ir_by_source: statsData.ir_by_source || { CPX: 0, CINT: 0 },
             country_clicks: Array.isArray(statsData.country_clicks) ? statsData.country_clicks : [],
           });
           loadedAnyDashboardData = true;
@@ -198,6 +200,11 @@ function Operations() {
   const formatNumber = (num) => {
     if (num === undefined || num === null) return "—";
     return Number(num).toLocaleString();
+  };
+
+  const formatPercent = (num) => {
+    if (num === undefined || num === null) return "0.00%";
+    return `${Number(num).toFixed(2)}%`;
   };
 
   const formatDate = (dateStr) => {
@@ -474,6 +481,12 @@ function Operations() {
       const incomplete = Number(item?.incomplete || 0);
       const terminate = Number(item?.terminate || 0);
       const quotaFull = Number(item?.quota_full ?? item?.quotaFull ?? 0);
+      const cpxEntrants = Number(item?.cpx_entrants || 0);
+      const cpxComplete = Number(item?.cpx_complete || 0);
+      const cintEntrants = Number(item?.cint_entrants || 0);
+      const cintComplete = Number(item?.cint_complete || 0);
+      const irCpx = Number(item?.ir_cpx ?? (cpxEntrants > 0 ? (cpxComplete / cpxEntrants) * 100 : 0));
+      const irCint = Number(item?.ir_cint ?? (cintEntrants > 0 ? (cintComplete / cintEntrants) * 100 : 0));
       const outs = Number(item?.outs ?? Math.max(0, clicks - complete));
       const users = Number(item?.active_users || 0);
       return {
@@ -484,6 +497,12 @@ function Operations() {
         incomplete,
         terminate,
         quotaFull,
+        cpxEntrants,
+        cpxComplete,
+        cintEntrants,
+        cintComplete,
+        irCpx,
+        irCint,
         completes: complete,
         outs,
         users,
@@ -503,6 +522,12 @@ function Operations() {
           incomplete: 0,
           terminate: 0,
           quotaFull: 0,
+          cpxEntrants: 0,
+          cpxComplete: 0,
+          cintEntrants: 0,
+          cintComplete: 0,
+          irCpx: 0,
+          irCint: 0,
           completes: 0,
           outs: 0,
           users: 0,
@@ -519,9 +544,15 @@ function Operations() {
     const cpxCompletes = Number(trafficStats?.completes_by_source?.CPX || 0);
     const cintCompletes = Number(trafficStats?.completes_by_source?.CINT || 0);
 
-    const totalClicks = dailyPerformance.reduce((sum, day) => sum + day.clicks, 0);
     const totalCompletes = dailyPerformance.reduce((sum, day) => sum + day.complete, 0);
-    const totalActiveUsers = Number(trafficStats?.active_users_total || 0);
+    const cpxEntrantsTotal = dailyPerformance.reduce((sum, day) => sum + day.cpxEntrants, 0);
+    const cpxCompleteTotal = dailyPerformance.reduce((sum, day) => sum + day.cpxComplete, 0);
+    const cintEntrantsTotal = dailyPerformance.reduce((sum, day) => sum + day.cintEntrants, 0);
+    const cintCompleteTotal = dailyPerformance.reduce((sum, day) => sum + day.cintComplete, 0);
+    const fallbackCpxIR = cpxEntrantsTotal > 0 ? (cpxCompleteTotal / cpxEntrantsTotal) * 100 : 0;
+    const fallbackCintIR = cintEntrantsTotal > 0 ? (cintCompleteTotal / cintEntrantsTotal) * 100 : 0;
+    const overallCpxIR = Number(trafficStats?.ir_by_source?.CPX ?? fallbackCpxIR);
+    const overallCintIR = Number(trafficStats?.ir_by_source?.CINT ?? fallbackCintIR);
 
     const topCountries = (Array.isArray(trafficStats?.country_clicks) ? trafficStats.country_clicks : [])
       .map((entry) => ({
@@ -652,20 +683,37 @@ function Operations() {
 
           <div className="ops-side-panels">
             <div className="ops-panel ops-side-card">
-              <div className="ops-side-title">Daily Active Users</div>
-              <div className="ops-side-value">{formatNumber(totalActiveUsers)}</div>
+              <div className="ops-side-title">Daily IR % (Complete / Entrants)</div>
+              <div className="ops-ir-summary">
+                <div className="ops-ir-item">
+                  <span className="ops-ir-dot cint"></span>
+                  <span className="ops-ir-label">CINT</span>
+                  <strong>{formatPercent(overallCintIR)}</strong>
+                </div>
+                <div className="ops-ir-item">
+                  <span className="ops-ir-dot cpx"></span>
+                  <span className="ops-ir-label">CPX</span>
+                  <strong>{formatPercent(overallCpxIR)}</strong>
+                </div>
+              </div>
               <div className="ops-mini-chart">
                 <ResponsiveContainer width="100%" height={92}>
                   <LineChart data={dailyPerformance} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                     <Line
                       type="monotone"
-                      dataKey="users"
-                      stroke="#ff7a8f"
+                      dataKey="irCint"
+                      stroke="#22c55e"
                       strokeWidth={2}
-                      dot={{ r: 1.5 }}
-                      fillOpacity={0.1}
+                      dot={false}
                     />
-                    <Tooltip />
+                    <Line
+                      type="monotone"
+                      dataKey="irCpx"
+                      stroke="#4f7df4"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                    <Tooltip formatter={(value) => formatPercent(value)} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

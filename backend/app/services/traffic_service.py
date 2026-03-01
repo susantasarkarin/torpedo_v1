@@ -529,6 +529,15 @@ class TrafficService:
         status_lower = str(status or "").lower()
         return "complete" in status_lower and "incomplete" not in status_lower
 
+    def _normalize_survey_source(self, source: Any) -> str:
+        """Normalize survey source to CPX/CINT/UNKNOWN buckets."""
+        source_upper = str(source or "").strip().upper()
+        if source_upper == "CPX":
+            return "CPX"
+        if source_upper.startswith("CINT"):
+            return "CINT"
+        return "UNKNOWN"
+
     def _safe_parse_datetime(self, value: Any) -> Optional[datetime]:
         """Parse mixed datetime values safely (datetime, iso string, unix ts)."""
         if value is None:
@@ -581,6 +590,7 @@ class TrafficService:
         - by_status + total
         - daily clicks/incomplete/complete/terminate/quota_full for N days
         - completes split by survey source (CPX vs CINT)
+        - daily IR% split by survey source (CPX vs CINT), where IR = complete/entrants
         - top country click distribution
         """
         try:
@@ -608,6 +618,10 @@ class TrafficService:
                     "incomplete": 0,
                     "terminate": 0,
                     "quota_full": 0,
+                    "cpx_entrants": 0,
+                    "cpx_complete": 0,
+                    "cint_entrants": 0,
+                    "cint_complete": 0,
                     "outs": 0,
                     "active_users": set(),
                 }
@@ -615,6 +629,7 @@ class TrafficService:
             by_status = {"Complete": 0, "Incomplete": 0, "Quota Full": 0, "Terminate": 0}
             total = 0
             completes_by_source = {"CPX": 0, "CINT": 0, "UNKNOWN": 0}
+            entrants_by_source = {"CPX": 0, "CINT": 0}
             country_clicks: Dict[str, int] = {}
             active_users_total = set()
 
@@ -631,6 +646,7 @@ class TrafficService:
             for record in self.traffic_collection.find(query, projection):
                 raw_status = record.get("status", "")
                 normalized_status = self._normalize_status(raw_status)
+                source_bucket = self._normalize_survey_source(record.get("surveySource"))
                 by_status[normalized_status] = by_status.get(normalized_status, 0) + 1
                 total += 1
 
@@ -654,8 +670,19 @@ class TrafficService:
                         country_code = str(record.get("countryCode") or "").strip().upper() or "NA"
                         country_clicks[country_code] = country_clicks.get(country_code, 0) + 1
 
+                        if source_bucket == "CPX":
+                            bucket["cpx_entrants"] += 1
+                            entrants_by_source["CPX"] += 1
+                        elif source_bucket == "CINT":
+                            bucket["cint_entrants"] += 1
+                            entrants_by_source["CINT"] += 1
+
                         if normalized_status == "Complete":
                             bucket["complete"] += 1
+                            if source_bucket == "CPX":
+                                bucket["cpx_complete"] += 1
+                            elif source_bucket == "CINT":
+                                bucket["cint_complete"] += 1
                         elif normalized_status == "Incomplete":
                             bucket["incomplete"] += 1
                         elif normalized_status == "Terminate":
@@ -664,10 +691,9 @@ class TrafficService:
                             bucket["quota_full"] += 1
 
                 if self._is_complete_status(raw_status):
-                    source = str(record.get("surveySource") or "").strip().upper()
-                    if source == "CPX":
+                    if source_bucket == "CPX":
                         completes_by_source["CPX"] += 1
-                    elif source.startswith("CINT"):
+                    elif source_bucket == "CINT":
                         completes_by_source["CINT"] += 1
                     else:
                         completes_by_source["UNKNOWN"] += 1
@@ -680,6 +706,12 @@ class TrafficService:
                 incomplete = int(bucket["incomplete"])
                 terminate = int(bucket["terminate"])
                 quota_full = int(bucket["quota_full"])
+                cpx_entrants = int(bucket["cpx_entrants"])
+                cpx_complete = int(bucket["cpx_complete"])
+                cint_entrants = int(bucket["cint_entrants"])
+                cint_complete = int(bucket["cint_complete"])
+                ir_cpx = round((cpx_complete / cpx_entrants) * 100, 2) if cpx_entrants > 0 else 0.0
+                ir_cint = round((cint_complete / cint_entrants) * 100, 2) if cint_entrants > 0 else 0.0
                 daily.append({
                     "date": key,
                     "clicks": clicks,
@@ -687,6 +719,12 @@ class TrafficService:
                     "incomplete": incomplete,
                     "terminate": terminate,
                     "quota_full": quota_full,
+                    "cpx_entrants": cpx_entrants,
+                    "cpx_complete": cpx_complete,
+                    "cint_entrants": cint_entrants,
+                    "cint_complete": cint_complete,
+                    "ir_cpx": ir_cpx,
+                    "ir_cint": ir_cint,
                     # Backward-compatible aliases used by current UI cards.
                     "completes": complete,
                     "outs": max(0, clicks - complete),
@@ -698,12 +736,20 @@ class TrafficService:
                 for code, clicks in sorted(country_clicks.items(), key=lambda item: item[1], reverse=True)[:12]
             ]
 
+            ir_by_source = {
+                "CPX": round((completes_by_source["CPX"] / entrants_by_source["CPX"]) * 100, 2)
+                if entrants_by_source["CPX"] > 0 else 0.0,
+                "CINT": round((completes_by_source["CINT"] / entrants_by_source["CINT"]) * 100, 2)
+                if entrants_by_source["CINT"] > 0 else 0.0,
+            }
+
             return {
                 "total": total,
                 "by_status": by_status,
                 "daily": daily,
                 "active_users_total": len(active_users_total),
                 "completes_by_source": completes_by_source,
+                "ir_by_source": ir_by_source,
                 "country_clicks": top_countries,
                 "generated_at": now_utc.isoformat(),
             }
@@ -715,6 +761,7 @@ class TrafficService:
                 "daily": [],
                 "active_users_total": 0,
                 "completes_by_source": {"CPX": 0, "CINT": 0, "UNKNOWN": 0},
+                "ir_by_source": {"CPX": 0.0, "CINT": 0.0},
                 "country_clicks": [],
                 "generated_at": datetime.utcnow().isoformat(),
             }
