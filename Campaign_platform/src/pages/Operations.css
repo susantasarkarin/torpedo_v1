@@ -944,12 +944,20 @@
   background: #ff5c7a;
 }
 
-.legend-dot.completes {
+.legend-dot.incomplete {
+  background: #f59e0b;
+}
+
+.legend-dot.complete {
   background: #4f7df4;
 }
 
-.legend-dot.outs {
-  background: #f59e0b;
+.legend-dot.terminate {
+  background: #ef4444;
+}
+
+.legend-dot.quota-full {
+  background: #8b5cf6;
 }
 
 .ops-chart-wrap {

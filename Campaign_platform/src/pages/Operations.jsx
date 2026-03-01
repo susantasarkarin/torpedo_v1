@@ -470,10 +470,24 @@ function Operations() {
         ? dayDate.toLocaleDateString("en-US", { weekday: "short" })
         : dateKey;
       const clicks = Number(item?.clicks || 0);
-      const completes = Number(item?.completes || 0);
-      const outs = Number(item?.outs ?? Math.max(0, clicks - completes));
+      const complete = Number(item?.complete ?? item?.completes ?? 0);
+      const incomplete = Number(item?.incomplete || 0);
+      const terminate = Number(item?.terminate || 0);
+      const quotaFull = Number(item?.quota_full ?? item?.quotaFull ?? 0);
+      const outs = Number(item?.outs ?? Math.max(0, clicks - complete));
       const users = Number(item?.active_users || 0);
-      return { key: dateKey, day: dayLabel, clicks, completes, outs, users };
+      return {
+        key: dateKey,
+        day: dayLabel,
+        clicks,
+        complete,
+        incomplete,
+        terminate,
+        quotaFull,
+        completes: complete,
+        outs,
+        users,
+      };
     });
     if (dailyPerformance.length === 0) {
       dailyPerformance = Array.from({ length: 7 }, (_, index) => {
@@ -485,6 +499,10 @@ function Operations() {
           key,
           day: date.toLocaleDateString("en-US", { weekday: "short" }),
           clicks: 0,
+          complete: 0,
+          incomplete: 0,
+          terminate: 0,
+          quotaFull: 0,
           completes: 0,
           outs: 0,
           users: 0,
@@ -502,7 +520,7 @@ function Operations() {
     const cintCompletes = Number(trafficStats?.completes_by_source?.CINT || 0);
 
     const totalClicks = dailyPerformance.reduce((sum, day) => sum + day.clicks, 0);
-    const totalCompletes = dailyPerformance.reduce((sum, day) => sum + day.completes, 0);
+    const totalCompletes = dailyPerformance.reduce((sum, day) => sum + day.complete, 0);
     const totalActiveUsers = Number(trafficStats?.active_users_total || 0);
 
     const topCountries = (Array.isArray(trafficStats?.country_clicks) ? trafficStats.country_clicks : [])
@@ -603,8 +621,10 @@ function Operations() {
               <h3>Daily Performance</h3>
               <div className="ops-performance-legend">
                 <span><i className="legend-dot clicks"></i>Clicks</span>
-                <span><i className="legend-dot completes"></i>Completes</span>
-                <span><i className="legend-dot outs"></i>Outs</span>
+                <span><i className="legend-dot incomplete"></i>Incomplete</span>
+                <span><i className="legend-dot complete"></i>Complete</span>
+                <span><i className="legend-dot terminate"></i>Terminate</span>
+                <span><i className="legend-dot quota-full"></i>Quota Full</span>
               </div>
             </div>
             <div className="ops-chart-wrap">
@@ -621,8 +641,10 @@ function Operations() {
                     }}
                   />
                   <Line type="monotone" dataKey="clicks" stroke="#ff5c7a" strokeWidth={2.2} dot={{ r: 2 }} />
-                  <Line type="monotone" dataKey="completes" stroke="#4f7df4" strokeWidth={2.2} dot={{ r: 2 }} />
-                  <Line type="monotone" dataKey="outs" stroke="#f59e0b" strokeWidth={2.2} dot={{ r: 2 }} />
+                  <Line type="monotone" dataKey="incomplete" stroke="#f59e0b" strokeWidth={2.2} dot={{ r: 2 }} />
+                  <Line type="monotone" dataKey="complete" stroke="#4f7df4" strokeWidth={2.2} dot={{ r: 2 }} />
+                  <Line type="monotone" dataKey="terminate" stroke="#ef4444" strokeWidth={2.2} dot={{ r: 2 }} />
+                  <Line type="monotone" dataKey="quotaFull" stroke="#8b5cf6" strokeWidth={2.2} dot={{ r: 2 }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>

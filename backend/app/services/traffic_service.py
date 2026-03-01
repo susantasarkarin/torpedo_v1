@@ -579,7 +579,7 @@ class TrafficService:
         """
         Build dashboard-friendly traffic stats:
         - by_status + total
-        - daily clicks/completes/outs/active_users for N days
+        - daily clicks/incomplete/complete/terminate/quota_full for N days
         - completes split by survey source (CPX vs CINT)
         - top country click distribution
         """
@@ -604,7 +604,10 @@ class TrafficService:
                 day_buckets[key] = {
                     "date": key,
                     "clicks": 0,
-                    "completes": 0,
+                    "complete": 0,
+                    "incomplete": 0,
+                    "terminate": 0,
+                    "quota_full": 0,
                     "outs": 0,
                     "active_users": set(),
                 }
@@ -651,8 +654,14 @@ class TrafficService:
                         country_code = str(record.get("countryCode") or "").strip().upper() or "NA"
                         country_clicks[country_code] = country_clicks.get(country_code, 0) + 1
 
-                        if self._is_complete_status(raw_status):
-                            bucket["completes"] += 1
+                        if normalized_status == "Complete":
+                            bucket["complete"] += 1
+                        elif normalized_status == "Incomplete":
+                            bucket["incomplete"] += 1
+                        elif normalized_status == "Terminate":
+                            bucket["terminate"] += 1
+                        elif normalized_status == "Quota Full":
+                            bucket["quota_full"] += 1
 
                 if self._is_complete_status(raw_status):
                     source = str(record.get("surveySource") or "").strip().upper()
@@ -667,12 +676,20 @@ class TrafficService:
             for key in day_keys:
                 bucket = day_buckets[key]
                 clicks = int(bucket["clicks"])
-                completes = int(bucket["completes"])
+                complete = int(bucket["complete"])
+                incomplete = int(bucket["incomplete"])
+                terminate = int(bucket["terminate"])
+                quota_full = int(bucket["quota_full"])
                 daily.append({
                     "date": key,
                     "clicks": clicks,
-                    "completes": completes,
-                    "outs": max(0, clicks - completes),
+                    "complete": complete,
+                    "incomplete": incomplete,
+                    "terminate": terminate,
+                    "quota_full": quota_full,
+                    # Backward-compatible aliases used by current UI cards.
+                    "completes": complete,
+                    "outs": max(0, clicks - complete),
                     "active_users": len(bucket["active_users"]),
                 })
 
