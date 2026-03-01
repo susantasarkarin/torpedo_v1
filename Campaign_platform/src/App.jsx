@@ -260,6 +260,7 @@ function App() {
 
         {/* Operations Routes */}
         <Route path="operations" element={<LazyPage><Operations /></LazyPage>} />
+        <Route path="operations/dashboard" element={<LazyPage><Operations /></LazyPage>} />
         <Route path="operations/accounts" element={<LazyPage><AccountsPage /></LazyPage>} />
         <Route path="operations/clients" element={<LazyPage><ClientsPage /></LazyPage>} />
         <Route path="operations/vendors" element={<LazyPage><VendorsPage /></LazyPage>} />

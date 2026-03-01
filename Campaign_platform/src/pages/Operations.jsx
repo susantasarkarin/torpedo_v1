@@ -58,15 +58,15 @@ function Operations() {
     setLoading(true);
     setError(null);
     try {
-      const authHeaders = { Authorization: token() || "" };
-      const [kpiRes, activityRes, trafficRes] = await Promise.all([
+      const sessionToken = token();
+      const authHeaders = sessionToken ? { Authorization: sessionToken } : {};
+      const [kpiResult, activityResult, trafficResult] = await Promise.allSettled([
         fetch(buildApiUrl(`/api/operations/dashboard/kpis`), { headers: authHeaders }),
         fetch(buildApiUrl(`/api/operations/dashboard/recent-activity?limit=8`), { headers: authHeaders }),
         fetch(buildApiUrl(`/api/traffic/list?page=1&page_size=500`), { headers: authHeaders }),
       ]);
 
       let loadedAnyDashboardData = false;
-      let dashboardFailed = true;
 
       const parseJsonIfPossible = async (res) => {
         const contentType = res.headers.get("content-type") || "";
@@ -78,33 +78,36 @@ function Operations() {
         }
       };
 
-      if (kpiRes.ok) {
-        const kpiData = await parseJsonIfPossible(kpiRes);
+      if (kpiResult.status === "fulfilled" && kpiResult.value.ok) {
+        const kpiData = await parseJsonIfPossible(kpiResult.value);
         if (kpiData) {
           setKpis(kpiData);
           loadedAnyDashboardData = true;
-          dashboardFailed = false;
         }
       }
 
-      if (activityRes.ok) {
-        const activityData = await parseJsonIfPossible(activityRes);
+      if (activityResult.status === "fulfilled" && activityResult.value.ok) {
+        const activityData = await parseJsonIfPossible(activityResult.value);
         if (activityData) {
           setRecentActivity(activityData.activities || []);
           loadedAnyDashboardData = true;
-          dashboardFailed = false;
         }
       }
 
-      if (trafficRes.ok) {
-        const trafficData = await parseJsonIfPossible(trafficRes);
+      if (trafficResult.status === "fulfilled" && trafficResult.value.ok) {
+        const trafficData = await parseJsonIfPossible(trafficResult.value);
         if (trafficData) {
-          setTrafficSnapshot(trafficData.records || []);
+          const records = Array.isArray(trafficData)
+            ? trafficData
+            : Array.isArray(trafficData.records)
+            ? trafficData.records
+            : [];
+          setTrafficSnapshot(records);
           loadedAnyDashboardData = true;
         }
       }
 
-      if (!loadedAnyDashboardData || dashboardFailed) {
+      if (!loadedAnyDashboardData) {
         setError("Failed to load dashboard");
       }
     } catch (err) {

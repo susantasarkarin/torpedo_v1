@@ -10,6 +10,7 @@ function OperationsSidebar() {
 
   const isActive = (path) => location.pathname.startsWith(path)
   const isExact = (path) => location.pathname === path || location.pathname === `${path}/`
+  const isOperationsDashboard = isExact("/admin/operations") || isExact("/admin/operations/dashboard")
 
   return (
     <aside className="operations-sidebar">
@@ -18,8 +19,8 @@ function OperationsSidebar() {
       </div>
       <nav className="sidebar-menu">
         <ul>
-          <li className={`sidebar-item ${isExact("/admin/operations") ? "active" : ""}`}>
-            <Link to="/admin/operations" className="sidebar-link">
+          <li className={`sidebar-item ${isOperationsDashboard ? "active" : ""}`}>
+            <Link to="/admin/operations/dashboard" className="sidebar-link">
               <span className="sidebar-icon">📊</span> Dashboard
             </Link>
           </li>

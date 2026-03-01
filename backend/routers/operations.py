@@ -11,8 +11,9 @@ Handles:
 from fastapi import APIRouter, HTTPException, Body, Query, Depends, Path
 from pymongo import MongoClient
 from bson import ObjectId
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional, List
+import re
 import os
 import time
 import hashlib
@@ -113,6 +114,69 @@ def generate_invoice_number() -> str:
     """Generate unique invoice number"""
     count = invoices_collection.count_documents({}) + 1
     return f"INV-{datetime.utcnow().strftime('%Y%m')}-{str(count).zfill(4)}"
+
+
+def _safe_to_float(value: Any) -> float:
+    """Convert mixed numeric/string values to float without raising."""
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if not cleaned:
+            return 0.0
+
+        cleaned = cleaned.replace(",", "")
+        cleaned = re.sub(r"(?i)inr|usd|eur|gbp", "", cleaned)
+        cleaned = re.sub(r"[^\d.\-]", "", cleaned)
+        if cleaned in ("", "-", ".", "-."):
+            return 0.0
+
+        try:
+            return float(cleaned)
+        except Exception:
+            return 0.0
+    return 0.0
+
+
+def _safe_to_datetime(value: Any) -> Optional[datetime]:
+    """Parse mixed datetime values (datetime/iso string/unix timestamp) safely."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+
+    if isinstance(value, (int, float)):
+        ts = float(value)
+        if ts > 1e12:
+            ts = ts / 1000.0
+        try:
+            return datetime.utcfromtimestamp(ts)
+        except Exception:
+            return None
+
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+
+        candidate = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+        try:
+            parsed = datetime.fromisoformat(candidate)
+            if parsed.tzinfo is not None:
+                parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+            return parsed
+        except Exception:
+            pass
+
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(raw, fmt)
+            except Exception:
+                continue
+
+    return None
 
 
 # ============================================================
@@ -810,14 +874,29 @@ async def get_operations_dashboard_kpis():
             completion_rate = 0
         
         # Project value totals
-        value_pipeline = [
-            {"$group": {
-                "_id": None,
-                "total_value": {"$sum": {"$toDouble": {"$ifNull": ["$projectValue", 0]}}},
-            }}
-        ]
-        value_result = list(projects_collection.aggregate(value_pipeline))
-        total_project_value = value_result[0].get("total_value", 0) if value_result else 0
+        total_project_value = 0.0
+        try:
+            value_pipeline = [
+                {"$group": {
+                    "_id": None,
+                    "total_value": {
+                        "$sum": {
+                            "$convert": {
+                                "input": "$projectValue",
+                                "to": "double",
+                                "onError": 0,
+                                "onNull": 0
+                            }
+                        }
+                    },
+                }}
+            ]
+            value_result = list(projects_collection.aggregate(value_pipeline))
+            total_project_value = value_result[0].get("total_value", 0) if value_result else 0
+        except Exception:
+            # Fallback for malformed values or older Mongo operators.
+            for project in projects_collection.find({}, {"projectValue": 1}):
+                total_project_value += _safe_to_float(project.get("projectValue"))
         
         # Status breakdown
         status_pipeline = [
@@ -885,12 +964,16 @@ async def get_recent_activity(limit: int = Query(10, ge=1, le=50)):
             .limit(limit)
         )
         for proj in recent_projects:
+            proj_timestamp = (
+                _safe_to_datetime(proj.get("createdAt"))
+                or _safe_to_datetime(proj.get("updatedAt"))
+            )
             activities.append({
                 "type": "project",
                 "action": "created",
                 "title": proj.get("projectName", "Unknown Project"),
                 "subtitle": f"Client: {proj.get('client', 'N/A')}",
-                "timestamp": proj.get("createdAt"),
+                "timestamp": proj_timestamp,
                 "id": str(proj["_id"])
             })
         
@@ -901,11 +984,18 @@ async def get_recent_activity(limit: int = Query(10, ge=1, le=50)):
             .limit(limit)
         )
         for inv in recent_invoices:
+            inv["total_amount"] = _safe_to_float(inv.get("total_amount"))
+            inv["created_at"] = (
+                _safe_to_datetime(inv.get("created_at"))
+                or _safe_to_datetime(inv.get("createdAt"))
+                or _safe_to_datetime(inv.get("updated_at"))
+            )
             activities.append({
                 "type": "invoice",
                 "action": "created",
                 "title": inv.get("invoice_number", "Unknown Invoice"),
                 "subtitle": f"Amount: ₹{inv.get('total_amount', 0):,.2f}",
+                "subtitle": f"Amount: INR {inv.get('total_amount', 0):,.2f}",
                 "timestamp": inv.get("created_at"),
                 "id": str(inv["_id"])
             })
@@ -915,8 +1005,14 @@ async def get_recent_activity(limit: int = Query(10, ge=1, le=50)):
         
         # Format timestamps
         for activity in activities:
-            if activity.get("timestamp"):
-                activity["timestamp"] = activity["timestamp"].isoformat()
+            ts = activity.get("timestamp")
+            if isinstance(ts, datetime):
+                activity["timestamp"] = ts.isoformat()
+            elif ts:
+                parsed = _safe_to_datetime(ts)
+                activity["timestamp"] = parsed.isoformat() if parsed else str(ts)
+            else:
+                activity["timestamp"] = None
         
         return {"activities": activities[:limit]}
     except Exception as e:
