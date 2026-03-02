@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { API_BASE_URL } from "../../config";
 import "./ProjectDetail.css";
 import { buildApiUrl } from "../../config"
 
@@ -74,10 +73,6 @@ function ProjectDetail() {
           <p>{project.client || "—"}</p>
         </div>
         <div className="spec-item">
-          <label>Industry:</label>
-          <p>{project.industry || "—"}</p>
-        </div>
-        <div className="spec-item">
           <label>Project Status:</label>
           <p>{project.projectStatus || "—"}</p>
         </div>
@@ -101,18 +96,6 @@ function ProjectDetail() {
     <div className="detail-section">
       <h3>Traffic Details</h3>
       <div className="spec-grid">
-        <div className="spec-item">
-          <label>Test Link:</label>
-          <p>
-            {project.testLink ? (
-              <a href={project.testLink} target="_blank" rel="noopener noreferrer">
-                {project.testLink}
-              </a>
-            ) : (
-              "—"
-            )}
-          </p>
-        </div>
         <div className="spec-item">
           <label>Live Link:</label>
           <p>
@@ -204,10 +187,6 @@ function ProjectDetail() {
         <div className="spec-item">
           <label>Actual IR (%):</label>
           <p>{project.actualIR || "—"}</p>
-        </div>
-        <div className="spec-item">
-          <label>Difference (Days):</label>
-          <p>{project.differenceDays || "—"}</p>
         </div>
         <div className="spec-item">
           <label>Launch Date:</label>

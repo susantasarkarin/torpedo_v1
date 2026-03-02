@@ -2,6 +2,7 @@ import os
 import traceback
 import re
 import logging
+from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException, Body, Path, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -3637,42 +3638,228 @@ async def delete_vendor(vendor_id: str):
         raise HTTPException(status_code=500, detail=f"Vendor delete error: {str(e)}")
     
 
+PROJECT_CALLBACK_BASE_URL = os.getenv(
+    "PROJECT_CALLBACK_BASE_URL",
+    "https://torpedo.cogentixresearch.com",
+).rstrip("/")
+
+PROJECT_ALLOWED_STATUSES = {"live", "pause", "close"}
+PROJECT_TEXT_FIELDS = {
+    "projectName",
+    "salesPerson",
+    "client",
+    "projectStatus",
+    "projectLaunchDate",
+    "projectCloseDate",
+    "rfqId",
+    "rfqDetails",
+    "liveLink",
+    "vendorName",
+}
+PROJECT_NUMERIC_FIELDS = {
+    "projectValue": float,
+    "totalCompletesRequired": int,
+    "loi": int,
+    "clientIR": float,
+    "cpi": float,
+    "totalCompletes": int,
+    "totalRespondents": int,
+    "actualCompletes": int,
+}
+PROJECT_LIST_FIELDS = {"vendorCompleteRD", "vendorTerminateRD", "vendorQuotaFullRD"}
+PROJECT_DEPRECATED_FIELDS = {"industry", "differenceDays", "testLink"}
+
+
+def _coerce_number(value: Any, cast):
+    """Convert mixed numeric values safely."""
+    if value is None:
+        return 0 if cast is int else 0.0
+    if isinstance(value, bool):
+        return int(value) if cast is int else float(value)
+    if isinstance(value, (int, float)):
+        return int(float(value)) if cast is int else float(value)
+    if isinstance(value, str):
+        cleaned = value.strip().replace(",", "")
+        if not cleaned:
+            return 0 if cast is int else 0.0
+        try:
+            return int(float(cleaned)) if cast is int else float(cleaned)
+        except Exception:
+            return 0 if cast is int else 0.0
+    return 0 if cast is int else 0.0
+
+
+def _normalize_string(value: Any) -> str:
+    """Trim and normalize user-entered strings."""
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _normalize_string_list(value: Any) -> List[str]:
+    """Normalize list-or-string values to a clean string list."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        values = value
+    else:
+        values = [value]
+    return [str(item).strip() for item in values if str(item).strip()]
+
+
+def _detect_project_provider(live_link: str) -> str:
+    """
+    Detect provider format from the live link.
+    Returns 'cint' for CINT/Lucid style links, otherwise 'cpx'.
+    """
+    if not live_link:
+        return "cpx"
+
+    link = live_link.strip().lower()
+    host = ""
+    try:
+        host = (urlparse(link).hostname or "").lower()
+    except Exception:
+        host = ""
+
+    if any(marker in host for marker in ("samplicio.us", "cint", "luc.id", "lucidhq")):
+        return "cint"
+    if "cint" in link:
+        return "cint"
+    return "cpx"
+
+
+def _generate_project_page_urls(live_link: str) -> Dict[str, str]:
+    """
+    Generate system callback URLs for project setup.
+    Uses CINT callback format for CINT links; CPX callback page format otherwise.
+    """
+    base = PROJECT_CALLBACK_BASE_URL
+    provider = _detect_project_provider(live_link)
+
+    if provider == "cint":
+        return {
+            "completePage": f"{base}/cint-response?status=complete&pid=[%PID%]&mid=[%MID%]&revenue=[%REVENUE%]",
+            "terminatePage": f"{base}/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]",
+            "quotaFullPage": f"{base}/cint-response?status=quota_full&pid=[%PID%]&mid=[%MID%]",
+        }
+
+    return {
+        "completePage": f"{base}/surveycomplete?rid={{RID}}",
+        "terminatePage": f"{base}/surveyterminate?rid={{RID}}",
+        "quotaFullPage": f"{base}/surveyquotafull?rid={{RID}}",
+    }
+
+
+def _compute_actual_ir(actual_completes: Any, total_respondents: Any) -> float:
+    """Compute actual IR (%) from actual completes and total respondents."""
+    completes = _coerce_number(actual_completes, int)
+    respondents = _coerce_number(total_respondents, int)
+    if respondents <= 0:
+        return 0.0
+    return round((completes / respondents) * 100, 2)
+
+
+def _normalize_project_payload(project_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize incoming project payload and drop unsupported/deprecated fields."""
+    payload: Dict[str, Any] = {}
+
+    for field in PROJECT_TEXT_FIELDS:
+        if field in project_data:
+            payload[field] = _normalize_string(project_data.get(field))
+
+    for field, cast in PROJECT_NUMERIC_FIELDS.items():
+        if field in project_data:
+            payload[field] = _coerce_number(project_data.get(field), cast)
+
+    for field in PROJECT_LIST_FIELDS:
+        if field in project_data:
+            payload[field] = _normalize_string_list(project_data.get(field))
+
+    return payload
+
+
+def _serialize_project_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert MongoDB project document to JSON-safe dict."""
+    serialized = dict(doc)
+    serialized["_id"] = str(serialized["_id"])
+    return serialized
+
+
 def generate_survey_no():
     while True:
         survey_no = str(datetime.utcnow().microsecond % 100000).zfill(5)
         if not projects_collection.find_one({"surveyNo": survey_no}):
             return survey_no
-        
+
+
 @app.post("/projects/")
 async def create_project(project_data: Dict[str, Any] = Body(...)):
     try:
-        # Validate required fields
-        if not project_data.get("projectName") or not project_data["projectName"].strip():
-            raise HTTPException(status_code=400, detail="Project name is required")
-        if not project_data.get("salesPerson") or not project_data["salesPerson"].strip():
-            raise HTTPException(status_code=400, detail="Sales person is required")
-        if not project_data.get("client") or not project_data["client"].strip():
-            raise HTTPException(status_code=400, detail="Client is required")
+        normalized = _normalize_project_payload(project_data)
 
-        project_data["surveyNo"] = generate_survey_no()
-        project_data["createdAt"] = datetime.utcnow()
-        result = projects_collection.insert_one(project_data)
-        project_data["_id"] = str(result.inserted_id)
-        return {"message": "Project created successfully", "project": project_data}
+        if not normalized.get("projectName"):
+            raise HTTPException(status_code=400, detail="Project name is required")
+        if not normalized.get("salesPerson"):
+            raise HTTPException(status_code=400, detail="Sales person is required")
+        if not normalized.get("client"):
+            raise HTTPException(status_code=400, detail="Client is required")
+        if not normalized.get("projectLaunchDate"):
+            raise HTTPException(status_code=400, detail="Project launch date is required")
+        if not normalized.get("projectCloseDate"):
+            raise HTTPException(status_code=400, detail="Project close date is required")
+        if not normalized.get("liveLink"):
+            raise HTTPException(status_code=400, detail="Live link is required")
+        if not normalized.get("vendorName"):
+            raise HTTPException(status_code=400, detail="Vendor name is required")
+
+        status_value = normalized.get("projectStatus") or "live"
+        if status_value not in PROJECT_ALLOWED_STATUSES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid project status '{status_value}'. Allowed: {sorted(PROJECT_ALLOWED_STATUSES)}",
+            )
+        normalized["projectStatus"] = status_value
+
+        is_valid, error_msg = validate_redirect_url(normalized["liveLink"], require_https=False)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=f"Invalid liveLink URL: {error_msg}")
+
+        # Auto-fill RFQ-derived metrics if totalCompletes was omitted.
+        if normalized.get("totalCompletes", 0) <= 0 and normalized.get("totalCompletesRequired", 0) > 0:
+            normalized["totalCompletes"] = normalized["totalCompletesRequired"]
+
+        normalized["actualIR"] = _compute_actual_ir(
+            normalized.get("actualCompletes"),
+            normalized.get("totalRespondents"),
+        )
+        normalized.update(_generate_project_page_urls(normalized["liveLink"]))
+
+        now = datetime.utcnow()
+        normalized["surveyNo"] = generate_survey_no()
+        normalized["createdAt"] = now
+        normalized["updatedAt"] = now
+        normalized["is_deleted"] = False
+
+        result = projects_collection.insert_one(normalized)
+        normalized["_id"] = str(result.inserted_id)
+        return {"message": "Project created successfully", "project": normalized}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Project creation error: {str(e)}")
 
-@app.get("/projects/",dependencies=[Depends(verify_session)])
+
+@app.get("/projects/", dependencies=[Depends(verify_session)])
 async def get_projects():
     try:
-        projects = list(projects_collection.find())
-        for p in projects:
-            p["_id"] = str(p["_id"])
-        return {"projects": projects}
+        projects = list(
+            projects_collection.find({"is_deleted": {"$ne": True}}).sort("createdAt", -1)
+        )
+        return {"projects": [_serialize_project_doc(p) for p in projects]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fetch projects error: {str(e)}")
+
 
 # Alias for /projects (without trailing slash)
 @app.get("/projects", dependencies=[Depends(verify_session)])
@@ -3680,19 +3867,84 @@ async def get_projects_no_slash():
     """Alias for /projects/ - GET projects"""
     return await get_projects()
 
+
 @app.post("/projects")
 async def create_project_no_slash(project_data: Dict[str, Any] = Body(...)):
     """Alias for /projects/ - POST project"""
     return await create_project(project_data=project_data)
 
+
 @app.put("/projects/{project_id}")
 async def update_project(project_id: str, project_data: Dict[str, Any] = Body(...)):
     try:
-        project_data = {k: v for k, v in project_data.items() if k not in ["_id", "surveyNo"]}
-        result = projects_collection.update_one({"_id": ObjectId(project_id)}, {"$set": project_data})
+        existing = projects_collection.find_one(
+            {"_id": ObjectId(project_id), "is_deleted": {"$ne": True}}
+        )
+        if not existing:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        normalized = _normalize_project_payload(project_data)
+
+        if "projectStatus" in normalized and normalized["projectStatus"]:
+            if normalized["projectStatus"] not in PROJECT_ALLOWED_STATUSES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid project status '{normalized['projectStatus']}'. Allowed: {sorted(PROJECT_ALLOWED_STATUSES)}",
+                )
+
+        if "liveLink" in normalized and not normalized["liveLink"]:
+            raise HTTPException(status_code=400, detail="Live link cannot be empty")
+
+        live_link_for_validation = normalized.get("liveLink") or _normalize_string(existing.get("liveLink"))
+        if live_link_for_validation:
+            is_valid, error_msg = validate_redirect_url(live_link_for_validation, require_https=False)
+            if not is_valid:
+                raise HTTPException(status_code=400, detail=f"Invalid liveLink URL: {error_msg}")
+            # Always re-generate callback pages from the latest live link.
+            normalized.update(_generate_project_page_urls(live_link_for_validation))
+
+        merged_total_respondents = normalized.get(
+            "totalRespondents", _coerce_number(existing.get("totalRespondents"), int)
+        )
+        merged_actual_completes = normalized.get(
+            "actualCompletes", _coerce_number(existing.get("actualCompletes"), int)
+        )
+        normalized["actualIR"] = _compute_actual_ir(
+            merged_actual_completes,
+            merged_total_respondents,
+        )
+
+        if (
+            "totalCompletes" not in normalized
+            and normalized.get("totalCompletesRequired", _coerce_number(existing.get("totalCompletesRequired"), int)) > 0
+            and _coerce_number(existing.get("totalCompletes"), int) <= 0
+        ):
+            normalized["totalCompletes"] = normalized.get(
+                "totalCompletesRequired",
+                _coerce_number(existing.get("totalCompletesRequired"), int),
+            )
+
+        normalized["updatedAt"] = datetime.utcnow()
+
+        update_doc: Dict[str, Any] = {"$set": normalized}
+        if PROJECT_DEPRECATED_FIELDS:
+            update_doc["$unset"] = {field: "" for field in PROJECT_DEPRECATED_FIELDS}
+
+        result = projects_collection.update_one(
+            {"_id": ObjectId(project_id), "is_deleted": {"$ne": True}},
+            update_doc,
+        )
+
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Project not found")
-        return {"message": "Project updated successfully"}
+
+        updated_project = projects_collection.find_one({"_id": ObjectId(project_id)})
+        return {
+            "message": "Project updated successfully",
+            "project": _serialize_project_doc(updated_project) if updated_project else None,
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Project update error: {str(e)}")
 

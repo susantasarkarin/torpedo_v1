@@ -6,10 +6,11 @@ import "./ProjectsPage.css";
 import { buildApiUrl } from "../../config"
 
 function ProjectsPage() {
-  const navigate = useNavigate(); // ✅ define at top
+  const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [clients, setClients] = useState([]);
+  const [rfqs, setRfqs] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -24,10 +25,10 @@ function ProjectsPage() {
     salesPerson: "",
     projectValue: "",
     client: "",
-    industry: "",
     projectStatus: "live",
     projectLaunchDate: "",
     projectCloseDate: "",
+    rfqId: "",
     rfqDetails: "",
     totalCompletesRequired: "",
     loi: "",
@@ -37,8 +38,6 @@ function ProjectsPage() {
     totalRespondents: "",
     actualCompletes: "",
     actualIR: "",
-    differenceDays: "",
-    testLink: "",
     liveLink: "",
     completePage: "",
     terminatePage: "",
@@ -49,6 +48,116 @@ function ProjectsPage() {
     vendorQuotaFullRD: [],
   };
   const [formData, setFormData] = useState(emptyForm);
+
+  const toNumber = (value) => {
+    if (value === null || value === undefined || value === "") return 0;
+    const numeric = Number(String(value).replace(/,/g, "").trim());
+    return Number.isFinite(numeric) ? numeric : 0;
+  };
+
+  const computeActualIR = (actualCompletes, totalRespondents) => {
+    const completes = toNumber(actualCompletes);
+    const respondents = toNumber(totalRespondents);
+    if (respondents <= 0) return 0;
+    return Number(((completes / respondents) * 100).toFixed(2));
+  };
+
+  const detectProviderFromLiveLink = (liveLink) => {
+    if (!liveLink) return "cpx";
+    const link = String(liveLink).trim().toLowerCase();
+    try {
+      const host = new URL(link).hostname.toLowerCase();
+      if (host.includes("samplicio.us") || host.includes("cint") || host.includes("luc.id")) {
+        return "cint";
+      }
+    } catch {
+      // Fallback to substring checks for malformed URLs.
+    }
+    return link.includes("cint") ? "cint" : "cpx";
+  };
+
+  const getProjectCallbackBase = () => {
+    if (typeof window !== "undefined" && window.location?.origin) {
+      return window.location.origin.replace(/\/$/, "");
+    }
+    return "https://torpedo.cogentixresearch.com";
+  };
+
+  const getSystemGeneratedPages = (liveLink) => {
+    const base = getProjectCallbackBase();
+    const provider = detectProviderFromLiveLink(liveLink);
+
+    if (provider === "cint") {
+      return {
+        completePage: `${base}/cint-response?status=complete&pid=[%PID%]&mid=[%MID%]&revenue=[%REVENUE%]`,
+        terminatePage: `${base}/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]`,
+        quotaFullPage: `${base}/cint-response?status=quota_full&pid=[%PID%]&mid=[%MID%]`,
+      };
+    }
+
+    return {
+      completePage: `${base}/surveycomplete?rid={RID}`,
+      terminatePage: `${base}/surveyterminate?rid={RID}`,
+      quotaFullPage: `${base}/surveyquotafull?rid={RID}`,
+    };
+  };
+
+  const normalizeList = (value) => {
+    if (Array.isArray(value)) return value.filter(Boolean);
+    if (!value) return [];
+    return [value].filter(Boolean);
+  };
+
+  const applyDerivedFields = (nextForm) => {
+    const actualIR = computeActualIR(nextForm.actualCompletes, nextForm.totalRespondents);
+    const generatedPages = getSystemGeneratedPages(nextForm.liveLink);
+    return {
+      ...nextForm,
+      actualIR,
+      ...generatedPages,
+    };
+  };
+
+  const deriveCpiFromRfq = (rfq) => {
+    const direct = toNumber(rfq?.cpi || rfq?.unit_price);
+    if (direct > 0) return direct;
+
+    const sampleSize = toNumber(rfq?.sample_size);
+    const value = toNumber(rfq?.final_value || rfq?.manual_value || rfq?.extracted_value || rfq?.budget);
+    if (sampleSize > 0 && value > 0) {
+      return Number((value / sampleSize).toFixed(2));
+    }
+    return 0;
+  };
+
+  const getRfqSummary = (rfq) => {
+    const parts = [
+      rfq?.title,
+      rfq?.description,
+      rfq?.ai_summary,
+      rfq?.rfq_id ? `RFQ ID: ${rfq.rfq_id}` : "",
+    ]
+      .map((item) => (item || "").trim())
+      .filter(Boolean);
+    return parts.join("\n");
+  };
+
+  const formatRfqLabel = (rfq) => {
+    const id = rfq?.rfq_id || rfq?._id || "RFQ";
+    const title = rfq?.title || "Untitled";
+    const status = rfq?.status ? ` (${rfq.status})` : "";
+    return `${id} - ${title}${status}`;
+  };
+
+  const normalizeProjectForEdit = (project) =>
+    applyDerivedFields({
+      ...emptyForm,
+      ...project,
+      vendorCompleteRD: normalizeList(project.vendorCompleteRD),
+      vendorTerminateRD: normalizeList(project.vendorTerminateRD),
+      vendorQuotaFullRD: normalizeList(project.vendorQuotaFullRD),
+      rfqId: project.rfqId || "",
+    });
 
   // 🔹 Fetch Projects + Vendors
   useEffect(() => {
@@ -135,39 +244,105 @@ function ProjectsPage() {
       }
     };
 
+    const fetchRfqs = async () => {
+      try {
+        const res = await fetch(buildApiUrl(`/api/rfq/?page=1&limit=200`), {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: sessionId,
+          },
+        });
+
+        if (res.status === 401) {
+          alert("Session expired. Please login again.");
+          localStorage.removeItem("session_id");
+          navigate("/login");
+          return;
+        }
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Failed to load RFQs");
+        setRfqs(data.rfqs || []);
+      } catch (err) {
+        console.error("RFQ fetch failed:", err.message);
+      }
+    };
+
     fetchProjects();
     fetchVendors();
     fetchClients();
+    fetchRfqs();
   }, [navigate]);
 
-  const handleChange = (e) =>
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => applyDerivedFields({ ...prev, [name]: value }));
+  };
+
+  const handleRfqChange = (e) => {
+    const rfqId = e.target.value;
+
+    if (!rfqId) {
+      setFormData((prev) =>
+        applyDerivedFields({
+          ...prev,
+          rfqId: "",
+          rfqDetails: "",
+          totalCompletesRequired: "",
+          loi: "",
+          clientIR: "",
+          cpi: "",
+          totalCompletes: "",
+        })
+      );
+      return;
+    }
+
+    const selected = rfqs.find((item) => item._id === rfqId || item.rfq_id === rfqId);
+    if (!selected) {
+      setFormData((prev) => applyDerivedFields({ ...prev, rfqId }));
+      return;
+    }
+
+    const requiredCompletes = toNumber(selected.sample_size);
+    const loi = toNumber(selected.loi);
+    const clientIR = toNumber(selected.ir);
+    const cpi = deriveCpiFromRfq(selected);
+
+    setFormData((prev) =>
+      applyDerivedFields({
+        ...prev,
+        rfqId,
+        rfqDetails: getRfqSummary(selected),
+        totalCompletesRequired: requiredCompletes > 0 ? requiredCompletes : "",
+        loi: loi > 0 ? loi : "",
+        clientIR: clientIR > 0 ? clientIR : "",
+        cpi: cpi > 0 ? cpi : "",
+        totalCompletes: requiredCompletes > 0 ? requiredCompletes : "",
+      })
+    );
+  };
 
   const handleVendorChange = (e) => {
     const vendorName = e.target.value;
     const vendor = vendors.find((v) => v.vendorName === vendorName);
     if (vendor) {
-      setFormData({
-        ...formData,
-        vendorName,
-        vendorCompleteRD: Array.isArray(vendor.completeRD)
-          ? vendor.completeRD
-          : [vendor.completeRD].filter(Boolean),
-        vendorTerminateRD: Array.isArray(vendor.terminateRD)
-          ? vendor.terminateRD
-          : [vendor.terminateRD].filter(Boolean),
-        vendorQuotaFullRD: Array.isArray(vendor.quotaFullRD)
-          ? vendor.quotaFullRD
-          : [vendor.quotaFullRD].filter(Boolean),
-      });
+      setFormData((prev) =>
+        applyDerivedFields({
+          ...prev,
+          vendorName,
+          vendorCompleteRD: normalizeList(vendor.completeRD),
+          vendorTerminateRD: normalizeList(vendor.terminateRD),
+          vendorQuotaFullRD: normalizeList(vendor.quotaRD || vendor.quotaFullRD),
+        })
+      );
     } else {
-      setFormData({ ...formData, vendorName });
+      setFormData((prev) => applyDerivedFields({ ...prev, vendorName }));
     }
   };
 
   // 🔹 Save Project
   const saveProject = async () => {
-    // Validate required fields
     const errors = [];
     
     if (!formData.projectName || !formData.projectName.trim()) {
@@ -182,13 +357,22 @@ function ProjectsPage() {
     if (!formData.projectLaunchDate) {
       errors.push("Project Launch Date is required");
     }
-    if (!formData.totalCompletesRequired || formData.totalCompletesRequired <= 0) {
+    if (!formData.projectCloseDate) {
+      errors.push("Project Close Date is required");
+    }
+    if (!formData.liveLink || !formData.liveLink.trim()) {
+      errors.push("Live Link is required");
+    }
+    if (!formData.vendorName || !formData.vendorName.trim()) {
+      errors.push("Vendor Name is required");
+    }
+    if (!toNumber(formData.totalCompletesRequired)) {
       errors.push("Total Completes Required is required and must be greater than 0");
     }
-    if (!formData.loi || formData.loi <= 0) {
+    if (!toNumber(formData.loi)) {
       errors.push("LOI (Length of Interview) is required and must be greater than 0");
     }
-    if (!formData.cpi || formData.cpi <= 0) {
+    if (!toNumber(formData.cpi)) {
       errors.push("CPI (Cost Per Interview) is required and must be greater than 0");
     }
     
@@ -205,11 +389,12 @@ function ProjectsPage() {
     }
 
     try {
+      const derivedForm = applyDerivedFields(formData);
       const payload = {
-        ...formData,
-        vendorCompleteRD: formData.vendorCompleteRD.filter(Boolean),
-        vendorTerminateRD: formData.vendorTerminateRD.filter(Boolean),
-        vendorQuotaFullRD: formData.vendorQuotaFullRD.filter(Boolean),
+        ...derivedForm,
+        vendorCompleteRD: normalizeList(derivedForm.vendorCompleteRD),
+        vendorTerminateRD: normalizeList(derivedForm.vendorTerminateRD),
+        vendorQuotaFullRD: normalizeList(derivedForm.vendorQuotaFullRD),
       };
 
       const url = editingId
@@ -238,7 +423,9 @@ function ProjectsPage() {
 
       if (editingId) {
         setProjects((prev) =>
-          prev.map((p) => (p._id === editingId ? { ...p, ...payload } : p))
+          prev.map((p) =>
+            p._id === editingId ? (data.project || { ...p, ...payload }) : p
+          )
         );
       } else {
         setProjects((prev) => [...prev, data.project]);
@@ -247,6 +434,7 @@ function ProjectsPage() {
       setShowForm(false);
       setEditingId(null);
       setFormData(emptyForm);
+      setError(null);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -294,7 +482,7 @@ function ProjectsPage() {
     const q = search.trim().toLowerCase();
     if (!q) return projects;
     return projects.filter((p) =>
-      ["projectName", "client", "industry", "salesPerson", "surveyNo"].some(
+      ["projectName", "client", "salesPerson", "surveyNo", "vendorName"].some(
         (field) => String(p[field] || "").toLowerCase().includes(q)
       )
     );
@@ -326,7 +514,8 @@ function ProjectsPage() {
           style={styles.btnPrimary}
           onClick={() => {
             setEditingId(null)
-            setFormData(emptyForm)
+            setError(null)
+            setFormData(applyDerivedFields(emptyForm))
             setShowForm(true)
           }}
         >
@@ -339,7 +528,7 @@ function ProjectsPage() {
           style={styles.searchInput}
           value={search}
           onChange={(e) => handleSearch(e.target.value)}
-          placeholder="Search projects by name, client, industry..."
+          placeholder="Search by project, client, survey number, vendor..."
         />
         <select
           style={styles.recordsPerPageSelect}
@@ -357,6 +546,8 @@ function ProjectsPage() {
           <span>Active: <strong>{projects.filter(p => p.projectStatus === 'live').length}</strong></span>
         </div>
       </div>
+
+      {error && <div style={styles.errorBanner}>{error}</div>}
 
       <div style={styles.tableContainer}>
         <table style={styles.table}>
@@ -410,12 +601,8 @@ function ProjectsPage() {
                       style={styles.btnEdit}
                       onClick={() => {
                         setEditingId(p._id)
-                        setFormData({
-                          ...p,
-                          vendorCompleteRD: Array.isArray(p.vendorCompleteRD) ? p.vendorCompleteRD : [p.vendorCompleteRD].filter(Boolean),
-                          vendorTerminateRD: Array.isArray(p.vendorTerminateRD) ? p.vendorTerminateRD : [p.vendorTerminateRD].filter(Boolean),
-                          vendorQuotaFullRD: Array.isArray(p.vendorQuotaFullRD) ? p.vendorQuotaFullRD : [p.vendorQuotaFullRD].filter(Boolean),
-                        })
+                        setError(null)
+                        setFormData(normalizeProjectForEdit(p))
                         setShowForm(true)
                       }}
                     >
@@ -505,13 +692,6 @@ function ProjectsPage() {
                     </select>
                   </div>
                   <div style={styles.formGroup}>
-                    <label style={styles.label}>Industry</label>
-                    <input style={styles.input} name="industry" value={formData.industry} onChange={handleChange} placeholder="Industry type" />
-                  </div>
-                </div>
-
-                <div style={styles.formRow}>
-                  <div style={styles.formGroup}>
                     <label style={styles.label}>Project Status</label>
                     <select style={styles.select} name="projectStatus" value={formData.projectStatus} onChange={handleChange}>
                       <option value="live">Live</option>
@@ -519,19 +699,15 @@ function ProjectsPage() {
                       <option value="close">Close</option>
                     </select>
                   </div>
-                  <div style={styles.formGroup}>
-                    <label style={styles.label}>Difference Days</label>
-                    <input style={styles.input} name="differenceDays" value={formData.differenceDays} onChange={handleChange} placeholder="Current date - start date" />
-                  </div>
                 </div>
 
                 <div style={styles.formRow}>
                   <div style={styles.formGroup}>
-                    <label style={styles.label}>Project Launch Date</label>
+                    <label style={styles.label}>Project Launch Date <span style={styles.required}>*</span></label>
                     <input style={styles.input} type="date" name="projectLaunchDate" value={formData.projectLaunchDate} onChange={handleChange} />
                   </div>
                   <div style={styles.formGroup}>
-                    <label style={styles.label}>Project Close Date</label>
+                    <label style={styles.label}>Project Close Date <span style={styles.required}>*</span></label>
                     <input style={styles.input} type="date" name="projectCloseDate" value={formData.projectCloseDate} onChange={handleChange} />
                   </div>
                 </div>
@@ -540,6 +716,23 @@ function ProjectsPage() {
               <div style={styles.section}>
                 <h4 style={styles.sectionTitle}>RFQ Details</h4>
                 <div style={styles.formGroup}>
+                  <label style={styles.label}>RFQ</label>
+                  <select style={styles.select} name="rfqId" value={formData.rfqId} onChange={handleRfqChange}>
+                    <option value="">Select RFQ (optional)</option>
+                    {formData.rfqId && !rfqs.some((item) => (item._id || item.rfq_id) === formData.rfqId) && (
+                      <option value={formData.rfqId}>{formData.rfqId}</option>
+                    )}
+                    {rfqs.map((rfq) => {
+                      const value = rfq._id || rfq.rfq_id;
+                      return (
+                        <option key={value} value={value}>
+                          {formatRfqLabel(rfq)}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+                <div style={styles.formGroup}>
                   <label style={styles.label}>RFQ Details</label>
                   <textarea style={styles.textarea} name="rfqDetails" value={formData.rfqDetails} onChange={handleChange} placeholder="Enter RFQ details" rows="3" />
                 </div>
@@ -547,22 +740,50 @@ function ProjectsPage() {
                 <div style={styles.formRow}>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Total Completes Required</label>
-                    <input style={styles.input} name="totalCompletesRequired" value={formData.totalCompletesRequired} onChange={handleChange} placeholder="From RFQ field" type="number" />
+                    <input
+                      style={{ ...styles.input, ...styles.readOnlyField }}
+                      name="totalCompletesRequired"
+                      value={formData.totalCompletesRequired}
+                      placeholder="From RFQ field"
+                      type="number"
+                      readOnly
+                    />
                   </div>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>LOI (Length of Interview)</label>
-                    <input style={styles.input} name="loi" value={formData.loi} onChange={handleChange} placeholder="From RFQ" type="number" />
+                    <input
+                      style={{ ...styles.input, ...styles.readOnlyField }}
+                      name="loi"
+                      value={formData.loi}
+                      placeholder="From RFQ"
+                      type="number"
+                      readOnly
+                    />
                   </div>
                 </div>
 
                 <div style={styles.formRow}>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Client IR (%)</label>
-                    <input style={styles.input} name="clientIR" value={formData.clientIR} onChange={handleChange} placeholder="From RFQ" type="number" />
+                    <input
+                      style={{ ...styles.input, ...styles.readOnlyField }}
+                      name="clientIR"
+                      value={formData.clientIR}
+                      placeholder="From RFQ"
+                      type="number"
+                      readOnly
+                    />
                   </div>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>CPI (Currency)</label>
-                    <input style={styles.input} name="cpi" value={formData.cpi} onChange={handleChange} placeholder="From RFQ" type="number" />
+                    <input
+                      style={{ ...styles.input, ...styles.readOnlyField }}
+                      name="cpi"
+                      value={formData.cpi}
+                      placeholder="From RFQ"
+                      type="number"
+                      readOnly
+                    />
                   </div>
                 </div>
               </div>
@@ -572,7 +793,14 @@ function ProjectsPage() {
                 <div style={styles.formRow}>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Total Completes</label>
-                    <input style={styles.input} name="totalCompletes" value={formData.totalCompletes} onChange={handleChange} placeholder="From RFQ" type="number" />
+                    <input
+                      style={{ ...styles.input, ...styles.readOnlyField }}
+                      name="totalCompletes"
+                      value={formData.totalCompletes}
+                      placeholder="From RFQ"
+                      type="number"
+                      readOnly
+                    />
                   </div>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Total Respondents</label>
@@ -587,7 +815,14 @@ function ProjectsPage() {
                   </div>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Actual IR (%)</label>
-                    <input style={styles.input} name="actualIR" value={formData.actualIR} onChange={handleChange} placeholder="Actual completes/survey respondents" type="number" />
+                    <input
+                      style={{ ...styles.input, ...styles.readOnlyField }}
+                      name="actualIR"
+                      value={formData.actualIR}
+                      placeholder="Actual completes/survey respondents"
+                      type="number"
+                      readOnly
+                    />
                   </div>
                 </div>
               </div>
@@ -595,31 +830,48 @@ function ProjectsPage() {
               <div style={styles.section}>
                 <h4 style={styles.sectionTitle}>Survey Links</h4>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>Test Link</label>
-                  <input style={styles.input} name="testLink" value={formData.testLink} onChange={handleChange} placeholder="https://www.surveyfieldwork.com/test?rid=XXXX" />
-                </div>
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>Live Link</label>
+                  <label style={styles.label}>Live Link <span style={styles.required}>*</span></label>
                   <input style={styles.input} name="liveLink" value={formData.liveLink} onChange={handleChange} placeholder="https://www.surveyfieldwork.com/live?rid=XXXX" />
                 </div>
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Complete Page URL</label>
-                  <input style={styles.input} name="completePage" value={formData.completePage} onChange={handleChange} placeholder="https://www.surveyfieldwork.com/surveycomplete?rid=XXXX" />
+                  <input
+                    style={{ ...styles.input, ...styles.readOnlyField }}
+                    name="completePage"
+                    value={formData.completePage}
+                    placeholder="System generated"
+                    readOnly
+                  />
                 </div>
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Terminate Page URL</label>
-                  <input style={styles.input} name="terminatePage" value={formData.terminatePage} onChange={handleChange} placeholder="https://www.surveyfieldwork.com/surveyterminate?rid=XXXX" />
+                  <input
+                    style={{ ...styles.input, ...styles.readOnlyField }}
+                    name="terminatePage"
+                    value={formData.terminatePage}
+                    placeholder="System generated"
+                    readOnly
+                  />
                 </div>
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Quota Full Page URL</label>
-                  <input style={styles.input} name="quotaFullPage" value={formData.quotaFullPage} onChange={handleChange} placeholder="https://www.surveyfieldwork.com/surveyquotafull?rid=XXXX" />
+                  <input
+                    style={{ ...styles.input, ...styles.readOnlyField }}
+                    name="quotaFullPage"
+                    value={formData.quotaFullPage}
+                    placeholder="System generated"
+                    readOnly
+                  />
+                  <small style={styles.fieldHint}>
+                    Generated automatically using CPX/CINT callback format.
+                  </small>
                 </div>
               </div>
 
               <div style={styles.section}>
                 <h4 style={styles.sectionTitle}>Vendor Assignment</h4>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>Vendor Name</label>
+                  <label style={styles.label}>Vendor Name <span style={styles.required}>*</span></label>
                   <select style={styles.select} name="vendorName" value={formData.vendorName} onChange={handleVendorChange}>
                     <option value="">Select Vendor</option>
                     {vendors.map(v => (
@@ -728,6 +980,15 @@ const styles = {
     gap: '2rem',
     fontSize: '0.9rem',
     color: '#6b7280',
+  },
+  errorBanner: {
+    marginBottom: '1rem',
+    padding: '0.85rem 1rem',
+    border: '1px solid #fecaca',
+    borderRadius: '0.5rem',
+    backgroundColor: '#fef2f2',
+    color: '#991b1b',
+    whiteSpace: 'pre-line',
   },
   tableContainer: {
     backgroundColor: 'white',
@@ -912,6 +1173,10 @@ const styles = {
     cursor: 'pointer',
     backgroundColor: 'white',
   },
+  readOnlyField: {
+    backgroundColor: '#f3f4f6',
+    color: '#374151',
+  },
   textarea: {
     padding: '0.75rem',
     border: '1px solid #d1d5db',
@@ -920,6 +1185,11 @@ const styles = {
     transition: 'all 0.2s',
     fontFamily: 'inherit',
     resize: 'vertical',
+  },
+  fieldHint: {
+    marginTop: '0.35rem',
+    color: '#6b7280',
+    fontSize: '0.8rem',
   },
   vendorLinks: {
     marginTop: '1rem',
