@@ -2112,12 +2112,20 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # BUILD RESPONSE
         # ===============================================================================
         response_data = {
-            "success": allocation_success,
-            "entryLink": entry_link or "",
-            "surveyId": survey_id or "",
-            "trafficId": str(traffic_id) if traffic_id else "",
+            "id": str(traffic_id) if traffic_id else None,
+            "type": actual_provider.lower() if actual_provider else "unknown",
+            "entry_link": entry_link or "",
+            "survey_id": survey_id or "",
+            "traffic_id": str(traffic_id) if traffic_id else "",
+            "allocation_success": allocation_success,
+            "allocation_error": allocation_error,
             "source": actual_provider or "UNKNOWN",
-            "allocationError": allocation_error
+            "debug_info": {
+                "provider": actual_provider,
+                "ip": client_ip,
+                "country_code": country_code,
+                "vendor_id": vendor_id,
+            }
         }
         
         if not allocation_success:
@@ -2132,6 +2140,63 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Traffic store error: {str(e)}")
+
+
+@router.get("/cpx/redirect")
+async def cpx_redirect(request: Request, id: str = Query(..., description="Traffic record ID")):
+    """
+    Redirect to CPX survey entry link.
+    
+    The frontend calls this endpoint after successfully storing traffic data and allocating a survey.
+    This endpoint:
+    1. Retrieves the traffic record by ID
+    2. Extracts the CPX entry link from redirectUrl
+    3. Performs a 302 HTTP redirect to the survey
+    
+    The HTTP redirect (not JS redirect) is CRITICAL because:
+    - CPX needs the request origin to match expectations
+    - JS redirects can expose parameters in different ways
+    - Server-side 302 redirect preserves CPX URL integrity
+    """
+    try:
+        if url_parameters_collection is None:
+            raise HTTPException(status_code=500, detail="Database not connected")
+        
+        # Get traffic record
+        try:
+            traffic_id = ObjectId(id)
+            record = await get_async_url_parameters_collection().find_one({"_id": traffic_id})
+        except Exception:
+            # If ID is not a valid ObjectId, try as string match
+            record = await get_async_url_parameters_collection().find_one({"_id": id})
+        
+        if not record:
+            print(f"❌ CPX Redirect: Traffic record not found: {id}")
+            raise HTTPException(status_code=404, detail=f"Traffic record not found: {id}")
+        
+        # Get the entry link from the record
+        entry_link = record.get("redirectUrl") or record.get("entry_link")
+        
+        if not entry_link:
+            print(f"❌ CPX Redirect: No entry link in traffic record {id}")
+            raise HTTPException(status_code=400, detail="No survey entry link available")
+        
+        # Validate CPX domain to prevent open redirect vulnerability
+        if not entry_link.startswith(("https://click.cpx-research.com/", "https://cint.com/", "http://localhost")):
+            print(f"❌ CPX Redirect: Invalid domain in entry link: {entry_link[:50]}...")
+            raise HTTPException(status_code=400, detail="Invalid entry link domain")
+        
+        # Perform HTTP 302 redirect (preserves CPX parameters and request integrity)
+        print(f"✅ CPX Redirect: Redirecting SFWID {id} to survey")
+        return RedirectResponse(url=entry_link, status_code=302)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error in /cpx/redirect: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"CPX redirect error: {str(e)}")
 
 
 @router.get("/api/traffic/stats")
