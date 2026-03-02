@@ -995,8 +995,7 @@ except Exception as e:
 
 # Operations router (Operations-Finance integration)
 try:
-    app.include_router(operations_router.router)
-    app.include_router(operations_router.router, prefix="/api")
+    app.include_router(operations_router.router, prefix="/api/operations")
     print("✅ Operations router included")
 except Exception as e:
     print(f"⚠️ Operations router not included: {e}")

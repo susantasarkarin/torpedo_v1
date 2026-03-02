@@ -21,7 +21,7 @@ function ProjectDetailModal({ project, onClose }) {
   const fetchFinancials = async () => {
     setLoadingFinancials(true);
     try {
-      const res = await fetch(buildApiUrl(`/operations/projects/${project._id}/financials`), {
+      const res = await fetch(buildApiUrl(`/api/operations/projects/${project._id}/financials`), {
         headers: { Authorization: token },
       });
       if (res.ok) {
@@ -41,7 +41,7 @@ function ProjectDetailModal({ project, onClose }) {
     setInvoiceSuccess(null);
     
     try {
-      const res = await fetch(buildApiUrl(`/operations/projects/${project._id}/invoice`), {
+      const res = await fetch(buildApiUrl(`/api/operations/projects/${project._id}/invoice`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
