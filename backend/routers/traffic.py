@@ -9,7 +9,7 @@ from pymongo.collection import Collection
 from bson import ObjectId
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse
 import os
 import random
 import base64
@@ -19,10 +19,16 @@ import hmac
 import asyncio
 import uuid
 import httpx
+import re
 from database import (
     get_async_url_parameters_collection,
     get_async_vendors_collection,
-    get_async_cpx_callback_logs_collection
+    get_async_cpx_callback_logs_collection,
+    get_async_collection,
+    DB_EMAIL_AUTOMATION,
+    COL_PROJECTS,
+    DB_FINANCE,
+    COL_CUSTOMERS,
 )
 
 # URL validation utility for redirect safety
@@ -87,6 +93,8 @@ cint_service: Optional[Any] = None  # CINT service for direct survey allocation
 vendors_collection: Optional[Collection] = None
 cpx_callback_logs_collection: Optional[Collection] = None
 cpx_postback_logs_collection: Optional[Collection] = None  # S2S postback logs for verification
+projects_collection: Optional[Collection] = None
+finance_customers_collection: Optional[Collection] = None
 
 
 def set_url_parameters_collection(collection: Collection):
@@ -127,6 +135,18 @@ def set_vendors_collection(collection: Collection):
     vendors_collection = collection
 
 
+def set_projects_collection(collection: Collection):
+    """Set the projects MongoDB collection from main.py"""
+    global projects_collection
+    projects_collection = collection
+
+
+def set_finance_customers_collection(collection: Collection):
+    """Set finance customers collection from main.py."""
+    global finance_customers_collection
+    finance_customers_collection = collection
+
+
 def set_cpx_callback_logs_collection(collection: Collection):
     """Set the CPX callback logs MongoDB collection from main.py"""
     global cpx_callback_logs_collection
@@ -137,6 +157,226 @@ def set_cpx_postback_logs_collection(collection: Collection):
     """Set the CPX S2S postback logs collection for verification"""
     global cpx_postback_logs_collection
     cpx_postback_logs_collection = collection
+
+
+def _normalize_project_status(value: Any) -> str:
+    """Normalize stored project status values."""
+    return str(value or "").strip().lower()
+
+
+def _normalize_client_variable(raw_value: Any) -> str:
+    """
+    Extract and normalize a client variable key name.
+
+    Accepts strict key values like `rid`, and compact key:value forms like `rid: respondent id`.
+    """
+    raw = str(raw_value or "").strip()
+    if not raw:
+        return ""
+
+    # Direct variable key.
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", raw):
+        return raw
+
+    # Key with annotation.
+    for sep in ("=", ":"):
+        if sep in raw:
+            key = raw.split(sep, 1)[0].strip()
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", key):
+                return key
+
+    return ""
+
+
+def _extract_client_variable_from_customer(customer_doc: Optional[Dict[str, Any]]) -> str:
+    """Resolve client variable from customer record fields."""
+    if not customer_doc:
+        return ""
+
+    for field in ("clientVariable", "client_variable", "notes"):
+        normalized = _normalize_client_variable(customer_doc.get(field))
+        if normalized:
+            return normalized
+    return ""
+
+
+async def _resolve_live_project_async(project_number: str) -> Optional[Dict[str, Any]]:
+    """
+    Resolve a live project from the study pool by project number (surveyNo).
+
+    Accepts exact surveyNo; if numeric, also tries zero-padded variants.
+    """
+    normalized_number = str(project_number or "").strip()
+    if not normalized_number:
+        return None
+
+    candidates = {normalized_number}
+    if normalized_number.isdigit():
+        candidates.add(str(int(normalized_number)))
+        candidates.add(normalized_number.zfill(5))
+
+    async_projects_col = get_async_collection(DB_EMAIL_AUTOMATION, COL_PROJECTS)
+    project_doc = await async_projects_col.find_one(
+        {
+            "is_deleted": {"$ne": True},
+            "surveyNo": {"$in": list(candidates)},
+        }
+    )
+    if not project_doc:
+        return None
+
+    if _normalize_project_status(project_doc.get("projectStatus")) != "live":
+        return None
+
+    return project_doc
+
+
+async def _resolve_project_client_variable_async(project_doc: Optional[Dict[str, Any]]) -> str:
+    """Resolve client variable for a project by matching finance customer record."""
+    if not project_doc:
+        return ""
+
+    client_name = str(project_doc.get("client") or "").strip()
+    if not client_name:
+        return ""
+
+    escaped_client = re.escape(client_name)
+    async_customers_col = get_async_collection(DB_FINANCE, COL_CUSTOMERS)
+    customer_doc = await async_customers_col.find_one(
+        {
+            "$or": [
+                {"company_name": {"$regex": f"^{escaped_client}$", "$options": "i"}},
+                {"name": {"$regex": f"^{escaped_client}$", "$options": "i"}},
+            ]
+        }
+    )
+    return _extract_client_variable_from_customer(customer_doc)
+
+
+def _replace_live_link_respondent(live_link: str, sfwid: str, client_variable: str = "") -> str:
+    """
+    Replace the respondent placeholder in project live link with SFWID.
+
+    Priority:
+    1) Replace value of the configured client variable query param.
+    2) Replace known placeholder tokens in URL text.
+    3) If no client variable and common RID/PID param exists, replace that value.
+    """
+    link = str(live_link or "").strip()
+    if not link or not sfwid:
+        return link
+
+    parsed = urlparse(link)
+    query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    replaced = False
+    normalized_var = _normalize_client_variable(client_variable)
+
+    if normalized_var:
+        updated_pairs = []
+        for key, value in query_pairs:
+            if key.lower() == normalized_var.lower():
+                updated_pairs.append((key, sfwid))
+                replaced = True
+            else:
+                updated_pairs.append((key, value))
+
+        if not replaced:
+            updated_pairs.append((normalized_var, sfwid))
+            replaced = True
+
+        query_pairs = updated_pairs
+    else:
+        fallback_keys = {"rid", "respondent_id", "respondentid", "pid"}
+        updated_pairs = []
+        for key, value in query_pairs:
+            if key.lower() in fallback_keys and not replaced:
+                updated_pairs.append((key, sfwid))
+                replaced = True
+            else:
+                updated_pairs.append((key, value))
+        query_pairs = updated_pairs
+
+    rebuilt = urlunparse(parsed._replace(query=urlencode(query_pairs, doseq=True)))
+
+    placeholder_tokens = (
+        "{RID}",
+        "{rid}",
+        "{{RID}}",
+        "{{rid}}",
+        "[RID]",
+        "[rid]",
+        "{PID}",
+        "{pid}",
+        "[%PID%]",
+        "{RESPONDENT_ID}",
+        "{respondent_id}",
+        "{respondentId}",
+        "{SFWID}",
+        "{sfwid}",
+    )
+
+    for token in placeholder_tokens:
+        if token in rebuilt:
+            rebuilt = rebuilt.replace(token, sfwid)
+            replaced = True
+
+    return rebuilt if replaced else link
+
+
+async def _resolve_vendor_async(vendor_id: Any) -> Optional[Dict[str, Any]]:
+    """Resolve vendor by ID with int/string fallback."""
+    if vendor_id is None:
+        return None
+
+    async_vendors_col = get_async_vendors_collection()
+    vendor = await async_vendors_col.find_one({"vid": vendor_id})
+    if vendor:
+        return vendor
+
+    if isinstance(vendor_id, str) and vendor_id.isdigit():
+        return await async_vendors_col.find_one({"vid": int(vendor_id)})
+    if isinstance(vendor_id, int):
+        return await async_vendors_col.find_one({"vid": str(vendor_id)})
+    return None
+
+
+def _build_vendor_redirect_url(
+    vendor_doc: Optional[Dict[str, Any]],
+    redirect_fields: List[str],
+    fallback_url: str,
+    respondent_id: str,
+) -> str:
+    """Build vendor redirect URL and append respondent ID using vendor variable."""
+    base_url = ""
+    vendor_variable = "id"
+
+    if vendor_doc:
+        vendor_variable = str(vendor_doc.get("vendorVariable") or "id").strip() or "id"
+        for field in redirect_fields:
+            urls = vendor_doc.get(field, [])
+            if isinstance(urls, list):
+                candidate = next((u.strip() for u in urls if u and str(u).strip()), "")
+            elif isinstance(urls, str):
+                candidate = urls.strip()
+            else:
+                candidate = ""
+            if candidate:
+                base_url = candidate
+                break
+
+    if not base_url:
+        base_url = fallback_url
+
+    if not respondent_id:
+        return base_url
+
+    if base_url.endswith(f"&{vendor_variable}=") or base_url.endswith(f"?{vendor_variable}="):
+        return f"{base_url}{respondent_id}"
+    if f"&{vendor_variable}=" in base_url or f"?{vendor_variable}=" in base_url:
+        separator = "&" if "?" in base_url else "?"
+        return f"{base_url}{separator}{vendor_variable}={respondent_id}"
+    separator = "&" if "?" in base_url else "?"
+    return f"{base_url}{separator}{vendor_variable}={respondent_id}"
 
 
 # ============================================
@@ -1490,6 +1730,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         vendor_id = params.get('vid', '')
         country_code = params.get('cc', '')
         respondent_id = params.get('rid', '')
+        project_number = str(params.get('pid', '') or '').strip()
+        api_flag = str(params.get('api', '') or '').strip().lower()
+        is_project_adhoc_flow = api_flag == "false" and bool(project_number)
         
         traffic_id = None
         entry_link = None
@@ -1665,19 +1908,57 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 }
                 result = await async_url_collection.insert_one(fallback_record)
                 traffic_id = str(result.inserted_id)
+                result = await async_url_collection.insert_one(fallback_record)
+                traffic_id = str(result.inserted_id)
                 print(f"✅ Created traffic record (LEGACY FALLBACK): {traffic_id}")
             except Exception as fallback_err:
                 print(f"⚠️ Legacy fallback traffic record creation also failed: {fallback_err}")
                 # traffic_id remains None; allocation block will be skipped gracefully
         
         # ===============================================================================
-        # CPX-ONLY INITIAL ALLOCATION (As requested)
+        # CASE 1: PROJECT-BASED (ADHOC) FLOW (api=false & pid=<project_number>)
         # ===============================================================================
-        # RID is changed to SFWID for CPX identity tracking
-        # This ensures unique tracking per respondent session
+        if is_project_adhoc_flow and traffic_id:
+            print(f"🔀 Strategy: PROJECT-BASED (ADHOC). PID={project_number}, SFWID={traffic_id}")
+            
+            project_doc = await _resolve_live_project_async(project_number)
+            if project_doc:
+                client_variable = await _resolve_project_client_variable_async(project_doc)
+                base_live_link = project_doc.get("liveLink") or project_doc.get("clientLink") or ""
+                
+                if base_live_link:
+                    entry_link = _replace_live_link_respondent(base_live_link, traffic_id, client_variable)
+                    survey_id = project_doc.get("surveyNo") or project_number
+                    allocation_success = True
+                    actual_provider = "PROJECT"
+                    
+                    # Update traffic record with project info
+                    await async_url_collection.update_one(
+                        {"_id": ObjectId(traffic_id)},
+                        {"$set": {
+                            "status": "INCOMPLETE",
+                            "assignedSurveyId": str(survey_id),
+                            "redirectUrl": entry_link,
+                            "surveySource": "PROJECT",
+                            "projectId": str(project_doc.get("_id")),
+                            "client_variable": client_variable,
+                            "updatedAt": datetime.utcnow().isoformat(),
+                        }}
+                    )
+                    print(f"✅ PROJECT allocation success: survey {survey_id}")
+                else:
+                    allocation_error = "Project has no live link configured."
+            else:
+                allocation_error = f"Live project not found for number: {project_number}"
+            
+            if not allocation_success:
+                print(f"❌ PROJECT allocation failed: {allocation_error}")
+
         # ===============================================================================
-        
-        print(f"🔀 Strategy: CPX ONLY at start. SFWID={traffic_id}")
+        # CASE 2: CPX/CINT FLOW (Standard API flow)
+        # ===============================================================================
+        elif not allocation_success and vendor_id and country_code and traffic_id:
+            print(f"🔀 Strategy: CPX ONLY at start. SFWID={traffic_id}")
         
         # ============================================
         # HELPER FUNCTION: CPX Allocation (ASYNCHRONOUS)
@@ -1808,233 +2089,6 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 "updatedAt": datetime.utcnow().isoformat(),
                             }}
                         )
-                        
-                        print(f"✅ CINT used as primary: survey {survey_id} (Hashed PID stored)")
-                        return True
-                return False
-                    
-            except Exception as e:
-                print(f"⚠️ CINT async allocation error: {e}")
-                return False
-        
-        
-        # ============================================
-        # MAIN ALLOCATION LOGIC: CPX first
-        # ============================================
-        # Strategy:
-        # 1. Try CPX first for primary survey
-        # 2. If CPX terminates later, a random CINT survey is picked at callback time
-        # (No pre-fetching or waterfall — CINT fallback is done on-demand)
-        actual_provider = None
-        
-        # Skip allocation only for critical errors (invalid IP)
-        if allocation_error:
-            print(f"⏭️ Skipping survey allocation due to critical error: {allocation_error}")
-        elif not allocation_success and vendor_id and country_code and traffic_id:
-            # Try CPX (primary)
-            print("🔄 Trying CPX (primary)...")
-            cpx_success = await try_cpx_allocation()
-
-            if not cpx_success:
-                # If CPX fails (no surveys), we DON'T try CINT here as requested by "RID is changed to SFWID... entry link for CPX created"
-                # But to avoid 100% loss if CPX is empty, maybe we should try first CINT? 
-                # User says: "when user is terminated from CPX, the entry link gets created for cint."
-                # This implies user MUST enter CPX first.
-                allocation_error = "CPX: No surveys available at this time."
-                print(f"❌ CPX ALLOCATION FAILED: {allocation_error}")
-        
-        # Build response
-        response_data = {
-            "id": traffic_id,
-            "type": "traffic_record" if traffic_service else "legacy",
-            "allocation_success": allocation_success,
-            "entry_link": entry_link,
-            "survey_id": survey_id,
-            "survey_provider": actual_provider,
-            "primary_provider": "CPX"
-        }
-        
-        if not allocation_success:
-            response_data["allocation_error"] = allocation_error or "CPX Allocation failed"
-        
-        return response_data
-        
-    except Exception as e:
-        print(f"Error storing URL parameters: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Store error: {str(e)}")
-
-
-@router.get("/cpx/redirect")
-async def cpx_redirect(request: Request, id: str = Query(..., description="Traffic record ID (SFWID)")):
-    """
-    Pure HTTP redirect to the survey entry link stored on the traffic record.
-    Supports both CPX and CINT survey links.
-    This avoids JS-based redirects and preserves the exact href returned by the provider.
-    """
-    try:
-        if url_parameters_collection is None:
-            raise HTTPException(status_code=500, detail="Database not connected")
-
-        def is_valid_survey_link(url: str) -> bool:
-            """Check if URL is a valid CPX or CINT survey link"""
-            valid_prefixes = [
-                "https://click.cpx-research.com/",
-                "https://samplicio.us/",
-                "https://www.samplicio.us/",
-                "https://s.samplicio.us/",
-            ]
-            return any(url.startswith(prefix) for prefix in valid_prefixes)
-
-        try:
-            record = url_parameters_collection.find_one({"_id": ObjectId(id)})
-        except Exception:
-            record = None
-
-        if not record:
-            print(f"❌ Survey redirect: traffic record not found (id={id})")
-            raise HTTPException(status_code=404, detail="Traffic record not found")
-
-        entry_link = record.get("redirectUrl") or record.get("redirect_url") or ""
-        entry_source = record.get("surveySource", "unknown")
-
-        # Don't clear entry_link if it's a valid survey link
-        if entry_link and not is_valid_survey_link(entry_link):
-            # Check if it might be a CPX guard link
-            entry_link = ""
-
-        # Fallback: Try CPX guard for CPX allocated surveys
-        if not entry_link and cpx_entry_guards_collection:
-            # Use traffic_id (SFWID) as the guard key since that's now the ext_user_id
-            guard_key = str(record.get("_id"))
-            if guard_key:
-                guard_doc = cpx_entry_guards_collection.find_one({"ext_user_id": guard_key})
-                guard_link = guard_doc.get("entry_link") if guard_doc else ""
-                if guard_link and is_valid_survey_link(guard_link):
-                    entry_link = guard_link
-                    entry_source = "cpx_entry_guard"
-
-        if not entry_link:
-            print(
-                "❌ Survey redirect: entry link not available "
-                f"(id={id}, source={entry_source})"
-            )
-            raise HTTPException(status_code=404, detail="Entry link not available")
-
-        # Validate the link
-        if not is_valid_survey_link(entry_link):
-            print(
-                "❌ Survey redirect: invalid entry link "
-                f"(id={id}, url={entry_link[:120]}...)")
-            raise HTTPException(status_code=400, detail="Invalid survey entry link")
-
-        client_ip = request.client.host if request.client else "unknown"
-        user_agent = request.headers.get("user-agent", "unknown")[:160]
-        print(
-            f"✅ Survey redirect: sending user to {entry_source} survey "
-            f"(id={id}, ip={client_ip}, ua={user_agent})"
-        )
-
-        return RedirectResponse(url=entry_link, status_code=302)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ CPX redirect error: {e}")
-        raise HTTPException(status_code=500, detail="Redirect error")
-
-
-@router.get("/surveycomplete")
-async def survey_complete(request: Request, rid: str = Query(None)):
-    """
-    Survey completion callback
-    Updates status to 'complete' and redirects
-    """
-    try:
-        if rid:
-            # Try traffic service first
-            if traffic_service:
-                traffic_service.update_traffic_status(
-                    traffic_id=rid,
-                    status="COMPLETE",
-                    redirect_url=str(request.url)
-                )
-            # Fallback to direct collection update
-            elif url_parameters_collection:
-                url_parameters_collection.update_one(
-                    {"_id": ObjectId(rid)},
-                    {"$set": {"status": "complete", "redirectUrl": str(request.url)}}
-                )
-        return RedirectResponse(url=ZOHO_COMPLETE_URL)
-    except Exception as e:
-        print(f"Error in survey_complete: {e}")
-        # Still redirect even if update fails
-        return RedirectResponse(url=ZOHO_COMPLETE_URL)
-
-
-@router.get("/surveyterminate")
-async def survey_terminate(request: Request, rid: str = Query(None)):
-    """
-    Survey termination callback
-    Updates status to 'terminated' and redirects
-    """
-    try:
-        if rid:
-            # Try traffic service first
-            if traffic_service:
-                traffic_service.update_traffic_status(
-                    traffic_id=rid,
-                    status="TERMINATED",
-                    redirect_url=str(request.url)
-                )
-            # Fallback to direct collection update
-            elif url_parameters_collection:
-                url_parameters_collection.update_one(
-                    {"_id": ObjectId(rid)},
-                    {"$set": {"status": "terminated", "redirectUrl": str(request.url)}}
-                )
-        return RedirectResponse(url=ZOHO_TERMINATE_URL)
-    except Exception as e:
-        print(f"Error in survey_terminate: {e}")
-        # Still redirect even if update fails
-        return RedirectResponse(url=ZOHO_TERMINATE_URL)
-
-
-@router.get("/surveyquotafull")
-async def survey_quotafull(request: Request, rid: str = Query(None)):
-    """
-    Survey quota full callback
-    Updates status to 'quotafull' and redirects
-    """
-    try:
-        if rid:
-            # Try traffic service first
-            if traffic_service:
-                traffic_service.update_traffic_status(
-                    traffic_id=rid,
-                    status="QUOTAFULL",
-                    redirect_url=str(request.url)
-                )
-            # Fallback to direct collection update
-            elif url_parameters_collection:
-                url_parameters_collection.update_one(
-                    {"_id": ObjectId(rid)},
-                    {"$set": {"status": "quotafull", "redirectUrl": str(request.url)}}
-                )
-        return RedirectResponse(url=ZOHO_QUOTA_URL)
-    except Exception as e:
-        print(f"Error in survey_quotafull: {e}")
-        # Still redirect even if update fails
-        return RedirectResponse(url=ZOHO_QUOTA_URL)
-
-
-@router.get("/api/health")
-async def health():
-    """
-    Health check endpoint for traffic flow API
-    """
-    return {"status": "ok", "service": "traffic-flow"}
 
 
 @router.get("/api/traffic/stats")
@@ -3151,3 +3205,253 @@ def _generate_diagnostic_summary(country_stats: list, rejection_summary: dict) -
     
     return " | ".join(summary_parts) if summary_parts else "No critical issues detected"
 
+
+# ============================================================================
+# VENDOR TRAFFIC INTEGRATION
+# ============================================================================
+# Flow: Vendor → /takesurvey (parsing page) → Client live link
+#        → Client returns via /vendor-response → Vendor redirect URL
+# ============================================================================
+
+
+@router.get("/takesurvey")
+async def vendor_takesurvey(
+    request: Request,
+    api: str = Query(None, description="Must be 'false' for project-based flow"),
+    pid: str = Query(None, description="Project number (surveyNo) from study pool"),
+    vid: str = Query(None, description="Vendor ID"),
+    cc: str = Query(None, description="Country code (ISO2)"),
+    rid: str = Query(None, description="Respondent ID from vendor — stored, replaced with SFWID"),
+):
+    """
+    Vendor Traffic Parsing Page
+
+    Receives vendor traffic, creates a traffic record (SFWID), resolves the live
+    project from the study pool, injects SFWID into the client's live link, and
+    immediately redirects the respondent to the client survey.
+
+    URL format:
+        /takesurvey?api=false&pid=<project_no>&vid=<vendor_id>&cc=<country_code>&rid=<respondent_id>
+
+    Traffic flow:
+        Vendor → /takesurvey → Client live link (SFWID injected)
+            → /vendor-response?status=<status>&sfwid=<SFWID>
+                → Vendor redirect URL (original RID appended)
+    """
+    try:
+        print(f"📥 /takesurvey hit: api={api}, pid={pid}, vid={vid}, cc={cc}, rid={rid}")
+
+        # --- Validate: must be project-based flow ---
+        if str(api or "").strip().lower() != "false" or not pid:
+            print("❌ /takesurvey: Invalid request — api must be 'false' and pid is required")
+            return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=invalid_request")
+
+        if not vid or not cc or not rid:
+            print("❌ /takesurvey: Missing required params (vid, cc, rid)")
+            return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=missing_params")
+
+        project_number = str(pid).strip()
+        vendor_id_raw = str(vid).strip()
+        country_code = str(cc).strip().lower()
+        respondent_id = str(rid).strip()
+
+        # Try to coerce vendor_id to int; keep as string otherwise
+        try:
+            vendor_id = int(vendor_id_raw)
+        except (ValueError, TypeError):
+            vendor_id = vendor_id_raw
+
+        # --- Step 1: Resolve vendor (for later use in /vendor-response) ---
+        vendor_doc = await _resolve_vendor_async(vendor_id)
+        if not vendor_doc:
+            print(f"⚠️ /takesurvey: Vendor {vendor_id} not found — proceeding without vendor record")
+
+        # --- Step 2: Resolve project from study pool ---
+        project_doc = await _resolve_live_project_async(project_number)
+        if not project_doc:
+            print(f"❌ /takesurvey: Live project not found for pid={project_number}")
+            return RedirectResponse(
+                url=f"{FRONTEND_URL}/survey-error?error=project_not_found&pid={project_number}"
+            )
+
+        base_live_link = (
+            project_doc.get("liveLink")
+            or project_doc.get("clientLink")
+            or ""
+        ).strip()
+
+        if not base_live_link:
+            print(f"❌ /takesurvey: Project {project_number} has no live link configured")
+            return RedirectResponse(
+                url=f"{FRONTEND_URL}/survey-error?error=no_live_link&pid={project_number}"
+            )
+
+        # --- Step 3: Create traffic record ---
+        ip_source = "CF-Connecting-IP"
+        client_ip = (
+            request.headers.get("CF-Connecting-IP")
+            or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+            or request.headers.get("X-Real-IP")
+            or (request.client.host if request.client else "")
+        )
+        user_agent = request.headers.get("User-Agent", "")
+
+        traffic_record = {
+            "source": "VENDOR_DIRECT",
+            "status": "INCOMPLETE",
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+            "respondentId": respondent_id,
+            "vendorId": vendor_id,
+            "countryCode": country_code,
+            "projectNumber": project_number,
+            "clientIp": client_ip,
+            "ipSource": ip_source,
+            "userAgent": user_agent,
+            "params": {
+                "api": api,
+                "pid": project_number,
+                "vid": vendor_id_raw,
+                "cc": country_code,
+                "rid": respondent_id,
+            },
+        }
+
+        async_url_collection = get_async_url_parameters_collection()
+        result = await async_url_collection.insert_one(traffic_record)
+        sfwid = str(result.inserted_id)
+        print(f"✅ /takesurvey: Traffic record created — SFWID={sfwid}")
+
+        # --- Step 4: Resolve client variable from finance customer record ---
+        client_variable = await _resolve_project_client_variable_async(project_doc)
+        print(f"   Client variable: '{client_variable or '(auto-detect)'}'")
+
+        # --- Step 5: Build entry link — replace respondent placeholder with SFWID ---
+        entry_link = _replace_live_link_respondent(base_live_link, sfwid, client_variable)
+        survey_id = project_doc.get("surveyNo") or project_number
+
+        print(f"   Live link (original) : {base_live_link}")
+        print(f"   Entry link (SFWID in): {entry_link}")
+
+        # --- Step 6: Update traffic record with allocation info ---
+        await async_url_collection.update_one(
+            {"_id": result.inserted_id},
+            {
+                "$set": {
+                    "assignedSurveyId": str(survey_id),
+                    "redirectUrl": entry_link,
+                    "surveySource": "PROJECT",
+                    "projectId": str(project_doc.get("_id", "")),
+                    "client_variable": client_variable,
+                    "updatedAt": datetime.utcnow(),
+                }
+            },
+        )
+
+        print(f"✅ /takesurvey: Redirecting SFWID={sfwid} → {entry_link[:80]}...")
+        return RedirectResponse(url=entry_link)
+
+    except Exception as e:
+        print(f"❌ /takesurvey error: {e}")
+        import traceback
+        traceback.print_exc()
+        return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=internal")
+
+
+@router.get("/vendor-response")
+async def vendor_response_callback(
+    request: Request,
+    status: str = Query(..., description="Survey outcome: complete, terminate, quota_full"),
+    sfwid: str = Query(None, description="SFWID — our traffic record ID (set as client variable)"),
+    rid: str = Query(None, description="Respondent ID (optional fallback)"),
+):
+    """
+    Vendor Traffic Return Redirect Handler
+
+    Called by client when respondent finishes/exits the survey.
+    Looks up the traffic record by SFWID, updates status, and redirects
+    to the vendor's completeRD or terminateRD URL with the original RID appended.
+
+    URL format (client tredirects):
+        Complete : /vendor-response?status=complete&sfwid=<SFWID>
+        Terminate: /vendor-response?status=terminate&sfwid=<SFWID>
+        Quota    : /vendor-response?status=quota_full&sfwid=<SFWID>
+    """
+    try:
+        print(f"📥 /vendor-response hit: status={status}, sfwid={sfwid}")
+
+        # --- Map status ---
+        status_mapping = {
+            "complete": "COMPLETE",
+            "terminate": "TERMINATED",
+            "quota_full": "OVERQUOTA",
+            "quotafull": "OVERQUOTA",
+        }
+        new_status = status_mapping.get((status or "").lower(), "TERMINATED")
+        is_complete = new_status == "COMPLETE"
+
+        if not sfwid:
+            print("❌ /vendor-response: No sfwid provided")
+            return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=missing_sfwid")
+
+        # --- Look up traffic record ---
+        async_url_collection = get_async_url_parameters_collection()
+        traffic_record = None
+
+        # Primary: by ObjectId
+        try:
+            traffic_record = await async_url_collection.find_one({"_id": ObjectId(sfwid)})
+            if traffic_record:
+                print(f"✅ /vendor-response: Found traffic record by ObjectId: {sfwid}")
+        except Exception:
+            pass
+
+        # Fallback: string _id
+        if not traffic_record:
+            traffic_record = await async_url_collection.find_one({"_id": sfwid})
+
+        if not traffic_record:
+            print(f"⚠️ /vendor-response: Traffic record not found for sfwid={sfwid}")
+            return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=not_found")
+
+        vendor_id = traffic_record.get("vendorId")
+        respondent_id = traffic_record.get("respondentId", rid or "")
+        print(f"   vendorId={vendor_id}, respondentId={respondent_id}, new_status={new_status}")
+
+        # --- Update traffic record ---
+        update_fields = {
+            "status": new_status,
+            "vendorCallbackUrl": str(request.url),
+            "updatedAt": datetime.utcnow(),
+        }
+        if is_complete:
+            update_fields["completedAt"] = datetime.utcnow()
+
+        await async_url_collection.update_one(
+            {"_id": traffic_record["_id"]},
+            {"$set": update_fields},
+        )
+
+        # --- Resolve vendor and build redirect URL ---
+        fallback_url = f"{FRONTEND_URL}/thankyou" if is_complete else f"{FRONTEND_URL}/survey-error"
+
+        if vendor_id:
+            vendor_doc = await _resolve_vendor_async(vendor_id)
+            redirect_fields = ["completeRD"] if is_complete else ["terminateRD"]
+            redirect_url = _build_vendor_redirect_url(
+                vendor_doc, redirect_fields, fallback_url, respondent_id
+            )
+        else:
+            redirect_url = fallback_url
+            if respondent_id:
+                sep = "&" if "?" in redirect_url else "?"
+                redirect_url = f"{redirect_url}{sep}rid={respondent_id}"
+
+        print(f"✅ /vendor-response: {new_status} → {redirect_url}")
+        return RedirectResponse(url=redirect_url)
+
+    except Exception as e:
+        print(f"❌ /vendor-response error: {e}")
+        import traceback
+        traceback.print_exc()
+        return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=internal")
