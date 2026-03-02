@@ -2089,6 +2089,49 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 "updatedAt": datetime.utcnow().isoformat(),
                             }}
                         )
+                        return True
+                return False
+                    
+            except Exception as e:
+                print(f"⚠️ CINT async allocation error: {e}")
+                return False
+        
+        # ===============================================================================
+        # EXECUTE ALLOCATION STRATEGY
+        # ===============================================================================
+        if not allocation_success and vendor_id and country_code and traffic_id:
+            # Try CPX allocation first
+            await try_cpx_allocation()
+            
+            # If CPX fails and we have country code, fallback to CINT
+            if not allocation_success and country_code:
+                print(f"📌 CPX allocation failed, attempting CINT fallback...")
+                await try_cint_allocation()
+        
+        # ===============================================================================
+        # BUILD RESPONSE
+        # ===============================================================================
+        response_data = {
+            "success": allocation_success,
+            "entryLink": entry_link or "",
+            "surveyId": survey_id or "",
+            "trafficId": str(traffic_id) if traffic_id else "",
+            "source": actual_provider or "UNKNOWN",
+            "allocationError": allocation_error
+        }
+        
+        if not allocation_success:
+            print(f"⚠️ No allocation achieved. Error: {allocation_error}")
+        
+        return response_data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error in /api/store: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Traffic store error: {str(e)}")
 
 
 @router.get("/api/traffic/stats")
