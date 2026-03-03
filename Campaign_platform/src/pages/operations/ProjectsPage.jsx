@@ -741,23 +741,23 @@ function ProjectsPage() {
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Total Completes Required</label>
                     <input
-                      style={{ ...styles.input, ...styles.readOnlyField }}
+                      style={styles.input}
                       name="totalCompletesRequired"
                       value={formData.totalCompletesRequired}
+                      onChange={handleChange}
                       placeholder="From RFQ field"
                       type="number"
-                      readOnly
                     />
                   </div>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>LOI (Length of Interview)</label>
                     <input
-                      style={{ ...styles.input, ...styles.readOnlyField }}
+                      style={styles.input}
                       name="loi"
                       value={formData.loi}
+                      onChange={handleChange}
                       placeholder="From RFQ"
                       type="number"
-                      readOnly
                     />
                   </div>
                 </div>
@@ -766,23 +766,23 @@ function ProjectsPage() {
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Client IR (%)</label>
                     <input
-                      style={{ ...styles.input, ...styles.readOnlyField }}
+                      style={styles.input}
                       name="clientIR"
                       value={formData.clientIR}
+                      onChange={handleChange}
                       placeholder="From RFQ"
                       type="number"
-                      readOnly
                     />
                   </div>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>CPI (Currency)</label>
                     <input
-                      style={{ ...styles.input, ...styles.readOnlyField }}
+                      style={styles.input}
                       name="cpi"
                       value={formData.cpi}
+                      onChange={handleChange}
                       placeholder="From RFQ"
                       type="number"
-                      readOnly
                     />
                   </div>
                 </div>
@@ -794,12 +794,12 @@ function ProjectsPage() {
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Total Completes</label>
                     <input
-                      style={{ ...styles.input, ...styles.readOnlyField }}
+                      style={styles.input}
                       name="totalCompletes"
                       value={formData.totalCompletes}
+                      onChange={handleChange}
                       placeholder="From RFQ"
                       type="number"
-                      readOnly
                     />
                   </div>
                   <div style={styles.formGroup}>
