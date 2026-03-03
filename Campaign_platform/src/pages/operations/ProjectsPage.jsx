@@ -38,6 +38,7 @@ function ProjectsPage() {
     totalRespondents: "",
     actualCompletes: "",
     actualIR: "",
+    entryLink: "",
     liveLink: "",
     completePage: "",
     terminatePage: "",
@@ -108,11 +109,21 @@ function ProjectsPage() {
     return [value].filter(Boolean);
   };
 
+  const normalizeEntryUrl = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) return raw;
+    return `https://${raw}`;
+  };
+
   const applyDerivedFields = (nextForm) => {
+    const entryLink = nextForm.entryLink || nextForm.liveLink || "";
     const actualIR = computeActualIR(nextForm.actualCompletes, nextForm.totalRespondents);
-    const generatedPages = getSystemGeneratedPages(nextForm.liveLink);
+    const generatedPages = getSystemGeneratedPages(entryLink);
     return {
       ...nextForm,
+      entryLink,
+      liveLink: entryLink,
       actualIR,
       ...generatedPages,
     };
@@ -153,6 +164,7 @@ function ProjectsPage() {
     applyDerivedFields({
       ...emptyForm,
       ...project,
+      entryLink: project.entryLink || project.liveLink || "",
       vendorCompleteRD: normalizeList(project.vendorCompleteRD),
       vendorTerminateRD: normalizeList(project.vendorTerminateRD),
       vendorQuotaFullRD: normalizeList(project.vendorQuotaFullRD),
@@ -343,36 +355,43 @@ function ProjectsPage() {
 
   // 🔹 Save Project
   const saveProject = async () => {
+    const normalizedEntryLink = normalizeEntryUrl(formData.entryLink || formData.liveLink);
+    const preparedForm = applyDerivedFields({
+      ...formData,
+      entryLink: normalizedEntryLink,
+      liveLink: normalizedEntryLink,
+    });
+
     const errors = [];
     
-    if (!formData.projectName || !formData.projectName.trim()) {
+    if (!preparedForm.projectName || !preparedForm.projectName.trim()) {
       errors.push("Project Name is required");
     }
-    if (!formData.salesPerson || !formData.salesPerson.trim()) {
+    if (!preparedForm.salesPerson || !preparedForm.salesPerson.trim()) {
       errors.push("Sales Person is required");
     }
-    if (!formData.client || !formData.client.trim()) {
+    if (!preparedForm.client || !preparedForm.client.trim()) {
       errors.push("Client is required");
     }
-    if (!formData.projectLaunchDate) {
+    if (!preparedForm.projectLaunchDate) {
       errors.push("Project Launch Date is required");
     }
-    if (!formData.projectCloseDate) {
+    if (!preparedForm.projectCloseDate) {
       errors.push("Project Close Date is required");
     }
-    if (!formData.liveLink || !formData.liveLink.trim()) {
-      errors.push("Live Link is required");
+    if (!preparedForm.liveLink || !preparedForm.liveLink.trim()) {
+      errors.push("Entry Link is required");
     }
-    if (!formData.vendorName || !formData.vendorName.trim()) {
+    if (!preparedForm.vendorName || !preparedForm.vendorName.trim()) {
       errors.push("Vendor Name is required");
     }
-    if (!toNumber(formData.totalCompletesRequired)) {
+    if (!toNumber(preparedForm.totalCompletesRequired)) {
       errors.push("Total Completes Required is required and must be greater than 0");
     }
-    if (!toNumber(formData.loi)) {
+    if (!toNumber(preparedForm.loi)) {
       errors.push("LOI (Length of Interview) is required and must be greater than 0");
     }
-    if (!toNumber(formData.cpi)) {
+    if (!toNumber(preparedForm.cpi)) {
       errors.push("CPI (Cost Per Interview) is required and must be greater than 0");
     }
     
@@ -389,12 +408,11 @@ function ProjectsPage() {
     }
 
     try {
-      const derivedForm = applyDerivedFields(formData);
       const payload = {
-        ...derivedForm,
-        vendorCompleteRD: normalizeList(derivedForm.vendorCompleteRD),
-        vendorTerminateRD: normalizeList(derivedForm.vendorTerminateRD),
-        vendorQuotaFullRD: normalizeList(derivedForm.vendorQuotaFullRD),
+        ...preparedForm,
+        vendorCompleteRD: normalizeList(preparedForm.vendorCompleteRD),
+        vendorTerminateRD: normalizeList(preparedForm.vendorTerminateRD),
+        vendorQuotaFullRD: normalizeList(preparedForm.vendorQuotaFullRD),
       };
 
       const url = editingId
@@ -830,8 +848,14 @@ function ProjectsPage() {
               <div style={styles.section}>
                 <h4 style={styles.sectionTitle}>Survey Links</h4>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>Live Link <span style={styles.required}>*</span></label>
-                  <input style={styles.input} name="liveLink" value={formData.liveLink} onChange={handleChange} placeholder="https://www.surveyfieldwork.com/live?rid=XXXX" />
+                  <label style={styles.label}>Entry Link <span style={styles.required}>*</span></label>
+                  <input
+                    style={styles.input}
+                    name="entryLink"
+                    value={formData.entryLink || formData.liveLink}
+                    onChange={handleChange}
+                    placeholder="https://www.surveyfieldwork.com/live?rid=XXXX"
+                  />
                 </div>
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Complete Page URL</label>

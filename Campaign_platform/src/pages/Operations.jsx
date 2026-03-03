@@ -69,6 +69,16 @@ function Operations() {
 
   // ==================== FETCH FUNCTIONS ====================
 
+  const parseJsonIfPossible = async (res) => {
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) return null;
+    try {
+      return await res.json();
+    } catch {
+      return null;
+    }
+  };
+
   const fetchDashboardData = async () => {
     setLoading(true);
     setError(null);
@@ -82,16 +92,6 @@ function Operations() {
       ]);
 
       let loadedAnyDashboardData = false;
-
-      const parseJsonIfPossible = async (res) => {
-        const contentType = res.headers.get("content-type") || "";
-        if (!contentType.includes("application/json")) return null;
-        try {
-          return await res.json();
-        } catch {
-          return null;
-        }
-      };
 
       if (kpiResult.status === "fulfilled" && kpiResult.value.ok) {
         const kpiData = await parseJsonIfPossible(kpiResult.value);
@@ -156,8 +156,8 @@ function Operations() {
   const fetchProjects = async () => {
     try {
       const res = await fetch(buildApiUrl(`/api/operations/projects/?limit=50`), { headers: { Authorization: token() || "" } });
-      if (res.ok) {
-        const data = await res.json();
+      const data = await parseJsonIfPossible(res);
+      if (res.ok && data) {
         setProjects(data.projects || []);
       }
     } catch (err) {
@@ -179,9 +179,12 @@ function Operations() {
 
   const fetchVendorEmails = async () => {
     try {
-      const res = await fetch(buildApiUrl(`/unified-inbox/emails?category=vendor_communication&limit=10`), { headers: { Authorization: token() } });
-      if (res.ok) {
-        const data = await res.json();
+      const res = await fetch(
+        buildApiUrl(`/inbox?category=vendor_communication&page_size=10`),
+        { headers: { Authorization: token() || "" } }
+      );
+      const data = await parseJsonIfPossible(res);
+      if (res.ok && data) {
         setVendorEmails(data.emails || []);
       }
     } catch (err) {

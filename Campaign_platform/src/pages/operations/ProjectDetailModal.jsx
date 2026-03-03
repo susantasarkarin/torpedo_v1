@@ -111,11 +111,11 @@ function ProjectDetailModal({ project, onClose }) {
       <h3>Traffic Details</h3>
       <div className="spec-grid">
         <div className="spec-item">
-          <label>Live Link:</label>
+          <label>Entry Link:</label>
           <p>
-            {project.liveLink ? (
-              <a href={project.liveLink} target="_blank" rel="noopener noreferrer">
-                {project.liveLink}
+            {(project.entryLink || project.liveLink) ? (
+              <a href={project.entryLink || project.liveLink} target="_blank" rel="noopener noreferrer">
+                {project.entryLink || project.liveLink}
               </a>
             ) : (
               "—"

@@ -472,6 +472,57 @@ async def sync_accounts_from_clients():
 
 
 # ============================================================
+# PROJECT LIST ENDPOINTS (COMPATIBILITY)
+# ============================================================
+
+@router.get("/projects/")
+@router.get("/projects")
+async def list_operations_projects(
+    limit: int = Query(50, ge=1, le=500),
+    skip: int = Query(0, ge=0),
+    status: Optional[str] = Query(None, description="Filter by project status"),
+    search: Optional[str] = Query(None, description="Search by project name/client/survey/vendor"),
+):
+    """
+    Lightweight projects list endpoint for Operations dashboard/table views.
+    Keeps backward compatibility for clients calling /api/operations/projects.
+    """
+    try:
+        query: Dict[str, Any] = {"is_deleted": {"$ne": True}}
+
+        if status:
+            query["projectStatus"] = status
+
+        if search:
+            query["$or"] = [
+                {"projectName": {"$regex": search, "$options": "i"}},
+                {"client": {"$regex": search, "$options": "i"}},
+                {"surveyNo": {"$regex": search, "$options": "i"}},
+                {"vendorName": {"$regex": search, "$options": "i"}},
+            ]
+
+        total = projects_collection.count_documents(query)
+        projects = list(
+            projects_collection.find(query)
+            .sort("createdAt", -1)
+            .skip(skip)
+            .limit(limit)
+        )
+
+        for p in projects:
+            p["_id"] = str(p["_id"])
+
+        return {
+            "projects": projects,
+            "total": total,
+            "limit": limit,
+            "skip": skip,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching projects: {str(e)}")
+
+
+# ============================================================
 # PROJECT INVOICING ENDPOINTS
 # ============================================================
 
