@@ -1737,6 +1737,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         traffic_id = None
         entry_link = None
         survey_id = None
+        actual_provider = None
         allocation_success = False
         allocation_error = None  # Track allocation failure reason for debugging
         
