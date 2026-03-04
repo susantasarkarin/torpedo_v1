@@ -715,8 +715,7 @@ async def create_cint_entry_link(
             from .tasks.cint_survey_cleanup import is_survey_live
         
         if not is_survey_live(str(survey_id)):
-            print(f"   ⏭️ CINT survey {survey_id} not in offerwall cache — skipping")
-            return ""
+            print(f"   WARNING: CINT survey {survey_id} not in offerwall cache - proceeding with API create attempt")
     except Exception:
         pass  # Cache unavailable — proceed anyway
     
