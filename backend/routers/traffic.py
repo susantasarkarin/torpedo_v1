@@ -524,8 +524,12 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) ->
         else:
             filtered = surveys
         
+        if not filtered and country_lang_id:
+            print(f"   WARNING: CINT offerwall has no surveys for country={cc}, falling back to all-country pool")
+            filtered = surveys
+
         if not filtered:
-            print(f"   ⚠️ CINT offerwall: No surveys for country={cc}")
+            print("   WARNING: CINT offerwall has no surveys available in response")
             return []
         
         random.shuffle(filtered)
