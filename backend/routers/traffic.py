@@ -1733,6 +1733,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         project_number = str(params.get('pid', '') or '').strip()
         api_flag = str(params.get('api', '') or '').strip().lower()
         is_project_adhoc_flow = api_flag == "false" and bool(project_number)
+        enable_cint_primary_fallback = os.getenv("ENABLE_CINT_PRIMARY_FALLBACK", "false").strip().lower() in {
+            "1", "true", "yes", "on"
+        }
         
         traffic_id = None
         entry_link = None
@@ -1965,7 +1968,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # HELPER FUNCTION: CPX Allocation (ASYNCHRONOUS)
         # ============================================
         async def try_cpx_allocation():
-            nonlocal allocation_success, entry_link, survey_id, actual_provider
+            nonlocal allocation_success, entry_link, survey_id, actual_provider, allocation_error
             
             try:
                 # Log CPX routing attempt
@@ -1974,6 +1977,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 # Check if CPX service is available
                 if cpx_service is None:
                     print("⚠️ CPX ASYNC: CPX service not available")
+                    allocation_error = "CPX service not available"
                     return False
                 
                 # Use internal mid context for tracking
@@ -2021,6 +2025,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     survey_id = result.get("survey_id", "")
                     allocation_success = True
                     actual_provider = "CPX"
+                    allocation_error = None
                     
                     # Update traffic record asynchronously (only if we have a valid traffic_id)
                     if traffic_id:
@@ -2039,10 +2044,17 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     else:
                         print("⚠️ CPX allocation succeeded but no traffic_id to update record")
                     return True
+                cpx_error = (
+                    result.get("error")
+                    or result.get("message")
+                    or "No CPX survey available for this respondent"
+                )
+                allocation_error = f"CPX allocation failed: {cpx_error}"
                 return False
                     
             except Exception as e:
                 print(f"⚠️ CPX async allocation error: {e}")
+                allocation_error = f"CPX allocation exception: {str(e)}"
                 return False
 
         
@@ -2050,13 +2062,14 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # HELPER FUNCTION: CINT Allocation (ASYNCHRONOUS)
         # ============================================
         async def try_cint_allocation():
-            nonlocal allocation_success, entry_link, survey_id, actual_provider
+            nonlocal allocation_success, entry_link, survey_id, actual_provider, allocation_error
             
             try:
                 # Fetch fresh candidates from CINT offerwall API (Async)
                 candidates = await fetch_cint_offerwall_candidates(country_code, limit=50)
                 
                 if not candidates:
+                    allocation_error = "CINT fallback has no candidates for this country"
                     return False
                 
                 # Try candidates one by one until we get a working entry link
@@ -2073,6 +2086,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         survey_id = sid
                         allocation_success = True
                         actual_provider = "CINT"
+                        allocation_error = None
                         
                         # Update traffic record asynchronously
                         async_url_collection = get_async_url_parameters_collection()
@@ -2095,6 +2109,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     
             except Exception as e:
                 print(f"⚠️ CINT async allocation error: {e}")
+                allocation_error = f"CINT allocation exception: {str(e)}"
                 return False
         
         # ===============================================================================
@@ -2106,8 +2121,13 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             
             # If CPX fails and we have country code, fallback to CINT
             if not allocation_success and country_code:
-                print(f"📌 CPX allocation failed, attempting CINT fallback...")
-                await try_cint_allocation()
+                if enable_cint_primary_fallback:
+                    print("📌 CPX allocation failed, attempting CINT fallback (enabled via env)...")
+                    await try_cint_allocation()
+                else:
+                    print("📌 CPX allocation failed; CINT primary fallback is disabled")
+                    if not allocation_error:
+                        allocation_error = "No CPX survey available for this respondent"
         
         # ===============================================================================
         # BUILD RESPONSE
