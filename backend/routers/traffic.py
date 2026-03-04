@@ -1736,7 +1736,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         project_number = str(params.get('pid', '') or '').strip()
         api_flag = str(params.get('api', '') or '').strip().lower()
         is_project_adhoc_flow = api_flag == "false" and bool(project_number)
-        enable_cint_primary_fallback = os.getenv("ENABLE_CINT_PRIMARY_FALLBACK", "false").strip().lower() in {
+        enable_cint_primary_fallback = os.getenv("ENABLE_CINT_PRIMARY_FALLBACK", "true").strip().lower() in {
             "1", "true", "yes", "on"
         }
         
@@ -1913,8 +1913,6 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     'email': user_email,
                     'profilingData': profiling_data,
                 }
-                result = await async_url_collection.insert_one(fallback_record)
-                traffic_id = str(result.inserted_id)
                 result = await async_url_collection.insert_one(fallback_record)
                 traffic_id = str(result.inserted_id)
                 print(f"✅ Created traffic record (LEGACY FALLBACK): {traffic_id}")
@@ -3373,7 +3371,7 @@ def _generate_diagnostic_summary(country_stats: list, rejection_summary: dict) -
 @router.get("/takesurvey")
 async def vendor_takesurvey(
     request: Request,
-    api: str = Query(None, description="Must be 'false' for project-based flow"),
+    api: str = Query(None, description="Use 'false' with pid for project-based flow"),
     pid: str = Query(None, description="Project number (surveyNo) from study pool"),
     vid: str = Query(None, description="Vendor ID"),
     cc: str = Query(None, description="Country code (ISO2)"),
@@ -3397,10 +3395,23 @@ async def vendor_takesurvey(
     try:
         print(f"📥 /takesurvey hit: api={api}, pid={pid}, vid={vid}, cc={cc}, rid={rid}")
 
-        # --- Validate: must be project-based flow ---
-        if str(api or "").strip().lower() != "false" or not pid:
-            print("❌ /takesurvey: Invalid request — api must be 'false' and pid is required")
-            return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=invalid_request")
+        api_flag = str(api or "").strip().lower()
+        is_project_flow = api_flag == "false" and bool(pid)
+
+        # Standard CPX/CINT flow (for links like api=dalse) should land on the
+        # frontend parser page, which then calls /api/store.
+        if not is_project_flow:
+            if not vid or not cc or not rid:
+                print("❌ /takesurvey: Missing required params (vid, cc, rid)")
+                return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=missing_params")
+
+            forwarded_query = request.url.query or ""
+            parser_url = f"{FRONTEND_URL}/survey-start"
+            if forwarded_query:
+                parser_url = f"{parser_url}?{forwarded_query}"
+
+            print(f"↪️ /takesurvey: Forwarding standard flow to parser page: {parser_url}")
+            return RedirectResponse(url=parser_url)
 
         if not vid or not cc or not rid:
             print("❌ /takesurvey: Missing required params (vid, cc, rid)")
@@ -3611,3 +3622,4 @@ async def vendor_response_callback(
         import traceback
         traceback.print_exc()
         return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=internal")
+
