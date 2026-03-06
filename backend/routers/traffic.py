@@ -501,6 +501,46 @@ def _apply_cint_quality_filter(surveys: list, respondent_age: Optional[int] = No
     return surveys
 
 
+def _score_cint_survey(survey: dict, respondent_age: Optional[int] = None) -> float:
+    """Score a CINT survey for smart ordering (higher = better completion chance)."""
+    conv = float(survey.get("Conversion") or 0)
+    ir = float(survey.get("IR") or survey.get("BidIncidence") or 0)
+    rpc = float(survey.get("RevenuePerClick") or survey.get("RPC") or 0)
+    remaining = int(survey.get("TotalRemaining") or 0)
+    loi = float(survey.get("LengthOfInterview") or survey.get("LOI") or survey.get("BidLengthOfInterview") or 10)
+
+    w_conv = float(os.getenv("CINT_SCORE_W_CONV", "40"))
+    w_ir = float(os.getenv("CINT_SCORE_W_IR", "25"))
+    w_rpc = float(os.getenv("CINT_SCORE_W_RPC", "15"))
+    w_remaining = float(os.getenv("CINT_SCORE_W_REMAINING", "10"))
+    w_loi = float(os.getenv("CINT_SCORE_W_LOI", "10"))
+
+    conv_score = min(conv, 1.0)
+    ir_score = min(ir / 100.0, 1.0)
+    rpc_score = min(rpc / 2.0, 1.0)
+    remaining_score = min(remaining / 500.0, 1.0)
+    loi_penalty = min(loi / 30.0, 1.0)
+
+    score = (
+        w_conv * conv_score
+        + w_ir * ir_score
+        + w_rpc * rpc_score
+        + w_remaining * remaining_score
+        - w_loi * loi_penalty
+    )
+
+    if respondent_age is not None:
+        for q in (survey.get("survey_qualifications") or []):
+            qid = q.get("question_id") or q.get("QuestionID")
+            if qid == 42:
+                precodes = q.get("precodes") or q.get("PreCodes") or []
+                if precodes and str(respondent_age) in [str(p) for p in precodes]:
+                    score += 5.0
+                break
+
+    return score
+
+
 async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, respondent_age: Optional[int] = None) -> list:
     """
     Fetch live survey candidates for a country (Asynchronous).
@@ -527,7 +567,7 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, re
             cached = get_cached_surveys_for_country(country_lang_id)
             if cached:
                 cached = _apply_cint_quality_filter(cached, respondent_age)
-                random.shuffle(cached)
+                cached.sort(key=lambda s: _score_cint_survey(s, respondent_age), reverse=True)
                 candidates = [str(s.get("SurveyNumber")) for s in cached[:limit] if s.get("SurveyNumber")]
                 print(f"   📡 CINT offerwall (CACHED): {len(candidates)} candidates for country={cc} (cache age: {(datetime.utcnow() - cache_info['last_updated']).seconds}s)")
                 return candidates
@@ -538,7 +578,7 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, re
             all_surveys = cache_info.get("surveys", [])
             if all_surveys:
                 all_surveys = _apply_cint_quality_filter(all_surveys, respondent_age)
-                random.shuffle(all_surveys)
+                all_surveys.sort(key=lambda s: _score_cint_survey(s, respondent_age), reverse=True)
                 candidates = [str(s.get("SurveyNumber")) for s in all_surveys[:limit] if s.get("SurveyNumber")]
                 print(f"   📡 CINT offerwall (CACHED, all countries): {len(candidates)} candidates")
                 return candidates
@@ -591,7 +631,7 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, re
             return []
         
         filtered = _apply_cint_quality_filter(filtered, respondent_age)
-        random.shuffle(filtered)
+        filtered.sort(key=lambda s: _score_cint_survey(s, respondent_age), reverse=True)
         candidates = [str(s.get("SurveyNumber")) for s in filtered[:limit] if s.get("SurveyNumber")]
         print(f"   📡 CINT offerwall: Selected {len(candidates)} candidates")
         return candidates
@@ -975,20 +1015,26 @@ async def get_random_cint_fallback_link(traffic_record: dict, traffic_id: str) -
             print(f"   ⚠️ CINT fallback: No candidates available for country={country_code}")
             return None
         
-        # Pick one at random (candidates are already shuffled by fetch_cint_offerwall_candidates)
-        survey_id = random.choice(candidates)
-        print(f"   🎲 CINT fallback: Randomly selected survey {survey_id} from {len(candidates)} candidates")
-        
-        # Try to create entry link for this survey
-        entry_link = await create_cint_entry_link(
-            survey_id,
-            traffic_id,
-            user_email=user_email,
-            profiling_params=cint_profiling_params,
-        )
+        # Try top-3 scored surveys (candidates are sorted by _score_cint_survey)
+        top_candidates = candidates[:3]
+        survey_id = None
+        entry_link = None
+        for sid in top_candidates:
+            print(f"   🎯 CINT fallback: Trying scored survey {sid} (top {top_candidates.index(sid)+1} of {len(top_candidates)})")
+            link = await create_cint_entry_link(
+                sid,
+                traffic_id,
+                user_email=user_email,
+                profiling_params=cint_profiling_params,
+            )
+            if link:
+                survey_id = sid
+                entry_link = link
+                break
+            print(f"   ⚠️ CINT fallback: Entry link failed for survey {sid}, trying next")
         
         if not entry_link:
-            print(f"   ❌ CINT fallback: Failed to create entry link for survey {survey_id}")
+            print(f"   ❌ CINT fallback: Failed to create entry link for top-{len(top_candidates)} surveys")
             return None
         
         # Update traffic record with CINT fallback info
