@@ -10,6 +10,13 @@ function ProjectDetailModal({ project, onClose }) {
   const [invoiceError, setInvoiceError] = useState(null);
   const [invoiceSuccess, setInvoiceSuccess] = useState(null);
 
+  const getEntryLinkTemplate = () => {
+    const base = (typeof window !== "undefined" && window.location?.origin)
+      ? window.location.origin.replace(/\/$/, "")
+      : "https://torpedo.cogentixresearch.com";
+    return `${base}/takesurvey?api=dalse&vid=vendor_id&cc=country_code&rid=respondent_id`;
+  };
+
   const token = sessionStorage.getItem("session_token");
 
   useEffect(() => {
@@ -113,9 +120,21 @@ function ProjectDetailModal({ project, onClose }) {
         <div className="spec-item">
           <label>Entry Link:</label>
           <p>
-            {(project.entryLink || project.liveLink) ? (
-              <a href={project.entryLink || project.liveLink} target="_blank" rel="noopener noreferrer">
-                {project.entryLink || project.liveLink}
+            {getEntryLinkTemplate() ? (
+              <a href={getEntryLinkTemplate()} target="_blank" rel="noopener noreferrer">
+                {getEntryLinkTemplate()}
+              </a>
+            ) : (
+              "—"
+            )}
+          </p>
+        </div>
+        <div className="spec-item">
+          <label>Live Link:</label>
+          <p>
+            {project.liveLink ? (
+              <a href={project.liveLink} target="_blank" rel="noopener noreferrer">
+                {project.liveLink}
               </a>
             ) : (
               "—"

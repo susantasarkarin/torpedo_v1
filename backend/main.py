@@ -70,6 +70,7 @@ try:
     from .routers import prompt_management as prompt_management_router
     from .routers import automation as automation_router
     from .app.routers import outreach_api as outreach_api_router
+    from .linkedin_automation import router as linkedin_router
 except Exception:
     # Fallback to absolute import for other runtimes
     from routers import traffic as traffic_router
@@ -95,6 +96,7 @@ except Exception:
     from routers import prompt_management as prompt_management_router
     from routers import automation as automation_router
     from app.routers import outreach_api as outreach_api_router
+    from linkedin_automation import router as linkedin_router
 
 # Ensure stdout/stderr use UTF-8 on Windows consoles to avoid UnicodeEncodeError
 import sys
@@ -924,6 +926,13 @@ try:
     print("✅ Outreach System router included")
 except Exception as e:
     print(f"⚠️ Outreach System router not included: {e}")
+
+# LinkedIn Automation router (Marketing - LinkedIn account automation)
+try:
+    app.include_router(linkedin_router.router)
+    print("✅ LinkedIn Automation router included")
+except Exception as e:
+    print(f"⚠️ LinkedIn Automation router not included: {e}")
 
 # Panel (Survey Panel User Portal) router
 try:
@@ -1875,6 +1884,20 @@ async def startup_event():
             print("ℹ️ Potential client enrichment disabled (set POTENTIAL_CLIENT_ENRICHMENT_ENABLED=true to enable)")
     except Exception as e:
         print(f"⚠️ Could not schedule potential client enrichment job: {e}")
+    
+    # ----------------------------
+    # LinkedIn Automation Module Initialization
+    # ----------------------------
+    try:
+        try:
+            from .linkedin_automation.database import initialize_linkedin_module
+        except ImportError:
+            from linkedin_automation.database import initialize_linkedin_module
+        
+        initialize_linkedin_module()
+        print("✅ LinkedIn Automation module initialized")
+    except Exception as e:
+        print(f"⚠️ LinkedIn Automation module initialization failed: {e}")
     
     # ============== STARTUP SUMMARY BANNER ==============
     print("\n" + "=" * 60)

@@ -116,14 +116,19 @@ function ProjectsPage() {
     return `https://${raw}`;
   };
 
+  const getEntryLinkTemplate = () => {
+    const base = getProjectCallbackBase();
+    return `${base}/takesurvey?api=dalse&vid=vendor_id&cc=country_code&rid=respondent_id`;
+  };
+
   const applyDerivedFields = (nextForm) => {
-    const entryLink = nextForm.entryLink || nextForm.liveLink || "";
+    const liveLink = nextForm.liveLink || "";
+    const entryLink = getEntryLinkTemplate();
     const actualIR = computeActualIR(nextForm.actualCompletes, nextForm.totalRespondents);
-    const generatedPages = getSystemGeneratedPages(entryLink);
+    const generatedPages = getSystemGeneratedPages(liveLink);
     return {
       ...nextForm,
       entryLink,
-      liveLink: entryLink,
       actualIR,
       ...generatedPages,
     };
@@ -164,7 +169,7 @@ function ProjectsPage() {
     applyDerivedFields({
       ...emptyForm,
       ...project,
-      entryLink: project.entryLink || project.liveLink || "",
+      entryLink: getEntryLinkTemplate(),
       vendorCompleteRD: normalizeList(project.vendorCompleteRD),
       vendorTerminateRD: normalizeList(project.vendorTerminateRD),
       vendorQuotaFullRD: normalizeList(project.vendorQuotaFullRD),
@@ -355,11 +360,11 @@ function ProjectsPage() {
 
   // 🔹 Save Project
   const saveProject = async () => {
-    const normalizedEntryLink = normalizeEntryUrl(formData.entryLink || formData.liveLink);
+    const normalizedLiveLink = normalizeEntryUrl(formData.liveLink);
     const preparedForm = applyDerivedFields({
       ...formData,
-      entryLink: normalizedEntryLink,
-      liveLink: normalizedEntryLink,
+      liveLink: normalizedLiveLink,
+      entryLink: getEntryLinkTemplate(),
     });
 
     const errors = [];
@@ -380,7 +385,7 @@ function ProjectsPage() {
       errors.push("Project Close Date is required");
     }
     if (!preparedForm.liveLink || !preparedForm.liveLink.trim()) {
-      errors.push("Entry Link is required");
+      errors.push("Live Link is required");
     }
     if (!preparedForm.vendorName || !preparedForm.vendorName.trim()) {
       errors.push("Vendor Name is required");
@@ -848,14 +853,26 @@ function ProjectsPage() {
               <div style={styles.section}>
                 <h4 style={styles.sectionTitle}>Survey Links</h4>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>Entry Link <span style={styles.required}>*</span></label>
+                  <label style={styles.label}>Live Link <span style={styles.required}>*</span></label>
                   <input
                     style={styles.input}
-                    name="entryLink"
-                    value={formData.entryLink || formData.liveLink}
+                    name="liveLink"
+                    value={formData.liveLink}
                     onChange={handleChange}
                     placeholder="https://www.surveyfieldwork.com/live?rid=XXXX"
                   />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Entry Link Template</label>
+                  <input
+                    style={{ ...styles.input, ...styles.readOnlyField }}
+                    name="entryLink"
+                    value={formData.entryLink}
+                    readOnly
+                  />
+                  <small style={styles.fieldHint}>
+                    Vendor-facing template (uses vid, cc, rid placeholders).
+                  </small>
                 </div>
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Complete Page URL</label>

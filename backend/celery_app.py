@@ -25,6 +25,7 @@ celery_app = Celery(
         'tasks.sales_tasks',
         'tasks.traffic_tasks',
         'tasks.outreach_tasks',
+        'tasks.linkedin_tasks',
     ]
 )
 
@@ -63,6 +64,7 @@ celery_app.conf.update(
         Queue('sales', routing_key='sales.#'),
         Queue('traffic', routing_key='traffic.#'),
         Queue('surveys', routing_key='surveys.#'),  # Dedicated queue for CPX/CINT - never blocked by email sync
+        Queue('linkedin_automation', routing_key='linkedin.#'),  # LinkedIn account automation
     ),
     
     # Task routing
@@ -74,6 +76,7 @@ celery_app.conf.update(
         'backend.tasks.sales_tasks.*': {'queue': 'sales', 'routing_key': 'sales.task'},
         'backend.tasks.traffic_tasks.*': {'queue': 'traffic', 'routing_key': 'traffic.task'},
         'backend.tasks.outreach_tasks.*': {'queue': 'api_tasks', 'routing_key': 'outreach.#'},
+        'backend.tasks.linkedin_tasks.*': {'queue': 'linkedin_automation', 'routing_key': 'linkedin.#'},
         # Route survey tasks to dedicated queue
         'backend.tasks.traffic_tasks.fetch_and_broadcast_cpx_surveys': {'queue': 'surveys', 'routing_key': 'surveys.cpx'},
         'backend.tasks.survey_tasks.*': {'queue': 'surveys', 'routing_key': 'surveys.task'},
@@ -85,6 +88,16 @@ celery_app.conf.update(
             'task': 'backend.tasks.email_tasks.sync_all_accounts',
             'schedule': 3600.0,  # Every hour
             'options': {'queue': 'email_sync'}
+        },
+        'linkedin-daily-automation': {
+            'task': 'backend.tasks.linkedin_tasks.run_daily_linkedin_automation',
+            'schedule': 86400.0,  # Every 24 hours (daily)
+            'options': {'queue': 'linkedin_automation'}
+        },
+        'linkedin-cleanup-jobs': {
+            'task': 'backend.tasks.linkedin_tasks.cleanup_old_jobs',
+            'schedule': 604800.0,  # Every 7 days
+            'options': {'queue': 'linkedin_automation', 'kwargs': {'days': 30}}
         },
     },
     
@@ -98,6 +111,9 @@ celery_app.conf.update(
         },
         'backend.tasks.survey_tasks.*': {
             'rate_limit': '60/m',  # Survey tasks should be fast
+        },
+        'backend.tasks.linkedin_tasks.*': {
+            'rate_limit': '50/m',  # LinkedIn tasks can run fairly often
         },
     },
 )

@@ -7,6 +7,7 @@ import {
   FileText, 
   BookOpen, 
   Image as ImageIcon,
+  Linkedin,
   ArrowRight
 } from "lucide-react"
 
@@ -39,6 +40,13 @@ function Marketing() {
       icon: BarChart3,
       link: "/admin/marketing/websites",
       color: "#f59e0b"
+    },
+    {
+      title: "LinkedIn Automation",
+      description: "Manage LinkedIn accounts, schedules, and automation jobs",
+      icon: Linkedin,
+      link: "/admin/marketing/linkedin",
+      color: "#0a66c2"
     },
   ]
 

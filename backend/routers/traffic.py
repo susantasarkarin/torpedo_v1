@@ -447,11 +447,67 @@ def _get_cint_client() -> httpx.Client:
     return _cint_http_client
 
 
-async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) -> list:
+def _apply_cint_quality_filter(surveys: list, respondent_age: Optional[int] = None) -> list:
+    """
+    Filter an offerwall survey list by IR/conversion quality floors and optional age qualification.
+
+    Uses env vars MIN_CINT_IR (default 20, percent) and MIN_CINT_CONVERSION (default 0.15).
+    Age pre-screening works against survey_qualifications[question_id==42].precodes — this data
+    is only available once a Feed Opportunities webhook subscription is active; if absent the
+    age filter is skipped (no penalty for surveys without qualification data).
+
+    Falls back gracefully: strict(quality+age) → age-only → quality-only → unfiltered.
+    """
+    min_ir = int(os.getenv("MIN_CINT_IR", "20"))
+    min_conv = float(os.getenv("MIN_CINT_CONVERSION", "0.15"))
+
+    def _passes_quality(s: dict) -> bool:
+        ir = float(s.get("IR") or s.get("BidIncidence") or 0)
+        conv = float(s.get("Conversion") or 1.0)  # default 1.0 when absent — no conversion penalty
+        return ir >= min_ir and conv >= min_conv
+
+    def _passes_age(s: dict) -> bool:
+        """Filter by survey_qualifications age precode (question_id 42). Skip if no qual data."""
+        if respondent_age is None:
+            return True
+        for q in (s.get("survey_qualifications") or []):
+            qid = q.get("question_id") or q.get("QuestionID")
+            if qid == 42:
+                precodes = q.get("precodes") or q.get("PreCodes") or []
+                if precodes and str(respondent_age) not in [str(p) for p in precodes]:
+                    return False
+        return True
+
+    # Pass 1 — strict: quality + age
+    strict = [s for s in surveys if _passes_quality(s) and _passes_age(s)]
+    if strict:
+        return strict
+
+    # Pass 2 — relax quality floor, keep age constraint
+    if respondent_age is not None:
+        age_only = [s for s in surveys if _passes_age(s)]
+        if age_only:
+            print(f"   ⚠️ CINT quality filter: relaxed IR/conv floors — {len(age_only)} candidates (age constraint kept)")
+            return age_only
+
+    # Pass 3 — keep quality floor, drop age constraint
+    quality_only = [s for s in surveys if _passes_quality(s)]
+    if quality_only:
+        print(f"   ⚠️ CINT quality filter: no age-qualified surveys, quality-only — {len(quality_only)} candidates")
+        return quality_only
+
+    # Pass 4 — unfiltered fallback
+    print(f"   ⚠️ CINT quality filter: all {len(surveys)} candidates below floors — using unfiltered pool")
+    return surveys
+
+
+async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, respondent_age: Optional[int] = None) -> list:
     """
     Fetch live survey candidates for a country (Asynchronous).
     
     Uses the in-memory offerwall cache. Returns list of survey number strings.
+    Applies IR/conversion quality floors and optional age pre-screening via
+    _apply_cint_quality_filter before returning candidates.
     """
     import httpx
     
@@ -470,6 +526,7 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) ->
         if cache_info.get("last_updated") and country_lang_id:
             cached = get_cached_surveys_for_country(country_lang_id)
             if cached:
+                cached = _apply_cint_quality_filter(cached, respondent_age)
                 random.shuffle(cached)
                 candidates = [str(s.get("SurveyNumber")) for s in cached[:limit] if s.get("SurveyNumber")]
                 print(f"   📡 CINT offerwall (CACHED): {len(candidates)} candidates for country={cc} (cache age: {(datetime.utcnow() - cache_info['last_updated']).seconds}s)")
@@ -480,6 +537,7 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) ->
             # No country mapping — use all cached surveys
             all_surveys = cache_info.get("surveys", [])
             if all_surveys:
+                all_surveys = _apply_cint_quality_filter(all_surveys, respondent_age)
                 random.shuffle(all_surveys)
                 candidates = [str(s.get("SurveyNumber")) for s in all_surveys[:limit] if s.get("SurveyNumber")]
                 print(f"   📡 CINT offerwall (CACHED, all countries): {len(candidates)} candidates")
@@ -532,6 +590,7 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50) ->
             print("   WARNING: CINT offerwall has no surveys available in response")
             return []
         
+        filtered = _apply_cint_quality_filter(filtered, respondent_age)
         random.shuffle(filtered)
         candidates = [str(s.get("SurveyNumber")) for s in filtered[:limit] if s.get("SurveyNumber")]
         print(f"   📡 CINT offerwall: Selected {len(candidates)} candidates")
@@ -688,9 +747,9 @@ def _build_cint_entry_link(
     else:
         entry_url = url_no_hash
 
-    # Safety guard: Cint session-terminates links > 1999 chars
-    if len(entry_url) > 1999:
-        print(f"   ⚠️ CINT entry link exceeds 1999 chars ({len(entry_url)}) — truncation risk!")
+    # Safety guard: redirect URL limit per CINT docs is 2999 chars
+    if len(entry_url) > 2999:
+        print(f"   ⚠️ CINT entry link exceeds 2999 chars ({len(entry_url)}) — truncation risk!")
 
     return entry_url
 
@@ -862,6 +921,11 @@ async def create_cint_entry_link(
         return ""
 
 
+def _get_respondent_geo_country(traffic_record: dict) -> str:
+    """Return GeoIP-verified country code, falling back to declared countryCode."""
+    return traffic_record.get("geoIpCountry") or traffic_record.get("countryCode", "")
+
+
 async def get_random_cint_fallback_link(traffic_record: dict, traffic_id: str) -> dict:
     """
     Pick ONE random CINT survey that fits the respondent's country and create an entry link.
@@ -872,7 +936,12 @@ async def get_random_cint_fallback_link(traffic_record: dict, traffic_id: str) -
     
     Returns: {"survey_id": str, "entry_link": str} or None
     """
-    country_code = traffic_record.get("countryCode", "")
+    # Use GeoIP-verified country to avoid CINT GeoIP mismatch terminations
+    country_code = _get_respondent_geo_country(traffic_record)
+    declared_country = traffic_record.get("countryCode", "")
+    if country_code != declared_country and declared_country:
+        print(f"   🌍 CINT fallback: using geoIpCountry={country_code!r} (declared countryCode={declared_country!r})")
+
     user_email = traffic_record.get("email", "")
     profiling_data = traffic_record.get("profilingData", {}) or {}
 
@@ -888,10 +957,19 @@ async def get_random_cint_fallback_link(traffic_record: dict, traffic_id: str) -
             birthday_year=profiling_data.get("birthday_year"),
             gender=profiling_data.get("gender", ""),
         )
-    
+
+    # Extract respondent age for demographic pre-screening
+    respondent_age = None
+    age_str = cint_profiling_params.get("42", "")
+    if age_str:
+        try:
+            respondent_age = int(age_str)
+        except (ValueError, TypeError):
+            pass
+
     try:
         # Fetch live candidates from the CINT offerwall (uses cache when available)
-        candidates = await fetch_cint_offerwall_candidates(country_code, limit=50)
+        candidates = await fetch_cint_offerwall_candidates(country_code, limit=50, respondent_age=respondent_age)
         
         if not candidates:
             print(f"   ⚠️ CINT fallback: No candidates available for country={country_code}")
@@ -918,15 +996,17 @@ async def get_random_cint_fallback_link(traffic_record: dict, traffic_id: str) -
         hashed_pid = hashlib.sha256(traffic_id.encode()).hexdigest()
         await async_url_collection.update_one(
             {"_id": ObjectId(traffic_id)},
-            {"$set": {
-                "currentCintSurveyId": survey_id,
-                "currentCintLink": entry_link,
-                "cint_hashed_pid": hashed_pid,
-                "cint_profiling_params": cint_profiling_params,
-                "status": "CPX_TERMINATED_CINT_FALLBACK",
-                "surveySource": "CINT_FALLBACK",
-                "updatedAt": datetime.utcnow().isoformat()
-            }}
+            {
+                "$set": {
+                    "currentCintSurveyId": survey_id,
+                    "currentCintLink": entry_link,
+                    "cint_hashed_pid": hashed_pid,
+                    "cint_profiling_params": cint_profiling_params,
+                    "status": "CPX_TERMINATED_CINT_FALLBACK",
+                    "surveySource": "CINT_FALLBACK",
+                    "updatedAt": datetime.utcnow().isoformat(),
+                },
+            }
         )
         
         print(f"   ✅ CINT fallback SUCCESS: survey {survey_id}")
@@ -1691,11 +1771,13 @@ async def prefetch_client_ip(request: Request):
         user_agent = extract_user_agent(request)
         
         # Log for monitoring
-        print(f"📍 Prefetch IP: {client_ip} (source: {ip_source})")
+        geo_country = request.headers.get("CF-IPCountry", "").lower().strip()
+        print(f"📍 Prefetch IP: {client_ip} (source: {ip_source}, geo_country: {geo_country or 'unknown'})")
         
         return JSONResponse(content={
             "ip": client_ip,
             "source": ip_source,
+            "geoCountry": geo_country,
             "userAgent": user_agent,
             "timestamp": datetime.utcnow().isoformat() + "Z"
         })
@@ -1736,7 +1818,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         project_number = str(params.get('pid', '') or '').strip()
         api_flag = str(params.get('api', '') or '').strip().lower()
         is_project_adhoc_flow = api_flag == "false" and bool(project_number)
-        enable_cint_primary_fallback = os.getenv("ENABLE_CINT_PRIMARY_FALLBACK", "true").strip().lower() in {
+        enable_cint_primary_fallback = os.getenv("ENABLE_CINT_PRIMARY_FALLBACK", "false").strip().lower() in {
             "1", "true", "yes", "on"
         }
         
@@ -1763,6 +1845,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # Check if client provided IP (from browser-based collection)
         client_provided_ip = data.get('clientIp')
         client_ip_source = data.get('ipSource', 'unknown')
+        geo_ip_country = (data.get('geoCountry') or "").lower().strip()
 
         # Validate client-provided IP (accept both IPv4 and IPv6)
         def is_valid_ip(ip_str):
@@ -1905,6 +1988,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     'respondentId': respondent_id,
                     'vendorId': vendor_id,
                     'countryCode': country_code,
+                    'geoIpCountry': geo_ip_country,
                     'clientIp': client_ip,
                     'ipSource': client_ip_source,
                     'userAgent': client_user_agent,
@@ -1913,6 +1997,8 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     'email': user_email,
                     'profilingData': profiling_data,
                 }
+                result = await async_url_collection.insert_one(fallback_record)
+                traffic_id = str(result.inserted_id)
                 result = await async_url_collection.insert_one(fallback_record)
                 traffic_id = str(result.inserted_id)
                 print(f"✅ Created traffic record (LEGACY FALLBACK): {traffic_id}")
@@ -2067,7 +2153,18 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             
             try:
                 # Fetch fresh candidates from CINT offerwall API (Async)
-                candidates = await fetch_cint_offerwall_candidates(country_code, limit=50)
+                # Use GeoIP-verified country to avoid mismatch terminations
+                effective_country = geo_ip_country or country_code
+                respondent_age_for_cint = None
+                age_str_for_cint = cint_profiling_params.get("42", "")
+                if age_str_for_cint:
+                    try:
+                        respondent_age_for_cint = int(age_str_for_cint)
+                    except (ValueError, TypeError):
+                        pass
+                if effective_country != country_code and country_code:
+                    print(f"   🌍 CINT allocation: using geoIpCountry={effective_country!r} (declared: {country_code!r})")
+                candidates = await fetch_cint_offerwall_candidates(effective_country, limit=50, respondent_age=respondent_age_for_cint)
                 
                 if not candidates:
                     allocation_error = "CINT fallback has no candidates for this country"
@@ -2102,6 +2199,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 "currentCintSurveyId": survey_id,
                                 "cint_hashed_pid": hashed_pid,
                                 "cint_profiling_params": cint_profiling_params,
+                                "geoIpCountry": geo_ip_country,
                                 "updatedAt": datetime.utcnow().isoformat(),
                             }}
                         )

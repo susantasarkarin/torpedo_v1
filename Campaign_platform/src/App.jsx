@@ -38,6 +38,7 @@ const FAQ = lazy(() => import("./panel/pages/FAQ"))
 // Main Pages
 const Dashboard = lazy(() => import("./pages/Dashboard"))
 const Marketing = lazy(() => import("./pages/Marketing"))
+const LinkedInAutomationPage = lazy(() => import("./pages/marketing/LinkedInAutomationPage"))
 const Finance = lazy(() => import("./pages/Finance"))
 const Operations = lazy(() => import("./pages/Operations"))
 const HR = lazy(() => import("./pages/HR"))
@@ -144,6 +145,7 @@ function App() {
 
       {/* Public user pages */}
       <Route path="/takesurvey" element={<TrafficFlowParser />} />
+      <Route path="/survey-start" element={<TrafficFlowParser />} />
       <Route path="/survey-error" element={<SurveyError />} />
       <Route path="/response" element={<SurveyResponse />} />
       <Route path="/survey-response" element={<SurveyResponse />} />
@@ -219,6 +221,7 @@ function App() {
 
         {/* Marketing */}
         <Route path="marketing" element={<LazyPage><Marketing /></LazyPage>} />
+        <Route path="marketing/linkedin" element={<LazyPage><LinkedInAutomationPage /></LazyPage>} />
 
         {/* Finance Routes - Flat structure like Operations */}
         <Route path="finance" element={<LazyPage><Finance /></LazyPage>} />
