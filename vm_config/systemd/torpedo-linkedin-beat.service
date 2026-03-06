@@ -1,0 +1,35 @@
+[Unit]
+Description=Torpedo LinkedIn Automation Celery Beat Scheduler
+After=redis-server.service mongodb.service
+Wants=network-online.target
+Documentation=https://docs.celeryproject.io/
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/torpedo/backend
+Environment="PATH=/var/www/torpedo/venv/bin"
+Environment="PYTHONUNBUFFERED=1"
+EnvironmentFile=/etc/torpedo/linkedin-automation.env
+
+# Start Celery Beat scheduler
+ExecStart=/var/www/torpedo/venv/bin/celery -A backend.celery_app beat --loglevel=info
+
+# Restart on failure
+Restart=always
+RestartSec=10s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=torpedo-linkedin-beat
+
+# Security and resource limits
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/www/torpedo/backend/logs
+
+[Install]
+WantedBy=multi-user.target

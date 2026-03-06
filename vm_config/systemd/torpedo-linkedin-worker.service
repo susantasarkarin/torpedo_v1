@@ -1,0 +1,45 @@
+[Unit]
+Description=Torpedo LinkedIn Automation Celery Worker
+After=redis-server.service mongodb.service
+Wants=network-online.target
+Documentation=https://docs.celeryproject.io/
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/torpedo/backend
+Environment="PATH=/var/www/torpedo/venv/bin"
+Environment="PYTHONUNBUFFERED=1"
+EnvironmentFile=/etc/torpedo/linkedin-automation.env
+
+# Start Celery worker dedicated to LinkedIn automation queue
+# Processes: linkedin_automation queue
+# Concurrency: 2 workers (low to avoid browser resource contention)
+ExecStart=/var/www/torpedo/venv/bin/celery -A backend.celery_app worker -Q linkedin_automation --loglevel=info --concurrency=2
+
+# Graceful shutdown
+ExecStop=/bin/kill -TERM $MAINPID
+TimeoutStopSec=30
+
+# Restart on failure
+Restart=always
+RestartSec=10s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=torpedo-linkedin-worker
+
+# Security and resource limits
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/www/torpedo/backend/logs
+
+# Limit resource usage (Selenium can be memory-intensive)
+MemoryLimit=2G
+CPUQuota=150%
+
+[Install]
+WantedBy=multi-user.target
