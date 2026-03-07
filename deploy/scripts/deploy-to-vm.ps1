@@ -71,7 +71,7 @@ Write-Host ""
 Write-Host "✅ Deployment Complete!" -ForegroundColor Green
 Write-Host ""
 Write-Host "🧪 Next Steps:" -ForegroundColor Cyan
-Write-Host "   1. Test parsing page: https://surveyfieldwork.com/survey-start?api=true`&vid=4738`&cc=US`&rid=test123"
+Write-Host "   1. Test parsing page: https://torpedo.cogentixresearch.com/takesurvey?api=true`&vid=4738`&cc=US`&rid=test123"
 Write-Host "   2. Verify manual click is required (no auto-click)"
 Write-Host "   3. Check survey allocation in logs"
 Write-Host "   4. Test Survey Pool active filter"

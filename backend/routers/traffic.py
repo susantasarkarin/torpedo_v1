@@ -78,7 +78,7 @@ def invalidate_traffic_cache():
     _traffic_list_cache.clear()
 
 # Configuration for traffic flow redirects - always from environment file
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://surveyfieldwork.com")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://torpedo.cogentixresearch.com")
 
 ZOHO_COMPLETE_URL = f"{FRONTEND_URL}/thankyou"
 ZOHO_TERMINATE_URL = f"{FRONTEND_URL}/nosurvey"
@@ -1433,6 +1433,143 @@ async def cint_callback(
         import traceback
         traceback.print_exc()
         return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
+
+
+# =============================================================================
+# PROJECT-BASED (ADHOC) SURVEY CALLBACKS — api=false flow
+# These endpoints are called by external survey tools (e.g. Zoho) when a
+# respondent completes, terminates, or hits quota-full on an adhoc project.
+# They mirror the /cint-response pattern: look up traffic record → vendor →
+# build vendor redirect URL → 302 redirect back to vendor.
+# =============================================================================
+
+async def _handle_project_survey_callback(
+    request: Request,
+    rid: str,
+    outcome: str,
+) -> RedirectResponse:
+    """
+    Shared handler for /surveycomplete, /surveyterminate, /surveyquotafull.
+
+    Parameters
+    ----------
+    rid : str  – Traffic record ObjectId (SFWID) passed as query param by the survey tool.
+    outcome : str – One of "complete", "terminate", "quotafull".
+    """
+    status_map = {
+        "complete":  ("COMPLETE",    "completeRD"),
+        "terminate": ("TERMINATED",  "terminateRD"),
+        "quotafull": ("OVERQUOTA",   "quotaFullRD"),
+    }
+    new_status, rd_field = status_map[outcome]
+    fallback_url = f"{FRONTEND_URL}/thankyou" if outcome == "complete" else f"{FRONTEND_URL}/survey-error"
+
+    try:
+        print(f"📥 Project callback [{outcome.upper()}]: rid={rid}")
+
+        if not rid:
+            print("⚠️ Project callback: missing rid")
+            return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=missing_id")
+
+        # 1. Find traffic record
+        async_url_collection = get_async_url_parameters_collection()
+        traffic_record = None
+        try:
+            traffic_record = await async_url_collection.find_one({"_id": ObjectId(rid)})
+        except Exception:
+            pass
+
+        if not traffic_record:
+            print(f"⚠️ Project callback: traffic record not found for rid={rid}")
+            return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=not_found")
+
+        # 2. Update traffic record status
+        update_fields = {
+            "status": new_status,
+            "updatedAt": datetime.utcnow(),
+            "projectCallbackUrl": str(request.url),
+        }
+        if new_status == "COMPLETE":
+            update_fields["completedAt"] = datetime.utcnow()
+
+        await async_url_collection.update_one(
+            {"_id": traffic_record["_id"]},
+            {"$set": update_fields},
+        )
+
+        # 3. Resolve vendor redirect URL
+        vendor_id = traffic_record.get("vendorId")
+        respondent_id = traffic_record.get("respondentId", "")
+
+        redirect_url = fallback_url
+
+        if vendor_id:
+            async_vendors_col = get_async_vendors_collection()
+            vendor = await async_vendors_col.find_one({"vid": vendor_id})
+            if not vendor and isinstance(vendor_id, str) and vendor_id.isdigit():
+                vendor = await async_vendors_col.find_one({"vid": int(vendor_id)})
+            if not vendor and isinstance(vendor_id, int):
+                vendor = await async_vendors_col.find_one({"vid": str(vendor_id)})
+
+            if vendor:
+                vendor_variable = vendor.get("vendorVariable", "id")
+                urls = vendor.get(rd_field, [])
+                if isinstance(urls, list):
+                    base_url = next((u.strip() for u in urls if u and u.strip()), None)
+                elif isinstance(urls, str) and urls.strip():
+                    base_url = urls.strip()
+                else:
+                    base_url = None
+
+                if base_url:
+                    if respondent_id:
+                        if base_url.endswith(f"&{vendor_variable}=") or base_url.endswith(f"?{vendor_variable}="):
+                            redirect_url = f"{base_url}{respondent_id}"
+                        else:
+                            separator = "&" if "?" in base_url else "?"
+                            redirect_url = f"{base_url}{separator}{vendor_variable}={respondent_id}"
+                    else:
+                        redirect_url = base_url
+                else:
+                    print(f"⚠️ Vendor {vendor.get('vendorName')} has no {rd_field} configured")
+            else:
+                print(f"⚠️ Vendor not found for vid={vendor_id}")
+
+        print(f"✅ Project [{outcome.upper()}]: Redirecting to {redirect_url}")
+        return RedirectResponse(url=redirect_url)
+
+    except Exception as e:
+        print(f"❌ Project callback [{outcome}] error: {e}")
+        import traceback
+        traceback.print_exc()
+        return RedirectResponse(url=fallback_url)
+
+
+@router.get("/surveycomplete")
+async def survey_complete_callback(
+    request: Request,
+    rid: str = Query(None, description="Traffic record ID (SFWID)"),
+):
+    """Callback when respondent completes an adhoc project survey."""
+    return await _handle_project_survey_callback(request, rid, "complete")
+
+
+@router.get("/surveyterminate")
+async def survey_terminate_callback(
+    request: Request,
+    rid: str = Query(None, description="Traffic record ID (SFWID)"),
+):
+    """Callback when respondent is terminated from an adhoc project survey."""
+    return await _handle_project_survey_callback(request, rid, "terminate")
+
+
+@router.get("/surveyquotafull")
+async def survey_quotafull_callback(
+    request: Request,
+    rid: str = Query(None, description="Traffic record ID (SFWID)"),
+):
+    """Callback when adhoc project survey quota is full."""
+    return await _handle_project_survey_callback(request, rid, "quotafull")
 
 
 @router.get("/cpx-response")
@@ -3542,19 +3679,27 @@ async def vendor_takesurvey(
         api_flag = str(api or "").strip().lower()
         is_project_flow = api_flag == "false" and bool(pid)
 
-        # Standard CPX/CINT flow (for links like api=dalse) should land on the
+        # Standard CPX/CINT flow (for links like api=true) should land on the
         # frontend parser page, which then calls /api/store.
+        # We serve index.html directly so the URL stays at /takesurvey (no redirect).
         if not is_project_flow:
             if not vid or not cc or not rid:
                 print("❌ /takesurvey: Missing required params (vid, cc, rid)")
                 return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=missing_params")
 
+            import os as _os
+            from fastapi.responses import FileResponse as _FileResponse
+            react_index = "/var/www/campaign_platform/Campaign_platform/dist/index.html"
+            if _os.path.exists(react_index):
+                print(f"↪️ /takesurvey: Serving React app directly (URL preserved at /takesurvey)")
+                return _FileResponse(react_index)
+
+            # Fallback for dev environments where dist/ is not present
             forwarded_query = request.url.query or ""
             parser_url = f"{FRONTEND_URL}/survey-start"
             if forwarded_query:
                 parser_url = f"{parser_url}?{forwarded_query}"
-
-            print(f"↪️ /takesurvey: Forwarding standard flow to parser page: {parser_url}")
+            print(f"↪️ /takesurvey: Fallback redirect to parser page: {parser_url}")
             return RedirectResponse(url=parser_url)
 
         if not vid or not cc or not rid:
