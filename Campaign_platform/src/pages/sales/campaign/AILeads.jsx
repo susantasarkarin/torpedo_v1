@@ -256,7 +256,24 @@ function AILeads() {
   // Service type — use stored value, fall back to auto-detect
   const getServiceType = (lead) => {
     if (lead.service_type) return lead.service_type;
-    return "Untagged";
+    
+    // Auto-detect fallback
+    const industry = (lead.company_industry || "").toLowerCase();
+    const title = (lead.title || "").toLowerCase();
+    const company = (lead.company_name || "").toLowerCase().trim();
+    const email = (lead.email || "").toLowerCase();
+    
+    // Error — company is unknown and email is @domain.com
+    if ((!company || company === "unknown") && email.endsWith("@domain.com")) return "Error";
+    
+    // Data Services — industry is market research, consulting, or advertising
+    const dataIndustries = ["market research", "consulting", "advertising"];
+    if (dataIndustries.some(kw => industry.includes(kw))) return "Data Services";
+    
+    // Insights Services — title contains "marketing"
+    if (title.includes("marketing")) return "Insights Services";
+    
+    return "Data Services";
   };
 
   const fetchLeads = useCallback(async () => {
