@@ -160,6 +160,7 @@ function AILeads() {
   // View Mode State - compact vs full table
   const [viewMode, setViewMode] = useState("compact"); // "compact" or "full"
   const [expandedLeadId, setExpandedLeadId] = useState(null); // For viewing lead details
+  const [serviceTypeFilter, setServiceTypeFilter] = useState(""); // "Data Services" or "Insights Services"
 
   // Web Search Filters (enhanced with multi-select)
   const [webSearchDesignation, setWebSearchDesignation] = useState("");
@@ -243,16 +244,30 @@ function AILeads() {
   // Helper to get source filter for current tab
   const getSourceFilterForTab = useCallback(() => {
     switch (activeTab) {
-      case "classified-websearch":
-        return "web_search,google_search,linkedin";
-      case "classified-csv":
-        return "csv,csv_import,google_sheets,json_import";
+      case "classified":
+        return "web_search,google_search,linkedin,csv,csv_import,google_sheets,json_import";
       case "classified-gmail":
-        return "gmail,gmail_workspace,email_sync,email_import,email_classification,gmail_api,gmail_archive";
+        return "gmail,gmail_workspace,email_sync,email_import,email_classification,gmail_api,gmail_archive,classified_gmail";
       default:
-        return null; // No source filter for "all" or "classified"
+        return null; // No source filter for "all" or "pending"
     }
   }, [activeTab]);
+
+  // Service type classification for leads
+  const getServiceType = (lead) => {
+    const industry = (lead.company_industry || "").toLowerCase();
+    const title = (lead.title || "").toLowerCase();
+    const company = (lead.company_name || "").toLowerCase();
+    const combined = `${industry} ${title} ${company}`;
+    
+    const insightsKeywords = ["analytics", "intelligence", "insights", "research", "consulting",
+      "strategy", "advisory", "market research", "business intelligence", "bi ",
+      "visualization", "reporting", "forecasting", "ai ", "machine learning",
+      "data science", "predictive", "analysis"];
+    
+    if (insightsKeywords.some(kw => combined.includes(kw))) return "Insights Services";
+    return "Data Services";
+  };
 
   const fetchLeads = useCallback(async () => {
     try {
@@ -1214,20 +1229,21 @@ function AILeads() {
 
   const getDisplayLeads = () => {
     if (activeTab === "pending") {
-      // Exclude CSV records that have an email (they go to classified-csv)
       return rawLeads.filter(l => {
-        if (!isInAIDatabase(l)) return false; // Exclude leads moved to other stages
+        if (!isInAIDatabase(l)) return false;
         const isCsv = l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import";
         const hasEmail = l.email && l.email.trim() !== "";
-        // If it's CSV with email, it goes to classified-csv, not pending
         if (isCsv && hasEmail) return false;
         return l.classification_status === "Pending";
       });
-    } else if (activeTab === "classified-websearch" || activeTab === "classified-csv" || activeTab === "classified-gmail") {
+    } else if (activeTab === "classified" || activeTab === "classified-gmail") {
       // Backend already filters by source for these tabs, just filter by stage
-      return leads.filter(l => isInAIDatabase(l));
-    } else if (activeTab === "classified") {
-      return leads.filter(l => isInAIDatabase(l));
+      let filtered = leads.filter(l => isInAIDatabase(l));
+      // Apply service type sub-filter if set
+      if (serviceTypeFilter) {
+        filtered = filtered.filter(l => getServiceType(l) === serviceTypeFilter);
+      }
+      return filtered;
     }
     // "all" tab - show raw leads
     return rawLeads.filter(l => isInAIDatabase(l));
@@ -1314,35 +1330,56 @@ function AILeads() {
       <div className="tabs-row">
         <button 
           className={`tab-btn ${activeTab === "all" ? "active" : ""}`}
-          onClick={() => setActiveTab("all")}
+          onClick={() => { setActiveTab("all"); setServiceTypeFilter(""); }}
         >
           All Leads ({leads.length})
         </button>
         <button 
           className={`tab-btn ${activeTab === "pending" ? "active" : ""}`}
-          onClick={() => setActiveTab("pending")}
+          onClick={() => { setActiveTab("pending"); setServiceTypeFilter(""); }}
         >
           Pending ({getPendingCount()})
         </button>
         <button 
-          className={`tab-btn ${activeTab === "classified-websearch" ? "active" : ""}`}
-          onClick={() => setActiveTab("classified-websearch")}
+          className={`tab-btn ${activeTab === "classified" ? "active" : ""}`}
+          onClick={() => { setActiveTab("classified"); setServiceTypeFilter(""); }}
         >
-          Classified (Web Search) ({statistics?.by_source?.websearch?.classified_count || leads.filter(l => l.source === "web_search" || l.source === "google_search" || l.source === "linkedin").length})
-        </button>
-        <button 
-          className={`tab-btn ${activeTab === "classified-csv" ? "active" : ""}`}
-          onClick={() => setActiveTab("classified-csv")}
-        >
-          Classified (CSV Upload) ({statistics?.by_source?.csv?.classified_count || getCsvCount()})
+          Classified ({(statistics?.by_source?.websearch?.classified_count || 0) + (statistics?.by_source?.csv?.classified_count || getCsvCount())})
         </button>
         <button 
           className={`tab-btn ${activeTab === "classified-gmail" ? "active" : ""}`}
-          onClick={() => setActiveTab("classified-gmail")}
+          onClick={() => { setActiveTab("classified-gmail"); setServiceTypeFilter(""); }}
         >
-          Classified (Gmail) ({statistics?.by_source?.gmail?.classified_count || leads.filter(l => ["gmail", "gmail_workspace", "email_sync", "email_import", "email_classification", "gmail_api", "gmail_archive"].includes(l.source)).length})
+          Classified (Gmail) ({statistics?.by_source?.gmail?.classified_count || leads.filter(l => ["gmail", "gmail_workspace", "email_sync", "email_import", "email_classification", "gmail_api", "gmail_archive", "classified_gmail"].includes(l.source)).length})
         </button>
       </div>
+
+      {/* Service Type Sub-filter for classified tabs */}
+      {(activeTab === "classified" || activeTab === "classified-gmail") && (
+        <div className="service-type-filter" style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem", paddingLeft: "0.25rem" }}>
+          <button
+            className={`tab-btn ${serviceTypeFilter === "" ? "active" : ""}`}
+            onClick={() => setServiceTypeFilter("")}
+            style={{ fontSize: "0.85rem", padding: "0.35rem 0.75rem" }}
+          >
+            All Services
+          </button>
+          <button
+            className={`tab-btn ${serviceTypeFilter === "Data Services" ? "active" : ""}`}
+            onClick={() => setServiceTypeFilter("Data Services")}
+            style={{ fontSize: "0.85rem", padding: "0.35rem 0.75rem" }}
+          >
+            Data Services
+          </button>
+          <button
+            className={`tab-btn ${serviceTypeFilter === "Insights Services" ? "active" : ""}`}
+            onClick={() => setServiceTypeFilter("Insights Services")}
+            style={{ fontSize: "0.85rem", padding: "0.35rem 0.75rem" }}
+          >
+            Insights Services
+          </button>
+        </div>
+      )}
 
       {/* Filters Bar */}
       <div className="filters-bar">
@@ -1493,6 +1530,7 @@ function AILeads() {
                   <th>Industry</th>
                   <th>Source</th>
                   <th>Email Status</th>
+                  <th>Service Type</th>
                   {viewMode === "full" && (
                     <>
                       <th>First Name</th>
@@ -1512,7 +1550,6 @@ function AILeads() {
                       <th>Company LinkedIn</th>
                     </>
                   )}
-                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1553,6 +1590,11 @@ function AILeads() {
                           {lead.email_status || "Unknown"}
                         </span>
                       </td>
+                      <td>
+                        <span className={`badge ${getServiceType(lead) === "Data Services" ? "badge-blue" : "badge-orange"}`}>
+                          {getServiceType(lead)}
+                        </span>
+                      </td>
                       {viewMode === "full" && (
                         <>
                           <td>{lead.first_name || "-"}</td>
@@ -1588,22 +1630,6 @@ function AILeads() {
                           </td>
                         </>
                       )}
-                      <td className="actions-cell">
-                        <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer" className="action-link action-btn-linkedin">
-                          LinkedIn ↗
-                        </a>
-                        <button className="action-btn" onClick={() => handleClassify([lead._id])}>
-                          Re
-                        </button>
-                        <button 
-                          className="action-btn" 
-                          onClick={() => handleTransferToVendorLeads(lead._id)}
-                          title="Transfer to Vendor Leads"
-                          style={{ backgroundColor: "#dcfce7", color: "#166534" }}
-                        >
-                          🎯
-                        </button>
-                      </td>
                     </tr>
                     {/* Expandable Details Row in Compact Mode */}
                     {viewMode === "compact" && expandedLeadId === lead._id && (
@@ -1662,7 +1688,6 @@ function AILeads() {
                 <th>Company</th>
                 <th>Source</th>
                 <th>Status</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1698,24 +1723,6 @@ function AILeads() {
                     <span className={`status-pill ${lead.classification_status?.toLowerCase()}`}>
                       {lead.classification_status}
                     </span>
-                  </td>
-                  <td className="actions-cell">
-                    <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer" className="action-link action-btn-linkedin">
-                      LinkedIn ↗
-                    </a>
-                    {lead.classification_status === "Pending" && (
-                      <button className="action-btn" onClick={() => handleClassify([lead._id])}>
-                        Classify
-                      </button>
-                    )}
-                    <button 
-                      className="action-btn" 
-                      onClick={() => handleTransferToVendorLeads(lead._id)}
-                      title="Transfer to Vendor Leads"
-                      style={{ backgroundColor: "#dcfce7", color: "#166534" }}
-                    >
-                      🎯
-                    </button>
                   </td>
                 </tr>
               ))}
