@@ -584,6 +584,12 @@
   color: #c2410c;
 }
 
+/* Red badge for error */
+.badge-red {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
 /* ============== VIEW TOGGLE ============== */
 .view-toggle {
   display: inline-flex;

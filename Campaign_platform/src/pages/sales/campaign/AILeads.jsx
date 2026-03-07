@@ -257,15 +257,19 @@ function AILeads() {
   const getServiceType = (lead) => {
     const industry = (lead.company_industry || "").toLowerCase();
     const title = (lead.title || "").toLowerCase();
-    const company = (lead.company_name || "").toLowerCase();
-    const combined = `${industry} ${title} ${company}`;
+    const company = (lead.company_name || "").toLowerCase().trim();
+    const email = (lead.email || "").toLowerCase();
     
-    const insightsKeywords = ["analytics", "intelligence", "insights", "research", "consulting",
-      "strategy", "advisory", "market research", "business intelligence", "bi ",
-      "visualization", "reporting", "forecasting", "ai ", "machine learning",
-      "data science", "predictive", "analysis"];
+    // Rule 1: Error — company is unknown and email is @domain.com (generic/placeholder)
+    if ((!company || company === "unknown") && email.endsWith("@domain.com")) return "Error";
     
-    if (insightsKeywords.some(kw => combined.includes(kw))) return "Insights Services";
+    // Rule 2: Data Services — industry is market research, consulting, or advertising
+    const dataIndustries = ["market research", "consulting", "advertising"];
+    if (dataIndustries.some(kw => industry.includes(kw))) return "Data Services";
+    
+    // Rule 3: Insights Services — title contains "marketing"
+    if (title.includes("marketing")) return "Insights Services";
+    
     return "Data Services";
   };
 
@@ -1378,6 +1382,13 @@ function AILeads() {
           >
             Insights Services
           </button>
+          <button
+            className={`tab-btn ${serviceTypeFilter === "Error" ? "active" : ""}`}
+            onClick={() => setServiceTypeFilter("Error")}
+            style={{ fontSize: "0.85rem", padding: "0.35rem 0.75rem", color: serviceTypeFilter === "Error" ? "#fff" : "#dc2626" }}
+          >
+            Error
+          </button>
         </div>
       )}
 
@@ -1591,7 +1602,7 @@ function AILeads() {
                         </span>
                       </td>
                       <td>
-                        <span className={`badge ${getServiceType(lead) === "Data Services" ? "badge-blue" : "badge-orange"}`}>
+                        <span className={`badge ${getServiceType(lead) === "Error" ? "badge-red" : getServiceType(lead) === "Data Services" ? "badge-blue" : "badge-orange"}`}>
                           {getServiceType(lead)}
                         </span>
                       </td>
