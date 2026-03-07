@@ -13,8 +13,8 @@ function ProjectDetailModal({ project, onClose }) {
   const getEntryLinkTemplate = () => {
     const base = (typeof window !== "undefined" && window.location?.origin)
       ? window.location.origin.replace(/\/$/, "")
-      : "https://torpedo.cogentixresearch.com";
-    return `${base}/takesurvey?api=dalse&vid=vendor_id&cc=country_code&rid=respondent_id`;
+      : "https://surveyfieldwork.com";
+    return `${base}/takesurvey?api=false&vid=vendor_id&cc=country_code&rid=respondent_id`;
   };
 
   const token = sessionStorage.getItem("session_token");

@@ -19,6 +19,8 @@ import hmac
 import hashlib
 import asyncio
 
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://surveyfieldwork.com")
+
 from app.models.cint import (
     CintOpportunity,
     SupplierLink,
@@ -394,14 +396,14 @@ async def respondent_entry_link_redirect(
         # Error - redirect to error page
         error = result.get("error", "unknown")
         return RedirectResponse(
-            url=f"https://torpedo.cogentixresearch.com/survey-error?error={error}",
+            url=f"{FRONTEND_URL}/survey-error?error={error}",
             status_code=302
         )
     
     except Exception as e:
         logger.error(f"Error in respondent redirect: {e}")
         return RedirectResponse(
-            url=f"https://torpedo.cogentixresearch.com/survey-error?error=system",
+            url=f"{FRONTEND_URL}/survey-error?error=system",
             status_code=302
         )
 
