@@ -3238,3 +3238,43 @@ async def reset_google_cse_usage():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ============== BULK SERVICE TYPE TAGGING ==============
+
+class BulkServiceTypeRequest(BaseModel):
+    lead_ids: List[str]
+    service_type: str
+
+@router.post("/bulk-service-type")
+async def bulk_update_service_type(request: BulkServiceTypeRequest):
+    """
+    POST /leads/bulk-service-type
+    Bulk update service_type for selected leads.
+    Valid types: Data Services, Insights Services, Error
+    """
+    valid_types = ["Data Services", "Insights Services", "Error"]
+    if request.service_type not in valid_types:
+        raise HTTPException(status_code=400, detail=f"Invalid service_type. Must be one of: {valid_types}")
+    
+    from bson import ObjectId
+    object_ids = []
+    for lid in request.lead_ids:
+        try:
+            object_ids.append(ObjectId(lid))
+        except Exception:
+            pass
+    
+    if not object_ids:
+        raise HTTPException(status_code=400, detail="No valid lead IDs provided")
+    
+    result = leads_enriched_collection.update_many(
+        {"_id": {"$in": object_ids}},
+        {"$set": {"service_type": request.service_type}}
+    )
+    
+    return {
+        "success": True,
+        "updated_count": result.modified_count,
+        "message": f"Tagged {result.modified_count} lead(s) as '{request.service_type}'"
+    }
+

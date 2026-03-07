@@ -253,24 +253,10 @@ function AILeads() {
     }
   }, [activeTab]);
 
-  // Service type classification for leads
+  // Service type — use stored value, fall back to auto-detect
   const getServiceType = (lead) => {
-    const industry = (lead.company_industry || "").toLowerCase();
-    const title = (lead.title || "").toLowerCase();
-    const company = (lead.company_name || "").toLowerCase().trim();
-    const email = (lead.email || "").toLowerCase();
-    
-    // Rule 1: Error — company is unknown and email is @domain.com (generic/placeholder)
-    if ((!company || company === "unknown") && email.endsWith("@domain.com")) return "Error";
-    
-    // Rule 2: Data Services — industry is market research, consulting, or advertising
-    const dataIndustries = ["market research", "consulting", "advertising"];
-    if (dataIndustries.some(kw => industry.includes(kw))) return "Data Services";
-    
-    // Rule 3: Insights Services — title contains "marketing"
-    if (title.includes("marketing")) return "Insights Services";
-    
-    return "Data Services";
+    if (lead.service_type) return lead.service_type;
+    return "Untagged";
   };
 
   const fetchLeads = useCallback(async () => {
@@ -862,7 +848,36 @@ function AILeads() {
       }
       
       const result = await res.json();
-      alert(`✅ ${result.transferred_count} lead(s) transferred to Vendor Leads!`);
+      alert(`\u2705 ${result.transferred_count} lead(s) transferred to Vendor Leads!`);
+      setSelectedIds(new Set());
+      fetchLeads();
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
+  };
+
+  // Bulk assign service type to selected leads
+  const handleBulkServiceType = async (serviceType) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) {
+      alert("Please select leads first");
+      return;
+    }
+    try {
+      const res = await fetch(buildApiUrl(`/leads/bulk-service-type`), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+        body: JSON.stringify({ lead_ids: ids, service_type: serviceType }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || "Failed to update service type");
+      }
+      const result = await res.json();
+      alert(`\u2705 ${result.updated_count} lead(s) tagged as "${serviceType}"`);
       setSelectedIds(new Set());
       fetchLeads();
     } catch (err) {
@@ -1389,6 +1404,13 @@ function AILeads() {
           >
             Error
           </button>
+          <button
+            className={`tab-btn ${serviceTypeFilter === "Untagged" ? "active" : ""}`}
+            onClick={() => setServiceTypeFilter("Untagged")}
+            style={{ fontSize: "0.85rem", padding: "0.35rem 0.75rem" }}
+          >
+            Untagged
+          </button>
         </div>
       )}
 
@@ -1503,6 +1525,17 @@ function AILeads() {
           <button className="btn btn-sm btn-success" onClick={handleBulkTransferToVendorLeads} style={{ backgroundColor: "#22c55e", borderColor: "#22c55e" }}>
             🎯 Transfer to Vendor Leads
           </button>
+          <span style={{ borderLeft: "1px solid #d1d5db", height: "24px", margin: "0 4px" }}></span>
+          <span style={{ fontSize: "0.8rem", color: "#6b7280", whiteSpace: "nowrap" }}>Tag as:</span>
+          <button className="btn btn-sm" onClick={() => handleBulkServiceType("Data Services")} style={{ backgroundColor: "#dbeafe", color: "#1e40af", borderColor: "#93c5fd", fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}>
+            Data Services
+          </button>
+          <button className="btn btn-sm" onClick={() => handleBulkServiceType("Insights Services")} style={{ backgroundColor: "#ffedd5", color: "#c2410c", borderColor: "#fdba74", fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}>
+            Insights Services
+          </button>
+          <button className="btn btn-sm" onClick={() => handleBulkServiceType("Error")} style={{ backgroundColor: "#fee2e2", color: "#dc2626", borderColor: "#fca5a5", fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}>
+            Error
+          </button>
           <button className="btn btn-sm btn-outline" onClick={() => setSelectedIds(new Set())}>
             ✕ Clear
           </button>
@@ -1602,7 +1635,11 @@ function AILeads() {
                         </span>
                       </td>
                       <td>
-                        <span className={`badge ${getServiceType(lead) === "Error" ? "badge-red" : getServiceType(lead) === "Data Services" ? "badge-blue" : "badge-orange"}`}>
+                        <span className={`badge ${{
+                          "Data Services": "badge-blue",
+                          "Insights Services": "badge-orange",
+                          "Error": "badge-red"
+                        }[getServiceType(lead)] || "badge-grey"}`}>
                           {getServiceType(lead)}
                         </span>
                       </td>

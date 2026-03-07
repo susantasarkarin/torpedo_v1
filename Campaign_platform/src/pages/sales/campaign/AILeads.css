@@ -590,6 +590,12 @@
   color: #dc2626;
 }
 
+/* Grey badge for untagged */
+.badge-grey {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
 /* ============== VIEW TOGGLE ============== */
 .view-toggle {
   display: inline-flex;
