@@ -76,7 +76,7 @@ LAST_QUESTION_ID       = f"Q{DEMO_START + 5}"
 # ---- endpoints ----
 
 @router.post("/start", response_model=StartSurveyResponse)
-async def start_survey(study_id: str = "default"):
+async def start_survey(study_id: str = "default", rid: str = ""):
     """Create a new respondent session, scoped to a study."""
     db = _db()
     respondent_id = str(uuid.uuid4())[:12]
@@ -96,6 +96,7 @@ async def start_survey(study_id: str = "default"):
         "_id": respondent_id,
         "study_id": study_id,
         "wave_id": wave_id,
+        "vendor_rid": rid,
         "status": "in_progress",
         "responses": {},
         "quota_claims": [],  # track what was claimed for rollback
@@ -337,7 +338,17 @@ async def submit_answer(payload: AnswerPayload):
                 "completed_at": datetime.now(timezone.utc),
             }},
         )
-        return RoutingDecision(action="complete")
+        # Resolve complete redirect URL
+        redirect_url = None
+        study_id = respondent.get("study_id")
+        vendor_rid = respondent.get("vendor_rid", "")
+        if study_id and study_id != "default":
+            study = await db.studies.find_one({"_id": study_id}, {"redirects": 1})
+            if study:
+                raw_url = study.get("redirects", {}).get("complete_url", "")
+                if raw_url:
+                    redirect_url = raw_url.replace("[RID]", vendor_rid).replace("[rid]", vendor_rid)
+        return RoutingDecision(action="complete", redirect_url=redirect_url)
 
     # -- Default: advance to next sequential question --
     return RoutingDecision(action="next", next_question_id=_next_q_id(qid))
@@ -377,7 +388,22 @@ async def _terminate(db, rid: str, reason: str) -> RoutingDecision:
             "quota_claims": [],
         }},
     )
-    return RoutingDecision(action="terminate", reason=reason)
+
+    # Resolve redirect URL
+    redirect_url = None
+    if respondent:
+        study_id = respondent.get("study_id")
+        vendor_rid = respondent.get("vendor_rid", "")
+        if study_id and study_id != "default":
+            study = await db.studies.find_one({"_id": study_id}, {"redirects": 1})
+            if study:
+                redirects = study.get("redirects", {})
+                url_key = "overquota_url" if "quota_full" in reason else "terminate_url"
+                raw_url = redirects.get(url_key, "")
+                if raw_url:
+                    redirect_url = raw_url.replace("[RID]", vendor_rid).replace("[rid]", vendor_rid)
+
+    return RoutingDecision(action="terminate", reason=reason, redirect_url=redirect_url)
 
 
 def _next_q_id(qid: str) -> str:

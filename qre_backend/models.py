@@ -26,6 +26,7 @@ class RoutingDecision(BaseModel):
     reason: Optional[str] = None
     eligible_modules: Optional[list] = None
     assigned_modules: Optional[list] = None
+    redirect_url: Optional[str] = None
 
 
 class QuotaStatus(BaseModel):
