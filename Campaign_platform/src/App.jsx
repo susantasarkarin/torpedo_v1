@@ -71,6 +71,7 @@ const AgentSettings = lazy(() => import("./pages/sales/AgentSettings"))
 // Operations Pages
 const ClientsPage = lazy(() => import("./pages/operations/ClientsPage"))
 const VendorsPage = lazy(() => import("./pages/operations/VendorsPage"))
+const QREPage = lazy(() => import("./pages/operations/QREPage"))
 const ProjectsPage = lazy(() => import("./pages/operations/ProjectsPage"))
 const ProjectDetail = lazy(() => import("./pages/operations/ProjectDetail"))
 const SurveyPool = lazy(() => import("./pages/operations/surveyPool/SurveyPool"))
@@ -274,6 +275,7 @@ function App() {
         <Route path="operations/rate-card" element={<LazyPage><RateCard /></LazyPage>} />
         <Route path="operations/traffic" element={<LazyPage><TrafficManagement /></LazyPage>} />
         <Route path="operations/reports" element={<LazyPage><CPXCallbackLogs /></LazyPage>} />
+        <Route path="operations/qre" element={<LazyPage><QREPage /></LazyPage>} />
 
         {/* Vendor Routes */}
         <Route path="vendor" element={<LazyPage><VendorDashboard /></LazyPage>} />

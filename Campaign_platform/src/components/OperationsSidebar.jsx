@@ -55,6 +55,12 @@ function OperationsSidebar() {
             </Link>
           </li>
 
+          <li className={`sidebar-item ${isActive("/admin/operations/qre") ? "active" : ""}`}>
+            <Link to="/admin/operations/qre" className="sidebar-link">
+              <span className="sidebar-icon">🔬</span> QRE
+            </Link>
+          </li>
+
           {/* Traffic Group */}
           <li className="sidebar-group">
             <div 
