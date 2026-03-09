@@ -634,6 +634,85 @@ function ExportTab({ studyId }) {
   );
 }
 
+// ── Login Gate ───────────────────────────────────────────────────────────────
+function QRELoginGate({ onAuthenticated }) {
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      const res = await qreApi.login("admin", password);
+      sessionStorage.setItem("qre_admin_token", res.token);
+      qreApi.setToken(res.token);
+      onAuthenticated();
+    } catch (err) {
+      setError(err.message || "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "center",
+      minHeight: "60vh",
+    }}>
+      <div style={{
+        background: "#fff", border: "1px solid #e5e7eb", borderRadius: "12px",
+        padding: "2rem 2.5rem", width: "100%", maxWidth: "360px",
+        boxShadow: "0 4px 24px rgba(0,0,0,0.07)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "1.2rem" }}>
+          <BarChart2 size={20} color="#667eea" />
+          <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600, color: "#111827" }}>
+            QRE Admin Login
+          </h2>
+        </div>
+        <p style={{ color: "#6b7280", fontSize: "0.82rem", marginBottom: "1.4rem" }}>
+          Enter the QRE admin password to access the survey platform.
+        </p>
+        <form onSubmit={handleLogin}>
+          <div style={{ marginBottom: "1rem" }}>
+            <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 500, color: "#374151", marginBottom: "0.4rem" }}>
+              Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Admin password"
+              required
+              autoFocus
+              style={{
+                width: "100%", boxSizing: "border-box",
+                padding: "0.55rem 0.8rem", border: "1px solid #d1d5db",
+                borderRadius: "7px", fontSize: "0.9rem", outline: "none",
+              }}
+            />
+          </div>
+          {error && (
+            <div style={{ color: "#dc2626", fontSize: "0.8rem", marginBottom: "0.8rem" }}>
+              ⚠ {error}
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={loading}
+            className="qre-btn qre-btn-primary"
+            style={{ width: "100%", justifyContent: "center" }}
+          >
+            {loading ? "Logging in…" : "Log In"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Main QRE Page ─────────────────────────────────────────────────────────────
 const TABS = ["Studies", "Overview", "Quotas", "Redirects", "Export"];
 
@@ -641,20 +720,30 @@ export default function QREPage() {
   const [activeTab, setActiveTab] = useState("Studies");
   const [selectedStudyId, setSelectedStudyId] = useState(null);
   const [studies, setStudies] = useState([]);
+  const [authenticated, setAuthenticated] = useState(() => {
+    const stored = sessionStorage.getItem("qre_admin_token");
+    if (stored) { qreApi.setToken(stored); return true; }
+    return false;
+  });
 
   // Reload studies list for display in header selector
   const loadStudiesMeta = useCallback(async () => {
     try {
       const list = await qreApi.listStudies();
       setStudies(list);
-    } catch {
-      // silent — StudiesTab will show the error
+    } catch (e) {
+      // If 401, clear token and force re-login
+      if (e.message && e.message.includes("session")) {
+        sessionStorage.removeItem("qre_admin_token");
+        qreApi.setToken("");
+        setAuthenticated(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    loadStudiesMeta();
-  }, [loadStudiesMeta]);
+    if (authenticated) loadStudiesMeta();
+  }, [loadStudiesMeta, authenticated]);
 
   const selectedStudy = studies.find((s) => s.id === selectedStudyId);
 
@@ -665,6 +754,10 @@ export default function QREPage() {
 
   return (
     <div className="qre-root">
+      {!authenticated ? (
+        <QRELoginGate onAuthenticated={() => setAuthenticated(true)} />
+      ) : (
+      <>
       {/* Page Header */}
       <div className="qre-page-header">
         <div>
@@ -703,6 +796,18 @@ export default function QREPage() {
             title="Refresh"
           >
             <RefreshCw size={13} />
+          </button>
+          <button
+            className="qre-btn qre-btn-outline qre-btn-sm"
+            onClick={() => {
+              sessionStorage.removeItem("qre_admin_token");
+              qreApi.setToken("");
+              setAuthenticated(false);
+            }}
+            title="Log out of QRE"
+            style={{ color: "#dc2626", borderColor: "#fca5a5" }}
+          >
+            Log out
           </button>
         </div>
       </div>
@@ -760,6 +865,8 @@ export default function QREPage() {
       )}
       {activeTab === "Export" && (
         <ExportTab studyId={selectedStudyId} />
+      )}
+      </>
       )}
     </div>
   );
