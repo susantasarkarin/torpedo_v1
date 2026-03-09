@@ -554,9 +554,35 @@ function RedirectsTab({ studyId }) {
 
   if (loading) return <div className="qre-loading">Loading redirects…</div>;
 
+  const entryLink = `${window.location.origin}/survey/?study_id=${studyId}&rid=[RID]`;
+
   return (
     <>
       {toast && <div className="qre-toast">{toast}</div>}
+      <div className="qre-section">
+        <h2 className="qre-section-title">Entry Link</h2>
+        <p className="qre-section-desc">
+          Share this link with your panel vendor. Replace <code>[RID]</code> with the vendor's panelist ID variable.
+        </p>
+        <div className="qre-form" style={{ maxWidth: 600 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              className="qre-input"
+              readOnly
+              value={entryLink}
+              style={{ flex: 1, background: "#f8fafc", cursor: "text" }}
+              onFocus={(e) => e.target.select()}
+            />
+            <button
+              className="qre-btn"
+              style={{ whiteSpace: "nowrap" }}
+              onClick={() => { navigator.clipboard.writeText(entryLink); showToast("Copied!"); }}
+            >
+              Copy
+            </button>
+          </div>
+        </div>
+      </div>
       <div className="qre-section">
         <h2 className="qre-section-title">Redirect URLs</h2>
         <p className="qre-section-desc">
