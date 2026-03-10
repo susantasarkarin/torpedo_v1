@@ -123,7 +123,7 @@ export default function TrafficManagement() {
 
   const formatDate = (dateStr) => {
     if (!dateStr) return "N/A"
-    return new Date(dateStr).toLocaleString()
+    return new Date(dateStr).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
   }
 
   const handleRefresh = () => {
@@ -268,7 +268,7 @@ export default function TrafficManagement() {
           <span className="stat-value">{stats.total || 0}</span>
           <span className="stat-label">Total Records</span>
         </div>
-        {Object.entries(stats.by_status || {}).map(([status, count]) => (
+        {["Terminate", "Incomplete", "Complete", "Quota Full"].map((status) => (
           <div
             key={status}
             className="stat-card clickable"
@@ -279,7 +279,7 @@ export default function TrafficManagement() {
             onClick={() => setStatusFilter(status === statusFilter ? "" : status)}
           >
             <span className="stat-value" style={{ color: statusColors[status]?.color || "#333" }}>
-              {count}
+              {stats.by_status?.[status] ?? 0}
             </span>
             <span className="stat-label">{status}</span>
           </div>
