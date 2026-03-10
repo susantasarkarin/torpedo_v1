@@ -2,6 +2,101 @@
 
 .marketing-dashboard {
   padding: 1.5rem;
+  max-width: 1400px;
+}
+
+/* Stats Grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.stat-card {
+  background: white;
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.2s ease;
+}
+
+.stat-card:hover {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
+}
+
+.stat-card-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+.stat-card-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+/* Input */
+.marketing-dashboard .input {
+  width: 100%;
+  padding: 0.65rem 1rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  color: #1f2937;
+  background: #fff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-sizing: border-box;
+}
+
+.marketing-dashboard .input:focus {
+  outline: none;
+  border-color: #f47c20;
+  box-shadow: 0 0 0 3px rgba(244, 124, 32, 0.12);
+}
+
+.marketing-dashboard .input::placeholder {
+  color: #9ca3af;
+}
+
+/* Table */
+.marketing-dashboard .table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.marketing-dashboard .table thead tr {
+  background: #1f2937;
+  color: white;
+}
+
+.marketing-dashboard .table th {
+  padding: 0.875rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.marketing-dashboard .table td {
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #374151;
+}
+
+.marketing-dashboard .table tbody tr:hover {
+  background: #f9fafb;
+}
+
+.marketing-dashboard .table tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .marketing-header {
