@@ -55,7 +55,7 @@ async function fetchClientIPv4() {
   const ipServices = [
     { 
       url: "https://ipinfo.io/json", 
-      parser: (data) => ({ ip: data.ip, country: data.country }), // ipinfo.io returns country
+      parser: (data) => ({ ip: data.ip, country: data.country, city: data.city, region: data.region, postal: data.postal }),
       hasCountry: true
     },
     { 
@@ -91,7 +91,7 @@ async function fetchClientIPv4() {
           if (result.country) {
             console.log(`🌍 IP country detected: ${result.country}`);
           }
-          return { ip: result.ip, source: service.url, ipCountry: result.country };
+          return { ip: result.ip, source: service.url, ipCountry: result.country, ipCity: result.city || null, ipRegion: result.region || null, ipPostal: result.postal || null };
         }
       }
     } catch (err) {
@@ -355,6 +355,9 @@ export default function TrafficFlowParser() {
           clientIp: ipResult.ip || null,
           ipSource: ipResult.source || "none",
           ipCountry: ipResult.ipCountry || null, // IP-detected country for validation
+          ipCity:    ipResult.ipCity    || null, // IP-detected city
+          ipRegion:  ipResult.ipRegion  || null, // IP-detected state/province
+          ipPostal:  ipResult.ipPostal  || null, // IP-detected postal code
           deviceFingerprint: fingerprint?.hash || "",
           fingerprintComponents: fingerprint?.components || {},
           fingerprintSource: "client",

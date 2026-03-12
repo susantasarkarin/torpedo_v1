@@ -460,11 +460,13 @@ def _apply_cint_quality_filter(surveys: list, respondent_age: Optional[int] = No
     """
     min_ir = int(os.getenv("MIN_CINT_IR", "20"))
     min_conv = float(os.getenv("MIN_CINT_CONVERSION", "0.15"))
+    min_cpi = float(os.getenv("MIN_CINT_CPI", "1.0"))
 
     def _passes_quality(s: dict) -> bool:
         ir = float(s.get("IR") or s.get("BidIncidence") or 0)
         conv = float(s.get("Conversion") or 1.0)  # default 1.0 when absent — no conversion penalty
-        return ir >= min_ir and conv >= min_conv
+        cpi = float(s.get("CPI") or s.get("payout") or 0)
+        return ir >= min_ir and conv >= min_conv and cpi >= min_cpi
 
     def _passes_age(s: dict) -> bool:
         """Filter by survey_qualifications age precode (question_id 42). Skip if no qual data."""
@@ -623,8 +625,8 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, re
             filtered = surveys
         
         if not filtered and country_lang_id:
-            print(f"   WARNING: CINT offerwall has no surveys for country={cc}, falling back to all-country pool")
-            filtered = surveys
+            print(f"   WARNING: CINT offerwall has no surveys for country={cc} — aborting (no cross-country fallback)")
+            return []
 
         if not filtered:
             print("   WARNING: CINT offerwall has no surveys available in response")
@@ -641,6 +643,102 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, re
         return []
 
 
+# US state 2-letter abbreviation → Lucid/Cint profile variable 45 FIPS code
+_US_STATE_FIPS: Dict[str, str] = {
+    "AL": "1",  "AK": "2",  "AZ": "4",  "AR": "5",  "CA": "6",  "CO": "8",
+    "CT": "9",  "DE": "10", "DC": "11", "FL": "12", "GA": "13", "HI": "15",
+    "ID": "16", "IL": "17", "IN": "18", "IA": "19", "KS": "20", "KY": "21",
+    "LA": "22", "ME": "23", "MD": "24", "MA": "25", "MI": "26", "MN": "27",
+    "MS": "28", "MO": "29", "MT": "30", "NE": "31", "NV": "32", "NH": "33",
+    "NJ": "34", "NM": "35", "NY": "36", "NC": "37", "ND": "38", "OH": "39",
+    "OK": "40", "OR": "41", "PA": "42", "RI": "44", "SC": "45", "SD": "46",
+    "TN": "47", "TX": "48", "UT": "49", "VT": "50", "VA": "51", "WA": "53",
+    "WV": "54", "WI": "55", "WY": "56",
+}
+
+# ---------------------------------------------------------------------------
+# India geo profiling
+# NOTE: Run check_in_qualifications.py on the VM to confirm these question IDs.
+#   The script fetches live IN survey qualifications and prints every QuestionID.
+#   Fill in _IN_STATE_QID / _IN_CITY_QID once confirmed, then populate the
+#   precode maps below with the values returned by the API.
+# ---------------------------------------------------------------------------
+_IN_STATE_QID  = "88"   # TODO: confirm via check_in_qualifications.py
+_IN_CITY_QID   = "103"  # TODO: confirm via check_in_qualifications.py
+
+# ipinfo.io returns full state names ("Maharashtra").  Map them to the integer
+# precode that Lucid/Cint expects for the India-state question.
+# Populate from check_in_qualifications.py output (look for QuestionID=<_IN_STATE_QID>).
+_IN_STATE_PRECODES: Dict[str, str] = {
+    # "FULL STATE NAME": "LUCID_PRECODE"
+    # Add entries from diagnostic script output, e.g.:
+    # "MAHARASHTRA": "14",
+    # "KARNATAKA": "10",
+    # "TAMIL NADU": "25",
+    # "DELHI": "6",
+    # "UTTAR PRADESH": "27",
+    # "WEST BENGAL": "29",
+    # (fill all 28+ states from API response)
+}
+
+# Same pattern for city (optional — lower priority than state)
+_IN_CITY_PRECODES: Dict[str, str] = {
+    # "CITY NAME": "LUCID_PRECODE"
+}
+
+
+def _build_geo_profiling_params(
+    country_code: str,
+    ip_region: str,
+    ip_postal: str,
+    ip_city: str = "",
+) -> Dict[str, str]:
+    """
+    Build Cint entry-link profile variable parameters from IP-resolved geo data.
+
+    Lucid/Cint standard profile variable IDs used here:
+      45  = US State  (FIPS integer code, e.g. CA → 6)
+      47  = US Zip Code (5-digit string)
+      _IN_STATE_QID = India State  (fill precode map to activate)
+      _IN_CITY_QID  = India City   (fill precode map to activate)
+
+    Other countries: country is already handled via CountryLanguageID survey selection;
+    state/city variables vary per country and are added here as confirmed.
+    """
+    params: Dict[str, str] = {}
+    cc = (country_code or "").strip().upper()
+    region = (ip_region or "").strip().upper()
+    postal = (ip_postal or "").strip()
+
+    if cc == "US":
+        fips = _US_STATE_FIPS.get(region)
+        if fips:
+            params["45"] = fips
+            print(f"   📍 Geo profiling: US state {region} → variable 45 = {fips}")
+        if postal and postal[:5].isdigit():
+            params["47"] = postal[:5]
+            print(f"   📍 Geo profiling: US zip → variable 47 = {postal[:5]}")
+
+    elif cc == "IN":
+        # India state — only active once _IN_STATE_PRECODES is populated
+        if _IN_STATE_PRECODES:
+            state_precode = _IN_STATE_PRECODES.get(region)
+            if state_precode:
+                params[_IN_STATE_QID] = state_precode
+                print(f"   📍 Geo profiling: IN state {region} → variable {_IN_STATE_QID} = {state_precode}")
+            else:
+                print(f"   ⚠️  Geo profiling: IN state {region!r} not in _IN_STATE_PRECODES — passing without state filter")
+        # India city — only active once _IN_CITY_PRECODES is populated
+        if _IN_CITY_PRECODES and ip_city:
+            city_key = (ip_city or "").strip().upper()
+            city_precode = _IN_CITY_PRECODES.get(city_key)
+            if city_precode:
+                params[_IN_CITY_QID] = city_precode
+                print(f"   📍 Geo profiling: IN city {ip_city} → variable {_IN_CITY_QID} = {city_precode}")
+
+    return params
+
+
 def _derive_cint_profiling_params(
     birthday_day: Optional[int] = None,
     birthday_month: Optional[int] = None,
@@ -652,8 +750,10 @@ def _derive_cint_profiling_params(
     Build CINT profile variable parameters from respondent profile data.
 
     Known CINT/Lucid profile IDs:
-    - 42: Age
+    - 42: Age (computed from DOB)
     - 43: Gender (1=Male, 2=Female, 3=Other/NA)
+    - 45: US State (FIPS code, set via _build_geo_profiling_params)
+    - 47: US Zip Code (set via _build_geo_profiling_params)
     """
     params: Dict[str, str] = {}
 
@@ -2028,7 +2128,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # Check if client provided IP (from browser-based collection)
         client_provided_ip = data.get('clientIp')
         client_ip_source = data.get('ipSource', 'unknown')
-        geo_ip_country = (data.get('geoCountry') or "").lower().strip()
+        geo_ip_country = (data.get('ipCountry') or data.get('geoCountry') or "").lower().strip()
 
         # Validate client-provided IP (accept both IPv4 and IPv6)
         def is_valid_ip(ip_str):
@@ -2084,12 +2184,25 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         
         gender = data.get('gender', '').strip().lower()
         zip_code = data.get('zip_code', '').strip()
+        ip_region = (data.get('ipRegion') or '').strip()   # state/province from ipinfo.io
+        ip_city   = (data.get('ipCity')   or '').strip()   # city from ipinfo.io
+        ip_postal = (data.get('ipPostal') or '').strip()   # postal/zip from ipinfo.io
+
+        # Build geo-based profile variables (US state/zip → Lucid variable IDs 45/47)
+        effective_country = (geo_ip_country or country_code or "").upper()
+        geo_profiling_params = _build_geo_profiling_params(
+            country_code=effective_country,
+            ip_region=ip_region,
+            ip_postal=ip_postal or zip_code,
+            ip_city=ip_city,
+        )
 
         cint_profiling_params = _derive_cint_profiling_params(
             birthday_day=birthday_day,
             birthday_month=birthday_month,
             birthday_year=birthday_year,
             gender=gender,
+            extra_profile_params=geo_profiling_params,
         )
         profiling_data = {
             "birthday_day": birthday_day,
@@ -2097,6 +2210,9 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             "birthday_year": birthday_year,
             "gender": gender,
             "zip_code": zip_code,
+            "ip_region": ip_region,
+            "ip_city": ip_city,
+            "ip_postal": ip_postal,
             "cint_profile_params": cint_profiling_params,
         }
 
@@ -2180,8 +2296,6 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     'email': user_email,
                     'profilingData': profiling_data,
                 }
-                result = await async_url_collection.insert_one(fallback_record)
-                traffic_id = str(result.inserted_id)
                 result = await async_url_collection.insert_one(fallback_record)
                 traffic_id = str(result.inserted_id)
                 print(f"✅ Created traffic record (LEGACY FALLBACK): {traffic_id}")
