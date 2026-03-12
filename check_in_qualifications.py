@@ -53,6 +53,36 @@ def main():
     for k, v in sorted(first.items()):
         print(f"  {k}: {v}")
 
+    # Candidate API endpoint formats to try
+    QUAL_ENDPOINT_VARIANTS = [
+        # Lucid/Fulcrum Supply v1 variants
+        lambda n: f"{CINT_API_BASE}/Supply/v1/SurveyQualifications/{n}/{supplier_code}",
+        lambda n: f"{CINT_API_BASE}/Supply/v1/Surveys/{n}/Qualifications/{supplier_code}",
+        lambda n: f"{CINT_API_BASE}/Supply/v1/Surveys/Qualifications/{n}/{supplier_code}",
+        # Demand side (reversed)
+        lambda n: f"{CINT_API_BASE}/Demand/v1/SurveyQualifications/{n}",
+    ]
+
+    # Probe first survey to find a working endpoint
+    working_endpoint = None
+    probe_num = in_surveys[0]["SurveyNumber"]
+    print(f"\n🔍 Probing qualification endpoint with survey {probe_num}...")
+    with httpx.Client(timeout=15.0) as client:
+        for variant in QUAL_ENDPOINT_VARIANTS:
+            url = variant(probe_num)
+            r = client.get(url, headers=headers)
+            print(f"  {r.status_code}  {url}")
+            if r.status_code == 200:
+                working_endpoint = variant
+                print(f"  ✅ Found working endpoint!")
+                break
+
+    if not working_endpoint:
+        print("\n⚠️  No qualification endpoint returned 200.")
+        print("   The offerwall may use a different API or profile variables are embedded in the entry link SID.")
+        print("   → Check the Cint Dashboard for IN survey targeting attributes to identify question IDs.")
+        return
+
     # Fetch qualifications for the first few IN surveys
     print(f"\n🔍 Fetching qualifications for top 5 India surveys...\n")
     question_id_tally: dict = {}
@@ -62,25 +92,34 @@ def main():
         print(f"  Survey {survey_num} (CPI={survey.get('CPI')}, IR={survey.get('BidIncidence')}, LOI={survey.get('BidLengthOfInterview')}):")
 
         with httpx.Client(timeout=15.0) as client:
-            qual_resp = client.get(
-                f"{CINT_API_BASE}/Supply/v1/SurveyQualifications/{survey_num}/{supplier_code}",
-                headers=headers,
-            )
+            qual_resp = client.get(working_endpoint(survey_num), headers=headers)
 
         if qual_resp.status_code != 200:
             print(f"    ⚠️  Could not fetch qualifications: HTTP {qual_resp.status_code}")
             continue
 
-        quals = qual_resp.json().get("SurveyQualifications", [])
+        # Try multiple response shapes
+        body = qual_resp.json()
+        quals = (
+            body.get("SurveyQualifications")
+            or body.get("qualifications")
+            or body.get("data", {}).get("qualifications")
+            or []
+        )
         if not quals:
-            print("    ℹ️  No qualifications (open to all)")
+            print(f"    ℹ️  Response keys: {list(body.keys())} — no qualification list found")
             continue
 
         for q in quals:
-            qid = q.get("QuestionID")
-            name = q.get("Name", "")
-            precodes = q.get("Conditions", {}).get("PreCodes", [])
-            print(f"    QID={qid:>5}  Name={name!r}  PreCodes={precodes[:8]}{'...' if len(precodes) > 8 else ''}")
+            qid = q.get("QuestionID") or q.get("question_id") or q.get("id")
+            name = q.get("Name") or q.get("name") or ""
+            precodes = (
+                q.get("Conditions", {}).get("PreCodes")
+                or q.get("PreCodes")
+                or q.get("precodes")
+                or []
+            )
+            print(f"    QID={str(qid):>5}  Name={name!r}  PreCodes={precodes[:8]}{'...' if len(precodes) > 8 else ''}")
             question_id_tally[qid] = question_id_tally.get(qid, 0) + 1
 
     print(f"\n📊 Question ID frequency across sampled IN surveys:")
