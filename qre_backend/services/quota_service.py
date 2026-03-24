@@ -7,13 +7,22 @@ from config import QUOTA_AGE, QUOTA_GENDER, QUOTA_NCCS, QUOTA_CITY
 
 
 async def ensure_quota_doc(db: AsyncIOMotorDatabase):
-    """Create the quota counters document if it doesn't exist."""
+    """Create the quota counters document if it doesn't exist.
+    Also adds any missing quota keys to an existing document (e.g., after city list changes).
+    """
+    all_keys = {**QUOTA_AGE, **QUOTA_GENDER, **QUOTA_NCCS, **QUOTA_CITY}
     existing = await db.quotas.find_one({"_id": "global"})
     if not existing:
         initial: dict = {"_id": "global"}
-        for key in {**QUOTA_AGE, **QUOTA_GENDER, **QUOTA_NCCS, **QUOTA_CITY}:
+        for key in all_keys:
             initial[key] = 0
         await db.quotas.insert_one(initial)
+    else:
+        # Add any quota keys that are missing from the existing document
+        # (this happens when the city list or quota config changes between deployments)
+        missing = {k: 0 for k in all_keys if k not in existing}
+        if missing:
+            await db.quotas.update_one({"_id": "global"}, {"$set": missing})
 
 
 def _get_limit(key: str) -> int:
