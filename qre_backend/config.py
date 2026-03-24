@@ -13,7 +13,7 @@ TOTAL_SAMPLE  = int(os.getenv("TOTAL_SAMPLE", "1760"))
 
 # ---------- City quotas — 8 Tier 2 cities, unequal allocation (Q2) ----------
 # Lucknow n=250 | Jaipur n=200 | Indore n=200 | Surat n=225 | Pune n=250
-# Coimbatore n=200 | Warangal n=185 | Bhubaneswar n=200  (total target n=1,760)
+# Coimbatore n=200 | Warangal n=210 | Bhubaneswar n=225  (total = 1,760)
 QUOTA_CITY = {
     "lucknow":     250,
     "jaipur":      200,
@@ -21,8 +21,8 @@ QUOTA_CITY = {
     "surat":       225,
     "pune":        250,
     "coimbatore":  200,
-    "warangal":    185,
-    "bhubaneswar": 200,
+    "warangal":    210,
+    "bhubaneswar": 225,
 }
 
 # Q2 code → quota key  (code 9 = any other city → terminate)
