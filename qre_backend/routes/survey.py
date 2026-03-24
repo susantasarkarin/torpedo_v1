@@ -110,6 +110,15 @@ def _coerce_int(answer) -> int:
     return int(answer)
 
 
+def _check_max_select(qid: str, answer, max_n: int):
+    """Raise 422 if a multi-answer question exceeds its maxSelect limit."""
+    if isinstance(answer, list) and len(answer) > max_n:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{qid}: maximum {max_n} selection(s) allowed, got {len(answer)}",
+        )
+
+
 def _get_active_categories(q8_answer) -> list[str]:
     """
     Return deduplicated active categories from Q8, capped at MAX_MODULE_C_BLOCKS.
@@ -382,9 +391,12 @@ async def submit_answer(payload: AnswerPayload):
     # MODULE A â€” THE DISCOVERY JOURNEY (Q8-Q16)
     # ==========================================================================
 
-    # Q8 â€” Category incidence; determines Module C blocks
+    # Q8 — Category incidence; determines Module C blocks
     if qid == "Q8":
         active_cats = _get_active_categories(answer)
+        # Code 9 = "None of the above" (exclusive) → no eligible OTC category → terminate
+        if not active_cats:
+            return await _terminate(db, rid, "Q8_no_eligible_category")
         await db.respondents.update_one(
             {"_id": rid},
             {"$set": {"active_categories": active_cats}},
@@ -427,10 +439,12 @@ async def submit_answer(payload: AnswerPayload):
         return RoutingDecision(action="next", next_question_id="Q43")
 
     # Q43 — Purchase channel by situation type grid (NEW v2.0)
-    # Routing: Q16 if Q15=3/4 (chemist despite online); else Q44 if Q14=1/2/3 (online buyer); else Q17
+    # Routing: Q16 only if Q15=4 (explicitly discovered online but bought at chemist).
+    #          Q15=3 ("local chemist") carries no online-discovery signal → does NOT go to Q16.
+    #          Else Q44 if Q14=1/2/3 (online buyer); else Q17.
     if qid == "Q43":
         q15 = _coerce_int(responses.get("Q15", 0))
-        if q15 in (3, 4):
+        if q15 == 4:
             return RoutingDecision(action="next", next_question_id="Q16")
         q14 = _coerce_int(responses.get("Q14", 0))
         if q14 in (1, 2, 3):
@@ -448,6 +462,7 @@ async def submit_answer(payload: AnswerPayload):
     # Q44 — Top 2 online purchase motivations (NEW v2.0, MA max 2)
     # Conditional: only reached when Q14 codes 1-3 (has bought online at least once)
     if qid == "Q44":
+        _check_max_select(qid, answer, 2)
         return RoutingDecision(action="next", next_question_id="Q17")
 
     # ==========================================================================
@@ -471,10 +486,15 @@ async def submit_answer(payload: AnswerPayload):
     if qid == "Q42":
         return RoutingDecision(action="next", next_question_id="Q18")
 
-    # Q18â€“Q23 â€” Sequential
-    if qid in ("Q18", "Q19", "Q20", "Q21", "Q22", "Q23"):
+    # Q18 — Top 3 trust signals for unfamiliar health brand (MA max 3)
+    if qid == "Q18":
+        _check_max_select(qid, answer, 3)
+        return RoutingDecision(action="next", next_question_id="Q19")
+
+    # Q19â€"Q23 â€" Sequential
+    if qid in ("Q19", "Q20", "Q21", "Q22", "Q23"):
         nxt = {
-            "Q18": "Q19", "Q19": "Q20", "Q20": "Q21",
+            "Q19": "Q20", "Q20": "Q21",
             "Q21": "Q22", "Q22": "Q23", "Q23": "Q24",
         }[qid]
         return RoutingDecision(action="next", next_question_id=nxt)
@@ -502,7 +522,10 @@ async def submit_answer(payload: AnswerPayload):
                 next_q = _next_mc_or_demo(respondent, cat_key)
                 return RoutingDecision(action="skip_to", skip_to_question_id=next_q)
             return RoutingDecision(action="next", next_question_id=f"Q26_{cat_key}")
-
+        # Q31 — Brand choice reasons (MA max 3)
+        if q_num == 31:
+            _check_max_select(qid, answer, 3)
+            return RoutingDecision(action="next", next_question_id=f"Q32_{cat_key}")
         # Q26â€“Q34 â€” Sequential within block
         if 26 <= q_num <= 34:
             return RoutingDecision(action="next", next_question_id=f"Q{q_num + 1}_{cat_key}")
@@ -550,8 +573,8 @@ async def submit_answer(payload: AnswerPayload):
                     redirect_url = raw_url.replace("[RID]", vendor_rid).replace("[rid]", vendor_rid)
         return RoutingDecision(action="complete", redirect_url=redirect_url)
 
-    # Fallback â€” should not be reached for a correctly sequenced survey
-    return RoutingDecision(action="next", next_question_id=qid)
+    # Fallback — unknown question_id; should never be reached in a correctly sequenced survey
+    raise HTTPException(status_code=400, detail=f"Unknown question id: {qid}")
 
 
 @router.get("/resume/{respondent_id}", response_model=ResumeSurveyResponse)
