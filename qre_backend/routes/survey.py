@@ -39,9 +39,11 @@ def _db():
 # Constants
 # ---------------------------------------------------------------------------
 
-# Q1 industry disqualifiers: codes 2-6 terminate.
-# Code 1 (Advertising / Marketing) continues per QRE v2.0 routing.
-Q1_TERMINATE_CODES = {2, 3, 4, 5, 6}
+# Q1 industry disqualifiers: codes 1-6 all terminate.
+# Code 7 = "None of the above" → continue.
+# Matches QRE frontend options (v2.0): 1=Advertising/Marketing, 2=Market Research,
+# 3=Pharma/Pharmacy, 4=Health Insurance, 5=Healthcare, 6=Media/PR, 7=None
+Q1_TERMINATE_CODES = {1, 2, 3, 4, 5, 6}
 
 AGE_QUOTA_MAP = {
     2: "band1_25_34",
