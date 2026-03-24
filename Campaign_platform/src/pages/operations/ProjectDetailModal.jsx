@@ -10,13 +10,6 @@ function ProjectDetailModal({ project, onClose }) {
   const [invoiceError, setInvoiceError] = useState(null);
   const [invoiceSuccess, setInvoiceSuccess] = useState(null);
 
-  const getEntryLinkTemplate = () => {
-    const base = (typeof window !== "undefined" && window.location?.origin)
-      ? window.location.origin.replace(/\/$/, "")
-      : "https://surveyfieldwork.com";
-    return `${base}/takesurvey?api=false&vid=vendor_id&cc=country_code&rid=respondent_id`;
-  };
-
   const token = sessionStorage.getItem("session_token");
 
   useEffect(() => {
@@ -106,6 +99,10 @@ function ProjectDetailModal({ project, onClose }) {
           <p>{project.projectValue || "—"}</p>
         </div>
         <div className="spec-item">
+          <label>Country Code:</label>
+          <p>{project.countryCode || "—"}</p>
+        </div>
+        <div className="spec-item">
           <label>RFQ Details:</label>
           <p>{project.rfqDetails || "—"}</p>
         </div>
@@ -120,9 +117,9 @@ function ProjectDetailModal({ project, onClose }) {
         <div className="spec-item">
           <label>Entry Link:</label>
           <p>
-            {getEntryLinkTemplate() ? (
-              <a href={getEntryLinkTemplate()} target="_blank" rel="noopener noreferrer">
-                {getEntryLinkTemplate()}
+            {project.entryLink ? (
+              <a href={project.entryLink} target="_blank" rel="noopener noreferrer">
+                {project.entryLink}
               </a>
             ) : (
               "—"

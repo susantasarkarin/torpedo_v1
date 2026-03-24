@@ -10,30 +10,10 @@ async def ensure_quota_doc(db: AsyncIOMotorDatabase):
     """Create the quota counters document if it doesn't exist."""
     existing = await db.quotas.find_one({"_id": "global"})
     if not existing:
-        await db.quotas.insert_one({
-            "_id": "global",
-            # Age bands
-            "band1_25_34": 0,
-            "band2_35_44": 0,
-            "band3_45_55": 0,
-            # Gender
-            "male": 0,
-            "female": 0,
-            # NCCS
-            "nccs_a": 0,
-            "nccs_b": 0,
-            # 10 cities
-            "mumbai": 0,
-            "delhi_ncr": 0,
-            "bangalore": 0,
-            "kolkata": 0,
-            "chennai": 0,
-            "hyderabad": 0,
-            "pune": 0,
-            "ahmedabad": 0,
-            "jaipur": 0,
-            "lucknow": 0,
-        })
+        initial: dict = {"_id": "global"}
+        for key in {**QUOTA_AGE, **QUOTA_GENDER, **QUOTA_NCCS, **QUOTA_CITY}:
+            initial[key] = 0
+        await db.quotas.insert_one(initial)
 
 
 def _get_limit(key: str) -> int:

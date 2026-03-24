@@ -47,7 +47,9 @@ function ProjectsPage() {
     completePage: "",
     terminatePage: "",
     quotaFullPage: "",
+    countryCode: "",
     vendorName: "",
+    vendorId: "",
     vendorCompleteRD: [],
     vendorTerminateRD: [],
     vendorQuotaFullRD: [],
@@ -120,14 +122,17 @@ function ProjectsPage() {
     return `https://${raw}`;
   };
 
-  const getEntryLinkTemplate = () => {
+  const getEntryLinkTemplate = (form) => {
     const base = getProjectCallbackBase();
-    return `${base}/takesurvey?api=false&vid=vendor_id&cc=country_code&rid=respondent_id`;
+    const vid = form?.vendorId || "{VID}";
+    const cc = form?.countryCode || "{CC}";
+    const pid = editingId || "{PID}";
+    return `${base}/takesurvey?api=false&vid=${vid}&cc=${cc}&pid=${pid}&rid={RID}`;
   };
 
   const applyDerivedFields = (nextForm) => {
     const liveLink = nextForm.liveLink || "";
-    const entryLink = getEntryLinkTemplate();
+    const entryLink = getEntryLinkTemplate(nextForm);
     const actualIR = computeActualIR(nextForm.actualCompletes, nextForm.totalRespondents);
     const generatedPages = getSystemGeneratedPages(liveLink);
     return {
@@ -352,13 +357,14 @@ function ProjectsPage() {
         applyDerivedFields({
           ...prev,
           vendorName,
+          vendorId: vendor.vid || "",
           vendorCompleteRD: normalizeList(vendor.completeRD),
           vendorTerminateRD: normalizeList(vendor.terminateRD),
           vendorQuotaFullRD: normalizeList(vendor.quotaRD || vendor.quotaFullRD),
         })
       );
     } else {
-      setFormData((prev) => applyDerivedFields({ ...prev, vendorName }));
+      setFormData((prev) => applyDerivedFields({ ...prev, vendorName, vendorId: "" }));
     }
   };
 
@@ -368,7 +374,6 @@ function ProjectsPage() {
     const preparedForm = applyDerivedFields({
       ...formData,
       liveLink: normalizedLiveLink,
-      entryLink: getEntryLinkTemplate(),
     });
 
     const errors = [];
@@ -753,6 +758,19 @@ function ProjectsPage() {
                   <div className="pp-field">
                     <label>Close Date <span className="pp-req">*</span></label>
                     <input type="date" name="projectCloseDate" value={formData.projectCloseDate} onChange={handleChange} />
+                  </div>
+                </div>
+                <div className="pp-form-row">
+                  <div className="pp-field">
+                    <label>Country Code <span className="pp-req">*</span></label>
+                    <input
+                      name="countryCode"
+                      value={formData.countryCode}
+                      onChange={handleChange}
+                      placeholder="e.g. IN, US, GB"
+                      maxLength={10}
+                    />
+                    <small className="pp-hint">ISO country code used in the entry link (e.g. IN for India).</small>
                   </div>
                 </div>
               </fieldset>

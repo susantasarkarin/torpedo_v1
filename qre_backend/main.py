@@ -22,6 +22,8 @@ async def lifespan(app: FastAPI):
     # Ensure indexes for concurrent performance
     await db.respondents.create_index("status")
     await db.respondents.create_index("started_at")
+    await db.respondents.create_index("ip_address")
+    await db.respondents.create_index([("ip_address", 1), ("ip_locked", 1)])
     await ensure_quota_doc(db)
     yield
     _client.close()

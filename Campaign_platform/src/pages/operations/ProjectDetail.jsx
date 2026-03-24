@@ -41,7 +41,9 @@ function ProjectDetail() {
 
   const getEntryLinkTemplate = () => {
     const base = getProjectCallbackBase();
-    return `${base}/takesurvey?api=false&vid={VID}&cc={CC}&pid={PID}&rid={RID}`;
+    const vid = project?.vendorId || "{VID}";
+    const cc = project?.countryCode || "{CC}";
+    return `${base}/takesurvey?api=false&vid=${vid}&cc=${cc}&pid=${projectId}&rid={RID}`;
   };
 
   const copyToClipboard = useCallback((text, fieldName) => {
@@ -262,7 +264,7 @@ function ProjectDetail() {
           <div className="pd-section">
             <h4 className="pd-section-title"><Globe size={14} /> Entry &amp; Callback URLs</h4>
             <div className="pd-urls-table">
-              <UrlRow label="Entry Link" url={project.entryLink || getEntryLinkTemplate()} fieldKey="entryLink" icon={Globe} />
+              <UrlRow label="Entry Link" url={getEntryLinkTemplate()} fieldKey="entryLink" icon={Globe} />
               <UrlRow label="Complete" url={project.completePage} fieldKey="completePage" icon={CheckCircle} />
               <UrlRow label="Terminate" url={project.terminatePage} fieldKey="terminatePage" icon={Target} />
               <UrlRow label="Quota Full" url={project.quotaFullPage} fieldKey="quotaFullPage" icon={Users} />

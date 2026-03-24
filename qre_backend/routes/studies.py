@@ -1,5 +1,5 @@
 """
-Study & Wave CRUD — manages multiple studies/clients and tracking waves.
+Study & Wave CRUD â€” manages multiple studies/clients and tracking waves.
 Each study has its own quotas, respondents, redirects, and module config.
 Waves allow brands and ad stimuli to change between fieldwork periods.
 """
@@ -20,132 +20,73 @@ def _db():
 # ---------- Default module configs (template for new studies) ----------
 
 DEFAULT_MODULES = [
-    {"num": 1, "startQ": 29, "name": "Pain & Fever Relief",
-     "brands": ["Crocin", "Dolo 650", "Combiflam", "Saridon", "Disprin", "Calpol",
-                 "Meftal-Spas", "Brufen", "Zerodol-SP", "Sumo", "Dart", "Metacin"],
-     "focalBrand": "Dolo 650", "focalStatement": "Dolo 650 is a trusted and effective pain reliever",
-     "priceLabel": "₹30 per strip of 15 tablets"},
-    {"num": 2, "startQ": 37, "name": "Vitamins & Supplements",
-     "brands": ["Becosules", "Revital H", "Supradyn", "Zincovit", "Limcee", "Shelcal",
-                 "Neurobion Forte", "Evion", "A to Z NS", "Becosules Z", "Celin", "Nature Made"],
-     "focalBrand": "Revital H", "focalStatement": "Revital H provides daily energy and immunity",
-     "priceLabel": "₹350 for 30 capsules"},
-    {"num": 3, "startQ": 45, "name": "Cold, Cough & Flu",
-     "brands": ["Vicks Action 500", "Benadryl", "Strepsils", "Sinarest", "D'Cold Total",
-                 "Chericof", "Honitus", "Otrivin", "Mucinex", "Tixylix", "Alex", "Cofsils"],
-     "focalBrand": "Vicks Action 500", "focalStatement": "Vicks Action 500 gives fast relief from cold & flu",
-     "priceLabel": "₹25 per strip"},
-    {"num": 4, "startQ": 53, "name": "Antacids & Digestive",
-     "brands": ["Digene", "Eno", "Gelusil", "Pudin Hara", "Gas-O-Fast", "Pan-D",
-                 "Pantocid", "Ranitidine", "Aciloc", "Mucaine", "Gaviscon", "Kremil-S"],
-     "focalBrand": "Eno", "focalStatement": "Eno provides instant relief from acidity",
-     "priceLabel": "₹10 per sachet"},
-    {"num": 5, "startQ": 61, "name": "Allergy & Antihistamines",
-     "brands": ["Allegra", "Zyrtec", "Avil", "Cetrizine", "Montair-LC", "Levocet",
-                 "Okacet", "Levocetirizine", "Fexofenadine", "Bilastine", "Xyzal", "Sinarest"],
-     "focalBrand": "Allegra", "focalStatement": "Allegra is the most prescribed allergy relief brand",
-     "priceLabel": "₹150 for 10 tablets"},
-    {"num": 6, "startQ": 69, "name": "Antiseptics & First Aid",
-     "brands": ["Dettol", "Savlon", "Betadine", "Burnol", "Soframycin", "Band-Aid",
-                 "Hansaplast", "Neosporin", "T-Bact", "Boroline", "Zandu Balm", "Boroplus"],
-     "focalBrand": "Dettol", "focalStatement": "Dettol is the most trusted antiseptic brand in India",
-     "priceLabel": "₹55 for 125ml liquid"},
-    {"num": 7, "startQ": 77, "name": "Antifungal & Skin",
-     "brands": ["Candid", "Ring Guard", "Itch Guard", "Clocip", "Terbinafine", "Luliconazole",
-                 "Clotrimazole", "Candid-B", "Betnovate", "Fourderm", "Panderm", "Quadriderm"],
-     "focalBrand": "Ring Guard", "focalStatement": "Ring Guard is trusted for ringworm and fungal care",
-     "priceLabel": "₹80 per tube"},
-    {"num": 8, "startQ": 85, "name": "Eye & Ear Drops",
-     "brands": ["Refresh Tears", "Systane", "Visine", "Genteal", "I-Tone", "Itone",
-                 "Moxiflox", "Ciplox Eye", "Patanol", "Waxolve", "Soliwax", "Otogesic"],
-     "focalBrand": "Refresh Tears", "focalStatement": "Refresh Tears provides lasting dry eye relief",
-     "priceLabel": "₹180 per bottle"},
-    {"num": 9, "startQ": 93, "name": "Oral Care",
-     "brands": ["Sensodyne", "Colgate Sensitive", "Parodontax", "Listerine", "Betadine Gargle",
-                 "Hexidine", "Dentogel", "Orajel", "Clohex", "Meswak", "Dabur Red", "Himalaya Gum Care"],
-     "focalBrand": "Sensodyne", "focalStatement": "Sensodyne provides clinically proven sensitivity relief",
-     "priceLabel": "₹120 for 70g tube"},
-    {"num": 10, "startQ": 101, "name": "Anti-Diarrheal & ORS",
-     "brands": ["Electral", "Pedialyte", "Imodium", "Redotil", "Racecadotril", "Norflox-TZ",
-                 "Oflox-OZ", "Econorm", "Enterogermina", "Bifilac", "Darolac", "Sporlac"],
-     "focalBrand": "Electral", "focalStatement": "Electral is India's most recommended ORS",
-     "priceLabel": "₹22 per sachet"},
-    {"num": 11, "startQ": 109, "name": "Herbal / Ayurvedic OTC",
-     "brands": ["Dabur Chyawanprash", "Himalaya Liv.52", "Baidyanath", "Zandu Pancharishta",
-                 "Hamdard Rooh Afza", "Patanjali Coronil", "Ashwagandha", "Triphala",
-                 "Brahmi", "Shatavari", "Giloy", "Tulsi drops"],
-     "focalBrand": "Himalaya Liv.52", "focalStatement": "Himalaya Liv.52 is the world's #1 liver care brand",
-     "priceLabel": "₹135 for 100 tablets"},
-    {"num": 12, "startQ": 117, "name": "Maternal & Child Nutrition",
-     "brands": ["Nestlé NAN", "Similac", "Aptamil", "Cerelac", "Dexolac", "Farex",
-                 "PediaSure", "Junior Horlicks", "Bournvita", "Enfagrow", "Lactogen", "Nan Pro"],
-     "focalBrand": "PediaSure", "focalStatement": "PediaSure supports complete balanced nutrition for children",
-     "priceLabel": "₹750 for 400g"},
-    {"num": 13, "startQ": 125, "name": "Diagnostics & Lab Testing",
-     "brands": ["Dr. Lal PathLabs", "Metropolis", "SRL Diagnostics", "Thyrocare", "Redcliffe Labs",
-                 "Apollo Diagnostics", "Suburban Diagnostics", "Healthians", "1mg Labs",
-                 "Pharmeasy Labs", "Orange Health", "Tata 1mg Labs"],
-     "focalBrand": "Dr. Lal PathLabs", "focalStatement": "Dr. Lal PathLabs is India's leading diagnostics chain",
-     "priceLabel": "₹500 for basic health checkup"},
-    {"num": 14, "startQ": 133, "name": "Digital Health & Telemedicine",
-     "brands": ["Practo", "Tata 1mg", "PharmEasy", "Netmeds", "MediBuddy", "DocsApp",
-                 "mFine", "Lybrate", "Apollo 24/7", "Bajaj Health", "Cult.fit Health", "Pristyn Care"],
-     "focalBrand": "Practo", "focalStatement": "Practo is the most trusted digital health platform",
-     "priceLabel": "₹299 per consultation"},
-    {"num": 15, "startQ": 141, "name": "Wearables & Health Devices",
-     "brands": ["Apple Watch", "Fitbit", "Garmin", "Samsung Galaxy Watch", "Noise",
-                 "boAt Watch", "Fire-Boltt", "Titan Smart", "Omron BP Monitor",
-                 "Accu-Chek", "Dr. Trust", "Beurer"],
-     "focalBrand": "Noise", "focalStatement": "Noise smartwatches deliver health tracking at great value",
-     "priceLabel": "₹2,499"},
-    {"num": 16, "startQ": 149, "name": "Hospital Brand Equity",
-     "brands": ["Apollo Hospitals", "Fortis", "Max Healthcare", "Manipal Hospitals", "Narayana Health",
-                 "Medanta", "AIIMS", "Aster DM", "Columbia Asia", "Kokilaben Ambani", "Hinduja", "Lilavati"],
-     "focalBrand": "Apollo Hospitals", "focalStatement": "Apollo is a pioneer and leader in Indian healthcare",
-     "priceLabel": "₹500 for OPD consultation"},
-    {"num": 17, "startQ": 157, "name": "Health Insurance",
-     "brands": ["Star Health", "Niva Bupa", "Care Health", "HDFC Ergo Health", "ICICI Lombard Health",
-                 "Bajaj Allianz Health", "Max Bupa", "Aditya Birla Health", "New India Assurance",
-                 "ManipalCigna", "Tata AIG Health", "Digit Health"],
-     "focalBrand": "Star Health", "focalStatement": "Star Health is India's largest standalone health insurer",
-     "priceLabel": "₹700/month family floater"},
-    {"num": 18, "startQ": 165, "name": "Fitness & Sports Nutrition",
-     "brands": ["MuscleBlaze", "Optimum Nutrition", "GNC", "Fast&Up", "Oziva Protein",
-                 "Myprotein", "Herbalife", "Amway Nutrilite", "Avvatar", "Nakpro",
-                 "AS-IT-IS", "Big Muscles"],
-     "focalBrand": "MuscleBlaze", "focalStatement": "MuscleBlaze is India's #1 sports nutrition brand",
-     "priceLabel": "₹2,199 for 1kg whey"},
-    {"num": 19, "startQ": 173, "name": "Mental Health Services",
-     "brands": ["YourDOST", "Wysa", "iCall", "Vandrevala Foundation", "BetterHelp India",
-                 "Amaha", "InnerHour", "Mindpeers", "Tele-MANAS", "Lissun", "MindPeers", "Cult.fit Mind"],
-     "focalBrand": "Wysa", "focalStatement": "Wysa AI coach for mental health is clinically validated",
-     "priceLabel": "₹3,000/month premium"},
-    {"num": 20, "startQ": 181, "name": "Dental & Vision Care",
-     "brands": ["Lenskart", "Clove Dental", "Titan Eye Plus", "GKB Opticals", "Lawrence & Mayo",
-                 "Specsmakers", "Vision Express", "Centre for Sight", "ASG Eye Hospital",
-                 "Dr Agarwal's Eye Hospital", "Sabka Dentist", "MyDentist"],
-     "focalBrand": "Lenskart", "focalStatement": "Lenskart has revolutionized eyewear shopping in India",
-     "priceLabel": "₹1,500 for progressive lenses"},
-    {"num": 21, "startQ": 189, "name": "D2C Health & Wellness",
-     "brands": ["Oziva", "Kapiva", "Dr. Vaidya's", "Nirvasa", "Plix", "Wellbeing Nutrition",
-                 "Man Matters", "Be Bodywise", "Traya", "SkinKraft", "Vedistry", "HealthKart"],
-     "focalBrand": "Oziva", "focalStatement": "Oziva is India's leading plant-based nutrition brand",
-     "priceLabel": "₹799 for 30-day pack"},
+    {
+        "key": "pain_fever",
+        "num": 1,
+        "name": "Pain & Fever Relief",
+        "brands": [
+            "Dolo 650", "Crocin", "Calpol", "Combiflam",
+            "Disprin", "Meftal Spas", "Brufen", "D'Cold Total",
+        ],
+    },
+    {
+        "key": "cold_cough",
+        "num": 2,
+        "name": "Cold, Cough & Flu",
+        "brands": [
+            "Strepsils", "Vicks", "Benadryl", "Corex",
+            "Cheston Cold", "Dabur Honitus", "Cofsils", "Himalaya Koflet",
+        ],
+    },
+    {
+        "key": "digestive",
+        "num": 3,
+        "name": "Digestive & Acidity",
+        "brands": [
+            "Eno", "Gelusil", "Digene", "Pudin Hara",
+            "Hajmola", "Pepfiz", "Dabur Sat Isabgol", "Himalaya Gasex",
+        ],
+    },
+    {
+        "key": "vitamins",
+        "num": 4,
+        "name": "Vitamins & Supplements",
+        "brands": [
+            "Becosules", "Revital H", "Supradyn", "Limcee Vitamin C",
+            "Neurobion Forte", "Centrum", "Oziva", "Wellbeing Nutrition",
+        ],
+    },
+    {
+        "key": "skin_antifungal",
+        "num": 5,
+        "name": "Skin & Antifungal",
+        "brands": [
+            "Candid", "Ring Guard", "Fourderm", "Betadine",
+            "Soframycin", "Dermadew", "Cetaphil", "Terbinafine generics",
+        ],
+    },
+    {
+        "key": "ayurvedic",
+        "num": 6,
+        "name": "Ayurvedic / Herbal OTC",
+        "brands": [
+            "Patanjali", "Himalaya", "Dabur", "Hamdard",
+            "Zandu", "Baidyanath", "Kerala Ayurveda", "Charak Pharma",
+        ],
+    },
 ]
 
-DEFAULT_AD_STIMULI = [
-    {"slot": 1, "label": "Ad Creative A", "url": "", "min_view_seconds": 5},
-    {"slot": 2, "label": "Ad Creative B", "url": "", "min_view_seconds": 5},
-]
+DEFAULT_AD_STIMULI: list = []   # no ad-test section in this study
 
 DEFAULT_QUOTAS = {
-    "total_sample": 500,
+    "total_sample": 1200,
     "cells": {
-        "band1_25_34": 170, "band2_35_44": 165, "band3_45_55": 165,
-        "male": 225, "female": 275,
-        "nccs_a": 250, "nccs_b": 250,
-        "chennai": 125, "kolkata": 125, "mumbai": 125, "hyderabad": 125,
-    }
+        "lucknow": 200, "jaipur": 200, "indore": 200,
+        "nagpur": 200, "coimbatore": 200, "bhubaneswar": 200,
+        "band1_25_34": 396, "band2_35_44": 408, "band3_45_55": 396,
+        "female": 660, "male": 540,
+        "nccs_a": 720, "nccs_b": 480,
+    },
 }
 
 
@@ -174,8 +115,6 @@ class AdStimulusUpdate(BaseModel):
     label: str = ""
     url: str = ""
     min_view_seconds: int = 5
-
-
 # ---------- Study CRUD ----------
 
 @router.get("/")
@@ -361,7 +300,7 @@ async def list_waves(study_id: str):
 
 @router.post("/{study_id}/waves")
 async def create_wave(study_id: str, payload: WaveCreate):
-    """Create a new wave — copies modules from previous wave or uses defaults."""
+    """Create a new wave â€” copies modules from previous wave or uses defaults."""
     db = _db()
     study = await db.studies.find_one({"_id": study_id})
     if not study:

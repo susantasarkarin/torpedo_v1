@@ -24,8 +24,7 @@ class RoutingDecision(BaseModel):
     next_question_id: Optional[str] = None
     skip_to_question_id: Optional[str] = None
     reason: Optional[str] = None
-    eligible_modules: Optional[list] = None
-    assigned_modules: Optional[list] = None
+    active_categories: Optional[list] = None   # set on Q8 response
     redirect_url: Optional[str] = None
 
 
@@ -40,5 +39,5 @@ class ResumeSurveyResponse(BaseModel):
     respondent_id: str
     responses: dict
     current_question_id: Optional[str] = None
-    assigned_modules: Optional[list] = None
+    active_categories: Optional[list] = None
     status: str  # "in_progress" | "completed" | "terminated"

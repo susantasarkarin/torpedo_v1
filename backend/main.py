@@ -1033,6 +1033,47 @@ try:
 except Exception as e:
     print(f"⚠️ Sales Accounts router not included: {e}")
 
+# Sales module — new unified pipeline routers
+try:
+    try:
+        from .sales.leads_router import router as sales_leads_router
+    except ImportError:
+        from sales.leads_router import router as sales_leads_router
+    app.include_router(sales_leads_router)
+    print("✅ Sales Leads router included")
+except Exception as e:
+    print(f"⚠️ Sales Leads router not included: {e}")
+
+try:
+    try:
+        from .sales.mail_router import router as sales_mail_router
+    except ImportError:
+        from sales.mail_router import router as sales_mail_router
+    app.include_router(sales_mail_router)
+    print("✅ Sales Mail router included")
+except Exception as e:
+    print(f"⚠️ Sales Mail router not included: {e}")
+
+try:
+    try:
+        from .sales.email_construction_router import router as sales_email_construction_router
+    except ImportError:
+        from sales.email_construction_router import router as sales_email_construction_router
+    app.include_router(sales_email_construction_router)
+    print("✅ Sales Email Construction router included")
+except Exception as e:
+    print(f"⚠️ Sales Email Construction router not included: {e}")
+
+try:
+    try:
+        from .sales.tracking_router import router as sales_tracking_router
+    except ImportError:
+        from sales.tracking_router import router as sales_tracking_router
+    app.include_router(sales_tracking_router)
+    print("✅ Sales Tracking router included")
+except Exception as e:
+    print(f"⚠️ Sales Tracking router not included: {e}")
+
 # Unified Vendors router
 try:
     try:
@@ -3677,6 +3718,9 @@ PROJECT_TEXT_FIELDS = {
     "rfqDetails",
     "liveLink",
     "vendorName",
+    "countryCode",
+    "vendorId",
+    "entryLink",
 }
 PROJECT_NUMERIC_FIELDS = {
     "projectValue": float,
@@ -3749,6 +3793,17 @@ def _detect_project_provider(live_link: str) -> str:
     if "cint" in link:
         return "cint"
     return "cpx"
+
+
+def _generate_entry_link(project_id: str, vendor_id: str, country_code: str) -> str:
+    """
+    Build the vendor-facing entry link for a project with real VID, CC, and PID values.
+    Only {RID} remains as a runtime placeholder filled in by the traffic system.
+    """
+    base = PROJECT_CALLBACK_BASE_URL
+    vid = (vendor_id or "").strip() or "{VID}"
+    cc = (country_code or "").strip() or "{CC}"
+    return f"{base}/takesurvey?api=false&vid={vid}&cc={cc}&pid={project_id}&rid={{RID}}"
 
 
 def _generate_project_page_urls(live_link: str) -> Dict[str, str]:
@@ -3864,7 +3919,20 @@ async def create_project(project_data: Dict[str, Any] = Body(...)):
         normalized["is_deleted"] = False
 
         result = projects_collection.insert_one(normalized)
-        normalized["_id"] = str(result.inserted_id)
+        project_id = str(result.inserted_id)
+
+        # Generate entry link with actual project ID, vendor ID, and country code
+        entry_link = _generate_entry_link(
+            project_id=project_id,
+            vendor_id=normalized.get("vendorId", ""),
+            country_code=normalized.get("countryCode", ""),
+        )
+        projects_collection.update_one(
+            {"_id": result.inserted_id},
+            {"$set": {"entryLink": entry_link}},
+        )
+        normalized["_id"] = project_id
+        normalized["entryLink"] = entry_link
         return {"message": "Project created successfully", "project": normalized}
     except HTTPException:
         raise
@@ -3947,6 +4015,15 @@ async def update_project(project_id: str, project_data: Dict[str, Any] = Body(..
             )
 
         normalized["updatedAt"] = datetime.utcnow()
+
+        # Re-generate entry link with current project ID, vendor ID, and country code
+        merged_vendor_id = normalized.get("vendorId") or _normalize_string(existing.get("vendorId", ""))
+        merged_country_code = normalized.get("countryCode") or _normalize_string(existing.get("countryCode", ""))
+        normalized["entryLink"] = _generate_entry_link(
+            project_id=project_id,
+            vendor_id=merged_vendor_id,
+            country_code=merged_country_code,
+        )
 
         update_doc: Dict[str, Any] = {"$set": normalized}
         if PROJECT_DEPRECATED_FIELDS:

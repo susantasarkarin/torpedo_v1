@@ -47,11 +47,8 @@ const HR = lazy(() => import("./pages/HR"))
 const Campaign = lazy(() => import("./pages/sales/Campaign"))
 const Leads = lazy(() => import("./pages/sales/Leads"))
 const LeadsImport = lazy(() => import("./pages/sales/LeadsImport"))
-const LeadDetail = lazy(() => import("./pages/sales/LeadDetail"))
-const ClassifiedGmail = lazy(() => import("./pages/sales/ClassifiedGmail"))
 const Contacts = lazy(() => import("./pages/sales/Contacts"))
 const ContactsImport = lazy(() => import("./pages/sales/ContactsImport"))
-const Account = lazy(() => import("./pages/sales/Account"))
 const CompanyDetail = lazy(() => import("./pages/sales/CompanyDetail"))
 const RFQ = lazy(() => import("./pages/sales/RFQ"))
 const List = lazy(() => import("./pages/sales/campaign/List"))
@@ -200,12 +197,9 @@ function App() {
         <Route path="sales/campaign" element={<LazyPage><Campaign /></LazyPage>} />
         <Route path="sales/leads" element={<LazyPage><Leads /></LazyPage>} />
         <Route path="sales/leads/import" element={<LazyPage><LeadsImport /></LazyPage>} />
-        <Route path="sales/leads/:leadId" element={<LazyPage><LeadDetail /></LazyPage>} />
-        <Route path="sales/classified-gmail" element={<LazyPage><ClassifiedGmail /></LazyPage>} />
         <Route path="sales/contacts" element={<LazyPage><Contacts /></LazyPage>} />
         <Route path="sales/contacts/import" element={<LazyPage><ContactsImport /></LazyPage>} />
-        <Route path="sales/account" element={<LazyPage><Account /></LazyPage>} />
-        <Route path="sales/account/:companyName" element={<LazyPage><CompanyDetail /></LazyPage>} />
+        <Route path="sales/companies/:companyName" element={<LazyPage><CompanyDetail /></LazyPage>} />
         <Route path="sales/rfq" element={<LazyPage><RFQ /></LazyPage>} />
         <Route path="sales/campaign/list" element={<LazyPage><List /></LazyPage>} />
         <Route path="sales/campaign/ai-leads" element={<LazyPage><AILeads /></LazyPage>} />

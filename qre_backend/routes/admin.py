@@ -65,14 +65,11 @@ async def get_quota_limits():
 async def reset_quotas():
     """Reset all quota counters to zero."""
     db = _db()
+    from config import QUOTA_AGE, QUOTA_GENDER, QUOTA_NCCS, QUOTA_CITY
+    all_keys = list({**QUOTA_AGE, **QUOTA_GENDER, **QUOTA_NCCS, **QUOTA_CITY}.keys())
     await db.quotas.update_one(
         {"_id": "global"},
-        {"$set": {
-            "band1_25_34": 0, "band2_35_44": 0, "band3_45_55": 0,
-            "male": 0, "female": 0,
-            "nccs_a": 0, "nccs_b": 0,
-            "chennai": 0, "kolkata": 0, "mumbai": 0, "hyderabad": 0,
-        }},
+        {"$set": {k: 0 for k in all_keys}},
     )
     return {"ok": True, "message": "All quotas reset to zero"}
 
