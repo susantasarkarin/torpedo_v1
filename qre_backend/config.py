@@ -4,69 +4,113 @@ from dotenv import load_dotenv
 load_dotenv()
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-DB_NAME = os.getenv("DB_NAME", "qre_health_survey")
+DB_NAME   = os.getenv("DB_NAME",   "qre_otc_discovery")
 
-# ---------- Quota configuration ----------
-TOTAL_SAMPLE = int(os.getenv("TOTAL_SAMPLE", "2100"))
+# ---------- Study ----------
+STUDY_TITLE   = "India OTC Discovery Intelligence Study"
+STUDY_VERSION = "2.0"
+TOTAL_SAMPLE  = int(os.getenv("TOTAL_SAMPLE", "1760"))
 
-# Age quotas (Q2): ~33% each across 3 bands
-QUOTA_AGE = {
-    "band1_25_34": int(TOTAL_SAMPLE * 0.33),  # codes 2,3
-    "band2_35_44": int(TOTAL_SAMPLE * 0.34),  # codes 4,5
-    "band3_45_55": int(TOTAL_SAMPLE * 0.33),  # codes 6,7
-}
-
-# Gender quotas (Q3): 55% Female / 45% Male — soft quota
-QUOTA_GENDER = {
-    "male": int(TOTAL_SAMPLE * 0.45),
-    "female": int(TOTAL_SAMPLE * 0.55),
-}
-
-# NCCS quotas (Q8): 60% A / 40% B
-QUOTA_NCCS = {
-    "nccs_a": int(TOTAL_SAMPLE * 0.60),  # codes 1,2
-    "nccs_b": int(TOTAL_SAMPLE * 0.40),  # codes 3,4
-}
-
-# City quotas — equal distribution across 10 cities (210 each)
+# ---------- City quotas — 8 Tier 2 cities, unequal allocation (Q2) ----------
+# Lucknow n=250 | Jaipur n=200 | Indore n=200 | Surat n=225 | Pune n=250
+# Coimbatore n=200 | Warangal n=185 | Bhubaneswar n=200  (total target n=1,760)
 QUOTA_CITY = {
-    "mumbai": int(TOTAL_SAMPLE * 0.10),
-    "delhi_ncr": int(TOTAL_SAMPLE * 0.10),
-    "bangalore": int(TOTAL_SAMPLE * 0.10),
-    "kolkata": int(TOTAL_SAMPLE * 0.10),
-    "chennai": int(TOTAL_SAMPLE * 0.10),
-    "hyderabad": int(TOTAL_SAMPLE * 0.10),
-    "pune": int(TOTAL_SAMPLE * 0.10),
-    "ahmedabad": int(TOTAL_SAMPLE * 0.10),
-    "jaipur": int(TOTAL_SAMPLE * 0.10),
-    "lucknow": int(TOTAL_SAMPLE * 0.10),
+    "lucknow":     250,
+    "jaipur":      200,
+    "indore":      200,
+    "surat":       225,
+    "pune":        250,
+    "coimbatore":  200,
+    "warangal":    185,
+    "bhubaneswar": 200,
 }
 
-# Rotation group quotas — 300 per group, 7 groups
-QUOTA_ROTATION_GROUP = {
-    "group_a": 300,
-    "group_b": 300,
-    "group_c": 300,
-    "group_d": 300,
-    "group_e": 300,
-    "group_f": 300,
-    "group_g": 300,
+# Q2 code → quota key  (code 9 = any other city → terminate)
+CITY_CODE_MAP = {
+    1: "lucknow",
+    2: "jaipur",
+    3: "indore",
+    4: "surat",
+    5: "pune",
+    6: "coimbatore",
+    7: "warangal",
+    8: "bhubaneswar",
 }
 
-# Rotation group → category module mapping (25 categories, 7 groups, 4 per group)
-ROTATION_GROUPS = {
-    "group_a": [1, 2, 3, 4],      # Pain & Fever / Vitamins / Cold, Cough / Anti-Diarrheal
-    "group_b": [5, 6, 7, 8],      # Antacids / Allergy / Antiseptics / Herbal
-    "group_c": [9, 10, 11, 12],   # Antifungal / Eye & Ear / Oral Care / Maternal
-    "group_d": [13, 14, 15, 16],  # Diagnostics / Digital Health / Wearables / Hospital
-    "group_e": [17, 18, 19, 20],  # Health Insurance / Fitness / Mental Health / D2C
-    "group_f": [21, 22, 23, 24],  # Dental & Vision / Weight Mgmt / Hair Loss / Sexual Wellness
-    "group_g": [25, 1, 2, 19],    # Women's Health / Pain & Fever / Vitamins / Mental Health (overlap)
+# ---------- Age quotas (Q3): ~30% 25-34 | ~30% 35-44 | ~20% 45-55 ----------
+# (Code 1 = 18-24 terminates; code 5 = above 55 terminates per QRE routing)
+QUOTA_AGE = {
+    "band1_25_34": int(TOTAL_SAMPLE * 0.30),   # code 2
+    "band2_35_44": int(TOTAL_SAMPLE * 0.30),   # code 3
+    "band3_45_55": int(TOTAL_SAMPLE * 0.20),   # code 4
 }
 
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+# ---------- Gender — soft quota 55F / 45M (Q4) ----------
+QUOTA_GENDER = {
+    "female": int(TOTAL_SAMPLE * 0.55),
+    "male":   int(TOTAL_SAMPLE * 0.45),
+}
 
-# ---------- Dashboard credentials ----------
-# Change these via environment variables before deploying
+# ---------- NCCS quotas (Q6+Q7): 50% A / 50% B ----------
+QUOTA_NCCS = {
+    "nccs_a": int(TOTAL_SAMPLE * 0.50),
+    "nccs_b": int(TOTAL_SAMPLE * 0.50),
+}
+
+# ---------- Module C brand lists (Appendix A) ----------
+CATEGORY_BRANDS = {
+    "pain_fever": [
+        "Dolo 650", "Crocin", "Calpol", "Combiflam",
+        "Disprin", "Meftal Spas", "Brufen", "D'Cold Total",
+    ],
+    "cold_cough": [
+        "Strepsils", "Vicks", "Benadryl", "Corex",
+        "Cheston Cold", "Dabur Honitus", "Cofsils", "Himalaya Koflet",
+    ],
+    "digestive": [
+        "Eno", "Gelusil", "Digene", "Pudin Hara",
+        "Hajmola", "Pepfiz", "Dabur Sat Isabgol", "Himalaya Gasex",
+    ],
+    "vitamins": [
+        "Becosules", "Revital H", "Supradyn", "Limcee Vitamin C",
+        "Neurobion Forte", "Centrum", "Oziva", "Wellbeing Nutrition",
+    ],
+    "skin_antifungal": [
+        "Candid", "Ring Guard", "Fourderm", "Betadine",
+        "Soframycin", "Dermadew", "Cetaphil", "Terbinafine generics",
+    ],
+    "ayurvedic": [
+        "Patanjali", "Himalaya", "Dabur", "Hamdard",
+        "Zandu", "Baidyanath", "Kerala Ayurveda", "Charak Pharma",
+    ],
+}
+
+CATEGORY_NAMES = {
+    "pain_fever":      "Pain & Fever Relief",
+    "cold_cough":      "Cold, Cough & Flu",
+    "digestive":       "Digestive & Acidity",
+    "vitamins":        "Vitamins & Supplements",
+    "skin_antifungal": "Skin & Antifungal",
+    "ayurvedic":       "Ayurvedic / Herbal OTC",
+}
+
+# Priority order for Module C block assignment (max 3 per respondent)
+CATEGORY_PRIORITY = [
+    "pain_fever", "cold_cough", "digestive",
+    "vitamins", "skin_antifungal", "ayurvedic",
+]
+
+# ---------- Quality control thresholds ----------
+# Speeder: completes in under this many seconds → disqualified
+MIN_COMPLETE_SECONDS = int(os.getenv("MIN_COMPLETE_SECONDS", "240"))  # 4 min floor
+
+# Straight-liner detection: grids where identical answers across all rows = 1 flag.
+# Once both grid questions are flagged (STRAIGHT_LINE_FLAGS_TO_TERMINATE reached),
+# the respondent is quality-terminated.
+GRID_STRAIGHT_LINE_QUESTIONS = ("Q12", "Q17")
+STRAIGHT_LINE_FLAGS_TO_TERMINATE = 2
+
+# ---------- CORS & Auth ----------
+CORS_ORIGINS    = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
 ADMIN_PASSWORD  = os.getenv("ADMIN_PASSWORD",  "admin@QRE2026")
 CLIENT_PASSWORD = os.getenv("CLIENT_PASSWORD", "viewer@QRE2026")
