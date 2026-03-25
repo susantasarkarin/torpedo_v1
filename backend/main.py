@@ -3795,15 +3795,16 @@ def _detect_project_provider(live_link: str) -> str:
     return "cpx"
 
 
-def _generate_entry_link(project_id: str, vendor_id: str, country_code: str) -> str:
+def _generate_entry_link(survey_no: str, vendor_id: str, country_code: str) -> str:
     """
     Build the vendor-facing entry link for a project with real VID, CC, and PID values.
+    pid = surveyNo (the 5-digit survey number), which is what /takesurvey resolves.
     Only {RID} remains as a runtime placeholder filled in by the traffic system.
     """
     base = PROJECT_CALLBACK_BASE_URL
     vid = (vendor_id or "").strip() or "{VID}"
     cc = (country_code or "").strip() or "{CC}"
-    return f"{base}/takesurvey?api=false&vid={vid}&cc={cc}&pid={project_id}&rid={{RID}}"
+    return f"{base}/takesurvey?api=false&vid={vid}&cc={cc}&pid={survey_no}&rid={{RID}}"
 
 
 def _generate_project_page_urls(live_link: str) -> Dict[str, str]:
@@ -3921,9 +3922,9 @@ async def create_project(project_data: Dict[str, Any] = Body(...)):
         result = projects_collection.insert_one(normalized)
         project_id = str(result.inserted_id)
 
-        # Generate entry link with actual project ID, vendor ID, and country code
+        # Generate entry link with surveyNo (pid), vendor ID, and country code
         entry_link = _generate_entry_link(
-            project_id=project_id,
+            survey_no=normalized.get("surveyNo", ""),
             vendor_id=normalized.get("vendorId", ""),
             country_code=normalized.get("countryCode", ""),
         )
@@ -4016,11 +4017,12 @@ async def update_project(project_id: str, project_data: Dict[str, Any] = Body(..
 
         normalized["updatedAt"] = datetime.utcnow()
 
-        # Re-generate entry link with current project ID, vendor ID, and country code
+        # Re-generate entry link with surveyNo (pid), vendor ID, and country code
+        merged_survey_no = normalized.get("surveyNo") or _normalize_string(existing.get("surveyNo", ""))
         merged_vendor_id = normalized.get("vendorId") or _normalize_string(existing.get("vendorId", ""))
         merged_country_code = normalized.get("countryCode") or _normalize_string(existing.get("countryCode", ""))
         normalized["entryLink"] = _generate_entry_link(
-            project_id=project_id,
+            survey_no=merged_survey_no,
             vendor_id=merged_vendor_id,
             country_code=merged_country_code,
         )

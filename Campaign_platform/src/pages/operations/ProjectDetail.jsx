@@ -49,7 +49,9 @@ function ProjectDetail() {
       if (matched) vid = matched.vid || "";
     }
     const cc = project?.countryCode || "";
-    return `${base}/takesurvey?api=false&vid=${vid || "{VID}"}&cc=${cc || "{CC}"}&pid=${projectId}&rid={RID}`;
+    // pid must be surveyNo (what /takesurvey resolves by), not the MongoDB _id
+    const pid = project?.surveyNo || "";
+    return `${base}/takesurvey?api=false&vid=${vid || "{VID}"}&cc=${cc || "{CC}"}&pid=${pid || "{PID}"}&rid={RID}`;
   };
 
   const copyToClipboard = useCallback((text, fieldName) => {

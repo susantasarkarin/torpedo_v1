@@ -126,10 +126,8 @@ function ProjectsPage() {
     const base = getProjectCallbackBase();
     const vid = form?.vendorId || "{VID}";
     const cc = form?.countryCode || "{CC}";
-    // Prefer the form's own _id (available when editing a loaded project) over the
-    // editingId state variable, which may not have updated yet when called synchronously
-    // from normalizeProjectForEdit.
-    const pid = form?._id || editingId || "{PID}";
+    // pid must be the surveyNo (what /takesurvey resolves by), not the MongoDB _id
+    const pid = form?.surveyNo || "{PID}";
     return `${base}/takesurvey?api=false&vid=${vid}&cc=${cc}&pid=${pid}&rid={RID}`;
   };
 
