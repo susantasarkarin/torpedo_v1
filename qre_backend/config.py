@@ -45,10 +45,10 @@ QUOTA_AGE = {
     "band3_45_55": int(TOTAL_SAMPLE * 0.20),   # code 4
 }
 
-# ---------- Gender — soft quota 55F / 45M (Q4) ----------
+# ---------- Gender — soft quota 50F / 50M (Q4) ----------
 QUOTA_GENDER = {
-    "female": int(TOTAL_SAMPLE * 0.55),
-    "male":   int(TOTAL_SAMPLE * 0.45),
+    "female": int(TOTAL_SAMPLE * 0.50),
+    "male":   int(TOTAL_SAMPLE * 0.50),
 }
 
 # ---------- NCCS quotas (Q6+Q7): 50% A / 50% B ----------

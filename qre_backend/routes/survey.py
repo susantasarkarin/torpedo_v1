@@ -344,7 +344,7 @@ async def submit_answer(payload: AnswerPayload):
             )
         return RoutingDecision(action="next", next_question_id="Q4")
 
-    # Q4 â€” Gender â€” soft quota only, never terminate
+    # Q4 — Gender — soft quota 50F/50M, never terminate
     if qid == "Q4":
         code = _coerce_int(answer)
         quota_key = GENDER_QUOTA_MAP.get(code)
