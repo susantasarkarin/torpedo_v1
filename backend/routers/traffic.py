@@ -3791,10 +3791,12 @@ async def vendor_takesurvey(
         print(f"📥 /takesurvey hit: api={api}, pid={pid}, vid={vid}, cc={cc}, rid={rid}")
 
         api_flag = str(api or "").strip().lower()
-        is_project_flow = api_flag == "false" and bool(pid)
+        # All traffic (both CPX/CINT api=true and project-based api=false&pid)
+        # must go through the frontend parsing page first. The /api/store endpoint
+        # already handles the project flow when pid is present (is_project_adhoc_flow).
+        is_project_flow = False  # always route through frontend
 
-        # Standard CPX/CINT flow (for links like api=true) should land on the
-        # frontend parser page, which then calls /api/store.
+        # Serve the frontend parser page for all /takesurvey requests.
         # We serve index.html directly so the URL stays at /takesurvey (no redirect).
         if not is_project_flow:
             if not vid or not cc or not rid:
