@@ -28,6 +28,7 @@ function ProjectDetail() {
   const { projectId } = useParams();
   const navigate = useNavigate();
   const [project, setProject] = useState(null);
+  const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [copiedField, setCopiedField] = useState(null);
@@ -41,9 +42,14 @@ function ProjectDetail() {
 
   const getEntryLinkTemplate = () => {
     const base = getProjectCallbackBase();
-    const vid = project?.vendorId || "{VID}";
-    const cc = project?.countryCode || "{CC}";
-    return `${base}/takesurvey?api=false&vid=${vid}&cc=${cc}&pid=${projectId}&rid={RID}`;
+    // Try to resolve vendorId from the vendors list if the project doesn't have it stored
+    let vid = project?.vendorId || "";
+    if (!vid && project?.vendorName) {
+      const matched = vendors.find((v) => v.vendorName === project.vendorName);
+      if (matched) vid = matched.vid || "";
+    }
+    const cc = project?.countryCode || "";
+    return `${base}/takesurvey?api=false&vid=${vid || "{VID}"}&cc=${cc || "{CC}"}&pid=${projectId}&rid={RID}`;
   };
 
   const copyToClipboard = useCallback((text, fieldName) => {
@@ -95,7 +101,19 @@ function ProjectDetail() {
       }
     };
 
+    const fetchVendors = async () => {
+      try {
+        const sessionId = localStorage.getItem("session_id");
+        const res = await fetch(buildApiUrl("/api/vendors/"), {
+          headers: { "Content-Type": "application/json", Authorization: sessionId },
+        });
+        const data = await res.json();
+        if (res.ok) setVendors(data.vendors || []);
+      } catch {}
+    };
+
     fetchProject();
+    fetchVendors();
   }, [projectId, navigate]);
 
   const StatusBadge = ({ status }) => {
@@ -264,7 +282,7 @@ function ProjectDetail() {
           <div className="pd-section">
             <h4 className="pd-section-title"><Globe size={14} /> Entry &amp; Callback URLs</h4>
             <div className="pd-urls-table">
-              <UrlRow label="Entry Link" url={project.entryLink || getEntryLinkTemplate()} fieldKey="entryLink" icon={Globe} />
+              <UrlRow label="Entry Link" url={getEntryLinkTemplate()} fieldKey="entryLink" icon={Globe} />
               <UrlRow label="Complete" url={project.completePage} fieldKey="completePage" icon={CheckCircle} />
               <UrlRow label="Terminate" url={project.terminatePage} fieldKey="terminatePage" icon={Target} />
               <UrlRow label="Quota Full" url={project.quotaFullPage} fieldKey="quotaFullPage" icon={Users} />
