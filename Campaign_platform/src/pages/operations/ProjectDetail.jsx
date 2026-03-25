@@ -241,6 +241,7 @@ function ProjectDetail() {
               <div className="pd-kv"><span className="pd-k">Survey No</span><span className="pd-v mono">{project.surveyNo || "—"}</span></div>
               <div className="pd-kv"><span className="pd-k">Client</span><span className="pd-v">{project.client || "—"}</span></div>
               <div className="pd-kv"><span className="pd-k">Vendor</span><span className="pd-v">{project.vendorName || "—"}</span></div>
+              <div className="pd-kv"><span className="pd-k">Country Code</span><span className="pd-v mono">{project.countryCode || "—"}</span></div>
               <div className="pd-kv"><span className="pd-k">Sales Person</span><span className="pd-v">{project.salesPerson || "—"}</span></div>
               <div className="pd-kv"><span className="pd-k">Value</span><span className="pd-v">{project.projectValue ? `$${Number(project.projectValue).toLocaleString()}` : "—"}</span></div>
             </div>
