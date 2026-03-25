@@ -126,7 +126,10 @@ function ProjectsPage() {
     const base = getProjectCallbackBase();
     const vid = form?.vendorId || "{VID}";
     const cc = form?.countryCode || "{CC}";
-    const pid = editingId || "{PID}";
+    // Prefer the form's own _id (available when editing a loaded project) over the
+    // editingId state variable, which may not have updated yet when called synchronously
+    // from normalizeProjectForEdit.
+    const pid = form?._id || editingId || "{PID}";
     return `${base}/takesurvey?api=false&vid=${vid}&cc=${cc}&pid=${pid}&rid={RID}`;
   };
 
@@ -174,16 +177,24 @@ function ProjectsPage() {
     return `${id} - ${title}${status}`;
   };
 
-  const normalizeProjectForEdit = (project) =>
-    applyDerivedFields({
+  const normalizeProjectForEdit = (project) => {
+    // If the saved project is missing vendorId (e.g. created before vid tracking),
+    // look it up from the loaded vendors list using the stored vendorName.
+    let resolvedVendorId = project.vendorId || "";
+    if (!resolvedVendorId && project.vendorName) {
+      const matched = vendors.find((v) => v.vendorName === project.vendorName);
+      if (matched) resolvedVendorId = matched.vid || "";
+    }
+    return applyDerivedFields({
       ...emptyForm,
       ...project,
-      entryLink: getEntryLinkTemplate(),
+      vendorId: resolvedVendorId,
       vendorCompleteRD: normalizeList(project.vendorCompleteRD),
       vendorTerminateRD: normalizeList(project.vendorTerminateRD),
       vendorQuotaFullRD: normalizeList(project.vendorQuotaFullRD),
       rfqId: project.rfqId || "",
     });
+  };
 
   // 🔹 Fetch Projects + Vendors
   useEffect(() => {
@@ -371,9 +382,19 @@ function ProjectsPage() {
   // 🔹 Save Project
   const saveProject = async () => {
     const normalizedLiveLink = normalizeEntryUrl(formData.liveLink);
+
+    // Ensure vendorId is populated — if it's missing (e.g. legacy project), derive
+    // it from the vendors list using the stored vendorName.
+    let vendorId = formData.vendorId || "";
+    if (!vendorId && formData.vendorName) {
+      const matched = vendors.find((v) => v.vendorName === formData.vendorName);
+      if (matched) vendorId = matched.vid || "";
+    }
+
     const preparedForm = applyDerivedFields({
       ...formData,
       liveLink: normalizedLiveLink,
+      vendorId,
     });
 
     const errors = [];
