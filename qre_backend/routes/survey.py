@@ -15,6 +15,7 @@ Quality controls built-in:
   - Straight-liner    : identical scores on Q12 AND Q17 grids -> terminate
   - Speeder           : complete in < MIN_COMPLETE_SECONDS -> terminate
 """
+import asyncio
 import re
 import uuid
 from datetime import datetime, timezone
@@ -161,24 +162,33 @@ def _first_mc_question(respondent: dict) -> str:
     return f"Q25_{active[0]}" if active else "Q36"
 
 
-async def _terminate(db, rid: str, reason: str) -> RoutingDecision:
+async def _terminate(db, rid: str, reason: str, respondent: dict = None) -> RoutingDecision:
     """Mark respondent terminated, release quota claims, resolve redirect URL.
 
     Quality terminations (reason starts with 'quality_') also set ip_locked=True
     to prevent re-entry from the same IP.  Screening terminations (wrong city,
     age out-of-quota, etc.) do NOT lock the IP.
+
+    Pass ``respondent`` (already loaded by the caller) to skip a redundant DB
+    round trip.  Quota releases run in parallel; the status update and study
+    fetch also run concurrently.
     """
-    respondent = await db.respondents.find_one(
-        {"_id": rid}, {"quota_claims": 1, "study_id": 1, "vendor_rid": 1}
-    )
-    if respondent:
-        for qk in respondent.get("quota_claims", []):
-            await release_quota(db, qk)
+    if respondent is None:
+        respondent = await db.respondents.find_one(
+            {"_id": rid}, {"quota_claims": 1, "study_id": 1, "vendor_rid": 1}
+        )
+
+    claims = respondent.get("quota_claims", []) if respondent else []
+    if claims:
+        await asyncio.gather(*[release_quota(db, qk) for qk in claims])
 
     # Lock IP for quality failures only, not for routine screenouts.
     lock_ip = reason.startswith("quality_")
 
-    await db.respondents.update_one(
+    study_id = respondent.get("study_id") if respondent else None
+    vendor_rid = respondent.get("vendor_rid", "") if respondent else ""
+
+    update_coro = db.respondents.update_one(
         {"_id": rid},
         {"$set": {
             "status": "terminated",
@@ -188,24 +198,27 @@ async def _terminate(db, rid: str, reason: str) -> RoutingDecision:
             "ip_locked": lock_ip,
         }},
     )
+    if study_id and study_id != "default":
+        _, study = await asyncio.gather(
+            update_coro,
+            db.studies.find_one({"_id": study_id}, {"redirects": 1}),
+        )
+    else:
+        await update_coro
+        study = None
 
     redirect_url = None
-    if respondent:
-        study_id = respondent.get("study_id")
-        vendor_rid = respondent.get("vendor_rid", "")
-        if study_id and study_id != "default":
-            study = await db.studies.find_one({"_id": study_id}, {"redirects": 1})
-            if study:
-                url_key = "overquota_url" if "quota_full" in reason else "terminate_url"
-                raw_url = study.get("redirects", {}).get(url_key, "")
-                if raw_url:
-                    redirect_url = (
-                        raw_url
-                        .replace("[RID]", vendor_rid)
-                        .replace("[rid]", vendor_rid)
-                        .replace("{RID}", vendor_rid)
-                        .replace("{rid}", vendor_rid)
-                    )
+    if study:
+        url_key = "overquota_url" if "quota_full" in reason else "terminate_url"
+        raw_url = study.get("redirects", {}).get(url_key, "")
+        if raw_url:
+            redirect_url = (
+                raw_url
+                .replace("[RID]", vendor_rid)
+                .replace("[rid]", vendor_rid)
+                .replace("{RID}", vendor_rid)
+                .replace("{rid}", vendor_rid)
+            )
 
     return RoutingDecision(action="terminate", reason=reason, redirect_url=redirect_url)
 
@@ -311,18 +324,18 @@ async def submit_answer(payload: AnswerPayload):
     if qid == "Q1":
         codes = answer if isinstance(answer, list) else [answer]
         if any(int(c) in Q1_TERMINATE_CODES for c in codes):
-            return await _terminate(db, rid, "Q1_industry_disqualified")
+            return await _terminate(db, rid, "Q1_industry_disqualified", respondent=respondent)
         return RoutingDecision(action="next", next_question_id="Q2")
 
     # Q2 â€” City qualification + hard quota (n=200 per city)
     if qid == "Q2":
         code = _coerce_int(answer)
         if code not in CITY_CODE_MAP:
-            return await _terminate(db, rid, "Q2_not_target_city")
+            return await _terminate(db, rid, "Q2_not_target_city", respondent=respondent)
         city_key = CITY_CODE_MAP[code]
         claimed = await try_claim_quota(db, city_key)
         if not claimed:
-            return await _terminate(db, rid, f"Q2_city_quota_full_{city_key}")
+            return await _terminate(db, rid, f"Q2_city_quota_full_{city_key}", respondent=respondent)
         await db.respondents.update_one(
             {"_id": rid},
             {"$push": {"quota_claims": city_key}, "$set": {"city": city_key}},
@@ -333,12 +346,12 @@ async def submit_answer(payload: AnswerPayload):
     if qid == "Q3":
         code = _coerce_int(answer)
         if code in (1, 5):
-            return await _terminate(db, rid, "Q3_age_disqualified")
+            return await _terminate(db, rid, "Q3_age_disqualified", respondent=respondent)
         quota_key = AGE_QUOTA_MAP.get(code)
         if quota_key:
             claimed = await try_claim_quota(db, quota_key)
             if not claimed:
-                return await _terminate(db, rid, f"Q3_age_quota_full_{quota_key}")
+                return await _terminate(db, rid, f"Q3_age_quota_full_{quota_key}", respondent=respondent)
             await db.respondents.update_one(
                 {"_id": rid}, {"$push": {"quota_claims": quota_key}}
             )
@@ -360,30 +373,30 @@ async def submit_answer(payload: AnswerPayload):
     if qid == "Q5":
         code = _coerce_int(answer)
         if code == 3:
-            return await _terminate(db, rid, "Q5_not_decision_maker")
+            return await _terminate(db, rid, "Q5_not_decision_maker", respondent=respondent)
         return RoutingDecision(action="next", next_question_id="Q6")
 
     # Q6 â€” Household durables / NCCS proxy; terminate if no electricity or fan
     if qid == "Q6":
         codes = [int(c) for c in (answer if isinstance(answer, list) else [answer])]
         if 1 not in codes or 2 not in codes:
-            return await _terminate(db, rid, "Q6_below_minimum_durables")
+            return await _terminate(db, rid, "Q6_below_minimum_durables", respondent=respondent)
         return RoutingDecision(action="next", next_question_id="Q7")
 
     # Q7 â€” Education + NCCS classification and quota
     if qid == "Q7":
         code = _coerce_int(answer)
         if code in (5, 6):
-            return await _terminate(db, rid, "Q7_education_disqualified")
+            return await _terminate(db, rid, "Q7_education_disqualified", respondent=respondent)
         q6_raw = responses.get("Q6", [])
         q6_codes = [int(c) for c in (q6_raw if isinstance(q6_raw, list) else [q6_raw])]
         nccs = classify_nccs(q6_codes, code)
         if nccs["band"] in ("below_minimum", "nccs_terminate"):
-            return await _terminate(db, rid, f"Q7_nccs_disqualified_{nccs['band']}")
+            return await _terminate(db, rid, f"Q7_nccs_disqualified_{nccs['band']}", respondent=respondent)
         quota_key = nccs["band"]
         claimed = await try_claim_quota(db, quota_key)
         if not claimed:
-            return await _terminate(db, rid, f"Q7_nccs_quota_full_{quota_key}")
+            return await _terminate(db, rid, f"Q7_nccs_quota_full_{quota_key}", respondent=respondent)
         await db.respondents.update_one(
             {"_id": rid},
             {
@@ -402,7 +415,7 @@ async def submit_answer(payload: AnswerPayload):
         active_cats = _get_active_categories(answer)
         # Code 9 = "None of the above" (exclusive) → no eligible OTC category → terminate
         if not active_cats:
-            return await _terminate(db, rid, "Q8_no_eligible_category")
+            return await _terminate(db, rid, "Q8_no_eligible_category", respondent=respondent)
         await db.respondents.update_one(
             {"_id": rid},
             {"$set": {"active_categories": active_cats}},
@@ -428,7 +441,7 @@ async def submit_answer(payload: AnswerPayload):
                 projection={"straight_line_flags": 1},
             )
             if updated and updated.get("straight_line_flags", 0) >= STRAIGHT_LINE_FLAGS_TO_TERMINATE:
-                return await _terminate(db, rid, "quality_straight_liner")
+                return await _terminate(db, rid, "quality_straight_liner", respondent=respondent)
         return RoutingDecision(action="next", next_question_id="Q41")
 
     # Q41 — App usage by purpose grid (NEW v2.0); always sequential
@@ -485,7 +498,7 @@ async def submit_answer(payload: AnswerPayload):
                 projection={"straight_line_flags": 1},
             )
             if updated and updated.get("straight_line_flags", 0) >= STRAIGHT_LINE_FLAGS_TO_TERMINATE:
-                return await _terminate(db, rid, "quality_straight_liner")
+                return await _terminate(db, rid, "quality_straight_liner", respondent=respondent)
         return RoutingDecision(action="next", next_question_id="Q42")
 
     # Q42 — Language of health content preference (NEW v2.0, SA); always sequential
@@ -565,28 +578,35 @@ async def submit_answer(payload: AnswerPayload):
                 return await _terminate(
                     db, rid,
                     f"quality_speeder_{int(elapsed)}s_of_{MIN_COMPLETE_SECONDS}s_required",
+                    respondent=respondent,
                 )
         # ------------------------------------------------------------------
 
-        await db.respondents.update_one(
+        study_id = respondent.get("study_id")
+        vendor_rid = respondent.get("vendor_rid", "")
+        update_coro = db.respondents.update_one(
             {"_id": rid},
             {"$set": {"status": "completed", "completed_at": now, "ip_locked": True}},
         )
-        redirect_url = None
-        study_id = respondent.get("study_id")
-        vendor_rid = respondent.get("vendor_rid", "")
         if study_id and study_id != "default":
-            study = await db.studies.find_one({"_id": study_id}, {"redirects": 1})
-            if study:
-                raw_url = study.get("redirects", {}).get("complete_url", "")
-                if raw_url:
-                    redirect_url = (
-                        raw_url
-                        .replace("[RID]", vendor_rid)
-                        .replace("[rid]", vendor_rid)
-                        .replace("{RID}", vendor_rid)
-                        .replace("{rid}", vendor_rid)
-                    )
+            _, study = await asyncio.gather(
+                update_coro,
+                db.studies.find_one({"_id": study_id}, {"redirects": 1}),
+            )
+        else:
+            await update_coro
+            study = None
+        redirect_url = None
+        if study:
+            raw_url = study.get("redirects", {}).get("complete_url", "")
+            if raw_url:
+                redirect_url = (
+                    raw_url
+                    .replace("[RID]", vendor_rid)
+                    .replace("[rid]", vendor_rid)
+                    .replace("{RID}", vendor_rid)
+                    .replace("{rid}", vendor_rid)
+                )
         return RoutingDecision(action="complete", redirect_url=redirect_url)
 
     # Fallback — unknown question_id; should never be reached in a correctly sequenced survey
