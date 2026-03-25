@@ -556,6 +556,10 @@ async def submit_answer(payload: AnswerPayload):
         # --- Speeder check ------------------------------------------------
         started_at = respondent.get("started_at")
         if started_at:
+            # Normalize started_at: MongoDB stores naive UTC datetimes
+            if started_at.tzinfo is None:
+                from datetime import timezone as _tz
+                started_at = started_at.replace(tzinfo=_tz.utc)
             elapsed = (now - started_at).total_seconds()
             if elapsed < MIN_COMPLETE_SECONDS:
                 return await _terminate(
