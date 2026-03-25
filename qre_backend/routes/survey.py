@@ -199,7 +199,13 @@ async def _terminate(db, rid: str, reason: str) -> RoutingDecision:
                 url_key = "overquota_url" if "quota_full" in reason else "terminate_url"
                 raw_url = study.get("redirects", {}).get(url_key, "")
                 if raw_url:
-                    redirect_url = raw_url.replace("[RID]", vendor_rid).replace("[rid]", vendor_rid)
+                    redirect_url = (
+                        raw_url
+                        .replace("[RID]", vendor_rid)
+                        .replace("[rid]", vendor_rid)
+                        .replace("{RID}", vendor_rid)
+                        .replace("{rid}", vendor_rid)
+                    )
 
     return RoutingDecision(action="terminate", reason=reason, redirect_url=redirect_url)
 
@@ -570,7 +576,13 @@ async def submit_answer(payload: AnswerPayload):
             if study:
                 raw_url = study.get("redirects", {}).get("complete_url", "")
                 if raw_url:
-                    redirect_url = raw_url.replace("[RID]", vendor_rid).replace("[rid]", vendor_rid)
+                    redirect_url = (
+                        raw_url
+                        .replace("[RID]", vendor_rid)
+                        .replace("[rid]", vendor_rid)
+                        .replace("{RID}", vendor_rid)
+                        .replace("{rid}", vendor_rid)
+                    )
         return RoutingDecision(action="complete", redirect_url=redirect_url)
 
     # Fallback — unknown question_id; should never be reached in a correctly sequenced survey
