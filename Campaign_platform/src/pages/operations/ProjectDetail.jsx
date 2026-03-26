@@ -191,9 +191,9 @@ function ProjectDetail() {
 
   const totalRequired = Number(project.totalCompletesRequired) || 0;
   // Prefer live qreStats count; fall back to stored project field
-  const actualCompletes = qreStats?.completed ?? Number(project.actualCompletes) || 0;
+  const actualCompletes = qreStats?.completed ?? (Number(project.actualCompletes) || 0);
   const progressPct = totalRequired > 0 ? Math.min(100, Math.round((actualCompletes / totalRequired) * 100)) : 0;
-  const actualIR = qreStats?.incidence_rate ?? Number(project.actualIR) || 0;
+  const actualIR = qreStats?.incidence_rate ?? (Number(project.actualIR) || 0);
   const clientIR = Number(project.clientIR) || 0;
   const irColor = actualIR >= clientIR && clientIR > 0 ? "#16a34a" : actualIR >= clientIR * 0.7 ? "#d97706" : "#dc2626";
 
