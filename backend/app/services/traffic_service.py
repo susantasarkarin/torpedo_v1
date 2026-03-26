@@ -790,7 +790,63 @@ class TrafficService:
                 "country_clicks": [],
                 "generated_at": datetime.utcnow().isoformat(),
             }
-    
+
+    def get_project_traffic_stats(self, pid: str) -> Dict[str, Any]:
+        """
+        Get traffic stats for a project by its survey number (PID).
+        Filters: params.api = "false" AND params.pid = pid
+        Returns completes, total_started, terminates, quota_full, median_loi, incidence_rate.
+        """
+        import statistics as _stats
+        try:
+            projection = {"status": 1, "createdAt": 1, "completedAt": 1, "params": 1}
+            total = 0
+            completes = 0
+            terminates = 0
+            quota_full = 0
+            loi_values = []
+
+            for record in self.traffic_collection.find(
+                {"params.api": "false", "params.pid": str(pid)},
+                projection,
+            ):
+                raw_status = record.get("status", "")
+                normalized = self._normalize_status(raw_status)
+                total += 1
+                if normalized == "Complete":
+                    completes += 1
+                    created = self._safe_parse_datetime(record.get("createdAt"))
+                    completed_ = self._safe_parse_datetime(record.get("completedAt"))
+                    if created and completed_:
+                        secs = (completed_ - created).total_seconds()
+                        if secs > 0:
+                            loi_values.append(secs / 60.0)
+                elif normalized == "Terminate":
+                    terminates += 1
+                elif normalized == "Quota Full":
+                    quota_full += 1
+
+            median_loi = round(_stats.median(loi_values), 1) if loi_values else None
+            ir = round(completes / (completes + terminates) * 100, 1) if (completes + terminates) > 0 else 0.0
+            return {
+                "total_started": total,
+                "completes": completes,
+                "terminates": terminates,
+                "quota_full": quota_full,
+                "median_loi": median_loi,
+                "incidence_rate": ir,
+            }
+        except Exception as e:
+            print(f"❌ Error getting project traffic stats for pid={pid}: {e}")
+            return {
+                "total_started": 0,
+                "completes": 0,
+                "terminates": 0,
+                "quota_full": 0,
+                "median_loi": None,
+                "incidence_rate": 0.0,
+            }
+
     def get_traffic_stats(self, survey_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Get traffic statistics by consolidated status (Complete, Incomplete, Quota Full)

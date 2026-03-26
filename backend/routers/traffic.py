@@ -2677,6 +2677,32 @@ async def get_traffic_stats(
         raise HTTPException(status_code=500, detail=f"Stats error: {str(e)}")
 
 
+@router.get("/api/traffic/project-stats")
+async def get_project_traffic_stats(
+    request: Request,
+    pid: str = Query(..., description="Survey number (PID) to filter by"),
+):
+    """
+    Get traffic stats for a specific project by its survey number.
+    Filters api=false records matching the given pid.
+    """
+    try:
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+
+        if traffic_service is None:
+            raise HTTPException(status_code=503, detail="Traffic service not initialized")
+
+        stats = traffic_service.get_project_traffic_stats(pid)
+        return stats
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting project traffic stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Project stats error: {str(e)}")
+
+
 @router.get("/api/traffic/dashboard-stats")
 async def get_dashboard_traffic_stats(
     request: Request,

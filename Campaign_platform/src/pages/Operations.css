@@ -854,6 +854,32 @@
   color: #166534;
 }
 
+/* Filter pills */
+.ops-filter-pills {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.ops-filter-pill {
+  padding: 0.28rem 0.9rem;
+  border-radius: 1.5rem;
+  border: 1.5px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  line-height: 1.4;
+}
+.ops-filter-pill:hover { background: #f3f4f6; }
+.ops-filter-pill.active { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+.ops-filter-pill.ops-filter-pill--api { }
+.ops-filter-pill.active.ops-filter-pill--api { background: #3730a3; border-color: #3730a3; }
+.ops-filter-pill.active.ops-filter-pill--project { background: #166534; border-color: #166534; }
+
 .ops-kpi-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

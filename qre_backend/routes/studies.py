@@ -527,6 +527,17 @@ async def study_stats(study_id: str):
             pass
     median_loi = round(_stats.median(loi_values), 1) if loi_values else None
 
+    # Daily completions (last 30 days)
+    daily_pipeline = [
+        {"$match": {"study_id": study_id, "status": "completed", "completed_at": {"$exists": True}}},
+        {"$group": {"_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$completed_at"}}, "count": {"$sum": 1}}},
+        {"$sort": {"_id": 1}},
+        {"$limit": 30},
+    ]
+    daily_completions = []
+    async for doc in db.respondents.aggregate(daily_pipeline):
+        daily_completions.append({"date": doc["_id"], "count": doc["count"]})
+
     target = study["quotas"].get("total_sample", 500)
     return {
         "study_name": study["name"],
@@ -540,6 +551,7 @@ async def study_stats(study_id: str):
         "fieldwork_progress": round(completed / target * 100, 1) if target > 0 else 0,
         "termination_reasons": term_reasons,
         "median_loi": median_loi,
+        "daily_completions": daily_completions,
     }
 
 

@@ -325,6 +325,12 @@ function OverviewTab({ studyId }) {
             <div className="qre-kpi-label">Incidence Rate</div>
           </div>
         )}
+        {stats.median_loi != null && (
+          <div className="qre-kpi-card">
+            <div className="qre-kpi-value">{stats.median_loi} min</div>
+            <div className="qre-kpi-label">Median LOI</div>
+          </div>
+        )}
       </div>
 
       {/* Fieldwork progress */}
