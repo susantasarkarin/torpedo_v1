@@ -2097,7 +2097,16 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         params = data.get('params', {})
         vendor_id = params.get('vid', '')
         country_code = params.get('cc', '')
-        respondent_id = params.get('rid', '')
+        _raw_rid = params.get('rid', '')
+        # Detect unsubstituted CINT/Lucid variable placeholders (e.g. old entry links
+        # that still use {RID} instead of [%RID%]).  Fall back to fedResponseID which
+        # CINT always substitutes automatically with a real UUID.
+        _UNSUBSTITUTED = {"{RID}", "{rid}", "[RID]", "[rid]", "{PID}", "{pid}",
+                          "[%RID%]", "[%PID%]", "%RID%", "%PID%"}
+        if not _raw_rid or _raw_rid in _UNSUBSTITUTED:
+            respondent_id = params.get('fedResponseID') or params.get('fedresponseid') or _raw_rid or ''
+        else:
+            respondent_id = _raw_rid
         project_number = str(params.get('pid', '') or '').strip()
         api_flag = str(params.get('api', '') or '').strip().lower()
         is_project_adhoc_flow = api_flag == "false" and bool(project_number)

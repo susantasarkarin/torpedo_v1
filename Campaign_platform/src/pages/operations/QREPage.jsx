@@ -629,30 +629,53 @@ function RedirectsTab({ studyId }) {
 
 // ── Export Tab ────────────────────────────────────────────────────────────────
 function ExportTab({ studyId }) {
-  const download = (type) => {
-    const url = qreApi.exportUrl(type, studyId);
-    window.open(url, "_blank", "noopener,noreferrer");
+  const [busy, setBusy] = useState(null); // tracks which export is in progress
+  const [toast, showToast] = useToast();
+
+  const download = async (type) => {
+    if (busy) return;
+    setBusy(type);
+    const fileNames = {
+      completed: "qre_completed_responses.csv",
+      all: "qre_all_responses.csv",
+      spss: "qre_responses.sav",
+    };
+    try {
+      await qreApi.downloadExport(type, studyId, fileNames[type]);
+    } catch (e) {
+      showToast("Export failed: " + e.message);
+    } finally {
+      setBusy(null);
+    }
   };
 
   return (
     <div className="qre-section">
       <h2 className="qre-section-title">Data Export</h2>
       <p className="qre-section-desc">
-        Download survey response data as CSV files. Each export fetches live data from the QRE backend.
+        Download survey response data. Each export fetches live data from the QRE backend.
       </p>
+      {toast && <div className="qre-toast">{toast}</div>}
       <div className="qre-export-grid">
-        <div className="qre-export-card" onClick={() => download("completed")}>
+        <div className={`qre-export-card${busy === "completed" ? " qre-export-loading" : ""}`} onClick={() => download("completed")}>
           <div className="qre-export-icon">📊</div>
-          <div className="qre-export-title">Completed Responses</div>
+          <div className="qre-export-title">{busy === "completed" ? "Downloading…" : "Completed Responses (CSV)"}</div>
           <div className="qre-export-desc">
             All completed respondents with full demographic, module, and SoW data.
           </div>
         </div>
-        <div className="qre-export-card" onClick={() => download("all")}>
+        <div className={`qre-export-card${busy === "all" ? " qre-export-loading" : ""}`} onClick={() => download("all")}>
           <div className="qre-export-icon">📋</div>
-          <div className="qre-export-title">All Responses</div>
+          <div className="qre-export-title">{busy === "all" ? "Downloading…" : "All Responses (CSV)"}</div>
           <div className="qre-export-desc">
             Every respondent record — including terminated and in-progress — with termination reasons.
+          </div>
+        </div>
+        <div className={`qre-export-card${busy === "spss" ? " qre-export-loading" : ""}`} onClick={() => download("spss")}>
+          <div className="qre-export-icon">🗂️</div>
+          <div className="qre-export-title">{busy === "spss" ? "Downloading…" : "Completed Responses (SPSS .sav)"}</div>
+          <div className="qre-export-desc">
+            SPSS-compatible .sav file with variable labels for direct import into SPSS / PSPP.
           </div>
         </div>
       </div>

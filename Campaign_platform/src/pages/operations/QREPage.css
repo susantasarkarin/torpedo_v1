@@ -357,6 +357,7 @@
   transition: border-color 0.15s, background 0.15s;
 }
 .qre-export-card:hover { border-color: #667eea; background: #f0f0ff; }
+.qre-export-card.qre-export-loading { opacity: 0.6; cursor: wait; pointer-events: none; border-style: solid; border-color: #667eea; }
 .qre-export-icon { font-size: 2rem; margin-bottom: 0.5rem; }
 .qre-export-title { font-size: 0.9rem; font-weight: 700; color: #1a1a2e; }
 .qre-export-desc { font-size: 0.78rem; color: #6b7280; margin-top: 0.3rem; }

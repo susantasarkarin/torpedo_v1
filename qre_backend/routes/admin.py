@@ -1,11 +1,13 @@
 """
-Admin API routes — quota management, redirects, CSV export, client dashboard.
+Admin API routes — quota management, redirects, CSV export, SPSS export, client dashboard.
 """
 import io
 import csv
+import tempfile
+import os
 from datetime import datetime
 from fastapi import APIRouter, Body, Depends
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 from typing import Optional
 from services.quota_service import get_all_quotas
@@ -63,15 +65,17 @@ async def get_quota_limits():
 
 @router.post("/quotas/reset")
 async def reset_quotas():
-    """Reset all quota counters to zero."""
+    """Reset all quota counters to zero and purge any stale keys not in current config."""
     db = _db()
     from config import QUOTA_AGE, QUOTA_GENDER, QUOTA_NCCS, QUOTA_CITY
-    all_keys = list({**QUOTA_AGE, **QUOTA_GENDER, **QUOTA_NCCS, **QUOTA_CITY}.keys())
-    await db.quotas.update_one(
-        {"_id": "global"},
-        {"$set": {k: 0 for k in all_keys}},
-    )
-    return {"ok": True, "message": "All quotas reset to zero"}
+    current_keys = set({**QUOTA_AGE, **QUOTA_GENDER, **QUOTA_NCCS, **QUOTA_CITY}.keys())
+    existing = await db.quotas.find_one({"_id": "global"}) or {}
+    stale_keys = [k for k in existing if k != "_id" and k not in current_keys]
+    update: dict = {"$set": {k: 0 for k in current_keys}}
+    if stale_keys:
+        update["$unset"] = {k: "" for k in stale_keys}
+    await db.quotas.update_one({"_id": "global"}, update, upsert=True)
+    return {"ok": True, "message": "All quotas reset to zero", "purged_stale_keys": stale_keys}
 
 
 # ---------- Redirect URLs ----------
@@ -245,6 +249,76 @@ async def export_all_csv():
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=qre_health_survey_all_export.csv"},
     )
+
+
+@router.get("/export/spss")
+async def export_spss():
+    """Export all completed responses as an SPSS .sav file."""
+    import pandas as pd
+    import pyreadstat
+    db = _db()
+    cursor = db.respondents.find({"status": "completed"})
+
+    rows = []
+    all_q_ids = set()
+    async for doc in cursor:
+        resp = doc.get("responses", {})
+        all_q_ids.update(resp.keys())
+        row = {
+            "respondent_id": doc["_id"],
+            "nccs_grade": doc.get("nccs_grade", ""),
+            "nccs_band": doc.get("nccs_band", ""),
+            "city": doc.get("city", ""),
+            "assigned_modules": ";".join(str(m) for m in doc.get("assigned_modules", [])),
+            "started_at": str(doc.get("started_at", "")),
+            "completed_at": str(doc.get("completed_at", "")),
+        }
+        for qid, val in resp.items():
+            if isinstance(val, list):
+                row[qid] = ";".join(str(v) for v in val)
+            elif isinstance(val, dict):
+                row[qid] = str(val)
+            else:
+                row[qid] = str(val) if val is not None else ""
+        rows.append(row)
+
+    if not rows:
+        return {"message": "No completed responses to export"}
+
+    sorted_q_ids = sorted(all_q_ids, key=lambda x: int(x.replace("Q", "")) if x.replace("Q", "").isdigit() else 9999)
+    meta_fields = ["respondent_id", "nccs_grade", "nccs_band", "city",
+                   "assigned_modules", "started_at", "completed_at"]
+    all_cols = meta_fields + sorted_q_ids
+
+    df = pd.DataFrame(rows, columns=all_cols).fillna("")
+
+    # Build variable labels for SPSS
+    variable_labels = {
+        "respondent_id": "Respondent ID",
+        "nccs_grade": "NCCS Grade",
+        "nccs_band": "NCCS Band",
+        "city": "City",
+        "assigned_modules": "Assigned Category Modules",
+        "started_at": "Survey Start Timestamp",
+        "completed_at": "Survey Completion Timestamp",
+    }
+    for qid in sorted_q_ids:
+        variable_labels[qid] = f"Response to {qid}"
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".sav", delete=False)
+    tmp.close()
+    try:
+        pyreadstat.write_sav(df, tmp.name, variable_labels=variable_labels)
+        fname = f"qre_health_survey_{datetime.now().strftime('%Y%m%d')}.sav"
+        return FileResponse(
+            tmp.name,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename={fname}"},
+            background=None,
+        )
+    except Exception as e:
+        os.unlink(tmp.name)
+        raise
 
 
 # ---------- Client Dashboard (shareable, read-only) ----------

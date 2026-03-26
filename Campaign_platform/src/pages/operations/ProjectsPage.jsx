@@ -128,7 +128,7 @@ function ProjectsPage() {
     const cc = form?.countryCode || "{CC}";
     // pid must be the surveyNo (what /takesurvey resolves by), not the MongoDB _id
     const pid = form?.surveyNo || "{PID}";
-    return `${base}/takesurvey?api=false&vid=${vid}&cc=${cc}&pid=${pid}&rid={RID}`;
+    return `${base}/takesurvey?api=false&vid=${vid}&cc=${cc}&pid=${pid}&rid=[%RID%]`;
   };
 
   const applyDerivedFields = (nextForm) => {

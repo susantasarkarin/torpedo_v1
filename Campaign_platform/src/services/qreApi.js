@@ -77,6 +77,32 @@ export const qreApi = {
   exportUrl: (type, studyId) => {
     const base = `${QRE_API_BASE}/api/admin`;
     if (type === "completed") return studyId ? `${base}/export?study_id=${studyId}` : `${base}/export`;
+    if (type === "spss") return `${base}/export/spss`;
     return studyId ? `${base}/export/all?study_id=${studyId}` : `${base}/export/all`;
+  },
+
+  /** Authenticated download: fetches with Bearer token and triggers browser save. */
+  downloadExport: async (type, studyId, filename) => {
+    const base = `${QRE_API_BASE}/api/admin`;
+    let url;
+    if (type === "completed") url = studyId ? `${base}/export?study_id=${studyId}` : `${base}/export`;
+    else if (type === "spss") url = `${base}/export/spss`;
+    else url = studyId ? `${base}/export/all?study_id=${studyId}` : `${base}/export/all`;
+
+    const res = await fetch(url, {
+      headers: _token ? { Authorization: `Bearer ${_token}` } : {},
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || "Export failed");
+    }
+    const blob = await res.blob();
+    const objUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = objUrl;
+    a.download = filename || "export";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(objUrl); document.body.removeChild(a); }, 1000);
   },
 };
