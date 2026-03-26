@@ -7,7 +7,8 @@ import {
   FolderOpen, Activity, X
 } from "lucide-react";
 import "./ProjectsPage.css";
-import { buildApiUrl } from "../../config"
+import { buildApiUrl } from "../../config";
+import { qreApi } from "../../services/qreApi";
 
 function ProjectsPage() {
   const navigate = useNavigate();
@@ -22,6 +23,7 @@ function ProjectsPage() {
   const [error, setError] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [recordsPerPage, setRecordsPerPage] = useState(10);
+  const [qreStatsMap, setQreStatsMap] = useState({});
 
   const emptyForm = {
     projectName: "",
@@ -53,6 +55,7 @@ function ProjectsPage() {
     vendorCompleteRD: [],
     vendorTerminateRD: [],
     vendorQuotaFullRD: [],
+    qreStudyId: "",
   };
   const [formData, setFormData] = useState(emptyForm);
 
@@ -308,6 +311,18 @@ function ProjectsPage() {
     fetchClients();
     fetchRfqs();
   }, [navigate]);
+
+  useEffect(() => {
+    const studyIds = projects.map(p => p.qreStudyId).filter(Boolean);
+    if (!studyIds.length) return;
+    const unique = [...new Set(studyIds)];
+    Promise.all(unique.map(id => qreApi.getStats(id).then(s => [id, s]).catch(() => null)))
+      .then(results => {
+        const map = {};
+        results.forEach(r => { if (r) map[r[0]] = r[1]; });
+        setQreStatsMap(map);
+      });
+  }, [projects]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -622,6 +637,9 @@ function ProjectsPage() {
               <th>Launch</th>
               <th>Close</th>
               <th>Vendor</th>
+              <th>Completes</th>
+              <th>Med. LOI</th>
+              <th>IR</th>
               <th className="pp-th-actions">Actions</th>
             </tr>
           </thead>
@@ -646,6 +664,9 @@ function ProjectsPage() {
                 <td className="pp-td-date">{p.projectLaunchDate || "—"}</td>
                 <td className="pp-td-date">{p.projectCloseDate || "—"}</td>
                 <td className="pp-td-vendor">{p.vendorName || "—"}</td>
+                <td>{p.qreStudyId && qreStatsMap[p.qreStudyId]?.completed != null ? qreStatsMap[p.qreStudyId].completed : (p.totalCompletes || "—")}</td>
+                <td>{p.qreStudyId && qreStatsMap[p.qreStudyId]?.median_loi != null ? `${qreStatsMap[p.qreStudyId].median_loi} min` : "—"}</td>
+                <td>{p.qreStudyId && qreStatsMap[p.qreStudyId]?.incidence_rate != null ? `${qreStatsMap[p.qreStudyId].incidence_rate}%` : (p.actualIR ? `${p.actualIR}%` : "—")}</td>
                 <td>
                   <div className="pp-actions">
                     <button
@@ -680,7 +701,7 @@ function ProjectsPage() {
             ))}
             {paginatedProjects.length === 0 && (
               <tr>
-                <td colSpan={8} className="pp-empty">
+                  <td colSpan={11} className="pp-empty">
                   <FolderOpen size={32} />
                   <p>No projects found.</p>
                 </td>
@@ -861,6 +882,13 @@ function ProjectsPage() {
                   <div className="pp-field">
                     <label>Actual IR (%)</label>
                     <input className="pp-readonly" name="actualIR" value={formData.actualIR} readOnly />
+                  </div>
+                </div>
+                <div className="pp-form-row">
+                  <div className="pp-field">
+                    <label>QRE Study ID</label>
+                    <input name="qreStudyId" value={formData.qreStudyId || ""} onChange={handleChange} placeholder="e.g. 6d4428ee" />
+                    <small className="pp-hint">Links this project to a QRE survey for real-time stats.</small>
                   </div>
                 </div>
               </fieldset>

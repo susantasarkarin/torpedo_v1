@@ -79,13 +79,17 @@ DEFAULT_MODULES = [
 DEFAULT_AD_STIMULI: list = []   # no ad-test section in this study
 
 DEFAULT_QUOTAS = {
-    "total_sample": 1200,
+    "total_sample": 1710,
     "cells": {
-        "lucknow": 200, "jaipur": 200, "indore": 200,
-        "nagpur": 200, "coimbatore": 200, "bhubaneswar": 200,
-        "band1_25_34": 396, "band2_35_44": 408, "band3_45_55": 396,
-        "female": 660, "male": 540,
-        "nccs_a": 720, "nccs_b": 480,
+        # 8 Tier-2 cities (proportional, sum = 1710)
+        "lucknow": 243, "jaipur": 195, "indore": 195, "surat": 219,
+        "pune": 243, "coimbatore": 195, "warangal": 201, "bhubaneswar": 219,
+        # Age bands (570 × 3 = 1710)
+        "band1_25_34": 570, "band2_35_44": 570, "band3_45_55": 570,
+        # Gender (50/50)
+        "female": 855, "male": 855,
+        # NCCS (80/20 split)
+        "nccs_a": 1368, "nccs_b": 342,
     },
 }
 
@@ -207,17 +211,19 @@ async def delete_study(study_id: str):
 
 @router.get("/{study_id}/quotas")
 async def get_study_quotas(study_id: str):
-    """Get quota status for a study."""
+    """Get quota status for a study — current counts from completed respondents."""
     db = _db()
     study = await db.studies.find_one({"_id": study_id}, {"quotas": 1})
     if not study:
         raise HTTPException(status_code=404, detail="Study not found")
 
-    counter_doc = await db.quotas.find_one({"_id": f"quota_{study_id}"}) or {}
+    from services.quota_service import _aggregate_respondent_counts
     limits = study["quotas"]["cells"]
+    counts = await _aggregate_respondent_counts(db, study_id)
+
     result = []
     for key, limit in limits.items():
-        current = counter_doc.get(key, 0)
+        current = counts.get(key, 0)
         result.append({
             "quota_key": key, "current": current,
             "limit": limit, "is_full": current >= limit,
@@ -505,6 +511,22 @@ async def study_stats(study_id: str):
     async for doc in db.respondents.aggregate(pipeline):
         term_reasons.append({"reason": doc["_id"], "count": doc["count"]})
 
+    # Median LOI: compute from started_at / completed_at timestamps
+    import statistics as _stats
+    loi_values = []
+    async for doc in db.respondents.find(
+        {"study_id": study_id, "status": "completed",
+         "started_at": {"$exists": True}, "completed_at": {"$exists": True}},
+        {"started_at": 1, "completed_at": 1},
+    ):
+        try:
+            secs = (doc["completed_at"] - doc["started_at"]).total_seconds()
+            if secs > 0:
+                loi_values.append(secs / 60.0)
+        except Exception:
+            pass
+    median_loi = round(_stats.median(loi_values), 1) if loi_values else None
+
     target = study["quotas"].get("total_sample", 500)
     return {
         "study_name": study["name"],
@@ -517,6 +539,7 @@ async def study_stats(study_id: str):
         "incidence_rate": round(completed / (completed + terminated) * 100, 1) if (completed + terminated) > 0 else 0,
         "fieldwork_progress": round(completed / target * 100, 1) if target > 0 else 0,
         "termination_reasons": term_reasons,
+        "median_loi": median_loi,
     }
 
 

@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import "./ProjectDetail.css";
 import { buildApiUrl } from "../../config";
+import { qreApi } from "../../services/qreApi";
 
 function ProjectDetail() {
   const { projectId } = useParams();
@@ -32,6 +33,7 @@ function ProjectDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [copiedField, setCopiedField] = useState(null);
+  const [qreStats, setQreStats] = useState(null);
 
   const getProjectCallbackBase = () => {
     if (typeof window !== "undefined" && window.location?.origin) {
@@ -118,6 +120,13 @@ function ProjectDetail() {
     fetchVendors();
   }, [projectId, navigate]);
 
+  useEffect(() => {
+    if (!project?.qreStudyId) return;
+    qreApi.getStats(project.qreStudyId)
+      .then(setQreStats)
+      .catch(() => {});
+  }, [project?.qreStudyId]);
+
   const StatusBadge = ({ status }) => {
     const s = (status || "").toLowerCase();
     const cls = s === "live" ? "status-live" : s === "pause" ? "status-pause" : "status-close";
@@ -181,9 +190,10 @@ function ProjectDetail() {
   }
 
   const totalRequired = Number(project.totalCompletesRequired) || 0;
-  const actualCompletes = Number(project.actualCompletes) || 0;
+  // Prefer live qreStats count; fall back to stored project field
+  const actualCompletes = qreStats?.completed ?? Number(project.actualCompletes) || 0;
   const progressPct = totalRequired > 0 ? Math.min(100, Math.round((actualCompletes / totalRequired) * 100)) : 0;
-  const actualIR = Number(project.actualIR) || 0;
+  const actualIR = qreStats?.incidence_rate ?? Number(project.actualIR) || 0;
   const clientIR = Number(project.clientIR) || 0;
   const irColor = actualIR >= clientIR && clientIR > 0 ? "#16a34a" : actualIR >= clientIR * 0.7 ? "#d97706" : "#dc2626";
 
@@ -211,10 +221,10 @@ function ProjectDetail() {
         <StatCard label="LOI (min)" value={project.loi || "—"} icon={Clock} color="#8b5cf6" />
         <StatCard label="Client IR" value={project.clientIR ? `${project.clientIR}%` : "—"} icon={Percent} color="#0ea5e9" />
         <StatCard label="CPI" value={project.cpi ? `$${project.cpi}` : "—"} icon={DollarSign} color="#10b981" />
-        <StatCard label="Completes" value={project.totalCompletes || "—"} icon={CheckCircle} color="#6366f1" />
-        <StatCard label="Respondents" value={project.totalRespondents || "—"} icon={Users} color="#8b5cf6" />
-        <StatCard label="Actual" value={project.actualCompletes || "—"} icon={Award} color="#10b981" />
-        <StatCard label="Actual IR" value={actualIR ? `${actualIR}%` : "—"} icon={TrendingUp} color={irColor} sub={clientIR > 0 ? `Target: ${clientIR}%` : undefined} />
+        <StatCard label="Actual Completes" value={qreStats?.completed ?? project.totalCompletes ?? "—"} icon={CheckCircle} color="#6366f1" />
+        <StatCard label="Respondents" value={qreStats?.total_started ?? project.totalRespondents ?? "—"} icon={Users} color="#8b5cf6" />
+        <StatCard label="Actual Median LOI" value={qreStats?.median_loi != null ? `${qreStats.median_loi} min` : "—"} icon={Award} color="#10b981" />
+        <StatCard label="Actual Median IR" value={qreStats?.incidence_rate != null ? `${qreStats.incidence_rate}%` : (actualIR ? `${actualIR}%` : "—")} icon={TrendingUp} color={irColor} sub={clientIR > 0 ? `Target: ${clientIR}%` : undefined} />
       </div>
 
       {/* ── Progress bar ── */}

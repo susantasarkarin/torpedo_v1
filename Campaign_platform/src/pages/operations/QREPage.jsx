@@ -10,17 +10,26 @@ import "./QREPage.css";
 
 // ── Quota label map ─────────────────────────────────────────────────────────
 const QUOTA_LABELS = {
+  // Age bands
   band1_25_34: "Age 25–34",
   band2_35_44: "Age 35–44",
   band3_45_55: "Age 45–55",
+  // Gender
   male: "Male",
   female: "Female",
+  // NCCS
   nccs_a: "NCCS A",
   nccs_b: "NCCS B",
-  chennai: "Chennai",
-  kolkata: "Kolkata",
-  mumbai: "Mumbai",
-  hyderabad: "Hyderabad",
+  // 8 Tier-2 cities
+  lucknow: "Lucknow",
+  jaipur: "Jaipur",
+  indore: "Indore",
+  surat: "Surat",
+  pune: "Pune",
+  coimbatore: "Coimbatore",
+  warangal: "Warangal",
+  bhubaneswar: "Bhubaneswar",
+  // Groups (legacy)
   group_a: "Group A",
   group_b: "Group B",
   group_c: "Group C",

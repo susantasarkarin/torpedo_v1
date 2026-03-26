@@ -25,6 +25,10 @@ function Operations() {
   const [trafficStats, setTrafficStats] = useState({
     total: 0,
     by_status: {},
+    by_status_api_true: {},
+    by_status_api_false: {},
+    total_api_true: 0,
+    total_api_false: 0,
     daily: [],
     active_users_total: 0,
     completes_by_source: { CPX: 0, CINT: 0, UNKNOWN: 0 },
@@ -115,6 +119,10 @@ function Operations() {
           setTrafficStats({
             total: Number(statsData.total || 0),
             by_status: statsData.by_status || {},
+            by_status_api_true: statsData.by_status_api_true || {},
+            by_status_api_false: statsData.by_status_api_false || {},
+            total_api_true: Number(statsData.total_api_true || 0),
+            total_api_false: Number(statsData.total_api_false || 0),
             daily: Array.isArray(statsData.daily) ? statsData.daily : [],
             active_users_total: Number(statsData.active_users_total || 0),
             completes_by_source: statsData.completes_by_source || { CPX: 0, CINT: 0, UNKNOWN: 0 },
@@ -539,7 +547,11 @@ function Operations() {
     }
 
     const getStatusCount = (statusKey) => Number(trafficStats?.by_status?.[statusKey] || 0);
+    const getApiTrueCount = (statusKey) => Number(trafficStats?.by_status_api_true?.[statusKey] || 0);
+    const getApiFalseCount = (statusKey) => Number(trafficStats?.by_status_api_false?.[statusKey] || 0);
     const totalTrafficRecords = Number(trafficStats?.total || 0);
+    const totalApiTrue  = Number(trafficStats?.total_api_true  || 0);
+    const totalApiFalse = Number(trafficStats?.total_api_false || 0);
     const completeCount = getStatusCount("Complete");
     const incompleteCount = getStatusCount("Incomplete");
     const quotaFullCount = getStatusCount("Quota Full");
@@ -597,40 +609,43 @@ function Operations() {
           </button>
         </div>
 
+        <div className="ops-kpi-section-label" style={{ marginBottom: "0.35rem", marginTop: "0.1rem" }}>
+          <span className="ops-kpi-section-tag ops-kpi-section-tag--api">API Traffic (api=true)</span>
+        </div>
         <div className="ops-kpi-grid">
           <div className="ops-kpi-card">
             <div className="ops-kpi-label">Total Records</div>
             <div className="ops-kpi-value-row">
               <span className="ops-kpi-icon info">T</span>
-              <span className="ops-kpi-value">{formatNumber(totalTrafficRecords)}</span>
+              <span className="ops-kpi-value">{formatNumber(totalApiTrue)}</span>
             </div>
           </div>
           <div className="ops-kpi-card">
             <div className="ops-kpi-label">Incomplete</div>
             <div className="ops-kpi-value-row">
               <span className="ops-kpi-icon warning">I</span>
-              <span className="ops-kpi-value">{formatNumber(incompleteCount)}</span>
+              <span className="ops-kpi-value">{formatNumber(getApiTrueCount("Incomplete"))}</span>
             </div>
           </div>
           <div className="ops-kpi-card">
             <div className="ops-kpi-label">Complete</div>
             <div className="ops-kpi-value-row">
               <span className="ops-kpi-icon success">C</span>
-              <span className="ops-kpi-value">{formatNumber(completeCount)}</span>
+              <span className="ops-kpi-value">{formatNumber(getApiTrueCount("Complete"))}</span>
             </div>
           </div>
           <div className="ops-kpi-card">
             <div className="ops-kpi-label">Quota Full</div>
             <div className="ops-kpi-value-row">
               <span className="ops-kpi-icon info">Q</span>
-              <span className="ops-kpi-value">{formatNumber(quotaFullCount)}</span>
+              <span className="ops-kpi-value">{formatNumber(getApiTrueCount("Quota Full"))}</span>
             </div>
           </div>
           <div className="ops-kpi-card">
             <div className="ops-kpi-label">Terminate</div>
             <div className="ops-kpi-value-row">
               <span className="ops-kpi-icon danger">X</span>
-              <span className="ops-kpi-value">{formatNumber(terminateCount)}</span>
+              <span className="ops-kpi-value">{formatNumber(getApiTrueCount("Terminate"))}</span>
             </div>
           </div>
           <div className="ops-kpi-card">
@@ -645,6 +660,47 @@ function Operations() {
             <div className="ops-kpi-value-row">
               <span className="ops-kpi-icon info">N</span>
               <span className="ops-kpi-value">{formatNumber(cintCompletes)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="ops-kpi-section-label" style={{ marginBottom: "0.35rem", marginTop: "1rem" }}>
+          <span className="ops-kpi-section-tag ops-kpi-section-tag--project">Project Traffic (api=false)</span>
+        </div>
+        <div className="ops-kpi-grid">
+          <div className="ops-kpi-card">
+            <div className="ops-kpi-label">Total Records</div>
+            <div className="ops-kpi-value-row">
+              <span className="ops-kpi-icon info">T</span>
+              <span className="ops-kpi-value">{formatNumber(totalApiFalse)}</span>
+            </div>
+          </div>
+          <div className="ops-kpi-card">
+            <div className="ops-kpi-label">Incomplete</div>
+            <div className="ops-kpi-value-row">
+              <span className="ops-kpi-icon warning">I</span>
+              <span className="ops-kpi-value">{formatNumber(getApiFalseCount("Incomplete"))}</span>
+            </div>
+          </div>
+          <div className="ops-kpi-card">
+            <div className="ops-kpi-label">Complete</div>
+            <div className="ops-kpi-value-row">
+              <span className="ops-kpi-icon success">C</span>
+              <span className="ops-kpi-value">{formatNumber(getApiFalseCount("Complete"))}</span>
+            </div>
+          </div>
+          <div className="ops-kpi-card">
+            <div className="ops-kpi-label">Quota Full</div>
+            <div className="ops-kpi-value-row">
+              <span className="ops-kpi-icon info">Q</span>
+              <span className="ops-kpi-value">{formatNumber(getApiFalseCount("Quota Full"))}</span>
+            </div>
+          </div>
+          <div className="ops-kpi-card">
+            <div className="ops-kpi-label">Terminate</div>
+            <div className="ops-kpi-value-row">
+              <span className="ops-kpi-icon danger">X</span>
+              <span className="ops-kpi-value">{formatNumber(getApiFalseCount("Terminate"))}</span>
             </div>
           </div>
         </div>

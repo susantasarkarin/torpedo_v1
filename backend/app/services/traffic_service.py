@@ -633,6 +633,11 @@ class TrafficService:
             country_clicks: Dict[str, int] = {}
             active_users_total = set()
 
+            by_status_api_true  = {"Complete": 0, "Incomplete": 0, "Quota Full": 0, "Terminate": 0}
+            by_status_api_false = {"Complete": 0, "Incomplete": 0, "Quota Full": 0, "Terminate": 0}
+            total_api_true = 0
+            total_api_false = 0
+
             projection = {
                 "status": 1,
                 "createdAt": 1,
@@ -641,13 +646,24 @@ class TrafficService:
                 "respondentId": 1,
                 "countryCode": 1,
                 "surveySource": 1,
+                "params": 1,
             }
 
             for record in self.traffic_collection.find(query, projection):
                 raw_status = record.get("status", "")
                 normalized_status = self._normalize_status(raw_status)
                 source_bucket = self._normalize_survey_source(record.get("surveySource"))
+                # Determine api flag from params
+                params_doc = record.get("params") or {}
+                api_flag_raw = str(params_doc.get("api", "") or "").strip().lower()
+                is_api_true = api_flag_raw != "false"  # treat missing/"true" as api=true
                 by_status[normalized_status] = by_status.get(normalized_status, 0) + 1
+                if is_api_true:
+                    by_status_api_true[normalized_status] = by_status_api_true.get(normalized_status, 0) + 1
+                    total_api_true += 1
+                else:
+                    by_status_api_false[normalized_status] = by_status_api_false.get(normalized_status, 0) + 1
+                    total_api_false += 1
                 total += 1
 
                 created_dt = (
@@ -746,6 +762,10 @@ class TrafficService:
             return {
                 "total": total,
                 "by_status": by_status,
+                "by_status_api_true": by_status_api_true,
+                "by_status_api_false": by_status_api_false,
+                "total_api_true": total_api_true,
+                "total_api_false": total_api_false,
                 "daily": daily,
                 "active_users_total": len(active_users_total),
                 "completes_by_source": completes_by_source,
@@ -755,9 +775,14 @@ class TrafficService:
             }
         except Exception as e:
             print(f"❌ Error building dashboard traffic stats: {e}")
+            _empty_status = {"Complete": 0, "Incomplete": 0, "Quota Full": 0, "Terminate": 0}
             return {
                 "total": 0,
-                "by_status": {"Complete": 0, "Incomplete": 0, "Quota Full": 0, "Terminate": 0},
+                "by_status": dict(_empty_status),
+                "by_status_api_true": dict(_empty_status),
+                "by_status_api_false": dict(_empty_status),
+                "total_api_true": 0,
+                "total_api_false": 0,
                 "daily": [],
                 "active_users_total": 0,
                 "completes_by_source": {"CPX": 0, "CINT": 0, "UNKNOWN": 0},
