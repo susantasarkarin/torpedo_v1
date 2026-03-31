@@ -27,12 +27,19 @@ leads_raw = _db['leads_raw']
 leads_enriched = _db['leads_enriched']  # Also update enriched collection for full display
 ingestion_log = _db['ingestion_log']
 
-# Ensure unique index on email (THE deduplication key)
+# Ensure unique index on email (THE deduplication key for email-based leads)
 try:
     leads_raw.create_index([("email", ASCENDING)], unique=True, sparse=True)
     logger.info("Unique index on email created/verified")
 except Exception as e:
     logger.warning(f"Could not create email index: {e}")
+
+# Ensure unique index on linkedin_url for leads without email (sparse to allow NULLs)
+try:
+    leads_raw.create_index([("linkedin_url", ASCENDING)], unique=True, sparse=True)
+    logger.info("Unique index on linkedin_url created/verified")
+except Exception as e:
+    logger.warning(f"Could not create linkedin_url index: {e}")
 
 
 def log_ingestion_event(email: str, source: str, action: str, lead_id: str = None, error: str = None):
@@ -60,6 +67,15 @@ ENRICHMENT_REQUIRED_FIELDS = {'first_name', 'company'}  # If missing, trigger en
 VALID_SOURCES = {'gmail', 'websearch', 'csv'}
 VALID_CLASSIFICATIONS = {'client', 'vendor', 'irrelevant', 'unknown', 'pending'}
 VALID_BRACKETS = {'lead', 'contact', 'account'}
+UNKNOWN_COMPANY_VALUES = {'unknown', 'n/a', 'na', '-', '--', 'not available', 'none'}
+
+
+def is_unknown_company(value: Any) -> bool:
+    """Return True when company value is a placeholder like 'unknown' or empty."""
+    if value is None:
+        return True
+    v = str(value).strip().lower()
+    return v in UNKNOWN_COMPANY_VALUES or v == ''
 
 
 def determine_lead_bracket(lead_data: Dict[str, Any]) -> str:
@@ -110,15 +126,18 @@ def normalize_email(email: str) -> Optional[str]:
     return email
 
 
-def normalize_payload(payload: Dict[str, Any], source: str, source_detail: str) -> Dict[str, Any]:
+def normalize_payload(payload: Dict[str, Any], source: str, source_detail: str, icp_segment: Optional[str] = None) -> Dict[str, Any]:
     """
     Normalize incoming payload to canonical schema.
+    Email is optional when linkedin_url is present (e.g. web/LinkedIn search leads).
+    icp_segment: optional ICP slug (e.g. 'bimwave') to tag this lead at ingestion time.
     """
     email = normalize_email(payload.get('email', ''))
-    
-    if not email:
-        raise ValueError("Invalid or missing email address")
-    
+    linkedin_url = (payload.get('linkedin_url') or payload.get('linkedin') or '').strip() or None
+
+    if not email and not linkedin_url:
+        raise ValueError("Lead must have at least one identifier: email or linkedin_url")
+
     # Extract and clean name fields
     first_name = (payload.get('first_name') or '').strip() or None
     last_name = (payload.get('last_name') or '').strip() or None
@@ -131,24 +150,30 @@ def normalize_payload(payload: Dict[str, Any], source: str, source_detail: str) 
         last_name = parts[1] if len(parts) > 1 else None
     
     now = datetime.utcnow()
-    
+    company_raw = (payload.get('company') or payload.get('company_name') or '').strip()
+    company_clean = None if is_unknown_company(company_raw) else company_raw
+
     return {
         'email': email,
         'first_name': first_name,
         'last_name': last_name,
         'name': payload.get('name', '').strip() or f"{first_name or ''} {last_name or ''}".strip() or None,
-        'company': (payload.get('company') or payload.get('company_name') or '').strip() or None,
+        'company': company_clean,
         'company_domain': (payload.get('company_domain') or '').strip() or None,
         'title': (payload.get('title') or payload.get('job_title') or '').strip() or None,
         'phone': (payload.get('phone') or '').strip() or None,
-        'linkedin_url': (payload.get('linkedin_url') or payload.get('linkedin') or '').strip() or None,
+        'linkedin_url': linkedin_url,
         'location': (payload.get('location') or '').strip() or None,
         'source': source if source in VALID_SOURCES else 'unknown',
         'source_detail': source_detail,
         'classification': 'pending',
         'classification_confidence': 0.0,
+        'classification_status': 'Pending',  # Capital-P matches ClassificationStatus enum
+        'classification_attempts': 0,
         'enrichment_status': 'pending',
         'lead_bracket': 'lead',  # Will be recalculated after enrichment
+        'icp_segment': icp_segment or None,
+        'stage': 'already_contacted' if source == 'gmail' else None,
         'created_at': now,
         'updated_at': now,
     }
@@ -197,26 +222,49 @@ def sync_to_enriched(lead_data: Dict[str, Any], raw_lead_id: str) -> Optional[st
     """
     Sync a classified lead to leads_enriched collection.
     This is required because the frontend reads from leads_enriched.
-    
+    Uses email as primary dedup key; falls back to linkedin_url for no-email leads.
+
     Returns the enriched lead ID if successful, None otherwise.
     """
     try:
+        # Determine dedup key: prefer email, fall back to linkedin_url
+        _email = lead_data.get('email')
+        _linkedin = lead_data.get('linkedin_url')
+        if not _email and not _linkedin:
+            logger.warning("sync_to_enriched: lead has neither email nor linkedin_url — skipping")
+            return None
+
+        # Clean "Unknown" placeholders left by AI classifier
+        _last = (lead_data.get('last_name') or '').strip()
+        if _last.lower() == 'unknown':
+            _last = ''
+        _first = (lead_data.get('first_name') or '').strip()
+        _name_raw = (lead_data.get('name') or '').strip()
+        if _name_raw.lower().endswith(' unknown'):
+            _name_raw = _name_raw[:-8].strip()
+        _clean_name = _name_raw or f"{_first} {_last}".strip() or None
+        _clean_title = lead_data.get('title')
+        if _clean_title and _clean_title.strip().lower() == 'unknown':
+            _clean_title = None
+
         # Build enriched lead document
         enriched_doc = {
             'raw_lead_id': raw_lead_id,
+            'icp_segment': lead_data.get('icp_segment'),
             # Personal Info
-            'name': lead_data.get('name') or f"{lead_data.get('first_name', '')} {lead_data.get('last_name', '')}".strip(),
-            'first_name': lead_data.get('first_name'),
-            'last_name': lead_data.get('last_name'),
+            'name': _clean_name,
+            'first_name': _first or None,
+            'last_name': _last or None,
             'email': lead_data.get('email'),
             'email_status': lead_data.get('email_status', 'Unknown'),
-            'title': lead_data.get('title'),
+            'title': _clean_title,
             'linkedin_url': lead_data.get('linkedin_url'),
             'location': lead_data.get('location') or lead_data.get('inferred_location'),
             # Metadata
             'added_on': lead_data.get('created_at') or datetime.utcnow(),
             'source': lead_data.get('source'),
             'snippet': lead_data.get('source_detail'),
+            'stage': lead_data.get('stage'),
             # AI Classification
             'seniority_level': lead_data.get('seniority_level'),
             'buying_role': lead_data.get('buying_role'),
@@ -247,27 +295,211 @@ def sync_to_enriched(lead_data: Dict[str, Any], raw_lead_id: str) -> Optional[st
         
         # Remove None values to avoid overwriting with nulls
         enriched_doc = {k: v for k, v in enriched_doc.items() if v is not None}
-        
-        # Upsert by email (primary key for leads)
+
+        # Merge ICP basket classification (rule-based, no AI needed)
+        enriched_doc.update(compute_icp_basket(lead_data))
+
+        # Upsert key: email (primary) or linkedin_url (fallback for no-email leads)
+        if _email:
+            dedup_filter = {'email': _email}
+        else:
+            dedup_filter = {'linkedin_url': _linkedin}
+
         result = leads_enriched.update_one(
-            {'email': lead_data.get('email')},
+            dedup_filter,
             {'$set': enriched_doc, '$setOnInsert': {'created_at': datetime.utcnow()}},
             upsert=True
         )
-        
+
         # Get the enriched lead ID
         if result.upserted_id:
             return str(result.upserted_id)
         else:
-            existing = leads_enriched.find_one({'email': lead_data.get('email')})
+            existing = leads_enriched.find_one(dedup_filter)
             if existing:
                 return str(existing['_id'])
-        
+
         return None
         
     except Exception as e:
         logger.error(f"Failed to sync to leads_enriched: {e}")
         return None
+
+
+
+def compute_icp_basket(lead: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Pure rule-based 5-basket ICP classification.
+    No DB access — works on any lead dict from leads_raw or leads_enriched.
+    Returns dict with basket/tier/persona fields ready for $set into either collection.
+    """
+    import re as _re
+
+    def _n(v):
+        return (v or "").lower().strip()
+
+    title        = _n(lead.get("title"))
+    dept         = _n(lead.get("department"))
+    seniority    = _n(lead.get("seniority_level"))
+    buying_role  = _n(lead.get("buying_role") or lead.get("persona"))
+    industry     = _n(lead.get("company_industry") or lead.get("industry"))
+    co_size_raw  = _n(lead.get("company_employee_count_range") or lead.get("company_size") or "")
+    revenue_raw  = _n(lead.get("company_revenue_range") or "")
+    location     = _n(lead.get("location") or lead.get("company_headquarters") or "")
+    email_status = _n(lead.get("email_status"))
+    confidence   = int(lead.get("confidence_score") or lead.get("intent_score") or 0)
+    full_text    = " ".join([
+        title, dept, industry,
+        _n(lead.get("company") or lead.get("company_name") or ""),
+    ])
+
+    def _revenue_gte(rev, min_m):
+        nums = _re.findall(r"\d+", rev.replace(",", ""))
+        if not nums:
+            return False
+        low = int(nums[0])
+        if "billion" in rev:
+            low *= 1000
+        return low >= min_m
+
+    HIGH_TITLES = {
+        "vp", "vice president", "c-suite", "ceo", "cto", "cfo", "coo",
+        "cmo", "cro", "chro", "cio", "cpo", "director", "svp", "evp",
+        "president", "owner", "founder", "co-founder", "partner",
+        "managing director", "md",
+    }
+    MID_TITLES = {"manager", "head of", "senior", "principal", "lead"}
+
+    def _is_high():
+        combined = title + " " + seniority
+        return any(t in combined for t in HIGH_TITLES)
+
+    def _is_mid():
+        combined = title + " " + seniority
+        return any(t in combined for t in MID_TITLES)
+
+    def _is_dm():
+        return any(k in buying_role for k in ("decision maker", "decision", "influencer", "champion"))
+
+    MR_IND  = ["market research", "research agency", "consumer insights",
+               "data collection", "panel services", "mr technology", "fieldwork"]
+    MR_DEPT = ["research operations", "insights", "data", "field services", "sampling", "research"]
+    MR_KW   = ["panel", "fieldwork", "survey", "cati", "cawi", "tracker",
+               "quantitative", "sample", "incidence rate", "respondent", "omnibus"]
+
+    BRAND_IND  = ["fmcg", "consumer goods", "retail", "healthcare", "pharma",
+                  "media", "fintech", "financial services", "advertising agency",
+                  "brand consulting", "cpg", "insurance", "telecom"]
+    BRAND_DEPT = ["marketing", "brand", "consumer insights", "strategy",
+                  "product", "growth", "communications"]
+    BRAND_KW   = ["brand health", "ad effectiveness", "concept testing", "nps",
+                  "satisfaction", "brand tracking", "customer experience",
+                  "brand equity", "awareness", "consideration", "purchase intent"]
+
+    AEC_IND  = ["architecture", "construction", "engineering", "real estate develop",
+                "interior design", "mep", "infrastructure", "bim services"]
+    AEC_DEPT = ["architecture", "engineering", "project management",
+                "construction", "design", "bim"]
+    AEC_KW   = ["revit", "bim", "ifc", "aec", "autocad", "navisworks", "archicad",
+                "civil engineering", "structural", "mechanical engineering"]
+    AEC_GEO  = ["united states", " us,", "united kingdom", " uk,", "australia",
+                "canada", "middle east", "uae", "dubai", "saudi", "qatar"]
+
+    def _score_sfw():
+        s = 0
+        if any(i in industry for i in MR_IND):    s += 4
+        if any(k in full_text for k in MR_KW):    s += 2
+        if any(d in dept for d in MR_DEPT):        s += 3
+        if _is_high():                             s += 2
+        if _is_dm():                               s += 2
+        if "mid-market" in co_size_raw or "enterprise" in co_size_raw:  s += 2
+        if _revenue_gte(revenue_raw, 10):          s += 2
+        return s
+
+    def _score_brand():
+        s = 0
+        if any(i in industry for i in BRAND_IND):  s += 4
+        if any(k in full_text for k in BRAND_KW):  s += 2
+        if any(d in dept for d in BRAND_DEPT):     s += 3
+        if _is_high():                             s += 2
+        if _is_dm():                               s += 2
+        if _revenue_gte(revenue_raw, 10):          s += 2
+        return s
+
+    def _score_aec():
+        s = 0
+        if any(i in industry for i in AEC_IND):   s += 4
+        if any(k in full_text for k in AEC_KW):   s += 2
+        if any(d in dept for d in AEC_DEPT):      s += 3
+        if any(g in location for g in AEC_GEO):   s += 2
+        return s
+
+    sfw_s   = _score_sfw()
+    brand_s = _score_brand()
+    aec_s   = _score_aec()
+
+    THRESHOLD = 4
+    q_sfw   = sfw_s   >= THRESHOLD
+    q_brand = brand_s >= THRESHOLD
+    q_aec   = aec_s   >= THRESHOLD
+
+    exclude = (email_status == "predicted") and (confidence < 50)
+    if exclude or (not q_sfw and not q_brand and not q_aec):
+        basket_code, basket_name = "E", "Nurture / Unqualified"
+        icp_tags = ["nurture"]
+    elif q_sfw and q_brand:
+        basket_code, basket_name = "D", "Dual Fit: SFW + Cogentix"
+        icp_tags = ["survey_fieldwork", "cogentix"]
+    elif q_aec:
+        basket_code, basket_name = "C", "BIMwave"
+        icp_tags = ["bimwave"]
+    elif q_sfw:
+        basket_code, basket_name = "A", "Survey Fieldwork"
+        icp_tags = ["survey_fieldwork"]
+    else:
+        basket_code, basket_name = "B", "Cogentix Research"
+        icp_tags = ["cogentix"]
+
+    top = max(sfw_s, brand_s, aec_s)
+    if top >= 8 and _is_high() and (
+        "decision maker" in buying_role or _revenue_gte(revenue_raw, 50)
+    ):
+        fit_tier, fit_label = 1, "Hot"
+    elif top >= 4 and (_is_high() or _is_mid()) and (
+        _is_dm() or _revenue_gte(revenue_raw, 10)
+    ):
+        fit_tier, fit_label = 2, "Warm"
+    else:
+        fit_tier, fit_label = 3, "Cold"
+
+    ctx = title + " " + dept + " " + seniority
+    if any(k in ctx for k in ("ceo", "cto", "cfo", "coo", "cmo", "cro",
+                               "svp", "evp", "president", "c-suite")):
+        persona_label = "Executive Sponsor"
+    elif any(d in dept for d in MR_DEPT):
+        persona_label = "Research Buyer"
+    elif any(d in dept for d in BRAND_DEPT):
+        persona_label = "Brand Strategist"
+    elif any(d in dept for d in AEC_DEPT):
+        persona_label = "AEC Operator"
+    elif any(k in buying_role for k in ("influencer", "champion", "recommender")):
+        persona_label = "Influencer / Recommender"
+    elif _is_high():
+        persona_label = "Executive Sponsor"
+    else:
+        persona_label = "Influencer / Recommender"
+
+    conf = "High" if top >= 10 else "Medium" if top >= 5 else "Low"
+    return {
+        "icp_tags": icp_tags,
+        "classification_basket": basket_code,
+        "classification_basket_name": basket_name,
+        "fit_tier": fit_tier,
+        "fit_tier_label": fit_label,
+        "persona_label": persona_label,
+        "classification_confidence": conf,
+        "classified_at": datetime.utcnow(),
+    }
 
 
 # =============================================================================
@@ -356,7 +588,8 @@ def ingest_lead(
     payload: Dict[str, Any],
     source: str,
     source_detail: str,
-    skip_classification: bool = False
+    skip_classification: bool = False,
+    icp_segment: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     CANONICAL LEAD INGESTION FUNCTION
@@ -396,8 +629,17 @@ def ingest_lead(
     
     try:
         # Step 1: Normalize payload
-        normalized = normalize_payload(payload, source, source_detail)
+        normalized = normalize_payload(payload, source, source_detail, icp_segment=icp_segment)
         result['email'] = normalized['email']
+
+        # Strict rule: skip records with unknown company placeholders.
+        input_company = payload.get('company') or payload.get('company_name')
+        if is_unknown_company(input_company):
+            result['success'] = True
+            result['action'] = 'skipped'
+            result['error'] = 'unknown_company'
+            logger.info("Lead skipped: unknown company value")
+            return result
         
     except ValueError as e:
         result['error'] = str(e)
@@ -405,29 +647,32 @@ def ingest_lead(
         return result
     
     try:
-        # Step 2: Check for existing lead (deduplication by email)
-        existing = leads_raw.find_one({'email': normalized['email']})
+        # Step 2: Check for existing lead (dedup by email, or linkedin_url for no-email leads)
+        if normalized['email']:
+            existing = leads_raw.find_one({'email': normalized['email']})
+        else:
+            existing = leads_raw.find_one({'linkedin_url': normalized['linkedin_url']})
         
         if existing:
             # Merge data (never overwrite non-null with null)
             merged = deduplicate_and_merge(existing, normalized)
             merged['updated_at'] = datetime.utcnow()
-            
+
             # Step 3: Conditional enrichment
             if needs_enrichment(merged):
                 merged['enrichment_status'] = 'needed'
             else:
                 merged['enrichment_status'] = 'skipped'
-            
+
             # Step 4: AI classification (if not already classified and not skipped)
             if not skip_classification and merged.get('classification') == 'pending':
                 classification, confidence, full_result = classify_lead_ai(merged)
                 merged['classification'] = classification
                 merged['classification_confidence'] = confidence
-                
+
                 # Store all AI enrichment fields if classification succeeded
                 if full_result:
-                    merged['classification_status'] = 'classified'
+                    merged['classification_status'] = 'Classified'
                     # Personal enrichment fields
                     if full_result.get('first_name') and not merged.get('first_name'):
                         merged['first_name'] = full_result['first_name']
@@ -449,7 +694,7 @@ def ingest_lead(
                     merged['confidence_score'] = full_result.get('confidence_score', confidence)
                     
                     # Company enrichment fields (prefer AI over existing)
-                    if full_result.get('company_name'):
+                    if full_result.get('company_name') and not is_unknown_company(full_result.get('company_name')):
                         merged['company'] = full_result['company_name']
                         merged['company_name'] = full_result['company_name']
                     if full_result.get('company_domain') and not merged.get('company_domain'):
@@ -475,8 +720,8 @@ def ingest_lead(
                     
                     merged['classified_at'] = datetime.utcnow()
                 else:
-                    merged['classification_status'] = 'failed'
-            
+                    merged['classification_status'] = 'Failed'
+
             # Recalculate bracket after merging
             merged['lead_bracket'] = determine_lead_bracket(merged)
             
@@ -485,9 +730,10 @@ def ingest_lead(
                 {'_id': existing['_id']},
                 {'$set': merged}
             )
+            result['email'] = normalized.get('email')
             
             # Sync to leads_enriched for frontend display (if classified)
-            if merged.get('classification_status') == 'classified':
+            if merged.get('classification_status') == 'Classified':
                 enriched_id = sync_to_enriched(merged, str(existing['_id']))
                 if enriched_id:
                     leads_raw.update_one(
@@ -516,7 +762,7 @@ def ingest_lead(
                 
                 # Store all AI enrichment fields if classification succeeded
                 if full_result:
-                    normalized['classification_status'] = 'classified'
+                    normalized['classification_status'] = 'Classified'
                     # Personal enrichment fields
                     if full_result.get('first_name') and not normalized.get('first_name'):
                         normalized['first_name'] = full_result['first_name']
@@ -538,7 +784,7 @@ def ingest_lead(
                     normalized['confidence_score'] = full_result.get('confidence_score', confidence)
                     
                     # Company enrichment fields (prefer AI over existing)
-                    if full_result.get('company_name'):
+                    if full_result.get('company_name') and not is_unknown_company(full_result.get('company_name')):
                         normalized['company'] = full_result['company_name']
                         normalized['company_name'] = full_result['company_name']
                     if full_result.get('company_domain') and not normalized.get('company_domain'):
@@ -564,47 +810,66 @@ def ingest_lead(
                     
                     normalized['classified_at'] = datetime.utcnow()
                 else:
-                    normalized['classification_status'] = 'failed'
-            
+                    normalized['classification_status'] = 'Failed'
+
             # Step 5: Determine lead bracket
             normalized['lead_bracket'] = determine_lead_bracket(normalized)
             
             # Step 6: Insert into leads_raw
             insert_result = leads_raw.insert_one(normalized)
-            
-            # Step 6: Sync to leads_enriched for frontend display (if classified)
-            if normalized.get('classification_status') == 'classified':
+
+            # Sync to leads_enriched for frontend display (if classified)
+            if normalized.get('classification_status') == 'Classified':
                 enriched_id = sync_to_enriched(normalized, str(insert_result.inserted_id))
                 if enriched_id:
                     leads_raw.update_one(
                         {'_id': insert_result.inserted_id},
                         {'$set': {'enriched_lead_id': enriched_id}}
                     )
-            
+
+            # Post-insert: Skrapp company email pattern discovery
+            # Runs when lead has no email but we have a company domain + name
+            domain = normalized.get('company_domain')
+            if not normalized.get('email') and domain:
+                try:
+                    from .email_pattern_system import get_pattern_system
+                    ps = get_pattern_system()
+                    first = normalized.get('first_name') or 'test'
+                    last = normalized.get('last_name') or 'user'
+                    pattern_str = ps.discover_company_email_pattern(domain, first, last)
+                    if pattern_str:
+                        ps.apply_pattern_to_domain_leads(domain, pattern_str)
+                except Exception as _skrapp_err:
+                    logger.debug(f"Skrapp pattern discovery skipped: {_skrapp_err}")
+
             result['success'] = True
             result['action'] = 'inserted'
             result['lead_id'] = str(insert_result.inserted_id)
+            result['email'] = normalized.get('email')
         
         # Log the ingestion event
+        _log_email = result.get('email') or normalized.get('linkedin_url') or 'unknown'
         log_ingestion_event(
-            email=result['email'],
+            email=_log_email,
             source=source,
             action=result['action'],
             lead_id=result['lead_id']
         )
-        logger.info(f"Lead {result['action']}: {result['email']} (source={source})")
+        logger.info(f"Lead {result['action']}: {_log_email} (source={source})")
         
     except DuplicateKeyError:
-        # Race condition - another process inserted this email
+        # Race condition — another process inserted this lead
         result['action'] = 'skipped'
         result['success'] = True
+        _dup_id = (normalized.get('email') or normalized.get('linkedin_url') or
+                   payload.get('email') or payload.get('linkedin_url') or 'unknown')
         log_ingestion_event(
-            email=normalized['email'],
+            email=_dup_id,
             source=source,
             action='skipped',
             error='duplicate_key_race_condition'
         )
-        logger.info(f"Lead skipped (race condition): {normalized['email']}")
+        logger.info(f"Lead skipped (race condition): {_dup_id}")
         
     except Exception as e:
         result['error'] = str(e)
@@ -623,7 +888,8 @@ def ingest_leads_batch(
     payloads: List[Dict[str, Any]],
     source: str,
     source_detail: str,
-    skip_classification: bool = False
+    skip_classification: bool = False,
+    icp_segment: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Batch ingestion for multiple leads.
@@ -648,7 +914,7 @@ def ingest_leads_batch(
     }
     
     for payload in payloads:
-        result = ingest_lead(payload, source, source_detail, skip_classification)
+        result = ingest_lead(payload, source, source_detail, skip_classification, icp_segment=icp_segment)
         results['results'].append(result)
         
         if result['action'] == 'inserted':

@@ -148,7 +148,6 @@ function AILeads() {
     location: "",
     industry: "",
     fit_tier: "",
-    basket: "",
   });
 
   // Import Modal State
@@ -283,7 +282,10 @@ function AILeads() {
       // Add source filter based on active tab
       const sourceFilter = getSourceFilterForTab();
       if (sourceFilter) params.append("source", sourceFilter);
-      
+
+      // For "Leads" tab, fetch already-contacted (gmail) leads
+      if (activeTab === "leads") params.append("lead_stage", "already_contacted");
+
       params.append("page", currentPage);
       params.append("limit", 50);
 
@@ -1194,6 +1196,24 @@ function AILeads() {
     }
   };
 
+  const handleBulkICP = async () => {
+    setClassifying(true);
+    try {
+      const res = await fetch(buildApiUrl(`/leads/bulk-classify`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: sessionId },
+      });
+      if (!res.ok) throw new Error("Bulk ICP classify failed");
+      const result = await res.json();
+      alert(result.message);
+      setTimeout(() => { fetchLeads(); fetchStatistics(); }, 1500);
+    } catch (err) {
+      alert("ICP classify error: " + err.message);
+    } finally {
+      setClassifying(false);
+    }
+  };
+
   // ============== SELECTION ==============
 
   const toggleSelectAll = () => {
@@ -1230,7 +1250,6 @@ function AILeads() {
       location: "",
       industry: "",
       fit_tier: "",
-      basket: "",
     });
     setSearchQuery("");
     setCurrentPage(1);
@@ -1249,7 +1268,8 @@ function AILeads() {
   // ============== GET DISPLAY DATA ==============
 
   const getDisplayLeads = () => {
-    let filtered = leads.filter(l => isInAIDatabase(l));
+    // "Leads" tab: backend already filters by stage=already_contacted, no client-side exclusion
+    let filtered = activeTab === "leads" ? leads : leads.filter(l => isInAIDatabase(l));
     if (icpFilter) {
       // Support both legacy icp_segment (string) and new icp_tags (array)
       filtered = filtered.filter(l => {
@@ -1306,6 +1326,14 @@ function AILeads() {
           >
             {classifying ? "⏳ Classifying..." : "🤖 Classify All"}
           </button>
+          <button
+            className="btn btn-outline"
+            onClick={() => handleBulkICP()}
+            disabled={classifying}
+            title="Apply rule-based ICP basket scoring to all unclassified leads"
+          >
+            {classifying ? "⏳ Working..." : "📊 Apply ICP Rules"}
+          </button>
         </div>
       </div>
 
@@ -1332,6 +1360,12 @@ function AILeads() {
           onClick={() => { setActiveTab("classified"); }}
         >
           Classified ({leads.length})
+        </button>
+        <button 
+          className={`tab-btn ${activeTab === "leads" ? "active" : ""}`}
+          onClick={() => { setActiveTab("leads"); }}
+        >
+          Leads
         </button>
       </div>
 
@@ -1427,19 +1461,6 @@ function AILeads() {
           <option value="1">🔥 Tier 1 — Hot</option>
           <option value="2">☀️ Tier 2 — Warm</option>
           <option value="3">❄️ Tier 3 — Cold</option>
-        </select>
-        {/* Basket */}
-        <select
-          className="filter-select"
-          value={filters.basket}
-          onChange={(e) => handleFilterChange("basket", e.target.value)}
-        >
-          <option value="">All Baskets</option>
-          <option value="A">A — Survey Fieldwork</option>
-          <option value="B">B — Cogentix Research</option>
-          <option value="C">C — BIMwave</option>
-          <option value="D">D — Dual Fit</option>
-          <option value="E">E — Nurture</option>
         </select>
         {/* ICP Segment */}
         <select
@@ -1612,10 +1633,9 @@ function AILeads() {
                   <th>Industry</th>
                   <th>Source</th>
                   <th>Email Status</th>
-                  <th>Basket</th>
+                  <th>ICP Segment</th>
                   <th>Fit Tier</th>
                   <th>Persona</th>
-                  <th>ICP Segment</th>
                   {viewMode === "full" && (
                     <>
                       <th>First Name</th>
@@ -1675,10 +1695,11 @@ function AILeads() {
                           {lead.email_status || "Unknown"}
                         </span>
                       </td>
-                      {/* Basket */}
+                      {/* ICP Segment / Basket tags */}
                       <td>
                         {(() => {
                           const code = lead.classification_basket;
+                          const tags = lead.icp_tags || (lead.icp_segment ? [lead.icp_segment] : []);
                           const BASKET_COLORS = {
                             A: { bg: "#d1fae5", color: "#065f46", border: "#6ee7b7" },
                             B: { bg: "#ede9fe", color: "#5b21b6", border: "#c4b5fd" },
@@ -1686,12 +1707,37 @@ function AILeads() {
                             D: { bg: "#cffafe", color: "#0e7490", border: "#67e8f9" },
                             E: { bg: "#f3f4f6", color: "#6b7280", border: "#d1d5db" },
                           };
-                          if (!code) return <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>;
-                          const c = BASKET_COLORS[code] || BASKET_COLORS.E;
+                          const PALETTE = {
+                            survey_fieldwork: { bg: "#d1fae5", color: "#065f46", border: "#6ee7b7" },
+                            cogentix:         { bg: "#ede9fe", color: "#5b21b6", border: "#c4b5fd" },
+                            bimwave:          { bg: "#dbeafe", color: "#1e40af", border: "#93c5fd" },
+                            dual_fit:         { bg: "#cffafe", color: "#0e7490", border: "#67e8f9" },
+                            nurture:          { bg: "#f3f4f6", color: "#6b7280", border: "#d1d5db" },
+                          };
+                          if (!code && tags.length === 0) {
+                            return <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>;
+                          }
                           return (
-                            <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: "9999px", fontSize: "0.75rem", fontWeight: 600, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
-                              {code} — {lead.classification_basket_name?.split(":")[0]?.split("(")[0]?.trim() || code}
-                            </span>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "3px" }}>
+                              {code && (() => {
+                                const c = BASKET_COLORS[code] || BASKET_COLORS.E;
+                                const bname = lead.classification_basket_name?.split(":")[0]?.split("(")[0]?.trim() || code;
+                                return (
+                                  <span key="basket" style={{ display: "inline-block", padding: "2px 8px", borderRadius: "9999px", fontSize: "0.75rem", fontWeight: 700, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
+                                    {code} — {bname}
+                                  </span>
+                                );
+                              })()}
+                              {tags.filter(t => !(t === "nurture" && code)).map(slug => {
+                                const c = PALETTE[slug] || { bg: "#f3f4f6", color: "#6b7280", border: "#d1d5db" };
+                                const label = icpOptions.find(i => i.slug === slug)?.name || slug;
+                                return (
+                                  <span key={slug} style={{ display: "inline-block", padding: "2px 8px", borderRadius: "9999px", fontSize: "0.75rem", fontWeight: 500, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
+                                    {label}
+                                  </span>
+                                );
+                              })}
+                            </div>
                           );
                         })()}
                       </td>
@@ -1719,39 +1765,6 @@ function AILeads() {
                         <span style={{ fontSize: "0.75rem", color: "#374151" }}>
                           {lead.persona_label || lead.persona || "—"}
                         </span>
-                      </td>
-                      {/* ICP Segment tags */}
-                      <td>
-                        {(() => {
-                          const tags = lead.icp_tags || (lead.icp_segment ? [lead.icp_segment] : []);
-                          const PALETTE = {
-                            survey_fieldwork: { bg: "#d1fae5", color: "#065f46", border: "#6ee7b7" },
-                            cogentix:         { bg: "#ede9fe", color: "#5b21b6", border: "#c4b5fd" },
-                            bimwave:          { bg: "#dbeafe", color: "#1e40af", border: "#93c5fd" },
-                            dual_fit:         { bg: "#cffafe", color: "#0e7490", border: "#67e8f9" },
-                            nurture:          { bg: "#f3f4f6", color: "#6b7280", border: "#d1d5db" },
-                          };
-                          const displayTags = tags.filter(t => t !== "nurture");
-                          if (displayTags.length === 0 && tags.includes("nurture")) {
-                            return <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>Nurture</span>;
-                          }
-                          if (tags.length === 0) {
-                            return <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>;
-                          }
-                          return (
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: "3px" }}>
-                              {tags.map(slug => {
-                                const c = PALETTE[slug] || { bg: "#f3f4f6", color: "#6b7280", border: "#d1d5db" };
-                                const label = icpOptions.find(i => i.slug === slug)?.name || slug;
-                                return (
-                                  <span key={slug} style={{ display: "inline-block", padding: "2px 8px", borderRadius: "9999px", fontSize: "0.75rem", fontWeight: 500, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
-                                    {label}
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          );
-                        })()}
                       </td>
                       {viewMode === "full" && (
                         <>
@@ -1792,7 +1805,7 @@ function AILeads() {
                     {/* Expandable Details Row in Compact Mode */}
                     {viewMode === "compact" && expandedLeadId === lead._id && (
                       <tr className="expanded-details-row">
-                        <td colSpan={13}>
+                        <td colSpan={12}>
                           <div className="lead-details-panel">
                             <div className="details-grid">
                               <div className="detail-group">

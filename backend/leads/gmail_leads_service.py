@@ -450,52 +450,41 @@ def _generate_basic_summary(emails: List[Dict[str, Any]]) -> Tuple[str, List[str
 
 def _generate_ai_summary(emails: List[Dict[str, Any]], source: str = "background") -> Tuple[str, List[str], List[str]]:
     """
-    Generate AI-powered summary using OpenAI.
-    COST CONTROL: Uses centralized wrapper with strict token limits.
+    Generate AI-powered summary using Gemini.
     """
-    # COST CONTROL: Import centralized wrapper instead of direct OpenAI
-    from .openai_wrapper import chat_completion, DEFAULT_MODEL
-    
-    # COST CONTROL: Compact email formatting to reduce input tokens
-    conversation_text = ""
-    for email in emails:
-        date = email.get('date', '')
-        sender = email.get('sender_name', email.get('sender', ''))
-        subject = email.get('subject', '')
-        body = email.get('body_text', '')[:300]  # COST CONTROL: Reduced from 500
-        conversation_text += f"{sender}|{date}|{subject}|{body}\n"
-    
-    # COST CONTROL: Optimized prompt from ~100 tokens to ~50 tokens
-    prompt = f"""Analyze emails, return JSON:
-{{"summary":"2-3 sentences","key_points":["point1","point2"],"action_items":["action1"]}}
-
-Emails:
-{conversation_text}"""
-
-    # COST CONTROL: Use centralized wrapper
-    result = chat_completion(
-        messages=[{"role": "user", "content": prompt}],
-        source=source,
-        endpoint="gmail_ai_summary",
-        model=DEFAULT_MODEL,
-        max_output_tokens=200,  # COST CONTROL: Reduced from 500
-        temperature=0.3,
-        response_format={"type": "json_object"}
-    )
-    
-    if not result["success"]:
-        return "", [], []
-    
-    # Parse JSON response
     try:
-        data = json.loads(result["content"])
-        return (
-            data.get('summary', ''),
-            data.get('key_points', []),
-            data.get('action_items', [])
+        from ai_governance import get_gemini_gateway  # type: ignore
+        gw = get_gemini_gateway()
+
+        first_email = emails[0] if emails else {}
+        subject = first_email.get('subject', '')
+        thread_id = first_email.get('thread_id', first_email.get('id', 'thread'))
+
+        body_parts = []
+        for email in emails:
+            sender = email.get('sender_name', email.get('sender', ''))
+            date = email.get('date', '')
+            body = email.get('body_text', '')[:400]
+            body_parts.append(f"From: {sender} ({date})\n{body}")
+        combined_body = "\n---\n".join(body_parts)
+
+        result = gw.summarize_email(
+            email_id=thread_id,
+            subject=subject,
+            body=combined_body,
+            max_length=300,
         )
-    except json.JSONDecodeError:
-        return result["content"], [], []
+
+        if result.get('success'):
+            return (
+                result.get('summary', ''),
+                result.get('key_points', []),
+                [],
+            )
+        return "", [], []
+    except Exception as e:
+        logger.warning(f"AI summary (Gemini) failed: {e}")
+        return "", [], []
 
 
 # ============== MAIN SERVICE FUNCTIONS ==============

@@ -214,6 +214,7 @@ class WebSearchRequest(BaseModel):
     seniorities: List[str] = []  # Multiple seniority levels supported
     industries: List[str] = []  # Industry/vertical filters (e.g., "SaaS", "fintech")
     custom_query: str = ""  # Additional search terms
+    icp_id: Optional[str] = None  # ICP slug to tag imported leads (e.g. 'bimwave')
     # Note: No target_count - job runs indefinitely until stopped, controlled by rate limits
     # Legacy single-value fields for backward compatibility
     country: str = ""
@@ -425,6 +426,7 @@ async def run_web_search_job(job_id: str):
     
     config = job["config"]
     target_count = job["target_count"]
+    icp_id = config.get("icp_id")  # ICP slug for tagging imported leads
     
     # Generate queries if not already stored
     query_combinations = job.get("query_combinations", [])
@@ -599,7 +601,7 @@ async def run_web_search_job(job_id: str):
         if batch_leads:
             try:
                 lead_inputs = [LeadInput(**lead) for lead in batch_leads]
-                result = import_leads(lead_inputs)
+                result = import_leads(lead_inputs, icp_segment=icp_id)
                 
                 increment_job_counters(
                     job_id,
@@ -700,7 +702,8 @@ async def import_from_web_search(
             "countries": countries,
             "seniorities": seniorities,
             "industries": industries,
-            "custom_query": request.custom_query
+            "custom_query": request.custom_query,
+            "icp_id": request.icp_id or None,
         }
         
         # Create job in MongoDB
@@ -1289,6 +1292,8 @@ async def get_leads_endpoint(
     lead_stage: Optional[str] = None,
     source: Optional[str] = None,
     search: Optional[str] = None,
+    fit_tier: Optional[int] = None,
+    basket: Optional[str] = None,
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200)
 ):
@@ -1311,6 +1316,8 @@ async def get_leads_endpoint(
         lead_stage=lead_stage,
         source=source,
         search=search,
+        fit_tier=fit_tier,
+        basket=basket,
         page=page,
         limit=limit
     )
@@ -1323,6 +1330,59 @@ async def get_leads_endpoint(
         "page": page,
         "limit": limit,
         "pages": (total + limit - 1) // limit
+    }
+
+
+@router.post("/bulk-classify")
+async def bulk_classify_leads_endpoint():
+    """
+    POST /leads/bulk-classify
+    Apply rule-based ICP basket classification to all leads in leads_enriched
+    that are missing classification_basket.
+    Also stamps stage='already_contacted' on gmail-source leads.
+    """
+    from .canonical_ingestion import compute_icp_basket
+
+    GMAIL_SOURCES = [
+        "gmail", "gmail_workspace", "email_sync", "email_import",
+        "email_classification", "gmail_api", "gmail_archive", "classified_gmail",
+    ]
+
+    # Find leads missing basket classification
+    unclassified = list(leads_enriched_collection.find(
+        {"classification_basket": {"$exists": False}},
+        {
+            "_id": 1, "title": 1, "department": 1, "seniority_level": 1,
+            "buying_role": 1, "persona": 1, "company_industry": 1, "industry": 1,
+            "company_employee_count_range": 1, "company_size": 1,
+            "company_revenue_range": 1, "location": 1, "company_headquarters": 1,
+            "email_status": 1, "confidence_score": 1, "intent_score": 1,
+            "company": 1, "company_name": 1, "source": 1,
+        }
+    ))
+
+    classified_count = 0
+    for doc in unclassified:
+        basket_fields = compute_icp_basket(doc)
+        update_data = {**basket_fields}
+        if doc.get("source") in GMAIL_SOURCES:
+            update_data["stage"] = "already_contacted"
+        leads_enriched_collection.update_one({"_id": doc["_id"]}, {"$set": update_data})
+        classified_count += 1
+
+    # Stamp stage on gmail leads that already have basket but missing stage
+    stage_result = leads_enriched_collection.update_many(
+        {"source": {"$in": GMAIL_SOURCES}, "stage": {"$exists": False}},
+        {"$set": {"stage": "already_contacted"}}
+    )
+
+    return {
+        "classified": classified_count,
+        "stage_stamped": stage_result.modified_count,
+        "message": (
+            f"Applied ICP rules to {classified_count} leads; "
+            f"stamped stage on {stage_result.modified_count} gmail leads"
+        ),
     }
 
 
@@ -1969,6 +2029,11 @@ async def get_lead_by_id_endpoint(lead_id: str):
     GET /leads/{lead_id}
     Get a single enriched lead by ID with all details.
     """
+    # Route-order safeguard: allow static /leads/icps endpoint to work
+    # even if this dynamic route is matched first.
+    if lead_id == "icps":
+        return await list_icps(active_only=False)
+
     lead = get_enriched_lead_by_id(lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
@@ -3277,4 +3342,320 @@ async def bulk_update_service_type(request: BulkServiceTypeRequest):
         "updated_count": result.modified_count,
         "message": f"Tagged {result.modified_count} lead(s) as '{request.service_type}'"
     }
+
+
+# ============== ICP CONFIGURATION ENDPOINTS ==============
+
+@router.get("/icps")
+async def list_icps(active_only: bool = False):
+    """
+    GET /leads/icps
+    List all ICP configurations.
+    Use ?active_only=true to return only active ICPs.
+    """
+    from .icp_config import get_active_icps, get_all_icps
+    icps = get_active_icps() if active_only else get_all_icps()
+    return {"icps": icps, "count": len(icps)}
+
+
+@router.post("/icps")
+async def create_icp_config(data: Dict[str, Any] = Body(...)):
+    """
+    POST /leads/icps
+    Create a new ICP configuration.
+    Required: slug, name
+    Optional: designations, industries, countries, seniority_levels, custom_context, daily_budget, is_active
+    """
+    from .icp_config import create_icp
+    try:
+        icp = create_icp(data)
+        return {"success": True, "icp": icp}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/icps/{slug}")
+async def update_icp_config(slug: str, data: Dict[str, Any] = Body(...)):
+    """
+    PUT /leads/icps/{slug}
+    Update an existing ICP configuration.
+    slug and created_at are protected and cannot be changed.
+    """
+    from .icp_config import update_icp
+    updated = update_icp(slug, data)
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"ICP '{slug}' not found")
+    return {"success": True, "icp": updated}
+
+
+@router.delete("/icps/{slug}")
+async def delete_icp_config(slug: str):
+    """
+    DELETE /leads/icps/{slug}
+    Soft-delete an ICP (sets is_active=False). Does not remove the record.
+    """
+    from .icp_config import soft_delete_icp
+    found = soft_delete_icp(slug)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"ICP '{slug}' not found")
+    return {"success": True, "message": f"ICP '{slug}' deactivated"}
+
+
+# ============== BULK ICP TAG ==============
+
+class BulkIcpTagRequest(BaseModel):
+    lead_ids: List[str]
+    icp_segment: str
+
+
+@router.post("/bulk-icp-tag")
+async def bulk_tag_icp_segment(request: BulkIcpTagRequest):
+    """
+    POST /leads/bulk-icp-tag
+    Bulk assign icp_segment to selected leads in both leads_raw and leads_enriched.
+    Validates icp_segment against active ICP slugs (or allows 'unknown').
+    """
+    from .icp_config import get_all_icps
+    from bson import ObjectId
+
+    # Validate slug
+    valid_slugs = {icp["slug"] for icp in get_all_icps()} | {"unknown"}
+    if request.icp_segment not in valid_slugs:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid icp_segment '{request.icp_segment}'. Valid values: {sorted(valid_slugs)}"
+        )
+
+    object_ids = []
+    for lid in request.lead_ids:
+        try:
+            object_ids.append(ObjectId(lid))
+        except Exception:
+            pass
+
+    if not object_ids:
+        raise HTTPException(status_code=400, detail="No valid lead IDs provided")
+
+    enriched_result = leads_enriched_collection.update_many(
+        {"_id": {"$in": object_ids}},
+        {"$set": {"icp_segment": request.icp_segment, "updated_at": datetime.utcnow()}}
+    )
+    raw_result = _jobs_db["leads_raw"].update_many(
+        {"enriched_lead_id": {"$in": [str(oid) for oid in object_ids]}},
+        {"$set": {"icp_segment": request.icp_segment, "updated_at": datetime.utcnow()}}
+    )
+
+    return {
+        "success": True,
+        "enriched_updated": enriched_result.modified_count,
+        "raw_updated": raw_result.modified_count,
+        "message": f"Tagged {enriched_result.modified_count} lead(s) as ICP '{request.icp_segment}'",
+    }
+
+
+# ============== BULK ICP RECLASSIFICATION ==============
+
+@router.post("/reclassify-icp")
+async def reclassify_icp_all(background_tasks: BackgroundTasks):
+    """
+    POST /leads/reclassify-icp
+    Filter-based ICP reclassification of ALL leads in leads_enriched.
+    No AI calls — pure string matching against ICP designation/industry/country/seniority.
+    Force-all: processes every lead regardless of current icp_segment.
+    Returns a job_id to poll for progress.
+    """
+    job_id = str(uuid.uuid4())[:8]
+    web_search_jobs_collection.insert_one({
+        "job_id": job_id,
+        "type": "reclassify_icp",
+        "status": "pending",
+        "processed": 0,
+        "total": 0,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+    })
+    background_tasks.add_task(_run_reclassify_icp_job, job_id)
+    return {
+        "success": True,
+        "job_id": job_id,
+        "message": "ICP reclassification started for all leads.",
+        "status_url": f"/leads/reclassify-icp/status/{job_id}",
+    }
+
+
+@router.get("/reclassify-icp/status/{job_id}")
+async def reclassify_icp_status(job_id: str):
+    """
+    GET /leads/reclassify-icp/status/{job_id}
+    Poll the progress of a reclassify-icp job.
+    """
+    job = web_search_jobs_collection.find_one({"job_id": job_id, "type": "reclassify_icp"})
+    if not job:
+        raise HTTPException(status_code=404, detail="Reclassify job not found")
+    return {
+        "job_id": job_id,
+        "status": job.get("status"),
+        "processed": job.get("processed", 0),
+        "total": job.get("total", 0),
+        "updated": job.get("updated", 0),
+        "created_at": job["created_at"].isoformat() if job.get("created_at") else None,
+        "completed_at": job["completed_at"].isoformat() if job.get("completed_at") else None,
+        "error": job.get("error"),
+    }
+
+
+async def _run_reclassify_icp_job(job_id: str):
+    """
+    Background task: filter-based ICP assignment for ALL leads.
+    Phase 1: processes leads_enriched (5k) and mirrors back to leads_raw via enriched_lead_id.
+    Phase 2: processes remaining leads_raw docs that have no enriched counterpart.
+    """
+    from .icp_config import get_active_icps, classify_lead_by_icp
+
+    try:
+        active_icps = get_active_icps()
+        raw_col = _jobs_db["leads_raw"]
+
+        enriched_total = leads_enriched_collection.count_documents({})
+        raw_only_total = raw_col.count_documents({"enriched_lead_id": {"$in": [None, ""]}})
+        total = enriched_total + raw_only_total
+
+        web_search_jobs_collection.update_one(
+            {"job_id": job_id},
+            {"$set": {
+                "status": "running",
+                "total": total,
+                "enriched_total": enriched_total,
+                "raw_only_total": raw_only_total,
+                "updated_at": datetime.utcnow(),
+            }},
+        )
+
+        processed = 0
+        updated = 0
+        batch_size = 500
+
+        # ── Phase 1: leads_enriched (and mirror to leads_raw) ──────────────────
+        skip = 0
+        while skip < enriched_total:
+            batch = list(leads_enriched_collection.find({}, {
+                "_id": 1, "title": 1, "company_industry": 1, "location": 1,
+                "seniority_level": 1, "country": 1, "inferred_location": 1,
+                "company_headquarters": 1,
+            }).skip(skip).limit(batch_size))
+
+            if not batch:
+                break
+
+            for lead in batch:
+                segment = classify_lead_by_icp(lead, active_icps)
+                oid = lead["_id"]
+                r = leads_enriched_collection.update_one(
+                    {"_id": oid},
+                    {"$set": {"icp_segment": segment, "updated_at": datetime.utcnow()}},
+                )
+                raw_col.update_many(
+                    {"enriched_lead_id": str(oid)},
+                    {"$set": {"icp_segment": segment, "updated_at": datetime.utcnow()}},
+                )
+                if r.modified_count:
+                    updated += 1
+
+            skip += len(batch)
+            processed += len(batch)
+            web_search_jobs_collection.update_one(
+                {"job_id": job_id},
+                {"$set": {"processed": processed, "updated": updated, "updated_at": datetime.utcnow()}},
+            )
+
+        # ── Phase 2: raw leads still untagged after Phase 1 ──────────────────
+        # Catches raw-only leads (no enriched counterpart) AND raw leads whose
+        # enriched_lead_id points to a deleted/non-existent enriched doc.
+        FIELDS = {"_id": 1, "title": 1, "company_industry": 1, "location": 1,
+                  "seniority_level": 1, "country": 1}
+        last_id = None
+        while True:
+            query = {"icp_segment": None}
+            if last_id is not None:
+                query["_id"] = {"$gt": last_id}
+            batch = list(raw_col.find(query, FIELDS).sort("_id", 1).limit(batch_size))
+
+            if not batch:
+                break
+
+            bulk_ops = []
+            from pymongo import UpdateOne
+            for lead in batch:
+                segment = classify_lead_by_icp(lead, active_icps)
+                bulk_ops.append(UpdateOne(
+                    {"_id": lead["_id"]},
+                    {"$set": {"icp_segment": segment, "updated_at": datetime.utcnow()}},
+                ))
+
+            if bulk_ops:
+                result = raw_col.bulk_write(bulk_ops, ordered=False)
+                updated += result.modified_count
+
+            last_id = batch[-1]["_id"]
+            processed += len(batch)
+            web_search_jobs_collection.update_one(
+                {"job_id": job_id},
+                {"$set": {"processed": processed, "updated": updated, "updated_at": datetime.utcnow()}},
+            )
+
+        web_search_jobs_collection.update_one(
+            {"job_id": job_id},
+            {"$set": {
+                "status": "done",
+                "processed": processed,
+                "updated": updated,
+                "completed_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+            }},
+        )
+        print(f"[ReclassifyICP:{job_id}] Done — {updated}/{processed} leads tagged")
+
+    except Exception as e:
+        import traceback
+        web_search_jobs_collection.update_one(
+            {"job_id": job_id},
+            {"$set": {"status": "error", "error": str(e), "updated_at": datetime.utcnow()}},
+        )
+        print(f"[ReclassifyICP:{job_id}] Error: {e}")
+        traceback.print_exc()
+
+
+# ============== SKRAPP USAGE STATS ==============
+
+@router.get("/skrapp/usage")
+async def get_skrapp_usage():
+    """
+    GET /leads/skrapp/usage
+    Returns monthly usage stats for all 3 Skrapp accounts.
+    """
+    month = datetime.utcnow().strftime("%Y-%m")
+    settings_db = _mongo_client["torpedo_settings"]
+    app_settings = settings_db["app_settings"].find_one({"_id": "app_config"}) or {}
+
+    key_count = 0
+    for i in range(1, 4):
+        if app_settings.get(f"skrapp_api_key_{i}") or os.getenv(f"SKRAPP_API_KEY_{i}"):
+            key_count += 1
+
+    usage_col = _jobs_db["skrapp_usage"]
+    stats = []
+    for i in range(1, 4):
+        doc = usage_col.find_one({"account_id": str(i), "month": month}) or {}
+        used = doc.get("searches_used", 0)
+        limit = doc.get("searches_limit", 150)
+        stats.append({
+            "account": i,
+            "month": month,
+            "searches_used": used,
+            "searches_limit": limit,
+            "remaining": max(limit - used, 0),
+            "key_configured": i <= key_count,
+        })
+
+    return {"accounts": stats}
 

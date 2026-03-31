@@ -49,15 +49,16 @@ email_metadata_collection = torpedo_gmail_db['email_metadata']  # Synced emails
 
 def ensure_indexes():
     """Create necessary indexes for performance"""
-    # leads_raw indexes
-    leads_raw_collection.create_index("linkedin_url", unique=True)
+    # leads_raw indexes — sparse=True so NULL values don't violate uniqueness
+    # (email-only leads have linkedin_url=None; linkedin-only leads have email=None)
+    leads_raw_collection.create_index("linkedin_url", unique=True, sparse=True)
     leads_raw_collection.create_index("created_at")
     leads_raw_collection.create_index("classification_status")
     leads_raw_collection.create_index([("classification_status", ASCENDING), ("classification_attempts", ASCENDING)])
-    
-    # leads_enriched indexes
+
+    # leads_enriched indexes — sparse=True on linkedin_url for same reason
     leads_enriched_collection.create_index("raw_lead_id")
-    leads_enriched_collection.create_index("linkedin_url", unique=True)
+    leads_enriched_collection.create_index("linkedin_url", unique=True, sparse=True)
     leads_enriched_collection.create_index("seniority_level")
     leads_enriched_collection.create_index("department")
     leads_enriched_collection.create_index("persona")
@@ -81,7 +82,7 @@ except Exception as e:
 
 # ============== IMPORT SERVICE ==============
 
-def import_leads(leads: List[LeadInput], skip_dedup_check: bool = False, auto_classify: bool = False) -> LeadImportResponse:
+def import_leads(leads: List[LeadInput], skip_dedup_check: bool = False, auto_classify: bool = False, icp_segment: Optional[str] = None) -> LeadImportResponse:
     """
     Import raw leads using CANONICAL INGESTION PIPELINE.
     
@@ -140,7 +141,8 @@ def import_leads(leads: List[LeadInput], skip_dedup_check: bool = False, auto_cl
                 payload=payload,
                 source=source,
                 source_detail=source_detail,
-                skip_classification=not auto_classify
+                skip_classification=not auto_classify,
+                icp_segment=icp_segment,
             )
             
             if result['success']:
@@ -175,8 +177,12 @@ def import_leads(leads: List[LeadInput], skip_dedup_check: bool = False, auto_cl
 
 def get_pending_leads(limit: Optional[int] = None) -> List[dict]:
     """Get leads pending classification with retry limit. If limit is None, get ALL pending."""
+    # Accept both capitalized enum values ("Pending"/"Failed") and lowercase legacy values
     query = {
-        "classification_status": {"$in": [ClassificationStatus.PENDING.value, ClassificationStatus.FAILED.value]},
+        "classification_status": {"$in": [
+            ClassificationStatus.PENDING.value, ClassificationStatus.FAILED.value,
+            "pending", "failed",  # legacy lowercase values from old canonical ingestion
+        ]},
         "classification_attempts": {"$lt": 3}  # Max 3 retries
     }
     if limit:
@@ -207,10 +213,11 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
     )
     
     # Create LeadRaw model with all available context for AI classification
+    # linkedin_url is required by LeadRaw; use empty string as fallback for email-only leads
     lead = LeadRaw(
-        name=raw_lead["name"],
-        title=raw_lead["title"],
-        linkedin_url=raw_lead["linkedin_url"],
+        name=raw_lead.get("name") or "",
+        title=raw_lead.get("title") or "",
+        linkedin_url=raw_lead.get("linkedin_url") or "",
         snippet=raw_lead.get("snippet", ""),
         source=raw_lead.get("source", "linkedin"),
         first_name=raw_lead.get("first_name"),
@@ -218,7 +225,7 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
         email=raw_lead.get("email"),
         email_status=raw_lead.get("email_status"),
         location=raw_lead.get("location"),
-        company_name=raw_lead.get("company_name"),
+        company_name=raw_lead.get("company_name") or raw_lead.get("company"),
         company_domain=raw_lead.get("company_domain"),
         company_website=raw_lead.get("company_website"),
         company_industry=raw_lead.get("company_industry"),
@@ -287,15 +294,16 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
             classified_at=datetime.utcnow()
         )
         
-        # Upsert enriched lead
+        # Upsert enriched lead — prefer email as dedup key; fall back to linkedin_url
+        _dedup_key = {"linkedin_url": lead.linkedin_url} if lead.linkedin_url else {"email": final_email}
         leads_enriched_collection.update_one(
-            {"linkedin_url": lead.linkedin_url},
+            _dedup_key,
             {"$set": enriched.model_dump()},
             upsert=True
         )
-        
+
         # Get enriched lead ID
-        enriched_doc = leads_enriched_collection.find_one({"linkedin_url": lead.linkedin_url})
+        enriched_doc = leads_enriched_collection.find_one(_dedup_key)
         enriched_id = str(enriched_doc["_id"]) if enriched_doc else None
         
         # Update raw lead status
@@ -413,7 +421,13 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
     
     if filters.min_confidence:
         query["confidence_score"] = {"$gte": filters.min_confidence}
-    
+
+    if filters.fit_tier:
+        query["fit_tier"] = filters.fit_tier
+
+    if filters.basket:
+        query["classification_basket"] = filters.basket
+
     if filters.source:
         # Support comma-separated sources for multi-source filtering
         sources = [s.strip() for s in filters.source.split(",")]
@@ -493,7 +507,7 @@ def attach_leads_to_campaign(campaign_id: str, lead_ids: List[str]) -> Tuple[int
 
 # Source groupings for statistics
 CSV_SOURCES = ["csv", "csv_import", "google_sheets", "json_import"]
-WEBSEARCH_SOURCES = ["web_search", "google_search", "linkedin"]
+WEBSEARCH_SOURCES = ["web_search", "websearch", "google_search", "linkedin"]
 GMAIL_SOURCES = ["gmail", "gmail_workspace", "email_sync", "email_import", "email_classification", "gmail_api", "gmail_archive", "classified_gmail"]
 
 def get_lead_statistics() -> dict:
