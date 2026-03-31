@@ -1334,12 +1334,11 @@ async def get_leads_endpoint(
 
 
 @router.post("/bulk-classify")
-async def bulk_classify_leads_endpoint():
+async def bulk_classify_leads_endpoint(background_tasks: BackgroundTasks):
     """
     POST /leads/bulk-classify
-    Apply rule-based ICP basket classification to all leads in leads_enriched
-    that are missing classification_basket.
-    Also stamps stage='already_contacted' on gmail-source leads.
+    Apply rule-based ICP basket classification to ALL leads in leads_enriched.
+    Runs in background so the HTTP response returns immediately.
     """
     from .canonical_ingestion import compute_icp_basket
 
@@ -1348,41 +1347,44 @@ async def bulk_classify_leads_endpoint():
         "email_classification", "gmail_api", "gmail_archive", "classified_gmail",
     ]
 
-    # Find leads missing basket classification
-    unclassified = list(leads_enriched_collection.find(
-        {"classification_basket": {"$exists": False}},
-        {
-            "_id": 1, "title": 1, "department": 1, "seniority_level": 1,
-            "buying_role": 1, "persona": 1, "company_industry": 1, "industry": 1,
-            "company_employee_count_range": 1, "company_size": 1,
-            "company_revenue_range": 1, "location": 1, "company_headquarters": 1,
-            "email_status": 1, "confidence_score": 1, "intent_score": 1,
-            "company": 1, "company_name": 1, "source": 1,
-        }
-    ))
+    FIELDS = {
+        "_id": 1, "title": 1, "department": 1, "seniority_level": 1,
+        "buying_role": 1, "persona": 1, "company_industry": 1, "industry": 1,
+        "icp_segment": 1, "company_employee_count_range": 1, "company_size": 1,
+        "company_revenue_range": 1, "location": 1, "company_headquarters": 1,
+        "email_status": 1, "confidence_score": 1, "intent_score": 1,
+        "company": 1, "company_name": 1, "source": 1,
+    }
 
-    classified_count = 0
-    for doc in unclassified:
-        basket_fields = compute_icp_basket(doc)
-        update_data = {**basket_fields}
-        if doc.get("source") in GMAIL_SOURCES:
-            update_data["stage"] = "already_contacted"
-        leads_enriched_collection.update_one({"_id": doc["_id"]}, {"$set": update_data})
-        classified_count += 1
+    total = leads_enriched_collection.count_documents({})
 
-    # Stamp stage on gmail leads that already have basket but missing stage
-    stage_result = leads_enriched_collection.update_many(
-        {"source": {"$in": GMAIL_SOURCES}, "stage": {"$exists": False}},
-        {"$set": {"stage": "already_contacted"}}
-    )
+    def _run_classification():
+        skip = 0
+        batch_size = 500
+        while True:
+            batch = list(leads_enriched_collection.find({}, FIELDS).skip(skip).limit(batch_size))
+            if not batch:
+                break
+            for doc in batch:
+                basket_fields = compute_icp_basket(doc)
+                update_data = {**basket_fields}
+                if doc.get("source") in GMAIL_SOURCES:
+                    update_data["stage"] = "already_contacted"
+                leads_enriched_collection.update_one({"_id": doc["_id"]}, {"$set": update_data})
+            skip += batch_size
+        # Stamp stage on gmail leads missing stage field
+        leads_enriched_collection.update_many(
+            {"source": {"$in": GMAIL_SOURCES}, "stage": {"$exists": False}},
+            {"$set": {"stage": "already_contacted"}}
+        )
+
+    background_tasks.add_task(_run_classification)
 
     return {
-        "classified": classified_count,
-        "stage_stamped": stage_result.modified_count,
-        "message": (
-            f"Applied ICP rules to {classified_count} leads; "
-            f"stamped stage on {stage_result.modified_count} gmail leads"
-        ),
+        "queued": total,
+        "classified": 0,
+        "stage_stamped": 0,
+        "message": f"ICP classification started in background for {total} leads",
     }
 
 

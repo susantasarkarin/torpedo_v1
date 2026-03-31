@@ -329,9 +329,10 @@ def sync_to_enriched(lead_data: Dict[str, Any], raw_lead_id: str) -> Optional[st
 
 def compute_icp_basket(lead: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Pure rule-based 5-basket ICP classification.
-    No DB access — works on any lead dict from leads_raw or leads_enriched.
-    Returns dict with basket/tier/persona fields ready for $set into either collection.
+    Rule-based 5-basket ICP classification.
+    Primary: uses existing icp_segment field (set by enrichment pipeline).
+    Fallback: keyword/industry scoring.
+    Returns dict with basket/tier/persona fields ready for $set.
     """
     import re as _re
 
@@ -341,13 +342,13 @@ def compute_icp_basket(lead: Dict[str, Any]) -> Dict[str, Any]:
     title        = _n(lead.get("title"))
     dept         = _n(lead.get("department"))
     seniority    = _n(lead.get("seniority_level"))
-    buying_role  = _n(lead.get("buying_role") or lead.get("persona"))
-    industry     = _n(lead.get("company_industry") or lead.get("industry"))
-    co_size_raw  = _n(lead.get("company_employee_count_range") or lead.get("company_size") or "")
+    # persona/buying_role: check multiple fields
+    buying_role  = _n(
+        lead.get("buying_role") or lead.get("persona") or ""
+    )
+    industry     = _n(lead.get("company_industry") or lead.get("industry") or "")
     revenue_raw  = _n(lead.get("company_revenue_range") or "")
-    location     = _n(lead.get("location") or lead.get("company_headquarters") or "")
-    email_status = _n(lead.get("email_status"))
-    confidence   = int(lead.get("confidence_score") or lead.get("intent_score") or 0)
+    existing_seg = _n(lead.get("icp_segment") or "")
     full_text    = " ".join([
         title, dept, industry,
         _n(lead.get("company") or lead.get("company_name") or ""),
@@ -362,13 +363,14 @@ def compute_icp_basket(lead: Dict[str, Any]) -> Dict[str, Any]:
             low *= 1000
         return low >= min_m
 
+    # "C-Level" is how the data actually arrives — include it alongside c-suite
     HIGH_TITLES = {
-        "vp", "vice president", "c-suite", "ceo", "cto", "cfo", "coo",
+        "vp", "vice president", "c-suite", "c-level", "ceo", "cto", "cfo", "coo",
         "cmo", "cro", "chro", "cio", "cpo", "director", "svp", "evp",
         "president", "owner", "founder", "co-founder", "partner",
-        "managing director", "md",
+        "managing director", "md", "head of", "head,",
     }
-    MID_TITLES = {"manager", "head of", "senior", "principal", "lead"}
+    MID_TITLES = {"manager", "senior", "principal", "lead", "specialist"}
 
     def _is_high():
         combined = title + " " + seniority
@@ -379,118 +381,125 @@ def compute_icp_basket(lead: Dict[str, Any]) -> Dict[str, Any]:
         return any(t in combined for t in MID_TITLES)
 
     def _is_dm():
-        return any(k in buying_role for k in ("decision maker", "decision", "influencer", "champion"))
+        # Check buying_role AND persona field (data stores "Decision Maker")
+        combined = buying_role + " " + _n(lead.get("persona") or "")
+        return any(k in combined for k in (
+            "decision maker", "economic buyer", "decision", "influencer", "champion"
+        ))
 
-    MR_IND  = ["market research", "research agency", "consumer insights",
-               "data collection", "panel services", "mr technology", "fieldwork"]
-    MR_DEPT = ["research operations", "insights", "data", "field services", "sampling", "research"]
-    MR_KW   = ["panel", "fieldwork", "survey", "cati", "cawi", "tracker",
-               "quantitative", "sample", "incidence rate", "respondent", "omnibus"]
-
-    BRAND_IND  = ["fmcg", "consumer goods", "retail", "healthcare", "pharma",
-                  "media", "fintech", "financial services", "advertising agency",
-                  "brand consulting", "cpg", "insurance", "telecom"]
-    BRAND_DEPT = ["marketing", "brand", "consumer insights", "strategy",
-                  "product", "growth", "communications"]
-    BRAND_KW   = ["brand health", "ad effectiveness", "concept testing", "nps",
-                  "satisfaction", "brand tracking", "customer experience",
-                  "brand equity", "awareness", "consideration", "purchase intent"]
-
-    AEC_IND  = ["architecture", "construction", "engineering", "real estate develop",
-                "interior design", "mep", "infrastructure", "bim services"]
-    AEC_DEPT = ["architecture", "engineering", "project management",
-                "construction", "design", "bim"]
-    AEC_KW   = ["revit", "bim", "ifc", "aec", "autocad", "navisworks", "archicad",
-                "civil engineering", "structural", "mechanical engineering"]
-    AEC_GEO  = ["united states", " us,", "united kingdom", " uk,", "australia",
-                "canada", "middle east", "uae", "dubai", "saudi", "qatar"]
-
-    def _score_sfw():
-        s = 0
-        if any(i in industry for i in MR_IND):    s += 4
-        if any(k in full_text for k in MR_KW):    s += 2
-        if any(d in dept for d in MR_DEPT):        s += 3
-        if _is_high():                             s += 2
-        if _is_dm():                               s += 2
-        if "mid-market" in co_size_raw or "enterprise" in co_size_raw:  s += 2
-        if _revenue_gte(revenue_raw, 10):          s += 2
-        return s
-
-    def _score_brand():
-        s = 0
-        if any(i in industry for i in BRAND_IND):  s += 4
-        if any(k in full_text for k in BRAND_KW):  s += 2
-        if any(d in dept for d in BRAND_DEPT):     s += 3
-        if _is_high():                             s += 2
-        if _is_dm():                               s += 2
-        if _revenue_gte(revenue_raw, 10):          s += 2
-        return s
-
-    def _score_aec():
-        s = 0
-        if any(i in industry for i in AEC_IND):   s += 4
-        if any(k in full_text for k in AEC_KW):   s += 2
-        if any(d in dept for d in AEC_DEPT):      s += 3
-        if any(g in location for g in AEC_GEO):   s += 2
-        return s
-
-    sfw_s   = _score_sfw()
-    brand_s = _score_brand()
-    aec_s   = _score_aec()
-
-    THRESHOLD = 4
-    q_sfw   = sfw_s   >= THRESHOLD
-    q_brand = brand_s >= THRESHOLD
-    q_aec   = aec_s   >= THRESHOLD
-
-    # Only exclude truly unscored leads (no industry/title signals at all)
-    # Do NOT exclude based on email prediction status — that's orthogonal to ICP fit
-    if not q_sfw and not q_brand and not q_aec:
-        basket_code, basket_name = "E", "Nurture / Unqualified"
-        icp_tags = ["nurture"]
-    elif q_sfw and q_brand:
-        basket_code, basket_name = "D", "Dual Fit: SFW + Cogentix"
-        icp_tags = ["survey_fieldwork", "cogentix"]
-    elif q_aec:
-        basket_code, basket_name = "C", "BIMwave"
-        icp_tags = ["bimwave"]
-    elif q_sfw:
-        basket_code, basket_name = "A", "Survey Fieldwork"
-        icp_tags = ["survey_fieldwork"]
+    # ── PRIMARY PATH: use existing icp_segment if present ──────────────────
+    SEG_TO_BASKET = {
+        "survey_fieldwork": ("A", "Survey Fieldwork", ["survey_fieldwork"]),
+        "cogentix":         ("B", "Cogentix Research", ["cogentix"]),
+        "bimwave":          ("C", "BIMwave", ["bimwave"]),
+        "dual_fit":         ("D", "Dual Fit: SFW + Cogentix", ["survey_fieldwork", "cogentix"]),
+    }
+    if existing_seg and existing_seg in SEG_TO_BASKET:
+        basket_code, basket_name, icp_tags = SEG_TO_BASKET[existing_seg]
     else:
-        basket_code, basket_name = "B", "Cogentix Research"
-        icp_tags = ["cogentix"]
+        # ── FALLBACK: keyword scoring ────────────────────────────────────────
+        MR_IND   = ["market research", "research agency", "consumer insights",
+                    "data collection", "panel services", "fieldwork", "survey research"]
+        MR_DEPT  = ["research", "insights", "field services", "sampling"]
+        MR_KW    = ["panel", "fieldwork", "survey", "cati", "cawi", "tracker",
+                    "quantitative", "sample", "respondent", "omnibus"]
 
-    top = max(sfw_s, brand_s, aec_s)
-    if top >= 8 and _is_high() and (
-        "decision maker" in buying_role or _revenue_gte(revenue_raw, 50)
-    ):
+        BRAND_IND  = ["fmcg", "consumer goods", "retail", "healthcare", "pharma",
+                      "media", "advertising", "marketing and advertising",
+                      "financial services", "brand consulting", "cpg",
+                      "insurance", "telecom", "food & beverage", "beverage",
+                      "beauty", "personal care", "apparel", "consumer electronics"]
+        BRAND_DEPT = ["marketing", "brand", "consumer insights", "strategy",
+                      "product", "growth", "communications"]
+        BRAND_KW   = ["brand health", "ad effectiveness", "concept testing", "nps",
+                      "brand tracking", "brand equity", "awareness", "purchase intent"]
+
+        AEC_IND  = ["architecture", "construction", "engineering", "real estate",
+                    "interior design", "infrastructure", "bim"]
+        AEC_DEPT = ["architecture", "engineering", "project management",
+                    "construction", "design", "bim"]
+        AEC_KW   = ["revit", "bim", "ifc", "aec", "autocad", "navisworks",
+                    "civil engineering", "structural", "mechanical engineering"]
+
+        def _score_sfw():
+            s = 0
+            if any(i in industry for i in MR_IND):   s += 4
+            if any(k in full_text for k in MR_KW):   s += 2
+            if any(d in dept for d in MR_DEPT):       s += 3
+            if _is_high():                            s += 2
+            if _is_dm():                              s += 2
+            return s
+
+        def _score_brand():
+            s = 0
+            if any(i in industry for i in BRAND_IND): s += 4
+            if any(k in full_text for k in BRAND_KW): s += 2
+            if any(d in dept for d in BRAND_DEPT):    s += 3
+            if _is_high():                            s += 2
+            if _is_dm():                              s += 2
+            if _revenue_gte(revenue_raw, 10):         s += 2
+            return s
+
+        def _score_aec():
+            s = 0
+            if any(i in industry for i in AEC_IND):  s += 4
+            if any(k in full_text for k in AEC_KW):  s += 2
+            if any(d in dept for d in AEC_DEPT):     s += 3
+            return s
+
+        THRESHOLD = 4
+        sfw_s   = _score_sfw()
+        brand_s = _score_brand()
+        aec_s   = _score_aec()
+
+        q_sfw   = sfw_s   >= THRESHOLD
+        q_brand = brand_s >= THRESHOLD
+        q_aec   = aec_s   >= THRESHOLD
+
+        if not q_sfw and not q_brand and not q_aec:
+            basket_code, basket_name, icp_tags = "E", "Nurture / Unqualified", ["nurture"]
+        elif q_sfw and q_brand:
+            basket_code, basket_name, icp_tags = "D", "Dual Fit: SFW + Cogentix", ["survey_fieldwork", "cogentix"]
+        elif q_aec:
+            basket_code, basket_name, icp_tags = "C", "BIMwave", ["bimwave"]
+        elif q_sfw:
+            basket_code, basket_name, icp_tags = "A", "Survey Fieldwork", ["survey_fieldwork"]
+        else:
+            basket_code, basket_name, icp_tags = "B", "Cogentix Research", ["cogentix"]
+
+    # ── FIT TIER: seniority + persona signals ───────────────────────────────
+    high = _is_high()
+    dm   = _is_dm()
+
+    if high and dm and _revenue_gte(revenue_raw, 50):
         fit_tier, fit_label = 1, "Hot"
-    elif top >= 4 and (_is_high() or _is_mid()) and (
-        _is_dm() or _revenue_gte(revenue_raw, 10)
-    ):
+    elif high and (dm or _revenue_gte(revenue_raw, 10)):
+        fit_tier, fit_label = 2, "Warm"
+    elif high or dm or _is_mid():
         fit_tier, fit_label = 2, "Warm"
     else:
         fit_tier, fit_label = 3, "Cold"
 
-    ctx = title + " " + dept + " " + seniority
+    # ── PERSONA LABEL ────────────────────────────────────────────────────────
+    ctx = title + " " + dept + " " + seniority + " " + buying_role
     if any(k in ctx for k in ("ceo", "cto", "cfo", "coo", "cmo", "cro",
-                               "svp", "evp", "president", "c-suite")):
+                               "svp", "evp", "president", "c-suite", "c-level")):
         persona_label = "Executive Sponsor"
-    elif any(d in dept for d in MR_DEPT):
+    elif "research" in dept or "insights" in dept:
         persona_label = "Research Buyer"
-    elif any(d in dept for d in BRAND_DEPT):
+    elif "marketing" in dept or "brand" in dept:
         persona_label = "Brand Strategist"
-    elif any(d in dept for d in AEC_DEPT):
+    elif any(d in dept for d in ("architecture", "engineering", "construction", "bim", "design")):
         persona_label = "AEC Operator"
-    elif any(k in buying_role for k in ("influencer", "champion", "recommender")):
+    elif "influencer" in buying_role or "champion" in buying_role:
         persona_label = "Influencer / Recommender"
-    elif _is_high():
+    elif high:
         persona_label = "Executive Sponsor"
+    elif dm:
+        persona_label = "Decision Maker"
     else:
         persona_label = "Influencer / Recommender"
 
-    conf = "High" if top >= 10 else "Medium" if top >= 5 else "Low"
     return {
         "icp_tags": icp_tags,
         "classification_basket": basket_code,
@@ -498,7 +507,7 @@ def compute_icp_basket(lead: Dict[str, Any]) -> Dict[str, Any]:
         "fit_tier": fit_tier,
         "fit_tier_label": fit_label,
         "persona_label": persona_label,
-        "classification_confidence": conf,
+        "classification_confidence": "High" if existing_seg else "Medium",
         "classified_at": datetime.utcnow(),
     }
 
