@@ -742,8 +742,8 @@ def ingest_lead(
             )
             result['email'] = normalized.get('email')
             
-            # Sync to leads_enriched for frontend display (if classified)
-            if merged.get('classification_status') == 'Classified':
+            # Sync to leads_enriched for frontend display (if classified or gmail)
+            if merged.get('classification_status') == 'Classified' or source == 'gmail':
                 enriched_id = sync_to_enriched(merged, str(existing['_id']))
                 if enriched_id:
                     leads_raw.update_one(
@@ -828,8 +828,8 @@ def ingest_lead(
             # Step 6: Insert into leads_raw
             insert_result = leads_raw.insert_one(normalized)
 
-            # Sync to leads_enriched for frontend display (if classified)
-            if normalized.get('classification_status') == 'Classified':
+            # Sync to leads_enriched for frontend display (if classified or gmail)
+            if normalized.get('classification_status') == 'Classified' or source == 'gmail':
                 enriched_id = sync_to_enriched(normalized, str(insert_result.inserted_id))
                 if enriched_id:
                     leads_raw.update_one(

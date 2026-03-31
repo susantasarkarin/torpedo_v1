@@ -100,6 +100,10 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
             "gemini_api_key_6": stored.get("gemini_api_key_6", os.getenv("GEMINI_API_KEY_6", "")),
             "gemini_api_key_7": stored.get("gemini_api_key_7", os.getenv("GEMINI_API_KEY_7", "")),
             "google_sheets_service_account": stored.get("google_sheets_service_account", os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT", "")),
+            # Skrapp.io API keys (3 accounts, 150 searches/month each)
+            "skrapp_api_key_1": stored.get("skrapp_api_key_1", os.getenv("SKRAPP_API_KEY_1", "")),
+            "skrapp_api_key_2": stored.get("skrapp_api_key_2", os.getenv("SKRAPP_API_KEY_2", "")),
+            "skrapp_api_key_3": stored.get("skrapp_api_key_3", os.getenv("SKRAPP_API_KEY_3", "")),
         }
         
         # Mask sensitive fields for display
@@ -109,7 +113,8 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
             "openai_api_key",
             "gemini_api_key_1", "gemini_api_key_2", "gemini_api_key_3", "gemini_api_key_4",
             "gemini_api_key_5", "gemini_api_key_6", "gemini_api_key_7",
-            "google_sheets_service_account"
+            "google_sheets_service_account",
+            "skrapp_api_key_1", "skrapp_api_key_2", "skrapp_api_key_3"
         ]
         for field in sensitive_fields:
             if masked_settings.get(field):
@@ -159,7 +164,8 @@ async def save_app_settings(
             "openai_api_key",
             "gemini_api_key_1", "gemini_api_key_2", "gemini_api_key_3", "gemini_api_key_4",
             "gemini_api_key_5", "gemini_api_key_6", "gemini_api_key_7",
-            "google_sheets_service_account"
+            "google_sheets_service_account",
+            "skrapp_api_key_1", "skrapp_api_key_2", "skrapp_api_key_3"
         ]
         
         filtered_settings = {k: v for k, v in settings.items() if k in allowed_keys and v is not None}

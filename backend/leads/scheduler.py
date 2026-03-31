@@ -92,6 +92,7 @@ class LeadSchedulerState:
             self.current_hour = state.get("current_hour", datetime.utcnow().hour)
             self.current_day = state.get("current_day", datetime.utcnow().date().isoformat())
             self.search_config = state.get("search_config", {})
+            self.leads_per_icp = state.get("leads_per_icp", {})
             self.error_count = state.get("error_count", 0)
             self.last_error = state.get("last_error")
         else:
@@ -108,6 +109,7 @@ class LeadSchedulerState:
         self.current_hour = datetime.utcnow().hour
         self.current_day = datetime.utcnow().date().isoformat()
         self.search_config = {}
+        self.leads_per_icp = {}
         self.error_count = 0
         self.last_error = None
         self.save_state()
@@ -126,6 +128,7 @@ class LeadSchedulerState:
                 "current_hour": self.current_hour,
                 "current_day": self.current_day,
                 "search_config": self.search_config,
+                "leads_per_icp": self.leads_per_icp,
                 "error_count": self.error_count,
                 "last_error": self.last_error
             }},
@@ -146,6 +149,7 @@ class LeadSchedulerState:
         if current_day != self.current_day:
             self.leads_today = 0
             self.queries_today = 0
+            self.leads_per_icp = {}  # reset per-ICP daily counts
             self.current_day = current_day
             self.save_state()
     
@@ -264,10 +268,11 @@ def generate_search_queries(config: dict, count: int = 10) -> List[str]:
 
 # ============== MAIN SCHEDULER LOOP ==============
 
-async def run_search_batch(queries: List[str], state: LeadSchedulerState) -> int:
+async def run_search_batch(queries: List[str], state: LeadSchedulerState, icp_segment: Optional[str] = None) -> int:
     """
     Run a batch of search queries and import leads.
-    
+    icp_segment: ICP slug to tag imported leads (e.g. 'bimwave').
+
     Returns:
         Number of new leads imported
     """
@@ -323,8 +328,8 @@ async def run_search_batch(queries: List[str], state: LeadSchedulerState) -> int
             if leads_found:
                 # Import leads
                 lead_inputs = [LeadInput(**lead) for lead in leads_found]
-                result = import_leads(lead_inputs)
-                
+                result = import_leads(lead_inputs, icp_segment=icp_segment)
+
                 imported = result.imported
                 total_imported += imported
                 
@@ -333,6 +338,9 @@ async def run_search_batch(queries: List[str], state: LeadSchedulerState) -> int
                 state.leads_this_hour += imported
                 state.queries_today += 1
                 state.last_run_at = datetime.utcnow()
+                # Track per-ICP count if segment provided
+                if icp_segment:
+                    state.leads_per_icp[icp_segment] = state.leads_per_icp.get(icp_segment, 0) + imported
                 state.save_state()
                 
                 state.log_activity("search_batch", {
@@ -897,8 +905,44 @@ async def scheduler_loop():
             print(f"\n[Scheduler] === PARALLEL Cycle {cycle_count} ===")
             print(f"[Scheduler] Today: {scheduler_state.leads_today}/{DAILY_TARGET}, This hour: {scheduler_state.leads_this_hour}/{HOURLY_TARGET}")
             
-            # Generate search queries for this batch
-            queries = generate_search_queries(scheduler_state.search_config, QUERIES_PER_BATCH)
+            # Generate search queries for this batch — ICP round-robin if ICPs are configured
+            try:
+                from .icp_config import get_active_icps
+                active_icps = get_active_icps()
+            except Exception:
+                active_icps = []
+
+            if active_icps:
+                # Round-robin over ICPs to generate queries and run searches
+                icp_search_tasks = []
+                for icp in active_icps:
+                    icp_slug = icp["slug"]
+                    icp_budget = icp.get("daily_budget", DAILY_TARGET // max(len(active_icps), 1))
+                    already_today = scheduler_state.leads_per_icp.get(icp_slug, 0)
+                    if already_today >= icp_budget:
+                        print(f"[Scheduler] ICP '{icp_slug}' budget reached ({already_today}/{icp_budget}), skipping")
+                        continue
+                    # Build config for query generation from ICP fields
+                    icp_config = {
+                        "designations": icp.get("designations", []),
+                        "countries": icp.get("countries", []),
+                        "seniorities": icp.get("seniority_levels", []),
+                        "custom_query": icp.get("custom_context", ""),
+                        "industries": icp.get("industries", []),
+                    }
+                    queries = generate_search_queries(icp_config, QUERIES_PER_BATCH)
+                    icp_search_tasks.append(
+                        run_search_batch(queries, scheduler_state, icp_segment=icp_slug)
+                    )
+
+                if not icp_search_tasks:
+                    # All ICPs hit their daily budget — fall through to generic search for remaining budget
+                    queries = generate_search_queries(scheduler_state.search_config, QUERIES_PER_BATCH)
+                    icp_search_tasks = [run_search_batch(queries, scheduler_state)]
+            else:
+                # No ICPs configured — use generic query generation (backwards-compatible)
+                queries = generate_search_queries(scheduler_state.search_config, QUERIES_PER_BATCH)
+                icp_search_tasks = [run_search_batch(queries, scheduler_state)]
             
             # ================================================================
             # RUN ALL 6 TASKS IN PARALLEL using asyncio.gather
@@ -907,8 +951,8 @@ async def scheduler_loop():
             print("[Scheduler] Tasks: Search | Lead Class | Email Class | Company Enrich | Email Summary | Lead Scoring")
             
             results = await asyncio.gather(
-                # Task 1: Web Search for new leads (Google CSE)
-                run_search_batch(queries, scheduler_state),
+                # Task 1: Web Search for new leads (Google CSE) — ICP round-robin or generic
+                *icp_search_tasks,
                 # Task 2: Classify pending leads (OpenAI, 20/batch)
                 run_classification_batch(scheduler_state),
                 # Task 3: Classify emails (Gemini via ai_governance, 10/batch)
@@ -922,13 +966,18 @@ async def scheduler_loop():
                 # Return exceptions instead of raising them
                 return_exceptions=True
             )
+
+            # Rebuild task names dynamically to match gather results
+            icp_names = [f"Search[{icp['slug']}]" for icp in active_icps if scheduler_state.leads_per_icp.get(icp['slug'], 0) < icp.get('daily_budget', DAILY_TARGET)] if active_icps else ["Search"]
+            if not icp_names:
+                icp_names = ["Search"]
             
             # ================================================================
-            # PROCESS ALL 6 RESULTS
+            # PROCESS ALL RESULTS (ICP search tasks + 5 fixed tasks)
             # ================================================================
-            task_names = ["Search", "Lead Classification", "Email Classification", 
-                          "Company Enrichment", "Email Summary", "Lead Scoring"]
-            
+            task_names = icp_names + ["Lead Classification", "Email Classification",
+                                      "Company Enrichment", "Email Summary", "Lead Scoring"]
+
             for i, (name, result) in enumerate(zip(task_names, results)):
                 if isinstance(result, Exception):
                     print(f"[Scheduler] ⚠️ {name} error: {result}")

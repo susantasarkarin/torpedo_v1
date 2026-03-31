@@ -115,7 +115,15 @@ class EmailPatternSystem:
         if pattern:
             self._store_pattern(pattern)
             return pattern
-        
+
+        # Tier 2.5: Skrapp.io company email pattern discovery
+        skrapp_pattern_str = self.discover_company_email_pattern(domain)
+        if skrapp_pattern_str:
+            # Pattern already stored by discover_company_email_pattern; return from DB
+            stored = self._lookup_database(domain)
+            if stored:
+                return stored
+
         # Tier 3: Hunter.io API
         if self.hunter_api_key:
             pattern = self._hunter_lookup(domain)
@@ -447,8 +455,230 @@ class EmailPatternSystem:
         
         return False
     
+    # ================================================================
+    # SKRAPP.IO COMPANY EMAIL PATTERN DISCOVERY (3 Accounts)
+    # ================================================================
+
+    def _load_skrapp_keys(self) -> List[str]:
+        """Load up to 3 Skrapp API keys from settings DB or environment."""
+        keys = []
+        try:
+            cfg = self.settings_db["app_settings"].find_one({"_id": "app_config"}) or {}
+            for i in range(1, 4):
+                k = cfg.get(f"skrapp_api_key_{i}") or os.getenv(f"SKRAPP_API_KEY_{i}", "")
+                if k:
+                    keys.append(k)
+        except Exception:
+            pass
+        # Also check legacy single key
+        if not keys:
+            single = os.getenv("SKRAPP_API_KEY", "")
+            if single:
+                keys.append(single)
+        return keys
+
+    def get_skrapp_account_with_capacity(self) -> Optional[Dict]:
+        """
+        Return the Skrapp account dict with the most remaining searches this month,
+        or None if all accounts are exhausted or no keys are configured.
+        Returns: {"account_index": int (1-based), "key": str, "remaining": int}
+        """
+        keys = self._load_skrapp_keys()
+        if not keys:
+            return None
+
+        month = datetime.utcnow().strftime("%Y-%m")
+        skrapp_usage = self.db["skrapp_usage"]
+        best = None
+
+        for i, key in enumerate(keys, start=1):
+            usage_doc = skrapp_usage.find_one({"account_id": str(i), "month": month}) or {}
+            used = usage_doc.get("searches_used", 0)
+            limit = usage_doc.get("searches_limit", 150)
+            remaining = limit - used
+            if remaining > 0:
+                if best is None or remaining > best["remaining"]:
+                    best = {"account_index": i, "key": key, "remaining": remaining}
+
+        return best
+
+    def increment_skrapp_usage(self, account_index: int):
+        """Increment the monthly search counter for a Skrapp account."""
+        month = datetime.utcnow().strftime("%Y-%m")
+        self.db["skrapp_usage"].update_one(
+            {"account_id": str(account_index), "month": month},
+            {
+                "$inc": {"searches_used": 1},
+                "$setOnInsert": {"searches_limit": 150, "account_id": str(account_index), "month": month},
+            },
+            upsert=True,
+        )
+
+    def _extract_pattern_from_email(self, email: str, domain: str) -> Optional[str]:
+        """
+        Extract a pattern string from a discovered email address.
+        e.g. "alice.jones@acme.com" → "{first}.{last}@{domain}"
+        """
+        if not email or "@" not in email:
+            return None
+        local = email.split("@")[0].lower()
+        # Try to match common patterns
+        if "." in local and len(local.split(".")) == 2:
+            return "{first}.{last}@{domain}"
+        if "_" in local and len(local.split("_")) == 2:
+            return "{first}_{last}@{domain}"
+        if len(local) > 1 and local[1:].isalpha():
+            # Looks like initial+last (e.g. "ajones")
+            return "{f}{last}@{domain}"
+        if local.isalpha():
+            return "{first}@{domain}"
+        return "{first}.{last}@{domain}"  # safest default
+
+    def discover_company_email_pattern(
+        self,
+        domain: str,
+        sample_first: str = "test",
+        sample_last: str = "user",
+    ) -> Optional[str]:
+        """
+        Tier 2.5: Call Skrapp.io to discover a company email pattern.
+        PURPOSE: Company-wide pattern discovery, NOT individual email lookup.
+
+        - Skips if domain already has a pattern with confidence >= 0.8.
+        - Rotates across up to 3 Skrapp accounts via monthly usage counter.
+        - Stores discovered pattern in email_patterns collection.
+        - Returns the pattern string (e.g. "{first}.{last}@{domain}") or None.
+        """
+        domain = self._extract_domain(domain)
+        if not domain:
+            return None
+
+        # Skip if we already have a high-confidence pattern
+        existing = self._lookup_database(domain)
+        if existing and existing.get("confidence", 0) >= 0.8:
+            return existing.get("pattern")
+
+        account = self.get_skrapp_account_with_capacity()
+        if not account:
+            return None  # All accounts exhausted or no keys configured
+
+        try:
+            import requests as _requests
+            resp = _requests.post(
+                "https://app.skrapp.io/api/v2/email-finder",
+                json={"domain": domain, "firstName": sample_first, "lastName": sample_last},
+                headers={"Authorization": f"Bearer {account['key']}"},
+                timeout=15,
+            )
+            self.increment_skrapp_usage(account["account_index"])
+
+            if resp.status_code == 200:
+                data = resp.json()
+                found_email = (data.get("email") or "").lower().strip()
+                if found_email and domain in found_email:
+                    # Use Skrapp-returned pattern if available, otherwise extract from email
+                    skrapp_pattern = data.get("pattern", "")
+                    if skrapp_pattern:
+                        # Skrapp returns patterns like "{first}.{last}" — append domain
+                        if "@" not in skrapp_pattern:
+                            pattern_str = f"{skrapp_pattern}@{{domain}}"
+                        else:
+                            pattern_str = skrapp_pattern
+                    else:
+                        pattern_str = self._extract_pattern_from_email(found_email, domain)
+
+                    if pattern_str:
+                        pattern_doc = {
+                            "domain": domain,
+                            "pattern": pattern_str,
+                            "confidence": 0.9,
+                            "source": "skrapp",
+                            "examples": [found_email],
+                            "discovered_at": datetime.now(),
+                            "last_verified": datetime.now(),
+                            "skrapp_account": account["account_index"],
+                        }
+                        self._store_pattern(pattern_doc)
+                        print(f"[Skrapp] Pattern discovered for {domain}: {pattern_str}")
+                        return pattern_str
+
+        except Exception as e:
+            print(f"[Skrapp] API error for {domain}: {e}")
+
+        return None
+
+    def apply_pattern_to_domain_leads(self, domain: str, pattern_str: str) -> int:
+        """
+        Apply a discovered email pattern to all existing leads in leads_enriched
+        from the same company domain that currently have no email.
+        Returns count of leads updated.
+        """
+        if not domain or not pattern_str:
+            return 0
+
+        enriched = self.db["leads_enriched"]
+        leads_without_email = list(enriched.find(
+            {
+                "company_domain": domain,
+                "$or": [{"email": None}, {"email": ""}, {"email": {"$exists": False}}],
+                "first_name": {"$exists": True, "$ne": None, "$ne": ""},
+            },
+            {"_id": 1, "first_name": 1, "last_name": 1},
+        ))
+
+        updated = 0
+        for lead in leads_without_email:
+            first = (lead.get("first_name") or "").lower().strip()
+            last = (lead.get("last_name") or "").lower().strip()
+            if not first:
+                continue
+            try:
+                derived_email = pattern_str.format(
+                    first=first,
+                    last=last,
+                    f=first[0] if first else "",
+                    l=last[0] if last else "",
+                    domain=domain,
+                )
+                enriched.update_one(
+                    {"_id": lead["_id"]},
+                    {"$set": {
+                        "email": derived_email,
+                        "email_source": "pattern_derived",
+                        "updated_at": datetime.utcnow(),
+                    }},
+                )
+                # Also update leads_raw
+                self.db["leads_raw"].update_one(
+                    {"enriched_lead_id": str(lead["_id"])},
+                    {"$set": {"email": derived_email, "email_source": "pattern_derived", "updated_at": datetime.utcnow()}},
+                )
+                updated += 1
+            except (KeyError, IndexError):
+                continue
+
+        if updated:
+            print(f"[Skrapp] Derived emails for {updated} leads from domain {domain} using pattern {pattern_str}")
+        return updated
+
+    def get_skrapp_usage_stats(self) -> List[Dict]:
+        """Return monthly Skrapp usage stats for all 3 accounts."""
+        month = datetime.utcnow().strftime("%Y-%m")
+        keys = self._load_skrapp_keys()
+        stats = []
+        for i in range(1, 4):
+            doc = self.db["skrapp_usage"].find_one({"account_id": str(i), "month": month}) or {}
+            stats.append({
+                "account": i,
+                "month": month,
+                "searches_used": doc.get("searches_used", 0),
+                "searches_limit": doc.get("searches_limit", 150),
+                "remaining": doc.get("searches_limit", 150) - doc.get("searches_used", 0),
+                "key_configured": i <= len(keys),
+            })
+        return stats
+
     def get_stats(self) -> Dict:
-        """Get pattern system statistics"""
         total_patterns = self.patterns_collection.count_documents({})
         
         by_source = list(self.patterns_collection.aggregate([

@@ -1573,6 +1573,17 @@ async def startup_event():
     """Initialize scheduler and start background jobs"""
     global cpx_refresh_job
     
+    # Seed default ICP configs (idempotent)
+    try:
+        try:
+            from .leads.icp_config import seed_default_icps
+        except ImportError:
+            from leads.icp_config import seed_default_icps
+        seed_default_icps()
+        print("✅ ICP configs seeded")
+    except Exception as e:
+        print(f"⚠️ ICP seed error: {e}")
+
     # Initialize Clay-Level Features
     try:
         try:

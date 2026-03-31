@@ -31,7 +31,7 @@ search_plans_cache = db['search_plans_cache']
 
 # Create TTL index (24 hour cache for search plans)
 try:
-    search_plans_cache.create_index("created_at", expireAfterSeconds=24 * 60 * 60)
+    search_plans_cache.create_index("created_at", expireAfterSeconds=72 * 60 * 60)
     search_plans_cache.create_index("plan_hash", unique=True)
 except:
     pass
