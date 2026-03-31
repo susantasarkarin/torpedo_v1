@@ -39,6 +39,15 @@ function Outreach() {
   const [editSteps, setEditSteps] = useState({})  // { campaign_id: { 1: {subject, body_html}, ... } }
   const [savingStep, setSavingStep] = useState(null)
 
+  // Test email state per step
+  const [testRecipient, setTestRecipient] = useState({})   // { "cid-step": email }
+  const [sendingTest, setSendingTest] = useState(null)     // "cid-step" while sending
+  const [showTestInput, setShowTestInput] = useState({})   // { "cid-step": bool }
+
+  // Business context per campaign
+  const [contextDraft, setContextDraft] = useState({})    // { campaign_id: { description, ... } }
+  const [savingContext, setSavingContext] = useState(false)
+
   // Mailbox add form
   const [showAddMailbox, setShowAddMailbox] = useState(false)
   const [mailboxForm, setMailboxForm] = useState({
@@ -159,6 +168,51 @@ function Outreach() {
     setSavingStep(null)
     if (res.ok) { flash(`Step ${stepNum} saved`); fetchAll() }
     else flash("Save failed")
+  }
+
+  const sendTestEmail = async (campaignId, stepNum) => {
+    const stepKey = `${campaignId}-${stepNum}`
+    const recipient = testRecipient[stepKey] || ""
+    if (!recipient.trim()) { flash("Enter a recipient email first"); return }
+    setSendingTest(stepKey)
+    const res = await fetch(
+      buildApiUrl(`/api/cold-outreach/campaigns/${campaignId}/steps/${stepNum}/test`),
+      { method: "POST", headers: AUTH(), body: JSON.stringify({ recipient_email: recipient }) }
+    )
+    setSendingTest(null)
+    if (res.ok) {
+      const d = await res.json()
+      flash(`✓ Test sent to ${d.sent_to} from ${d.from}`)
+      setShowTestInput(prev => ({ ...prev, [stepKey]: false }))
+    } else {
+      const d = await res.json().catch(() => ({}))
+      flash(`Send failed: ${d.detail || "unknown error"}`)
+    }
+  }
+
+  const getContextDraft = (campaignId) => {
+    if (contextDraft[campaignId]) return contextDraft[campaignId]
+    const campaign = campaigns.find(c => c.campaign_id === campaignId)
+    return campaign?.business_context || { description: "", value_proposition: "", target_customer: "", tone: "professional", sender_name: "", sender_title: "" }
+  }
+
+  const setContextField = (campaignId, field, value) => {
+    setContextDraft(prev => ({
+      ...prev,
+      [campaignId]: { ...getContextDraft(campaignId), [field]: value },
+    }))
+  }
+
+  const saveContext = async (campaignId) => {
+    setSavingContext(true)
+    const data = getContextDraft(campaignId)
+    const res = await fetch(
+      buildApiUrl(`/api/cold-outreach/campaigns/${campaignId}/context`),
+      { method: "PUT", headers: AUTH(), body: JSON.stringify(data) }
+    )
+    setSavingContext(false)
+    if (res.ok) { flash("Business context saved"); fetchAll() }
+    else flash("Failed to save context")
   }
 
   const enrollDualFit = async () => {
@@ -337,6 +391,7 @@ function Outreach() {
           <div style={{ display: "flex", borderBottom: "1px solid #e5e7eb", background: "#f9fafb" }}>
             {[
               { key: "templates", label: "📝 Templates" },
+              { key: "context",   label: "🏢 AI Context" },
               { key: "stats",     label: "📊 Stats" },
               { key: "mailboxes", label: "📬 Mailboxes" },
               { key: "suppression", label: "🚫 Suppression" },
@@ -395,13 +450,39 @@ function Outreach() {
                               rows={8}
                               style={{ width: "100%", marginTop: 4, marginBottom: 12, padding: "10px 12px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: "0.85rem", fontFamily: "monospace", resize: "vertical", boxSizing: "border-box" }}
                             />
-                            <button
-                              disabled={savingStep === stepKey}
-                              onClick={() => saveStep(selectedCampaign.campaign_id, stepNum)}
-                              style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: "#2563eb", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "0.9rem", opacity: savingStep === stepKey ? 0.6 : 1 }}
-                            >
-                              {savingStep === stepKey ? "Saving…" : "💾 Save Step"}
-                            </button>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                              <button
+                                disabled={savingStep === stepKey}
+                                onClick={() => saveStep(selectedCampaign.campaign_id, stepNum)}
+                                style={{ padding: "8px 20px", borderRadius: 8, border: "none", background: "#2563eb", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "0.9rem", opacity: savingStep === stepKey ? 0.6 : 1 }}
+                              >
+                                {savingStep === stepKey ? "Saving…" : "💾 Save Step"}
+                              </button>
+                              <button
+                                onClick={() => setShowTestInput(prev => ({ ...prev, [stepKey]: !prev[stepKey] }))}
+                                style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontWeight: 500, cursor: "pointer", fontSize: "0.85rem" }}
+                              >
+                                📧 Send Test
+                              </button>
+                            </div>
+                            {showTestInput[stepKey] && (
+                              <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center", background: "#fef9c3", padding: "10px 14px", borderRadius: 8, border: "1px solid #fbbf24" }}>
+                                <input
+                                  type="email"
+                                  placeholder="your@email.com"
+                                  value={testRecipient[stepKey] || ""}
+                                  onChange={e => setTestRecipient(prev => ({ ...prev, [stepKey]: e.target.value }))}
+                                  style={{ flex: 1, padding: "7px 12px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: "0.875rem" }}
+                                />
+                                <button
+                                  disabled={sendingTest === stepKey}
+                                  onClick={() => sendTestEmail(selectedCampaign.campaign_id, stepNum)}
+                                  style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: "#d97706", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem", opacity: sendingTest === stepKey ? 0.6 : 1 }}
+                                >
+                                  {sendingTest === stepKey ? "Sending…" : "Send"}
+                                </button>
+                              </div>
+                            )}
                           </div>
                         )
                       })}
@@ -409,6 +490,17 @@ function Outreach() {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* ── Context tab ───────────────────────────────────────────── */}
+            {activeTab === "context" && (
+              <ContextPanel
+                campaign={selectedCampaign}
+                draft={getContextDraft(selectedCampaign?.campaign_id)}
+                onChange={(field, val) => setContextField(selectedCampaign?.campaign_id, field, val)}
+                onSave={() => saveContext(selectedCampaign?.campaign_id)}
+                saving={savingContext}
+              />
             )}
 
             {/* ── Stats tab ──────────────────────────────────────────────── */}
@@ -630,6 +722,89 @@ function MailboxTable({ mailboxes, filterBiz, onRemove }) {
         ))}
       </tbody>
     </table>
+  )
+}
+
+function ContextPanel({ campaign, draft, onChange, onSave, saving }) {
+  if (!campaign) return <p style={{ color: "#6b7280" }}>Create a campaign first.</p>
+
+  const TONE_OPTIONS = ["professional", "friendly", "direct", "conversational"]
+
+  const fields = [
+    { key: "description",       label: "What does this business do?",         rows: 3, ph: "We are a market research firm specialising in consumer insights across South Asia…" },
+    { key: "value_proposition", label: "Value proposition (1–2 sentences)",   rows: 2, ph: "We help brands cut research costs by 40% with our proprietary panel network…" },
+    { key: "target_customer",   label: "Ideal customer / target persona",      rows: 2, ph: "VP of Research, Head of Insights, or CMO at FMCG / pharma / retail companies…" },
+  ]
+
+  return (
+    <div>
+      <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: 16, marginBottom: 24 }}>
+        <strong style={{ color: "#1e40af" }}>🤖 AI uses this context</strong>
+        <p style={{ margin: "6px 0 0", color: "#374151", fontSize: "0.875rem" }}>
+          When generating icebreakers or personalising email copy, the AI will draw on this information
+          to write in the right voice, reference the right value, and speak to the right buyer.
+          Fill in as much as you can — more detail = better emails.
+        </p>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        {fields.map(({ key, label, rows, ph }) => (
+          <div key={key}>
+            <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600, display: "block", marginBottom: 6 }}>
+              {label.toUpperCase()}
+            </label>
+            <textarea
+              rows={rows}
+              value={draft[key] || ""}
+              onChange={e => onChange(key, e.target.value)}
+              placeholder={ph}
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: "0.875rem", resize: "vertical", boxSizing: "border-box" }}
+            />
+          </div>
+        ))}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+          <div>
+            <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600, display: "block", marginBottom: 6 }}>SENDER NAME</label>
+            <input
+              value={draft.sender_name || ""}
+              onChange={e => onChange("sender_name", e.target.value)}
+              placeholder="e.g. Indira Sharma"
+              style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: "0.875rem", boxSizing: "border-box" }}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600, display: "block", marginBottom: 6 }}>SENDER TITLE</label>
+            <input
+              value={draft.sender_title || ""}
+              onChange={e => onChange("sender_title", e.target.value)}
+              placeholder="e.g. Head of Partnerships"
+              style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: "0.875rem", boxSizing: "border-box" }}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600, display: "block", marginBottom: 6 }}>EMAIL TONE</label>
+            <select
+              value={draft.tone || "professional"}
+              onChange={e => onChange("tone", e.target.value)}
+              style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: "0.875rem", boxSizing: "border-box" }}
+            >
+              {TONE_OPTIONS.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <button
+            onClick={onSave}
+            disabled={saving}
+            style={{ padding: "10px 28px", borderRadius: 8, border: "none", background: "#2563eb", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "0.9rem", opacity: saving ? 0.6 : 1 }}
+          >
+            {saving ? "Saving…" : "💾 Save Context"}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

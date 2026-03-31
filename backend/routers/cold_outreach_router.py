@@ -104,6 +104,20 @@ class ManualSuppressionRequest(BaseModel):
     reason: Optional[str] = "manual"
 
 
+class BusinessContextRequest(BaseModel):
+    description: str = ""
+    value_proposition: str = ""
+    target_customer: str = ""
+    tone: str = "professional"       # professional | friendly | direct
+    sender_name: str = ""
+    sender_title: str = ""
+
+
+class SendTestEmailRequest(BaseModel):
+    recipient_email: str
+    step_number: int = 1
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _oid(doc) -> str:
@@ -298,6 +312,104 @@ def update_step_template(campaign_id: str, step_number: int, req: UpdateStepRequ
         {"$set": {"steps": steps, "updated_at": datetime.utcnow()}},
     )
     return {"ok": True, "steps": steps}
+
+
+@router.put("/campaigns/{campaign_id}/context")
+def update_business_context(campaign_id: str, req: BusinessContextRequest):
+    """Save AI business context for a campaign. Used to personalise icebreakers."""
+    db = get_db()
+    campaign = db["outreach_campaigns_v2"].find_one({"campaign_id": campaign_id})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+
+    db["outreach_campaigns_v2"].update_one(
+        {"campaign_id": campaign_id},
+        {"$set": {
+            "business_context": req.dict(),
+            "updated_at": datetime.utcnow(),
+        }},
+    )
+    return {"ok": True}
+
+
+@router.post("/campaigns/{campaign_id}/steps/{step_number}/test")
+def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailRequest):
+    """
+    Send a test version of one step to a given address.
+    Tokens are replaced with sample placeholder values.
+    Uses the first active SMTP mailbox for this campaign's business.
+    """
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    db = get_db()
+    campaign = db["outreach_campaigns_v2"].find_one({"campaign_id": campaign_id})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+
+    step = next((s for s in campaign.get("steps", []) if s["step_number"] == step_number), None)
+    if not step:
+        raise HTTPException(404, f"Step {step_number} not found")
+
+    if not step.get("subject") and not step.get("body_html"):
+        raise HTTPException(400, "Step has no content yet — save the template first")
+
+    # Find first active mailbox for this business
+    mailbox = db["outreach_mailboxes"].find_one({"business": campaign["business"], "is_active": True})
+    if not mailbox:
+        raise HTTPException(400, "No active mailbox found for this business — add one in the Mailboxes tab first")
+
+    # Replace tokens with sample data
+    sample = {
+        "{{first_name}}": "Alex",
+        "{{last_name}}": "Johnson",
+        "{{company}}": "Acme Corp",
+        "{{title}}": "Head of Research",
+        "{{industry}}": "Market Research",
+        "{{sender_name}}": mailbox.get("display_name", "Team"),
+    }
+
+    def _replace(text: str) -> str:
+        for token, val in sample.items():
+            text = text.replace(token, val)
+        return text
+
+    subject = _replace(step.get("subject", "(no subject)"))
+    body_html = _replace(step.get("body_html", ""))
+    body_text = body_html.replace("<br>", "\n").replace("<br/>", "\n")
+    # Strip remaining HTML tags for plain text
+    import re
+    body_text = re.sub(r"<[^>]+>", "", body_text)
+
+    # Build test banner
+    test_banner = (
+        f'<div style="background:#fef9c3;border:1px solid #fbbf24;padding:10px 14px;'
+        f'border-radius:6px;margin-bottom:16px;font-family:sans-serif;font-size:13px;">'
+        f'<strong>⚠️ TEST EMAIL</strong> — Step {step_number} of campaign '
+        f'<em>{campaign.get("name", campaign_id)}</em>. '
+        f'Tokens replaced with sample data.</div>'
+    )
+
+    msg = MIMEMultipart("alternative")
+    msg["From"] = f"{mailbox['display_name']} <{mailbox['email_address']}>"
+    msg["To"] = req.recipient_email
+    msg["Subject"] = f"[TEST] {subject}"
+
+    msg.attach(MIMEText(f"TEST EMAIL\n{body_text}", "plain"))
+    msg.attach(MIMEText(test_banner + body_html, "html"))
+
+    try:
+        with smtplib.SMTP(mailbox["smtp_host"], mailbox["smtp_port"]) as server:
+            server.starttls()
+            server.login(mailbox["smtp_username"], mailbox["smtp_password"])
+            server.send_message(msg)
+    except Exception as e:
+        logger.error(f"Test email send failed: {e}")
+        raise HTTPException(500, f"SMTP error: {e}")
+
+    logger.info(f"Test email for step {step_number} sent to {req.recipient_email} via {mailbox['email_address']}")
+    return {"ok": True, "sent_to": req.recipient_email, "from": mailbox["email_address"]}
 
 
 @router.post("/campaigns/{campaign_id}/launch")
