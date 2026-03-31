@@ -332,6 +332,149 @@ def update_business_context(campaign_id: str, req: BusinessContextRequest):
     return {"ok": True}
 
 
+@router.post("/campaigns/{campaign_id}/steps/{step_number}/generate")
+def generate_step_email(campaign_id: str, step_number: int):
+    """
+    Use GPT-4o-mini to generate a full cold email (subject + body) for a given step.
+
+    The email will contain live placeholder tokens ({{first_name}}, {{company}}, etc.)
+    so each recipient gets a personalised version at send time.
+
+    Requires business_context to be saved on the campaign first (via the AI Context tab).
+    """
+    import openai as _openai
+
+    db = get_db()
+    campaign = db["outreach_campaigns_v2"].find_one({"campaign_id": campaign_id})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+
+    ctx = campaign.get("business_context") or {}
+    if not ctx.get("description") and not ctx.get("value_proposition"):
+        raise HTTPException(
+            400,
+            "No business context saved yet — fill in the AI Context tab first so the AI knows what to write."
+        )
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(500, "OPENAI_API_KEY not configured on the server")
+
+    _openai.api_key = api_key
+
+    # Step metadata
+    day_labels = {1: "Day 1 (initial outreach)", 2: "Day 4 (first follow-up)",
+                  3: "Day 7 (second follow-up)", 4: "Day 12 (final bump)"}
+    step_label = day_labels.get(step_number, f"Step {step_number}")
+
+    step_instructions = {
+        1: (
+            "This is the FIRST cold email. It should introduce the sender, explain the value briefly, "
+            "and end with a soft call-to-action (e.g. open to a quick call / happy to share more). "
+            "Do not be pushy. Keep it under 150 words."
+        ),
+        2: (
+            "This is the FIRST follow-up. The prospect has not replied. "
+            "Reference the previous email briefly, add a new angle or stat, keep it under 100 words. "
+            "Soft CTA only."
+        ),
+        3: (
+            "This is the SECOND follow-up. Keep it very short (under 75 words). "
+            "Add a different hook or a brief case study reference. Stay low-pressure."
+        ),
+        4: (
+            "This is the FINAL follow-up (break-up email). Under 60 words. "
+            "Acknowledge it may not be the right time, leave the door open, no hard sell."
+        ),
+    }
+
+    tone_map = {
+        "professional": "formal and professional",
+        "friendly":     "warm, friendly, and approachable",
+        "direct":       "direct and concise — no fluff",
+        "conversational": "conversational, as if from one human to another",
+    }
+
+    prompt = f"""You are an expert B2B cold email copywriter.
+
+Write a complete cold outreach email for Step {step_number} ({step_label}).
+
+--- ABOUT OUR BUSINESS ---
+Business: {campaign.get("business_label", campaign.get("business", ""))}
+Description: {ctx.get("description", "")}
+Value proposition: {ctx.get("value_proposition", "")}
+Ideal customer: {ctx.get("target_customer", "")}
+Sender name: {ctx.get("sender_name", "{{sender_name}}")}
+Sender title: {ctx.get("sender_title", "")}
+Tone: {tone_map.get(ctx.get("tone", "professional"), "professional")}
+
+--- STEP INSTRUCTIONS ---
+{step_instructions.get(step_number, "Write a relevant follow-up email.")}
+
+--- OUTPUT FORMAT ---
+Write ONLY the following two sections, exactly as shown:
+
+SUBJECT: <the subject line>
+
+BODY:
+<the email body>
+
+--- PLACEHOLDER TOKENS ---
+You MUST use these tokens exactly (they are replaced per recipient at send time):
+  {{{{first_name}}}}   — recipient's first name
+  {{{{company}}}}      — recipient's company name
+  {{{{title}}}}        — recipient's job title
+  {{{{industry}}}}     — recipient's industry
+
+Use at least {{{{first_name}}}} and {{{{company}}}} in the body.
+Do not invent specific company facts — keep it general enough to apply to any recipient.
+Do not write a signature block — the system appends one automatically.
+"""
+
+    try:
+        response = _openai.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a professional B2B cold email copywriter. Follow instructions precisely."},
+                {"role": "user",   "content": prompt},
+            ],
+            max_tokens=500,
+            temperature=0.72,
+        )
+    except Exception as e:
+        logger.error(f"OpenAI generate_step_email failed: {e}")
+        raise HTTPException(500, f"AI generation failed: {e}")
+
+    raw = response.choices[0].message.content.strip()
+
+    # Parse subject and body from output
+    subject = ""
+    body = ""
+    if "SUBJECT:" in raw:
+        parts = raw.split("BODY:", 1)
+        subject_part = parts[0].replace("SUBJECT:", "").strip()
+        subject = subject_part.strip()
+        body = parts[1].strip() if len(parts) > 1 else ""
+    else:
+        # Fallback: first line as subject, rest as body
+        lines = raw.splitlines()
+        subject = lines[0].strip()
+        body = "\n".join(lines[1:]).strip()
+
+    logger.info(
+        f"AI generated step {step_number} for campaign {campaign_id} "
+        f"({response.usage.total_tokens if response.usage else '?'} tokens)"
+    )
+
+    return {
+        "ok": True,
+        "step_number": step_number,
+        "subject": subject,
+        "body_html": body,
+        "tokens_used": response.usage.total_tokens if response.usage else 0,
+    }
+
+
 @router.post("/campaigns/{campaign_id}/steps/{step_number}/test")
 def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailRequest):
     """

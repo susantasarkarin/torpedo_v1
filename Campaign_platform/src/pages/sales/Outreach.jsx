@@ -12,6 +12,11 @@ import { useState, useEffect, useCallback } from "react"
 import { buildApiUrl } from "../../config"
 import "./campaign/AILeads.css"
 
+const spinKeyframes = `@keyframes spin { to { transform: rotate(360deg); } }`
+if (typeof document !== "undefined" && !document.getElementById("spin-kf")) {
+  const s = document.createElement("style"); s.id = "spin-kf"; s.textContent = spinKeyframes; document.head.appendChild(s)
+}
+
 const SESSION_ID = () => localStorage.getItem("session_id") || ""
 const AUTH = () => ({ Authorization: SESSION_ID(), "Content-Type": "application/json" })
 
@@ -43,6 +48,7 @@ function Outreach() {
   const [testRecipient, setTestRecipient] = useState({})   // { "cid-step": email }
   const [sendingTest, setSendingTest] = useState(null)     // "cid-step" while sending
   const [showTestInput, setShowTestInput] = useState({})   // { "cid-step": bool }
+  const [generatingStep, setGeneratingStep] = useState(null) // "cid-step" while AI generating
 
   // Business context per campaign
   const [contextDraft, setContextDraft] = useState({})    // { campaign_id: { description, ... } }
@@ -187,6 +193,30 @@ function Outreach() {
     } else {
       const d = await res.json().catch(() => ({}))
       flash(`Send failed: ${d.detail || "unknown error"}`)
+    }
+  }
+
+  const generateStepWithAI = async (campaignId, stepNum) => {
+    const stepKey = `${campaignId}-${stepNum}`
+    setGeneratingStep(stepKey)
+    const res = await fetch(
+      buildApiUrl(`/api/cold-outreach/campaigns/${campaignId}/steps/${stepNum}/generate`),
+      { method: "POST", headers: AUTH() }
+    )
+    setGeneratingStep(null)
+    if (res.ok) {
+      const d = await res.json()
+      setEditSteps(prev => ({
+        ...prev,
+        [campaignId]: {
+          ...(prev[campaignId] || {}),
+          [stepNum]: { subject: d.subject, body_html: d.body_html },
+        },
+      }))
+      flash(`✨ Step ${stepNum} generated (${d.tokens_used} tokens) — review and save`)
+    } else {
+      const d = await res.json().catch(() => ({}))
+      flash(`AI generation failed: ${d.detail || "unknown error"}`)
     }
   }
 
@@ -421,7 +451,9 @@ function Outreach() {
                 ) : (
                   <div>
                     <p style={{ color: "#6b7280", fontSize: "0.9rem", marginBottom: 20 }}>
-                      Paste your email copy below. Tokens: <code>{"{{first_name}}"}</code> <code>{"{{company}}"}</code> <code>{"{{title}}"}</code> <code>{"{{industry}}"}</code>
+                      Click <strong>✨ Generate with AI</strong> to let GPT-4o-mini write the full email using your business context,
+                      or paste your own copy. Tokens replaced per recipient at send time:&nbsp;
+                      <code>{"{{first_name}}"}</code> <code>{"{{company}}"}</code> <code>{"{{title}}"}</code> <code>{"{{industry}}"}</code>
                     </p>
                     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
                       {[1, 2, 3, 4].map(stepNum => {
@@ -451,6 +483,15 @@ function Outreach() {
                               style={{ width: "100%", marginTop: 4, marginBottom: 12, padding: "10px 12px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: "0.85rem", fontFamily: "monospace", resize: "vertical", boxSizing: "border-box" }}
                             />
                             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                              <button
+                                disabled={generatingStep === stepKey}
+                                onClick={() => generateStepWithAI(selectedCampaign.campaign_id, stepNum)}
+                                style={{ padding: "8px 18px", borderRadius: 8, border: "none", background: generatingStep === stepKey ? "#7c3aed" : "#7c3aed", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "0.9rem", opacity: generatingStep === stepKey ? 0.7 : 1, display: "flex", alignItems: "center", gap: 6 }}
+                              >
+                                {generatingStep === stepKey ? (
+                                  <><span style={{ display: "inline-block", width: 14, height: 14, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Generating…</>
+                                ) : "✨ Generate with AI"}
+                              </button>
                               <button
                                 disabled={savingStep === stepKey}
                                 onClick={() => saveStep(selectedCampaign.campaign_id, stepNum)}
