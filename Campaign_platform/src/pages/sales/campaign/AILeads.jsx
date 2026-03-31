@@ -1792,25 +1792,6 @@ function AILeads() {
                     {/* Expandable Details Row in Compact Mode */}
                     {viewMode === "compact" && expandedLeadId === lead._id && (
                       <tr className="expanded-details-row">
-                        <td colSpan={10}>
-                          <div className="lead-details-panel">
-                            <div className="details-grid">
-                              <div className="detail-group">
-                                <h4>Contact Info</h4>
-                                <p><strong>First Name:</strong> {lead.first_name || "-"}</p>
-                                <p><strong>Last Name:</strong> {lead.last_name || "-"}</p>
-                                <p><strong>Email Status:</strong> <span className={`status-badge ${(lead.email_status || "unknown").toLowerCase().replace(" ", "-")}`}>{lead.email_status || "Unknown"}</span></p>
-                                <p><strong>Location:</strong> {lead.location || "-"}</p>
-                                <p><strong>LinkedIn:</strong> {lead.linkedin_url ? <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer">View Profile ↗</a> : "-"}</p>
-                              </div>
-                              <div className="detail-group">
-                                <h4>Role Details</h4>
-                                <p><strong>Buying Role:</strong> <span className="badge badge-orange">{lead.buying_role || "Unknown"}</span></p>
-                                <p><strong>Added On:</strong> {lead.added_on ? new Date(lead.added_on).toLocaleDateString() : "-"}</p>
-                              </div>
-                    {/* Expandable Details Row in Compact Mode */}
-                    {viewMode === "compact" && expandedLeadId === lead._id && (
-                      <tr className="expanded-details-row">
                         <td colSpan={13}>
                           <div className="lead-details-panel">
                             <div className="details-grid">
