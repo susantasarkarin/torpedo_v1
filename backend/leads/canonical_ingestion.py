@@ -443,8 +443,9 @@ def compute_icp_basket(lead: Dict[str, Any]) -> Dict[str, Any]:
     q_brand = brand_s >= THRESHOLD
     q_aec   = aec_s   >= THRESHOLD
 
-    exclude = (email_status == "predicted") and (confidence < 50)
-    if exclude or (not q_sfw and not q_brand and not q_aec):
+    # Only exclude truly unscored leads (no industry/title signals at all)
+    # Do NOT exclude based on email prediction status — that's orthogonal to ICP fit
+    if not q_sfw and not q_brand and not q_aec:
         basket_code, basket_name = "E", "Nurture / Unqualified"
         icp_tags = ["nurture"]
     elif q_sfw and q_brand:

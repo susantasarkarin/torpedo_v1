@@ -481,6 +481,27 @@ function AILeads() {
         fetchSearchControl();
         fetchAllJobs();
       }, 400);
+
+      // Silently backfill ICP basket classification for existing unclassified leads.
+      // bulk-classify is a no-op if all leads are already classified.
+      setTimeout(async () => {
+        try {
+          const sid = localStorage.getItem("session_id");
+          const res = await fetch(buildApiUrl("/leads/bulk-classify"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: sid },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.classified > 0 || data.stage_stamped > 0) {
+              // New leads were classified — refresh table
+              setTimeout(() => fetchLeads(), 300);
+            }
+          }
+        } catch (e) {
+          // Silent fail — non-critical background operation
+        }
+      }, 800);
     };
     
     loadPhase1();
