@@ -4,7 +4,20 @@ Prevents race conditions when many respondents hit quota checks simultaneously.
 """
 import asyncio
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from config import QUOTA_AGE, QUOTA_GENDER, QUOTA_NCCS, QUOTA_CITY
+from config import QUOTA_AGE, QUOTA_GENDER, QUOTA_NCCS, QUOTA_CITY, CITY_CODE_MAP
+
+# Q3 code → age-band quota key  (codes 1 = 18-24 and 5 = 55+ both terminate)
+_AGE_CODE_MAP: dict[int, str] = {
+    2: "band1_25_34",
+    3: "band2_35_44",
+    4: "band3_45_55",
+}
+
+# Q4 code → gender quota key
+_GENDER_CODE_MAP: dict[int, str] = {
+    1: "female",
+    2: "male",
+}
 
 
 async def ensure_quota_doc(db: AsyncIOMotorDatabase):
@@ -67,17 +80,18 @@ async def _aggregate_respondent_counts(
     db: AsyncIOMotorDatabase, study_id: str | None = None
 ) -> dict[str, int]:
     """
-    Compute per-quota-key completion counts directly from the respondents
-    collection.  This is the ground truth: it counts only *completed*
-    respondents and avoids drift caused by abandoned in-progress sessions
-    whose quota claims were never released.
+    Compute per-quota-key completion counts directly from raw survey responses.
 
-    - City  : stored as respondent.city  (set at Q2, hard quota)
-    - NCCS  : stored as respondent.nccs_band  (set at Q7, hard quota)
-    - Age   : stored in respondent.quota_claims  (set at Q3, hard quota)
-    - Gender: counted from respondent.responses.Q4  (Q4 is a soft quota;
-              respondents who answered when gender was already full still
-              have a Q4 response but no gender entry in quota_claims)
+    Deriving from responses.Q2/Q3/Q4 ensures accuracy for ALL respondents
+    regardless of schema version — older records may lack derived fields
+    (city, nccs_band, quota_claims) but the raw response answers are always
+    stored at the time the question was answered.
+
+    - City  : responses.Q2 → CITY_CODE_MAP
+    - Age   : responses.Q3 → _AGE_CODE_MAP
+    - Gender: responses.Q4 → _GENDER_CODE_MAP
+    - NCCS  : nccs_band field (set at Q7 on new records); falls back to
+              quota_claims for records that store it there
     """
     base: dict = {"status": "completed"}
     if study_id and study_id != "default":
@@ -85,40 +99,61 @@ async def _aggregate_respondent_counts(
 
     counts: dict[str, int] = {}
 
-    # City (respondent.city field)
+    # ── City from responses.Q2 ────────────────────────────────────────────────
     async for doc in db.respondents.aggregate([
-        {"$match": {**base, "city": {"$exists": True}}},
-        {"$group": {"_id": "$city", "count": {"$sum": 1}}},
+        {"$match": {**base, "responses.Q2": {"$exists": True}}},
+        {"$group": {"_id": "$responses.Q2", "count": {"$sum": 1}}},
     ]):
-        counts[doc["_id"]] = doc["count"]
+        try:
+            city = CITY_CODE_MAP.get(int(doc["_id"]))
+            if city:
+                counts[city] = counts.get(city, 0) + doc["count"]
+        except (TypeError, ValueError):
+            pass
 
-    # NCCS (respondent.nccs_band field)
+    # ── Age bands from responses.Q3 ───────────────────────────────────────────
+    async for doc in db.respondents.aggregate([
+        {"$match": {**base, "responses.Q3": {"$in": [2, 3, 4, "2", "3", "4"]}}},
+        {"$group": {"_id": "$responses.Q3", "count": {"$sum": 1}}},
+    ]):
+        try:
+            key = _AGE_CODE_MAP.get(int(doc["_id"]))
+            if key:
+                counts[key] = counts.get(key, 0) + doc["count"]
+        except (TypeError, ValueError):
+            pass
+
+    # ── Gender from responses.Q4 ──────────────────────────────────────────────
+    async for doc in db.respondents.aggregate([
+        {"$match": {**base, "responses.Q4": {"$in": [1, 2, "1", "2"]}}},
+        {"$group": {"_id": "$responses.Q4", "count": {"$sum": 1}}},
+    ]):
+        try:
+            key = _GENDER_CODE_MAP.get(int(doc["_id"]))
+            if key:
+                counts[key] = counts.get(key, 0) + doc["count"]
+        except (TypeError, ValueError):
+            pass
+
+    # ── NCCS from nccs_band field (set on post-migration records) ─────────────
     async for doc in db.respondents.aggregate([
         {"$match": {**base, "nccs_band": {"$in": ["nccs_a", "nccs_b"]}}},
         {"$group": {"_id": "$nccs_band", "count": {"$sum": 1}}},
     ]):
         counts[doc["_id"]] = doc["count"]
 
-    # Age bands (in quota_claims — all completions carry this since it is a hard quota)
-    age_keys = list(QUOTA_AGE.keys())
-    async for doc in db.respondents.aggregate([
-        {"$match": {**base, "quota_claims": {"$elemMatch": {"$in": age_keys}}}},
-        {"$unwind": "$quota_claims"},
-        {"$match": {"quota_claims": {"$in": age_keys}}},
-        {"$group": {"_id": "$quota_claims", "count": {"$sum": 1}}},
-    ]):
-        counts[doc["_id"]] = doc["count"]
-
-    # Gender from responses.Q4 (must NOT rely on quota_claims for soft quota)
-    # Frontend sends numeric codes; tolerate string form as well.
-    gender_map: dict = {1: "female", 2: "male", "1": "female", "2": "male"}
-    async for doc in db.respondents.aggregate([
-        {"$match": {**base, "responses.Q4": {"$in": [1, 2, "1", "2"]}}},
-        {"$group": {"_id": "$responses.Q4", "count": {"$sum": 1}}},
-    ]):
-        key = gender_map.get(doc["_id"])
-        if key:
-            counts[key] = counts.get(key, 0) + doc["count"]
+    # ── NCCS fallback: quota_claims for older records without nccs_band ───────
+    # Only sum records NOT already counted via nccs_band to avoid double-counting.
+    if counts.get("nccs_a", 0) + counts.get("nccs_b", 0) == 0:
+        nccs_keys = ["nccs_a", "nccs_b"]
+        async for doc in db.respondents.aggregate([
+            {"$match": {**base, "nccs_band": {"$exists": False},
+                        "quota_claims": {"$in": nccs_keys}}},
+            {"$unwind": "$quota_claims"},
+            {"$match": {"quota_claims": {"$in": nccs_keys}}},
+            {"$group": {"_id": "$quota_claims", "count": {"$sum": 1}}},
+        ]):
+            counts[doc["_id"]] = counts.get(doc["_id"], 0) + doc["count"]
 
     return counts
 

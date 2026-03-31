@@ -8,7 +8,7 @@ import {
 import { qreApi } from "../../services/qreApi";
 import "./QREPage.css";
 
-// ── Quota label map ─────────────────────────────────────────────────────────
+// ── Quota label & grouping map ───────────────────────────────────────────────
 const QUOTA_LABELS = {
   // Age bands
   band1_25_34: "Age 25–34",
@@ -29,19 +29,49 @@ const QUOTA_LABELS = {
   coimbatore: "Coimbatore",
   warangal: "Warangal",
   bhubaneswar: "Bhubaneswar",
-  // Groups (legacy)
-  group_a: "Group A",
-  group_b: "Group B",
-  group_c: "Group C",
-  group_d: "Group D",
-  group_e: "Group E",
-  group_f: "Group F",
-  group_g: "Group G",
 };
+
+// Display order and category grouping for this QRE study
+const QUOTA_GROUPS = [
+  {
+    label: "Cities (Tier-2)",
+    keys: ["lucknow", "pune", "surat", "jaipur", "indore", "coimbatore", "warangal", "bhubaneswar"],
+  },
+  {
+    label: "Age Bands",
+    keys: ["band1_25_34", "band2_35_44", "band3_45_55"],
+  },
+  {
+    label: "Gender",
+    keys: ["male", "female"],
+  },
+  {
+    label: "NCCS",
+    keys: ["nccs_a", "nccs_b"],
+  },
+];
 
 const label = (key) =>
   QUOTA_LABELS[key] ||
   key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** Sort a flat quota array into QUOTA_GROUPS order; unknown keys appended at end. */
+function groupedQuotas(quotas) {
+  const byKey = Object.fromEntries(quotas.map((q) => [q.quota_key, q]));
+  const result = [];
+  const seen = new Set();
+  for (const group of QUOTA_GROUPS) {
+    const cells = group.keys.map((k) => byKey[k]).filter(Boolean);
+    if (cells.length) {
+      result.push({ groupLabel: group.label, cells });
+      cells.forEach((c) => seen.add(c.quota_key));
+    }
+  }
+  // Append any quota keys not covered by QUOTA_GROUPS (future-proofing)
+  const rest = quotas.filter((q) => !seen.has(q.quota_key));
+  if (rest.length) result.push({ groupLabel: "Other", cells: rest });
+  return result;
+}
 
 // ── Status Badge ─────────────────────────────────────────────────────────────
 function StatusBadge({ status }) {
@@ -356,24 +386,29 @@ function OverviewTab({ studyId }) {
       {quotas.length > 0 && (
         <div className="qre-section">
           <h3 className="qre-section-title">Quota Fill Status</h3>
-          <div className="qre-quota-grid">
-            {quotas.map((q) => {
-              const fillPct = q.limit > 0 ? Math.min(100, Math.round((q.current / q.limit) * 100)) : 0;
-              const barColor = q.is_full ? "#dc2626" : fillPct >= 80 ? "#f59e0b" : "#667eea";
-              return (
-                <div key={q.quota_key} className="qre-quota-card">
-                  <div className="qre-quota-header">
-                    <span>{label(q.quota_key)}</span>
-                    <span className={q.is_full ? "qre-quota-full-label" : ""}>{q.current}/{q.limit}</span>
-                  </div>
-                  <div className="qre-quota-track">
-                    <div className="qre-quota-fill" style={{ width: `${fillPct}%`, background: barColor }} />
-                  </div>
-                  <div className="qre-quota-pct">{fillPct}%</div>
-                </div>
-              );
-            })}
-          </div>
+          {groupedQuotas(quotas).map((group) => (
+            <div key={group.groupLabel} className="qre-quota-group">
+              <div className="qre-quota-group-label">{group.groupLabel}</div>
+              <div className="qre-quota-grid">
+                {group.cells.map((q) => {
+                  const fillPct = q.limit > 0 ? Math.min(100, Math.round((q.current / q.limit) * 100)) : 0;
+                  const barColor = q.is_full ? "#dc2626" : fillPct >= 80 ? "#f59e0b" : "#667eea";
+                  return (
+                    <div key={q.quota_key} className="qre-quota-card">
+                      <div className="qre-quota-header">
+                        <span>{label(q.quota_key)}</span>
+                        <span className={q.is_full ? "qre-quota-full-label" : ""}>{q.current}/{q.limit}</span>
+                      </div>
+                      <div className="qre-quota-track">
+                        <div className="qre-quota-fill" style={{ width: `${fillPct}%`, background: barColor }} />
+                      </div>
+                      <div className="qre-quota-pct">{fillPct}%</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -486,6 +521,7 @@ function QuotasTab({ studyId }) {
             <table className="qre-table">
               <thead>
                 <tr>
+                  <th>Category</th>
                   <th>Cell</th>
                   <th>Current</th>
                   <th>Limit</th>
@@ -494,40 +530,45 @@ function QuotasTab({ studyId }) {
                 </tr>
               </thead>
               <tbody>
-                {quotas.map((q) => {
-                  const fillPct = q.limit > 0 ? Math.round((q.current / q.limit) * 100) : 0;
-                  return (
-                    <tr key={q.quota_key}>
-                      <td>{label(q.quota_key)}</td>
-                      <td>{q.current}</td>
-                      <td>
-                        <input
-                          type="number"
-                          min="0"
-                          className="qre-input-sm"
-                          value={editLimits[q.quota_key] ?? q.limit}
-                          onChange={(e) =>
-                            setEditLimits((p) => ({ ...p, [q.quota_key]: parseInt(e.target.value) || 0 }))
-                          }
-                        />
-                      </td>
-                      <td>
-                        <span style={{ color: q.is_full ? "#dc2626" : fillPct >= 80 ? "#f59e0b" : "#16a34a", fontWeight: 600 }}>
-                          {fillPct}%
-                        </span>
-                      </td>
-                      <td>
-                        <button
-                          className="qre-btn qre-btn-sm"
-                          disabled={saving || editLimits[q.quota_key] === q.limit}
-                          onClick={() => saveLimit(q.quota_key)}
-                        >
-                          Save
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {groupedQuotas(quotas).flatMap((group) =>
+                  group.cells.map((q, i) => {
+                    const fillPct = q.limit > 0 ? Math.round((q.current / q.limit) * 100) : 0;
+                    return (
+                      <tr key={q.quota_key}>
+                        <td style={{ color: "#6b7280", fontSize: "0.78rem" }}>
+                          {i === 0 ? group.groupLabel : ""}
+                        </td>
+                        <td>{label(q.quota_key)}</td>
+                        <td>{q.current}</td>
+                        <td>
+                          <input
+                            type="number"
+                            min="0"
+                            className="qre-input-sm"
+                            value={editLimits[q.quota_key] ?? q.limit}
+                            onChange={(e) =>
+                              setEditLimits((p) => ({ ...p, [q.quota_key]: parseInt(e.target.value) || 0 }))
+                            }
+                          />
+                        </td>
+                        <td>
+                          <span style={{ color: q.is_full ? "#dc2626" : fillPct >= 80 ? "#f59e0b" : "#16a34a", fontWeight: 600 }}>
+                            {fillPct}%
+                          </span>
+                        </td>
+                        <td>
+                          <button
+                            className="qre-btn qre-btn-sm"
+                            disabled={saving || editLimits[q.quota_key] === q.limit}
+                            onClick={() => saveLimit(q.quota_key)}
+                          >
+                            Save
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
