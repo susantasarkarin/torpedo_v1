@@ -102,86 +102,165 @@ def setup_rfqs_collection(db=None):
     return col
 
 
+# 5 classification baskets — A through E
 DEFAULT_ICP_SEGMENTS = [
+    # ── Basket A: Survey Fieldwork ─────────────────────────────────────────
+    {
+        "slug": "survey_fieldwork",
+        "basket_code": "A",
+        "name": "Survey Fieldwork (SFW)",
+        "description": "Sampling & fieldwork buyers: MR agencies, research ops, and panel-dependent study runners.",
+        "criteria": {
+            "industries": [
+                "Market Research", "Research Agency", "Consumer Insights",
+                "Data Collection", "Panel Services", "MR Technology", "Fieldwork",
+            ],
+            "departments": ["Research Operations", "Insights", "Data", "Field Services", "Sampling"],
+            "seniority": ["VP", "Director", "Manager", "C-Suite"],
+            "buying_roles": ["Decision Maker", "Influencer"],
+            "company_sizes": ["Mid-Market", "Enterprise"],
+            "keywords": [
+                "panel", "fieldwork", "survey", "cati", "cawi", "tracker",
+                "quantitative", "sample", "incidence rate", "ir rate", "respondent", "omnibus",
+            ],
+        },
+        "color": "#065f46",
+        "outreach_config": {
+            "service_name": "Survey Fieldwork (SFW)",
+            "value_proposition": (
+                "We provide end-to-end B2B and consumer survey panels across 50+ markets — "
+                "IR-guaranteed samples, live quota dashboards, and same-week turnaround "
+                "so your studies hit deadline without last-minute fieldwork panic."
+            ),
+            "pain_points": [
+                "low incidence rates blowing up fieldwork budgets and timelines",
+                "slow turnaround from offshore panels killing client delivery schedules",
+                "no real-time visibility on sample quality or quota progress mid-field",
+            ],
+            "call_to_action": "Happy to run a quick feasibility check on your next study — no commitment.",
+            "sender_name": "",
+            "sender_title": "Business Development, Survey Fieldwork",
+        },
+    },
+    # ── Basket B: Cogentix Research ────────────────────────────────────────
+    {
+        "slug": "cogentix",
+        "basket_code": "B",
+        "name": "Cogentix Research",
+        "description": "Brand & consumer insights buyers commissioning brand health, ad effectiveness, or NPS research.",
+        "criteria": {
+            "industries": [
+                "FMCG", "Consumer Goods", "Retail", "Healthcare", "Pharma",
+                "Media", "Fintech", "Financial Services", "Advertising Agency",
+                "Brand Consulting", "CPG", "Insurance", "Telecom",
+            ],
+            "departments": ["Marketing", "Brand", "Consumer Insights", "Strategy", "Product", "Growth"],
+            "seniority": ["VP", "C-Suite", "Director", "Manager"],
+            "buying_roles": ["Decision Maker", "Influencer", "Champion"],
+            "keywords": [
+                "brand health", "ad effectiveness", "concept testing", "nps",
+                "satisfaction", "brand tracking", "customer experience",
+                "brand equity", "awareness", "consideration", "purchase intent",
+            ],
+        },
+        "color": "#5b21b6",
+        "outreach_config": {
+            "service_name": "Cogentix Research",
+            "value_proposition": (
+                "We run brand health, ad effectiveness, and concept test studies for "
+                "consumer-facing companies — fast-turn trackers with actionable dashboards "
+                "so marketing and insights teams can move quickly on what the data says."
+            ),
+            "pain_points": [
+                "brand tracking results arriving too late to influence campaign decisions",
+                "no single view across brand health, ad recall, and customer satisfaction",
+                "agency deliverables heavy on slides, light on actionable direction",
+            ],
+            "call_to_action": "Worth a 20-minute call to walk through our tracker methodology?",
+            "sender_name": "",
+            "sender_title": "Client Solutions, Cogentix Research",
+        },
+    },
+    # ── Basket C: BIMwave ──────────────────────────────────────────────────
     {
         "slug": "bimwave",
+        "basket_code": "C",
         "name": "BIMwave",
-        "description": "AEC / BIM / Construction-tech companies using Revit, IFC or BIM workflows",
+        "description": "AEC & built-environment buyers using or transitioning to Revit / BIM workflows.",
         "criteria": {
-            "keywords": ["BIM", "Revit", "IFC", "AEC", "construction tech", "architecture"],
-            "industries": ["Architecture", "Construction", "Civil Engineering", "Real Estate Tech"],
-            "company_sizes": ["11-50", "51-200"],
+            "industries": [
+                "Architecture", "Construction", "Engineering", "Real Estate Development",
+                "Interior Design", "MEP", "Infrastructure", "BIM Services",
+            ],
+            "departments": ["Architecture", "Engineering", "Project Management", "Construction", "Design", "BIM"],
+            "geographies": ["US", "UK", "Australia", "Canada", "Middle East", "UAE", "Saudi", "Qatar"],
+            "keywords": [
+                "revit", "bim", "ifc", "aec", "autocad", "navisworks", "archicad",
+                "civil engineering", "structural", "mechanical engineering",
+            ],
         },
         "color": "#1e40af",
         "outreach_config": {
             "service_name": "BIMwave",
             "value_proposition": (
-                "We help AEC firms consolidate their BIM + data workflows — "
-                "cutting coordination overhead and rework by automating model QA, "
-                "clash detection pipelines, and cross-discipline data handovers."
+                "We help AEC firms streamline their BIM + data workflows — "
+                "automating model QA, clash detection pipelines, and cross-discipline "
+                "data handovers to cut coordination overhead and delivery rework."
             ),
             "pain_points": [
-                "manual clash coordination between disciplines",
-                "slow IFC export / import cycles holding up delivery",
+                "manual clash coordination between disciplines slowing delivery",
+                "slow IFC export and import cycles causing scheduling risk",
                 "BIM data locked in silos across Revit, Navisworks, and the CDE",
             ],
-            "call_to_action": "Could we get 20 minutes to show you what BIMwave does on a real project?",
+            "call_to_action": "Could we get 20 minutes to show you what BIMwave does on a live project?",
             "sender_name": "",
             "sender_title": "Account Executive, BIMwave",
         },
     },
+    # ── Basket D: Dual Fit ─────────────────────────────────────────────────
     {
-        "slug": "survey_fieldwork",
-        "name": "Survey Fieldwork",
-        "description": "Market research agencies running online or offline fieldwork surveys",
+        "slug": "dual_fit",
+        "basket_code": "D",
+        "name": "Dual Fit (SFW + Cogentix)",
+        "description": "MR agencies that also commission brand research, or healthcare/pharma insights teams doing both fieldwork and brand tracking.",
         "criteria": {
-            "keywords": ["market research", "survey", "fieldwork", "panel", "CATI", "data collection"],
-            "industries": ["Market Research", "Data Collection", "Research Services"],
-            "company_sizes": ["51-200", "201-1000"],
+            "note": "Qualifies for both Basket A (SFW) and Basket B (Cogentix). Assigned by engine when both thresholds are met.",
         },
-        "color": "#065f46",
+        "color": "#0e7490",
         "outreach_config": {
-            "service_name": "Survey Fieldwork",
+            "service_name": "Survey Fieldwork & Cogentix Research",
             "value_proposition": (
-                "We provide end-to-end B2B and consumer survey panels across 50+ markets — "
-                "fast turnaround, IR-guaranteed samples, and a live dashboard so you "
-                "can monitor quotas in real time without chasing your fieldwork vendor."
+                "We serve both sides of the research equation — panel & sampling capacity "
+                "through SFW, and brand tracking / consumer insights through Cogentix Research — "
+                "so you get end-to-end coverage without managing two vendor relationships."
             ),
             "pain_points": [
-                "low incidence rates blowing up fieldwork budgets",
-                "slow turnaround from offshore panels killing client timelines",
-                "lack of transparency on sample quality mid-field",
+                "managing separate vendors for fieldwork and brand research creates coordination overhead",
+                "inconsistent sampling methodology between trackers and ad-hoc studies",
+                "no single partner accountable across both operational and strategic research needs",
             ],
-            "call_to_action": "Happy to run a quick feasibility on your next study — no commitment needed.",
+            "call_to_action": "Open to a joint capabilities call covering both our fieldwork and insights offering?",
             "sender_name": "",
-            "sender_title": "Business Development, Survey Fieldwork",
+            "sender_title": "Strategic Accounts",
         },
     },
+    # ── Basket E: Nurture ──────────────────────────────────────────────────
     {
-        "slug": "cogentix",
-        "name": "Cogentix",
-        "description": "B2B SaaS companies seeking sales automation and outreach solutions",
+        "slug": "nurture",
+        "basket_code": "E",
+        "name": "Nurture / Unqualified",
+        "description": "Leads that do not meet basket criteria: wrong industry, low seniority with no buying signal, or predicted email with confidence < 50%.",
         "criteria": {
-            "keywords": ["SaaS", "sales automation", "outreach", "B2B", "CRM", "lead generation"],
-            "industries": ["Technology", "Software", "SaaS", "B2B Services"],
-            "company_sizes": ["11-50", "51-200", "201-1000"],
+            "note": "Fallback basket when A/B/C/D thresholds are not met, or email_status=predicted with confidence_score < 50.",
         },
-        "color": "#5b21b6",
+        "color": "#6b7280",
         "outreach_config": {
-            "service_name": "Cogentix",
-            "value_proposition": (
-                "We help B2B sales teams build and run AI-powered outreach pipelines — "
-                "from lead discovery and email construction to personalised drafts and "
-                "reply tracking — without adding headcount."
-            ),
-            "pain_points": [
-                "reps spending 40%+ of their day on prospecting instead of selling",
-                "generic outreach getting buried in crowded inboxes",
-                "no visibility into which leads are actually engaging",
-            ],
-            "call_to_action": "Worth a 15-minute call to see if this fits your current stack?",
+            "service_name": "our services",
+            "value_proposition": "We help research and AEC teams work faster and smarter.",
+            "pain_points": [],
+            "call_to_action": "Would you be open to a quick call to explore if we can help?",
             "sender_name": "",
-            "sender_title": "Growth, Cogentix",
+            "sender_title": "",
         },
     },
 ]
@@ -200,17 +279,19 @@ def setup_icp_segments_collection(db=None):
     ]
     col.create_indexes(indexes)
 
-    # Seed defaults if collection is empty
-    if col.count_documents({}) == 0:
-        from datetime import datetime
-        now = datetime.utcnow()
-        for seg in DEFAULT_ICP_SEGMENTS:
-            col.update_one(
-                {"slug": seg["slug"]},
-                {"$setOnInsert": {**seg, "created_at": now}},
-                upsert=True,
-            )
-        logger.info("✅ icp_segments seeded with defaults")
+    # Always upsert defaults so schema/outreach_config stays current
+    from datetime import datetime
+    now = datetime.utcnow()
+    for seg in DEFAULT_ICP_SEGMENTS:
+        col.update_one(
+            {"slug": seg["slug"]},
+            {
+                "$set": {**seg, "updated_at": now},
+                "$setOnInsert": {"created_at": now},
+            },
+            upsert=True,
+        )
+    logger.info("✅ icp_segments upserted with current defaults")
 
     # Also add icp_tags index on leads
     leads_col = db["leads"]

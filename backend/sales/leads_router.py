@@ -164,6 +164,19 @@ async def list_leads(
     archived: bool = Query(False),
     search: Optional[str] = Query(None),
     draft_status: Optional[str] = Query(None),
+    # ── Classification filters ──────────────────────────────────────────
+    seniority_level: Optional[str] = Query(None),
+    department: Optional[str] = Query(None),
+    persona: Optional[str] = Query(None),
+    persona_label: Optional[str] = Query(None),
+    company_size: Optional[str] = Query(None),
+    title: Optional[str] = Query(None),
+    location: Optional[str] = Query(None),
+    industry: Optional[str] = Query(None),
+    fit_tier: Optional[int] = Query(None),
+    basket: Optional[str] = Query(None),
+    icp_tag: Optional[str] = Query(None),
+    # ── Pagination ─────────────────────────────────────────────────────
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
 ):
@@ -177,12 +190,50 @@ async def list_leads(
         query["track"] = track
     if draft_status:
         query["email_draft.status"] = draft_status
+    # Classification / enrichment field filters
+    if seniority_level:
+        query["seniority_level"] = {"$regex": seniority_level, "$options": "i"}
+    if department:
+        query["department"] = {"$regex": department, "$options": "i"}
+    if persona:
+        query["$or"] = query.get("$or", []) + [
+            {"persona": {"$regex": persona, "$options": "i"}},
+            {"buying_role": {"$regex": persona, "$options": "i"}},
+        ]
+    if persona_label:
+        query["persona_label"] = {"$regex": persona_label, "$options": "i"}
+    if company_size:
+        query["$or"] = query.get("$or", []) + [
+            {"company_employee_count_range": {"$regex": company_size, "$options": "i"}},
+            {"company_size": {"$regex": company_size, "$options": "i"}},
+        ]
+    if title:
+        query["title"] = {"$regex": title, "$options": "i"}
+    if location:
+        query["$or"] = query.get("$or", []) + [
+            {"location": {"$regex": location, "$options": "i"}},
+            {"company_headquarters": {"$regex": location, "$options": "i"}},
+        ]
+    if industry:
+        query["company_industry"] = {"$regex": industry, "$options": "i"}
+    if fit_tier is not None:
+        query["fit_tier"] = fit_tier
+    if basket:
+        query["classification_basket"] = basket.upper()
+    if icp_tag:
+        query["icp_tags"] = icp_tag
     if search:
-        query["$or"] = [
+        search_or = [
             {"name": {"$regex": search, "$options": "i"}},
             {"email": {"$regex": search, "$options": "i"}},
             {"company": {"$regex": search, "$options": "i"}},
+            {"company_name": {"$regex": search, "$options": "i"}},
+            {"title": {"$regex": search, "$options": "i"}},
         ]
+        if "$or" in query:
+            query["$and"] = [{"$or": query.pop("$or")}, {"$or": search_or}]
+        else:
+            query["$or"] = search_or
 
     total = leads_col.count_documents(query)
     skip = (page - 1) * limit

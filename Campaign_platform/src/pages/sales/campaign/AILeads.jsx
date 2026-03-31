@@ -144,6 +144,11 @@ function AILeads() {
     persona: "",
     company_size: "",
     min_confidence: "",
+    title: "",
+    location: "",
+    industry: "",
+    fit_tier: "",
+    basket: "",
   });
 
   // Import Modal State
@@ -269,6 +274,11 @@ function AILeads() {
       if (filters.persona) params.append("persona", filters.persona);
       if (filters.company_size) params.append("company_size", filters.company_size);
       if (filters.min_confidence) params.append("min_confidence", filters.min_confidence);
+      if (filters.title) params.append("title", filters.title);
+      if (filters.location) params.append("location", filters.location);
+      if (filters.industry) params.append("industry", filters.industry);
+      if (filters.fit_tier) params.append("fit_tier", filters.fit_tier);
+      if (filters.basket) params.append("basket", filters.basket);
       
       // Add source filter based on active tab
       const sourceFilter = getSourceFilterForTab();
@@ -1216,6 +1226,11 @@ function AILeads() {
       persona: "",
       company_size: "",
       min_confidence: "",
+      title: "",
+      location: "",
+      industry: "",
+      fit_tier: "",
+      basket: "",
     });
     setSearchQuery("");
     setCurrentPage(1);
@@ -1329,6 +1344,27 @@ function AILeads() {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
+        {/* Designation / Job Title */}
+        <input
+          type="text"
+          className="filter-select"
+          placeholder="Designation..."
+          value={filters.title}
+          onChange={(e) => handleFilterChange("title", e.target.value)}
+          style={{ minWidth: "130px" }}
+        />
+        {/* Location / Country */}
+        <select
+          className="filter-select"
+          value={filters.location}
+          onChange={(e) => handleFilterChange("location", e.target.value)}
+        >
+          <option value="">All Countries</option>
+          {COUNTRY_OPTIONS.map(opt => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+        {/* Seniority */}
         <select
           className="filter-select"
           value={filters.seniority_level}
@@ -1339,6 +1375,7 @@ function AILeads() {
             <option key={opt} value={opt}>{opt}</option>
           ))}
         </select>
+        {/* Department */}
         <select
           className="filter-select"
           value={filters.department}
@@ -1349,6 +1386,27 @@ function AILeads() {
             <option key={opt} value={opt}>{opt}</option>
           ))}
         </select>
+        {/* Company Size */}
+        <select
+          className="filter-select"
+          value={filters.company_size}
+          onChange={(e) => handleFilterChange("company_size", e.target.value)}
+        >
+          <option value="">All Sizes</option>
+          {COMPANY_SIZE_OPTIONS.map(opt => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+        {/* Industry */}
+        <input
+          type="text"
+          className="filter-select"
+          placeholder="Industry..."
+          value={filters.industry}
+          onChange={(e) => handleFilterChange("industry", e.target.value)}
+          style={{ minWidth: "120px" }}
+        />
+        {/* Persona */}
         <select
           className="filter-select"
           value={filters.persona}
@@ -1359,6 +1417,31 @@ function AILeads() {
             <option key={opt} value={opt}>{opt}</option>
           ))}
         </select>
+        {/* Fit Tier */}
+        <select
+          className="filter-select"
+          value={filters.fit_tier}
+          onChange={(e) => handleFilterChange("fit_tier", e.target.value)}
+        >
+          <option value="">All Tiers</option>
+          <option value="1">🔥 Tier 1 — Hot</option>
+          <option value="2">☀️ Tier 2 — Warm</option>
+          <option value="3">❄️ Tier 3 — Cold</option>
+        </select>
+        {/* Basket */}
+        <select
+          className="filter-select"
+          value={filters.basket}
+          onChange={(e) => handleFilterChange("basket", e.target.value)}
+        >
+          <option value="">All Baskets</option>
+          <option value="A">A — Survey Fieldwork</option>
+          <option value="B">B — Cogentix Research</option>
+          <option value="C">C — BIMwave</option>
+          <option value="D">D — Dual Fit</option>
+          <option value="E">E — Nurture</option>
+        </select>
+        {/* ICP Segment */}
         <select
           className="filter-select"
           value={icpFilter}
@@ -1529,6 +1612,9 @@ function AILeads() {
                   <th>Industry</th>
                   <th>Source</th>
                   <th>Email Status</th>
+                  <th>Basket</th>
+                  <th>Fit Tier</th>
+                  <th>Persona</th>
                   <th>ICP Segment</th>
                   {viewMode === "full" && (
                     <>
@@ -1589,15 +1675,66 @@ function AILeads() {
                           {lead.email_status || "Unknown"}
                         </span>
                       </td>
+                      {/* Basket */}
                       <td>
                         {(() => {
-                          // Support icp_tags (array) and legacy icp_segment (string)
+                          const code = lead.classification_basket;
+                          const BASKET_COLORS = {
+                            A: { bg: "#d1fae5", color: "#065f46", border: "#6ee7b7" },
+                            B: { bg: "#ede9fe", color: "#5b21b6", border: "#c4b5fd" },
+                            C: { bg: "#dbeafe", color: "#1e40af", border: "#93c5fd" },
+                            D: { bg: "#cffafe", color: "#0e7490", border: "#67e8f9" },
+                            E: { bg: "#f3f4f6", color: "#6b7280", border: "#d1d5db" },
+                          };
+                          if (!code) return <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>;
+                          const c = BASKET_COLORS[code] || BASKET_COLORS.E;
+                          return (
+                            <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: "9999px", fontSize: "0.75rem", fontWeight: 600, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
+                              {code} — {lead.classification_basket_name?.split(":")[0]?.split("(")[0]?.trim() || code}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      {/* Fit Tier */}
+                      <td>
+                        {(() => {
+                          const tier = lead.fit_tier;
+                          const label = lead.fit_tier_label;
+                          if (!tier) return <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>;
+                          const TIER_STYLE = {
+                            1: { bg: "#fef2f2", color: "#dc2626", border: "#fca5a5", icon: "🔥" },
+                            2: { bg: "#fffbeb", color: "#d97706", border: "#fcd34d", icon: "☀️" },
+                            3: { bg: "#f0f9ff", color: "#0369a1", border: "#7dd3fc", icon: "❄️" },
+                          };
+                          const s = TIER_STYLE[tier] || TIER_STYLE[3];
+                          return (
+                            <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: "9999px", fontSize: "0.75rem", fontWeight: 500, background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
+                              {s.icon} {label || `Tier ${tier}`}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      {/* Persona */}
+                      <td>
+                        <span style={{ fontSize: "0.75rem", color: "#374151" }}>
+                          {lead.persona_label || lead.persona || "—"}
+                        </span>
+                      </td>
+                      {/* ICP Segment tags */}
+                      <td>
+                        {(() => {
                           const tags = lead.icp_tags || (lead.icp_segment ? [lead.icp_segment] : []);
                           const PALETTE = {
-                            bimwave: { bg: "#dbeafe", color: "#1e40af", border: "#93c5fd" },
                             survey_fieldwork: { bg: "#d1fae5", color: "#065f46", border: "#6ee7b7" },
-                            cogentix: { bg: "#ede9fe", color: "#5b21b6", border: "#c4b5fd" },
+                            cogentix:         { bg: "#ede9fe", color: "#5b21b6", border: "#c4b5fd" },
+                            bimwave:          { bg: "#dbeafe", color: "#1e40af", border: "#93c5fd" },
+                            dual_fit:         { bg: "#cffafe", color: "#0e7490", border: "#67e8f9" },
+                            nurture:          { bg: "#f3f4f6", color: "#6b7280", border: "#d1d5db" },
                           };
+                          const displayTags = tags.filter(t => t !== "nurture");
+                          if (displayTags.length === 0 && tags.includes("nurture")) {
+                            return <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>Nurture</span>;
+                          }
                           if (tags.length === 0) {
                             return <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>;
                           }
@@ -1670,6 +1807,32 @@ function AILeads() {
                                 <h4>Role Details</h4>
                                 <p><strong>Buying Role:</strong> <span className="badge badge-orange">{lead.buying_role || "Unknown"}</span></p>
                                 <p><strong>Added On:</strong> {lead.added_on ? new Date(lead.added_on).toLocaleDateString() : "-"}</p>
+                              </div>
+                    {/* Expandable Details Row in Compact Mode */}
+                    {viewMode === "compact" && expandedLeadId === lead._id && (
+                      <tr className="expanded-details-row">
+                        <td colSpan={13}>
+                          <div className="lead-details-panel">
+                            <div className="details-grid">
+                              <div className="detail-group">
+                                <h4>Contact Info</h4>
+                                <p><strong>First Name:</strong> {lead.first_name || "-"}</p>
+                                <p><strong>Last Name:</strong> {lead.last_name || "-"}</p>
+                                <p><strong>Email Status:</strong> <span className={`status-badge ${(lead.email_status || "unknown").toLowerCase().replace(" ", "-")}`}>{lead.email_status || "Unknown"}</span></p>
+                                <p><strong>Location:</strong> {lead.location || "-"}</p>
+                                <p><strong>LinkedIn:</strong> {lead.linkedin_url ? <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer">View Profile ↗</a> : "-"}</p>
+                              </div>
+                              <div className="detail-group">
+                                <h4>Role Details</h4>
+                                <p><strong>Buying Role:</strong> <span className="badge badge-orange">{lead.buying_role || "Unknown"}</span></p>
+                                <p><strong>Persona:</strong> {lead.persona_label || lead.persona || "-"}</p>
+                                <p><strong>Added On:</strong> {lead.added_on ? new Date(lead.added_on).toLocaleDateString() : "-"}</p>
+                              </div>
+                              <div className="detail-group">
+                                <h4>Classification</h4>
+                                <p><strong>Basket:</strong> {lead.classification_basket ? `${lead.classification_basket} — ${lead.classification_basket_name || ""}` : "—"}</p>
+                                <p><strong>Fit Tier:</strong> {lead.fit_tier ? `Tier ${lead.fit_tier} (${lead.fit_tier_label || ""})` : "—"}</p>
+                                <p><strong>Confidence:</strong> {lead.classification_confidence || "—"}</p>
                               </div>
                               <div className="detail-group">
                                 <h4>Company Info</h4>

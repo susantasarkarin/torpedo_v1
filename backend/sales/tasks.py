@@ -292,62 +292,222 @@ def _assign_icp_tags(
     gathered: Dict[str, Any],
 ) -> None:
     """
-    Rule-based ICP auto-tagging run after enrichment.
-    Checks each icp_segments document's criteria against the lead's enriched data
-    and appends matching slugs to the lead's icp_tags array.
+    5-basket ICP classification engine run after every enrichment.
+
+    Basket A  — Survey Fieldwork (SFW): sampling & fieldwork buyers
+    Basket B  — Cogentix Research: brand & consumer insights buyers
+    Basket C  — BIMwave: AEC & built-environment buyers
+    Basket D  — Dual Fit: qualifies for both A and B
+    Basket E  — Nurture / Unqualified: no basket match or low-quality signal
+
+    Writes to lead:
+        icp_tags, classification_basket (code A-E),
+        classification_basket_name, fit_tier (1-3), fit_tier_label,
+        persona_label, classification_confidence, classified_at
     """
+    import re as _re
     try:
         from bson import ObjectId
-        db = get_background_db()
-        icp_col = db["icp_segments"]
         leads = _get_leads_col()
 
-        # Build a searchable text blob from all available signals
-        company_name = (lead.get("company") or "").lower()
-        industry = (
+        # ── Normalise all fields to lowercase strings ─────────────────────
+        def _n(v): return (v or "").lower().strip()
+
+        title        = _n(lead.get("title", ""))
+        dept         = _n(lead.get("department", ""))
+        seniority    = _n(lead.get("seniority_level", ""))
+        buying_role  = _n(lead.get("buying_role", "") or lead.get("persona", ""))
+        industry     = _n(
             lead.get("company_industry", "") or
-            enrichment.get("industry", "") or ""
-        ).lower()
-        company_size = enrichment.get("company_size_bucket", "")
-        pain_points_text = " ".join(enrichment.get("top_pain_points", [])).lower()
-        hook_text = (enrichment.get("personalisation_hook", "") or "").lower()
-        meta_text = (gathered.get("meta_description", "") or "").lower()
-        about_text = (gathered.get("about_text", "") or "").lower()
-        full_text = f"{company_name} {industry} {pain_points_text} {hook_text} {meta_text} {about_text}"
+            enrichment.get("industry", "")
+        )
+        co_size_raw  = _n(
+            lead.get("company_employee_count_range", "") or
+            enrichment.get("company_size", "") or
+            lead.get("company_size", "")
+        )
+        revenue_raw  = _n(lead.get("company_revenue_range", "") or "")
+        location     = _n(lead.get("location", "") or lead.get("company_headquarters", ""))
+        email_status = _n(lead.get("email_status", ""))
+        confidence   = int(lead.get("confidence_score") or lead.get("intent_score") or 0)
+        full_text    = " ".join([
+            title, dept, industry,
+            _n(lead.get("company", "")),
+            _n(enrichment.get("hook", "")),
+            _n(gathered.get("meta_description", "")),
+            _n(gathered.get("about_text", "")),
+            " ".join(enrichment.get("pain_points", [])),
+        ])
 
-        matched_slugs = []
-        for seg in icp_col.find({}):
-            criteria = seg.get("criteria") or {}
-            score = 0
+        # ── Revenue helper ────────────────────────────────────────────────
+        def _revenue_gte(rev, min_m):
+            nums = _re.findall(r"\d+", rev.replace(",", ""))
+            if not nums: return False
+            low = int(nums[0])
+            if "billion" in rev or (len(nums) == 1 and "b" in rev): low *= 1000
+            return low >= min_m
 
-            # Keyword match
-            for kw in criteria.get("keywords", []):
-                if kw.lower() in full_text:
-                    score += 2
+        # ── Seniority helpers ─────────────────────────────────────────────
+        HIGH_TITLES = {
+            "vp", "vice president", "c-suite", "ceo", "cto", "cfo", "coo",
+            "cmo", "cro", "chro", "cio", "cpo", "director", "svp", "evp",
+            "president", "owner", "founder", "co-founder", "partner",
+            "managing director", "md",
+        }
+        MID_TITLES = {"manager", "head of", "senior", "principal", "lead"}
 
-            # Industry match
-            for ind in criteria.get("industries", []):
-                if ind.lower() in industry:
-                    score += 3
+        def _is_high():
+            combined = title + " " + seniority
+            return any(t in combined for t in HIGH_TITLES)
 
-            # Company size match
-            if company_size and company_size in criteria.get("company_sizes", []):
-                score += 2
+        def _is_mid():
+            combined = title + " " + seniority
+            return any(t in combined for t in MID_TITLES)
 
-            if score >= 2:  # threshold: at least one strong signal
-                matched_slugs.append(seg["slug"])
+        def _is_dm():
+            return any(k in buying_role for k in ("decision maker", "decision", "influencer", "champion"))
 
-        if matched_slugs:
-            leads.update_one(
-                {"_id": ObjectId(lead_id)},
-                {
-                    "$addToSet": {"icp_tags": {"$each": matched_slugs}},
-                    "$set": {"updated_at": datetime.utcnow()},
+        # ── Basket keyword / industry sets ────────────────────────────────
+        MR_IND  = ["market research", "research agency", "consumer insights",
+                   "data collection", "panel services", "mr technology", "fieldwork"]
+        MR_DEPT = ["research operations", "insights", "data", "field services", "sampling", "research"]
+        MR_KW   = ["panel", "fieldwork", "survey", "cati", "cawi", "tracker",
+                   "quantitative", "sample", "incidence rate", "ir rate", "respondent", "omnibus"]
+
+        BRAND_IND  = ["fmcg", "consumer goods", "retail", "healthcare", "pharma",
+                      "media", "fintech", "financial services", "advertising agency",
+                      "brand consulting", "cpg", "insurance", "telecom"]
+        BRAND_DEPT = ["marketing", "brand", "consumer insights", "strategy",
+                      "product", "growth", "communications"]
+        BRAND_KW   = ["brand health", "ad effectiveness", "concept testing", "nps",
+                      "satisfaction", "brand tracking", "customer experience",
+                      "brand equity", "awareness", "consideration", "purchase intent"]
+
+        AEC_IND  = ["architecture", "construction", "engineering", "real estate develop",
+                    "interior design", "mep", "infrastructure", "bim services"]
+        AEC_DEPT = ["architecture", "engineering", "project management",
+                    "construction", "design", "bim"]
+        AEC_KW   = ["revit", "bim", "ifc", "aec", "autocad", "navisworks", "archicad",
+                    "civil engineering", "structural", "mechanical engineering"]
+        AEC_GEO  = ["united states", " us,", "united kingdom", " uk,", "australia",
+                    "canada", "middle east", "uae", "dubai", "saudi", "qatar"]
+
+        # ── Scoring functions (higher = stronger signal) ──────────────────
+        def _score_sfw():
+            s = 0
+            if any(i in industry for i in MR_IND):   s += 4
+            if any(k in full_text for k in MR_KW):   s += 2
+            if any(d in dept for d in MR_DEPT):      s += 3
+            if _is_high():                            s += 2
+            if _is_dm():                              s += 2
+            if "mid-market" in co_size_raw or "enterprise" in co_size_raw: s += 2
+            if _revenue_gte(revenue_raw, 10):         s += 2
+            return s
+
+        def _score_brand():
+            s = 0
+            if any(i in industry for i in BRAND_IND):  s += 4
+            if any(k in full_text for k in BRAND_KW):  s += 2
+            if any(d in dept for d in BRAND_DEPT):     s += 3
+            if _is_high():                              s += 2
+            if _is_dm():                                s += 2
+            if _revenue_gte(revenue_raw, 10):           s += 2
+            return s
+
+        def _score_aec():
+            s = 0
+            if any(i in industry for i in AEC_IND):   s += 4
+            if any(k in full_text for k in AEC_KW):   s += 2
+            if any(d in dept for d in AEC_DEPT):      s += 3
+            if any(g in location for g in AEC_GEO):   s += 2
+            return s
+
+        sfw_s   = _score_sfw()
+        brand_s = _score_brand()
+        aec_s   = _score_aec()
+        THRESHOLD = 4  # minimum score to qualify for a basket
+
+        q_sfw   = sfw_s   >= THRESHOLD
+        q_brand = brand_s >= THRESHOLD
+        q_aec   = aec_s   >= THRESHOLD
+
+        # Disqualify low-quality email signals
+        exclude = email_status == "predicted" and confidence < 50
+
+        # ── Assign basket (A-E) ───────────────────────────────────────────
+        if exclude or (not q_sfw and not q_brand and not q_aec):
+            basket_code, basket_name = "E", "Nurture / Unqualified"
+            icp_tags = ["nurture"]
+        elif q_sfw and q_brand:
+            basket_code, basket_name = "D", "Dual Fit: SFW + Cogentix"
+            icp_tags = ["survey_fieldwork", "cogentix"]
+        elif q_aec:
+            basket_code, basket_name = "C", "BIMwave"
+            icp_tags = ["bimwave"]
+        elif q_sfw:
+            basket_code, basket_name = "A", "Survey Fieldwork"
+            icp_tags = ["survey_fieldwork"]
+        else:
+            basket_code, basket_name = "B", "Cogentix Research"
+            icp_tags = ["cogentix"]
+
+        # ── Fit tier ──────────────────────────────────────────────────────
+        top = max(sfw_s, brand_s, aec_s)
+        if top >= 8 and _is_high() and (
+            "decision maker" in buying_role or _revenue_gte(revenue_raw, 50)
+        ):
+            fit_tier, fit_label = 1, "Hot"
+        elif top >= 4 and (_is_high() or _is_mid()) and (
+            _is_dm() or _revenue_gte(revenue_raw, 10)
+        ):
+            fit_tier, fit_label = 2, "Warm"
+        else:
+            fit_tier, fit_label = 3, "Cold"
+
+        # ── Persona label ─────────────────────────────────────────────────
+        ctx = title + " " + dept + " " + seniority
+        if any(k in ctx for k in ("ceo", "cto", "cfo", "coo", "cmo", "cro",
+                                   "svp", "evp", "president", "c-suite")):
+            persona_label = "Executive Sponsor"
+        elif any(d in dept for d in MR_DEPT):
+            persona_label = "Research Buyer"
+        elif any(d in dept for d in BRAND_DEPT):
+            persona_label = "Brand Strategist"
+        elif any(d in dept for d in AEC_DEPT):
+            persona_label = "AEC Operator"
+        elif any(k in buying_role for k in ("influencer", "champion", "recommender")):
+            persona_label = "Influencer / Recommender"
+        elif _is_high():
+            persona_label = "Executive Sponsor"
+        else:
+            persona_label = "Influencer / Recommender"
+
+        # ── Classification confidence ─────────────────────────────────────
+        conf = "High" if top >= 10 else "Medium" if top >= 5 else "Low"
+
+        # ── Persist to lead doc ───────────────────────────────────────────
+        leads.update_one(
+            {"_id": ObjectId(lead_id)},
+            {
+                "$set": {
+                    "icp_tags": icp_tags,
+                    "classification_basket": basket_code,
+                    "classification_basket_name": basket_name,
+                    "fit_tier": fit_tier,
+                    "fit_tier_label": fit_label,
+                    "persona_label": persona_label,
+                    "classification_confidence": conf,
+                    "classified_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
                 },
-            )
-            logger.info(f"Auto-tagged lead {lead_id} with ICPs: {matched_slugs}")
+            },
+        )
+        logger.info(
+            f"Classified lead {lead_id}: Basket {basket_code} ({basket_name}), "
+            f"Tier {fit_tier} ({fit_label}), Persona: {persona_label}, Conf: {conf}"
+        )
     except Exception as e:
-        logger.warning(f"ICP auto-tagging failed for {lead_id}: {e}")
+        logger.warning(f"ICP classification failed for {lead_id}: {e}")
 
 
 def _gather_company_data(company: str, domain: str) -> Dict[str, Any]:
