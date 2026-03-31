@@ -24,6 +24,7 @@ from .models import (
     LeadCreate, LeadUpdate, StageTransition,
     InboundLeadPayload, ProspectRequest,
     DraftApproval, DraftRegenerate,
+    ICPSegmentCreate, LeadICPUpdate, BulkICPTag,
 )
 
 load_dotenv()
@@ -39,6 +40,7 @@ leads_col = _db["leads"]
 rfqs_col = _db["rfqs"]
 contacts_col = _db["contacts"]
 events_col = _db["email_events"]
+icp_segments_col = _db["icp_segments"]
 
 # Finance DB for post-won webhook
 FINANCE_WEBHOOK_URL = os.getenv("FINANCE_WEBHOOK_URL", "")
@@ -196,6 +198,12 @@ async def list_leads(
         "page": page,
         "pages": (total + limit - 1) // limit,
     }
+
+
+@router.get("/icps")
+async def list_icp_segments_alias():
+    """List all ICP segments — static route must precede /{lead_id}."""
+    return await _get_icps()
 
 
 @router.get("/{lead_id}")
@@ -593,7 +601,7 @@ async def approve_draft(lead_id: str, payload: DraftApproval = Body(default=None
 
 @router.post("/{lead_id}/draft/regenerate")
 async def regenerate_draft(lead_id: str, payload: DraftRegenerate = Body(default=None)):
-    """Re-run draft generation with optional instruction."""
+    """Re-run draft generation with optional instruction and optional ICP override."""
     lead = leads_col.find_one({"_id": ObjectId(lead_id)})
     if not lead:
         raise HTTPException(404, "Lead not found")
@@ -606,7 +614,8 @@ async def regenerate_draft(lead_id: str, payload: DraftRegenerate = Body(default
     try:
         from tasks.sales_tasks import generate_email_draft
         instruction = payload.instruction if payload else None
-        generate_email_draft.delay(lead_id, instruction=instruction)
+        icp_slug = getattr(payload, "icp_slug", None) if payload else None
+        generate_email_draft.delay(lead_id, instruction=instruction, icp_slug=icp_slug)
     except Exception as e:
         logger.warning(f"Could not enqueue draft regen: {e}")
 
@@ -644,3 +653,133 @@ async def bulk_approve_drafts(lead_ids: List[str] = Body(...)):
         logger.warning(f"Could not enqueue bulk send: {e}")
 
     return {"approved_count": result.modified_count}
+
+
+# ══════════════════════════════════════════════
+#  ICP SEGMENT MANAGEMENT
+# ══════════════════════════════════════════════
+
+async def _get_icps():
+    """
+    Shared logic: return all ICP segments, seeding defaults if collection is empty.
+    """
+    docs = list(icp_segments_col.find({}, {"_id": 0}).sort("slug", 1))
+    if not docs:
+        try:
+            from .schemas import setup_icp_segments_collection
+        except ImportError:
+            from schemas import setup_icp_segments_collection
+        setup_icp_segments_collection(_db)
+        docs = list(icp_segments_col.find({}, {"_id": 0}).sort("slug", 1))
+    return {"icps": docs}
+
+
+@router.post("/icps", status_code=201)
+async def create_icp_segment(payload: ICPSegmentCreate):
+    """Create a new ICP segment definition."""
+    existing = icp_segments_col.find_one({"slug": payload.slug})
+    if existing:
+        raise HTTPException(409, f"ICP segment '{payload.slug}' already exists")
+    now = datetime.utcnow()
+    doc = {
+        "slug": payload.slug,
+        "name": payload.name,
+        "description": payload.description,
+        "criteria": payload.criteria or {},
+        "color": payload.color or "#6b7280",
+        "created_at": now,
+    }
+    icp_segments_col.insert_one(doc)
+    return {"slug": payload.slug, "created": True}
+
+
+@router.put("/{lead_id}/icps")
+async def set_lead_icps(lead_id: str, payload: LeadICPUpdate):
+    """
+    Replace the full icp_tags list for a single lead.
+    Use an empty list to clear all ICP tags.
+    """
+    result = leads_col.update_one(
+        {"_id": ObjectId(lead_id)},
+        {"$set": {"icp_tags": payload.icp_tags, "updated_at": datetime.utcnow()}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Lead not found")
+    return {"lead_id": lead_id, "icp_tags": payload.icp_tags}
+
+
+@router.post("/bulk-icp-tag")
+async def bulk_icp_tag(payload: BulkICPTag):
+    """
+    Append an ICP tag to multiple leads without overwriting existing tags.
+    Idempotent — calling twice with the same slug won't duplicate the tag.
+    """
+    if not payload.lead_ids:
+        raise HTTPException(400, "lead_ids must not be empty")
+    slug = payload.icp_segment.strip().lower()
+    if not slug:
+        raise HTTPException(400, "icp_segment must not be empty")
+
+    oids = [ObjectId(lid) for lid in payload.lead_ids]
+    result = leads_col.update_many(
+        {"_id": {"$in": oids}},
+        {
+            "$addToSet": {"icp_tags": slug},
+            "$set": {"updated_at": datetime.utcnow()},
+        },
+    )
+    return {"updated_count": result.modified_count, "icp_segment": slug}
+
+
+@router.delete("/{lead_id}/icps/{slug}")
+async def remove_lead_icp(lead_id: str, slug: str):
+    """Remove a single ICP tag from a lead."""
+    result = leads_col.update_one(
+        {"_id": ObjectId(lead_id)},
+        {
+            "$pull": {"icp_tags": slug},
+            "$set": {"updated_at": datetime.utcnow()},
+        },
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Lead not found")
+    return {"lead_id": lead_id, "removed_icp": slug}
+
+
+@router.post("/icps/{slug}/launch-outreach")
+async def launch_icp_outreach(slug: str, limit: int = Query(50, ge=1, le=500)):
+    """
+    Bulk-enqueue draft generation for all enriched leads tagged with a given ICP slug.
+    Only processes leads at stage=enriched without an existing pending/approved draft.
+    Returns the number of jobs queued.
+    """
+    seg = icp_segments_col.find_one({"slug": slug})
+    if not seg:
+        raise HTTPException(404, f"ICP segment '{slug}' not found")
+
+    # Find eligible leads
+    query = {
+        "icp_tags": slug,
+        "stage": "enriched",
+        "archived": False,
+        "$or": [
+            {"email_draft": None},
+            {"email_draft": {"$exists": False}},
+            {"email_draft.status": "discarded"},
+        ],
+    }
+    leads = list(leads_col.find(query, {"_id": 1}).limit(limit))
+    if not leads:
+        return {"queued": 0, "icp_slug": slug, "message": "No eligible leads found"}
+
+    queued = 0
+    try:
+        from tasks.sales_tasks import generate_email_draft
+        for lead in leads:
+            generate_email_draft.delay(str(lead["_id"]), icp_slug=slug)
+            queued += 1
+    except Exception as e:
+        logger.warning(f"Could not enqueue ICP outreach jobs: {e}")
+        return {"queued": queued, "icp_slug": slug, "warning": str(e)}
+
+    return {"queued": queued, "icp_slug": slug, "segment_name": seg.get("name", slug)}

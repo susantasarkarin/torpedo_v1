@@ -262,6 +262,8 @@ def enrich_lead(self, lead_id: str):
                     "updated_at": datetime.utcnow(),
                 }},
             )
+            # Auto-assign ICP tags based on enrichment results
+            _assign_icp_tags(lead_id, lead, enrichment, gathered)
             # Enqueue for email draft generation
             generate_email_draft.delay(lead_id)
             return {"status": "enriched", "score": enrichment.get("role_match_score")}
@@ -281,6 +283,71 @@ def enrich_lead(self, lead_id: str):
             {"$set": {"enrichment.status": "failed", "updated_at": datetime.utcnow()}},
         )
         raise self.retry(exc=e, countdown=120)
+
+
+def _assign_icp_tags(
+    lead_id: str,
+    lead: Dict[str, Any],
+    enrichment: Dict[str, Any],
+    gathered: Dict[str, Any],
+) -> None:
+    """
+    Rule-based ICP auto-tagging run after enrichment.
+    Checks each icp_segments document's criteria against the lead's enriched data
+    and appends matching slugs to the lead's icp_tags array.
+    """
+    try:
+        from bson import ObjectId
+        db = get_background_db()
+        icp_col = db["icp_segments"]
+        leads = _get_leads_col()
+
+        # Build a searchable text blob from all available signals
+        company_name = (lead.get("company") or "").lower()
+        industry = (
+            lead.get("company_industry", "") or
+            enrichment.get("industry", "") or ""
+        ).lower()
+        company_size = enrichment.get("company_size_bucket", "")
+        pain_points_text = " ".join(enrichment.get("top_pain_points", [])).lower()
+        hook_text = (enrichment.get("personalisation_hook", "") or "").lower()
+        meta_text = (gathered.get("meta_description", "") or "").lower()
+        about_text = (gathered.get("about_text", "") or "").lower()
+        full_text = f"{company_name} {industry} {pain_points_text} {hook_text} {meta_text} {about_text}"
+
+        matched_slugs = []
+        for seg in icp_col.find({}):
+            criteria = seg.get("criteria") or {}
+            score = 0
+
+            # Keyword match
+            for kw in criteria.get("keywords", []):
+                if kw.lower() in full_text:
+                    score += 2
+
+            # Industry match
+            for ind in criteria.get("industries", []):
+                if ind.lower() in industry:
+                    score += 3
+
+            # Company size match
+            if company_size and company_size in criteria.get("company_sizes", []):
+                score += 2
+
+            if score >= 2:  # threshold: at least one strong signal
+                matched_slugs.append(seg["slug"])
+
+        if matched_slugs:
+            leads.update_one(
+                {"_id": ObjectId(lead_id)},
+                {
+                    "$addToSet": {"icp_tags": {"$each": matched_slugs}},
+                    "$set": {"updated_at": datetime.utcnow()},
+                },
+            )
+            logger.info(f"Auto-tagged lead {lead_id} with ICPs: {matched_slugs}")
+    except Exception as e:
+        logger.warning(f"ICP auto-tagging failed for {lead_id}: {e}")
 
 
 def _gather_company_data(company: str, domain: str) -> Dict[str, Any]:
@@ -401,9 +468,10 @@ Return JSON with exactly these fields:
     max_retries=1,
     rate_limit="20/m",
 )
-def generate_email_draft(self, lead_id: str, instruction: Optional[str] = None):
+def generate_email_draft(self, lead_id: str, instruction: Optional[str] = None, icp_slug: Optional[str] = None):
     """
-    Generate email draft using AI based on track type.
+    Generate email draft using AI based on track type and ICP-specific outreach config.
+    icp_slug: if provided, use that ICP's config. Otherwise, pick the first tag on the lead.
     Creates draft on lead record with status=pending_review.
     """
     try:
@@ -419,6 +487,11 @@ def generate_email_draft(self, lead_id: str, instruction: Optional[str] = None):
         name = lead.get("name", "")
         company = lead.get("company", "")
 
+        # Resolve ICP outreach config (per-ICP personalisation)
+        icp_tags = lead.get("icp_tags", [])
+        active_slug = icp_slug or (icp_tags[0] if icp_tags else None)
+        icp_config = _get_icp_outreach_config(active_slug)
+
         context = {
             "name": name,
             "company": company,
@@ -431,7 +504,14 @@ def generate_email_draft(self, lead_id: str, instruction: Optional[str] = None):
             "last_contacted": str(lead.get("last_contacted", "")),
         }
 
-        # Step 2 — Build prompt
+        # Merge ICP pain points (prefer enriched, fall back to ICP template)
+        pain_points = context["pain_points"] or icp_config.get("pain_points", [])
+        service_name = icp_config.get("service_name", "our company")
+        value_prop = icp_config.get("value_proposition", "")
+        cta = icp_config.get("call_to_action", "Would you be open to a quick 20-minute call?")
+        sender_title = icp_config.get("sender_title", "")
+
+        # Step 2 — Build ICP-aware prompt
         system = (
             "You write B2B sales emails that sound like a real person wrote them. "
             "Rules: No 'I hope this email finds you well'. No buzzwords. No filler sentences. "
@@ -442,25 +522,27 @@ def generate_email_draft(self, lead_id: str, instruction: Optional[str] = None):
 
         if track == "cold":
             user = (
-                f"Write a cold outreach email to {name}, at {company}. "
-                f"Their likely pain point: {', '.join(context['pain_points'][:1])}. "
-                f"Personalisation hook: {context['hook']}. "
-                f"Company news: {context['news']}. "
-                "Our ask: a 20-minute call to explore if we can help."
+                f"Write a cold outreach email to {name} at {company}.\n"
+                f"We are reaching out on behalf of {service_name}.\n"
+                f"Our value proposition: {value_prop}\n"
+                f"Their likely pain point: {', '.join(pain_points[:1]) if pain_points else 'operational inefficiency'}.\n"
+                f"Personalisation hook (use if relevant): {context['hook']}.\n"
+                f"Recent company news (mention only if specific and relevant): {context['news']}.\n"
+                f"End with this ask: {cta}"
             )
         elif track == "reengagement":
             user = (
-                f"Write a re-engagement email to {name} at {company}. "
-                f"We last exchanged emails on {context['last_contacted']}. "
-                "Reference that naturally — not awkwardly. "
-                f"Pain point: {', '.join(context['pain_points'][:1])}. "
-                f"Hook: {context['hook']}. "
-                "Tone: warm, not salesy. We're re-opening a conversation, not starting one."
+                f"Write a re-engagement email to {name} at {company} on behalf of {service_name}.\n"
+                f"We last exchanged emails on {context['last_contacted']}. Reference that naturally — not awkwardly.\n"
+                f"Pain point to address: {', '.join(pain_points[:1]) if pain_points else 'operational efficiency'}.\n"
+                f"Hook: {context['hook']}.\n"
+                f"Tone: warm, not salesy. We're re-opening a conversation, not starting one.\n"
+                f"End with: {cta}"
             )
         else:  # inbound
             user = (
-                f"Write a response to {name} at {company} who contacted us via our website. "
-                f"Their message: {context['contactus_message']}. "
+                f"Write a response to {name} at {company} who contacted {service_name} via our website.\n"
+                f"Their message: {context['contactus_message']}.\n"
                 "Respond directly to what they said. Do not pitch. "
                 "Confirm we received it and suggest a call. Tone: prompt, helpful, human."
             )
@@ -473,7 +555,7 @@ def generate_email_draft(self, lead_id: str, instruction: Optional[str] = None):
         if not draft:
             return {"error": "ai_draft_failed"}
 
-        # Store draft
+        # Store draft (include which ICP was used for reference)
         leads.update_one(
             {"_id": ObjectId(lead_id)},
             {"$set": {
@@ -482,6 +564,7 @@ def generate_email_draft(self, lead_id: str, instruction: Optional[str] = None):
                     "body": draft["body"],
                     "generated_at": datetime.utcnow(),
                     "status": "pending_review",
+                    "icp_slug": active_slug,
                 },
                 "updated_at": datetime.utcnow(),
             }},
@@ -502,6 +585,23 @@ def generate_email_draft(self, lead_id: str, instruction: Optional[str] = None):
     except Exception as e:
         logger.error(f"Draft generation failed for {lead_id}: {e}")
         raise self.retry(exc=e, countdown=60)
+
+
+def _get_icp_outreach_config(slug: Optional[str]) -> Dict[str, Any]:
+    """
+    Fetch the outreach_config for a given ICP slug from the icp_segments collection.
+    Falls back to a generic config if the slug is None or not found.
+    """
+    if not slug:
+        return {}
+    try:
+        db = get_background_db()
+        seg = db["icp_segments"].find_one({"slug": slug}, {"outreach_config": 1, "_id": 0})
+        if seg and seg.get("outreach_config"):
+            return seg["outreach_config"]
+    except Exception as e:
+        logger.warning(f"Could not fetch ICP outreach config for {slug}: {e}")
+    return {}
 
 
 def _call_ai_draft(system_prompt: str, user_prompt: str) -> Optional[Dict[str, str]]:

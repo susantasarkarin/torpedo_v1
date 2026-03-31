@@ -132,7 +132,7 @@ function AILeads() {
   const [selectedIds, setSelectedIds] = useState(new Set());
 
   // View State
-  const [activeTab, setActiveTab] = useState("all");
+  const [activeTab, setActiveTab] = useState("classified");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -160,7 +160,9 @@ function AILeads() {
   // View Mode State - compact vs full table
   const [viewMode, setViewMode] = useState("compact"); // "compact" or "full"
   const [expandedLeadId, setExpandedLeadId] = useState(null); // For viewing lead details
-  const [serviceTypeFilter, setServiceTypeFilter] = useState(""); // "Data Services" or "Insights Services"
+  const [icpFilter, setIcpFilter] = useState("");
+  const [icpOptions, setIcpOptions] = useState([]);
+  const [bulkIcpSegment, setBulkIcpSegment] = useState("");
 
   // Web Search Filters (enhanced with multi-select)
   const [webSearchDesignation, setWebSearchDesignation] = useState("");
@@ -243,37 +245,19 @@ function AILeads() {
 
   // Helper to get source filter for current tab
   const getSourceFilterForTab = useCallback(() => {
-    switch (activeTab) {
-      case "classified":
-        return "web_search,google_search,linkedin,csv,csv_import,google_sheets,json_import";
-      case "classified-gmail":
-        return "gmail,gmail_workspace,email_sync,email_import,email_classification,gmail_api,gmail_archive,classified_gmail";
-      default:
-        return null; // No source filter for "all" or "pending"
-    }
+    if (activeTab !== "classified") return null;
+    return "web_search,google_search,linkedin,csv,csv_import,google_sheets,json_import,gmail,gmail_workspace,email_sync,email_import,email_classification,gmail_api,gmail_archive,classified_gmail";
   }, [activeTab]);
 
-  // Service type — use stored value, fall back to auto-detect
+  // Service type on UI is aligned to ICP segment labels.
+  // A lead can have multiple ICP tags — return the first match for legacy callers.
   const getServiceType = (lead) => {
-    if (lead.service_type) return lead.service_type;
-    
-    // Auto-detect fallback
-    const industry = (lead.company_industry || "").toLowerCase();
-    const title = (lead.title || "").toLowerCase();
-    const company = (lead.company_name || "").toLowerCase().trim();
-    const email = (lead.email || "").toLowerCase();
-    
-    // Error — company is unknown and email is @domain.com
-    if ((!company || company === "unknown") && email.endsWith("@domain.com")) return "Error";
-    
-    // Data Services — industry is market research, consulting, or advertising
-    const dataIndustries = ["market research", "consulting", "advertising"];
-    if (dataIndustries.some(kw => industry.includes(kw))) return "Data Services";
-    
-    // Insights Services — title contains "marketing"
-    if (title.includes("marketing")) return "Insights Services";
-    
-    return "Data Services";
+    const tags = lead.icp_tags || (lead.icp_segment ? [lead.icp_segment] : []);
+    const first = (tags[0] || "").toLowerCase();
+    if (first === "bimwave") return "BIMwave";
+    if (first === "survey_fieldwork") return "SFW";
+    if (first === "cogentix") return "Cogentix";
+    return tags.length > 0 ? tags[0] : "Unknown";
   };
 
   const fetchLeads = useCallback(async () => {
@@ -317,6 +301,14 @@ function AILeads() {
     } catch (err) {
       console.error("Error fetching raw leads:", err);
     }
+  }, [sessionId]);
+
+  // Fetch ICP options for filter dropdown
+  useEffect(() => {
+    fetch(buildApiUrl('/leads/icps'), { headers: { Authorization: sessionId } })
+      .then(r => r.ok ? r.json() : { icps: [] })
+      .then(d => setIcpOptions(d.icps || []))
+      .catch(() => {});
   }, [sessionId]);
 
   const fetchStatistics = useCallback(async () => {
@@ -1239,50 +1231,18 @@ function AILeads() {
     return !stage || stage === 'ai_database' || stage === '';
   };
 
-  const getPendingCount = () => {
-    return rawLeads.filter(l => {
-      if (!isInAIDatabase(l)) return false; // Exclude leads moved to other stages
-      const isCsv = l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import";
-      const hasEmail = l.email && l.email.trim() !== "";
-      if (isCsv && hasEmail) return false;
-      return l.classification_status === "Pending";
-    }).length;
-  };
-
-  const getCsvCount = () => {
-    const enrichedCsv = leads.filter(l => isInAIDatabase(l) && (l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import"));
-    const rawCsvWithEmail = rawLeads.filter(l => {
-      if (!isInAIDatabase(l)) return false; // Exclude leads moved to other stages
-      const isCsv = l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import";
-      const hasEmail = l.email && l.email.trim() !== "";
-      const notEnriched = !leads.some(e => e._id === l._id || e.email === l.email);
-      return isCsv && hasEmail && notEnriched;
-    });
-    return enrichedCsv.length + rawCsvWithEmail.length;
-  };
-
   // ============== GET DISPLAY DATA ==============
 
   const getDisplayLeads = () => {
-    if (activeTab === "pending") {
-      return rawLeads.filter(l => {
-        if (!isInAIDatabase(l)) return false;
-        const isCsv = l.source === "csv" || l.source === "csv_import" || l.source === "google_sheets" || l.source === "json_import";
-        const hasEmail = l.email && l.email.trim() !== "";
-        if (isCsv && hasEmail) return false;
-        return l.classification_status === "Pending";
+    let filtered = leads.filter(l => isInAIDatabase(l));
+    if (icpFilter) {
+      // Support both legacy icp_segment (string) and new icp_tags (array)
+      filtered = filtered.filter(l => {
+        const tags = l.icp_tags || (l.icp_segment ? [l.icp_segment] : []);
+        return tags.includes(icpFilter);
       });
-    } else if (activeTab === "classified" || activeTab === "classified-gmail") {
-      // Backend already filters by source for these tabs, just filter by stage
-      let filtered = leads.filter(l => isInAIDatabase(l));
-      // Apply service type sub-filter if set
-      if (serviceTypeFilter) {
-        filtered = filtered.filter(l => getServiceType(l) === serviceTypeFilter);
-      }
-      return filtered;
     }
-    // "all" tab - show raw leads
-    return rawLeads.filter(l => isInAIDatabase(l));
+    return filtered;
   };
 
   const displayLeads = getDisplayLeads();
@@ -1340,96 +1300,25 @@ function AILeads() {
           <div className="stat-value">{statistics?.raw?.total || 0}</div>
           <div className="stat-label">Total Raw Leads</div>
         </div>
-        <div className="stat-card warning">
-          <div className="stat-value">{statistics?.raw?.pending || 0}</div>
-          <div className="stat-label">Pending Classification</div>
-        </div>
-        <div className="stat-card info">
-          <div className="stat-value">{statistics?.raw?.processing || 0}</div>
-          <div className="stat-label">Processing</div>
-        </div>
         <div className="stat-card success">
-          <div className="stat-value">{statistics?.raw?.classified || 0}</div>
+          <div className="stat-value">{Math.max((statistics?.raw?.total || 0) - (statistics?.raw?.failed || 0), 0)}</div>
           <div className="stat-label">Classified</div>
         </div>
         <div className="stat-card danger">
           <div className="stat-value">{statistics?.raw?.failed || 0}</div>
           <div className="stat-label">Failed</div>
         </div>
-        <div className="stat-card primary">
-          <div className="stat-value">{statistics?.enriched?.total || 0}</div>
-          <div className="stat-label">Enriched Leads</div>
-        </div>
       </div>
 
       {/* Tabs */}
       <div className="tabs-row">
         <button 
-          className={`tab-btn ${activeTab === "all" ? "active" : ""}`}
-          onClick={() => { setActiveTab("all"); setServiceTypeFilter(""); }}
-        >
-          All Leads ({leads.length})
-        </button>
-        <button 
-          className={`tab-btn ${activeTab === "pending" ? "active" : ""}`}
-          onClick={() => { setActiveTab("pending"); setServiceTypeFilter(""); }}
-        >
-          Pending ({getPendingCount()})
-        </button>
-        <button 
           className={`tab-btn ${activeTab === "classified" ? "active" : ""}`}
-          onClick={() => { setActiveTab("classified"); setServiceTypeFilter(""); }}
+          onClick={() => { setActiveTab("classified"); }}
         >
-          Classified ({(statistics?.by_source?.websearch?.classified_count || 0) + (statistics?.by_source?.csv?.classified_count || getCsvCount())})
-        </button>
-        <button 
-          className={`tab-btn ${activeTab === "classified-gmail" ? "active" : ""}`}
-          onClick={() => { setActiveTab("classified-gmail"); setServiceTypeFilter(""); }}
-        >
-          Classified (Gmail) ({statistics?.by_source?.gmail?.classified_count || leads.filter(l => ["gmail", "gmail_workspace", "email_sync", "email_import", "email_classification", "gmail_api", "gmail_archive", "classified_gmail"].includes(l.source)).length})
+          Classified ({leads.length})
         </button>
       </div>
-
-      {/* Service Type Sub-filter for classified tabs */}
-      {(activeTab === "classified" || activeTab === "classified-gmail") && (
-        <div className="service-type-filter" style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem", paddingLeft: "0.25rem" }}>
-          <button
-            className={`tab-btn ${serviceTypeFilter === "" ? "active" : ""}`}
-            onClick={() => setServiceTypeFilter("")}
-            style={{ fontSize: "0.85rem", padding: "0.35rem 0.75rem" }}
-          >
-            All Services
-          </button>
-          <button
-            className={`tab-btn ${serviceTypeFilter === "Data Services" ? "active" : ""}`}
-            onClick={() => setServiceTypeFilter("Data Services")}
-            style={{ fontSize: "0.85rem", padding: "0.35rem 0.75rem" }}
-          >
-            Data Services
-          </button>
-          <button
-            className={`tab-btn ${serviceTypeFilter === "Insights Services" ? "active" : ""}`}
-            onClick={() => setServiceTypeFilter("Insights Services")}
-            style={{ fontSize: "0.85rem", padding: "0.35rem 0.75rem" }}
-          >
-            Insights Services
-          </button>
-          <button
-            className={`tab-btn ${serviceTypeFilter === "Error" ? "active" : ""}`}
-            onClick={() => setServiceTypeFilter("Error")}
-            style={{ fontSize: "0.85rem", padding: "0.35rem 0.75rem", color: serviceTypeFilter === "Error" ? "#fff" : "#dc2626" }}
-          >
-            Error
-          </button>
-          <button
-            className={`tab-btn ${serviceTypeFilter === "Untagged" ? "active" : ""}`}
-            onClick={() => setServiceTypeFilter("Untagged")}
-            style={{ fontSize: "0.85rem", padding: "0.35rem 0.75rem" }}
-          >
-            Untagged
-          </button>
-        </div>
-      )}
 
       {/* Filters Bar */}
       <div className="filters-bar">
@@ -1470,7 +1359,18 @@ function AILeads() {
             <option key={opt} value={opt}>{opt}</option>
           ))}
         </select>
-        <button className="btn btn-outline btn-sm" onClick={clearFilters}>
+        <select
+          className="filter-select"
+          value={icpFilter}
+          onChange={(e) => setIcpFilter(e.target.value)}
+        >
+          <option value="">All ICP Segments</option>
+          {icpOptions.map(icp => (
+            <option key={icp.slug} value={icp.slug}>{icp.name}</option>
+          ))}
+          <option value="unknown">Unknown</option>
+        </select>
+        <button className="btn btn-outline btn-sm" onClick={() => { clearFilters(); setIcpFilter(""); }}>
           Clear
         </button>
         
@@ -1544,14 +1444,52 @@ function AILeads() {
           </button>
           <span style={{ borderLeft: "1px solid #d1d5db", height: "24px", margin: "0 4px" }}></span>
           <span style={{ fontSize: "0.8rem", color: "#6b7280", whiteSpace: "nowrap" }}>Tag as:</span>
-          <button className="btn btn-sm" onClick={() => handleBulkServiceType("Data Services")} style={{ backgroundColor: "#dbeafe", color: "#1e40af", borderColor: "#93c5fd", fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}>
-            Data Services
+          <button className="btn btn-sm" onClick={() => handleBulkServiceType("BIMwave")} style={{ backgroundColor: "#dbeafe", color: "#1e40af", borderColor: "#93c5fd", fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}>
+            BIMwave
           </button>
-          <button className="btn btn-sm" onClick={() => handleBulkServiceType("Insights Services")} style={{ backgroundColor: "#ffedd5", color: "#c2410c", borderColor: "#fdba74", fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}>
-            Insights Services
+          <button className="btn btn-sm" onClick={() => handleBulkServiceType("SFW")} style={{ backgroundColor: "#dcfce7", color: "#166534", borderColor: "#86efac", fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}>
+            SFW
           </button>
-          <button className="btn btn-sm" onClick={() => handleBulkServiceType("Error")} style={{ backgroundColor: "#fee2e2", color: "#dc2626", borderColor: "#fca5a5", fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}>
-            Error
+          <button className="btn btn-sm" onClick={() => handleBulkServiceType("Cogentix")} style={{ backgroundColor: "#ede9fe", color: "#5b21b6", borderColor: "#c4b5fd", fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}>
+            Cogentix
+          </button>
+          <span style={{ borderLeft: "1px solid #d1d5db", height: "24px", margin: "0 4px" }}></span>
+          <span style={{ fontSize: "0.8rem", color: "#6b7280", whiteSpace: "nowrap" }}>Tag ICP:</span>
+          <select
+            className="filter-select"
+            style={{ fontSize: "0.8rem", padding: "0.25rem 0.4rem", height: "auto" }}
+            value={bulkIcpSegment}
+            onChange={(e) => setBulkIcpSegment(e.target.value)}
+          >
+            <option value="">— pick segment —</option>
+            {icpOptions.map(icp => (
+              <option key={icp.slug} value={icp.slug}>{icp.name}</option>
+            ))}
+            <option value="unknown">Unknown</option>
+          </select>
+          <button
+            className="btn btn-sm"
+            disabled={!bulkIcpSegment}
+            style={{ backgroundColor: "#8b5cf6", color: "#fff", borderColor: "#7c3aed", fontSize: "0.8rem", padding: "0.25rem 0.5rem" }}
+            onClick={async () => {
+              if (!bulkIcpSegment) return;
+              const ids = Array.from(selectedIds);
+              try {
+                const res = await fetch(buildApiUrl('/leads/bulk-icp-tag'), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: sessionId },
+                  body: JSON.stringify({ lead_ids: ids, icp_segment: bulkIcpSegment }),
+                });
+                const result = await res.json();
+                if (!res.ok) throw new Error(result.detail || 'Failed');
+                alert(`\u2705 ${result.updated_count} lead(s) tagged as "${bulkIcpSegment}"`);
+                setSelectedIds(new Set());
+                setBulkIcpSegment("");
+                fetchLeads();
+              } catch (err) { alert('Error: ' + err.message); }
+            }}
+          >
+            Apply
           </button>
           <button className="btn btn-sm btn-outline" onClick={() => setSelectedIds(new Set())}>
             ✕ Clear
@@ -1591,7 +1529,7 @@ function AILeads() {
                   <th>Industry</th>
                   <th>Source</th>
                   <th>Email Status</th>
-                  <th>Service Type</th>
+                  <th>ICP Segment</th>
                   {viewMode === "full" && (
                     <>
                       <th>First Name</th>
@@ -1652,13 +1590,31 @@ function AILeads() {
                         </span>
                       </td>
                       <td>
-                        <span className={`badge ${{
-                          "Data Services": "badge-blue",
-                          "Insights Services": "badge-orange",
-                          "Error": "badge-red"
-                        }[getServiceType(lead)] || "badge-grey"}`}>
-                          {getServiceType(lead)}
-                        </span>
+                        {(() => {
+                          // Support icp_tags (array) and legacy icp_segment (string)
+                          const tags = lead.icp_tags || (lead.icp_segment ? [lead.icp_segment] : []);
+                          const PALETTE = {
+                            bimwave: { bg: "#dbeafe", color: "#1e40af", border: "#93c5fd" },
+                            survey_fieldwork: { bg: "#d1fae5", color: "#065f46", border: "#6ee7b7" },
+                            cogentix: { bg: "#ede9fe", color: "#5b21b6", border: "#c4b5fd" },
+                          };
+                          if (tags.length === 0) {
+                            return <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>;
+                          }
+                          return (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "3px" }}>
+                              {tags.map(slug => {
+                                const c = PALETTE[slug] || { bg: "#f3f4f6", color: "#6b7280", border: "#d1d5db" };
+                                const label = icpOptions.find(i => i.slug === slug)?.name || slug;
+                                return (
+                                  <span key={slug} style={{ display: "inline-block", padding: "2px 8px", borderRadius: "9999px", fontSize: "0.75rem", fontWeight: 500, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
+                                    {label}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
                       </td>
                       {viewMode === "full" && (
                         <>

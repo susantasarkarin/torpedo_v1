@@ -136,6 +136,7 @@ class LeadUpdate(BaseModel):
     email_draft: Optional[EmailDraft] = None
     rfq_id: Optional[str] = None
     archived: Optional[bool] = None
+    icp_tags: Optional[List[str]] = None
 
 
 class StageTransition(BaseModel):
@@ -150,6 +151,7 @@ class DraftApproval(BaseModel):
 
 class DraftRegenerate(BaseModel):
     instruction: Optional[str] = None
+    icp_slug: Optional[str] = None  # Override which ICP's outreach config to use
 
 
 # ============== INBOUND FORM ==============
@@ -186,6 +188,27 @@ class CompanyDomainCreate(BaseModel):
     domain: str
     pattern: str
     source: DomainPatternSource = DomainPatternSource.MANUAL
+
+
+# ============== ICP MODELS ==============
+
+class ICPSegmentCreate(BaseModel):
+    slug: str  # machine-readable key, e.g. "bimwave"
+    name: str  # display name, e.g. "BIMwave"
+    description: Optional[str] = None
+    criteria: Optional[dict] = None  # {industries: [], company_sizes: [], keywords: []}
+    color: Optional[str] = None  # hex or tailwind colour for badges
+
+
+class LeadICPUpdate(BaseModel):
+    """Set (replace) the full icp_tags list for a lead."""
+    icp_tags: List[str]
+
+
+class BulkICPTag(BaseModel):
+    """Add a single ICP tag to multiple leads (append — preserves other tags)."""
+    lead_ids: List[str]
+    icp_segment: str  # slug of the ICP to add
 
 
 # ============== RFQ MODELS ==============
