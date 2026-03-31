@@ -37,10 +37,22 @@ SERVICE_MAILBOX_ROUTING = {
         "sender_name": "Meera",
         "description": "Consumer insights, market research, qualitative research",
     },
+    "bimwave": {
+        "sender_email": "susanta@bimwaveconsultants.com",
+        "sender_name": "Susanta",
+        "description": "BIM, architecture, construction, AEC industry",
+    },
 }
 
 # Default mailbox if no service type matches
 DEFAULT_MAILBOX = "indira@surveyfieldwork.com"
+
+# ICP basket → service type mapping
+BASKET_SERVICE_MAP = {
+    "A": "data_services",
+    "B": "consumer_insights",
+    "C": "bimwave",
+}
 
 # Keywords for auto-classifying leads into service types
 DATA_SERVICES_KEYWORDS = {
@@ -75,6 +87,24 @@ CONSUMER_INSIGHTS_KEYWORDS = {
     ],
 }
 
+BIMWAVE_KEYWORDS = {
+    "industries": [
+        "bim", "building information modeling", "architecture", "construction",
+        "aec", "civil engineering", "structural engineering", "mep",
+        "real estate development", "facilities management", "infrastructure",
+        "urban planning", "interior design", "landscape architecture",
+    ],
+    "titles": [
+        "bim", "architect", "project manager", "construction manager",
+        "civil engineer", "structural engineer", "facility manager",
+        "mep engineer", "revit", "autocad", "design manager",
+        "site manager", "quantity surveyor",
+    ],
+    "campaign_tags": [
+        "bimwave", "bim", "architecture", "construction", "aec",
+    ],
+}
+
 
 def classify_service_type(
     lead_data: Dict[str, Any],
@@ -82,56 +112,67 @@ def classify_service_type(
 ) -> str:
     """
     Classify a lead into a service type for email routing.
-    
+
     Priority:
-    1. Manual override (lead_service_type field)
-    2. Campaign tags
-    3. Lead's industry keywords
-    4. Lead's title keywords
-    5. Default to data_services
-    
-    Returns: 'data_services' or 'consumer_insights'
+    1. ICP basket field (classification_basket A/B/C)
+    2. Manual override (lead_service_type field)
+    3. Campaign tags
+    4. Lead's industry keywords
+    5. Lead's title keywords
+    6. Default to data_services
+
+    Returns: 'data_services', 'consumer_insights', or 'bimwave'
     """
-    # 1. Manual override
+    # 1. ICP basket → deterministic routing
+    basket = lead_data.get("classification_basket", "").upper()
+    if basket in BASKET_SERVICE_MAP:
+        return BASKET_SERVICE_MAP[basket]
+
+    # 2. Manual override
     manual = lead_data.get("lead_service_type", "").strip().lower()
     if manual in SERVICE_MAILBOX_ROUTING:
         return manual
-    
+
     def _match_keywords(text: str, keyword_list: list) -> bool:
-        """Check if text contains any of the keywords"""
         text_lower = text.lower()
         return any(kw in text_lower for kw in keyword_list)
-    
-    # 2. Campaign tags
+
+    # 3. Campaign tags
     if campaign_data:
         campaign_tags = campaign_data.get("tags", [])
         campaign_type = campaign_data.get("campaign_type", "").lower()
         campaign_text = " ".join(campaign_tags) + " " + campaign_type
-        
+
+        if _match_keywords(campaign_text, BIMWAVE_KEYWORDS["campaign_tags"]):
+            return "bimwave"
         if _match_keywords(campaign_text, CONSUMER_INSIGHTS_KEYWORDS["campaign_tags"]):
             return "consumer_insights"
         if _match_keywords(campaign_text, DATA_SERVICES_KEYWORDS["campaign_tags"]):
             return "data_services"
-    
-    # 3. Industry keywords
+
+    # 4. Industry keywords
     industry = (
-        lead_data.get("company_industry", "") or 
-        lead_data.get("industry", "") or 
+        lead_data.get("company_industry", "") or
+        lead_data.get("industry", "") or
         ""
     )
+    if _match_keywords(industry, BIMWAVE_KEYWORDS["industries"]):
+        return "bimwave"
     if _match_keywords(industry, CONSUMER_INSIGHTS_KEYWORDS["industries"]):
         return "consumer_insights"
     if _match_keywords(industry, DATA_SERVICES_KEYWORDS["industries"]):
         return "data_services"
-    
-    # 4. Title keywords
+
+    # 5. Title keywords
     title = lead_data.get("title", "") or ""
+    if _match_keywords(title, BIMWAVE_KEYWORDS["titles"]):
+        return "bimwave"
     if _match_keywords(title, CONSUMER_INSIGHTS_KEYWORDS["titles"]):
         return "consumer_insights"
     if _match_keywords(title, DATA_SERVICES_KEYWORDS["titles"]):
         return "data_services"
-    
-    # 5. Default
+
+    # 6. Default
     return "data_services"
 
 

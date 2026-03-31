@@ -927,6 +927,17 @@ try:
 except Exception as e:
     print(f"⚠️ Outreach System router not included: {e}")
 
+# Cold Outreach Campaign Management router (3-business sequences + bounce suppression)
+try:
+    try:
+        from .routers import cold_outreach_router as cold_outreach_router_module
+    except ImportError:
+        from routers import cold_outreach_router as cold_outreach_router_module
+    app.include_router(cold_outreach_router_module.router)
+    print("✅ Cold Outreach router included")
+except Exception as e:
+    print(f"⚠️ Cold Outreach router not included: {e}")
+
 # LinkedIn Automation router (Marketing - LinkedIn account automation)
 try:
     app.include_router(linkedin_router.router)

@@ -94,17 +94,70 @@ class SendingEngine:
         self.sends_collection = db["outreach_sends_v2"]
         self.logs_collection = db["outreach_send_logs"]
         self.campaigns_collection = db["outreach_campaigns_v2"]
-        
+        self.suppression_collection = db["outreach_bounce_suppression"]
+
         self._setup_indexes()
-    
+
     def _setup_indexes(self):
         """Create necessary indexes"""
         try:
             self.sends_collection.create_index([("message_id", 1)], unique=True)
             self.sends_collection.create_index([("campaign_id", 1), ("lead_id", 1)])
             self.sends_collection.create_index([("status", 1), ("scheduled_at", 1)])
+            # Bounce suppression — unique on email for fast O(1) lookup
+            self.suppression_collection.create_index([("email", 1)], unique=True)
         except Exception as e:
             logger.warning(f"Index creation warning: {e}")
+
+    # ============== BOUNCE SUPPRESSION ==============
+
+    def is_suppressed(self, email: str) -> bool:
+        """Return True if email is on the global bounce suppression list."""
+        return self.suppression_collection.count_documents(
+            {"email": email.lower().strip()}, limit=1
+        ) > 0
+
+    def record_bounce(self, email: str, campaign_id: str, lead_id: str) -> None:
+        """
+        Add email to the global bounce suppression list and mark the lead.
+        Call this whenever a bounce event is received.
+        """
+        email = email.lower().strip()
+        now = datetime.utcnow()
+        try:
+            self.suppression_collection.update_one(
+                {"email": email},
+                {"$setOnInsert": {
+                    "email": email,
+                    "bounced_at": now,
+                    "bounced_campaign_id": campaign_id,
+                    "created_at": now,
+                }},
+                upsert=True,
+            )
+        except Exception as e:
+            logger.warning(f"Suppression insert failed for {email}: {e}")
+
+        # Mark lead in leads_enriched (global leads collection)
+        try:
+            enriched = self.db["leads_enriched"]
+            enriched.update_one(
+                {"email": email},
+                {"$set": {"email_status": "bounced", "bounce_suppressed": True, "bounced_at": now}},
+            )
+        except Exception as e:
+            logger.warning(f"Failed to mark lead as bounced in leads_enriched: {e}")
+
+        # Mark in outreach_leads_v2 too
+        try:
+            self.leads_collection.update_one(
+                {"lead_id": lead_id},
+                {"$set": {"bounce_suppressed": True, "bounced_at": now}},
+            )
+        except Exception as e:
+            logger.warning(f"Failed to mark outreach lead as bounced: {e}")
+
+        logger.info(f"Bounce suppression recorded for {email} (campaign={campaign_id})")
     
     # ============== MAIN SEND METHOD ==============
     
@@ -136,12 +189,19 @@ class SendingEngine:
             lead = self.leads_collection.find_one({"lead_id": lead_id})
             if not lead:
                 return False, f"Lead {lead_id} not found", None
-            
+
+            # ── Global bounce suppression check ──────────────────────────────
+            to_email = lead.get("email", "")
+            if to_email and self.is_suppressed(to_email):
+                logger.info(f"Suppressed send to {to_email}: address is on bounce suppression list")
+                return False, f"Suppressed: {to_email} is on the global bounce list", None
+            # ─────────────────────────────────────────────────────────────────
+
             # Get campaign
             campaign = self.campaigns_collection.find_one({"campaign_id": campaign_id})
             if not campaign:
                 return False, f"Campaign {campaign_id} not found", None
-            
+
             # Get or assign mailbox (STICKY)
             mailbox_id = lead.get("assigned_mailbox_id")
             
