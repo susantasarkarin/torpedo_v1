@@ -1749,15 +1749,6 @@ function AILeads() {
                                   </span>
                                 );
                               })()}
-                              {tags.filter(t => !(t === "nurture" && code)).map(slug => {
-                                const c = PALETTE[slug] || { bg: "#f3f4f6", color: "#6b7280", border: "#d1d5db" };
-                                const label = icpOptions.find(i => i.slug === slug)?.name || slug;
-                                return (
-                                  <span key={slug} style={{ display: "inline-block", padding: "2px 8px", borderRadius: "9999px", fontSize: "0.75rem", fontWeight: 500, background: c.bg, color: c.color, border: `1px solid ${c.border}` }}>
-                                    {label}
-                                  </span>
-                                );
-                              })}
                             </div>
                           );
                         })()}
