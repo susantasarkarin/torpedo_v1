@@ -421,30 +421,29 @@ def compute_icp_basket(lead: Dict[str, Any]) -> Dict[str, Any]:
         AEC_KW   = ["revit", "bim", "ifc", "aec", "autocad", "navisworks",
                     "civil engineering", "structural", "mechanical engineering"]
 
+        def _match_ind(ind_val, kw_list):
+            """Bidirectional match: keyword in industry OR industry in keyword."""
+            return any((kw in ind_val or ind_val in kw) for kw in kw_list if len(kw) >= 4)
+
         def _score_sfw():
             s = 0
-            if any(i in industry for i in MR_IND):   s += 4
-            if any(k in full_text for k in MR_KW):   s += 2
-            if any(d in dept for d in MR_DEPT):       s += 3
-            if _is_high():                            s += 2
-            if _is_dm():                              s += 2
+            if _match_ind(industry, MR_IND):          s += 4
+            if any(k in full_text for k in MR_KW):    s += 2
+            if any(d in dept for d in MR_DEPT):        s += 3
             return s
 
         def _score_brand():
             s = 0
-            if any(i in industry for i in BRAND_IND): s += 4
-            if any(k in full_text for k in BRAND_KW): s += 2
-            if any(d in dept for d in BRAND_DEPT):    s += 3
-            if _is_high():                            s += 2
-            if _is_dm():                              s += 2
-            if _revenue_gte(revenue_raw, 10):         s += 2
+            if _match_ind(industry, BRAND_IND):        s += 4
+            if any(k in full_text for k in BRAND_KW):  s += 2
+            if any(d in dept for d in BRAND_DEPT):     s += 3
             return s
 
         def _score_aec():
             s = 0
-            if any(i in industry for i in AEC_IND):  s += 4
-            if any(k in full_text for k in AEC_KW):  s += 2
-            if any(d in dept for d in AEC_DEPT):     s += 3
+            if _match_ind(industry, AEC_IND):          s += 4
+            if any(k in full_text for k in AEC_KW):    s += 2
+            if any(d in dept for d in AEC_DEPT):       s += 3
             return s
 
         THRESHOLD = 4
