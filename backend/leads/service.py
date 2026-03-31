@@ -396,6 +396,9 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
         else:
             # Allow filtering by specific stage
             query["stage"] = filters.lead_stage
+    else:
+        # Default: exclude 'already_contacted' (gmail/Leads-tab leads) from main AI Database view
+        query["stage"] = {"$ne": "already_contacted"}
     
     if filters.seniority_level:
         query["seniority_level"] = filters.seniority_level.value
