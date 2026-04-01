@@ -138,6 +138,18 @@ function Settings() {
   const [aiDatabaseCount, setAiDatabaseCount] = useState(20)
   const [aiDatabaseFilter, setAiDatabaseFilter] = useState('all')
 
+  // AI Config (Business Unit) state
+  const [buUnits, setBuUnits] = useState([])
+  const [buSelected, setBuSelected] = useState(null)
+  const [buContent, setBuContent] = useState("")
+  const [buLoading, setBuLoading] = useState(false)
+  const [buSaving, setBuSaving] = useState(false)
+  const [buDeleting, setBuDeleting] = useState(false)
+  const [buDirty, setBuDirty] = useState(false)
+  const [buToast, setBuToast] = useState(null)
+  const [showBuNewForm, setShowBuNewForm] = useState(false)
+  const [newBuSlug, setNewBuSlug] = useState("")
+
   useEffect(() => {
     loadAllSettings()
   }, [])
@@ -145,6 +157,9 @@ function Settings() {
   useEffect(() => {
     if (activeTab === "allocation") {
       loadAllocationSettings()
+    }
+    if (activeTab === "ai-config") {
+      loadBuConfigs()
     }
   }, [activeTab])
 
@@ -1396,6 +1411,105 @@ function Settings() {
     )
   }
 
+  // ── BU Config (AI Config) functions ──
+  const buAuthHeaders = () => {
+    const t = getAuthToken()
+    return t ? { Authorization: t } : {}
+  }
+  const showBuToast = (type, msg) => {
+    setBuToast({ type, msg })
+    setTimeout(() => setBuToast(null), 3500)
+  }
+  const loadBuConfigs = async () => {
+    setBuLoading(true)
+    try {
+      const res = await fetch(`/api/sales-outreach/bu-configs`, { headers: buAuthHeaders() })
+      if (!res.ok) throw new Error("Failed to load")
+      const data = await res.json()
+      const units = data.business_units || []
+      setBuUnits(units)
+      setBuSelected(prev => {
+        if (prev) return prev
+        if (units.length) { setBuContent(units[0].content); return units[0].slug }
+        return null
+      })
+    } catch {
+      showBuToast("error", "Could not load business unit configs")
+    } finally {
+      setBuLoading(false)
+    }
+  }
+  const selectBuUnit = (unit) => {
+    if (buDirty && !window.confirm("You have unsaved changes. Switch anyway?")) return
+    setBuSelected(unit.slug)
+    setBuContent(unit.content)
+    setBuDirty(false)
+    setShowBuNewForm(false)
+  }
+  const saveBuConfig = async () => {
+    if (!buSelected) return
+    setBuSaving(true)
+    try {
+      const res = await fetch(`/api/sales-outreach/bu-configs/${buSelected}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...buAuthHeaders() },
+        body: JSON.stringify({ content: buContent }),
+      })
+      if (!res.ok) throw new Error("Save failed")
+      setBuDirty(false)
+      setBuUnits(prev => prev.map(u => u.slug === buSelected ? { ...u, content: buContent } : u))
+      showBuToast("success", "Business unit config saved")
+    } catch {
+      showBuToast("error", "Failed to save — check your connection")
+    } finally {
+      setBuSaving(false)
+    }
+  }
+  const deleteBuConfig = async () => {
+    if (!buSelected) return
+    if (!window.confirm(`Delete "${buSelected}" permanently? This cannot be undone.`)) return
+    setBuDeleting(true)
+    try {
+      const res = await fetch(`/api/sales-outreach/bu-configs/${buSelected}`, {
+        method: "DELETE",
+        headers: buAuthHeaders(),
+      })
+      if (!res.ok) throw new Error("Delete failed")
+      showBuToast("success", "Business unit deleted")
+      setBuSelected(null)
+      setBuContent("")
+      setBuDirty(false)
+      await loadBuConfigs()
+    } catch {
+      showBuToast("error", "Failed to delete")
+    } finally {
+      setBuDeleting(false)
+    }
+  }
+  const createBuConfig = async () => {
+    const slug = newBuSlug.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_")
+    if (!slug) return showBuToast("error", "Slug cannot be empty")
+    const template = `BUSINESS UNIT: [Name] — [Tagline]\nSLUG: ${slug}\n\nDESCRIPTION:\n[What this business unit does — 2-3 sentences]\n\nCORE CAPABILITIES:\n- [Capability 1]\n- [Capability 2]\n\nIDEAL CUSTOMER PROFILE:\n- [Target role/company 1]\n\nPAIN POINTS WE SOLVE:\n- [Pain point 1]\n\nVALUE PROPOSITION:\n[Why leads should care]\n\nSENDER: [Full Name], [Title], [BU Name]`
+    try {
+      const res = await fetch(`/api/sales-outreach/bu-configs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...buAuthHeaders() },
+        body: JSON.stringify({ slug, content: template }),
+      })
+      if (res.status === 409) return showBuToast("error", `"${slug}" already exists`)
+      if (!res.ok) throw new Error("Create failed")
+      setNewBuSlug("")
+      setShowBuNewForm(false)
+      await loadBuConfigs()
+      setBuSelected(slug)
+      setBuContent(template)
+      setBuDirty(false)
+      showBuToast("success", `Created "${slug}" — edit and save below`)
+    } catch {
+      showBuToast("error", "Failed to create business unit")
+    }
+  }
+
   return (
     <div className="settings-container">
       <div className="settings-header">
@@ -1425,14 +1539,11 @@ function Settings() {
           Survey Allocation
         </button>
         <button
-          className={`tab-button ${activeTab === "mail-operations" ? "active" : ""}`}
-          onClick={() => {
-            setActiveTab("mail-operations")
-            if (!segregationStats) fetchSegregationStats()
-          }}
+          className={`tab-button ${activeTab === "ai-config" ? "active" : ""}`}
+          onClick={() => setActiveTab("ai-config")}
         >
-          <span className="tab-icon">📧</span>
-          Mail Operations
+          <span className="tab-icon">🧠</span>
+          AI Config
         </button>
       </div>
 
@@ -1958,90 +2069,144 @@ function Settings() {
           </div>
         )}
 
-        {activeTab === "mail-operations" && (
+        {activeTab === "ai-config" && (
           <div className="settings-section">
-            <h2>Email Segregation & Management</h2>
+            <h2>AI Reference Material</h2>
             <p className="section-description">
-              Segregate emails using AI-powered categorization, generate summaries, and extract contact information
+              Business unit descriptions used by Gemini (routing) and GPT-4 (email drafting).
+              Gemini picks the best-fit BU and writes a gap analysis. GPT-4 then drafts the personalised outreach email using the chosen BU file.
             </p>
 
-            {segregationStats && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
-                <div style={{ padding: '1rem', backgroundColor: '#f3f4f6', borderRadius: '0.5rem', borderLeft: '4px solid #3b82f6' }}>
-                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.5rem' }}>Total Emails</div>
-                  <div style={{ fontSize: '1.875rem', fontWeight: 'bold', color: '#111827' }}>
-                    {segregationStats.total_emails?.toLocaleString() || 0}
-                  </div>
-                </div>
-                <div style={{ padding: '1rem', backgroundColor: '#f3f4f6', borderRadius: '0.5rem', borderLeft: '4px solid #10b981' }}>
-                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.5rem' }}>Segregated</div>
-                  <div style={{ fontSize: '1.875rem', fontWeight: 'bold', color: '#111827' }}>
-                    {segregationStats.segregated_emails?.toLocaleString() || 0}
-                  </div>
-                </div>
-                <div style={{ padding: '1rem', backgroundColor: '#f3f4f6', borderRadius: '0.5rem', borderLeft: '4px solid #f59e0b' }}>
-                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.5rem' }}>Pending</div>
-                  <div style={{ fontSize: '1.875rem', fontWeight: 'bold', color: '#111827' }}>
-                    {segregationStats.pending_emails?.toLocaleString() || 0}
-                  </div>
-                </div>
-                <div style={{ padding: '1rem', backgroundColor: '#f3f4f6', borderRadius: '0.5rem', borderLeft: '4px solid #8b5cf6' }}>
-                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.5rem' }}>Progress</div>
-                  <div style={{ fontSize: '1.875rem', fontWeight: 'bold', color: '#111827' }}>
-                    {segregationStats.segregation_percentage || 0}%
-                  </div>
-                </div>
+            {buToast && (
+              <div className={`settings-message ${buToast.type === "success" ? "success" : "error"}`}>
+                {buToast.type === "success" ? "✓" : "⚠"} {buToast.msg}
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
-              <button
-                className="save-button"
-                onClick={() => {
-                  setSegregateForm({ strategy: 'category', batch_size: 100, force_rescan: false })
-                  setSegregateDialogOpen(true)
-                }}
-              >
-                ▶️ Start Segregation
-              </button>
-              <button
-                className="save-button"
-                style={{ backgroundColor: '#6b7280' }}
-                onClick={fetchSegregationStats}
-                disabled={segregationLoading}
-              >
-                {segregationLoading ? "Loading..." : "🔄 Refresh Stats"}
-              </button>
+            <div className="settings-group">
+              <div className="group-header">
+                <h3>Business Units</h3>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button className="refresh-button" onClick={loadBuConfigs} disabled={buLoading}>
+                    {buLoading ? "Loading..." : "↻ Refresh"}
+                  </button>
+                  <button className="save-button-small" onClick={() => setShowBuNewForm(v => !v)}>
+                    + New Business Unit
+                  </button>
+                </div>
+              </div>
+
+              {showBuNewForm && (
+                <div style={{ padding: "1rem", backgroundColor: "#f9fafb", borderRadius: "8px", marginBottom: "1rem", border: "1px solid #e5e7eb" }}>
+                  <div className="setting-row">
+                    <label>Slug <small style={{ color: "#9ca3af", fontWeight: 400 }}>(lowercase, used as filename)</small></label>
+                    <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+                      <input
+                        type="text"
+                        value={newBuSlug}
+                        onChange={e => setNewBuSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "_"))}
+                        placeholder="e.g. data_quality"
+                        style={{ maxWidth: "260px" }}
+                      />
+                      <button className="save-button-small" onClick={createBuConfig} disabled={!newBuSlug.trim()}>Create</button>
+                      <button className="refresh-button" onClick={() => setShowBuNewForm(false)}>Cancel</button>
+                    </div>
+                    <small style={{ color: "#6b7280", marginTop: "4px" }}>A template will be pre-filled — edit and save to activate.</small>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 0, height: "520px", border: "1px solid #e5e7eb", borderRadius: "8px", overflow: "hidden" }}>
+                {/* BU list sidebar */}
+                <div style={{ width: "210px", borderRight: "1px solid #e5e7eb", overflowY: "auto", flexShrink: 0, backgroundColor: "#f9fafb" }}>
+                  {buUnits.length === 0 && !buLoading && (
+                    <p style={{ padding: "1rem", fontSize: "0.8rem", color: "#9ca3af", fontStyle: "italic" }}>No configs yet.<br />Create one above →</p>
+                  )}
+                  {buUnits.map(unit => (
+                    <button
+                      key={unit.slug}
+                      onClick={() => selectBuUnit(unit)}
+                      style={{
+                        width: "100%",
+                        padding: "0.75rem 1rem",
+                        textAlign: "left",
+                        background: buSelected === unit.slug ? "#eff6ff" : "transparent",
+                        borderLeft: `3px solid ${buSelected === unit.slug ? "#4f46e5" : "transparent"}`,
+                        border: "none",
+                        borderBottom: "1px solid #f3f4f6",
+                        cursor: "pointer",
+                        fontSize: "0.875rem",
+                        color: buSelected === unit.slug ? "#3730a3" : "#374151",
+                        fontWeight: buSelected === unit.slug ? "600" : "400",
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      {unit.name || unit.slug}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Editor area */}
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+                  {buSelected ? (
+                    <>
+                      {/* Toolbar */}
+                      <div style={{ padding: "0.625rem 1rem", borderBottom: "1px solid #e5e7eb", display: "flex", alignItems: "center", justifyContent: "space-between", backgroundColor: "#f9fafb" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                          <span style={{ fontWeight: "600", fontSize: "0.9rem", color: "#111827" }}>
+                            {buUnits.find(u => u.slug === buSelected)?.name || buSelected}
+                          </span>
+                          <span style={{ fontFamily: "monospace", fontSize: "0.75rem", background: "#e5e7eb", padding: "2px 8px", borderRadius: "4px", color: "#6b7280" }}>
+                            {buSelected}.txt
+                          </span>
+                          {buDirty && (
+                            <span style={{ fontSize: "0.75rem", color: "#d97706", fontWeight: "500" }}>● unsaved</span>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", gap: "0.5rem" }}>
+                          <button
+                            className="refresh-button"
+                            onClick={deleteBuConfig}
+                            disabled={buDeleting}
+                            style={{ color: "#dc2626" }}
+                          >
+                            {buDeleting ? "Deleting..." : "Delete"}
+                          </button>
+                          <button
+                            className="save-button-small"
+                            onClick={saveBuConfig}
+                            disabled={buSaving || !buDirty}
+                          >
+                            {buSaving ? "Saving..." : "Save"}
+                          </button>
+                        </div>
+                      </div>
+                      {/* Textarea */}
+                      <textarea
+                        value={buContent}
+                        onChange={e => { setBuContent(e.target.value); setBuDirty(true) }}
+                        style={{
+                          flex: 1,
+                          resize: "none",
+                          border: "none",
+                          outline: "none",
+                          padding: "1rem",
+                          fontFamily: "monospace",
+                          fontSize: "0.875rem",
+                          lineHeight: "1.7",
+                          color: "#111827",
+                          backgroundColor: "white",
+                        }}
+                      />
+                    </>
+                  ) : (
+                    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#9ca3af" }}>
+                      <p>Select a business unit from the left to edit</p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-
-            {segregationStats?.segment_breakdown && segregationStats.segment_breakdown.length > 0 && (
-              <div>
-                <h3 style={{ marginBottom: '1rem' }}>📊 Segment Breakdown</h3>
-                <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #e5e7eb' }}>
-                  <thead>
-                    <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                      <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: '600' }}>Segment</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '600' }}>Count</th>
-                      <th style={{ padding: '0.75rem', textAlign: 'right', fontWeight: '600' }}>Percentage</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {segregationStats.segment_breakdown.map((segment, idx) => {
-                      const percentage = ((segment.count / segregationStats.total_emails) * 100).toFixed(1)
-                      return (
-                        <tr key={idx} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                          <td style={{ padding: '0.75rem' }}>{segment._id || 'Unclassified'}</td>
-                          <td style={{ padding: '0.75rem', textAlign: 'right' }}>{segment.count.toLocaleString()}</td>
-                          <td style={{ padding: '0.75rem', textAlign: 'right' }}>{percentage}%</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-
           </div>
         )}
 

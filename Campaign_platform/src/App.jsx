@@ -65,7 +65,6 @@ const SalesDashboard = lazy(() => import("./pages/sales/SalesDashboard"))
 const CompanyUpload = lazy(() => import("./pages/sales/CompanyUpload"))
 const AgentDashboard = lazy(() => import("./pages/sales/AgentDashboard"))
 const AgentSettings = lazy(() => import("./pages/sales/AgentSettings"))
-const AIConfig = lazy(() => import("./pages/sales/AIConfig"))
 
 // Operations Pages
 const ClientsPage = lazy(() => import("./pages/operations/ClientsPage"))
@@ -216,7 +215,6 @@ function App() {
         <Route path="sales/company-upload" element={<LazyPage><CompanyUpload /></LazyPage>} />
         <Route path="sales/agent-dashboard" element={<LazyPage><AgentDashboard /></LazyPage>} />
         <Route path="sales/agent-settings" element={<LazyPage><AgentSettings /></LazyPage>} />
-        <Route path="sales/ai-config" element={<LazyPage><AIConfig /></LazyPage>} />
 
         {/* Marketing */}
         <Route path="marketing" element={<LazyPage><Marketing /></LazyPage>} />
