@@ -119,6 +119,13 @@ function RightSidebar() {
               RFQ
             </Link>
           </li>
+
+          <li className={`sidebar-item ${isActive("/admin/sales/ai-config") ? "active" : ""}`}>
+            <Link to="/admin/sales/ai-config" className="sidebar-link">
+              <span className="sidebar-icon">🧠</span>
+              AI Config
+            </Link>
+          </li>
         </ul>
       </nav>
     </aside>
