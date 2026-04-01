@@ -23,6 +23,7 @@ from typing import Dict, Any, List, Optional, Tuple
 
 from celery_app import celery_app
 from db_pools import get_background_db
+from pymongo import MongoClient
 
 logger = logging.getLogger(__name__)
 
@@ -164,14 +165,19 @@ def extract_lead_from_email_record(email_record: Dict[str, Any]) -> Optional[Dic
     Args:
         email_record: A document from the email_metadata MongoDB collection.
     """
-    from_header = (
-        email_record.get("from")
-        or email_record.get("sender")
-        or email_record.get("headers", {}).get("From", "")
-        or ""
-    )
+    # Use direct fields (torpedo_gmail schema: from_email, from_name)
+    email_address = (email_record.get("from_email") or "").strip().lower()
+    full_name = (email_record.get("from_name") or "").strip()
 
-    full_name, email_address = _parse_from_header(from_header)
+    # Fallback: parse from legacy/combined header if direct fields absent
+    if not email_address:
+        from_header = (
+            email_record.get("from")
+            or email_record.get("sender")
+            or email_record.get("headers", {}).get("From", "")
+            or ""
+        )
+        full_name, email_address = _parse_from_header(from_header)
     if not email_address:
         return None
 
@@ -195,7 +201,7 @@ def extract_lead_from_email_record(email_record: Dict[str, Any]) -> Optional[Dic
 
     # Pull any extra metadata available without AI
     subject = email_record.get("subject", "")
-    received_at = email_record.get("date") or email_record.get("received_at") or email_record.get("internalDate")
+    received_at = email_record.get("timestamp") or email_record.get("date") or email_record.get("received_at") or email_record.get("synced_at") or email_record.get("internalDate")
 
     return {
         "name": full_name,
@@ -244,6 +250,12 @@ def _mark_email_processed(mail_col, email_id) -> None:
 #  BATCH EXTRACTION
 # ─────────────────────────────────────────────────────
 
+def _get_mail_db():
+    """Return the torpedo_gmail database where email_metadata lives."""
+    uri = __import__("os").getenv("MONGODB_URI", "mongodb://localhost:27017")
+    return MongoClient(uri, serverSelectionTimeoutMS=10000)["torpedo_gmail"]
+
+
 def extract_leads_from_mail_pool_batch(
     since_hours: int = 24,
     limit: int = 500,
@@ -259,23 +271,24 @@ def extract_leads_from_mail_pool_batch(
     Returns:
         Summary dict with counts and errors.
     """
-    db = get_background_db()
-    mail_col = db["email_metadata"]
-    leads_col = db["leads"]
+    mail_col = _get_mail_db()["email_metadata"]
+    leads_col = get_background_db()["leads"]
 
     since = datetime.utcnow() - timedelta(hours=since_hours)
 
     # Fetch unprocessed emails received since the cutoff
+    # torpedo_gmail schema uses: timestamp, synced_at
     cursor = mail_col.find(
         {
             "lead_extracted": {"$ne": True},
             "$or": [
+                {"timestamp": {"$gte": since}},
+                {"synced_at": {"$gte": since}},
                 {"date": {"$gte": since}},
-                {"received_at": {"$gte": since}},
             ],
         },
         limit=limit,
-        sort=[("date", -1)],
+        sort=[("timestamp", -1)],
     )
 
     inserted = 0
@@ -330,14 +343,13 @@ def extract_leads_from_existing_pool(limit: int = 2000) -> Dict[str, Any]:
 
     Same logic as the batch extraction but without a time filter.
     """
-    db = get_background_db()
-    mail_col = db["email_metadata"]
-    leads_col = db["leads"]
+    mail_col = _get_mail_db()["email_metadata"]
+    leads_col = get_background_db()["leads"]
 
     cursor = mail_col.find(
         {"lead_extracted": {"$ne": True}},
         limit=limit,
-        sort=[("date", -1)],
+        sort=[("timestamp", -1)],
     )
 
     inserted = 0
