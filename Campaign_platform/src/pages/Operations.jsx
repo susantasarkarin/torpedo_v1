@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import "./Operations.css";
 
-const token = () => sessionStorage.getItem("session_token") || localStorage.getItem("session_id");
+const token = () => localStorage.getItem("session_id");
 
 function Operations() {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -164,7 +164,7 @@ function Operations() {
 
   const fetchProjects = async () => {
     try {
-      const res = await fetch(buildApiUrl(`/api/operations/projects/?limit=50`), { headers: { Authorization: token() || "" } });
+      const res = await fetch(buildApiUrl(`/api/operations/projects/?limit=50`), { headers: { Authorization: token() } });
       const data = await parseJsonIfPossible(res);
       if (res.ok && data) {
         setProjects(data.projects || []);
@@ -176,7 +176,7 @@ function Operations() {
 
   const fetchAccounts = async () => {
     try {
-      const res = await fetch(buildApiUrl(`/api/operations/accounts/`), { headers: { Authorization: token() || "" } });
+      const res = await fetch(buildApiUrl(`/api/operations/accounts/`), { headers: { Authorization: token() } });
       if (res.ok) {
         const data = await res.json();
         setAccounts(data.accounts || []);
@@ -190,7 +190,7 @@ function Operations() {
     try {
       const res = await fetch(
         buildApiUrl(`/inbox?category=vendor_communication&page_size=10`),
-        { headers: { Authorization: token() || "" } }
+        { headers: { Authorization: token() } }
       );
       const data = await parseJsonIfPossible(res);
       if (res.ok && data) {
@@ -275,198 +275,6 @@ function Operations() {
   }, [accounts, accountSearch]);
 
   // ==================== RENDER TABS ====================
-
-  const renderDashboard = () => {
-    if (loading) {
-      return (
-        <div className="loading-container">
-          <div className="loading-spinner"></div>
-          <p style={{ marginTop: "1rem", color: "#6b7280" }}>Loading dashboard...</p>
-        </div>
-      );
-    }
-
-    const kpiCards = kpis ? [
-      { 
-        title: "Active Projects", 
-        value: kpis.projects?.active || 0, 
-        subtitle: `${kpis.projects?.total || 0} total`,
-        icon: "📊",
-        color: "#3b82f6",
-        trend: kpis.projects?.growth_percent ? `${kpis.projects.growth_percent > 0 ? '+' : ''}${kpis.projects.growth_percent}%` : null,
-        trendUp: (kpis.projects?.growth_percent || 0) > 0
-      },
-      { 
-        title: "Pending RFQs", 
-        value: rfqStats.pending, 
-        subtitle: `${rfqStats.inProgress} in progress`,
-        icon: "📋",
-        color: "#f59e0b"
-      },
-      { 
-        title: "Revenue", 
-        value: formatCurrency(kpis.revenue?.total_invoiced || 0), 
-        subtitle: `${formatCurrency(kpis.revenue?.total_outstanding || 0)} outstanding`,
-        icon: "💰",
-        color: "#10b981"
-      },
-      { 
-        title: "Completion Rate", 
-        value: `${kpis.traffic?.completion_rate || 0}%`, 
-        subtitle: `${formatNumber(kpis.traffic?.completed || 0)} completes`,
-        icon: "✅",
-        color: "#8b5cf6"
-      },
-      { 
-        title: "Clients", 
-        value: kpis.clients?.total || 0, 
-        subtitle: `${kpis.projects?.this_month || 0} new projects`,
-        icon: "👥",
-        color: "#ec4899"
-      },
-      { 
-        title: "Collection Rate", 
-        value: `${kpis.revenue?.collection_rate || 0}%`, 
-        subtitle: `${formatCurrency(kpis.revenue?.total_received || 0)} received`,
-        icon: "📈",
-        color: "#06b6d4"
-      },
-    ] : [];
-
-    const quickActions = [
-      { icon: "📋", label: "New RFQ", color: "#f59e0b", onClick: () => setActiveTab("rfqs") },
-      { icon: "📊", label: "View Projects", color: "#3b82f6", onClick: () => setActiveTab("projects") },
-      { icon: "👥", label: "Accounts", color: "#8b5cf6", onClick: () => setActiveTab("accounts") },
-      { icon: "📧", label: "Vendor Comms", color: "#10b981", onClick: () => setActiveTab("vendors") },
-    ];
-
-    return (
-      <>
-        {/* KPI Cards */}
-        <div className="kpi-grid">
-          {kpiCards.map((kpi, idx) => (
-            <div key={idx} className="kpi-card">
-              <div className="kpi-card-header">
-                <span className="kpi-title">{kpi.title}</span>
-                <div className="kpi-icon" style={{ backgroundColor: `${kpi.color}20`, color: kpi.color }}>
-                  {kpi.icon}
-                </div>
-              </div>
-              <div className="kpi-value" style={{ color: kpi.color }}>{kpi.value}</div>
-              <div className="kpi-subtitle">{kpi.subtitle}</div>
-              {kpi.trend && (
-                <div className={`kpi-trend ${kpi.trendUp ? 'up' : 'down'}`}>
-                  {kpi.trendUp ? '↑' : '↓'} {kpi.trend} this month
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Quick Actions */}
-        <div className="section-card" style={{ marginBottom: "1.5rem" }}>
-          <div className="section-header">
-            <h3 className="section-title">Quick Actions</h3>
-          </div>
-          <div className="section-body">
-            <div className="quick-actions-grid">
-              {quickActions.map((action, idx) => (
-                <div key={idx} className="quick-action-card" onClick={action.onClick}>
-                  <div className="quick-action-icon" style={{ backgroundColor: `${action.color}20` }}>
-                    {action.icon}
-                  </div>
-                  <span className="quick-action-label">{action.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="content-grid">
-          {/* Recent Activity */}
-          <div className="section-card">
-            <div className="section-header">
-              <h3 className="section-title">Recent Activity</h3>
-              <button className="btn btn-sm btn-secondary" onClick={fetchDashboardData}>↻ Refresh</button>
-            </div>
-            <div className="section-body">
-              {recentActivity.length > 0 ? (
-                <div className="activity-timeline">
-                  {recentActivity.map((activity, idx) => (
-                    <div key={idx} className="activity-item">
-                      <div 
-                        className="activity-icon" 
-                        style={{ 
-                          backgroundColor: activity.type === 'invoice' ? '#dbeafe' : '#dcfce7',
-                          color: activity.type === 'invoice' ? '#3b82f6' : '#10b981'
-                        }}
-                      >
-                        {activity.type === 'invoice' ? '📄' : '📊'}
-                      </div>
-                      <div className="activity-content">
-                        <div className="activity-title">{activity.title}</div>
-                        <div className="activity-meta">
-                          <span>{activity.subtitle}</span>
-                          <span>{formatTimeAgo(activity.timestamp)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <div className="empty-icon">📭</div>
-                  <p className="empty-text">No recent activity</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Project Status Breakdown */}
-          <div className="section-card">
-            <div className="section-header">
-              <h3 className="section-title">Project Status</h3>
-            </div>
-            <div className="section-body">
-              {kpis?.projects?.status_breakdown && Object.keys(kpis.projects.status_breakdown).length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {Object.entries(kpis.projects.status_breakdown).map(([status, count]) => {
-                    const colors = {
-                      'Active': '#10b981',
-                      'Live': '#10b981',
-                      'In Progress': '#3b82f6',
-                      'Completed': '#6b7280',
-                      'Closed': '#6b7280',
-                      'Pending': '#f59e0b'
-                    };
-                    const color = colors[status] || '#9ca3af';
-                    const total = kpis.projects.total || 1;
-                    const percent = Math.round((count / total) * 100);
-                    
-                    return (
-                      <div key={status}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                          <span style={{ fontSize: '0.875rem', color: '#374151' }}>{status || 'Unknown'}</span>
-                          <span style={{ fontSize: '0.875rem', fontWeight: '600', color }}>{count}</span>
-                        </div>
-                        <div style={{ height: '6px', background: '#e5e7eb', borderRadius: '3px', overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${percent}%`, background: color, borderRadius: '3px' }}></div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="empty-state">
-                  <p className="empty-text">No project data available</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </>
-    );
-  };
 
   const renderDashboardV2 = () => {
     if (loading) {
@@ -1057,7 +865,6 @@ function Operations() {
             onChange={(e) => setAccountSearch(e.target.value)}
           />
           <button className="btn btn-secondary" onClick={fetchAccounts}>↻ Refresh</button>
-          <button className="btn btn-primary">+ New Account</button>
         </div>
 
         <div className="section-card">
@@ -1123,11 +930,6 @@ function Operations() {
     return (
       <>
         <div className="filters-bar">
-          <input
-            type="text"
-            className="search-input"
-            placeholder="Search vendor communications..."
-          />
           <button className="btn btn-secondary" onClick={fetchVendorEmails}>↻ Refresh</button>
         </div>
 
@@ -1182,10 +984,7 @@ function Operations() {
           <h1>⚙️ Operations Dashboard</h1>
           <p>Manage RFQs, projects, accounts, and vendor communications</p>
         </div>
-        <div className="operations-header-actions">
-          <button className="btn btn-secondary">📥 Export</button>
-          <button className="btn btn-primary">+ New RFQ</button>
-        </div>
+
       </div>
 
       {/* Tabs */}

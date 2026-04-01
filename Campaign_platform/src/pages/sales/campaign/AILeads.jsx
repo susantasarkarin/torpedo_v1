@@ -576,7 +576,7 @@ function AILeads() {
             }
           }
         } catch (e) {
-          console.log("Could not load saved mapping:", e);
+          // could not load saved mapping, use auto-match
         }
         
         // Use saved mapping if available, otherwise auto-match
@@ -644,7 +644,7 @@ function AILeads() {
             }),
           });
         } catch (e) {
-          console.log("Could not save mapping:", e);
+          // could not save mapping
         }
 
         // Map CSV data to expected format
@@ -1540,12 +1540,6 @@ function AILeads() {
               // Use displayLeads instead of leads to match current tab's data source
               const currentDisplayLeads = getDisplayLeads();
               const selectedLeads = currentDisplayLeads.filter(l => selectedIds.has(l._id));
-              console.log("🚀 Sending to workflow:", { 
-                selectedLeadsCount: selectedLeads.length, 
-                selectedLeads,
-                selectedIds: Array.from(selectedIds),
-                activeTab
-              })
               if (selectedLeads.length === 0) {
                 alert("No leads found. Please ensure selected leads are from the current tab.");
                 return;

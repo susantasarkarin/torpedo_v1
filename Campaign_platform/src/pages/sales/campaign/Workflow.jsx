@@ -12,7 +12,6 @@ function Workflow() {
   const navigate = useNavigate()
 
   const { selectedTemplate, list, contacts: initialContacts } = location.state || {}
-  console.log("🔍 Workflow received:", { selectedTemplate, list, contactsCount: initialContacts?.length || 0, initialContacts })
   const [contacts, setContacts] = useState([])
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(false)
@@ -154,7 +153,6 @@ function Workflow() {
   }
 
   const updateStep = (stepId, updates) => {
-    console.log("📝 Updating step:", { stepId, updates })
     setWorkflowSteps(
       workflowSteps.map(step =>
         step.id === stepId ? { ...step, ...updates } : step
@@ -218,12 +216,6 @@ function Workflow() {
 
   // 🔹 Send workflow
   const handleSendWorkflow = async () => {
-    console.log("🚀 SENDING WORKFLOW - Current State:", { 
-      workflowSteps, 
-      firstStepTemplate: workflowSteps[0]?.template,
-      contactsCount: contacts.length 
-    })
-    
     // Check if any step has a template selected
     const hasTemplate = workflowSteps.some(step => step.template && step.template.trim() !== '')
     if (!hasTemplate) {
@@ -249,12 +241,6 @@ function Workflow() {
       // Get lead IDs from contacts
       const leadIds = contacts.map(c => c._id)
       
-      console.log("📤 Sending API request:", { 
-        leadIds, 
-        template_id: firstEmailStep.template,
-        url: buildApiUrl('/email-campaigns/send-bulk')
-      })
-      
       const res = await apiFetch(`/email-campaigns/send-bulk`, {
         method: "POST",
         body: JSON.stringify({
@@ -263,9 +249,7 @@ function Workflow() {
         }),
       })
 
-      console.log("📥 API Response status:", res.status)
       const data = await res.json()
-      console.log("📥 API Response data:", data)
       
       if (res.ok) {
         alert(`✅ ${data.message}\\n\\n${data.sent_count} emails sent successfully!`)

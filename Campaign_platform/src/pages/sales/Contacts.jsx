@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
-import { SALES_STAGES, getStageStyle as getPipelineStageStyle, getContactStages, getStageById } from "../../utils/salesPipeline"
+import { getStageStyle as getPipelineStageStyle, getContactStages, getStageById } from "../../utils/salesPipeline"
 import "./Contacts.css"
 import "../../styles/SalesPages.css"
 import { buildApiUrl } from "../../config"

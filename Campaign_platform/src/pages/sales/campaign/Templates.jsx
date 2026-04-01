@@ -1,6 +1,7 @@
 "use client"
 
 import { useNavigate } from "react-router-dom"
+import DOMPurify from "dompurify"
 import "./Templates.css"
 import { useState, useEffect, useRef } from "react"
 import { API_BASE_URL } from "../../../config"
@@ -308,7 +309,7 @@ function Templates() {
             ref={editorRef}
             className="rich-text-editor"
             contentEditable
-            dangerouslySetInnerHTML={{ __html: formData.htmlContent }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(formData.htmlContent) }}
             onInput={(e) => setFormData({ ...formData, htmlContent: e.currentTarget.innerHTML })}
           />
         </div>

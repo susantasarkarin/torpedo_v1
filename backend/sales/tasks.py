@@ -14,7 +14,7 @@ Background jobs for the sales pipeline:
 import os
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Any, Optional, List
 
 from celery_app import celery_app
@@ -541,10 +541,10 @@ def _gather_company_data(company: str, domain: str) -> Dict[str, Any]:
                             text = re.sub(r"<[^>]+>", " ", about_resp.text)
                             text = re.sub(r"\s+", " ", text).strip()
                             data["about_text"] = text[:1000]
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                    except Exception as e:
+                        logger.warning(f"About page scrape failed for {domain}: {e}")
+        except Exception as e:
+            logger.warning(f"Domain fetch failed for {domain}: {e}")
 
     # Google News RSS for headlines
     if company:
@@ -557,8 +557,8 @@ def _gather_company_data(company: str, domain: str) -> Dict[str, Any]:
                 import re
                 titles = re.findall(r"<title>(?:<!\[CDATA\[)?(.+?)(?:\]\]>)?</title>", resp.text)
                 data["news_headlines"] = [t.strip() for t in titles[1:4]]  # Skip RSS feed title
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"News RSS fetch failed for {company}: {e}")
 
     return data
 

@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import DOMPurify from "dompurify";
 import { API_BASE_URL } from "../../../config";
 import "./AILeadDetail.css";
 import { buildApiUrl } from "../../../config"
@@ -1021,12 +1022,12 @@ function AILeadDetail() {
                 className="compose-editor"
                 contentEditable
                 onInput={(e) => setEmailFormData({...emailFormData, body: e.currentTarget.innerHTML})}
-                dangerouslySetInnerHTML={{ __html: emailFormData.body }}
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(emailFormData.body) }}
               />
               
               {/* Signature */}
               {signature && (
-                <div className="compose-signature" dangerouslySetInnerHTML={{ __html: signature }} />
+                <div className="compose-signature" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(signature) }} />
               )}
             </div>
             

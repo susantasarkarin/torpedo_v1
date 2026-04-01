@@ -72,7 +72,6 @@ function ReEngagement() {
           setDormantLeads(data.leads || [])
         }
       } catch (err) {
-        console.log("Using mock dormant leads data:", err.message)
         setDormantLeads(generateMockDormantLeads())
       } finally {
         setLoading(false)

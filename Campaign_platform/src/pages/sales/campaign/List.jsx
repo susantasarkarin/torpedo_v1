@@ -48,7 +48,6 @@ function List() {
     }
     setLocalContacts(updated)
     localStorage.setItem("contactListContacts", JSON.stringify(updated))
-    console.log(`[v0] Added ${newContacts.length} contacts to local storage for "${listName}"`)
   }
 
   useEffect(() => {
@@ -60,7 +59,6 @@ function List() {
     }
 
     try {
-      console.log(`[v0] Connecting to backend at ${API_BASE_URL}/lists/`);
       const res = await fetch(buildApiUrl(`/lists/`), {
         headers: {
           "Content-Type": "application/json",
@@ -78,11 +76,9 @@ function List() {
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
 
       const data = await res.json();
-      console.log("[v0] ✅ Got", data.lists?.length || 0, "lists from backend");
       setLists(data.lists || []);
       setBackendConnected(true);
     } catch (err) {
-      console.log("[v0] ❌ Backend connection failed:", err.message);
       setBackendConnected(false);
       setLists([]);
     }
@@ -101,8 +97,6 @@ useEffect(() => {
       navigate("/login");
       return;
     }
-
-    console.log("[v0] Fetching contacts for list:", selectedList.name, "ID:", selectedList._id);
 
     try {
       const res = await fetch(buildApiUrl(`/contacts/${selectedList._id}`), {
@@ -125,10 +119,10 @@ useEffect(() => {
         setBackendConnected(true);
         return;
       } else {
-        console.log("[v0] ❌ Contacts fetch failed with status:", res.status);
+        // contacts fetch failed, fall through to localStorage
       }
     } catch (err) {
-      console.log("[v0] ❌ Database fetch error:", err.message);
+      // database fetch error, fall through to localStorage
     }
 
     // fallback: localStorage only

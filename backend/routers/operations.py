@@ -47,10 +47,6 @@ def _set_cached(key: str, value: Any, ttl: int = CACHE_TTL_SECONDS):
         for k in expired:
             del _operations_cache[k]
 
-def invalidate_operations_cache():
-    """Clear operations cache after mutations"""
-    _operations_cache.clear()
-
 # ----------------------------
 # Router Setup
 # ----------------------------
@@ -525,8 +521,6 @@ async def list_operations_projects(
 # ============================================================
 # PROJECT INVOICING ENDPOINTS
 # ============================================================
-
-import hashlib
 
 def generate_idempotency_key(project_id: str, items: List[Dict]) -> str:
     """
@@ -1045,7 +1039,6 @@ async def get_recent_activity(limit: int = Query(10, ge=1, le=50)):
                 "type": "invoice",
                 "action": "created",
                 "title": inv.get("invoice_number", "Unknown Invoice"),
-                "subtitle": f"Amount: ₹{inv.get('total_amount', 0):,.2f}",
                 "subtitle": f"Amount: INR {inv.get('total_amount', 0):,.2f}",
                 "timestamp": inv.get("created_at"),
                 "id": str(inv["_id"])
@@ -1142,24 +1135,6 @@ async def list_active_async_operations(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.delete("/async/cleanup")
-async def cleanup_old_async_operations(
-    max_age_hours: int = Query(24, ge=1, le=168, description="Max age in hours for completed operations")
-):
-    """
-    Clean up old completed async operations from status store.
-    """
-    try:
-        from tasks.api_tasks import cleanup_old_operations as do_cleanup
-        
-        result = do_cleanup(max_age_hours)
-        return result
-        
-    except ImportError:
-        raise HTTPException(status_code=503, detail="Async task system not configured")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================

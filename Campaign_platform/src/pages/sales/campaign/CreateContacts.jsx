@@ -117,7 +117,6 @@ function CreateContacts({ onBack, listName }) {
       const j = await r.json()
       setDbCount(typeof j?.count === "number" ? j.count : 0)
     } catch (e) {
-      console.log("[v0] count fetch failed:", e.message)
       setDbCount(null)
     }
   }
@@ -202,7 +201,6 @@ function CreateContacts({ onBack, listName }) {
         setShowEmailOptions(true)
         refreshDbCount()
       } catch (backendError) {
-        console.log("[v0] Backend unavailable, storing locally:", backendError.message)
         const existing = JSON.parse(localStorage.getItem("contactListContacts") || "{}")
         const updated = { ...existing, [listName]: [...(existing[listName] || []), ...mappedContacts] }
         localStorage.setItem("contactListContacts", JSON.stringify(updated))
@@ -251,7 +249,6 @@ function CreateContacts({ onBack, listName }) {
       alert(`Contact "${contactData.email}" added successfully!`)
       refreshDbCount()
     } catch (err) {
-      console.log("[v0] Backend unavailable, storing locally:", err.message)
       const existing = JSON.parse(localStorage.getItem("contactListContacts") || "{}")
       const updated = { ...existing, [listName]: [...(existing[listName] || []), contactData] }
       localStorage.setItem("contactListContacts", JSON.stringify(updated))

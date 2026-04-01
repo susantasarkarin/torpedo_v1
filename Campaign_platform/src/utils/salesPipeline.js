@@ -18,17 +18,6 @@ export const SALES_STAGES = [
   { id: "retention", label: "Retention", icon: "♻️", color: { bg: "#f3e8ff", text: "#7c3aed" } },
 ]
 
-// Legacy stages for backward compatibility (mapped to new stages)
-export const LEGACY_STAGE_MAPPING = {
-  "RFQ": "rfq_pricing",
-  "Proposal": "rfq_pricing",
-  "Negotiation": "negotiation",
-  "Won": "won",
-  "Lost": "lost",
-  "closed": "won", // Map old "closed" to "won"
-  "Closed": "won",
-}
-
 // Get stage by ID
 export const getStageById = (stageId) => {
   return SALES_STAGES.find(s => s.id === stageId) || SALES_STAGES[0]
