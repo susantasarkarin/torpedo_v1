@@ -595,13 +595,15 @@ No preamble. No markdown."""
         business_units: List[Dict[str, str]],
     ) -> Dict[str, Any]:
         """
-        Research the lead's needs, compare against BU descriptions, identify the gap,
-        and route to the best-fit business unit.
+        Use Gemini to research the lead's needs, compare against BU descriptions,
+        identify the gap, and select the best-fit business unit.
+
+        Email drafting is handled separately by draft_outreach_email_openai().
 
         lead_context: enriched lead dict (name, company, industry, pain_points, hook, etc.)
         business_units: list of {slug, name, description} dicts loaded from config files.
 
-        Returns: {slug, bu_name, gap_analysis, outreach_email: {subject, body}}
+        Returns: {slug, bu_name, gap_analysis, sender}
         """
         bu_block = "\n\n".join([
             f"BU SLUG: {bu['slug']}\nBU NAME: {bu['name']}\n{bu['description']}"
@@ -613,13 +615,6 @@ No preamble. No markdown."""
 2. Review the business unit descriptions provided.
 3. Identify the gap between what the lead needs and what our business units offer.
 4. Pick the single best-fit business unit.
-5. Draft a personalised outreach email that:
-   - Addresses the lead by first name
-   - References their specific business challenges
-   - Explains how our company bridges the gap for their organisation
-   - Maintains a professional, human, non-salesy tone
-   - Is under 150 words in the body
-   - Has a clear, single call to action
 
 LEAD DATA:
 {json.dumps(lead_context, indent=2)}
@@ -632,10 +627,7 @@ Return JSON only:
   "slug": "<chosen bu slug>",
   "bu_name": "<chosen bu name>",
   "gap_analysis": "<2-3 sentences: what the lead needs vs what we offer and why it fits>",
-  "outreach_email": {{
-    "subject": "<email subject line>",
-    "body": "<full email body, addressed to the lead by first name, signed by the BU sender>"
-  }}
+  "sender": "<value of SENDER field from the chosen BU description>"
 }}
 
 No preamble. No markdown. Only JSON."""
@@ -653,11 +645,92 @@ No preamble. No markdown. Only JSON."""
                 "slug": None,
                 "bu_name": None,
                 "gap_analysis": "",
-                "outreach_email": {"subject": "", "body": ""},
+                "sender": "",
                 "routed_at": datetime.utcnow().isoformat(),
                 "success": False,
                 "error": str(e),
             }
+
+    def draft_outreach_email_openai(
+        self,
+        lead_context: Dict[str, Any],
+        bu_description: str,
+        gap_analysis: str,
+        sender: str,
+    ) -> Dict[str, str]:
+        """
+        Use OpenAI GPT-4 to draft a personalised outreach email.
+
+        Called after Gemini has selected the BU and produced the gap analysis.
+
+        Returns: {subject, body}
+        """
+        import openai
+        import os
+
+        api_key = os.getenv("OPENAI_API_KEY", "")
+        if not api_key:
+            logger.error("[OpenAI Draft] OPENAI_API_KEY not set.")
+            return {"subject": "", "body": ""}
+
+        client = openai.OpenAI(api_key=api_key)
+
+        first_name = (lead_context.get("name") or "").split()[0] or "there"
+
+        system_prompt = f"""You are a senior B2B sales copywriter. You write short, human, 
+non-salesy outreach emails on behalf of market research and data companies.
+Your emails are under 150 words in the body, addressed by first name, and end with 
+a single soft call to action (a 15-minute call or a reply).
+
+BUSINESS UNIT CONTEXT:
+{bu_description}
+
+SENDER: {sender}"""
+
+        user_prompt = f"""Write a cold outreach email for the following lead.
+
+LEAD:
+{json.dumps(lead_context, indent=2)}
+
+GAP ANALYSIS (why this BU fits):
+{gap_analysis}
+
+Rules:
+- Address the lead as {first_name}
+- Reference one specific pain point or business challenge from the lead data
+- Explain how the business unit bridges the gap for them
+- Keep the body under 150 words
+- Sign off with the sender name and title
+- Subject line: short, specific, no clickbait
+
+Return JSON only:
+{{
+  "subject": "<subject line>",
+  "body": "<full plain-text email body>"
+}}
+
+No preamble. No markdown. Only JSON."""
+
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.7,
+                max_tokens=600,
+            )
+            raw = response.choices[0].message.content.strip()
+            clean = raw.strip("```json").strip("```").strip()
+            result = json.loads(clean)
+            return {
+                "subject": result.get("subject", ""),
+                "body": result.get("body", ""),
+            }
+        except Exception as e:
+            logger.error(f"[OpenAI Draft] Email drafting failed: {e}")
+            return {"subject": "", "body": ""}
 
 
 # ============== SINGLETON ==============
@@ -732,3 +805,15 @@ def route_to_business_unit(
 ) -> Dict[str, Any]:
     """Convenience function to route a lead to the best-fit business unit via Gemini"""
     return get_gemini_gateway().route_to_business_unit(lead_context, business_units)
+
+
+def draft_outreach_email_openai(
+    lead_context: Dict[str, Any],
+    bu_description: str,
+    gap_analysis: str,
+    sender: str,
+) -> Dict[str, str]:
+    """Convenience function to draft outreach email via OpenAI GPT-4"""
+    return get_gemini_gateway().draft_outreach_email_openai(
+        lead_context, bu_description, gap_analysis, sender
+    )

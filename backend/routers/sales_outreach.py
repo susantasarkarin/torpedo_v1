@@ -278,3 +278,130 @@ async def get_lead_status(lead_id: str):
     except Exception as e:
         logger.error(f"[Status] {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────
+#  BUSINESS UNIT CONFIG CRUD
+# ─────────────────────────────────────────────────────
+
+from pathlib import Path
+from pydantic import BaseModel as _BaseModel
+
+_BU_DIR = Path(__file__).resolve().parent.parent / "configs" / "business_units"
+
+
+class BUConfigUpdate(_BaseModel):
+    content: str
+
+
+class BUConfigCreate(_BaseModel):
+    slug: str
+    content: str
+
+
+@router.get("/bu-configs", summary="List all business unit config files")
+async def list_bu_configs():
+    """Return all BU config files with their slugs, names, and full content."""
+    try:
+        _BU_DIR.mkdir(parents=True, exist_ok=True)
+        units = []
+        for txt_file in sorted(_BU_DIR.glob("*.txt")):
+            content = txt_file.read_text(encoding="utf-8")
+            first_line = content.splitlines()[0] if content.splitlines() else txt_file.stem
+            name = (
+                first_line.replace("BUSINESS UNIT:", "").strip().split("—")[0].strip()
+                if "BUSINESS UNIT:" in first_line
+                else txt_file.stem
+            )
+            units.append({
+                "slug": txt_file.stem,
+                "name": name,
+                "content": content,
+                "filename": txt_file.name,
+            })
+        return {"business_units": units, "count": len(units)}
+    except Exception as e:
+        logger.error(f"[BU Config] List failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/bu-configs/{slug}", summary="Get a single BU config file")
+async def get_bu_config(slug: str):
+    """Return the full content of a single BU config file by slug."""
+    try:
+        # Sanitize slug — only allow alphanumerics and underscores
+        safe_slug = "".join(c for c in slug if c.isalnum() or c == "_")
+        if safe_slug != slug:
+            raise HTTPException(status_code=400, detail="Invalid slug characters")
+        path = _BU_DIR / f"{safe_slug}.txt"
+        if not path.exists():
+            raise HTTPException(status_code=404, detail=f"BU config '{slug}' not found")
+        content = path.read_text(encoding="utf-8")
+        first_line = content.splitlines()[0] if content.splitlines() else slug
+        name = (
+            first_line.replace("BUSINESS UNIT:", "").strip().split("—")[0].strip()
+            if "BUSINESS UNIT:" in first_line else slug
+        )
+        return {"slug": safe_slug, "name": name, "content": content}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/bu-configs/{slug}", summary="Update a BU config file")
+async def update_bu_config(slug: str, body: BUConfigUpdate):
+    """Overwrite the content of an existing BU config file."""
+    try:
+        safe_slug = "".join(c for c in slug if c.isalnum() or c == "_")
+        if safe_slug != slug:
+            raise HTTPException(status_code=400, detail="Invalid slug characters")
+        path = _BU_DIR / f"{safe_slug}.txt"
+        if not path.exists():
+            raise HTTPException(status_code=404, detail=f"BU config '{slug}' not found")
+        path.write_text(body.content, encoding="utf-8")
+        logger.info(f"[BU Config] Updated '{slug}'")
+        return {"status": "updated", "slug": safe_slug}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bu-configs", summary="Create a new BU config file")
+async def create_bu_config(body: BUConfigCreate):
+    """Create a new BU config .txt file."""
+    try:
+        safe_slug = "".join(c for c in body.slug if c.isalnum() or c == "_")
+        if not safe_slug:
+            raise HTTPException(status_code=400, detail="Invalid slug")
+        path = _BU_DIR / f"{safe_slug}.txt"
+        if path.exists():
+            raise HTTPException(status_code=409, detail=f"BU config '{safe_slug}' already exists")
+        _BU_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(body.content, encoding="utf-8")
+        logger.info(f"[BU Config] Created '{safe_slug}'")
+        return {"status": "created", "slug": safe_slug}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/bu-configs/{slug}", summary="Delete a BU config file")
+async def delete_bu_config(slug: str):
+    """Delete a BU config file by slug."""
+    try:
+        safe_slug = "".join(c for c in slug if c.isalnum() or c == "_")
+        if safe_slug != slug:
+            raise HTTPException(status_code=400, detail="Invalid slug characters")
+        path = _BU_DIR / f"{safe_slug}.txt"
+        if not path.exists():
+            raise HTTPException(status_code=404, detail=f"BU config '{slug}' not found")
+        path.unlink()
+        logger.info(f"[BU Config] Deleted '{slug}'")
+        return {"status": "deleted", "slug": safe_slug}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

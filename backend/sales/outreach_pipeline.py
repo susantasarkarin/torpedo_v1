@@ -168,7 +168,25 @@ def route_lead_to_bu(self, lead_id: str) -> Dict[str, Any]:
             logger.error(f"[BU Routing] Gemini routing failed for {lead_id}: {result.get('error')}")
             return {"error": "routing_failed", "detail": result.get("error")}
 
-        # Store routing result on lead
+        # Find the full BU description for the chosen slug (for OpenAI drafting)
+        chosen_bu = next(
+            (bu for bu in business_units if bu["slug"] == result.get("slug")),
+            business_units[0] if business_units else {}
+        )
+
+        # Draft the outreach email via OpenAI GPT-4
+        draft = gateway.draft_outreach_email_openai(
+            lead_context=lead_context,
+            bu_description=chosen_bu.get("description", ""),
+            gap_analysis=result.get("gap_analysis", ""),
+            sender=result.get("sender", ""),
+        )
+
+        if not draft.get("subject") or not draft.get("body"):
+            logger.error(f"[BU Routing] OpenAI email draft empty for lead {lead_id}")
+            return {"error": "draft_failed"}
+
+        # Store routing + draft on lead
         leads.update_one(
             {"_id": ObjectId(lead_id)},
             {"$set": {
@@ -176,7 +194,8 @@ def route_lead_to_bu(self, lead_id: str) -> Dict[str, Any]:
                     "slug": result["slug"],
                     "bu_name": result["bu_name"],
                     "gap_analysis": result["gap_analysis"],
-                    "outreach_email": result["outreach_email"],
+                    "sender": result.get("sender", ""),
+                    "outreach_email": draft,
                     "routed_at": datetime.utcnow(),
                 },
                 "stage": "email_construction",
