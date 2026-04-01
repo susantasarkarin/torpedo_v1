@@ -1,12 +1,11 @@
 """
-Email Construction & Verification Router
-Step 7: Pattern lookup + email address construction.
-Step 8: Email verification via skrapp.io.
+Email Construction Router
+Step 7: Domain pattern cache lookup → email construction.
+Step 8 (verification) removed — Gemini predicts email during enrichment.
 """
 
 import os
 import re
-import time
 import logging
 from datetime import datetime
 from typing import Optional, Dict, Any
@@ -30,23 +29,7 @@ _db = _client["email_automation"]
 leads_col = _db["leads"]
 domains_col = _db["company_domains"]
 
-# ── Skrapp.io ──
-SKRAPP_API_KEY = os.getenv("SKRAPP_API_KEY", "")
-SKRAPP_BASE = "https://app.skrapp.io/api/v2"
 
-# ── Rate limiter (simple token bucket) ──
-_last_skrapp_call = 0.0
-_SKRAPP_MIN_INTERVAL = 0.1  # max 10 req/sec
-
-
-def _rate_limit_skrapp():
-    """Enforce max 10 requests/second to skrapp.io."""
-    global _last_skrapp_call
-    now = time.time()
-    elapsed = now - _last_skrapp_call
-    if elapsed < _SKRAPP_MIN_INTERVAL:
-        time.sleep(_SKRAPP_MIN_INTERVAL - elapsed)
-    _last_skrapp_call = time.time()
 
 
 # ══════════════════════════════════════════════
@@ -117,99 +100,36 @@ async def get_domain_pattern(domain: str):
 @router.post("/construct/{lead_id}")
 async def construct_email(lead_id: str):
     """
-    Construct email for a lead using domain pattern cache or skrapp.io.
-    Lead must be in stage=email_construction.
+    Apply a known domain email pattern from cache if available,
+    then hand off to enrich_lead where Gemini predicts the email.
     """
     lead = leads_col.find_one({"_id": ObjectId(lead_id)})
     if not lead:
         raise HTTPException(404, "Lead not found")
-
     if not lead.get("domain"):
         raise HTTPException(400, "Lead has no domain — cannot construct email")
-
     if not lead.get("name"):
         raise HTTPException(400, "Lead has no name — cannot construct email")
 
     domain = lead["domain"].lower()
     name = lead["name"]
-    first, last = _split_name(name)
+    cache_hit = False
 
-    # Step 1 — Check company_domains cache
+    # Apply cached domain pattern if available (fast path)
     cached = domains_col.find_one({"domain": domain})
-
     if cached:
-        pattern = cached["pattern"]
-        email = _construct_email(pattern, name, domain)
+        email = _construct_email(cached["pattern"], name, domain)
         if email:
             domains_col.update_one({"domain": domain}, {"$inc": {"hit_count": 1}})
             leads_col.update_one(
                 {"_id": ObjectId(lead_id)},
-                {"$set": {"email": email, "updated_at": datetime.utcnow()}},
+                {"$set": {"email": email, "email_status": "pattern_match", "updated_at": datetime.utcnow()}},
             )
-            # Enqueue verification
-            _enqueue_verification(lead_id)
-            return {"email": email, "pattern": pattern, "source": "cache"}
+            cache_hit = True
 
-    # Step 2 — Call skrapp.io for pattern
-    if not SKRAPP_API_KEY:
-        # Fallback: try common patterns without API
-        for pattern in EMAIL_PATTERNS:
-            email = _construct_email(pattern, name, domain)
-            if email:
-                leads_col.update_one(
-                    {"_id": ObjectId(lead_id)},
-                    {"$set": {"email": email, "email_status": "pending", "updated_at": datetime.utcnow()}},
-                )
-                _enqueue_verification(lead_id)
-                return {"email": email, "pattern": pattern, "source": "guess"}
-        raise HTTPException(400, "Could not construct email — no name/domain info")
-
-    _rate_limit_skrapp()
-    import httpx
-    try:
-        resp = httpx.post(
-            f"{SKRAPP_BASE}/email-finder",
-            json={"domain": domain, "firstName": first, "lastName": last},
-            headers={"Authorization": f"Bearer {SKRAPP_API_KEY}"},
-            timeout=15,
-        )
-        data = resp.json()
-    except Exception as e:
-        logger.error(f"Skrapp email-finder failed: {e}")
-        leads_col.update_one(
-            {"_id": ObjectId(lead_id)},
-            {"$set": {"email_status": "invalid", "stage": "new", "updated_at": datetime.utcnow()}},
-        )
-        raise HTTPException(502, f"Skrapp API error: {e}")
-
-    if resp.status_code == 200 and data.get("email"):
-        email = data["email"].lower().strip()
-        pattern = data.get("pattern", "{first}.{last}")
-
-        # Store pattern in cache
-        domains_col.update_one(
-            {"domain": domain},
-            {"$set": {
-                "domain": domain,
-                "pattern": pattern,
-                "source": "skrapp",
-                "verified_at": datetime.utcnow(),
-            }, "$inc": {"hit_count": 1}},
-            upsert=True,
-        )
-
-        leads_col.update_one(
-            {"_id": ObjectId(lead_id)},
-            {"$set": {"email": email, "updated_at": datetime.utcnow()}},
-        )
-        _enqueue_verification(lead_id)
-        return {"email": email, "pattern": pattern, "source": "skrapp"}
-    else:
-        leads_col.update_one(
-            {"_id": ObjectId(lead_id)},
-            {"$set": {"email_status": "invalid", "stage": "new", "updated_at": datetime.utcnow()}},
-        )
-        return {"error": "Could not find email", "lead_id": lead_id}
+    # Always forward to enrichment — Gemini will predict email if still missing
+    _enqueue_enrichment(lead_id)
+    return {"status": "queued_for_enrichment", "cache_hit": cache_hit}
 
 
 # ══════════════════════════════════════════════
@@ -219,97 +139,15 @@ async def construct_email(lead_id: str):
 @router.post("/verify/{lead_id}")
 async def verify_email(lead_id: str):
     """
-    Verify a lead's email via skrapp.io.
-    On valid: stage → verified, enqueue enrichment.
-    On invalid: try alternate pattern, then flag for rep.
+    Legacy endpoint — Skrapp.io verification removed.
+    Forwards directly to enrichment where Gemini predicts the email.
+    Kept for API backward compatibility.
     """
     lead = leads_col.find_one({"_id": ObjectId(lead_id)})
     if not lead:
         raise HTTPException(404, "Lead not found")
-
-    email = lead.get("email")
-    if not email:
-        raise HTTPException(400, "Lead has no email to verify")
-
-    result = _verify_with_skrapp(email)
-
-    if result == "valid":
-        leads_col.update_one(
-            {"_id": ObjectId(lead_id)},
-            {"$set": {
-                "email_status": "verified",
-                "stage": "verified",
-                "updated_at": datetime.utcnow(),
-            }},
-        )
-        _enqueue_enrichment(lead_id)
-        return {"status": "verified", "email": email}
-
-    # Invalid — try alternate pattern (one retry)
-    domain = lead.get("domain", "")
-    name = lead.get("name", "")
-    if domain and name:
-        alternate = _try_alternate_pattern(name, domain, email)
-        if alternate:
-            alt_result = _verify_with_skrapp(alternate)
-            if alt_result == "valid":
-                leads_col.update_one(
-                    {"_id": ObjectId(lead_id)},
-                    {"$set": {
-                        "email": alternate,
-                        "email_status": "verified",
-                        "stage": "verified",
-                        "updated_at": datetime.utcnow(),
-                    }},
-                )
-                _enqueue_enrichment(lead_id)
-                return {"status": "verified", "email": alternate, "note": "alternate pattern"}
-
-    # All attempts failed
-    leads_col.update_one(
-        {"_id": ObjectId(lead_id)},
-        {"$set": {
-            "email_status": "invalid",
-            "stage": "new",
-            "updated_at": datetime.utcnow(),
-        }},
-    )
-
-    # In-app notification for rep
-    _db["notifications"].insert_one({
-        "type": "email_verification_failed",
-        "title": f"Could not verify email for {lead.get('name', '')} at {lead.get('company', '')}",
-        "message": f"Email {email} could not be verified. Please review.",
-        "lead_id": lead_id,
-        "read": False,
-        "created_at": datetime.utcnow(),
-    })
-
-    return {"status": "invalid", "email": email}
-
-
-def _verify_with_skrapp(email: str) -> str:
-    """Call skrapp.io verify. Returns 'valid' or 'invalid'."""
-    if not SKRAPP_API_KEY:
-        # Without API key, accept as-is
-        return "valid"
-
-    _rate_limit_skrapp()
-    import httpx
-    try:
-        resp = httpx.post(
-            f"{SKRAPP_BASE}/verify",
-            json={"email": email},
-            headers={"Authorization": f"Bearer {SKRAPP_API_KEY}"},
-            timeout=15,
-        )
-        data = resp.json()
-        if data.get("status") == "valid":
-            return "valid"
-        return "invalid"
-    except Exception as e:
-        logger.error(f"Skrapp verify error: {e}")
-        return "invalid"
+    _enqueue_enrichment(lead_id)
+    return {"status": "forwarded_to_enrichment"}
 
 
 def _try_alternate_pattern(name: str, domain: str, current_email: str) -> Optional[str]:
@@ -320,15 +158,6 @@ def _try_alternate_pattern(name: str, domain: str, current_email: str) -> Option
         if candidate and candidate != current_email:
             return candidate
     return None
-
-
-def _enqueue_verification(lead_id: str):
-    """Enqueue lead for email verification via Celery."""
-    try:
-        from tasks.sales_tasks import verify_lead_email
-        verify_lead_email.delay(lead_id)
-    except Exception as e:
-        logger.warning(f"Could not enqueue verification for {lead_id}: {e}")
 
 
 def _enqueue_enrichment(lead_id: str):

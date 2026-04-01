@@ -459,10 +459,11 @@ Return JSON only:
         context keys: company_name, domain, name, meta_description, about_text, recent_news
 
         Returns dict with: role_match_score, company_size_bucket, industry,
-                           seniority_hint, top_pain_points, personalisation_hook
+                           seniority_hint, top_pain_points, personalisation_hook,
+                           email_address, email_confidence
         or None on failure.
         """
-        prompt = f"""You are a B2B sales analyst. Analyse the company data below and return ONLY valid JSON.
+        prompt = f"""You are a B2B sales analyst and email research specialist. Analyse the company data below and return ONLY valid JSON.
 
 Company data:
 {json.dumps(context, indent=2)}
@@ -474,8 +475,16 @@ Return JSON with exactly these fields:
   "industry": "<primary industry string>",
   "seniority_hint": "<likely decision-maker title>",
   "top_pain_points": ["<pain point 1>", "<pain point 2>"],
-  "personalisation_hook": "<one sentence specific to this company, no generic filler>"
+  "personalisation_hook": "<one sentence specific to this company, no generic filler>",
+  "email_address": "<most likely professional email for this contact at domain — infer from company email patterns visible in website text, footer, or contact pages; fall back to firstname.lastname@domain>",
+  "email_confidence": <integer 0-100, where 100 = found explicitly in website, 70 = strong pattern match, 40 = common fallback guess>
 }}
+
+Rules for email_address:
+- Use ONLY the domain provided in company data — never invent a different domain
+- If the website text or about_text contains an explicit email address for this contact or a clear pattern (e.g. info@domain, contact@domain revealing the format), extract the pattern and apply it to the contact name
+- Always return a syntactically valid email — never return null or empty string
+- Prefer firstname.lastname@domain, then firstname@domain, then f.lastname@domain
 
 No preamble. No markdown. Only JSON."""
 

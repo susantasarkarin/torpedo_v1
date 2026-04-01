@@ -68,7 +68,8 @@ class EventType(str, Enum):
 
 
 class DomainPatternSource(str, Enum):
-    SKRAPP = "skrapp"
+    GEMINI = "gemini"
+    CACHE = "cache"
     MANUAL = "manual"
 
 

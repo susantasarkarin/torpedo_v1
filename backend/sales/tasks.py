@@ -47,7 +47,11 @@ def _get_domains_col():
     rate_limit="10/m",
 )
 def enqueue_email_construction(self, lead_id: str):
-    """Construct email for a lead using domain pattern or skrapp.io."""
+    """
+    Pre-enrichment step: apply a known domain email pattern from cache if available,
+    then hand off to enrich_lead where Gemini will predict the email if still missing.
+    Skrapp.io has been removed — email prediction is handled by Gemini enrichment.
+    """
     try:
         from bson import ObjectId
         leads = _get_leads_col()
@@ -63,10 +67,9 @@ def enqueue_email_construction(self, lead_id: str):
         if not domain or not name:
             return {"error": "missing_domain_or_name"}
 
-        import re
         first, last = _split_name(name)
 
-        # Check cache
+        # Apply known domain pattern from cache (fast path)
         cached = domains.find_one({"domain": domain})
         if cached:
             pattern = cached["pattern"]
@@ -75,57 +78,13 @@ def enqueue_email_construction(self, lead_id: str):
                 domains.update_one({"domain": domain}, {"$inc": {"hit_count": 1}})
                 leads.update_one(
                     {"_id": ObjectId(lead_id)},
-                    {"$set": {"email": email, "updated_at": datetime.utcnow()}},
+                    {"$set": {"email": email, "email_status": "pattern_match", "updated_at": datetime.utcnow()}},
                 )
-                verify_lead_email.delay(lead_id)
-                return {"email": email, "source": "cache"}
+                logger.info(f"Email pattern cache hit for {lead_id}: {email}")
 
-        # Try skrapp.io
-        skrapp_key = os.getenv("SKRAPP_API_KEY", "")
-        if skrapp_key:
-            import httpx
-            try:
-                resp = httpx.post(
-                    "https://app.skrapp.io/api/v2/email-finder",
-                    json={"domain": domain, "firstName": first, "lastName": last},
-                    headers={"Authorization": f"Bearer {skrapp_key}"},
-                    timeout=15,
-                )
-                data = resp.json()
-                if resp.status_code == 200 and data.get("email"):
-                    email = data["email"].lower().strip()
-                    pattern = data.get("pattern", "{first}.{last}")
-                    domains.update_one(
-                        {"domain": domain},
-                        {"$set": {"domain": domain, "pattern": pattern, "source": "skrapp", "verified_at": datetime.utcnow()},
-                         "$inc": {"hit_count": 1}},
-                        upsert=True,
-                    )
-                    leads.update_one(
-                        {"_id": ObjectId(lead_id)},
-                        {"$set": {"email": email, "updated_at": datetime.utcnow()}},
-                    )
-                    verify_lead_email.delay(lead_id)
-                    return {"email": email, "source": "skrapp"}
-            except Exception as e:
-                logger.error(f"Skrapp email-finder error: {e}")
-
-        # Fallback: guess with common patterns
-        for pattern in ["{first}.{last}", "{first}{last}", "{first}"]:
-            email = _construct_from_pattern(pattern, first, last, domain)
-            if email:
-                leads.update_one(
-                    {"_id": ObjectId(lead_id)},
-                    {"$set": {"email": email, "email_status": "pending", "updated_at": datetime.utcnow()}},
-                )
-                verify_lead_email.delay(lead_id)
-                return {"email": email, "source": "guess"}
-
-        leads.update_one(
-            {"_id": ObjectId(lead_id)},
-            {"$set": {"email_status": "invalid", "stage": "new", "updated_at": datetime.utcnow()}},
-        )
-        return {"error": "could_not_construct"}
+        # Always proceed to enrichment — Gemini will predict email if still missing
+        enrich_lead.delay(lead_id)
+        return {"status": "queued_for_enrichment", "cache_hit": bool(cached)}
 
     except Exception as e:
         logger.error(f"Email construction failed for {lead_id}: {e}")
@@ -144,59 +103,16 @@ def enqueue_email_construction(self, lead_id: str):
     rate_limit="10/s",
 )
 def verify_lead_email(self, lead_id: str):
-    """Verify email via skrapp.io. On valid → stage=verified → enqueue enrichment."""
+    """
+    Legacy step — Skrapp.io verification removed.
+    Email prediction is now handled by Gemini inside enrich_lead.
+    This task is kept to safely drain any previously queued messages.
+    """
     try:
-        from bson import ObjectId
-        leads = _get_leads_col()
-        lead = leads.find_one({"_id": ObjectId(lead_id)})
-        if not lead or not lead.get("email"):
-            return {"error": "no_email"}
-
-        email = lead["email"]
-        result = _call_skrapp_verify(email)
-
-        if result == "valid":
-            leads.update_one(
-                {"_id": ObjectId(lead_id)},
-                {"$set": {"email_status": "verified", "stage": "verified", "updated_at": datetime.utcnow()}},
-            )
-            enrich_lead.delay(lead_id)
-            return {"status": "verified"}
-
-        # Try alternate
-        domain = lead.get("domain", "")
-        name = lead.get("name", "")
-        if domain and name:
-            first, last = _split_name(name)
-            for pattern in ["{first}.{last}", "{first}{last}", "{first_initial}{last}", "{first}"]:
-                alt = _construct_from_pattern(pattern, first, last, domain)
-                if alt and alt != email:
-                    alt_result = _call_skrapp_verify(alt)
-                    if alt_result == "valid":
-                        leads.update_one(
-                            {"_id": ObjectId(lead_id)},
-                            {"$set": {"email": alt, "email_status": "verified", "stage": "verified", "updated_at": datetime.utcnow()}},
-                        )
-                        enrich_lead.delay(lead_id)
-                        return {"status": "verified", "email": alt}
-                    break  # Only one retry
-
-        leads.update_one(
-            {"_id": ObjectId(lead_id)},
-            {"$set": {"email_status": "invalid", "stage": "new", "updated_at": datetime.utcnow()}},
-        )
-        db = get_background_db()
-        db["notifications"].insert_one({
-            "type": "email_verification_failed",
-            "title": f"Could not verify email for {lead.get('name', '')} at {lead.get('company', '')}",
-            "lead_id": lead_id,
-            "read": False,
-            "created_at": datetime.utcnow(),
-        })
-        return {"status": "invalid"}
-
+        enrich_lead.delay(lead_id)
+        return {"status": "forwarded_to_enrichment"}
     except Exception as e:
-        logger.error(f"Verification failed for {lead_id}: {e}")
+        logger.error(f"verify_lead_email forward failed for {lead_id}: {e}")
         raise self.retry(exc=e, countdown=30)
 
 
@@ -246,21 +162,43 @@ def enrich_lead(self, lead_id: str):
 
         # Step 4 — Validate and store
         if enrichment:
+            update_fields = {
+                "enrichment": {
+                    "role": enrichment.get("seniority_hint", ""),
+                    "company_size": enrichment.get("company_size_bucket", ""),
+                    "pain_points": enrichment.get("top_pain_points", [])[:2],
+                    "news": "; ".join(gathered.get("news_headlines", [])[:3]),
+                    "hook": enrichment.get("personalisation_hook", ""),
+                    "status": "done",
+                },
+                "intent_score": enrichment.get("role_match_score", 50),
+                "stage": "enriched",
+                "updated_at": datetime.utcnow(),
+            }
+
+            # Store Gemini-predicted email if lead doesn't already have a confirmed one
+            predicted_email = enrichment.get("email_address", "")
+            email_confidence = enrichment.get("email_confidence", 0)
+            existing_email = lead.get("email", "")
+            existing_status = lead.get("email_status", "")
+            if predicted_email and "@" in predicted_email and not existing_email:
+                update_fields["email"] = predicted_email.lower().strip()
+                update_fields["email_status"] = "gemini_inferred"
+                update_fields["email_confidence_score"] = email_confidence
+                logger.info(
+                    f"Gemini predicted email for {lead_id}: {predicted_email} "
+                    f"(confidence={email_confidence})"
+                )
+            elif predicted_email and "@" in predicted_email and existing_status == "pattern_match":
+                # Gemini may have found a better match from website scrape — prefer it if confidence is high
+                if email_confidence >= 70:
+                    update_fields["email"] = predicted_email.lower().strip()
+                    update_fields["email_status"] = "gemini_inferred"
+                    update_fields["email_confidence_score"] = email_confidence
+
             leads.update_one(
                 {"_id": ObjectId(lead_id)},
-                {"$set": {
-                    "enrichment": {
-                        "role": enrichment.get("company_size_bucket", ""),
-                        "company_size": enrichment.get("company_size_bucket", ""),
-                        "pain_points": enrichment.get("top_pain_points", [])[:2],
-                        "news": "; ".join(gathered.get("news_headlines", [])[:3]),
-                        "hook": enrichment.get("personalisation_hook", ""),
-                        "status": "done",
-                    },
-                    "intent_score": enrichment.get("role_match_score", 50),
-                    "stage": "enriched",
-                    "updated_at": datetime.utcnow(),
-                }},
+                {"$set": update_fields},
             )
             # Auto-assign ICP tags based on enrichment results
             _assign_icp_tags(lead_id, lead, enrichment, gathered)
@@ -956,22 +894,3 @@ def _construct_from_pattern(pattern: str, first: str, last: str, domain: str) ->
     if not result or not result.strip():
         return None
     return f"{result}@{domain}"
-
-
-def _call_skrapp_verify(email: str) -> str:
-    skrapp_key = os.getenv("SKRAPP_API_KEY", "")
-    if not skrapp_key:
-        return "valid"
-    import httpx
-    try:
-        resp = httpx.post(
-            "https://app.skrapp.io/api/v2/verify",
-            json={"email": email},
-            headers={"Authorization": f"Bearer {skrapp_key}"},
-            timeout=15,
-        )
-        data = resp.json()
-        return "valid" if data.get("status") == "valid" else "invalid"
-    except Exception as e:
-        logger.error(f"Skrapp verify error: {e}")
-        return "invalid"
