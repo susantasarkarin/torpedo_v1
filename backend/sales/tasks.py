@@ -564,57 +564,15 @@ def _gather_company_data(company: str, domain: str) -> Dict[str, Any]:
 
 
 def _call_ai_enrichment(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Call AI (OpenAI/Claude) for enrichment. Returns parsed JSON or None."""
-    api_key = os.getenv("OPENAI_API_KEY", "")
-    if not api_key:
-        logger.warning("No OPENAI_API_KEY — skipping AI enrichment")
-        return None
-
-    import httpx
-    system_prompt = "You are a B2B sales analyst. Return only valid JSON, no preamble, no markdown."
-    user_prompt = f"""Given this company data: {json.dumps(context)}
-Return JSON with exactly these fields:
-{{
-  "role_match_score": <number 0-100>,
-  "company_size_bucket": "1-10" | "11-50" | "51-200" | "201-1000" | "1000+",
-  "top_pain_points": [<string>, <string>],
-  "personalisation_hook": "<one sentence, specific to this company>"
-}}"""
-
+    """Enrich a lead using Gemini (Google). No OpenAI."""
     try:
-        resp = httpx.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": 0.3,
-                "max_tokens": 300,
-            },
-            timeout=30,
-        )
-        data = resp.json()
-        content = data["choices"][0]["message"]["content"]
-        # Strip markdown code fences if present
-        content = content.strip()
-        if content.startswith("```"):
-            content = content.split("\n", 1)[1] if "\n" in content else content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
-        result = json.loads(content.strip())
-
-        # Validate required fields
-        required = ["role_match_score", "company_size_bucket", "top_pain_points", "personalisation_hook"]
-        if all(k in result for k in required):
-            return result
-        logger.warning(f"AI enrichment missing fields: {result}")
-        return None
+        from ai_governance.gemini_gateway import get_gemini_gateway
+        return get_gemini_gateway().enrich_lead_data(context)
     except Exception as e:
-        logger.error(f"AI enrichment API call failed: {e}")
+        logger.error(f"Gemini enrichment failed: {e}")
         return None
+
+
 
 
 # ══════════════════════════════════════════════
@@ -765,40 +723,12 @@ def _get_icp_outreach_config(slug: Optional[str]) -> Dict[str, Any]:
 
 
 def _call_ai_draft(system_prompt: str, user_prompt: str) -> Optional[Dict[str, str]]:
-    """Call AI to generate email draft. Returns {subject, body} or None."""
-    api_key = os.getenv("OPENAI_API_KEY", "")
-    if not api_key:
-        logger.warning("No OPENAI_API_KEY — cannot generate draft")
-        return None
-
-    import httpx
+    """Generate email draft using Gemini (Google). No OpenAI."""
     try:
-        resp = httpx.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": 0.7,
-                "max_tokens": 400,
-            },
-            timeout=30,
-        )
-        data = resp.json()
-        content = data["choices"][0]["message"]["content"].strip()
-        if content.startswith("```"):
-            content = content.split("\n", 1)[1] if "\n" in content else content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
-        result = json.loads(content.strip())
-        if "subject" in result and "body" in result:
-            return result
-        return None
+        from ai_governance.gemini_gateway import get_gemini_gateway
+        return get_gemini_gateway().generate_email_draft(system_prompt, user_prompt)
     except Exception as e:
-        logger.error(f"AI draft API call failed: {e}")
+        logger.error(f"Gemini draft generation failed: {e}")
         return None
 
 
@@ -819,13 +749,7 @@ def classify_mail_pool_senders(self, sender_batch: List[Dict[str, Any]]):
     Classifies as: client | vendor | promotional | transactional | unknown.
     """
     try:
-        api_key = os.getenv("OPENAI_API_KEY", "")
-        if not api_key:
-            logger.warning("No OPENAI_API_KEY — creating all as leads")
-            _create_leads_from_senders(sender_batch)
-            return {"status": "fallback_no_api"}
-
-        # Build classification prompt
+        # Build classification context for Gemini
         sender_summaries = []
         for s in sender_batch[:50]:
             sender_summaries.append({
@@ -835,33 +759,8 @@ def classify_mail_pool_senders(self, sender_batch: List[Dict[str, Any]]):
                 "subjects": s.get("subjects", "")[:200],
             })
 
-        import httpx
-        resp = httpx.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                "messages": [
-                    {"role": "system", "content": "You classify email senders. Return only valid JSON array."},
-                    {"role": "user", "content": (
-                        "Classify each sender as: client | vendor | promotional | transactional | unknown. "
-                        "Return JSON array: [{\"email\": \"...\", \"classification\": \"...\"}]. "
-                        f"Senders: {json.dumps(sender_summaries)}"
-                    )},
-                ],
-                "temperature": 0.1,
-                "max_tokens": 2000,
-            },
-            timeout=30,
-        )
-
-        data = resp.json()
-        content = data["choices"][0]["message"]["content"].strip()
-        if content.startswith("```"):
-            content = content.split("\n", 1)[1] if "\n" in content else content[3:]
-        if content.endswith("```"):
-            content = content[:-3]
-        classifications = json.loads(content.strip())
+        from ai_governance.gemini_gateway import get_gemini_gateway
+        classifications = get_gemini_gateway().classify_senders(sender_summaries) or []
 
         # Map classifications back
         class_map = {c["email"]: c["classification"] for c in classifications if "email" in c}

@@ -1,0 +1,66 @@
+{
+  "version": "1.0",
+  "comment": "Follow-up timing and unique scripts for cold outreach sequences. Intervals are in days after the previous email.",
+  "sequences": {
+    "cold": {
+      "steps": [
+        {
+          "step": 1,
+          "label": "Initial Outreach",
+          "delay_days": 0,
+          "subject_template": "Quick question about {company}'s {pain_area}",
+          "script_template": "Hi {first_name},\n\nI came across {company} and noticed {hook}.\n\nWe work with {persona_type} teams to {value_prop_short}. Given {pain_point}, I thought there might be a fit.\n\n{cta}\n\nBest,\nSusanta"
+        },
+        {
+          "step": 2,
+          "label": "First Follow-up",
+          "delay_days": 4,
+          "subject_template": "Re: Quick question about {company}'s {pain_area}",
+          "script_template": "Hi {first_name},\n\nJust wanted to bump this up in case it got buried.\n\nIn one line — we help {persona_type} teams {value_prop_short} without the usual {objection}.\n\nWorth a 15-minute call this week?\n\nBest,\nSusanta"
+        },
+        {
+          "step": 3,
+          "label": "Value Add Follow-up",
+          "delay_days": 7,
+          "subject_template": "Something that might be useful for {company}",
+          "script_template": "Hi {first_name},\n\nI'll keep this short — I know you're busy.\n\nWe recently helped a {industry} company similar to {company} solve {pain_point}. The result was {outcome_example}.\n\nI'd be happy to share how we did it. Would a quick call this week work?\n\nBest,\nSusanta"
+        },
+        {
+          "step": 4,
+          "label": "Final Break-up",
+          "delay_days": 12,
+          "subject_template": "Should I close the loop, {first_name}?",
+          "script_template": "Hi {first_name},\n\nI'll take the hint — clearly the timing isn't right, and that's completely fine.\n\nI'll close the loop here. If {company}'s needs around {pain_area} change in the future, I'd welcome the chance to reconnect.\n\nAll the best,\nSusanta\n\nP.S. If you'd like to refer someone who might benefit, I'd really appreciate it."
+        }
+      ]
+    },
+    "reengagement": {
+      "steps": [
+        {
+          "step": 1,
+          "label": "Soft Re-open",
+          "delay_days": 0,
+          "subject_template": "Checking back in — {company}",
+          "script_template": "Hi {first_name},\n\nWe spoke a while back about {pain_area} at {company}.\n\nI wanted to check back in — things move quickly and the situation may have changed.\n\nAre you still working on this? Happy to pick up where we left off.\n\nBest,\nSusanta"
+        },
+        {
+          "step": 2,
+          "label": "Trigger Follow-up",
+          "delay_days": 14,
+          "subject_template": "Noticed something relevant to {company}",
+          "script_template": "Hi {first_name},\n\nQuick note — {recent_news_or_hook}.\n\nGiven that context, I thought our previous conversation about {pain_area} might be worth revisiting.\n\nOpen to a brief call?\n\nBest,\nSusanta"
+        }
+      ]
+    }
+  },
+  "reply_wait_hours": {
+    "step_1": 96,
+    "step_2": 96,
+    "step_3": 120,
+    "step_4": 144
+  },
+  "bounce_action": "flag_and_remove",
+  "positive_reply_action": "move_to_crm",
+  "negative_reply_action": "archive_and_flag",
+  "neutral_reply_action": "flag_for_manual_review"
+}

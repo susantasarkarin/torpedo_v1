@@ -1,0 +1,410 @@
+"""
+MODULE 2 — EMAIL EXTRACTION FROM MAIL POOL (CODE/REGEX ONLY — NO AI)
+======================================================================
+Scans the Gmail mail pool (email_metadata collection) and extracts structured
+lead records using regex and code-based parsing ONLY. No LLMs used here.
+
+Extracted fields per email:
+- Full name (from display name in From header)
+- Email address
+- Domain (from email address)
+- Company name (derived from domain)
+- Any additional metadata available in headers
+
+Records are stored in the 'leads' collection and deduplicated against existing entries.
+
+Celery task: extract_leads_from_mail_pool
+"""
+
+import re
+import logging
+from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional, Tuple
+
+from celery_app import celery_app
+from db_pools import get_background_db
+
+logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────────────
+#  REGEX PATTERNS
+# ─────────────────────────────────────────────────────
+
+# Matches: "John Smith <john@example.com>" or "john@example.com"
+_FROM_WITH_NAME = re.compile(
+    r'^"?([^"<@\n]+?)"?\s*<([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})>',
+    re.IGNORECASE,
+)
+_EMAIL_ONLY = re.compile(
+    r'^([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})',
+    re.IGNORECASE,
+)
+# Bare email anywhere in a string
+_EMAIL_ANYWHERE = re.compile(
+    r'([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})',
+    re.IGNORECASE,
+)
+
+# Domains to exclude (transactional, system, no-reply addresses)
+_EXCLUDED_DOMAINS = frozenset({
+    "gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com",
+    "live.com", "icloud.com", "me.com", "aol.com", "protonmail.com", "zoho.com",
+    "noreply.com", "mailer.com", "bounce.com", "amazonses.com", "sendgrid.net",
+    "mailchimp.com", "mandrillapp.com", "postmarkapp.com", "sparkpostmail.com",
+    "mailgun.org", "mg.com", "constantcontact.com", "hubspotemail.net",
+})
+
+# Prefixes that indicate system/transactional senders
+_EXCLUDED_EMAIL_PREFIXES = frozenset({
+    "noreply", "no-reply", "donotreply", "do-not-reply", "mailer-daemon",
+    "postmaster", "bounce", "notifications", "alerts", "support", "info",
+    "hello", "team", "contact", "admin", "billing", "sales", "help",
+    "newsletter", "digest", "unsubscribe", "autoresponder",
+})
+
+# Common TLD + SLD suffixes to strip when deriving company name from domain
+_DOMAIN_STRIP_SUFFIXES = re.compile(
+    r'\.(com|co\.uk|org|net|io|ai|tech|app|biz|info|co|ltd|inc|llc|plc)$',
+    re.IGNORECASE,
+)
+# Common sub-domain prefixes to strip
+_SUBDOMAIN_STRIP = re.compile(r'^(mail|smtp|email|send|auto|mx|reply)\.')
+
+
+# ─────────────────────────────────────────────────────
+#  PARSING HELPERS
+# ─────────────────────────────────────────────────────
+
+def _parse_from_header(from_header: str) -> Tuple[str, str]:
+    """
+    Parse a From: header value into (full_name, email_address).
+    Returns ("", "") if no valid email found.
+    """
+    from_header = (from_header or "").strip()
+
+    m = _FROM_WITH_NAME.match(from_header)
+    if m:
+        name = m.group(1).strip().strip('"').strip("'")
+        email = m.group(2).strip().lower()
+        return name, email
+
+    m = _EMAIL_ONLY.match(from_header)
+    if m:
+        email = m.group(1).strip().lower()
+        return "", email
+
+    # Last resort: find any email address in the string
+    m = _EMAIL_ANYWHERE.search(from_header)
+    if m:
+        return "", m.group(1).strip().lower()
+
+    return "", ""
+
+
+def _derive_domain(email: str) -> str:
+    """Extract domain from email address."""
+    if "@" in email:
+        return email.split("@", 1)[1].strip().lower()
+    return ""
+
+
+def _derive_company(domain: str) -> str:
+    """
+    Derive a human-readable company name from a domain using string ops only.
+    e.g. "research-now.com" → "Research Now"
+         "ipsos.co.uk"      → "Ipsos"
+    """
+    if not domain:
+        return ""
+
+    # Strip sub-domain prefixes
+    d = _SUBDOMAIN_STRIP.sub("", domain)
+    # Strip TLD suffixes
+    d = _DOMAIN_STRIP_SUFFIXES.sub("", d)
+    # Replace separators with spaces
+    d = d.replace("-", " ").replace("_", " ").replace(".", " ")
+    # Title-case
+    return d.strip().title()
+
+
+def _infer_name_from_email(email: str) -> str:
+    """
+    Fallback: infer a plausible name from the email local-part.
+    e.g. "john.smith@..." → "John Smith"
+         "jsmith@..."     → "Jsmith"   (single token, less reliable)
+    """
+    local = email.split("@")[0] if "@" in email else email
+    # Replace separators
+    parts = re.split(r'[\._\-\+]', local)
+    # Filter numeric-only tokens (e.g. user123 → just "user")
+    parts = [p for p in parts if p and not p.isdigit()]
+    return " ".join(p.title() for p in parts[:2])  # max 2 tokens
+
+
+def _is_excluded(email: str, domain: str) -> bool:
+    """Return True if this sender should be skipped (transactional, system, generic)."""
+    if domain in _EXCLUDED_DOMAINS:
+        return True
+    local = email.split("@")[0].lower() if "@" in email else email.lower()
+    # Check prefix
+    if any(local == prefix or local.startswith(prefix) for prefix in _EXCLUDED_EMAIL_PREFIXES):
+        return True
+    return False
+
+
+# ─────────────────────────────────────────────────────
+#  EXTRACTION CORE
+# ─────────────────────────────────────────────────────
+
+def extract_lead_from_email_record(email_record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Extract a structured lead dict from a single email_metadata document.
+    Returns None if the sender is excluded or no valid email found.
+
+    Args:
+        email_record: A document from the email_metadata MongoDB collection.
+    """
+    from_header = (
+        email_record.get("from")
+        or email_record.get("sender")
+        or email_record.get("headers", {}).get("From", "")
+        or ""
+    )
+
+    full_name, email_address = _parse_from_header(from_header)
+    if not email_address:
+        return None
+
+    domain = _derive_domain(email_address)
+    if not domain:
+        return None
+
+    if _is_excluded(email_address, domain):
+        return None
+
+    # Fallback name from email if display name missing
+    if not full_name:
+        full_name = _infer_name_from_email(email_address)
+
+    company = _derive_company(domain)
+
+    # Split name into first/last (best effort)
+    name_parts = full_name.strip().split(" ", 1)
+    first_name = name_parts[0] if name_parts else ""
+    last_name = name_parts[1] if len(name_parts) > 1 else ""
+
+    # Pull any extra metadata available without AI
+    subject = email_record.get("subject", "")
+    received_at = email_record.get("date") or email_record.get("received_at") or email_record.get("internalDate")
+
+    return {
+        "name": full_name,
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email_address,
+        "domain": domain,
+        "company": company,
+        "source": "mail_pool",
+        "stage": "new",
+        "email_status": "pending",
+        "track": "cold",
+        "enrichment": {"status": "pending"},
+        "metadata": {
+            "source_email_id": str(email_record.get("_id", "")),
+            "source_subject": subject,
+            "received_at": str(received_at) if received_at else None,
+        },
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+    }
+
+
+# ─────────────────────────────────────────────────────
+#  DEDUPLICATION HELPERS
+# ─────────────────────────────────────────────────────
+
+def _is_duplicate(leads_col, email: str) -> bool:
+    """Check if a lead with this email already exists in the leads collection."""
+    return leads_col.count_documents({"email": email}, limit=1) > 0
+
+
+def _mark_email_processed(mail_col, email_id) -> None:
+    """Mark a mail pool record as having been extracted for lead generation."""
+    try:
+        from bson import ObjectId
+        mail_col.update_one(
+            {"_id": ObjectId(str(email_id))},
+            {"$set": {"lead_extracted": True, "lead_extracted_at": datetime.utcnow()}},
+        )
+    except Exception as e:
+        logger.warning(f"Could not mark email {email_id} as processed: {e}")
+
+
+# ─────────────────────────────────────────────────────
+#  BATCH EXTRACTION
+# ─────────────────────────────────────────────────────
+
+def extract_leads_from_mail_pool_batch(
+    since_hours: int = 24,
+    limit: int = 500,
+) -> Dict[str, Any]:
+    """
+    Scan the email_metadata collection for emails received in the last `since_hours` hours,
+    extract structured leads using regex/code only, and insert new ones into the leads collection.
+
+    Args:
+        since_hours: How far back to look in the mail pool.
+        limit: Max number of emails to process per run.
+
+    Returns:
+        Summary dict with counts and errors.
+    """
+    db = get_background_db()
+    mail_col = db["email_metadata"]
+    leads_col = db["leads"]
+
+    since = datetime.utcnow() - timedelta(hours=since_hours)
+
+    # Fetch unprocessed emails received since the cutoff
+    cursor = mail_col.find(
+        {
+            "lead_extracted": {"$ne": True},
+            "$or": [
+                {"date": {"$gte": since}},
+                {"received_at": {"$gte": since}},
+            ],
+        },
+        limit=limit,
+        sort=[("date", -1)],
+    )
+
+    inserted = 0
+    skipped_excluded = 0
+    skipped_duplicate = 0
+    errors = 0
+    error_details: List[str] = []
+
+    for record in cursor:
+        try:
+            lead = extract_lead_from_email_record(record)
+            if lead is None:
+                skipped_excluded += 1
+                continue
+
+            if _is_duplicate(leads_col, lead["email"]):
+                skipped_duplicate += 1
+                _mark_email_processed(mail_col, record.get("_id"))
+                continue
+
+            leads_col.insert_one(lead)
+            _mark_email_processed(mail_col, record.get("_id"))
+            inserted += 1
+
+            logger.info(
+                f"[MailPool] Extracted lead: {lead['name']} <{lead['email']}> "
+                f"@ {lead['company']}"
+            )
+
+        except Exception as e:
+            errors += 1
+            msg = f"Error on email {record.get('_id')}: {e}"
+            error_details.append(msg)
+            logger.error(f"[MailPool] {msg}")
+
+    summary = {
+        "inserted": inserted,
+        "skipped_excluded": skipped_excluded,
+        "skipped_duplicate": skipped_duplicate,
+        "errors": errors,
+        "error_details": error_details[:10],  # cap to avoid log bloat
+        "processed_at": datetime.utcnow().isoformat(),
+    }
+    logger.info(f"[MailPool] Extraction complete: {summary}")
+    return summary
+
+
+def extract_leads_from_existing_pool(limit: int = 2000) -> Dict[str, Any]:
+    """
+    One-time backfill: scan ALL existing email_metadata records (not just recent ones)
+    and extract leads that have not yet been processed.
+
+    Same logic as the batch extraction but without a time filter.
+    """
+    db = get_background_db()
+    mail_col = db["email_metadata"]
+    leads_col = db["leads"]
+
+    cursor = mail_col.find(
+        {"lead_extracted": {"$ne": True}},
+        limit=limit,
+        sort=[("date", -1)],
+    )
+
+    inserted = 0
+    skipped_excluded = 0
+    skipped_duplicate = 0
+    errors = 0
+    error_details: List[str] = []
+
+    for record in cursor:
+        try:
+            lead = extract_lead_from_email_record(record)
+            if lead is None:
+                skipped_excluded += 1
+                continue
+
+            if _is_duplicate(leads_col, lead["email"]):
+                skipped_duplicate += 1
+                _mark_email_processed(mail_col, record.get("_id"))
+                continue
+
+            leads_col.insert_one(lead)
+            _mark_email_processed(mail_col, record.get("_id"))
+            inserted += 1
+
+        except Exception as e:
+            errors += 1
+            error_details.append(f"{record.get('_id')}: {e}")
+            logger.error(f"[MailPool Backfill] Error: {e}")
+
+    summary = {
+        "inserted": inserted,
+        "skipped_excluded": skipped_excluded,
+        "skipped_duplicate": skipped_duplicate,
+        "errors": errors,
+        "error_details": error_details[:10],
+        "processed_at": datetime.utcnow().isoformat(),
+    }
+    logger.info(f"[MailPool Backfill] Complete: {summary}")
+    return summary
+
+
+# ─────────────────────────────────────────────────────
+#  CELERY TASKS
+# ─────────────────────────────────────────────────────
+
+@celery_app.task(
+    name="backend.sales.mail_pool_extractor.extract_leads_from_mail_pool",
+    queue="sales",
+    max_retries=1,
+    rate_limit="2/h",
+)
+def extract_leads_from_mail_pool(since_hours: int = 24, limit: int = 500) -> Dict[str, Any]:
+    """
+    Celery task: extract leads from recent mail pool emails.
+    Scheduled hourly by the background job scheduler.
+    """
+    return extract_leads_from_mail_pool_batch(since_hours=since_hours, limit=limit)
+
+
+@celery_app.task(
+    name="backend.sales.mail_pool_extractor.backfill_leads_from_mail_pool",
+    queue="sales",
+    max_retries=1,
+)
+def backfill_leads_from_mail_pool(limit: int = 2000) -> Dict[str, Any]:
+    """
+    Celery task: one-time backfill of all existing mail pool emails.
+    Trigger manually from the API when needed.
+    """
+    return extract_leads_from_existing_pool(limit=limit)

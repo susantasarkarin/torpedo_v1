@@ -453,6 +453,204 @@ Return JSON only:
             )
 
 
+    def enrich_lead_data(self, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Enrich a lead using Gemini (replaces OpenAI enrichment).
+        context keys: company_name, domain, name, meta_description, about_text, recent_news
+
+        Returns dict with: role_match_score, company_size_bucket, industry,
+                           seniority_hint, top_pain_points, personalisation_hook
+        or None on failure.
+        """
+        prompt = f"""You are a B2B sales analyst. Analyse the company data below and return ONLY valid JSON.
+
+Company data:
+{json.dumps(context, indent=2)}
+
+Return JSON with exactly these fields:
+{{
+  "role_match_score": <integer 0-100>,
+  "company_size_bucket": "1-10" | "11-50" | "51-200" | "201-1000" | "1000+",
+  "industry": "<primary industry string>",
+  "seniority_hint": "<likely decision-maker title>",
+  "top_pain_points": ["<pain point 1>", "<pain point 2>"],
+  "personalisation_hook": "<one sentence specific to this company, no generic filler>"
+}}
+
+No preamble. No markdown. Only JSON."""
+
+        try:
+            response_text = self._call_gemini(prompt)
+            clean = response_text.strip().strip("```json").strip("```").strip()
+            return json.loads(clean)
+        except Exception as e:
+            logger.error(f"Gemini lead enrichment failed: {e}. NO RETRY.")
+            return None
+
+    def generate_email_draft(self, system_prompt: str, user_prompt: str) -> Optional[Dict[str, str]]:
+        """
+        Generate an email draft using Gemini (replaces OpenAI draft generation).
+        Returns dict with 'subject' and 'body', or None on failure.
+        """
+        combined_prompt = f"{system_prompt}\n\n---\n\n{user_prompt}"
+        try:
+            response_text = self._call_gemini(combined_prompt)
+            clean = response_text.strip().strip("```json").strip("```").strip()
+            result = json.loads(clean)
+            if "subject" in result and "body" in result:
+                return result
+            logger.error("Gemini draft response missing 'subject' or 'body' keys.")
+            return None
+        except Exception as e:
+            logger.error(f"Gemini email draft generation failed: {e}. NO RETRY.")
+            return None
+
+    def classify_senders(self, sender_summaries: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
+        """
+        Classify mail-pool senders using Gemini (replaces OpenAI sender classification).
+        Returns list of {email, classification} dicts or None on failure.
+        """
+        prompt = f"""Classify each email sender as one of: client | vendor | promotional | transactional | unknown.
+
+Senders:
+{json.dumps(sender_summaries, indent=2)}
+
+Return JSON only:
+{{
+  "results": [
+    {{"email": "<email>", "classification": "<label>", "confidence": 0.0-1.0}}
+  ]
+}}
+
+No preamble. No markdown."""
+        try:
+            response_text = self._call_gemini(prompt)
+            clean = response_text.strip().strip("```json").strip("```").strip()
+            parsed = json.loads(clean)
+            return parsed.get("results", [])
+        except Exception as e:
+            logger.error(f"Gemini sender classification failed: {e}. NO RETRY.")
+            return None
+
+    def analyze_reply_sentiment(self, email_id: str, reply_body: str, lead_name: str) -> Dict[str, Any]:
+        """
+        Analyse the sentiment of a reply email using Gemini.
+        Returns: sentiment (positive|negative|neutral), confidence, summary, recommended_action.
+        """
+        prompt = f"""Analyse the sentiment and intent of this reply email from a B2B sales prospect.
+
+Prospect name: {lead_name}
+Reply body:
+{reply_body[:3000]}
+
+Return JSON only:
+{{
+  "sentiment": "positive" | "negative" | "neutral",
+  "confidence": 0.0-1.0,
+  "summary": "<one sentence summary of what they said>",
+  "intent": "<what does the prospect want>",
+  "recommended_action": "move_to_crm" | "archive_and_flag" | "flag_for_manual_review"
+}}
+
+Guidance:
+- positive = interested, wants to meet, asking for more info, open to a call
+- negative = not interested, do not contact, unsubscribe, rude dismissal
+- neutral = unclear, asking a question, needs clarification, out-of-office
+
+No preamble. No markdown."""
+        try:
+            response_text = self._call_gemini(prompt)
+            clean = response_text.strip().strip("```json").strip("```").strip()
+            result = json.loads(clean)
+            result["email_id"] = email_id
+            result["analyzed_at"] = datetime.utcnow().isoformat()
+            result["success"] = True
+            return result
+        except Exception as e:
+            logger.error(f"Gemini reply sentiment analysis failed for {email_id}: {e}. NO RETRY.")
+            return {
+                "email_id": email_id,
+                "sentiment": "neutral",
+                "confidence": 0.0,
+                "summary": "",
+                "intent": "",
+                "recommended_action": "flag_for_manual_review",
+                "analyzed_at": datetime.utcnow().isoformat(),
+                "success": False,
+                "error": str(e),
+            }
+
+    def route_to_business_unit(
+        self,
+        lead_context: Dict[str, Any],
+        business_units: List[Dict[str, str]],
+    ) -> Dict[str, Any]:
+        """
+        Research the lead's needs, compare against BU descriptions, identify the gap,
+        and route to the best-fit business unit.
+
+        lead_context: enriched lead dict (name, company, industry, pain_points, hook, etc.)
+        business_units: list of {slug, name, description} dicts loaded from config files.
+
+        Returns: {slug, bu_name, gap_analysis, outreach_email: {subject, body}}
+        """
+        bu_block = "\n\n".join([
+            f"BU SLUG: {bu['slug']}\nBU NAME: {bu['name']}\n{bu['description']}"
+            for bu in business_units
+        ])
+
+        prompt = f"""You are a senior B2B sales strategist. Your task is to:
+1. Analyse the enriched lead data below to understand their business needs and challenges.
+2. Review the business unit descriptions provided.
+3. Identify the gap between what the lead needs and what our business units offer.
+4. Pick the single best-fit business unit.
+5. Draft a personalised outreach email that:
+   - Addresses the lead by first name
+   - References their specific business challenges
+   - Explains how our company bridges the gap for their organisation
+   - Maintains a professional, human, non-salesy tone
+   - Is under 150 words in the body
+   - Has a clear, single call to action
+
+LEAD DATA:
+{json.dumps(lead_context, indent=2)}
+
+OUR BUSINESS UNITS:
+{bu_block}
+
+Return JSON only:
+{{
+  "slug": "<chosen bu slug>",
+  "bu_name": "<chosen bu name>",
+  "gap_analysis": "<2-3 sentences: what the lead needs vs what we offer and why it fits>",
+  "outreach_email": {{
+    "subject": "<email subject line>",
+    "body": "<full email body, addressed to the lead by first name, signed by the BU sender>"
+  }}
+}}
+
+No preamble. No markdown. Only JSON."""
+
+        try:
+            response_text = self._call_gemini(prompt)
+            clean = response_text.strip().strip("```json").strip("```").strip()
+            result = json.loads(clean)
+            result["routed_at"] = datetime.utcnow().isoformat()
+            result["success"] = True
+            return result
+        except Exception as e:
+            logger.error(f"Gemini BU routing failed: {e}. NO RETRY.")
+            return {
+                "slug": None,
+                "bu_name": None,
+                "gap_analysis": "",
+                "outreach_email": {"subject": "", "body": ""},
+                "routed_at": datetime.utcnow().isoformat(),
+                "success": False,
+                "error": str(e),
+            }
+
+
 # ============== SINGLETON ==============
 
 _gateway_instance: Optional[GeminiGateway] = None
@@ -497,3 +695,31 @@ def extract_leads_from_email(
 ) -> LeadExtractionResult:
     """Convenience function to extract leads from an email"""
     return get_gemini_gateway().extract_leads_from_email(email_id, subject, body, from_email)
+
+
+def enrich_lead_data(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Convenience function to enrich a lead via Gemini"""
+    return get_gemini_gateway().enrich_lead_data(context)
+
+
+def generate_email_draft(system_prompt: str, user_prompt: str) -> Optional[Dict[str, str]]:
+    """Convenience function to generate an email draft via Gemini"""
+    return get_gemini_gateway().generate_email_draft(system_prompt, user_prompt)
+
+
+def classify_senders(sender_summaries: List[Dict[str, Any]]) -> Optional[List[Dict[str, Any]]]:
+    """Convenience function to classify mail-pool senders via Gemini"""
+    return get_gemini_gateway().classify_senders(sender_summaries)
+
+
+def analyze_reply_sentiment(email_id: str, reply_body: str, lead_name: str) -> Dict[str, Any]:
+    """Convenience function to analyse reply sentiment via Gemini"""
+    return get_gemini_gateway().analyze_reply_sentiment(email_id, reply_body, lead_name)
+
+
+def route_to_business_unit(
+    lead_context: Dict[str, Any],
+    business_units: List[Dict[str, str]],
+) -> Dict[str, Any]:
+    """Convenience function to route a lead to the best-fit business unit via Gemini"""
+    return get_gemini_gateway().route_to_business_unit(lead_context, business_units)

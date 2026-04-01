@@ -470,6 +470,28 @@ def initialize_scheduler(loop=None):
             max_instances=1
         )
         logger.info("[Scheduler] Added low-priority lead enrichment (every 30 min)")
+
+        # Mail pool extraction — extract leads from recent Gmail emails every hour (code-only, no AI)
+        try:
+            from sales.mail_pool_extractor import extract_leads_from_mail_pool_batch
+
+            async def _run_mail_pool_extraction():
+                try:
+                    result = extract_leads_from_mail_pool_batch(since_hours=1, limit=200)
+                    logger.info(f"[Scheduler/MailPool] {result}")
+                except Exception as _e:
+                    logger.error(f"[Scheduler/MailPool] Error: {_e}")
+
+            scheduler.add_job(
+                _run_mail_pool_extraction,
+                CronTrigger(minute="0"),  # top of every hour
+                id="mail_pool_extraction",
+                name="Mail Pool Lead Extraction (code-only)",
+                max_instances=1,
+            )
+            logger.info("[Scheduler] Added mail pool lead extraction (every hour)")
+        except Exception as e:
+            logger.warning(f"[Scheduler] Could not add mail pool extraction job: {e}")
         
         # Start scheduler
         if not scheduler.running:

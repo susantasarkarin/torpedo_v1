@@ -1,0 +1,45 @@
+BUSINESS UNIT: BIMwave — AEC Digital Intelligence
+SLUG: bimwave
+BASKET_CODE: C
+
+DESCRIPTION:
+BIMwave is Torpedo's built-environment technology arm, providing BIM consulting, coordination,
+and digital workflow implementation for architecture, engineering, construction, and real
+estate development firms. We bridge the gap between BIM adoption intent and operational
+execution — from Revit implementation to IFC-compliant delivery pipelines.
+
+CORE CAPABILITIES:
+- BIM strategy and implementation consulting (ISO 19650, UK BIM Level 2/3)
+- Revit family creation, template development, and content libraries
+- 3D coordination and clash detection (Navisworks, BIM 360/ACC)
+- BIM execution plan (BEP) development and project setup
+- Point cloud to BIM (Scan-to-BIM) for existing building surveys
+- MEP BIM coordination (mechanical, electrical, plumbing)
+- As-built and digital twin delivery
+- BIM training and capability uplift for AEC teams
+- GIS and infrastructure BIM for civil and infrastructure projects
+
+IDEAL CUSTOMER PROFILE:
+- Architecture and design firms adopting Revit-based workflows
+- Construction and project management companies requiring BIM coordination
+- MEP consultants managing complex building services coordination
+- Real estate developers mandating BIM on new-build projects
+- Infrastructure and civil engineering firms transitioning to BIM
+- Facilities management companies requiring digital twin delivery
+
+PAIN POINTS WE SOLVE:
+- BIM projects failing due to poor upfront coordination and file structure
+- In-house teams lacking Revit expertise, causing project bottlenecks
+- Clash-ridden models discovered late in construction causing costly rework
+- No clear BIM Execution Plan, leading to data inconsistency across disciplines
+- Inability to deliver ISO 19650-compliant Common Data Environments to clients
+
+VALUE PROPOSITION:
+BIMwave treats BIM not as a software problem but as a project delivery problem.
+Our team has delivered BIM coordination on projects valued at over £500M across
+the UK, Middle East, and Australia. We embed within your project team at the right
+stage — whether that is pre-design, detailed design, or construction — and we own
+outcomes, not just outputs. Every model we touch is deliverable, coordinated, and
+client-ready.
+
+SENDER: Susanta Sarkar, Director of Digital Delivery, BIMwave

@@ -1,0 +1,42 @@
+BUSINESS UNIT: Survey Fieldwork (SFW) — Torpedo Research
+SLUG: survey_fieldwork
+BASKET_CODE: A
+
+DESCRIPTION:
+Torpedo Research's Survey Fieldwork division delivers end-to-end quantitative data collection
+for market research agencies, panel providers, and research operations teams globally.
+We operate a proprietary online panel of 2M+ respondents across 40+ countries, specialising
+in hard-to-reach B2B and consumer segments. Our CATI, CAWI, and hybrid field capabilities
+allow us to meet complex incidence rate requirements other suppliers routinely decline.
+
+CORE CAPABILITIES:
+- Online panel recruitment and management (B2B and B2C)
+- CATI (telephone interviews) in 15+ languages
+- CAWI (web-assisted interviews) with mobile-first surveys
+- Low-incidence and niche B2B sample (IT decision-makers, C-suite, professionals)
+- Omnibus surveys (weekly and monthly)
+- International fieldwork coordination (simultaneous multi-country projects)
+- Real-time data quality monitoring (speeders, straight-liners, open-end validation)
+- API-based sample delivery for programmatic buyers
+
+IDEAL CUSTOMER PROFILE:
+- Market research agencies and boutique research firms
+- Panel companies looking for supplemental sample
+- Corporate insights teams running quantitative studies
+- Research operations leads managing vendor relationships
+- Data science teams requiring primary research inputs
+
+PAIN POINTS WE SOLVE:
+- Low incidence rates causing project delays and cost overruns
+- Vendor dropouts mid-field leaving projects stranded
+- Poor data quality from low-cost panel providers
+- Inability to field niche or professional B2B segments at scale
+- Slow turnaround on urgent tracker studies
+
+VALUE PROPOSITION:
+We complete what others quote and decline. With a 97% on-time completion rate and a
+dedicated project manager per study, we eliminate the fieldwork anxiety that plagues
+research ops teams. Our niche B2B panel gives you access to the segments your current
+suppliers cannot reach — at competitive CPIs without sacrificing quality.
+
+SENDER: Susanta Sarkar, Director of Business Development, Torpedo Research

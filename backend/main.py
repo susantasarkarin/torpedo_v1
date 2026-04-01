@@ -1085,6 +1085,17 @@ try:
 except Exception as e:
     print(f"⚠️ Sales Tracking router not included: {e}")
 
+# Sales Outreach router (Modules 1-6: validation, mail pool, enrichment, BU routing, Gmail, reply analysis)
+try:
+    try:
+        from .routers import sales_outreach as sales_outreach_router
+    except ImportError:
+        from routers import sales_outreach as sales_outreach_router
+    app.include_router(sales_outreach_router.router)
+    print("✅ Sales Outreach router included")
+except Exception as e:
+    print(f"⚠️ Sales Outreach router not included: {e}")
+
 # Unified Vendors router
 try:
     try:
