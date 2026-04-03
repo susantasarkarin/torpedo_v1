@@ -27,7 +27,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, EmailStr
 from pymongo import MongoClient
 
@@ -88,15 +88,21 @@ class UpdateStepRequest(BaseModel):
 
 class AddMailboxRequest(BaseModel):
     business: str             # "sfw" | "cogentix" | "bimwave"
+    provider: str = "smtp"   # "smtp" | "ses"
     email: str
     display_name: str
-    smtp_host: str
-    smtp_port: int = 587
-    smtp_username: str
-    smtp_password: str
-    use_tls: bool = True
     daily_limit: int = 400
     hourly_limit: int = 60
+    # SMTP fields (required when provider=smtp)
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    use_tls: bool = True
+    # SES fields (required when provider=ses)
+    aws_region: str = "us-east-1"
+    aws_access_key_id: str = ""      # leave blank to use env / IAM role on VM
+    aws_secret_access_key: str = ""
 
 
 class ManualSuppressionRequest(BaseModel):
@@ -154,7 +160,7 @@ def _score_basket_for_lead(lead: dict, basket: str) -> float:
 @router.get("/mailboxes")
 def list_mailboxes():
     db = get_db()
-    mailboxes = list(db["outreach_mailboxes"].find({}, {"smtp_password": 0}))
+    mailboxes = list(db["outreach_mailboxes"].find({}, {"smtp_password": 0, "aws_secret_access_key": 0}))
     for m in mailboxes:
         m["id"] = str(m.pop("_id"))
     return {"mailboxes": mailboxes}
@@ -170,17 +176,18 @@ def add_mailbox(req: AddMailboxRequest):
     if existing:
         raise HTTPException(409, f"Mailbox {req.email} already exists")
 
-    doc = {
+    if req.provider not in ("smtp", "ses"):
+        raise HTTPException(400, "provider must be 'smtp' or 'ses'")
+
+    if req.provider == "smtp" and not req.smtp_host:
+        raise HTTPException(400, "smtp_host is required for SMTP provider")
+
+    doc: Dict[str, Any] = {
         "mailbox_id": str(uuid.uuid4()),
         "business": req.business,
         "email_address": req.email,
         "display_name": req.display_name,
-        "provider": "smtp",
-        "smtp_host": req.smtp_host,
-        "smtp_port": req.smtp_port,
-        "smtp_username": req.smtp_username,
-        "smtp_password": req.smtp_password,
-        "use_tls": req.use_tls,
+        "provider": req.provider,
         "daily_limit": req.daily_limit,
         "hourly_limit": req.hourly_limit,
         "is_active": True,
@@ -190,6 +197,21 @@ def add_mailbox(req: AddMailboxRequest):
         "last_send_at": None,
         "created_at": datetime.utcnow(),
     }
+
+    if req.provider == "smtp":
+        doc.update({
+            "smtp_host": req.smtp_host,
+            "smtp_port": req.smtp_port,
+            "smtp_username": req.smtp_username,
+            "smtp_password": req.smtp_password,
+            "use_tls": req.use_tls,
+        })
+    else:  # ses
+        doc.update({
+            "aws_region": req.aws_region,
+            "aws_access_key_id": req.aws_access_key_id or "",
+            "aws_secret_access_key": req.aws_secret_access_key or "",
+        })
     db["outreach_mailboxes"].insert_one(doc)
     doc["id"] = str(doc.pop("_id"))
     doc.pop("smtp_password", None)
@@ -943,3 +965,104 @@ def enroll_dual_fit(background_tasks: BackgroundTasks):
     }
     background_tasks.add_task(_enroll_dual_fit_leads, db, suppressed)
     return {"ok": True, "message": "Dual Fit enrollment started in background"}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  AWS SES — SNS BOUNCE / COMPLAINT WEBHOOK
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/ses/sns-webhook")
+async def ses_sns_webhook(request: Request):
+    """
+    Receives bounce and complaint notifications from AWS SNS.
+
+    Setup in AWS:
+      1. SES → Configuration Set → Event Destinations → SNS topic
+      2. SNS → Subscriptions → HTTP(S) endpoint:
+         https://yourdomain.com/api/cold-outreach/ses/sns-webhook
+      3. Confirm the subscription (AWS sends a SubscribeURL — we auto-confirm below)
+
+    Events handled:
+      - Bounce (Permanent)  → add to global suppression list
+      - Bounce (Transient)  → log only (don't suppress)
+      - Complaint           → add to global suppression list
+    """
+    import json as _json
+    import urllib.request
+
+    body = await request.body()
+    try:
+        payload = _json.loads(body)
+    except Exception:
+        logger.warning("SNS webhook: could not parse body")
+        return {"ok": False}
+
+    msg_type = payload.get("Type") or request.headers.get("x-amz-sns-message-type", "")
+
+    # ── SNS subscription confirmation ─────────────────────────────────────────
+    if msg_type == "SubscriptionConfirmation":
+        confirm_url = payload.get("SubscribeURL")
+        if confirm_url:
+            try:
+                urllib.request.urlopen(confirm_url, timeout=5)
+                logger.info(f"SNS subscription confirmed: {confirm_url[:80]}")
+            except Exception as e:
+                logger.error(f"SNS subscription confirm failed: {e}")
+        return {"ok": True, "confirmed": True}
+
+    # ── Notification ──────────────────────────────────────────────────────────
+    if msg_type == "Notification":
+        try:
+            message = _json.loads(payload.get("Message", "{}"))
+        except Exception:
+            return {"ok": False}
+
+        notification_type = message.get("notificationType")
+        db = get_db()
+        suppression = db["outreach_bounce_suppression"]
+        leads_enriched = db["leads_enriched"]
+        now = datetime.utcnow()
+
+        def _suppress(email: str, reason: str):
+            email = email.lower().strip()
+            try:
+                suppression.update_one(
+                    {"email": email},
+                    {"$setOnInsert": {
+                        "email": email,
+                        "bounced_at": now,
+                        "reason": reason,
+                        "source": "ses_sns",
+                        "created_at": now,
+                    }},
+                    upsert=True,
+                )
+                leads_enriched.update_many(
+                    {"email": email},
+                    {"$set": {"email_status": reason, "bounce_suppressed": True, "bounced_at": now}},
+                )
+                logger.info(f"SNS suppressed: {email} ({reason})")
+            except Exception as e:
+                logger.warning(f"SNS suppression write failed for {email}: {e}")
+
+        if notification_type == "Bounce":
+            bounce = message.get("bounce", {})
+            bounce_type = bounce.get("bounceType", "")
+            if bounce_type == "Permanent":
+                for r in bounce.get("bouncedRecipients", []):
+                    _suppress(r.get("emailAddress", ""), "bounced")
+            else:
+                # Transient bounce — log but don't suppress
+                for r in bounce.get("bouncedRecipients", []):
+                    logger.warning(f"Transient bounce (not suppressed): {r.get('emailAddress')}")
+
+        elif notification_type == "Complaint":
+            complaint = message.get("complaint", {})
+            for r in complaint.get("complainedRecipients", []):
+                _suppress(r.get("emailAddress", ""), "complaint")
+
+        elif notification_type == "Delivery":
+            # Optional: mark as delivered in outreach_sends_v2 if needed
+            pass
+
+    return {"ok": True}

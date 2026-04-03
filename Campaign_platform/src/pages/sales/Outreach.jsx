@@ -57,8 +57,13 @@ function Outreach() {
   // Mailbox add form
   const [showAddMailbox, setShowAddMailbox] = useState(false)
   const [mailboxForm, setMailboxForm] = useState({
-    business: "sfw", email: "", display_name: "", smtp_host: "smtp.gmail.com",
-    smtp_port: 587, smtp_username: "", smtp_password: "", use_tls: true, daily_limit: 400,
+    business: "sfw", email: "", display_name: "",
+    provider: "ses",
+    // SES fields
+    aws_region: "us-east-1", aws_access_key_id: "", aws_secret_access_key: "",
+    // SMTP fields
+    smtp_host: "smtp.gmail.com", smtp_port: 587, smtp_username: "", smtp_password: "", use_tls: true,
+    daily_limit: 5000,
   })
   const [addingMailbox, setAddingMailbox] = useState(false)
 
@@ -261,7 +266,7 @@ function Outreach() {
     setAddingMailbox(false)
     if (res.ok) {
       flash("Mailbox added"); setShowAddMailbox(false)
-      setMailboxForm({ business: "sfw", email: "", display_name: "", smtp_host: "smtp.gmail.com", smtp_port: 587, smtp_username: "", smtp_password: "", use_tls: true, daily_limit: 400 })
+      setMailboxForm({ business: "sfw", email: "", display_name: "", provider: "ses", aws_region: "us-east-1", aws_access_key_id: "", aws_secret_access_key: "", smtp_host: "smtp.gmail.com", smtp_port: 587, smtp_username: "", smtp_password: "", use_tls: true, daily_limit: 5000 })
       fetchAll()
     } else {
       const d = await res.json(); flash(`Error: ${d.detail}`)
@@ -565,11 +570,55 @@ function Outreach() {
 
                 {showAddMailbox && (
                   <div style={{ background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 10, padding: 20, marginBottom: 20 }}>
-                    <h4 style={{ margin: "0 0 16px", color: "#111827" }}>Add SMTP Mailbox</h4>
+                    <h4 style={{ margin: "0 0 16px", color: "#111827" }}>Add Mailbox</h4>
+
+                    {/* Provider selector */}
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600 }}>SENDING PROVIDER</label>
+                      <select
+                        value={mailboxForm.provider}
+                        onChange={e => setMailboxForm(f => ({ ...f, provider: e.target.value }))}
+                        style={{ width: "100%", marginTop: 4, padding: "8px 12px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: "0.85rem", boxSizing: "border-box" }}
+                      >
+                        <option value="ses">AWS SES (recommended — 40k/day, bounce tracking)</option>
+                        <option value="smtp">SMTP (Gmail Workspace, custom SMTP)</option>
+                      </select>
+                    </div>
+
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                      {/* Common fields */}
                       {[
                         ["Email address", "email", "text", "sender@domain.com"],
                         ["Display name", "display_name", "text", "First Last"],
+                      ].map(([label, field, type, ph]) => (
+                        <div key={field}>
+                          <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600 }}>{label.toUpperCase()}</label>
+                          <input
+                            type={type} placeholder={ph} value={mailboxForm[field]}
+                            onChange={e => setMailboxForm(f => ({ ...f, [field]: e.target.value }))}
+                            style={{ width: "100%", marginTop: 4, padding: "8px 12px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: "0.85rem", boxSizing: "border-box" }}
+                          />
+                        </div>
+                      ))}
+
+                      {/* SES-specific fields */}
+                      {mailboxForm.provider === "ses" && [
+                        ["AWS region", "aws_region", "text", "us-east-1"],
+                        ["Access key ID (blank = use IAM role)", "aws_access_key_id", "text", "AKIA…"],
+                        ["Secret access key (blank = use IAM role)", "aws_secret_access_key", "password", ""],
+                      ].map(([label, field, type, ph]) => (
+                        <div key={field}>
+                          <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600 }}>{label.toUpperCase()}</label>
+                          <input
+                            type={type} placeholder={ph} value={mailboxForm[field]}
+                            onChange={e => setMailboxForm(f => ({ ...f, [field]: e.target.value }))}
+                            style={{ width: "100%", marginTop: 4, padding: "8px 12px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: "0.85rem", boxSizing: "border-box" }}
+                          />
+                        </div>
+                      ))}
+
+                      {/* SMTP-specific fields */}
+                      {mailboxForm.provider === "smtp" && [
                         ["SMTP host", "smtp_host", "text", "smtp.gmail.com"],
                         ["SMTP port", "smtp_port", "number", "587"],
                         ["SMTP username", "smtp_username", "text", "same as email"],
@@ -578,14 +627,14 @@ function Outreach() {
                         <div key={field}>
                           <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600 }}>{label.toUpperCase()}</label>
                           <input
-                            type={type}
-                            placeholder={ph}
+                            type={type} placeholder={ph}
                             value={mailboxForm[field]}
                             onChange={e => setMailboxForm(f => ({ ...f, [field]: type === "number" ? Number(e.target.value) : e.target.value }))}
                             style={{ width: "100%", marginTop: 4, padding: "8px 12px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: "0.85rem", boxSizing: "border-box" }}
                           />
                         </div>
                       ))}
+
                       <div>
                         <label style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: 600 }}>BUSINESS</label>
                         <select
