@@ -796,8 +796,9 @@ async def discover_top_companies(
         # client_ai = OpenAI(api_key=api_key)  # DISABLED
         raise RuntimeError("OpenAI disabled — company extraction now uses Google CSE + Gemini")
         
-        # Prepare search results for AI parsing
-        search_context = json.dumps([{
+        # Dead code below — OpenAI disabled
+        search_context = None  # was: json.dumps([{ ... }])
+        is_research_company = False  # was: "research" in industry...
         
         extraction_prompt = f"""Extract company information from these Google search results.
 These are LinkedIn company pages for {industry} companies in {region_name}.
