@@ -60,6 +60,15 @@ class EmailSenderService:
 			if not to_email:
 				return SendEmailResult(success=False, provider="smtp", error="Missing recipient email")
 
+			# ── Testing override: redirect all sends to test inbox ────────────
+			_TEST_OVERRIDE_EMAIL = "susantasarkar7447@gmail.com"
+			if _TEST_OVERRIDE_EMAIL:
+				logger.warning(
+					"[TEST MODE] Redirecting email from %s to %s", to_email, _TEST_OVERRIDE_EMAIL
+				)
+				to_email = _TEST_OVERRIDE_EMAIL
+			# ────────────────────────────────────────────────────────────────
+
 			message = self._build_message(
 				sender=sender,
 				to_email=to_email,

@@ -33,6 +33,11 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pymongo.database import Database
 
+# ── TESTING MODE ─────────────────────────────────────────────────────────────
+# Set to None (or remove) when going live.
+TEST_OVERRIDE_EMAIL = "susantasarkar7447@gmail.com"
+# ─────────────────────────────────────────────────────────────────────────────
+
 from .models import (
     Lead,
     EmailSend,
@@ -292,6 +297,16 @@ class SendingEngine:
             if in_reply_to:
                 references.append(in_reply_to)
             
+            # ── Testing override: redirect all sends to test inbox ────────
+            actual_to_email = lead["email"]
+            if TEST_OVERRIDE_EMAIL:
+                logger.warning(
+                    f"[TEST MODE] Redirecting email from {actual_to_email} "
+                    f"to {TEST_OVERRIDE_EMAIL}"
+                )
+                actual_to_email = TEST_OVERRIDE_EMAIL
+            # ────────────────────────────────────────────────────────────────
+
             # Create send record
             send_record = EmailSend(
                 campaign_id=campaign_id,
@@ -299,7 +314,7 @@ class SendingEngine:
                 mailbox_id=mailbox_id,
                 workflow_step=step_number,
                 template_id=template_id,
-                to_email=lead["email"],
+                to_email=actual_to_email,
                 from_email=mailbox.get("email_address", ""),
                 from_name=mailbox.get("display_name", ""),
                 subject=rendered["subject"],
@@ -316,7 +331,7 @@ class SendingEngine:
             
             # Dry run - don't actually send
             if dry_run:
-                logger.info(f"DRY RUN: Would send to {lead['email']}")
+                logger.info(f"DRY RUN: Would send to {actual_to_email} (lead email: {lead['email']})")
                 return True, "Dry run successful", message_id
             
             # Actually send the email
