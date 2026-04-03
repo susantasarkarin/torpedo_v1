@@ -58,12 +58,12 @@ function Outreach() {
   const [showAddMailbox, setShowAddMailbox] = useState(false)
   const [mailboxForm, setMailboxForm] = useState({
     business: "sfw", email: "", display_name: "",
-    provider: "ses",
+    provider: "smtp",
     // SES fields
     aws_region: "us-east-1", aws_access_key_id: "", aws_secret_access_key: "",
     // SMTP fields
     smtp_host: "smtp.gmail.com", smtp_port: 587, smtp_username: "", smtp_password: "", use_tls: true,
-    daily_limit: 5000,
+    daily_limit: 400,
   })
   const [addingMailbox, setAddingMailbox] = useState(false)
 
@@ -266,7 +266,7 @@ function Outreach() {
     setAddingMailbox(false)
     if (res.ok) {
       flash("Mailbox added"); setShowAddMailbox(false)
-      setMailboxForm({ business: "sfw", email: "", display_name: "", provider: "ses", aws_region: "us-east-1", aws_access_key_id: "", aws_secret_access_key: "", smtp_host: "smtp.gmail.com", smtp_port: 587, smtp_username: "", smtp_password: "", use_tls: true, daily_limit: 5000 })
+      setMailboxForm({ business: "sfw", email: "", display_name: "", provider: "smtp", aws_region: "us-east-1", aws_access_key_id: "", aws_secret_access_key: "", smtp_host: "smtp.gmail.com", smtp_port: 587, smtp_username: "", smtp_password: "", use_tls: true, daily_limit: 400 })
       fetchAll()
     } else {
       const d = await res.json(); flash(`Error: ${d.detail}`)
@@ -580,8 +580,8 @@ function Outreach() {
                         onChange={e => setMailboxForm(f => ({ ...f, provider: e.target.value }))}
                         style={{ width: "100%", marginTop: 4, padding: "8px 12px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: "0.85rem", boxSizing: "border-box" }}
                       >
-                        <option value="ses">AWS SES (recommended — 40k/day, bounce tracking)</option>
-                        <option value="smtp">SMTP (Gmail Workspace, custom SMTP)</option>
+                        <option value="smtp">SMTP / Gmail Workspace</option>
+                        <option value="ses">AWS SES</option>
                       </select>
                     </div>
 
