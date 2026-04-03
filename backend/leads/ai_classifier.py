@@ -30,22 +30,33 @@ from .models import (
     BuyingRole, Gender, EmailThreadMessage
 )
 # COST CONTROL: Import centralized wrapper instead of direct OpenAI client
-from .openai_wrapper import (
-    chat_completion, get_openai_client, get_openai_api_key,
-    DEFAULT_MODEL, BACKGROUND_MAX_OUTPUT_TOKENS,
-    build_system_prompt, JSON_ONLY_INSTRUCTION
-)
+# from .openai_wrapper import (
+#     chat_completion, get_openai_client, get_openai_api_key,
+#     DEFAULT_MODEL, BACKGROUND_MAX_OUTPUT_TOKENS,
+#     build_system_prompt, JSON_ONLY_INSTRUCTION
+# )
+# NOTE: OpenAI disabled — use Gemini via GeminiRotator
+from .gemini_rotator import GeminiRotator
+import google.generativeai as genai
 
 load_dotenv()
 
 
 # ============== CONFIGURATION ==============
-# COST CONTROL: Model config now in openai_wrapper.py for centralized management
+# COST CONTROL: Using Gemini (free tier, 10 keys) instead of OpenAI
 
-MODEL = DEFAULT_MODEL  # gpt-4o-mini - cost-effective default
+MODEL = "gemini-2.0-flash"  # Gemini default
 TEMPERATURE = 0.1  # Low temperature for deterministic output
 
-# Cost tracking moved to openai_wrapper.py TokenUsageLogger
+# Gemini rotator singleton
+_gemini_rotator: Optional["GeminiRotator"] = None
+
+
+def _get_rotator() -> "GeminiRotator":
+    global _gemini_rotator
+    if _gemini_rotator is None:
+        _gemini_rotator = GeminiRotator()
+    return _gemini_rotator
 
 # MongoDB connection for loading prompts from DB
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
@@ -194,37 +205,33 @@ def classify_lead(lead: LeadRaw, source: str = "api") -> Tuple[Optional[AIClassi
     )
     
     try:
-        # Use OpenAI for lead classification
-        result = chat_completion(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            source=source,
-            endpoint="lead_classification",
-            model="gpt-4o-mini",  # OpenAI gpt-4o-mini
-            provider="openai",
-            max_output_tokens=300,  # COST CONTROL: Strict limit (was 1000)
-            temperature=TEMPERATURE,
-            response_format={"type": "json_object"}
+        # Use Gemini for lead classification
+        rotator = _get_rotator()
+        key_index, api_key = rotator.get_available_key()
+        genai.configure(api_key=api_key)
+        gemini_model = genai.GenerativeModel(
+            MODEL,
+            generation_config=genai.types.GenerationConfig(
+                response_mime_type="application/json",
+                max_output_tokens=300,
+                temperature=TEMPERATURE,
+            )
         )
-        
-        if not result["success"]:
-            log.error_message = result["error"]
-            log.latency_ms = int((time.time() - start_time) * 1000)
-            return None, log
-        
-        # Calculate metrics from wrapper response
+        full_prompt = f"{system_prompt}\n\n{user_prompt}"
+        gemini_response = gemini_model.generate_content(full_prompt)
+
+        raw_content = gemini_response.text
+        tokens_used = (
+            gemini_response.usage_metadata.total_token_count
+            if gemini_response.usage_metadata else 0
+        )
+        rotator.log_request(key_index, tokens_used, "classify", success=True)
+
         latency_ms = int((time.time() - start_time) * 1000)
-        usage = result["usage"]
-        tokens_used = usage["total_tokens"]
-        
-        # Parse response
-        raw_content = result["content"]
         log.raw_response = raw_content
         log.tokens_used = tokens_used
         log.latency_ms = latency_ms
-        log.cost_usd = 0  # Tracked in openai_wrapper.py TokenUsageLogger
+        log.cost_usd = 0.0  # Gemini free tier
         
         # Parse and validate JSON
         parsed = json.loads(raw_content)
@@ -344,28 +351,28 @@ def enrich_company_via_websearch(domain: str, source: str = "background") -> Dic
             return cached.get("data", {})
     
     try:
-        # WEB SEARCH: MUST use OpenAI for web_search tool capability
-        result = chat_completion(
-            messages=[
-                {"role": "system", "content": "Business research assistant. JSON only."},
-                {"role": "user", "content": COMPANY_ENRICHMENT_PROMPT.format(domain=domain)}
-            ],
-            source=source,
-            endpoint="web_enrichment",
-            model="gpt-4o-mini",  # GPT-4o-mini for web search
-            provider="openai",
-            max_output_tokens=300,  # COST CONTROL: Reduced from 1500
-            temperature=0.1,
-            response_format={"type": "json_object"},
-            allow_premium_model=False  # COST CONTROL: Prevent accidental gpt-4o usage
+        # Use Gemini for company enrichment
+        rotator = _get_rotator()
+        key_index, api_key = rotator.get_available_key()
+        genai.configure(api_key=api_key)
+        gemini_model = genai.GenerativeModel(
+            MODEL,
+            generation_config=genai.types.GenerationConfig(
+                response_mime_type="application/json",
+                max_output_tokens=300,
+                temperature=0.1,
+            )
         )
-        
-        if not result["success"]:
-            print(f"Error enriching company {domain}: {result['error']}")
-            return {}
+        full_prompt = f"Business research assistant. JSON only.\n\n{COMPANY_ENRICHMENT_PROMPT.format(domain=domain)}"
+        gemini_response = gemini_model.generate_content(full_prompt)
+        tokens_used = (
+            gemini_response.usage_metadata.total_token_count
+            if gemini_response.usage_metadata else 0
+        )
+        rotator.log_request(key_index, tokens_used, "web_enrichment", success=True)
         
         # Parse response
-        data = json.loads(result["content"])
+        data = json.loads(gemini_response.text)
         
         # Cache the result
         _company_cache.update_one(
@@ -424,25 +431,27 @@ def extract_contact_from_signature(email_body: str, source: str = "background") 
         # Only send last 500 chars (signature is at end) - COST CONTROL: Reduce input tokens
         signature_text = email_body[-500:] if len(email_body) > 500 else email_body
         
-        # Use OpenAI for signature extraction
-        result = chat_completion(
-            messages=[
-                {"role": "system", "content": "Extract contact from signature. JSON only."},
-                {"role": "user", "content": SIGNATURE_EXTRACTION_PROMPT.format(email_body=signature_text)}
-            ],
-            source=source,
-            endpoint="contact_extraction",
-            model="gpt-4o-mini",  # OpenAI gpt-4o-mini
-            provider="openai",
-            max_output_tokens=150,  # COST CONTROL: Reduced from 500
-            temperature=0.1,
-            response_format={"type": "json_object"}
+        # Use Gemini for signature extraction
+        rotator = _get_rotator()
+        key_index, api_key = rotator.get_available_key()
+        genai.configure(api_key=api_key)
+        gemini_model = genai.GenerativeModel(
+            MODEL,
+            generation_config=genai.types.GenerationConfig(
+                response_mime_type="application/json",
+                max_output_tokens=150,
+                temperature=0.1,
+            )
         )
+        full_prompt = f"Extract contact from signature. JSON only.\n\n{SIGNATURE_EXTRACTION_PROMPT.format(email_body=signature_text)}"
+        gemini_response = gemini_model.generate_content(full_prompt)
+        tokens_used = (
+            gemini_response.usage_metadata.total_token_count
+            if gemini_response.usage_metadata else 0
+        )
+        rotator.log_request(key_index, tokens_used, "contact_extraction", success=True)
         
-        if not result["success"]:
-            return regex_result
-        
-        data = json.loads(result["content"])
+        data = json.loads(gemini_response.text)
         
         # Merge with regex results (prefer AI but keep regex fallbacks)
         merged = {**regex_result, **{k: v for k, v in data.items() if v}}

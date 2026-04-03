@@ -202,8 +202,9 @@ async def search_linkedin_leads_openai(
         return []
     
     try:
-        from openai import OpenAI
-        client_ai = OpenAI(api_key=api_key)
+        # from openai import OpenAI  # DISABLED — OpenAI removed
+        # client_ai = OpenAI(api_key=api_key)  # DISABLED
+        raise RuntimeError("OpenAI disabled — web search lead generation now uses Google CSE")
         
         search_prompt = f"""Search the web for LinkedIn profiles matching this criteria:
 {query}
@@ -343,8 +344,9 @@ async def search_linkedin_leads(
         return [l for l in leads if l]
     
     try:
-        from openai import OpenAI
-        client_ai = OpenAI(api_key=api_key)
+        # from openai import OpenAI  # DISABLED — OpenAI removed
+        # client_ai = OpenAI(api_key=api_key)  # DISABLED
+        raise RuntimeError("OpenAI disabled — extraction now uses Google CSE")
         
         extraction_prompt = f"""Extract LinkedIn profile information from these search results:
 {json.dumps(search_context, indent=2)}
@@ -622,12 +624,13 @@ async def search_linkedin_leads_discovery(
     if not api_key:
         raise ValueError("OpenAI API Key is required. Configure in Settings.")
     
-    try:
-        from openai import OpenAI
-    except ImportError:
-        raise ValueError("OpenAI package not installed.")
-    
-    client_ai = OpenAI(api_key=api_key)
+    raise RuntimeError("OpenAI disabled — web search now uses Google CSE + Gemini")
+    # try:
+    #     from openai import OpenAI
+    # except ImportError:
+    #     raise ValueError("OpenAI package not installed.")
+    # 
+    # client_ai = OpenAI(api_key=api_key)
     
     # Extract search criteria from the query
     clean_query = re.sub(r'site:linkedin\.com[^\s]*\s*', '', query, flags=re.IGNORECASE).strip()
@@ -774,12 +777,13 @@ async def discover_top_companies(
     if not api_key:
         raise ValueError("OpenAI API Key is required. Configure in Settings.")
     
-    try:
-        from openai import OpenAI
-    except ImportError:
-        raise ValueError("OpenAI package not installed.")
-    
-    client_ai = OpenAI(api_key=api_key)
+    raise RuntimeError("OpenAI disabled — company search now uses Google CSE + Gemini")
+    # try:
+    #     from openai import OpenAI
+    # except ImportError:
+    #     raise ValueError("OpenAI package not installed.")
+    # 
+    # client_ai = OpenAI(api_key=api_key)
     
     # Determine if this is a market research company search
     is_research_company = "research" in industry.lower() or "panel" in industry.lower()
@@ -896,12 +900,13 @@ async def find_decision_makers_in_company(
     if not api_key:
         raise ValueError("OpenAI API Key is required.")
     
-    try:
-        from openai import OpenAI
-    except ImportError:
-        raise ValueError("OpenAI package not installed.")
-    
-    client_ai = OpenAI(api_key=api_key)
+    raise RuntimeError("OpenAI disabled — contact extraction now uses Google CSE + Gemini")
+    # try:
+    #     from openai import OpenAI
+    # except ImportError:
+    #     raise ValueError("OpenAI package not installed.")
+    # 
+    # client_ai = OpenAI(api_key=api_key)
     
     # Different target roles based on company type
     if is_research_company:

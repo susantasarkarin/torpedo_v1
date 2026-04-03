@@ -81,7 +81,7 @@ def _get_gemini_api_key() -> str:
         if settings:
             # Get all available keys
             keys = []
-            for i in range(1, 8):  # Keys 1-7
+            for i in range(1, 11):  # Keys 1-10
                 key = settings.get(f'gemini_api_key_{i}')
                 if key:
                     keys.append(key)

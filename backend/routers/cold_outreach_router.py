@@ -357,14 +357,15 @@ def update_business_context(campaign_id: str, req: BusinessContextRequest):
 @router.post("/campaigns/{campaign_id}/steps/{step_number}/generate")
 def generate_step_email(campaign_id: str, step_number: int):
     """
-    Use GPT-4o-mini to generate a full cold email (subject + body) for a given step.
+    Use Gemini to generate a full cold email (subject + body) for a given step.
 
     The email will contain live placeholder tokens ({{first_name}}, {{company}}, etc.)
     so each recipient gets a personalised version at send time.
 
     Requires business_context to be saved on the campaign first (via the AI Context tab).
     """
-    import openai as _openai
+    import google.generativeai as _genai
+    from leads.gemini_rotator import GeminiRotator as _GeminiRotator
 
     db = get_db()
     campaign = db["outreach_campaigns_v2"].find_one({"campaign_id": campaign_id})
@@ -378,11 +379,13 @@ def generate_step_email(campaign_id: str, step_number: int):
             "No business context saved yet — fill in the AI Context tab first so the AI knows what to write."
         )
 
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        raise HTTPException(500, "OPENAI_API_KEY not configured on the server")
-
-    _openai.api_key = api_key
+    # Use GeminiRotator for key management
+    try:
+        _rotator = _GeminiRotator()
+        key_index, api_key = _rotator.get_available_key()
+        _genai.configure(api_key=api_key)
+    except Exception as e:
+        raise HTTPException(500, f"Gemini key unavailable: {e}")
 
     # Step metadata
     day_labels = {1: "Day 1 (initial outreach)", 2: "Day 4 (first follow-up)",
@@ -454,20 +457,26 @@ Do not write a signature block — the system appends one automatically.
 """
 
     try:
-        response = _openai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a professional B2B cold email copywriter. Follow instructions precisely."},
-                {"role": "user",   "content": prompt},
-            ],
-            max_tokens=500,
-            temperature=0.72,
+        _gemini_model = _genai.GenerativeModel(
+            "gemini-2.0-flash",
+            generation_config=_genai.types.GenerationConfig(
+                max_output_tokens=600,
+                temperature=0.72,
+            )
         )
+        _gemini_response = _gemini_model.generate_content(
+            "You are a professional B2B cold email copywriter. Follow instructions precisely.\n\n" + prompt
+        )
+        tokens_used = (
+            _gemini_response.usage_metadata.total_token_count
+            if _gemini_response.usage_metadata else 0
+        )
+        _rotator.log_request(key_index, tokens_used, "email_generation", success=True)
     except Exception as e:
-        logger.error(f"OpenAI generate_step_email failed: {e}")
+        logger.error(f"Gemini generate_step_email failed: {e}")
         raise HTTPException(500, f"AI generation failed: {e}")
 
-    raw = response.choices[0].message.content.strip()
+    raw = _gemini_response.text.strip()
 
     # Parse subject and body from output
     subject = ""
@@ -485,7 +494,7 @@ Do not write a signature block — the system appends one automatically.
 
     logger.info(
         f"AI generated step {step_number} for campaign {campaign_id} "
-        f"({response.usage.total_tokens if response.usage else '?'} tokens)"
+        f"({tokens_used} tokens)"
     )
 
     return {
@@ -493,7 +502,7 @@ Do not write a signature block — the system appends one automatically.
         "step_number": step_number,
         "subject": subject,
         "body_html": body,
-        "tokens_used": response.usage.total_tokens if response.usage else 0,
+        "tokens_used": tokens_used,
     }
 
 

@@ -404,8 +404,9 @@ async def extract_leads_from_google_results(search_results: List[dict], query: s
         return [l for l in leads if l]
     
     try:
-        from openai import OpenAI
-        client_ai = OpenAI(api_key=api_key)
+        # from openai import OpenAI  # DISABLED — OpenAI removed
+        # client_ai = OpenAI(api_key=api_key)  # DISABLED
+        raise RuntimeError("OpenAI disabled — lead extraction now uses Google CSE + Gemini")
         
         search_context = []
         for item in search_results:
@@ -791,17 +792,12 @@ async def discover_top_companies(
         return companies
     
     try:
-        from openai import OpenAI
-        client_ai = OpenAI(api_key=api_key)
+        # from openai import OpenAI  # DISABLED — OpenAI removed
+        # client_ai = OpenAI(api_key=api_key)  # DISABLED
+        raise RuntimeError("OpenAI disabled — company extraction now uses Google CSE + Gemini")
         
         # Prepare search results for AI parsing
         search_context = json.dumps([{
-            "title": r.get("title", ""),
-            "link": r.get("link", ""),
-            "snippet": r.get("snippet", "")
-        } for r in search_results], indent=2)
-        
-        is_research_company = "research" in industry.lower() or "panel" in industry.lower()
         
         extraction_prompt = f"""Extract company information from these Google search results.
 These are LinkedIn company pages for {industry} companies in {region_name}.
@@ -992,8 +988,9 @@ async def find_decision_makers_in_company(
         return leads
     
     try:
-        from openai import OpenAI
-        client_ai = OpenAI(api_key=api_key)
+        # from openai import OpenAI  # DISABLED — OpenAI removed
+        # client_ai = OpenAI(api_key=api_key)  # DISABLED
+        raise RuntimeError("OpenAI disabled — contact extraction now uses Google CSE + Gemini")
         
         # Prepare search results for AI parsing
         search_context = json.dumps([{

@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Literal
 from functools import wraps
 
-from openai import OpenAI
+# from openai import OpenAI  # DISABLED — OpenAI replaced by Gemini
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
@@ -96,27 +96,9 @@ def get_enrichment_logs_collection():
 
 # ============== OPENAI CLIENT ==============
 
-def get_openai_client() -> OpenAI:
-    """Get OpenAI client - reuses the singleton from openai_wrapper for consistency."""
-    try:
-        from leads.openai_wrapper import get_openai_client as get_wrapper_client
-        return get_wrapper_client()
-    except ImportError:
-        # Fallback if openai_wrapper not available
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            try:
-                mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-                client = MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
-                settings = client['torpedo_settings']['app_settings'].find_one({"_id": "app_config"})
-                if settings and settings.get("openai_api_key"):
-                    api_key = settings["openai_api_key"]
-            except Exception as e:
-                logger.warning(f"Could not fetch OpenAI key from DB: {e}")
-        
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not configured")
-        return OpenAI(api_key=api_key)
+def get_openai_client():
+    """DISABLED: OpenAI removed. Use GeminiRotator or gemini_gateway instead."""
+    raise RuntimeError("OpenAI disabled — use Gemini via GeminiRotator or gemini_gateway.")
 
 
 # ============== RATE LIMITING ==============

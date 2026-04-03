@@ -18,7 +18,7 @@ class GeminiRotator:
     
     MAX_RPM = 15  # Requests per minute per key
     MAX_DAILY_REQUESTS = 1000  # Daily requests per key
-    TOTAL_KEYS = 7
+    TOTAL_KEYS = 10
     
     def __init__(self, mongo_uri: str = None, database_name: str = "email_automation"):
         """Initialize the rotator with MongoDB connection"""

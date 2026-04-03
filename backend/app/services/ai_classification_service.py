@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 import google.generativeai as genai
-import anthropic
+# import anthropic  # DISABLED: Claude replaced by Gemini
 
 logger = logging.getLogger(__name__)
 
@@ -202,13 +202,8 @@ class AIClassificationService:
             self.gemini_model = None
             logger.warning("Gemini API key not configured")
         
-        # Anthropic setup (optional, for complex tasks)
-        self.anthropic_api_key = anthropic_api_key or os.getenv("ANTHROPIC_API_KEY")
-        if self.anthropic_api_key:
-            self.anthropic_client = anthropic.Anthropic(api_key=self.anthropic_api_key)
-        else:
-            self.anthropic_client = None
-            logger.info("Anthropic API key not configured (optional)")
+        # Anthropic/Claude DISABLED — replaced by Gemini
+        self.anthropic_client = None
     
     # =========================================================================
     # EMAIL CLASSIFICATION
@@ -549,29 +544,8 @@ OUTPUT FORMAT (JSON only):
         Returns:
             Dict with keys: email_1, email_2, email_3, subject_1, subject_2, subject_3
         """
-        if not self.anthropic_client:
-            raise RuntimeError("Anthropic API not configured")
-        
-        prompt = self._build_cold_email_prompt(
-            prospect_name, prospect_title, prospect_company,
-            prospect_industry, personalization_hooks, pain_points, sender_name
-        )
-        
-        try:
-            response = self.anthropic_client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=2000,
-                temperature=0.7,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            # Parse response
-            content = response.content[0].text
-            return self._parse_cold_email_response(content)
-            
-        except Exception as e:
-            logger.error(f"Cold email generation error: {e}")
-            raise
+        # DISABLED: Claude removed. Cold email generation via cold_outreach_router (Gemini).
+        raise RuntimeError("write_cold_email is disabled. Use the campaign AI generation endpoint (cold_outreach_router) which uses Gemini.")
     
     def _build_cold_email_prompt(
         self,

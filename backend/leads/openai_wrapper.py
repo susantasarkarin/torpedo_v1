@@ -21,7 +21,19 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List, Literal
 from functools import wraps
 
-from openai import OpenAI, APIError, RateLimitError, APIConnectionError
+# from openai import OpenAI, APIError, RateLimitError, APIConnectionError
+# NOTE: OpenAI disabled — all AI work now uses Gemini (gemini_rotator / gemini_gateway)
+
+# Stubs so module-level imports in other files don't fail at load time
+class _DisabledOpenAI:
+    """Stub to prevent NameError when OpenAI is referenced."""
+    def __init__(self, *args, **kwargs):
+        raise RuntimeError("OpenAI is disabled. Use Gemini via GeminiRotator or gemini_gateway.")
+
+OpenAI = _DisabledOpenAI
+APIError = Exception
+RateLimitError = Exception
+APIConnectionError = Exception
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
@@ -319,15 +331,9 @@ def get_openai_api_key() -> Optional[str]:
 _openai_client: Optional[OpenAI] = None
 
 
-def get_openai_client() -> OpenAI:
-    """Get or create OpenAI client singleton."""
-    global _openai_client
-    if _openai_client is None:
-        api_key = get_openai_api_key()
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not configured in settings or environment")
-        _openai_client = OpenAI(api_key=api_key)
-    return _openai_client
+def get_openai_client() -> None:
+    """DISABLED: OpenAI is no longer used. Use GeminiRotator or gemini_gateway instead."""
+    raise RuntimeError("OpenAI is disabled. Use Gemini via GeminiRotator or gemini_gateway.")
 
 
 # DEPRECATED: get_deepseek_client removed per AI Governance spec
@@ -416,17 +422,16 @@ def chat_completion(
         else:
             max_output_tokens = DEFAULT_MAX_OUTPUT_TOKENS
     
-    # Route to OpenAI only
-    return _openai_chat_completion(
-        messages=messages,
-        model=model,
-        max_output_tokens=max_output_tokens,
-        temperature=temperature,
-        response_format=response_format,
-        source=source,
-        endpoint=endpoint,
-        start_time=start_time
-    )
+    # DISABLED: OpenAI quota exhausted — all AI routes to Gemini now
+    logger.warning("chat_completion called but OpenAI is disabled. Use Gemini.")
+    return {
+        "content": "",
+        "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "model": model or DEFAULT_MODEL,
+        "provider": "openai",
+        "success": False,
+        "error": "OpenAI disabled — use Gemini via GeminiRotator or gemini_gateway"
+    }
 
 
 # DEPRECATED: _deepseek_chat_completion removed per AI Governance spec

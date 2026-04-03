@@ -10,7 +10,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 
 from celery import shared_task, Task
-from openai import AsyncOpenAI
+# from openai import AsyncOpenAI  # DISABLED: OpenAI replaced by Gemini
 import os
 
 logger = logging.getLogger(__name__)
