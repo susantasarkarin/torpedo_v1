@@ -22,6 +22,7 @@ from .models import (
     BuyingRole, Gender, EmailStatus
 )
 from .ai_classifier import classify_lead
+from .gemini_rotator import SEGMENT_PIPELINE_MAP
 from .deduplication import (
     check_duplicate,
     add_to_dedup_index,
@@ -193,6 +194,7 @@ def get_pending_leads(limit: Optional[int] = None) -> List[dict]:
 def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
     """
     Classify a single lead and store results.
+    Routes to the correct Gemini pipeline based on the lead's icp_segment.
     Returns: (success, error_message)
     """
     # Get raw lead
@@ -231,8 +233,11 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
         company_industry=raw_lead.get("company_industry"),
     )
     
-    # Classify
-    result, log = classify_lead(lead)
+    # Classify — route to the correct Gemini pipeline
+    pipeline = SEGMENT_PIPELINE_MAP.get(
+        (raw_lead.get("icp_segment") or "").lower(), "sfw_bim"
+    )
+    result, log = classify_lead(lead, pipeline=pipeline)
     
     # Store classification log
     log.raw_lead_id = raw_lead_id

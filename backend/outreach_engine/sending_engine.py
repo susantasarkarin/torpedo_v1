@@ -459,9 +459,11 @@ class SendingEngine:
         """
         provider = mailbox.get("provider", "gmail")
         
-        if provider == "gmail" and self.gmail_service:
+        if provider == "ses":
+            return self._send_via_ses(mailbox, send_record)
+        elif provider == "gmail" and self.gmail_service:
             return self._send_via_gmail(mailbox, send_record)
-        elif provider == "smtp" and self.smtp_config:
+        elif provider == "smtp":
             return self._send_via_smtp(mailbox, send_record)
         else:
             # Mock send for testing
@@ -571,6 +573,60 @@ class SendingEngine:
             logger.error(f"SMTP send error: {e}")
             return False, {"error": str(e)}
     
+    def _send_via_ses(
+        self,
+        mailbox: Dict[str, Any],
+        send_record: EmailSend
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Send email via AWS SES SDK (boto3).
+        Uses send_raw_email for full MIME control and thread headers.
+        Credentials are read from mailbox record (aws_access_key_id / aws_secret_access_key)
+        or fall back to environment / IAM role.
+        """
+        try:
+            import boto3
+            from botocore.exceptions import ClientError
+
+            # Build MIME message
+            msg = MIMEMultipart("alternative")
+            msg["To"] = send_record.to_email
+            msg["From"] = f"{send_record.from_name} <{send_record.from_email}>"
+            msg["Subject"] = send_record.subject
+            msg["Message-ID"] = send_record.message_id
+
+            if send_record.in_reply_to:
+                msg["In-Reply-To"] = send_record.in_reply_to
+            if send_record.references:
+                msg["References"] = " ".join(send_record.references)
+
+            msg.attach(MIMEText(send_record.body_plain, "plain"))
+            msg.attach(MIMEText(send_record.body_html, "html"))
+
+            # Build boto3 client — use mailbox credentials if provided, else env/IAM
+            ses_kwargs: Dict[str, Any] = {
+                "region_name": mailbox.get("aws_region", "us-east-1"),
+            }
+            if mailbox.get("aws_access_key_id"):
+                ses_kwargs["aws_access_key_id"] = mailbox["aws_access_key_id"]
+                ses_kwargs["aws_secret_access_key"] = mailbox["aws_secret_access_key"]
+
+            client = boto3.client("ses", **ses_kwargs)
+
+            response = client.send_raw_email(
+                Source=f"{send_record.from_name} <{send_record.from_email}>",
+                Destinations=[send_record.to_email],
+                RawMessage={"Data": msg.as_bytes()},
+            )
+
+            ses_message_id = response.get("MessageId", send_record.message_id)
+            logger.info(f"SES send OK → {send_record.to_email} | SES MessageId={ses_message_id}")
+            return True, {"provider_message_id": ses_message_id}
+
+        except Exception as e:
+            logger.error(f"SES send error: {e}")
+            return False, {"error": str(e)}
+
     def _mock_send(self, send_record: EmailSend) -> Tuple[bool, Dict[str, Any]]:
         """
         Mock send for testing.

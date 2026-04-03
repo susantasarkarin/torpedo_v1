@@ -7,6 +7,7 @@ Total capacity: 105 RPM, 7000 requests/day
 
 import os
 import time
+import threading
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from pymongo import MongoClient
@@ -16,8 +17,8 @@ from bson import ObjectId
 class GeminiRotator:
     """Manages multiple Gemini API keys with automatic rotation and quota tracking"""
     
-    MAX_RPM = 15  # Requests per minute per key
-    MAX_DAILY_REQUESTS = 1000  # Daily requests per key
+    MAX_RPM = 500          # Per-key RPM cap (paid tier; free tier was 15)
+    MAX_DAILY_REQUESTS = 50000  # Per-key daily cap (paid tier; free tier was 1000/1500)
     TOTAL_KEYS = 10
     
     def __init__(self, mongo_uri: str = None, database_name: str = "email_automation"):
@@ -32,7 +33,10 @@ class GeminiRotator:
         # Collections
         self.quota_collection = self.db["gemini_quota"]
         self.requests_collection = self.db["gemini_requests"]
-        
+
+        # Thread-safety for concurrent runners
+        self._key_lock = threading.Lock()
+
         # Load API keys from database
         self.api_keys = self._load_api_keys()
         
@@ -105,9 +109,15 @@ class GeminiRotator:
     
     def get_available_key(self) -> Tuple[int, str]:
         """
-        Get an available API key that hasn't exceeded quotas
+        Get an available API key that hasn't exceeded quotas.
+        Thread-safe: uses a lock so concurrent workers don't double-assign the same key.
         Returns: (key_index, api_key)
         """
+        with self._key_lock:
+            return self._get_available_key_locked()
+
+    def _get_available_key_locked(self) -> Tuple[int, str]:
+        """Inner implementation — must be called with _key_lock held."""
         today = datetime.now().strftime("%Y-%m-%d")
         current_time = datetime.now()
         one_minute_ago = current_time - timedelta(minutes=1)
@@ -399,6 +409,270 @@ class GeminiRotator:
         return health_status
 
 
+# ============================================================
+# PIPELINE SYSTEM
+# ============================================================
+# 4 isolated key pools, each with 3 dedicated Gemini accounts:
+#
+#   outreach  → keys 1,2,3   (AI email drafting — real-time)
+#   sfw_bim   → keys 4,5,6   (SFW + BIM enrichment + mail)
+#   cogentix  → keys 7,8,9   (Cogentix enrichment + mail)
+#   mail      → keys 10,11,12 (general mail capacity)
+#
+# Within each pipeline the rotator cycles key1→key2→key3→key1
+# using a sliding 60-second RPM window so that by the time all
+# 3 keys are saturated the earliest key's window has reset.
+# ============================================================
+
+DEFAULT_PIPELINE_KEY_MAP: Dict[str, List[int]] = {
+    "outreach": [1, 2, 3],
+    "sfw_bim":  [4, 5, 6],
+    "cogentix": [7, 8, 9],
+    "mail":     [10, 11, 12],
+}
+
+# ICP segment → pipeline routing
+SEGMENT_PIPELINE_MAP: Dict[str, str] = {
+    "survey_fieldwork": "sfw_bim",
+    "bimwave":          "sfw_bim",
+    "dual_fit":         "sfw_bim",
+    "cogentix":         "cogentix",
+    "nurture":          "sfw_bim",  # fallback
+}
+
+
+class GeminiPipelineRotator:
+    """
+    RPM-aware + daily-cap-aware rotator for a fixed pool of Gemini keys.
+
+    Strategy:
+      - Cycle key_1 → key_2 → key_3 → key_1 using a 60-second sliding RPM
+        window (15 RPM per key, free tier).
+      - Daily cap (1,500 req/day per key, free tier) is read from the
+        gemini_quota MongoDB collection and cached for DAILY_CACHE_TTL seconds.
+        Keys confirmed daily-exhausted are skipped proactively — no wasted 429.
+      - Account names (gemini_account_N) are loaded once from app_settings so
+        every log line and health-check shows which Google account owns the key.
+
+    One instance per pipeline; obtain via get_pipeline_rotator().
+    """
+
+    RPM_LIMIT       = 15    # free-tier requests per minute per key
+    DAILY_LIMIT     = 1500  # free-tier requests per day per key
+    DAILY_CACHE_TTL = 120   # seconds between MongoDB daily-count refreshes
+
+    def __init__(self, pipeline_name: str, key_indices: List[int],
+                 base_rotator: "GeminiRotator"):
+        self.pipeline_name = pipeline_name
+        # Only include keys that are actually loaded in the base rotator
+        self.key_indices = [i for i in key_indices if i in base_rotator.api_keys]
+        self._base = base_rotator
+        self._lock = threading.Lock()
+
+        # Sliding-window timestamps per key (in-memory only, reset on restart)
+        self._rpm_window: Dict[int, List[float]] = {
+            idx: [] for idx in self.key_indices
+        }
+
+        # Daily cap cache — refreshed from MongoDB every DAILY_CACHE_TTL seconds
+        self._daily_exhausted: set = set()   # key indices that hit 1,500/day
+        self._daily_cache_time: float = 0.0  # epoch of last DB refresh
+
+        # Account names — loaded once at startup
+        self._account_names: Dict[int, str] = self._load_account_names()
+
+        if not self.key_indices:
+            raise ValueError(
+                f"Pipeline '{pipeline_name}': none of the requested keys "
+                f"{key_indices} are configured in the DB."
+            )
+
+    # ------------------------------------------------------------------
+    # Account name helpers
+    # ------------------------------------------------------------------
+
+    def _load_account_names(self) -> Dict[int, str]:
+        """Load gemini_account_N labels from torpedo_settings.app_settings."""
+        try:
+            settings = self._base.settings_db["app_settings"].find_one() or {}
+            return {
+                idx: settings.get(f"gemini_account_{idx}", f"key_{idx}")
+                for idx in range(1, self._base.TOTAL_KEYS + 1)
+            }
+        except Exception:
+            return {idx: f"key_{idx}" for idx in range(1, self._base.TOTAL_KEYS + 1)}
+
+    def account_name(self, key_index: int) -> str:
+        return self._account_names.get(key_index, f"key_{key_index}")
+
+    # ------------------------------------------------------------------
+    # Daily cap cache
+    # ------------------------------------------------------------------
+
+    def _refresh_daily_cache(self):
+        """
+        Query MongoDB for today's request counts and mark exhausted keys.
+        Called WITHOUT holding _lock to avoid blocking other threads.
+        """
+        today = datetime.now().strftime("%Y-%m-%d")
+        try:
+            docs = list(self._base.quota_collection.find(
+                {"key_index": {"$in": self.key_indices}, "date": today},
+                {"key_index": 1, "requests_count": 1}
+            ))
+            exhausted = {
+                d["key_index"] for d in docs
+                if d.get("requests_count", 0) >= self.DAILY_LIMIT
+            }
+        except Exception:
+            exhausted = set()
+
+        with self._lock:
+            self._daily_exhausted = exhausted
+            self._daily_cache_time = time.time()
+
+    def _ensure_daily_cache(self):
+        """Trigger a cache refresh if the TTL has expired. Called WITHOUT lock."""
+        if time.time() - self._daily_cache_time > self.DAILY_CACHE_TTL:
+            self._refresh_daily_cache()
+
+    # ------------------------------------------------------------------
+    # Core key selection
+    # ------------------------------------------------------------------
+
+    def get_available_key(self) -> Tuple[int, str]:
+        """
+        Block until a key with both RPM headroom AND daily quota remains.
+        Returns (key_index, api_key).
+        """
+        # Refresh daily-cap cache outside the lock (DB I/O should not hold the lock)
+        self._ensure_daily_cache()
+
+        while True:
+            with self._lock:
+                now    = time.time()
+                cutoff = now - 60.0
+
+                # Only consider keys that haven't hit their daily cap
+                candidates = [
+                    idx for idx in self.key_indices
+                    if idx not in self._daily_exhausted
+                ]
+
+                if not candidates:
+                    # All keys daily-exhausted — surface a clear error
+                    raise Exception(
+                        f"Pipeline '{self.pipeline_name}': all keys have hit the "
+                        f"{self.DAILY_LIMIT} req/day free-tier limit. "
+                        "Quota resets at midnight UTC."
+                    )
+
+                sleep_until: Optional[float] = None
+
+                for key_idx in candidates:
+                    # Prune timestamps outside the 60-second window
+                    window = self._rpm_window[key_idx] = [
+                        t for t in self._rpm_window[key_idx] if t > cutoff
+                    ]
+                    if len(window) < self.RPM_LIMIT:
+                        window.append(now)
+                        return key_idx, self._base.api_keys[key_idx]
+                    # Key RPM-saturated — record when its window opens next
+                    earliest = window[0] + 60.0
+                    if sleep_until is None or earliest < sleep_until:
+                        sleep_until = earliest
+
+                # All candidate keys RPM-saturated — release lock and wait
+            wait_s = max(0.3, (sleep_until - time.time())) if sleep_until else 5.0
+            time.sleep(wait_s)
+
+    # ------------------------------------------------------------------
+    # Logging + health
+    # ------------------------------------------------------------------
+
+    def log_request(self, key_index: int, tokens_used: int, task_type: str,
+                    success: bool = True, error: str = None,
+                    metadata: dict = None):
+        """Delegate to base rotator so the gemini_quota audit trail stays intact."""
+        self._base.log_request(
+            key_index, tokens_used,
+            f"{self.pipeline_name}:{task_type}",
+            success=success, error=error,
+            metadata={**(metadata or {}), "account": self.account_name(key_index)},
+        )
+
+    def health_check(self) -> Dict:
+        """Return RPM usage + daily cap status for every key in the pool."""
+        self._ensure_daily_cache()
+        today = datetime.now().strftime("%Y-%m-%d")
+        now   = time.time()
+        cutoff = now - 60.0
+
+        try:
+            daily_counts = {
+                d["key_index"]: d.get("requests_count", 0)
+                for d in self._base.quota_collection.find(
+                    {"key_index": {"$in": self.key_indices}, "date": today},
+                    {"key_index": 1, "requests_count": 1}
+                )
+            }
+        except Exception:
+            daily_counts = {}
+
+        keys_status = []
+        with self._lock:
+            for key_idx in self.key_indices:
+                recent       = [t for t in self._rpm_window[key_idx] if t > cutoff]
+                daily_used   = daily_counts.get(key_idx, 0)
+                daily_remain = max(0, self.DAILY_LIMIT - daily_used)
+                keys_status.append({
+                    "key_index":      key_idx,
+                    "account":        self.account_name(key_idx),
+                    "rpm_used":       len(recent),
+                    "rpm_headroom":   max(0, self.RPM_LIMIT - len(recent)),
+                    "daily_used":     daily_used,
+                    "daily_remaining": daily_remain,
+                    "daily_exhausted": key_idx in self._daily_exhausted,
+                })
+
+        return {
+            "pipeline": self.pipeline_name,
+            "keys":     keys_status,
+            "active_keys": len([k for k in keys_status if not k["daily_exhausted"]]),
+        }
+
+
+# Per-pipeline singleton cache
+_pipeline_rotators: Dict[str, GeminiPipelineRotator] = {}
+_pipeline_rotators_lock = threading.Lock()
+
+
+def get_pipeline_rotator(pipeline_name: str) -> GeminiPipelineRotator:
+    """
+    Return the singleton GeminiPipelineRotator for the given pipeline.
+    Pipeline key mapping is loaded from torpedo_settings.app_settings
+    (field: gemini_pipeline_config) with DEFAULT_PIPELINE_KEY_MAP as fallback.
+    """
+    global _pipeline_rotators
+    with _pipeline_rotators_lock:
+        if pipeline_name not in _pipeline_rotators:
+            base = get_rotator()
+            # Allow runtime override via DB
+            try:
+                settings = base.settings_db["app_settings"].find_one()
+                override = (settings or {}).get("gemini_pipeline_config")
+                key_map: Dict[str, List[int]] = override or DEFAULT_PIPELINE_KEY_MAP
+            except Exception:
+                key_map = DEFAULT_PIPELINE_KEY_MAP
+
+            key_indices = key_map.get(pipeline_name, list(range(1, 13)))
+            _pipeline_rotators[pipeline_name] = GeminiPipelineRotator(
+                pipeline_name, key_indices, base
+            )
+    return _pipeline_rotators[pipeline_name]
+
+
+# ============================================================
 # Singleton instance
 _rotator_instance = None
 

@@ -365,7 +365,7 @@ def generate_step_email(campaign_id: str, step_number: int):
     Requires business_context to be saved on the campaign first (via the AI Context tab).
     """
     import google.generativeai as _genai
-    from leads.gemini_rotator import GeminiRotator as _GeminiRotator
+    from leads.gemini_rotator import get_pipeline_rotator as _get_pipeline_rotator
 
     db = get_db()
     campaign = db["outreach_campaigns_v2"].find_one({"campaign_id": campaign_id})
@@ -379,9 +379,9 @@ def generate_step_email(campaign_id: str, step_number: int):
             "No business context saved yet — fill in the AI Context tab first so the AI knows what to write."
         )
 
-    # Use GeminiRotator for key management
+    # Use pipeline 1 (outreach) for email drafting — keys 1, 2, 3
     try:
-        _rotator = _GeminiRotator()
+        _rotator = _get_pipeline_rotator("outreach")
         key_index, api_key = _rotator.get_available_key()
         _genai.configure(api_key=api_key)
     except Exception as e:

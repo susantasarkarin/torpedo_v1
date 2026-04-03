@@ -36,7 +36,7 @@ from .models import (
 #     build_system_prompt, JSON_ONLY_INSTRUCTION
 # )
 # NOTE: OpenAI disabled — use Gemini via GeminiRotator
-from .gemini_rotator import GeminiRotator
+from .gemini_rotator import GeminiRotator, get_pipeline_rotator
 import google.generativeai as genai
 
 load_dotenv()
@@ -48,11 +48,14 @@ load_dotenv()
 MODEL = "gemini-2.0-flash"  # Gemini default
 TEMPERATURE = 0.1  # Low temperature for deterministic output
 
-# Gemini rotator singleton
+# Gemini rotator singleton (used when no pipeline specified)
 _gemini_rotator: Optional["GeminiRotator"] = None
 
 
-def _get_rotator() -> "GeminiRotator":
+def _get_rotator(pipeline: Optional[str] = None):
+    """Return the appropriate rotator — pipeline-scoped or global."""
+    if pipeline:
+        return get_pipeline_rotator(pipeline)
     global _gemini_rotator
     if _gemini_rotator is None:
         _gemini_rotator = GeminiRotator()
@@ -149,7 +152,8 @@ def cache_classification(lead: LeadRaw, result: AIClassificationOutput):
 
 # ============== CLASSIFICATION FUNCTION ==============
 
-def classify_lead(lead: LeadRaw, source: str = "api") -> Tuple[Optional[AIClassificationOutput], AIClassificationLog]:
+def classify_lead(lead: LeadRaw, source: str = "api",
+                  pipeline: Optional[str] = None) -> Tuple[Optional[AIClassificationOutput], AIClassificationLog]:
     """
     Classify a single lead using ChatGPT.
     COST CONTROL: Uses centralized wrapper with strict token limits.
@@ -206,7 +210,7 @@ def classify_lead(lead: LeadRaw, source: str = "api") -> Tuple[Optional[AIClassi
     
     try:
         # Use Gemini for lead classification
-        rotator = _get_rotator()
+        rotator = _get_rotator(pipeline)
         key_index, api_key = rotator.get_available_key()
         genai.configure(api_key=api_key)
         gemini_model = genai.GenerativeModel(

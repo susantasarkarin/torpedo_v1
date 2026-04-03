@@ -2,7 +2,6 @@ import os
 import traceback
 import re
 import logging
-from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException, Body, Path, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -69,8 +68,6 @@ try:
     from .routers import mail_operations as mail_operations_router
     from .routers import prompt_management as prompt_management_router
     from .routers import automation as automation_router
-    from .app.routers import outreach_api as outreach_api_router
-    from .linkedin_automation import router as linkedin_router
 except Exception:
     # Fallback to absolute import for other runtimes
     from routers import traffic as traffic_router
@@ -95,8 +92,6 @@ except Exception:
     from routers import mail_operations as mail_operations_router
     from routers import prompt_management as prompt_management_router
     from routers import automation as automation_router
-    from app.routers import outreach_api as outreach_api_router
-    from linkedin_automation import router as linkedin_router
 
 # Ensure stdout/stderr use UTF-8 on Windows consoles to avoid UnicodeEncodeError
 import sys
@@ -159,10 +154,6 @@ templates_collection = db["templates"]
 reports_collection = db["reports"]
 projects_collection = db["projects"]
 vendors_collection = db["vendors"]  # Vendors collection for CPX callback handling
-operations_clients_collection = db["clients"]  # Operations clients collection
-
-# Finance DB vendors collection for syncing
-finance_vendors_collection = None  # Will be initialized with finance_db later
 
 # CPX Research collections
 try:
@@ -621,15 +612,12 @@ if url_parameters_collection is not None:
     if cpx_surveys_collection is not None:
         try:
             from app.services.traffic_service import TrafficService
-            from database import get_async_collection
-            async_traffic_col = get_async_collection("traffic_flow_db", "url_parameters")
             traffic_service_instance = TrafficService(
                 traffic_collection=url_parameters_collection,
-                surveys_collection=cpx_surveys_collection,
-                async_traffic_collection=async_traffic_col  # Motor async collection for non-blocking inserts
+                surveys_collection=cpx_surveys_collection
             )
             traffic_router.set_traffic_service(traffic_service_instance)
-            print("✅ Traffic service initialized (with async Motor collection)")
+            print("✅ Traffic service initialized")
         except Exception as e:
             print(f"⚠️ Traffic service initialization issue: {e}")
     
@@ -920,31 +908,6 @@ try:
 except Exception as e:
     print(f"⚠️ Automation System router not included: {e}")
 
-# Outreach System router (AI-powered cold outreach with orchestration)
-try:
-    app.include_router(outreach_api_router.router, tags=["AI Outreach"])
-    print("✅ Outreach System router included")
-except Exception as e:
-    print(f"⚠️ Outreach System router not included: {e}")
-
-# Cold Outreach Campaign Management router (3-business sequences + bounce suppression)
-try:
-    try:
-        from .routers import cold_outreach_router as cold_outreach_router_module
-    except ImportError:
-        from routers import cold_outreach_router as cold_outreach_router_module
-    app.include_router(cold_outreach_router_module.router)
-    print("✅ Cold Outreach router included")
-except Exception as e:
-    print(f"⚠️ Cold Outreach router not included: {e}")
-
-# LinkedIn Automation router (Marketing - LinkedIn account automation)
-try:
-    app.include_router(linkedin_router.router)
-    print("✅ LinkedIn Automation router included")
-except Exception as e:
-    print(f"⚠️ LinkedIn Automation router not included: {e}")
-
 # Panel (Survey Panel User Portal) router
 try:
     app.include_router(panel_router.router)
@@ -967,7 +930,6 @@ except Exception as e:
 # RFQ (Request for Quote) router
 try:
     app.include_router(rfq_router.router)
-    app.include_router(rfq_router.router, prefix="/api")
     print("✅ RFQ router included")
 except Exception as e:
     print(f"⚠️ RFQ router not included: {e}")
@@ -1015,7 +977,7 @@ except Exception as e:
 
 # Operations router (Operations-Finance integration)
 try:
-    app.include_router(operations_router.router, prefix="/api")
+    app.include_router(operations_router.router)
     print("✅ Operations router included")
 except Exception as e:
     print(f"⚠️ Operations router not included: {e}")
@@ -1027,7 +989,6 @@ try:
     except ImportError:
         from routers import sales_dashboard as sales_dashboard_router
     app.include_router(sales_dashboard_router.router)
-    app.include_router(sales_dashboard_router.router, prefix="/api")
     print("✅ Sales Dashboard router included")
 except Exception as e:
     print(f"⚠️ Sales Dashboard router not included: {e}")
@@ -1039,62 +1000,9 @@ try:
     except ImportError:
         from routers import sales_accounts as sales_accounts_router
     app.include_router(sales_accounts_router.router)
-    app.include_router(sales_accounts_router.router, prefix="/api")
     print("✅ Sales Accounts router included")
 except Exception as e:
     print(f"⚠️ Sales Accounts router not included: {e}")
-
-# Sales module — new unified pipeline routers
-try:
-    try:
-        from .sales.leads_router import router as sales_leads_router
-    except ImportError:
-        from sales.leads_router import router as sales_leads_router
-    app.include_router(sales_leads_router)
-    print("✅ Sales Leads router included")
-except Exception as e:
-    print(f"⚠️ Sales Leads router not included: {e}")
-
-try:
-    try:
-        from .sales.mail_router import router as sales_mail_router
-    except ImportError:
-        from sales.mail_router import router as sales_mail_router
-    app.include_router(sales_mail_router)
-    print("✅ Sales Mail router included")
-except Exception as e:
-    print(f"⚠️ Sales Mail router not included: {e}")
-
-try:
-    try:
-        from .sales.email_construction_router import router as sales_email_construction_router
-    except ImportError:
-        from sales.email_construction_router import router as sales_email_construction_router
-    app.include_router(sales_email_construction_router)
-    print("✅ Sales Email Construction router included")
-except Exception as e:
-    print(f"⚠️ Sales Email Construction router not included: {e}")
-
-try:
-    try:
-        from .sales.tracking_router import router as sales_tracking_router
-    except ImportError:
-        from sales.tracking_router import router as sales_tracking_router
-    app.include_router(sales_tracking_router)
-    print("✅ Sales Tracking router included")
-except Exception as e:
-    print(f"⚠️ Sales Tracking router not included: {e}")
-
-# Sales Outreach router (Modules 1-6: validation, mail pool, enrichment, BU routing, Gmail, reply analysis)
-try:
-    try:
-        from .routers import sales_outreach as sales_outreach_router
-    except ImportError:
-        from routers import sales_outreach as sales_outreach_router
-    app.include_router(sales_outreach_router.router)
-    print("✅ Sales Outreach router included")
-except Exception as e:
-    print(f"⚠️ Sales Outreach router not included: {e}")
 
 # Unified Vendors router
 try:
@@ -1595,17 +1503,6 @@ async def startup_event():
     """Initialize scheduler and start background jobs"""
     global cpx_refresh_job
     
-    # Seed default ICP configs (idempotent)
-    try:
-        try:
-            from .leads.icp_config import seed_default_icps
-        except ImportError:
-            from leads.icp_config import seed_default_icps
-        seed_default_icps()
-        print("✅ ICP configs seeded")
-    except Exception as e:
-        print(f"⚠️ ICP seed error: {e}")
-
     # Initialize Clay-Level Features
     try:
         try:
@@ -1926,53 +1823,6 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️ Could not schedule mail segregation job: {e}")
     
-    # ----------------------------
-    # Potential Client Auto-Enrichment (every 30 minutes)
-    # Uses OpenAI web search to enrich new companies from survey pool
-    # Feature flag: POTENTIAL_CLIENT_ENRICHMENT_ENABLED=true (default: false)
-    # ----------------------------
-    try:
-        enrichment_enabled = os.getenv("POTENTIAL_CLIENT_ENRICHMENT_ENABLED", "false").lower() == "true"
-        if scheduler.running and enrichment_enabled:
-            def background_potential_client_enrichment():
-                """Auto-enrich new potential clients from survey pool using OpenAI web search."""
-                try:
-                    from tasks.enrichment_tasks import check_new_potential_clients
-                    result = check_new_potential_clients()
-                    if result.get("unenriched_count", 0) > 0:
-                        print(f"[PotentialClientEnrich] Found {result['unenriched_count']} new companies to enrich")
-                    else:
-                        print("[PotentialClientEnrich] All companies already enriched")
-                except Exception as e:
-                    print(f"[PotentialClientEnrich] Error: {e}")
-            
-            scheduler.add_job(
-                background_potential_client_enrichment,
-                IntervalTrigger(seconds=1800),  # Every 30 minutes
-                id="potential_client_enrichment",
-                name="Potential Client Auto-Enrichment",
-                replace_existing=True
-            )
-            print("✅ Potential client enrichment job scheduled (every 30 min, uses OpenAI web search)")
-        elif not enrichment_enabled:
-            print("ℹ️ Potential client enrichment disabled (set POTENTIAL_CLIENT_ENRICHMENT_ENABLED=true to enable)")
-    except Exception as e:
-        print(f"⚠️ Could not schedule potential client enrichment job: {e}")
-    
-    # ----------------------------
-    # LinkedIn Automation Module Initialization
-    # ----------------------------
-    try:
-        try:
-            from .linkedin_automation.database import initialize_linkedin_module
-        except ImportError:
-            from linkedin_automation.database import initialize_linkedin_module
-        
-        initialize_linkedin_module()
-        print("✅ LinkedIn Automation module initialized")
-    except Exception as e:
-        print(f"⚠️ LinkedIn Automation module initialization failed: {e}")
-    
     # ============== STARTUP SUMMARY BANNER ==============
     print("\n" + "=" * 60)
     print(f"🚀 {APP_NAME} v{APP_VERSION} STARTED SUCCESSFULLY")
@@ -1997,10 +1847,6 @@ async def startup_event():
             print("   • Email Classification: Active (every 2 min, batch=10)")
         else:
             print("   • Email Classification: Disabled (EMAIL_CLASSIFICATION_ENABLED=false)")
-        if enrichment_enabled:
-            print("   • Potential Client Enrichment: Active (every 30 min, OpenAI web search)")
-        else:
-            print("   • Potential Client Enrichment: Disabled (POTENTIAL_CLIENT_ENRICHMENT_ENABLED=false)")
     else:
         print("   • CPX Survey Refresh: Inactive")
         print("   • Cint Survey Refresh: Inactive")
@@ -3166,8 +3012,34 @@ async def bulk_delete_leads(data: Dict[str, Any] = Body(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Bulk delete error: {str(e)}")
 
-# NOTE: /leads/{lead_id}/move-to-contacts is implemented in backend/leads/router.py
-# against the enriched leads collection (which powers the Leads/Contacts UI).
+# Move lead to contacts (RFQ stage)
+@app.post("/leads/{lead_id}/move-to-contacts")
+async def move_lead_to_contacts(lead_id: str, stage_data: Dict[str, Any] = Body(...)):
+    try:
+        # Find the lead
+        lead = leads_collection.find_one({"_id": ObjectId(lead_id)})
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        
+        # Create contact from lead data
+        contact_data = {k: v for k, v in lead.items() if k != "_id"}
+        contact_data["stage"] = stage_data.get("stage", "RFQ")
+        contact_data["movedFromLeadAt"] = datetime.utcnow()
+        contact_data["createdAt"] = lead.get("createdAt", datetime.utcnow())
+        contact_data["updatedAt"] = datetime.utcnow()
+        
+        # Insert into contacts
+        result = contacts_collection.insert_one(contact_data)
+        contact_data["_id"] = str(result.inserted_id)
+        
+        # Delete from leads
+        leads_collection.delete_one({"_id": ObjectId(lead_id)})
+        
+        return {"message": "Lead moved to contacts successfully", "contact": contact_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Move lead error: {str(e)}")
 
 
 # Import leads from CSV - USES CANONICAL INGESTION PIPELINE
@@ -3260,8 +3132,6 @@ async def import_leads_csv(file: UploadFile = File(...)):
 # Finance DB for customers (canonical entity for accounts/clients/customers)
 finance_db = client["finance_db"]
 finance_customers_collection = finance_db["customers"]
-# Update finance_vendors_collection now that finance_db is available
-finance_vendors_collection = finance_db["vendors"]
 
 # Create a contact
 @app.post("/contacts/")
@@ -3337,59 +3207,8 @@ async def create_contact(contact_data: Dict[str, Any] = Body(...)):
         
         # Store the linked customer ID in the contact
         contact_data["linked_customer_id"] = linked_customer_id
-        
-        # Auto-sync to Operations Clients if methodology is "online" or "API"
-        linked_operations_client_id = None
-        methodology = contact_data.get("methodology", "").lower()
-        if methodology in ["online", "api"] and contact_data.get("companyName"):
-            # Check if operations client already exists for this company
-            existing_ops_client = operations_clients_collection.find_one({"name": contact_data["companyName"]})
-            
-            if existing_ops_client:
-                # Update existing operations client
-                linked_operations_client_id = str(existing_ops_client["_id"])
-                update_fields = {"updated_at": datetime.utcnow()}
-                if contact_data.get("companyEmail"):
-                    update_fields["email"] = contact_data["companyEmail"]
-                if contact_data.get("companyHeadquarters"):
-                    update_fields["address"] = contact_data["companyHeadquarters"]
-                
-                operations_clients_collection.update_one(
-                    {"_id": existing_ops_client["_id"]},
-                    {"$set": update_fields}
-                )
-            else:
-                # Create new operations client
-                ops_client_data = {
-                    "name": contact_data["companyName"],
-                    "email": contact_data.get("companyEmail", ""),
-                    "phone": contact_data.get("companyPhone", ""),
-                    "address": contact_data.get("companyHeadquarters", ""),
-                    "contact_person": contact_data.get("name", ""),
-                    "contact_email": contact_data.get("email", ""),
-                    "methodology": methodology,
-                    "status": "active",
-                    "linked_contact_id": None,  # Will be set after contact is created
-                    "linked_finance_customer_id": linked_customer_id,
-                    "notes": f"Auto-created from Sales Contact",
-                    "created_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow(),
-                }
-                result_ops_client = operations_clients_collection.insert_one(ops_client_data)
-                linked_operations_client_id = str(result_ops_client.inserted_id)
-        
-        # Store the linked operations client ID in the contact
-        contact_data["linked_operations_client_id"] = linked_operations_client_id
-        
         result = contacts_collection.insert_one(contact_data)
         contact_data["_id"] = str(result.inserted_id)
-        
-        # Update operations client with contact reference if created
-        if linked_operations_client_id:
-            operations_clients_collection.update_one(
-                {"_id": ObjectId(linked_operations_client_id)},
-                {"$set": {"linked_contact_id": str(result.inserted_id)}}
-            )
         
         return {"message": "Contact created successfully", "contact": contact_data}
     except HTTPException:
@@ -3534,7 +3353,6 @@ def generate_vid():
             return vid
 
 @app.post("/vendors/")
-@app.post("/api/vendors/")
 async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
     try:
         # Validate required fields
@@ -3563,77 +3381,8 @@ async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
                             )
 
         vendor_data["vid"] = generate_vid()
-        vendor_data["createdAt"] = datetime.utcnow()
-        vendor_data["updatedAt"] = datetime.utcnow()
-        
         result = vendors_collection.insert_one(vendor_data)
         vendor_data["_id"] = str(result.inserted_id)
-        
-        # Auto-sync to Finance Vendors: create corresponding billing vendor
-        linked_finance_vendor_id = None
-        try:
-            # Check if finance vendor already exists for this vendor name
-            existing_finance_vendor = finance_vendors_collection.find_one({"name": vendor_data.get("vendorName")})
-            
-            if existing_finance_vendor:
-                # Link to existing finance vendor
-                linked_finance_vendor_id = str(existing_finance_vendor["_id"])
-                # Update the link
-                finance_vendors_collection.update_one(
-                    {"_id": existing_finance_vendor["_id"]},
-                    {"$set": {
-                        "linked_panel_vendor_id": str(result.inserted_id),
-                        "linked_panel_vid": vendor_data.get("vid"),
-                        "updated_at": datetime.utcnow()
-                    }}
-                )
-            else:
-                # Create new finance vendor
-                finance_vendor_data = {
-                    "name": vendor_data.get("vendorName", ""),
-                    "vendor_type": vendor_data.get("vendorType", "Panel"),
-                    "email": vendor_data.get("vendorEmail", ""),
-                    "phone": vendor_data.get("vendorPhone", ""),
-                    "gst_treatment": "unregistered",
-                    "gstin": "",
-                    "pan": "",
-                    "billing_address": {
-                        "line1": vendor_data.get("vendorAddress", ""),
-                        "line2": "",
-                        "city": "",
-                        "state": "",
-                        "pincode": "",
-                        "country": "India",
-                    },
-                    "payment_terms": 30,
-                    "currency": "INR",
-                    "opening_balance": 0,
-                    "status": "active",
-                    "linked_panel_vendor_id": str(result.inserted_id),
-                    "linked_panel_vid": vendor_data.get("vid"),
-                    "notes": f"Auto-created from Panel Vendor",
-                    "total_payables": 0,
-                    "total_paid": 0,
-                    "created_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow(),
-                }
-                result_finance = finance_vendors_collection.insert_one(finance_vendor_data)
-                linked_finance_vendor_id = str(result_finance.inserted_id)
-            
-            # Update panel vendor with finance vendor link
-            vendors_collection.update_one(
-                {"_id": result.inserted_id},
-                {"$set": {"linked_finance_vendor_id": linked_finance_vendor_id}}
-            )
-            vendor_data["linked_finance_vendor_id"] = linked_finance_vendor_id
-        except Exception as sync_error:
-            # Log error but don't fail the vendor creation
-            print(f"⚠️ Finance vendor sync warning: {sync_error}")
-        
-        # Note: Operations vendors use the same collection (email_automation.vendors)
-        # so no separate sync needed - the vendor is already in operations scope
-        # The methodology check is handled by the frontend filtering
-        
         return {"message": "Vendor created successfully", "vendor": vendor_data}
     except HTTPException:
         raise
@@ -3641,7 +3390,6 @@ async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=500, detail=f"Vendor creation error: {str(e)}")
 
 @app.get("/vendors/",dependencies=[Depends(verify_session)])
-@app.get("/api/vendors/",dependencies=[Depends(verify_session)])
 async def get_vendors():
     try:
         vendors = list(vendors_collection.find())
@@ -3652,7 +3400,6 @@ async def get_vendors():
         raise HTTPException(status_code=500, detail=f"Fetch vendors error: {str(e)}")
 
 @app.put("/vendors/{vendor_id}")
-@app.put("/api/vendors/{vendor_id}")
 async def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...)):
     try:
         vendor_data = {k: v for k, v in vendor_data.items() if k != "_id" and k != "vid"}
@@ -3682,7 +3429,6 @@ async def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...))
         raise HTTPException(status_code=500, detail=f"Vendor update error: {str(e)}")
 
 @app.delete("/vendors/{vendor_id}")
-@app.delete("/api/vendors/{vendor_id}")
 async def delete_vendor(vendor_id: str):
     """
     Soft delete a panel vendor with safety checks.
@@ -3734,256 +3480,42 @@ async def delete_vendor(vendor_id: str):
         raise HTTPException(status_code=500, detail=f"Vendor delete error: {str(e)}")
     
 
-PROJECT_CALLBACK_BASE_URL = os.getenv(
-    "PROJECT_CALLBACK_BASE_URL",
-    "https://torpedo.cogentixresearch.com",
-).rstrip("/")
-
-PROJECT_ALLOWED_STATUSES = {"live", "pause", "close"}
-PROJECT_TEXT_FIELDS = {
-    "projectName",
-    "salesPerson",
-    "client",
-    "projectStatus",
-    "projectLaunchDate",
-    "projectCloseDate",
-    "rfqId",
-    "rfqDetails",
-    "liveLink",
-    "vendorName",
-    "countryCode",
-    "vendorId",
-    "entryLink",
-}
-PROJECT_NUMERIC_FIELDS = {
-    "projectValue": float,
-    "totalCompletesRequired": int,
-    "loi": int,
-    "clientIR": float,
-    "cpi": float,
-    "totalCompletes": int,
-    "totalRespondents": int,
-    "actualCompletes": int,
-}
-PROJECT_LIST_FIELDS = {"vendorCompleteRD", "vendorTerminateRD", "vendorQuotaFullRD"}
-PROJECT_DEPRECATED_FIELDS = {"industry", "differenceDays", "testLink"}
-
-
-def _coerce_number(value: Any, cast):
-    """Convert mixed numeric values safely."""
-    if value is None:
-        return 0 if cast is int else 0.0
-    if isinstance(value, bool):
-        return int(value) if cast is int else float(value)
-    if isinstance(value, (int, float)):
-        return int(float(value)) if cast is int else float(value)
-    if isinstance(value, str):
-        cleaned = value.strip().replace(",", "")
-        if not cleaned:
-            return 0 if cast is int else 0.0
-        try:
-            return int(float(cleaned)) if cast is int else float(cleaned)
-        except Exception:
-            return 0 if cast is int else 0.0
-    return 0 if cast is int else 0.0
-
-
-def _normalize_string(value: Any) -> str:
-    """Trim and normalize user-entered strings."""
-    if value is None:
-        return ""
-    return str(value).strip()
-
-
-def _normalize_string_list(value: Any) -> List[str]:
-    """Normalize list-or-string values to a clean string list."""
-    if value is None:
-        return []
-    if isinstance(value, list):
-        values = value
-    else:
-        values = [value]
-    return [str(item).strip() for item in values if str(item).strip()]
-
-
-def _detect_project_provider(live_link: str) -> str:
-    """
-    Detect provider format from the live link.
-    Returns 'cint' for CINT/Lucid style links, otherwise 'cpx'.
-    """
-    if not live_link:
-        return "cpx"
-
-    link = live_link.strip().lower()
-    host = ""
-    try:
-        host = (urlparse(link).hostname or "").lower()
-    except Exception:
-        host = ""
-
-    if any(marker in host for marker in ("samplicio.us", "cint", "luc.id", "lucidhq")):
-        return "cint"
-    if "cint" in link:
-        return "cint"
-    return "cpx"
-
-
-def _generate_entry_link(survey_no: str, vendor_id: str, country_code: str) -> str:
-    """
-    Build the vendor-facing entry link for a project with real VID, CC, and PID values.
-    pid = surveyNo (the 5-digit survey number), which is what /takesurvey resolves.
-    Only {RID} remains as a runtime placeholder filled in by the traffic system.
-    """
-    base = PROJECT_CALLBACK_BASE_URL
-    vid = (vendor_id or "").strip() or "{VID}"
-    cc = (country_code or "").strip() or "{CC}"
-    return f"{base}/takesurvey?api=false&vid={vid}&cc={cc}&pid={survey_no}&rid={{RID}}"
-
-
-def _generate_project_page_urls(live_link: str) -> Dict[str, str]:
-    """
-    Generate system callback URLs for project setup.
-    Uses CINT callback format for CINT links; CPX callback page format otherwise.
-    """
-    base = PROJECT_CALLBACK_BASE_URL
-    provider = _detect_project_provider(live_link)
-
-    if provider == "cint":
-        return {
-            "completePage": f"{base}/cint-response?status=complete&pid=[%PID%]&mid=[%MID%]&revenue=[%REVENUE%]",
-            "terminatePage": f"{base}/cint-response?status=terminate&pid=[%PID%]&mid=[%MID%]",
-            "quotaFullPage": f"{base}/cint-response?status=quota_full&pid=[%PID%]&mid=[%MID%]",
-        }
-
-    return {
-        "completePage": f"{base}/surveycomplete?rid={{RID}}",
-        "terminatePage": f"{base}/surveyterminate?rid={{RID}}",
-        "quotaFullPage": f"{base}/surveyquotafull?rid={{RID}}",
-    }
-
-
-def _compute_actual_ir(actual_completes: Any, total_respondents: Any) -> float:
-    """Compute actual IR (%) from actual completes and total respondents."""
-    completes = _coerce_number(actual_completes, int)
-    respondents = _coerce_number(total_respondents, int)
-    if respondents <= 0:
-        return 0.0
-    return round((completes / respondents) * 100, 2)
-
-
-def _normalize_project_payload(project_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize incoming project payload and drop unsupported/deprecated fields."""
-    payload: Dict[str, Any] = {}
-
-    for field in PROJECT_TEXT_FIELDS:
-        if field in project_data:
-            payload[field] = _normalize_string(project_data.get(field))
-
-    for field, cast in PROJECT_NUMERIC_FIELDS.items():
-        if field in project_data:
-            payload[field] = _coerce_number(project_data.get(field), cast)
-
-    for field in PROJECT_LIST_FIELDS:
-        if field in project_data:
-            payload[field] = _normalize_string_list(project_data.get(field))
-
-    return payload
-
-
-def _serialize_project_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert MongoDB project document to JSON-safe dict."""
-    serialized = dict(doc)
-    serialized["_id"] = str(serialized["_id"])
-    return serialized
-
-
 def generate_survey_no():
     while True:
         survey_no = str(datetime.utcnow().microsecond % 100000).zfill(5)
         if not projects_collection.find_one({"surveyNo": survey_no}):
             return survey_no
-
-
+        
 @app.post("/projects/")
 async def create_project(project_data: Dict[str, Any] = Body(...)):
     try:
-        normalized = _normalize_project_payload(project_data)
-
-        if not normalized.get("projectName"):
+        # Validate required fields
+        if not project_data.get("projectName") or not project_data["projectName"].strip():
             raise HTTPException(status_code=400, detail="Project name is required")
-        if not normalized.get("salesPerson"):
+        if not project_data.get("salesPerson") or not project_data["salesPerson"].strip():
             raise HTTPException(status_code=400, detail="Sales person is required")
-        if not normalized.get("client"):
+        if not project_data.get("client") or not project_data["client"].strip():
             raise HTTPException(status_code=400, detail="Client is required")
-        if not normalized.get("projectLaunchDate"):
-            raise HTTPException(status_code=400, detail="Project launch date is required")
-        if not normalized.get("projectCloseDate"):
-            raise HTTPException(status_code=400, detail="Project close date is required")
-        if not normalized.get("liveLink"):
-            raise HTTPException(status_code=400, detail="Live link is required")
-        if not normalized.get("vendorName"):
-            raise HTTPException(status_code=400, detail="Vendor name is required")
 
-        status_value = normalized.get("projectStatus") or "live"
-        if status_value not in PROJECT_ALLOWED_STATUSES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid project status '{status_value}'. Allowed: {sorted(PROJECT_ALLOWED_STATUSES)}",
-            )
-        normalized["projectStatus"] = status_value
-
-        is_valid, error_msg = validate_redirect_url(normalized["liveLink"], require_https=False)
-        if not is_valid:
-            raise HTTPException(status_code=400, detail=f"Invalid liveLink URL: {error_msg}")
-
-        # Auto-fill RFQ-derived metrics if totalCompletes was omitted.
-        if normalized.get("totalCompletes", 0) <= 0 and normalized.get("totalCompletesRequired", 0) > 0:
-            normalized["totalCompletes"] = normalized["totalCompletesRequired"]
-
-        normalized["actualIR"] = _compute_actual_ir(
-            normalized.get("actualCompletes"),
-            normalized.get("totalRespondents"),
-        )
-        normalized.update(_generate_project_page_urls(normalized["liveLink"]))
-
-        now = datetime.utcnow()
-        normalized["surveyNo"] = generate_survey_no()
-        normalized["createdAt"] = now
-        normalized["updatedAt"] = now
-        normalized["is_deleted"] = False
-
-        result = projects_collection.insert_one(normalized)
-        project_id = str(result.inserted_id)
-
-        # Generate entry link with surveyNo (pid), vendor ID, and country code
-        entry_link = _generate_entry_link(
-            survey_no=normalized.get("surveyNo", ""),
-            vendor_id=normalized.get("vendorId", ""),
-            country_code=normalized.get("countryCode", ""),
-        )
-        projects_collection.update_one(
-            {"_id": result.inserted_id},
-            {"$set": {"entryLink": entry_link}},
-        )
-        normalized["_id"] = project_id
-        normalized["entryLink"] = entry_link
-        return {"message": "Project created successfully", "project": normalized}
+        project_data["surveyNo"] = generate_survey_no()
+        project_data["createdAt"] = datetime.utcnow()
+        result = projects_collection.insert_one(project_data)
+        project_data["_id"] = str(result.inserted_id)
+        return {"message": "Project created successfully", "project": project_data}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Project creation error: {str(e)}")
 
-
-@app.get("/projects/", dependencies=[Depends(verify_session)])
+@app.get("/projects/",dependencies=[Depends(verify_session)])
 async def get_projects():
     try:
-        projects = list(
-            projects_collection.find({"is_deleted": {"$ne": True}}).sort("createdAt", -1)
-        )
-        return {"projects": [_serialize_project_doc(p) for p in projects]}
+        projects = list(projects_collection.find())
+        for p in projects:
+            p["_id"] = str(p["_id"])
+        return {"projects": projects}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fetch projects error: {str(e)}")
-
 
 # Alias for /projects (without trailing slash)
 @app.get("/projects", dependencies=[Depends(verify_session)])
@@ -3991,94 +3523,19 @@ async def get_projects_no_slash():
     """Alias for /projects/ - GET projects"""
     return await get_projects()
 
-
 @app.post("/projects")
 async def create_project_no_slash(project_data: Dict[str, Any] = Body(...)):
     """Alias for /projects/ - POST project"""
     return await create_project(project_data=project_data)
 
-
 @app.put("/projects/{project_id}")
 async def update_project(project_id: str, project_data: Dict[str, Any] = Body(...)):
     try:
-        existing = projects_collection.find_one(
-            {"_id": ObjectId(project_id), "is_deleted": {"$ne": True}}
-        )
-        if not existing:
-            raise HTTPException(status_code=404, detail="Project not found")
-
-        normalized = _normalize_project_payload(project_data)
-
-        if "projectStatus" in normalized and normalized["projectStatus"]:
-            if normalized["projectStatus"] not in PROJECT_ALLOWED_STATUSES:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid project status '{normalized['projectStatus']}'. Allowed: {sorted(PROJECT_ALLOWED_STATUSES)}",
-                )
-
-        if "liveLink" in normalized and not normalized["liveLink"]:
-            raise HTTPException(status_code=400, detail="Live link cannot be empty")
-
-        live_link_for_validation = normalized.get("liveLink") or _normalize_string(existing.get("liveLink"))
-        if live_link_for_validation:
-            is_valid, error_msg = validate_redirect_url(live_link_for_validation, require_https=False)
-            if not is_valid:
-                raise HTTPException(status_code=400, detail=f"Invalid liveLink URL: {error_msg}")
-            # Always re-generate callback pages from the latest live link.
-            normalized.update(_generate_project_page_urls(live_link_for_validation))
-
-        merged_total_respondents = normalized.get(
-            "totalRespondents", _coerce_number(existing.get("totalRespondents"), int)
-        )
-        merged_actual_completes = normalized.get(
-            "actualCompletes", _coerce_number(existing.get("actualCompletes"), int)
-        )
-        normalized["actualIR"] = _compute_actual_ir(
-            merged_actual_completes,
-            merged_total_respondents,
-        )
-
-        if (
-            "totalCompletes" not in normalized
-            and normalized.get("totalCompletesRequired", _coerce_number(existing.get("totalCompletesRequired"), int)) > 0
-            and _coerce_number(existing.get("totalCompletes"), int) <= 0
-        ):
-            normalized["totalCompletes"] = normalized.get(
-                "totalCompletesRequired",
-                _coerce_number(existing.get("totalCompletesRequired"), int),
-            )
-
-        normalized["updatedAt"] = datetime.utcnow()
-
-        # Re-generate entry link with surveyNo (pid), vendor ID, and country code
-        merged_survey_no = normalized.get("surveyNo") or _normalize_string(existing.get("surveyNo", ""))
-        merged_vendor_id = normalized.get("vendorId") or _normalize_string(existing.get("vendorId", ""))
-        merged_country_code = normalized.get("countryCode") or _normalize_string(existing.get("countryCode", ""))
-        normalized["entryLink"] = _generate_entry_link(
-            survey_no=merged_survey_no,
-            vendor_id=merged_vendor_id,
-            country_code=merged_country_code,
-        )
-
-        update_doc: Dict[str, Any] = {"$set": normalized}
-        if PROJECT_DEPRECATED_FIELDS:
-            update_doc["$unset"] = {field: "" for field in PROJECT_DEPRECATED_FIELDS}
-
-        result = projects_collection.update_one(
-            {"_id": ObjectId(project_id), "is_deleted": {"$ne": True}},
-            update_doc,
-        )
-
+        project_data = {k: v for k, v in project_data.items() if k not in ["_id", "surveyNo"]}
+        result = projects_collection.update_one({"_id": ObjectId(project_id)}, {"$set": project_data})
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Project not found")
-
-        updated_project = projects_collection.find_one({"_id": ObjectId(project_id)})
-        return {
-            "message": "Project updated successfully",
-            "project": _serialize_project_doc(updated_project) if updated_project else None,
-        }
-    except HTTPException:
-        raise
+        return {"message": "Project updated successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Project update error: {str(e)}")
 

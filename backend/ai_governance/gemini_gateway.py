@@ -71,38 +71,27 @@ def _get_mongo_client() -> MongoClient:
 
 def _get_gemini_api_key() -> str:
     """
-    Get a Gemini API key from database (rotated keys 1-7).
-    Uses simple round-robin based on current usage.
+    Get a Gemini API key via the 'mail' pipeline rotator.
+    RPM-aware (15 req/min/key) and daily-cap aware (1,500 req/day/key).
+    Falls back to GEMINI_API_KEY env var only if the rotator module is unavailable.
+    Raises GeminiDailyLimitExceeded when all mail-pipeline keys are exhausted.
     """
     try:
-        client = _get_mongo_client()
-        settings = client['torpedo_settings']['app_settings'].find_one()
-        
-        if settings:
-            # Get all available keys
-            keys = []
-            for i in range(1, 11):  # Keys 1-10
-                key = settings.get(f'gemini_api_key_{i}')
-                if key:
-                    keys.append(key)
-            
-            if keys:
-                # Simple rotation based on time
-                index = int(datetime.utcnow().timestamp()) % len(keys)
-                return keys[index]
-        
-        # Fallback to environment variable
+        from leads.gemini_rotator import get_pipeline_rotator
+        _, api_key = get_pipeline_rotator("mail").get_available_key()
+        return api_key
+    except Exception as rotator_err:
+        err_str = str(rotator_err).lower()
+        if any(word in err_str for word in ("exhausted", "quota", "daily limit", "no available")):
+            raise GeminiDailyLimitExceeded(
+                f"All mail-pipeline Gemini keys are exhausted: {rotator_err}"
+            )
+        # Rotator module unavailable — fall back to env var so the service still starts
+        logger.warning(f"Mail pipeline rotator unavailable, falling back to env var: {rotator_err}")
         env_key = os.getenv('GEMINI_API_KEY')
         if env_key:
             return env_key
-            
-    except Exception as e:
-        logger.warning(f"Error loading Gemini API key from DB: {e}")
-        env_key = os.getenv('GEMINI_API_KEY')
-        if env_key:
-            return env_key
-    
-    raise ValueError("No Gemini API key configured in database or environment")
+    raise ValueError("No Gemini API key configured — pipeline rotator failed and GEMINI_API_KEY is not set")
 
 
 # ============== DATA CLASSES ==============
@@ -151,15 +140,18 @@ class GeminiGateway:
         self._api_key = None
     
     def _get_client(self):
-        """Get configured Gemini client (handles both SDK versions)"""
-        if self._client is None:
-            self._api_key = _get_gemini_api_key()
-            if NEW_GENAI_SDK:
-                self._client = genai.Client(api_key=self._api_key)
-            else:
-                genai.configure(api_key=self._api_key)
-                self._model = genai.GenerativeModel(GEMINI_MODEL)
-                self._client = self._model
+        """
+        Get a configured Gemini client.
+        Always fetches a fresh key so every call goes through the RPM-aware
+        pipeline rotator (no stale single-key caching).
+        """
+        self._api_key = _get_gemini_api_key()  # raises GeminiDailyLimitExceeded when all exhausted
+        if NEW_GENAI_SDK:
+            self._client = genai.Client(api_key=self._api_key)
+        else:
+            genai.configure(api_key=self._api_key)
+            self._model = genai.GenerativeModel(GEMINI_MODEL)
+            self._client = self._model
         return self._client
     
     def _call_gemini(self, prompt: str) -> str:
