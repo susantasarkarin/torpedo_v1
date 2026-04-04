@@ -63,6 +63,13 @@ def get_db():
     return client[db_name]
 
 
+def get_leads_db():
+    """Return the email_automation database that holds leads_enriched."""
+    uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+    client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+    return client["email_automation"]
+
+
 # ── Request/response models ────────────────────────────────────────────────────
 
 class StepTemplate(BaseModel):
@@ -701,9 +708,10 @@ def _enroll_basket_leads(campaign_id: str, basket: str):
     """
     try:
         db = get_db()
+        leads_db = get_leads_db()   # email_automation DB
         suppression = db["outreach_bounce_suppression"]
         outreach_leads = db["outreach_leads_v2"]
-        leads_enriched = db["leads_enriched"]
+        leads_enriched = leads_db["leads_enriched"]
         campaigns_col = db["outreach_campaigns_v2"]
 
         # Get all suppressed emails in a set for fast lookup
@@ -713,7 +721,7 @@ def _enroll_basket_leads(campaign_id: str, basket: str):
 
         if basket == "D":
             # Dual Fit: enroll into all 3 business campaigns in score order
-            _enroll_dual_fit_leads(db, suppressed_emails)
+            _enroll_dual_fit_leads(db, leads_db, suppressed_emails)
             return
 
         # Regular basket: single campaign enrollment
@@ -789,7 +797,7 @@ def _enroll_basket_leads(campaign_id: str, basket: str):
         logger.error(f"Enrollment background task failed for campaign {campaign_id}: {e}", exc_info=True)
 
 
-def _enroll_dual_fit_leads(db, suppressed_emails: set):
+def _enroll_dual_fit_leads(db, leads_db, suppressed_emails: set):
     """
     Enroll Dual Fit (basket D) leads into all 3 business campaigns,
     with staggered start dates ordered by ICP affinity score.
@@ -798,7 +806,7 @@ def _enroll_dual_fit_leads(db, suppressed_emails: set):
     try:
         campaigns_col = db["outreach_campaigns_v2"]
         outreach_leads = db["outreach_leads_v2"]
-        leads_enriched = db["leads_enriched"]
+        leads_enriched = leads_db["leads_enriched"]
 
         # Find active campaigns for all 3 businesses
         business_campaigns: Dict[str, Any] = {}
@@ -937,7 +945,7 @@ def manual_suppress(req: ManualSuppressionRequest):
         raise HTTPException(500, f"Could not add suppression: {e}")
 
     # Also mark in leads_enriched
-    db["leads_enriched"].update_many(
+    get_leads_db()["leads_enriched"].update_many(
         {"email": email},
         {"$set": {"email_status": "bounced", "bounce_suppressed": True, "bounced_at": now}},
     )
@@ -954,7 +962,7 @@ def remove_suppression(email: str):
         raise HTTPException(404, "Email not found in suppression list")
 
     # Unmark in leads_enriched
-    db["leads_enriched"].update_many(
+    get_leads_db()["leads_enriched"].update_many(
         {"email": email},
         {"$unset": {"bounce_suppressed": ""}, "$set": {"email_status": "unknown"}},
     )
@@ -1029,7 +1037,7 @@ async def ses_sns_webhook(request: Request):
         notification_type = message.get("notificationType")
         db = get_db()
         suppression = db["outreach_bounce_suppression"]
-        leads_enriched = db["leads_enriched"]
+        leads_enriched = get_leads_db()["leads_enriched"]
         now = datetime.utcnow()
 
         def _suppress(email: str, reason: str):
