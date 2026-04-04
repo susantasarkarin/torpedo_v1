@@ -216,22 +216,45 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
     
     # Create LeadRaw model with all available context for AI classification
     # linkedin_url is required by LeadRaw; use empty string as fallback for email-only leads
-    lead = LeadRaw(
-        name=raw_lead.get("name") or "",
-        title=raw_lead.get("title") or "",
-        linkedin_url=raw_lead.get("linkedin_url") or "",
-        snippet=raw_lead.get("snippet", ""),
-        source=raw_lead.get("source", "linkedin"),
-        first_name=raw_lead.get("first_name"),
-        last_name=raw_lead.get("last_name"),
-        email=raw_lead.get("email"),
-        email_status=raw_lead.get("email_status"),
-        location=raw_lead.get("location"),
-        company_name=raw_lead.get("company_name") or raw_lead.get("company"),
-        company_domain=raw_lead.get("company_domain"),
-        company_website=raw_lead.get("company_website"),
-        company_industry=raw_lead.get("company_industry"),
-    )
+
+    def _to_str(val) -> str:
+        """Safely coerce a possibly-dict field value to a plain string."""
+        if val is None:
+            return ""
+        if isinstance(val, dict):
+            # Old import format stored nested dicts; extract best text key
+            for key in ("name", "value", "text", "label", "title"):
+                if key in val and isinstance(val[key], str):
+                    return val[key]
+            return str(val)[:200]
+        return str(val)
+
+    try:
+        lead = LeadRaw(
+            name=_to_str(raw_lead.get("name")) or "",
+            title=_to_str(raw_lead.get("title")) or "",
+            linkedin_url=_to_str(raw_lead.get("linkedin_url")) or "",
+            snippet=_to_str(raw_lead.get("snippet")),
+            source=_to_str(raw_lead.get("source")) or "linkedin",
+            first_name=_to_str(raw_lead.get("first_name")) or None,
+            last_name=_to_str(raw_lead.get("last_name")) or None,
+            email=_to_str(raw_lead.get("email")) or None,
+            email_status=_to_str(raw_lead.get("email_status")) or None,
+            location=_to_str(raw_lead.get("location")) or None,
+            company_name=_to_str(raw_lead.get("company_name") or raw_lead.get("company")) or None,
+            company_domain=_to_str(raw_lead.get("company_domain")) or None,
+            company_website=_to_str(raw_lead.get("company_website")) or None,
+            company_industry=_to_str(raw_lead.get("company_industry")) or None,
+        )
+    except Exception as build_exc:
+        leads_raw_collection.update_one(
+            {"_id": ObjectId(raw_lead_id)},
+            {"$set": {
+                "classification_status": ClassificationStatus.FAILED.value,
+                "last_error": f"LeadRaw build error: {build_exc}"[:300],
+            }}
+        )
+        return False, f"LeadRaw build error: {build_exc}"
     
     # Classify — route to the correct Gemini pipeline
     pipeline = SEGMENT_PIPELINE_MAP.get(

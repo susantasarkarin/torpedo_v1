@@ -1652,7 +1652,16 @@ async def startup_event():
         except Exception as e:
             print(f"❌ Failed to schedule CPX refresh job: {str(e)}")
             traceback.print_exc()
-    
+
+    # Ensure the APScheduler is running even when CPX auto-refresh is disabled,
+    # so that Gmail sync, Cint health check, outreach send processor, etc. can register.
+    try:
+        if not scheduler.running:
+            scheduler.start()
+            print("✅ APScheduler started (CPX auto-refresh disabled, starting for other jobs)")
+    except Exception as e:
+        print(f"⚠️ Could not start APScheduler: {e}")
+
     # ----------------------------
     # Background Gmail Sync Job (every 5 minutes)
     # ----------------------------
@@ -1745,6 +1754,32 @@ async def startup_event():
             print("✅ Historic email backfill job scheduled (every 30 seconds, rate-limited)")
     except Exception as e:
         print(f"⚠️ Could not schedule historic email sync job: {e}")
+
+    # ----------------------------
+    # Cold Outreach Send Processor (every 60 seconds)
+    # ----------------------------
+    try:
+        if scheduler.running:
+            def _outreach_send_job():
+                try:
+                    try:
+                        from .routers.cold_outreach_router import process_due_outreach_sends
+                    except ImportError:
+                        from routers.cold_outreach_router import process_due_outreach_sends
+                    process_due_outreach_sends()
+                except Exception as e:
+                    print(f"[OutreachSend] Error: {e}")
+
+            scheduler.add_job(
+                _outreach_send_job,
+                IntervalTrigger(seconds=60),
+                id="outreach_send_processor",
+                name="Cold Outreach Send Processor",
+                replace_existing=True
+            )
+            print("✅ Cold outreach send processor scheduled (every 60 seconds)")
+    except Exception as e:
+        print(f"⚠️ Could not schedule outreach send processor: {e}")
     
     # ----------------------------
     # Email Classification Job (every 2 minutes, batch of 10)

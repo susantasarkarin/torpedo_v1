@@ -1075,3 +1075,288 @@ async def ses_sns_webhook(request: Request):
             pass
 
     return {"ok": True}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  OUTREACH SEND PROCESSOR — background job + manual trigger endpoint
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Set to an email address to redirect ALL outgoing outreach mail (test mode).
+# Set to None to send to actual recipient.
+_OUTREACH_TEST_OVERRIDE_EMAIL: Optional[str] = "susantasarkar7447@gmail.com"
+
+
+def _pick_mailbox(db, campaign: dict) -> Optional[dict]:
+    """
+    Find an available (not over daily/hourly limit) mailbox for the campaign's business.
+    Prefers mailboxes listed in campaign.mailbox_ids if specified.
+    """
+    now = datetime.utcnow()
+    mailbox_ids = campaign.get("mailbox_ids") or []
+    query: Dict[str, Any] = {"business": campaign["business"], "is_active": True}
+    if mailbox_ids:
+        query["mailbox_id"] = {"$in": mailbox_ids}
+
+    candidates = list(db["outreach_mailboxes"].find(query))
+
+    for mailbox in candidates:
+        # Reset hourly count if last send was more than 1 hour ago
+        last_send = mailbox.get("last_send_at")
+        if last_send and isinstance(last_send, datetime):
+            if (now - last_send).total_seconds() > 3600:
+                db["outreach_mailboxes"].update_one(
+                    {"mailbox_id": mailbox["mailbox_id"]},
+                    {"$set": {"hourly_sent_count": 0}}
+                )
+                mailbox["hourly_sent_count"] = 0
+
+        daily_ok = mailbox.get("daily_sent_count", 0) < mailbox.get("daily_limit", 400)
+        hourly_ok = mailbox.get("hourly_sent_count", 0) < mailbox.get("hourly_limit", 60)
+        if daily_ok and hourly_ok:
+            return mailbox
+
+    return None
+
+
+def _send_smtp_email(mailbox: dict, to_email: str, subject: str,
+                     body_html: str, body_text: str) -> None:
+    """Send one email via the mailbox SMTP credentials."""
+    import re as _re
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    actual_to = to_email
+    if _OUTREACH_TEST_OVERRIDE_EMAIL:
+        logger.info(
+            f"[OUTREACH TEST MODE] Redirecting {to_email} → {_OUTREACH_TEST_OVERRIDE_EMAIL}"
+        )
+        actual_to = _OUTREACH_TEST_OVERRIDE_EMAIL
+
+    # Safe plain-text fallback
+    if not body_text:
+        body_text = _re.sub(r"<[^>]+>", "", body_html.replace("<br>", "\n").replace("<br/>", "\n"))
+
+    msg = MIMEMultipart("alternative")
+    msg["From"] = f"{mailbox['display_name']} <{mailbox['email_address']}>"
+    msg["To"] = actual_to
+    msg["Subject"] = subject
+    msg["X-Mailer"] = "Torpedo Outreach Engine"
+
+    msg.attach(MIMEText(body_text, "plain", "utf-8"))
+    msg.attach(MIMEText(body_html, "html", "utf-8"))
+
+    with smtplib.SMTP(mailbox["smtp_host"], mailbox.get("smtp_port", 587)) as server:
+        if mailbox.get("use_tls", True):
+            server.starttls()
+        server.login(mailbox["smtp_username"], mailbox["smtp_password"])
+        server.send_message(msg)
+
+
+def _process_one_outreach_lead(db, lead_record: dict) -> bool:
+    """
+    Send the next step email for one outreach_leads_v2 record.
+    Returns True on success, False on any error (does not raise).
+    """
+    try:
+        campaign = db["outreach_campaigns_v2"].find_one(
+            {"campaign_id": lead_record["campaign_id"]}
+        )
+        if not campaign or not campaign.get("is_active"):
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {"workflow_status": "paused", "updated_at": datetime.utcnow()}}
+            )
+            return False
+
+        # current_step is 0-based number of steps already sent; next step is current_step+1
+        steps_sent = lead_record.get("current_step", 0)
+        next_step_number = steps_sent + 1  # 1-indexed step number to send now
+
+        steps = campaign.get("steps") or []
+        step = next((s for s in steps if s.get("step_number") == next_step_number), None)
+
+        if not step:
+            # Sequence complete
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {"workflow_status": "completed", "updated_at": datetime.utcnow()}}
+            )
+            return True
+
+        if not step.get("subject") and not step.get("body_html"):
+            logger.warning(
+                f"[Outreach] Step {next_step_number} of campaign {campaign['campaign_id']} "
+                "has no content — skipping lead"
+            )
+            return False
+
+        # Check suppression
+        email = lead_record.get("email", "")
+        if not email or db["outreach_bounce_suppression"].find_one({"email": email}):
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {"workflow_status": "suppressed", "updated_at": datetime.utcnow()}}
+            )
+            return False
+
+        mailbox = _pick_mailbox(db, campaign)
+        if not mailbox:
+            logger.warning(
+                f"[Outreach] No available mailbox for campaign {campaign['campaign_id']} "
+                f"(business={campaign['business']}) — will retry next cycle"
+            )
+            return False
+
+        # Build token map
+        first_name = (
+            lead_record.get("first_name")
+            or (lead_record.get("name") or "").split()[0]
+            or "there"
+        )
+        tokens = {
+            "{{first_name}}": first_name,
+            "{{last_name}}": lead_record.get("last_name") or "",
+            "{{name}}": lead_record.get("name") or first_name,
+            "{{company}}": lead_record.get("company_name") or "your company",
+            "{{title}}": lead_record.get("title") or "",
+            "{{industry}}": lead_record.get("company_industry") or "",
+            "{{sender_name}}": mailbox.get("display_name") or "",
+        }
+
+        def _replace(text: str) -> str:
+            for tok, val in tokens.items():
+                text = text.replace(tok, val or "")
+            return text
+
+        subject = _replace(step.get("subject") or "")
+        body_html = _replace(step.get("body_html") or "")
+        body_text = _replace(step.get("body_text") or "")
+
+        # Send
+        _send_smtp_email(mailbox, email, subject, body_html, body_text)
+
+        now = datetime.utcnow()
+
+        # Record send
+        db["outreach_sends_v2"].insert_one({
+            "send_id": str(uuid.uuid4()),
+            "lead_id": lead_record.get("lead_id"),
+            "campaign_id": lead_record["campaign_id"],
+            "outreach_lead_id": str(lead_record["_id"]),
+            "email": email,
+            "mailbox_id": mailbox["mailbox_id"],
+            "workflow_step": steps_sent,   # 0-indexed for stats aggregation
+            "subject": subject,
+            "status": "sent",
+            "reply_received": False,
+            "open_count": 0,
+            "unsubscribed": False,
+            "sent_at": now,
+            "created_at": now,
+        })
+
+        # Advance workflow state
+        next_step_obj = next(
+            (s for s in steps if s.get("step_number") == next_step_number + 1), None
+        )
+        if next_step_obj:
+            days_gap = next_step_obj["day_offset"] - step["day_offset"]
+            next_send_at = now + timedelta(days=max(days_gap, 1))
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {
+                    "current_step": next_step_number,
+                    "workflow_status": "in_sequence",
+                    "next_send_at": next_send_at,
+                    "last_sent_at": now,
+                    "updated_at": now,
+                }}
+            )
+        else:
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {
+                    "current_step": next_step_number,
+                    "workflow_status": "completed",
+                    "last_sent_at": now,
+                    "updated_at": now,
+                }}
+            )
+
+        # Update mailbox counters
+        db["outreach_mailboxes"].update_one(
+            {"mailbox_id": mailbox["mailbox_id"]},
+            {
+                "$inc": {"daily_sent_count": 1, "hourly_sent_count": 1},
+                "$set": {"last_send_at": now},
+            }
+        )
+
+        logger.info(
+            f"[Outreach] Sent step {next_step_number} to {email} "
+            f"via {mailbox['email_address']} (campaign {campaign['campaign_id']})"
+        )
+        return True
+
+    except Exception as e:
+        logger.error(
+            f"[Outreach] Failed to send step to {lead_record.get('email')}: {e}",
+            exc_info=True
+        )
+        db["outreach_leads_v2"].update_one(
+            {"_id": lead_record["_id"]},
+            {"$set": {
+                "last_send_error": str(e)[:300],
+                "last_send_error_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+            }}
+        )
+        return False
+
+
+def process_due_outreach_sends() -> dict:
+    """
+    Callable by APScheduler every minute.
+    Picks up to 50 outreach_leads_v2 records that are due and sends their next step.
+    Returns a summary dict.
+    """
+    try:
+        db = get_db()
+        now = datetime.utcnow()
+
+        due = list(db["outreach_leads_v2"].find({
+            "workflow_status": {"$in": ["not_started", "pending_scheduled", "in_sequence"]},
+            "next_send_at": {"$lte": now},
+        }).limit(50))
+
+        if not due:
+            return {"processed": 0, "sent": 0, "skipped": 0}
+
+        sent = 0
+        skipped = 0
+        for record in due:
+            ok = _process_one_outreach_lead(db, record)
+            if ok:
+                sent += 1
+            else:
+                skipped += 1
+
+        if sent > 0 or skipped > 0:
+            logger.info(f"[Outreach] Cycle complete: sent={sent} skipped={skipped}")
+
+        return {"processed": len(due), "sent": sent, "skipped": skipped}
+
+    except Exception as e:
+        logger.error(f"[Outreach] process_due_outreach_sends error: {e}", exc_info=True)
+        return {"processed": 0, "sent": 0, "skipped": 0, "error": str(e)}
+
+
+@router.post("/process-due")
+def trigger_process_due():
+    """
+    Manually trigger one cycle of the outreach send processor.
+    Normally runs automatically every 60 seconds via APScheduler.
+    """
+    result = process_due_outreach_sends()
+    return {"ok": True, **result}
