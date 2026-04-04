@@ -21,14 +21,29 @@ from backend.ai_governance import (
     classify_email,
     summarize_email,
     extract_leads_from_email,
-    web_search,
-    discover_leads_external,
-    get_gemini_gateway,
-    get_openai_gateway,
-    GeminiDailyLimitExceeded,
+    get_ai_gateway,
+    AIDailyLimitExceeded,
     EmailAlreadyClassified,
-    OpenAIWebSearchOnly,
 )
+
+# Backward compat aliases
+get_gemini_gateway = get_ai_gateway
+GeminiDailyLimitExceeded = AIDailyLimitExceeded
+
+# Try importing web search if available
+try:
+    from backend.ai_governance import (
+        web_search,
+        discover_leads_external,
+        get_openai_gateway,
+        OpenAIWebSearchOnly,
+    )
+except ImportError:
+    web_search = None
+    discover_leads_external = None
+    get_openai_gateway = None
+    OpenAIWebSearchOnly = None
+
 from backend.ai_governance.governance_checks import (
     get_governance_status,
     get_gemini_daily_usage,
@@ -103,19 +118,20 @@ async def get_ai_governance_status():
 @router.get("/gemini/usage")
 async def get_gemini_usage():
     """
-    Get current Gemini daily usage statistics.
+    Get current AI daily usage statistics.
     
     Returns:
         - current_usage: Requests made today
         - remaining: Requests remaining today
-        - daily_limit: Hard limit (7000)
+        - daily_limit: Hard limit (50000)
     """
     current, remaining = get_gemini_daily_usage()
+    limit = 50000
     return {
         "current_usage": current,
         "remaining": remaining,
-        "daily_limit": 7000,
-        "percentage_used": round((current / 7000) * 100, 2),
+        "daily_limit": limit,
+        "percentage_used": round((current / limit) * 100, 2),
         "date": datetime.utcnow().date().isoformat()
     }
 

@@ -88,17 +88,19 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
             "cpx_ext_user_id": stored.get("cpx_ext_user_id", os.getenv("CPX_EXT_USER_ID", "")),
             "cpx_secure_hash_key": stored.get("cpx_secure_hash_key", os.getenv("CPX_SECURE_HASH_KEY", "")),
             "cpx_api_timeout": stored.get("cpx_api_timeout", int(os.getenv("CPX_API_TIMEOUT", "30"))),
-            # AI Providers - Gemini (email ops) + OpenAI (web search only)
-            # NOTE: DeepSeek removed per AI Governance spec
+            # AI Provider - OpenAI (pay-as-you-go for all AI ops)
             "openai_api_key": stored.get("openai_api_key", os.getenv("OPENAI_API_KEY", "")),
-            # Gemini API Keys (7 individual keys for 7,000 req/day total cap)
-            "gemini_api_key_1": stored.get("gemini_api_key_1", os.getenv("GEMINI_API_KEY_1", "")),
-            "gemini_api_key_2": stored.get("gemini_api_key_2", os.getenv("GEMINI_API_KEY_2", "")),
-            "gemini_api_key_3": stored.get("gemini_api_key_3", os.getenv("GEMINI_API_KEY_3", "")),
-            "gemini_api_key_4": stored.get("gemini_api_key_4", os.getenv("GEMINI_API_KEY_4", "")),
-            "gemini_api_key_5": stored.get("gemini_api_key_5", os.getenv("GEMINI_API_KEY_5", "")),
-            "gemini_api_key_6": stored.get("gemini_api_key_6", os.getenv("GEMINI_API_KEY_6", "")),
-            "gemini_api_key_7": stored.get("gemini_api_key_7", os.getenv("GEMINI_API_KEY_7", "")),
+            # OpenAI API Keys (up to 10 keys for pipeline rotation)
+            "openai_api_key_1": stored.get("openai_api_key_1", os.getenv("OPENAI_API_KEY_1", "")),
+            "openai_api_key_2": stored.get("openai_api_key_2", os.getenv("OPENAI_API_KEY_2", "")),
+            "openai_api_key_3": stored.get("openai_api_key_3", os.getenv("OPENAI_API_KEY_3", "")),
+            "openai_api_key_4": stored.get("openai_api_key_4", os.getenv("OPENAI_API_KEY_4", "")),
+            "openai_api_key_5": stored.get("openai_api_key_5", os.getenv("OPENAI_API_KEY_5", "")),
+            "openai_api_key_6": stored.get("openai_api_key_6", os.getenv("OPENAI_API_KEY_6", "")),
+            "openai_api_key_7": stored.get("openai_api_key_7", os.getenv("OPENAI_API_KEY_7", "")),
+            "openai_api_key_8": stored.get("openai_api_key_8", os.getenv("OPENAI_API_KEY_8", "")),
+            "openai_api_key_9": stored.get("openai_api_key_9", os.getenv("OPENAI_API_KEY_9", "")),
+            "openai_api_key_10": stored.get("openai_api_key_10", os.getenv("OPENAI_API_KEY_10", "")),
             "google_sheets_service_account": stored.get("google_sheets_service_account", os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT", "")),
             # Skrapp.io API keys (3 accounts, 150 searches/month each)
             "skrapp_api_key_1": stored.get("skrapp_api_key_1", os.getenv("SKRAPP_API_KEY_1", "")),
@@ -111,8 +113,9 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
         sensitive_fields = [
             "cpx_secure_hash_key",
             "openai_api_key",
-            "gemini_api_key_1", "gemini_api_key_2", "gemini_api_key_3", "gemini_api_key_4",
-            "gemini_api_key_5", "gemini_api_key_6", "gemini_api_key_7",
+            "openai_api_key_1", "openai_api_key_2", "openai_api_key_3", "openai_api_key_4",
+            "openai_api_key_5", "openai_api_key_6", "openai_api_key_7",
+            "openai_api_key_8", "openai_api_key_9", "openai_api_key_10",
             "google_sheets_service_account",
             "skrapp_api_key_1", "skrapp_api_key_2", "skrapp_api_key_3"
         ]
@@ -160,8 +163,12 @@ async def save_app_settings(
         allowed_keys = [
             "mongo_uri",
             "cpx_app_id", "cpx_ext_user_id", "cpx_secure_hash_key", "cpx_api_timeout",
-            # AI Providers - Gemini (email) + OpenAI (web search) - DeepSeek removed per governance
+            # AI Providers - OpenAI (pay-as-you-go) for all AI operations
             "openai_api_key",
+            "openai_api_key_1", "openai_api_key_2", "openai_api_key_3", "openai_api_key_4",
+            "openai_api_key_5", "openai_api_key_6", "openai_api_key_7",
+            "openai_api_key_8", "openai_api_key_9", "openai_api_key_10",
+            # Legacy Gemini keys (kept for backward compat)
             "gemini_api_key_1", "gemini_api_key_2", "gemini_api_key_3", "gemini_api_key_4",
             "gemini_api_key_5", "gemini_api_key_6", "gemini_api_key_7",
             "google_sheets_service_account",

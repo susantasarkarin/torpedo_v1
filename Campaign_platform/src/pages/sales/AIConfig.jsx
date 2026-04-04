@@ -182,7 +182,7 @@ export default function AIConfig() {
           <div>
             <h1 className="text-base font-semibold text-white">AI Reference Material</h1>
             <p className="text-xs text-gray-400 mt-0.5">
-              Business unit descriptions used by Gemini (routing) and GPT-4 (email drafting)
+              Business unit descriptions used by OpenAI for routing and email drafting
             </p>
           </div>
         </div>
@@ -207,8 +207,8 @@ export default function AIConfig() {
       <div className="bg-indigo-950/50 border-x border-indigo-900/40 px-5 py-2.5 flex items-start gap-2 text-xs text-indigo-300 shrink-0">
         <Info size={13} className="mt-0.5 shrink-0 text-indigo-400" />
         <span>
-          <strong className="text-indigo-200">How Gemini + GPT-4 use these files:</strong>&nbsp;
-          Gemini reads all BU files to pick the best match and write a gap analysis.
+          <strong className="text-indigo-200">How OpenAI uses these files:</strong>&nbsp;
+          OpenAI reads all BU files to pick the best match and write a gap analysis.
           GPT-4 then uses the chosen BU file + gap analysis to draft the personalised outreach email.
         </span>
       </div>

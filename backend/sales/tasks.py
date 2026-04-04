@@ -502,12 +502,12 @@ def _gather_company_data(company: str, domain: str) -> Dict[str, Any]:
 
 
 def _call_ai_enrichment(context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Enrich a lead using Gemini (Google). No OpenAI."""
+    """Enrich a lead using OpenAI."""
     try:
-        from ai_governance.gemini_gateway import get_gemini_gateway
-        return get_gemini_gateway().enrich_lead_data(context)
+        from ai_governance.ai_gateway import get_ai_gateway
+        return get_ai_gateway().enrich_lead_data(context)
     except Exception as e:
-        logger.error(f"Gemini enrichment failed: {e}")
+        logger.error(f"AI enrichment failed: {e}")
         return None
 
 
@@ -661,12 +661,12 @@ def _get_icp_outreach_config(slug: Optional[str]) -> Dict[str, Any]:
 
 
 def _call_ai_draft(system_prompt: str, user_prompt: str) -> Optional[Dict[str, str]]:
-    """Generate email draft using Gemini (Google). No OpenAI."""
+    """Generate email draft using OpenAI."""
     try:
-        from ai_governance.gemini_gateway import get_gemini_gateway
-        return get_gemini_gateway().generate_email_draft(system_prompt, user_prompt)
+        from ai_governance.ai_gateway import get_ai_gateway
+        return get_ai_gateway().generate_email_draft(system_prompt, user_prompt)
     except Exception as e:
-        logger.error(f"Gemini draft generation failed: {e}")
+        logger.error(f"AI draft generation failed: {e}")
         return None
 
 
@@ -697,8 +697,8 @@ def classify_mail_pool_senders(self, sender_batch: List[Dict[str, Any]]):
                 "subjects": s.get("subjects", "")[:200],
             })
 
-        from ai_governance.gemini_gateway import get_gemini_gateway
-        classifications = get_gemini_gateway().classify_senders(sender_summaries) or []
+        from ai_governance.ai_gateway import get_ai_gateway
+        classifications = get_ai_gateway().classify_senders(sender_summaries) or []
 
         # Map classifications back
         class_map = {c["email"]: c["classification"] for c in classifications if "email" in c}

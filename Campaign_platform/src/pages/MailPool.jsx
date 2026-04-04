@@ -1374,7 +1374,7 @@ function MailPool() {
                         )}
                         {item.used_fallback && (
                           <span style={{ fontSize: "0.7rem", backgroundColor: "#e0f2fe", color: "#0369a1", padding: "2px 6px", borderRadius: "4px" }}>
-                            Gemini Fallback
+                            AI Fallback
                           </span>
                         )}
                       </div>

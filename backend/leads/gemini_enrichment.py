@@ -1,7 +1,6 @@
 """
-Gemini Lead Enrichment Module
-Provides intelligent lead classification, enrichment, and email processing using Gemini 2.0-flash
-Leverages 7 free-tier accounts for 93% cost reduction vs OpenAI
+Lead Enrichment Module
+Provides intelligent lead classification, enrichment, and email processing using OpenAI
 """
 
 import os
@@ -9,11 +8,11 @@ import json
 import re
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
-import google.generativeai as genai
-from .gemini_rotator import get_rotator
+import openai
+from .openai_rotator import get_rotator
 
 # Constants
-MODEL_NAME = "gemini-2.0-flash-exp"
+MODEL_NAME = "gpt-4o-mini"
 DEFAULT_TEMPERATURE = 0.7
 CLASSIFY_TEMPERATURE = 0.3  # Lower for consistent classification
 EXTRACT_TEMPERATURE = 0.5  # Medium for structured extraction
@@ -51,7 +50,6 @@ def classify_lead(lead_data: dict, rotator=None) -> dict:
     
     # Get available key
     key_index, api_key = rotator.get_available_key()
-    rotator.configure_genai(key_index)
     
     # Build context from lead_data
     context = []
@@ -101,31 +99,21 @@ Priority: Based on role seniority, buying intent, and urgency
 """
     
     try:
-        model = genai.GenerativeModel(MODEL_NAME)
+        client = openai.OpenAI(api_key=api_key)
         
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(
-                temperature=CLASSIFY_TEMPERATURE,
-                max_output_tokens=500
-            )
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=CLASSIFY_TEMPERATURE,
+            max_tokens=500,
+            response_format={"type": "json_object"}
         )
         
-        # Parse JSON from response
-        text = response.text.strip()
-        
-        # Extract JSON if wrapped in markdown
-        if "```json" in text:
-            text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text:
-            text = text.split("```")[1].split("```")[0].strip()
-        
+        text = response.choices[0].message.content.strip()
         result = json.loads(text)
         
-        # Estimate tokens
-        tokens_used = estimate_tokens(prompt + text)
+        tokens_used = response.usage.total_tokens if response.usage else estimate_tokens(prompt + text)
         
-        # Log request
         rotator.log_request(
             key_index=key_index,
             tokens_used=tokens_used,
@@ -141,7 +129,6 @@ Priority: Based on role seniority, buying intent, and urgency
         return result
         
     except Exception as e:
-        # Log failure
         rotator.log_request(
             key_index=key_index,
             tokens_used=estimate_tokens(prompt),
@@ -150,7 +137,6 @@ Priority: Based on role seniority, buying intent, and urgency
             error=str(e)
         )
         
-        # Return default classification
         return {
             "category": "UNKNOWN",
             "confidence": 0.0,
@@ -184,7 +170,6 @@ def enrich_lead(lead_data: dict, rotator=None) -> dict:
         rotator = get_rotator()
     
     key_index, api_key = rotator.get_available_key()
-    rotator.configure_genai(key_index)
     
     # Build context
     context = []
@@ -218,26 +203,19 @@ Be specific and actionable. Base inferences on typical patterns for this role/co
 """
     
     try:
-        model = genai.GenerativeModel(MODEL_NAME)
+        client = openai.OpenAI(api_key=api_key)
         
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(
-                temperature=DEFAULT_TEMPERATURE,
-                max_output_tokens=700
-            )
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=DEFAULT_TEMPERATURE,
+            max_tokens=700,
+            response_format={"type": "json_object"}
         )
         
-        text = response.text.strip()
-        
-        # Extract JSON
-        if "```json" in text:
-            text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text:
-            text = text.split("```")[1].split("```")[0].strip()
-        
+        text = response.choices[0].message.content.strip()
         result = json.loads(text)
-        tokens_used = estimate_tokens(prompt + text)
+        tokens_used = response.usage.total_tokens if response.usage else estimate_tokens(prompt + text)
         
         rotator.log_request(
             key_index=key_index,
@@ -295,7 +273,6 @@ def extract_contact_info(email_body: str, rotator=None) -> dict:
         rotator = get_rotator()
     
     key_index, api_key = rotator.get_available_key()
-    rotator.configure_genai(key_index)
     
     # Truncate very long emails
     email_body = email_body[:5000]
@@ -331,25 +308,19 @@ Leave fields empty if not found.
 """
     
     try:
-        model = genai.GenerativeModel(MODEL_NAME)
+        client = openai.OpenAI(api_key=api_key)
         
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(
-                temperature=EXTRACT_TEMPERATURE,
-                max_output_tokens=1000
-            )
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=EXTRACT_TEMPERATURE,
+            max_tokens=1000,
+            response_format={"type": "json_object"}
         )
         
-        text = response.text.strip()
-        
-        if "```json" in text:
-            text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text:
-            text = text.split("```")[1].split("```")[0].strip()
-        
+        text = response.choices[0].message.content.strip()
         result = json.loads(text)
-        tokens_used = estimate_tokens(prompt + text)
+        tokens_used = response.usage.total_tokens if response.usage else estimate_tokens(prompt + text)
         
         rotator.log_request(
             key_index=key_index,
@@ -401,7 +372,6 @@ def summarize_email(email_body: str, subject: str = None, rotator=None) -> dict:
         rotator = get_rotator()
     
     key_index, api_key = rotator.get_available_key()
-    rotator.configure_genai(key_index)
     
     email_body = email_body[:5000]
     
@@ -427,25 +397,19 @@ Focus on business relevance and actionable insights.
 """
     
     try:
-        model = genai.GenerativeModel(MODEL_NAME)
+        client = openai.OpenAI(api_key=api_key)
         
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(
-                temperature=DEFAULT_TEMPERATURE,
-                max_output_tokens=800
-            )
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=DEFAULT_TEMPERATURE,
+            max_tokens=800,
+            response_format={"type": "json_object"}
         )
         
-        text = response.text.strip()
-        
-        if "```json" in text:
-            text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text:
-            text = text.split("```")[1].split("```")[0].strip()
-        
+        text = response.choices[0].message.content.strip()
         result = json.loads(text)
-        tokens_used = estimate_tokens(prompt + text)
+        tokens_used = response.usage.total_tokens if response.usage else estimate_tokens(prompt + text)
         
         rotator.log_request(
             key_index=key_index,
@@ -502,7 +466,6 @@ def segment_email(subject: str, body: str, sender_email: str = None, rotator=Non
         rotator = get_rotator()
     
     key_index, api_key = rotator.get_available_key()
-    rotator.configure_genai(key_index)
     
     body = body[:1500]  # Shorter for quick segmentation
     
@@ -529,25 +492,19 @@ Definitions:
 """
     
     try:
-        model = genai.GenerativeModel(MODEL_NAME)
+        client = openai.OpenAI(api_key=api_key)
         
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(
-                temperature=CLASSIFY_TEMPERATURE,
-                max_output_tokens=200
-            )
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=CLASSIFY_TEMPERATURE,
+            max_tokens=200,
+            response_format={"type": "json_object"}
         )
         
-        text = response.text.strip()
-        
-        if "```json" in text:
-            text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text:
-            text = text.split("```")[1].split("```")[0].strip()
-        
+        text = response.choices[0].message.content.strip()
         result = json.loads(text)
-        tokens_used = estimate_tokens(prompt + text)
+        tokens_used = response.usage.total_tokens if response.usage else estimate_tokens(prompt + text)
         
         rotator.log_request(
             key_index=key_index,
@@ -590,7 +547,6 @@ def batch_categorize(leads: List[dict], rotator=None) -> List[dict]:
         rotator = get_rotator()
     
     key_index, api_key = rotator.get_available_key()
-    rotator.configure_genai(key_index)
     
     # Build batch input
     lead_entries = []
@@ -627,25 +583,19 @@ Focus on quick, accurate categorization.
 """
     
     try:
-        model = genai.GenerativeModel(MODEL_NAME)
+        client = openai.OpenAI(api_key=api_key)
         
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(
-                temperature=CLASSIFY_TEMPERATURE,
-                max_output_tokens=2000
-            )
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=CLASSIFY_TEMPERATURE,
+            max_tokens=2000,
+            response_format={"type": "json_object"}
         )
         
-        text = response.text.strip()
-        
-        if "```json" in text:
-            text = text.split("```json")[1].split("```")[0].strip()
-        elif "```" in text:
-            text = text.split("```")[1].split("```")[0].strip()
-        
+        text = response.choices[0].message.content.strip()
         result = json.loads(text)
-        tokens_used = estimate_tokens(prompt + text)
+        tokens_used = response.usage.total_tokens if response.usage else estimate_tokens(prompt + text)
         
         rotator.log_request(
             key_index=key_index,
@@ -680,7 +630,7 @@ Focus on quick, accurate categorization.
 
 if __name__ == "__main__":
     # Test the enrichment functions
-    print("=== Gemini Enrichment Test ===\n")
+    print("=== Lead Enrichment Test ===\n")
     
     # Sample lead data
     test_lead = {

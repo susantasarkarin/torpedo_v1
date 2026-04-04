@@ -495,25 +495,29 @@ async def test_prompt(
         # This is a placeholder - actual implementation would run the prompt
         # through the appropriate agent
         
-        import google.generativeai as genai
-        api_key = __import__("os").getenv("GEMINI_API_KEY")
+        import openai as _openai
+        import os as _os
+        api_key = _os.getenv("OPENAI_API_KEY")
         
         if not api_key:
-            raise HTTPException(status_code=400, detail="Gemini API not configured")
+            raise HTTPException(status_code=400, detail="OpenAI API not configured")
         
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash-exp")
+        client = _openai.OpenAI(api_key=api_key)
         
         # Combine prompt with test input
         full_prompt = f"{payload.content}\n\n--- TEST INPUT ---\n{payload.test_input}"
         
-        response = model.generate_content(full_prompt)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": full_prompt}],
+            max_tokens=1000
+        )
         
         return {
             "success": True,
             "agent_type": payload.agent_type,
             "input": payload.test_input,
-            "output": response.text,
+            "output": response.choices[0].message.content,
             "tested_at": datetime.utcnow().isoformat()
         }
     

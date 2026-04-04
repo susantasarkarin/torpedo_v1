@@ -23,8 +23,7 @@ from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-import google.generativeai as genai
-# import anthropic  # DISABLED: Claude replaced by Gemini
+import openai
 
 logger = logging.getLogger(__name__)
 
@@ -193,16 +192,17 @@ class AIClassificationService:
         anthropic_api_key: Optional[str] = None
     ):
         """Initialize AI service with API keys"""
-        # Gemini setup
-        self.gemini_api_key = gemini_api_key or os.getenv("GEMINI_API_KEY")
-        if self.gemini_api_key:
-            genai.configure(api_key=self.gemini_api_key)
-            self.gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
+        # OpenAI setup (backward compat: accepts gemini_api_key param name)
+        api_key = gemini_api_key or os.getenv("OPENAI_API_KEY")
+        if api_key:
+            self.openai_client = openai.OpenAI(api_key=api_key)
+            self.model_name = "gpt-4o-mini"
         else:
-            self.gemini_model = None
-            logger.warning("Gemini API key not configured")
+            self.openai_client = None
+            logger.warning("OpenAI API key not configured")
         
-        # Anthropic/Claude DISABLED — replaced by Gemini
+        # Keep backward compat attributes
+        self.gemini_model = self.openai_client  # truthy check compat
         self.anthropic_client = None
     
     # =========================================================================
@@ -223,21 +223,21 @@ class AIClassificationService:
         Returns:
             ClassificationResult with category, department, priority, etc.
         """
-        if not self.gemini_model:
-            raise RuntimeError("Gemini API not configured")
+        if not self.openai_client:
+            raise RuntimeError("OpenAI API not configured")
         
         prompt = self._build_classification_prompt(from_email, to_email, subject, body)
         
         try:
-            response = self.gemini_model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    temperature=0.1
-                )
+            response = self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=500,
+                response_format={"type": "json_object"}
             )
             
-            result = json.loads(response.text)
+            result = json.loads(response.choices[0].message.content)
             
             # Map category to department
             category = result.get("category", "uncategorized")
@@ -387,21 +387,21 @@ OUTPUT FORMAT (JSON only, no explanation):
         Returns:
             LeadExtractionResult with contact details and intent
         """
-        if not self.gemini_model:
-            raise RuntimeError("Gemini API not configured")
+        if not self.openai_client:
+            raise RuntimeError("OpenAI API not configured")
         
         prompt = self._build_lead_extraction_prompt(from_email, from_name, subject, body)
         
         try:
-            response = self.gemini_model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    temperature=0.1
-                )
+            response = self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=500,
+                response_format={"type": "json_object"}
             )
             
-            result = json.loads(response.text)
+            result = json.loads(response.choices[0].message.content)
             
             return LeadExtractionResult(
                 has_lead=result.get("has_lead", False),
@@ -683,8 +683,8 @@ Subject: <subject>
         Returns:
             Thread summary with key points, actions, sentiment
         """
-        if not self.gemini_model:
-            raise RuntimeError("Gemini API not configured")
+        if not self.openai_client:
+            raise RuntimeError("OpenAI API not configured")
         
         # Build thread content
         thread_content = "\n\n---\n\n".join([
@@ -716,15 +716,15 @@ OUTPUT FORMAT (JSON only):
 }}'''
         
         try:
-            response = self.gemini_model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                    temperature=0.2
-                )
+            response = self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=800,
+                response_format={"type": "json_object"}
             )
             
-            return json.loads(response.text)
+            return json.loads(response.choices[0].message.content)
             
         except Exception as e:
             logger.error(f"Thread summarization error: {e}")

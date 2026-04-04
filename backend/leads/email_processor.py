@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 from datetime import datetime
 from pymongo import MongoClient
 from bson import ObjectId
-from .gemini_rotator import get_rotator
+from .openai_rotator import get_rotator
 from .gemini_enrichment import (
     classify_lead,
     enrich_lead,

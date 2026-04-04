@@ -35,31 +35,30 @@ from .models import (
 #     DEFAULT_MODEL, BACKGROUND_MAX_OUTPUT_TOKENS,
 #     build_system_prompt, JSON_ONLY_INSTRUCTION
 # )
-# NOTE: OpenAI disabled — use Gemini via GeminiRotator
-from .gemini_rotator import GeminiRotator, get_pipeline_rotator
-import google.generativeai as genai
+# NOTE: Now uses OpenAI via openai_rotator
+from .openai_rotator import OpenAIRotator, get_pipeline_rotator
+import openai
 
 load_dotenv()
 
 
 # ============== CONFIGURATION ==============
-# COST CONTROL: Using Gemini (free tier, 10 keys) instead of OpenAI
 
-MODEL = "gemini-2.0-flash"  # Gemini default
+MODEL = "gpt-4o-mini"  # OpenAI default
 TEMPERATURE = 0.1  # Low temperature for deterministic output
 
-# Gemini rotator singleton (used when no pipeline specified)
-_gemini_rotator: Optional["GeminiRotator"] = None
+# OpenAI rotator singleton (used when no pipeline specified)
+_openai_rotator: Optional["OpenAIRotator"] = None
 
 
 def _get_rotator(pipeline: Optional[str] = None):
     """Return the appropriate rotator — pipeline-scoped or global."""
     if pipeline:
         return get_pipeline_rotator(pipeline)
-    global _gemini_rotator
-    if _gemini_rotator is None:
-        _gemini_rotator = GeminiRotator()
-    return _gemini_rotator
+    global _openai_rotator
+    if _openai_rotator is None:
+        _openai_rotator = OpenAIRotator()
+    return _openai_rotator
 
 # MongoDB connection for loading prompts from DB
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
@@ -209,33 +208,28 @@ def classify_lead(lead: LeadRaw, source: str = "api",
     )
     
     try:
-        # Use Gemini for lead classification
+        # Use OpenAI for lead classification
         rotator = _get_rotator(pipeline)
         key_index, api_key = rotator.get_available_key()
-        genai.configure(api_key=api_key)
-        gemini_model = genai.GenerativeModel(
-            MODEL,
-            generation_config=genai.types.GenerationConfig(
-                response_mime_type="application/json",
-                max_output_tokens=300,
-                temperature=TEMPERATURE,
-            )
-        )
+        client = openai.OpenAI(api_key=api_key)
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
-        gemini_response = gemini_model.generate_content(full_prompt)
-
-        raw_content = gemini_response.text
-        tokens_used = (
-            gemini_response.usage_metadata.total_token_count
-            if gemini_response.usage_metadata else 0
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": full_prompt}],
+            max_tokens=300,
+            temperature=TEMPERATURE,
+            response_format={"type": "json_object"},
         )
+
+        raw_content = response.choices[0].message.content
+        tokens_used = response.usage.total_tokens if response.usage else 0
         rotator.log_request(key_index, tokens_used, "classify", success=True)
 
         latency_ms = int((time.time() - start_time) * 1000)
         log.raw_response = raw_content
         log.tokens_used = tokens_used
         log.latency_ms = latency_ms
-        log.cost_usd = 0.0  # Gemini free tier
+        log.cost_usd = 0.0
         
         # Parse and validate JSON
         parsed = json.loads(raw_content)
@@ -355,28 +349,23 @@ def enrich_company_via_websearch(domain: str, source: str = "background") -> Dic
             return cached.get("data", {})
     
     try:
-        # Use Gemini for company enrichment
+        # Use OpenAI for company enrichment
         rotator = _get_rotator()
         key_index, api_key = rotator.get_available_key()
-        genai.configure(api_key=api_key)
-        gemini_model = genai.GenerativeModel(
-            MODEL,
-            generation_config=genai.types.GenerationConfig(
-                response_mime_type="application/json",
-                max_output_tokens=300,
-                temperature=0.1,
-            )
-        )
+        client = openai.OpenAI(api_key=api_key)
         full_prompt = f"Business research assistant. JSON only.\n\n{COMPANY_ENRICHMENT_PROMPT.format(domain=domain)}"
-        gemini_response = gemini_model.generate_content(full_prompt)
-        tokens_used = (
-            gemini_response.usage_metadata.total_token_count
-            if gemini_response.usage_metadata else 0
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": full_prompt}],
+            temperature=0.1,
+            max_tokens=300,
+            response_format={"type": "json_object"}
         )
+        tokens_used = response.usage.total_tokens if response.usage else 0
         rotator.log_request(key_index, tokens_used, "web_enrichment", success=True)
         
         # Parse response
-        data = json.loads(gemini_response.text)
+        data = json.loads(response.choices[0].message.content)
         
         # Cache the result
         _company_cache.update_one(
@@ -435,27 +424,22 @@ def extract_contact_from_signature(email_body: str, source: str = "background") 
         # Only send last 500 chars (signature is at end) - COST CONTROL: Reduce input tokens
         signature_text = email_body[-500:] if len(email_body) > 500 else email_body
         
-        # Use Gemini for signature extraction
+        # Use OpenAI for signature extraction
         rotator = _get_rotator()
         key_index, api_key = rotator.get_available_key()
-        genai.configure(api_key=api_key)
-        gemini_model = genai.GenerativeModel(
-            MODEL,
-            generation_config=genai.types.GenerationConfig(
-                response_mime_type="application/json",
-                max_output_tokens=150,
-                temperature=0.1,
-            )
-        )
+        client = openai.OpenAI(api_key=api_key)
         full_prompt = f"Extract contact from signature. JSON only.\n\n{SIGNATURE_EXTRACTION_PROMPT.format(email_body=signature_text)}"
-        gemini_response = gemini_model.generate_content(full_prompt)
-        tokens_used = (
-            gemini_response.usage_metadata.total_token_count
-            if gemini_response.usage_metadata else 0
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": full_prompt}],
+            temperature=0.1,
+            max_tokens=150,
+            response_format={"type": "json_object"}
         )
+        tokens_used = response.usage.total_tokens if response.usage else 0
         rotator.log_request(key_index, tokens_used, "contact_extraction", success=True)
         
-        data = json.loads(gemini_response.text)
+        data = json.loads(response.choices[0].message.content)
         
         # Merge with regex results (prefer AI but keep regex fallbacks)
         merged = {**regex_result, **{k: v for k, v in data.items() if v}}

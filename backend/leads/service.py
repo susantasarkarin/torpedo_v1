@@ -22,7 +22,7 @@ from .models import (
     BuyingRole, Gender, EmailStatus
 )
 from .ai_classifier import classify_lead
-from .gemini_rotator import SEGMENT_PIPELINE_MAP
+from .openai_rotator import SEGMENT_PIPELINE_MAP
 from .deduplication import (
     check_duplicate,
     add_to_dedup_index,

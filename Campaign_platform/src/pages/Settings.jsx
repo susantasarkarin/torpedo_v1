@@ -47,15 +47,17 @@ function Settings() {
     cpx_ext_user_id: "",
     cpx_secure_hash_key: "",
     cpx_api_timeout: 30,
-    deepseek_api_key: "",  // PRIMARY - cheap, no daily limit
-    openai_api_key: "",      // PREMIUM - web search, tier 2
-    gemini_api_key_1: "",    // FREE tier keys (1000 req/day each)
-    gemini_api_key_2: "",
-    gemini_api_key_3: "",
-    gemini_api_key_4: "",
-    gemini_api_key_5: "",
-    gemini_api_key_6: "",
-    gemini_api_key_7: "",
+    openai_api_key: "",      // PRIMARY - pay-as-you-go
+    openai_api_key_1: "",    // Pipeline keys (rotated)
+    openai_api_key_2: "",
+    openai_api_key_3: "",
+    openai_api_key_4: "",
+    openai_api_key_5: "",
+    openai_api_key_6: "",
+    openai_api_key_7: "",
+    openai_api_key_8: "",
+    openai_api_key_9: "",
+    openai_api_key_10: "",
     google_sheets_service_account: "",
   })
   const [maskedSettings, setMaskedSettings] = useState({})
@@ -1663,19 +1665,19 @@ function Settings() {
                   </p>
                 </div>
                 <div className="setting-row">
-                  <label>💎 Gemini API Keys (FREE TIER - 1000 req/day each)</label>
+                  <label>� OpenAI Pipeline Keys (pay-as-you-go rotation)</label>
                   <p className="setting-hint" style={{ marginBottom: '0.75rem' }}>
-                    Add up to 7 keys for ~7000 requests/day. Get from <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
+                    Add up to 10 keys for pipeline rotation. Get from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI Platform</a>
                   </p>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.5rem' }}>
-                    {[1, 2, 3, 4, 5, 6, 7].map((num) => (
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
                       <div key={num} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <span style={{ minWidth: '20px', fontSize: '12px', color: '#6b7280' }}>#{num}</span>
                         <input
                           type="password"
-                          placeholder={maskedSettings[`gemini_api_key_${num}_masked`] || "AIza..."}
-                          value={appSettings[`gemini_api_key_${num}`] || ""}
-                          onChange={(e) => handleAppSettingChange(`gemini_api_key_${num}`, e.target.value)}
+                          placeholder={maskedSettings[`openai_api_key_${num}_masked`] || "sk-..."}
+                          value={appSettings[`openai_api_key_${num}`] || ""}
+                          onChange={(e) => handleAppSettingChange(`openai_api_key_${num}`, e.target.value)}
                           style={{ flex: 1 }}
                         />
                       </div>
@@ -1683,13 +1685,13 @@ function Settings() {
                   </div>
                 </div>
                 <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#f8fafc', borderRadius: '6px', fontSize: '13px' }}>
-                  <strong>Task Routing:</strong>
+                  <strong>Task Routing (all OpenAI):</strong>
                   <ul style={{ margin: '0.5rem 0 0 1.5rem', padding: 0 }}>
-                    <li>Email Classification → DeepSeek (10/batch)</li>
-                    <li>Lead Classification → DeepSeek (20/batch)</li>
-                    <li>Company Enrichment → DeepSeek (10/batch)</li>
+                    <li>Email Classification → OpenAI gpt-4o-mini</li>
+                    <li>Lead Classification → OpenAI gpt-4o-mini</li>
+                    <li>Company Enrichment → OpenAI gpt-4o-mini</li>
+                    <li>Email Drafting → OpenAI gpt-4o-mini</li>
                     <li>Web Search Discovery → OpenAI (with web_search tool)</li>
-                    <li>Tier 2 Analysis → OpenAI GPT-4o</li>
                   </ul>
                 </div>
               </div>
@@ -2073,8 +2075,8 @@ function Settings() {
           <div className="settings-section">
             <h2>AI Reference Material</h2>
             <p className="section-description">
-              Business unit descriptions used by Gemini (routing) and GPT-4 (email drafting).
-              Gemini picks the best-fit BU and writes a gap analysis. GPT-4 then drafts the personalised outreach email using the chosen BU file.
+              Business unit descriptions used by OpenAI for routing and email drafting.
+              The AI picks the best-fit BU and writes a gap analysis, then drafts the personalised outreach email using the chosen BU file.
             </p>
 
             {buToast && (

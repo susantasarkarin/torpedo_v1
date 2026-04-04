@@ -364,15 +364,15 @@ def update_business_context(campaign_id: str, req: BusinessContextRequest):
 @router.post("/campaigns/{campaign_id}/steps/{step_number}/generate")
 def generate_step_email(campaign_id: str, step_number: int):
     """
-    Use Gemini to generate a full cold email (subject + body) for a given step.
+    Use OpenAI to generate a full cold email (subject + body) for a given step.
 
     The email will contain live placeholder tokens ({{first_name}}, {{company}}, etc.)
     so each recipient gets a personalised version at send time.
 
     Requires business_context to be saved on the campaign first (via the AI Context tab).
     """
-    import google.generativeai as _genai
-    from leads.gemini_rotator import get_pipeline_rotator as _get_pipeline_rotator
+    import openai as _openai
+    from leads.openai_rotator import get_pipeline_rotator as _get_pipeline_rotator
 
     db = get_db()
     campaign = db["outreach_campaigns_v2"].find_one({"campaign_id": campaign_id})
@@ -390,9 +390,8 @@ def generate_step_email(campaign_id: str, step_number: int):
     try:
         _rotator = _get_pipeline_rotator("outreach")
         key_index, api_key = _rotator.get_available_key()
-        _genai.configure(api_key=api_key)
     except Exception as e:
-        raise HTTPException(500, f"Gemini key unavailable: {e}")
+        raise HTTPException(500, f"OpenAI key unavailable: {e}")
 
     # Step metadata
     day_labels = {1: "Day 1 (initial outreach)", 2: "Day 4 (first follow-up)",
@@ -464,26 +463,22 @@ Do not write a signature block — the system appends one automatically.
 """
 
     try:
-        _gemini_model = _genai.GenerativeModel(
-            "gemini-2.0-flash",
-            generation_config=_genai.types.GenerationConfig(
-                max_output_tokens=600,
-                temperature=0.72,
-            )
+        _client = _openai.OpenAI(api_key=api_key)
+        _response = _client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a professional B2B cold email copywriter. Follow instructions precisely."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=600,
+            temperature=0.72,
         )
-        _gemini_response = _gemini_model.generate_content(
-            "You are a professional B2B cold email copywriter. Follow instructions precisely.\n\n" + prompt
-        )
-        tokens_used = (
-            _gemini_response.usage_metadata.total_token_count
-            if _gemini_response.usage_metadata else 0
-        )
+        raw = _response.choices[0].message.content.strip()
+        tokens_used = _response.usage.total_tokens if _response.usage else 0
         _rotator.log_request(key_index, tokens_used, "email_generation", success=True)
     except Exception as e:
-        logger.error(f"Gemini generate_step_email failed: {e}")
+        logger.error(f"OpenAI generate_step_email failed: {e}")
         raise HTTPException(500, f"AI generation failed: {e}")
-
-    raw = _gemini_response.text.strip()
 
     # Parse subject and body from output
     subject = ""
@@ -1155,15 +1150,14 @@ def _generate_personalized_email(
     sender_name: str,
 ) -> tuple[str, str]:
     """
-    Call Gemini to produce a unique (subject, body_html) for this specific lead.
+    Call OpenAI to produce a unique (subject, body_html) for this specific lead.
     Returns (subject, body_html). Raises on failure.
     """
-    import google.generativeai as genai
-    from leads.gemini_rotator import get_pipeline_rotator
+    import openai as _openai
+    from leads.openai_rotator import get_pipeline_rotator
 
     rotator = get_pipeline_rotator("outreach")
     key_index, api_key = rotator.get_available_key()
-    genai.configure(api_key=api_key)
 
     tone_map = {
         "professional": "formal and professional",
@@ -1216,18 +1210,20 @@ Rules:
 - Keep the tone {tone}
 """
 
-    model = genai.GenerativeModel(
-        "gemini-2.0-flash",
-        generation_config=genai.types.GenerationConfig(
-            max_output_tokens=500,
-            temperature=0.8,
-        )
+    client = _openai.OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a B2B cold email copywriter specialising in market research and data services. Follow instructions precisely."},
+            {"role": "user", "content": prompt},
+        ],
+        max_tokens=500,
+        temperature=0.8,
     )
-    response = model.generate_content(prompt)
-    tokens = response.usage_metadata.total_token_count if response.usage_metadata else 0
+    tokens = response.usage.total_tokens if response.usage else 0
     rotator.log_request(key_index, tokens, "outreach_email_gen", success=True)
 
-    raw = response.text.strip()
+    raw = response.choices[0].message.content.strip()
     subject = ""
     body = ""
     if "SUBJECT:" in raw:

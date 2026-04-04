@@ -113,7 +113,7 @@ def check_csv_pipeline(csv_bytes: Optional[bytes] = None) -> Dict[str, Any]:
 
 
 # ─────────────────────────────────────────────────────
-#  CHECK 4: Gemini Gateway quota
+#  CHECK 4: AI Gateway quota
 # ─────────────────────────────────────────────────────
 
 def check_gemini_quota() -> Dict[str, Any]:
@@ -122,10 +122,10 @@ def check_gemini_quota() -> Dict[str, Any]:
         used, remaining = get_gemini_daily_usage()
         ok = remaining > 100  # warn if fewer than 100 calls remain
         if not ok:
-            logger.warning(f"[Validation] Gemini quota low: {remaining} remaining")
+            logger.warning(f"[Validation] AI quota low: {remaining} remaining")
         return {"ok": ok, "used_today": used, "remaining": remaining, "limit": GEMINI_DAILY_LIMIT}
     except Exception as e:
-        logger.error(f"[Validation] Gemini quota check failed: {e}")
+        logger.error(f"[Validation] AI quota check failed: {e}")
         return {"ok": False, "error": str(e)}
 
 

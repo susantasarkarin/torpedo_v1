@@ -131,7 +131,7 @@ def route_lead_to_bu(self, lead_id: str) -> Dict[str, Any]:
     """
     try:
         from bson import ObjectId
-        from ai_governance.gemini_gateway import get_gemini_gateway
+        from ai_governance.ai_gateway import get_ai_gateway
 
         db = get_background_db()
         leads = db["leads"]
@@ -161,7 +161,7 @@ def route_lead_to_bu(self, lead_id: str) -> Dict[str, Any]:
             logger.error(f"[BU Routing] No business unit config files found in {_BU_DIR}")
             return {"error": "no_bu_configs"}
 
-        gateway = get_gemini_gateway()
+        gateway = get_ai_gateway()
         result = gateway.route_to_business_unit(lead_context, business_units)
 
         if not result.get("success"):
@@ -605,7 +605,7 @@ def analyze_reply(self, lead_id: str, reply_body: str, gmail_message_id: str) ->
     """
     try:
         from bson import ObjectId
-        from ai_governance.gemini_gateway import get_gemini_gateway
+        from ai_governance.ai_gateway import get_ai_gateway
 
         db = get_background_db()
         leads = db["leads"]
@@ -613,7 +613,7 @@ def analyze_reply(self, lead_id: str, reply_body: str, gmail_message_id: str) ->
         if not lead:
             return {"error": "lead_not_found"}
 
-        gateway = get_gemini_gateway()
+        gateway = get_ai_gateway()
         analysis = gateway.analyze_reply_sentiment(
             email_id=gmail_message_id,
             reply_body=reply_body,

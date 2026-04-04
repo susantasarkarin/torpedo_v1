@@ -233,13 +233,13 @@ class VerificationRunner:
     # ========================
     
     def verify_gemini_rotator_import(self):
-        """Verify Gemini rotator can be imported"""
+        """Verify OpenAI rotator can be imported"""
         try:
-            from backend.leads.gemini_rotator import get_rotator
+            from backend.leads.openai_rotator import get_rotator
             rotator = get_rotator()
             return rotator is not None
         except ImportError as e:
-            print(f"  Note: Gemini rotator import skipped: {e}")
+            print(f"  Note: OpenAI rotator import skipped: {e}")
             return True
     
     # ========================

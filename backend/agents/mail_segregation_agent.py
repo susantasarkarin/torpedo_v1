@@ -17,16 +17,15 @@ from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
-from google import genai
-from google.genai import types
+import openai
 from pymongo import MongoClient
 from bson import ObjectId
-from backend.leads.gemini_rotator import get_rotator
+from backend.leads.openai_rotator import get_rotator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Get Gemini rotator instance (manages 7 API keys with automatic rotation)
+# Get OpenAI rotator instance (manages API keys with automatic rotation)
 rotator = get_rotator()
 
 # MongoDB connection
@@ -179,33 +178,34 @@ class MailSegregationAgent:
     
     def _call_gemini(self, prompt: str, task_type: str = "segregate") -> str:
         """
-        Call Gemini API with automatic key rotation
+        Call OpenAI API with automatic key rotation
         
         Args:
-            prompt: The prompt to send to Gemini
+            prompt: The prompt to send to OpenAI
             task_type: Type of task for quota tracking (segregate, contact_extract, mail_summary)
             
         Returns:
-            Response text from Gemini
+            Response text from OpenAI
         """
         # Get available key from rotator
         key_index, api_key = self.rotator.get_available_key()
         
-        # Use new google.genai SDK with the API key directly
-        client = genai.Client(api_key=api_key)
+        # Use OpenAI client with the API key
+        client = openai.OpenAI(api_key=api_key)
         
-        # Generate response using gemini-2.0-flash model
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1000
         )
         
+        text = response.choices[0].message.content
+        
         # Log the request for quota tracking
-        # Estimate tokens (rough estimate: 1 token ≈ 4 characters)
-        estimated_tokens = (len(prompt) + len(response.text)) // 4
+        estimated_tokens = response.usage.total_tokens if response.usage else (len(prompt) + len(text)) // 4
         self.rotator.log_request(key_index, estimated_tokens, task_type)
         
-        return response.text
+        return text
     
     async def segregate_all_emails(
         self, 

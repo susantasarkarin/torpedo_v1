@@ -27,9 +27,12 @@ class GovernanceViolation(Exception):
     pass
 
 
-class GeminiDailyLimitExceeded(GovernanceViolation):
-    """Raised when Gemini daily limit (7000) is reached"""
+class AIDailyLimitExceeded(GovernanceViolation):
+    """Raised when AI daily limit is reached"""
     pass
+
+# Backward-compatible alias
+GeminiDailyLimitExceeded = AIDailyLimitExceeded
 
 
 class EmailAlreadyClassified(GovernanceViolation):
@@ -88,7 +91,8 @@ def _get_classification_guard_collection():
 
 # ============== GEMINI DAILY CAP (7000) ==============
 
-GEMINI_DAILY_LIMIT = 7000  # Hard limit - non-negotiable
+GEMINI_DAILY_LIMIT = 50000  # Configurable safeguard — OpenAI is pay-as-you-go
+AI_DAILY_LIMIT = GEMINI_DAILY_LIMIT
 
 
 def get_gemini_daily_usage() -> Tuple[int, int]:
@@ -161,9 +165,9 @@ def increment_gemini_daily_usage() -> int:
             {"date": today},
             {"$inc": {"request_count": -1}}
         )
-        raise GeminiDailyLimitExceeded(
-            f"Gemini daily limit ({GEMINI_DAILY_LIMIT}) exceeded. Current: {new_count}. "
-            "No more Gemini calls allowed today."
+        raise AIDailyLimitExceeded(
+            f"AI daily limit ({GEMINI_DAILY_LIMIT}) exceeded. Current: {new_count}. "
+            "No more AI calls allowed today."
         )
     
     return new_count
@@ -259,7 +263,7 @@ def fail_classification(email_id: str, error: str) -> None:
         }
     )
     # Log once - no retry
-    logger.error(f"Gemini classification failed for email {email_id}: {error}. NO AUTOMATIC RETRY.")
+    logger.error(f"AI classification failed for email {email_id}: {error}. NO AUTOMATIC RETRY.")
 
 
 # ============== DEEPSEEK VALIDATION ==============
@@ -321,25 +325,24 @@ def get_governance_status() -> dict:
     
     return {
         "date": date.today().isoformat(),
-        "gemini": {
+        "ai": {
+            "provider": "openai",
             "daily_limit": GEMINI_DAILY_LIMIT,
             "current_usage": current_usage,
             "remaining": remaining,
             "percentage_used": round((current_usage / GEMINI_DAILY_LIMIT) * 100, 2),
             "limit_reached": remaining <= 0
         },
-        "deepseek": {
-            "status": "REMOVED",
-            "validation": "No DeepSeek references allowed"
-        },
-        "openai": {
-            "allowed_uses": ["web_search", "external_lead_discovery"],
-            "forbidden_uses": ["email_classification", "email_summarization", "background_tasks"]
-        },
         "enforcement": {
             "one_classification_per_email": True,
             "no_automatic_retries": True,
             "no_infinite_loops": True,
-            "single_gemini_entry_point": True
+            "single_ai_entry_point": True
         }
     }
+
+
+# Backward-compatible aliases
+check_ai_daily_limit = check_gemini_daily_limit
+increment_ai_daily_usage = increment_gemini_daily_usage
+get_ai_daily_usage = get_gemini_daily_usage
