@@ -1331,6 +1331,10 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
                 sender_name=display_name,
             )
         except Exception as gen_err:
+            err_str = str(gen_err)
+            # Re-raise quota errors so the outer cycle loop can abort early
+            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                raise
             logger.warning(
                 f"[Outreach] Gemini generation failed for {email} step {next_step_number}: {gen_err}"
             )
@@ -1418,7 +1422,8 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
 def process_due_outreach_sends() -> dict:
     """
     Called by APScheduler every 60 seconds.
-    Picks up to 50 outreach_leads_v2 records that are due and sends their next step.
+    Picks up to 5 outreach_leads_v2 records that are due and sends their next step.
+    Stops early if a Gemini 429 quota error is detected to avoid blocking the scheduler.
     Returns a summary dict.
     """
     try:
@@ -1428,24 +1433,33 @@ def process_due_outreach_sends() -> dict:
         due = list(db["outreach_leads_v2"].find({
             "workflow_status": {"$in": ["not_started", "pending_scheduled", "in_sequence"]},
             "next_send_at": {"$lte": now},
-        }).limit(50))
+        }).limit(5))
 
         if not due:
             return {"processed": 0, "sent": 0, "skipped": 0}
 
         sent = 0
         skipped = 0
+        quota_abort = False
         for record in due:
-            ok = _process_one_outreach_lead(db, record)
-            if ok:
-                sent += 1
-            else:
+            try:
+                ok = _process_one_outreach_lead(db, record)
+                if ok:
+                    sent += 1
+                else:
+                    skipped += 1
+            except Exception as loop_err:
+                err_str = str(loop_err)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    logger.warning("[Outreach] Gemini quota hit — aborting this cycle early")
+                    quota_abort = True
+                    break
                 skipped += 1
 
         if sent > 0 or skipped > 0:
-            logger.info(f"[Outreach] Cycle complete: sent={sent} skipped={skipped}")
+            logger.info(f"[Outreach] Cycle complete: sent={sent} skipped={skipped} quota_abort={quota_abort}")
 
-        return {"processed": len(due), "sent": sent, "skipped": skipped}
+        return {"processed": len(due), "sent": sent, "skipped": skipped, "quota_abort": quota_abort}
 
     except Exception as e:
         logger.error(f"[Outreach] process_due_outreach_sends error: {e}", exc_info=True)
