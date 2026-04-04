@@ -1085,47 +1085,167 @@ async def ses_sns_webhook(request: Request):
 # Set to None to send to actual recipient.
 _OUTREACH_TEST_OVERRIDE_EMAIL: Optional[str] = "susantasarkar7447@gmail.com"
 
+# Sender mailbox for each business (must exist in torpedo_gmail.workspace_mailboxes)
+_BUSINESS_SENDER: Dict[str, str] = {
+    "sfw": "indira@surveyfieldwork.com",
+    "cogentix": "meera@cogentixresearch.com",
+    "bimwave": "susanta@cogentixresearch.com",   # update when bimwave mailbox added
+}
 
-def _pick_mailbox(db, campaign: dict) -> Optional[dict]:
+_BUSINESS_DISPLAY_NAME: Dict[str, str] = {
+    "sfw": "Indira Das",
+    "cogentix": "Meera Rathi",
+    "bimwave": "Susanta Sarkar",
+}
+
+# Per-business step context for AI generation
+_STEP_INSTRUCTIONS: Dict[int, str] = {
+    1: (
+        "This is the FIRST cold email. Introduce yourself briefly, state the value for "
+        "their specific role/company, and end with a soft CTA (open to a quick call / "
+        "happy to share more). Keep it under 120 words."
+    ),
+    2: (
+        "This is the FIRST follow-up. The prospect has not replied. Reference the previous "
+        "email briefly, add a new angle or a concrete benefit for their industry. "
+        "Under 90 words. Soft CTA only."
+    ),
+    3: (
+        "This is the SECOND follow-up. Very short (under 70 words). Add a different hook "
+        "or a quick case-study reference relevant to their vertical. Stay low-pressure."
+    ),
+    4: (
+        "This is the FINAL follow-up (break-up email). Under 55 words. "
+        "Acknowledge it may not be the right time, leave the door open, no hard sell."
+    ),
+}
+
+
+def _get_gmail_workspace_service():
+    """Return a ready GmailWorkspaceService instance loaded from DB credentials."""
+    try:
+        from app.services.gmail_workspace_service import GmailWorkspaceService
+    except ImportError:
+        from backend.app.services.gmail_workspace_service import GmailWorkspaceService
+
+    mongo_uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+    svc = GmailWorkspaceService(mongo_uri=mongo_uri, db_name="torpedo_gmail")
+    svc.load_service_account()
+    return svc
+
+
+def _generate_personalized_email(
+    lead: dict,
+    step_number: int,
+    business: str,
+    business_label: str,
+    campaign_ctx: dict,
+    sender_name: str,
+) -> tuple[str, str]:
     """
-    Find an available (not over daily/hourly limit) mailbox for the campaign's business.
-    Prefers mailboxes listed in campaign.mailbox_ids if specified.
+    Call Gemini to produce a unique (subject, body_html) for this specific lead.
+    Returns (subject, body_html). Raises on failure.
     """
-    now = datetime.utcnow()
-    mailbox_ids = campaign.get("mailbox_ids") or []
-    query: Dict[str, Any] = {"business": campaign["business"], "is_active": True}
-    if mailbox_ids:
-        query["mailbox_id"] = {"$in": mailbox_ids}
+    import google.generativeai as genai
+    from leads.gemini_rotator import get_pipeline_rotator
 
-    candidates = list(db["outreach_mailboxes"].find(query))
+    rotator = get_pipeline_rotator("outreach")
+    key_index, api_key = rotator.get_available_key()
+    genai.configure(api_key=api_key)
 
-    for mailbox in candidates:
-        # Reset hourly count if last send was more than 1 hour ago
-        last_send = mailbox.get("last_send_at")
-        if last_send and isinstance(last_send, datetime):
-            if (now - last_send).total_seconds() > 3600:
-                db["outreach_mailboxes"].update_one(
-                    {"mailbox_id": mailbox["mailbox_id"]},
-                    {"$set": {"hourly_sent_count": 0}}
-                )
-                mailbox["hourly_sent_count"] = 0
+    tone_map = {
+        "professional": "formal and professional",
+        "friendly": "warm, friendly, and approachable",
+        "direct": "direct and concise — no fluff",
+        "conversational": "conversational, as if from one human to another",
+    }
+    tone = tone_map.get(campaign_ctx.get("tone", "professional"), "professional and warm")
 
-        daily_ok = mailbox.get("daily_sent_count", 0) < mailbox.get("daily_limit", 400)
-        hourly_ok = mailbox.get("hourly_sent_count", 0) < mailbox.get("hourly_limit", 60)
-        if daily_ok and hourly_ok:
-            return mailbox
+    first_name = (
+        lead.get("first_name")
+        or (lead.get("name") or "").split()[0]
+        or "there"
+    )
 
-    return None
+    prompt = f"""You are a B2B cold email copywriter specialising in market research and data services.
+
+Write a UNIQUE, PERSONALISED cold email for Step {step_number}.
+
+--- ABOUT OUR BUSINESS ---
+Company: {business_label}
+Value proposition: {campaign_ctx.get("value_proposition", "")}
+Ideal customer: {campaign_ctx.get("target_customer", "")}
+Sender: {sender_name} ({campaign_ctx.get("sender_title", "")})
+Tone: {tone}
+
+--- ABOUT THIS SPECIFIC LEAD ---
+Name: {lead.get("name") or first_name}
+First name: {first_name}
+Title: {lead.get("title") or ""}
+Company: {lead.get("company_name") or ""}
+Industry: {lead.get("company_industry") or ""}
+Seniority: {lead.get("seniority_level") or ""}
+Location: {lead.get("location") or ""}
+
+--- STEP INSTRUCTIONS ---
+{_STEP_INSTRUCTIONS.get(step_number, _STEP_INSTRUCTIONS[1])}
+
+--- OUTPUT FORMAT (strictly follow this, nothing else) ---
+SUBJECT: <the subject line>
+
+BODY:
+<the email body — plain paragraphs, no HTML tags, no signature block>
+
+Rules:
+- Address the recipient by their first name: {first_name}
+- Reference their company or industry naturally (do NOT invent facts)
+- Do NOT include a signature — the system appends one
+- Do NOT use markdown, bullet points, or HTML tags
+- Keep the tone {tone}
+"""
+
+    model = genai.GenerativeModel(
+        "gemini-2.0-flash",
+        generation_config=genai.types.GenerationConfig(
+            max_output_tokens=500,
+            temperature=0.8,
+        )
+    )
+    response = model.generate_content(prompt)
+    tokens = response.usage_metadata.total_token_count if response.usage_metadata else 0
+    rotator.log_request(key_index, tokens, "outreach_email_gen", success=True)
+
+    raw = response.text.strip()
+    subject = ""
+    body = ""
+    if "SUBJECT:" in raw:
+        parts = raw.split("BODY:", 1)
+        subject = parts[0].replace("SUBJECT:", "").strip()
+        body = parts[1].strip() if len(parts) > 1 else raw
+    else:
+        lines = raw.splitlines()
+        subject = lines[0].strip()
+        body = "\n".join(lines[1:]).strip()
+
+    # Convert plain text body to safe HTML (preserve paragraphs)
+    import html as _html
+    paragraphs = [p.strip() for p in body.split("\n\n") if p.strip()]
+    body_html = "".join(f"<p>{_html.escape(p).replace(chr(10), '<br>')}</p>" for p in paragraphs)
+
+    return subject, body_html
 
 
-def _send_smtp_email(mailbox: dict, to_email: str, subject: str,
-                     body_html: str, body_text: str) -> None:
-    """Send one email via the mailbox SMTP credentials."""
-    import re as _re
-    import smtplib
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-
+def _send_via_gmail_api(
+    from_email: str,
+    to_email: str,
+    subject: str,
+    body_html: str,
+    display_name: str,
+) -> str:
+    """
+    Send one email via GmailWorkspaceService (service account / domain-wide delegation).
+    Returns the Gmail message_id. Raises on failure.
+    """
     actual_to = to_email
     if _OUTREACH_TEST_OVERRIDE_EMAIL:
         logger.info(
@@ -1133,29 +1253,26 @@ def _send_smtp_email(mailbox: dict, to_email: str, subject: str,
         )
         actual_to = _OUTREACH_TEST_OVERRIDE_EMAIL
 
-    # Safe plain-text fallback
-    if not body_text:
-        body_text = _re.sub(r"<[^>]+>", "", body_html.replace("<br>", "\n").replace("<br/>", "\n"))
-
-    msg = MIMEMultipart("alternative")
-    msg["From"] = f"{mailbox['display_name']} <{mailbox['email_address']}>"
-    msg["To"] = actual_to
-    msg["Subject"] = subject
-    msg["X-Mailer"] = "Torpedo Outreach Engine"
-
-    msg.attach(MIMEText(body_text, "plain", "utf-8"))
-    msg.attach(MIMEText(body_html, "html", "utf-8"))
-
-    with smtplib.SMTP(mailbox["smtp_host"], mailbox.get("smtp_port", 587)) as server:
-        if mailbox.get("use_tls", True):
-            server.starttls()
-        server.login(mailbox["smtp_username"], mailbox["smtp_password"])
-        server.send_message(msg)
+    svc = _get_gmail_workspace_service()
+    result = svc.send_email(
+        from_email=from_email,
+        to=[actual_to],
+        subject=subject,
+        body_html=body_html,
+    )
+    if not result.get("success"):
+        raise RuntimeError(result.get("error") or "Gmail API send failed")
+    return result.get("message_id") or ""
 
 
 def _process_one_outreach_lead(db, lead_record: dict) -> bool:
     """
-    Send the next step email for one outreach_leads_v2 record.
+    For one outreach_leads_v2 record:
+      1. Verify campaign is active
+      2. Check suppression
+      3. Generate a personalized email with Gemini
+      4. Send via Gmail API (service account / domain-wide delegation)
+      5. Record the send and advance workflow state
     Returns True on success, False on any error (does not raise).
     """
     try:
@@ -1169,30 +1286,19 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             )
             return False
 
-        # current_step is 0-based number of steps already sent; next step is current_step+1
         steps_sent = lead_record.get("current_step", 0)
-        next_step_number = steps_sent + 1  # 1-indexed step number to send now
+        next_step_number = steps_sent + 1  # 1-indexed
 
-        steps = campaign.get("steps") or []
-        step = next((s for s in steps if s.get("step_number") == next_step_number), None)
-
-        if not step:
-            # Sequence complete
+        # Check that this step exists in the sequence (we have 4 steps: 1–4)
+        if next_step_number > len(SEQUENCE_STEPS):
             db["outreach_leads_v2"].update_one(
                 {"_id": lead_record["_id"]},
                 {"$set": {"workflow_status": "completed", "updated_at": datetime.utcnow()}}
             )
             return True
 
-        if not step.get("subject") and not step.get("body_html"):
-            logger.warning(
-                f"[Outreach] Step {next_step_number} of campaign {campaign['campaign_id']} "
-                "has no content — skipping lead"
-            )
-            return False
-
         # Check suppression
-        email = lead_record.get("email", "")
+        email = (lead_record.get("email") or "").lower().strip()
         if not email or db["outreach_bounce_suppression"].find_one({"email": email}):
             db["outreach_leads_v2"].update_one(
                 {"_id": lead_record["_id"]},
@@ -1200,41 +1306,38 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             )
             return False
 
-        mailbox = _pick_mailbox(db, campaign)
-        if not mailbox:
+        business = campaign.get("business", "sfw")
+        from_email = _BUSINESS_SENDER.get(business, "indira@surveyfieldwork.com")
+        display_name = _BUSINESS_DISPLAY_NAME.get(business, "Indira Das")
+        business_label = BUSINESS_LABEL.get(business, business)
+        campaign_ctx = campaign.get("business_context") or {}
+
+        # Generate personalized email for this specific lead
+        try:
+            subject, body_html = _generate_personalized_email(
+                lead=lead_record,
+                step_number=next_step_number,
+                business=business,
+                business_label=business_label,
+                campaign_ctx=campaign_ctx,
+                sender_name=display_name,
+            )
+        except Exception as gen_err:
             logger.warning(
-                f"[Outreach] No available mailbox for campaign {campaign['campaign_id']} "
-                f"(business={campaign['business']}) — will retry next cycle"
+                f"[Outreach] Gemini generation failed for {email} step {next_step_number}: {gen_err}"
+            )
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {
+                    "last_send_error": f"AI generation failed: {gen_err}"[:300],
+                    "last_send_error_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                }}
             )
             return False
 
-        # Build token map
-        first_name = (
-            lead_record.get("first_name")
-            or (lead_record.get("name") or "").split()[0]
-            or "there"
-        )
-        tokens = {
-            "{{first_name}}": first_name,
-            "{{last_name}}": lead_record.get("last_name") or "",
-            "{{name}}": lead_record.get("name") or first_name,
-            "{{company}}": lead_record.get("company_name") or "your company",
-            "{{title}}": lead_record.get("title") or "",
-            "{{industry}}": lead_record.get("company_industry") or "",
-            "{{sender_name}}": mailbox.get("display_name") or "",
-        }
-
-        def _replace(text: str) -> str:
-            for tok, val in tokens.items():
-                text = text.replace(tok, val or "")
-            return text
-
-        subject = _replace(step.get("subject") or "")
-        body_html = _replace(step.get("body_html") or "")
-        body_text = _replace(step.get("body_text") or "")
-
-        # Send
-        _send_smtp_email(mailbox, email, subject, body_html, body_text)
+        # Send via Gmail API
+        gmail_message_id = _send_via_gmail_api(from_email, email, subject, body_html, display_name)
 
         now = datetime.utcnow()
 
@@ -1245,9 +1348,10 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             "campaign_id": lead_record["campaign_id"],
             "outreach_lead_id": str(lead_record["_id"]),
             "email": email,
-            "mailbox_id": mailbox["mailbox_id"],
+            "from_email": from_email,
             "workflow_step": steps_sent,   # 0-indexed for stats aggregation
             "subject": subject,
+            "gmail_message_id": gmail_message_id,
             "status": "sent",
             "reply_received": False,
             "open_count": 0,
@@ -1256,13 +1360,10 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             "created_at": now,
         })
 
-        # Advance workflow state
-        next_step_obj = next(
-            (s for s in steps if s.get("step_number") == next_step_number + 1), None
-        )
-        if next_step_obj:
-            days_gap = next_step_obj["day_offset"] - step["day_offset"]
-            next_send_at = now + timedelta(days=max(days_gap, 1))
+        # Advance workflow: compute next send date from SEQUENCE_STEPS offsets
+        if next_step_number < len(SEQUENCE_STEPS):
+            days_to_next = SEQUENCE_STEPS[next_step_number] - SEQUENCE_STEPS[next_step_number - 1]
+            next_send_at = now + timedelta(days=max(days_to_next, 1))
             db["outreach_leads_v2"].update_one(
                 {"_id": lead_record["_id"]},
                 {"$set": {
@@ -1284,24 +1385,15 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
                 }}
             )
 
-        # Update mailbox counters
-        db["outreach_mailboxes"].update_one(
-            {"mailbox_id": mailbox["mailbox_id"]},
-            {
-                "$inc": {"daily_sent_count": 1, "hourly_sent_count": 1},
-                "$set": {"last_send_at": now},
-            }
-        )
-
         logger.info(
             f"[Outreach] Sent step {next_step_number} to {email} "
-            f"via {mailbox['email_address']} (campaign {campaign['campaign_id']})"
+            f"from {from_email} (campaign {campaign['campaign_id']})"
         )
         return True
 
     except Exception as e:
         logger.error(
-            f"[Outreach] Failed to send step to {lead_record.get('email')}: {e}",
+            f"[Outreach] Failed to process {lead_record.get('email')}: {e}",
             exc_info=True
         )
         db["outreach_leads_v2"].update_one(
@@ -1317,7 +1409,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
 
 def process_due_outreach_sends() -> dict:
     """
-    Callable by APScheduler every minute.
+    Called by APScheduler every 60 seconds.
     Picks up to 50 outreach_leads_v2 records that are due and sends their next step.
     Returns a summary dict.
     """
