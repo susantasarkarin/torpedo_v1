@@ -1070,6 +1070,28 @@ try:
 except Exception as e:
     print(f"⚠️ Campaign Automation router not included: {e}")
 
+# Sales Outreach router (Business Unit configs, AI settings)
+try:
+    try:
+        from .routers import sales_outreach as sales_outreach_router
+    except ImportError:
+        from routers import sales_outreach as sales_outreach_router
+    app.include_router(sales_outreach_router.router)
+    print("✅ Sales Outreach router included")
+except Exception as e:
+    print(f"⚠️ Sales Outreach router not included: {e}")
+
+# Cold Outreach router (campaigns, lead enrollment, send processor)
+try:
+    try:
+        from .routers import cold_outreach_router as cold_outreach_router_module
+    except ImportError:
+        from routers import cold_outreach_router as cold_outreach_router_module
+    app.include_router(cold_outreach_router_module.router)
+    print("✅ Cold Outreach router included")
+except Exception as e:
+    print(f"⚠️ Cold Outreach router not included: {e}")
+
 # LinkedIn Automation router (connection requests and messaging)
 try:
     try:
