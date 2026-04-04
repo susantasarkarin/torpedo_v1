@@ -1106,6 +1106,10 @@ _BUSINESS_DISPLAY_NAME: Dict[str, str] = {
     "bimwave": "Susanta Sarkar",
 }
 
+# Gemini 429 cooldown — skip outreach sends entirely until this time
+_gemini_quota_cooldown_until: Optional[datetime] = None
+_GEMINI_COOLDOWN_MINUTES = 10  # backoff when all keys exhausted
+
 # Per-business step context for AI generation
 _STEP_INSTRUCTIONS: Dict[int, str] = {
     1: (
@@ -1404,6 +1408,10 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         return True
 
     except Exception as e:
+        err_str = str(e)
+        # Re-raise quota errors so the scheduler cycle aborts early
+        if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+            raise
         logger.error(
             f"[Outreach] Failed to process {lead_record.get('email')}: {e}",
             exc_info=True
@@ -1423,12 +1431,18 @@ def process_due_outreach_sends() -> dict:
     """
     Called by APScheduler every 60 seconds.
     Picks up to 5 outreach_leads_v2 records that are due and sends their next step.
-    Stops early if a Gemini 429 quota error is detected to avoid blocking the scheduler.
+    Stops early if a Gemini 429 quota error is detected and sets a cooldown.
     Returns a summary dict.
     """
+    global _gemini_quota_cooldown_until
     try:
-        db = get_db()
         now = datetime.utcnow()
+
+        # Check cooldown — skip entirely if Gemini keys are known-exhausted
+        if _gemini_quota_cooldown_until and now < _gemini_quota_cooldown_until:
+            return {"processed": 0, "sent": 0, "skipped": 0, "cooldown_until": str(_gemini_quota_cooldown_until)}
+
+        db = get_db()
 
         due = list(db["outreach_leads_v2"].find({
             "workflow_status": {"$in": ["not_started", "pending_scheduled", "in_sequence"]},
@@ -1451,13 +1465,20 @@ def process_due_outreach_sends() -> dict:
             except Exception as loop_err:
                 err_str = str(loop_err)
                 if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                    logger.warning("[Outreach] Gemini quota hit — aborting this cycle early")
+                    logger.warning(
+                        f"[Outreach] Gemini quota hit — setting {_GEMINI_COOLDOWN_MINUTES}m cooldown"
+                    )
+                    _gemini_quota_cooldown_until = now + timedelta(minutes=_GEMINI_COOLDOWN_MINUTES)
                     quota_abort = True
                     break
                 skipped += 1
 
-        if sent > 0 or skipped > 0:
+        if sent > 0 or skipped > 0 or quota_abort:
             logger.info(f"[Outreach] Cycle complete: sent={sent} skipped={skipped} quota_abort={quota_abort}")
+
+        # Clear cooldown if we successfully sent at least one
+        if sent > 0:
+            _gemini_quota_cooldown_until = None
 
         return {"processed": len(due), "sent": sent, "skipped": skipped, "quota_abort": quota_abort}
 
