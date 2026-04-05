@@ -180,7 +180,7 @@ def _safe_to_datetime(value: Any) -> Optional[datetime]:
 # ============================================================
 
 @router.get("/accounts/")
-async def get_accounts(
+def get_accounts(
     account_type: Optional[str] = Query(None, description="Filter by type: client, customer, vendor, both"),
     status: Optional[str] = Query(None, description="Filter by status: active, inactive, prospect"),
     search: Optional[str] = Query(None, description="Search by name, email, or phone"),
@@ -277,7 +277,7 @@ async def get_accounts(
 
 
 @router.get("/accounts/{account_id}")
-async def get_account(account_id: str):
+def get_account(account_id: str):
     """Get a single account with full details including linked projects and invoices"""
     try:
         account = accounts_collection.find_one({"_id": ObjectId(account_id)})
@@ -306,7 +306,7 @@ async def get_account(account_id: str):
 
 
 @router.post("/accounts/")
-async def create_account(account_data: Dict[str, Any] = Body(...)):
+def create_account(account_data: Dict[str, Any] = Body(...)):
     """Create a new unified account"""
     try:
         if not account_data.get("name"):
@@ -336,7 +336,7 @@ async def create_account(account_data: Dict[str, Any] = Body(...)):
 
 
 @router.put("/accounts/{account_id}")
-async def update_account(account_id: str, account_data: Dict[str, Any] = Body(...)):
+def update_account(account_id: str, account_data: Dict[str, Any] = Body(...)):
     """Update an account"""
     try:
         account_data.pop("_id", None)
@@ -358,7 +358,7 @@ async def update_account(account_id: str, account_data: Dict[str, Any] = Body(..
 
 
 @router.post("/accounts/{account_id}/link-customer")
-async def link_account_to_customer(
+def link_account_to_customer(
     account_id: str,
     data: Dict[str, Any] = Body(...)
 ):
@@ -420,7 +420,7 @@ async def link_account_to_customer(
 
 
 @router.post("/accounts/sync-from-clients")
-async def sync_accounts_from_clients():
+def sync_accounts_from_clients():
     """
     Sync existing Operations clients into Unified Accounts.
     Creates accounts for clients that don't have one yet.
@@ -473,7 +473,7 @@ async def sync_accounts_from_clients():
 
 @router.get("/projects/")
 @router.get("/projects")
-async def list_operations_projects(
+def list_operations_projects(
     limit: int = Query(50, ge=1, le=500),
     skip: int = Query(0, ge=0),
     status: Optional[str] = Query(None, description="Filter by project status"),
@@ -536,7 +536,7 @@ def generate_idempotency_key(project_id: str, items: List[Dict]) -> str:
 
 
 @router.post("/projects/{project_id}/invoice")
-async def create_invoice_from_project(
+def create_invoice_from_project(
     project_id: str,
     invoice_data: Dict[str, Any] = Body(default={})
 ):
@@ -679,7 +679,7 @@ async def create_invoice_from_project(
 
 
 @router.get("/projects/{project_id}/financials")
-async def get_project_financials(project_id: str):
+def get_project_financials(project_id: str):
     """
     Get comprehensive financial summary for a project.
     Includes revenue, costs, and profitability metrics.
@@ -752,7 +752,7 @@ async def get_project_financials(project_id: str):
 
 
 @router.get("/projects/with-financials")
-async def get_projects_with_financials(
+def get_projects_with_financials(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     client: Optional[str] = Query(None),
@@ -1072,7 +1072,7 @@ def get_recent_activity(limit: int = Query(10, ge=1, le=50)):
 # ============================================================================
 
 @router.get("/async/{operation_id}/status")
-async def get_async_operation_status(operation_id: str = Path(..., description="Operation ID")):
+def get_async_operation_status(operation_id: str = Path(..., description="Operation ID")):
     """
     Get the status of an async operation.
     Used by frontend polling to track progress of email sync, AI processing, etc.
@@ -1104,7 +1104,7 @@ async def get_async_operation_status(operation_id: str = Path(..., description="
 
 
 @router.post("/async/{operation_id}/cancel")
-async def cancel_async_operation(operation_id: str = Path(..., description="Operation ID")):
+def cancel_async_operation(operation_id: str = Path(..., description="Operation ID")):
     """
     Cancel a running async operation.
     """
@@ -1121,7 +1121,7 @@ async def cancel_async_operation(operation_id: str = Path(..., description="Oper
 
 
 @router.get("/async/active")
-async def list_active_async_operations(
+def list_active_async_operations(
     type: Optional[str] = Query(None, description="Filter by operation type (email_sync, ai_processing)")
 ):
     """
@@ -1146,7 +1146,7 @@ async def list_active_async_operations(
 # ============================================================
 
 @router.get("/potential-clients/enriched")
-async def get_enriched_potential_clients(
+def get_enriched_potential_clients(
     limit: int = Query(100, ge=1, le=500, description="Maximum records to return"),
     skip: int = Query(0, ge=0, description="Records to skip for pagination"),
     min_confidence: float = Query(0.0, ge=0.0, le=1.0, description="Minimum confidence score filter")
@@ -1173,7 +1173,7 @@ async def get_enriched_potential_clients(
 
 
 @router.get("/potential-clients/enriched/{company_name}")
-async def get_enriched_client(company_name: str = Path(..., description="Company name to look up")):
+def get_enriched_client(company_name: str = Path(..., description="Company name to look up")):
     """
     Get enriched data for a specific potential client by company name.
     Returns cached data if available.
@@ -1196,7 +1196,7 @@ async def get_enriched_client(company_name: str = Path(..., description="Company
 
 
 @router.post("/potential-clients/enrich")
-async def enrich_potential_client(
+def enrich_potential_client(
     company_name: str = Body(..., embed=True, description="Company name to enrich"),
     additional_context: Optional[str] = Body(None, embed=True, description="Additional context for enrichment"),
     force_refresh: bool = Body(False, embed=True, description="Force fresh web search, bypass cache")
@@ -1240,7 +1240,7 @@ async def enrich_potential_client(
 
 
 @router.post("/potential-clients/enrich-batch")
-async def batch_enrich_potential_clients(
+def batch_enrich_potential_clients(
     company_names: List[str] = Body(..., embed=True, description="List of company names to enrich"),
     delay_seconds: float = Body(2.0, embed=True, description="Delay between API calls")
 ):
@@ -1302,7 +1302,7 @@ async def auto_enrich_new_potential_clients(
 
 
 @router.get("/potential-clients/enrichment-stats")
-async def get_potential_client_enrichment_stats():
+def get_potential_client_enrichment_stats():
     """
     Get statistics about potential client enrichment.
     Includes total enriched, high confidence count, and recent activity.
@@ -1319,7 +1319,7 @@ async def get_potential_client_enrichment_stats():
 
 
 @router.get("/potential-clients/unenriched")
-async def get_unenriched_potential_clients(
+def get_unenriched_potential_clients(
     company_names: List[str] = Query(..., description="List of all company names to check")
 ):
     """
