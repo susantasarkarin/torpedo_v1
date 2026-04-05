@@ -908,12 +908,15 @@ def get_operations_dashboard_kpis():
         # Traffic metrics (from traffic_flow_db) — single aggregation instead of 3 separate full-scans
         try:
             traffic_pipeline = [
-                {"$group": {"_id": {"$toLower": "$status"}, "count": {"$sum": 1}}}
+                {"$group": {"_id": "$status", "count": {"$sum": 1}}}
             ]
             traffic_stats = {doc["_id"]: doc["count"] for doc in traffic_collection.aggregate(traffic_pipeline)}
             total_traffic = sum(traffic_stats.values())
-            completed_surveys = traffic_stats.get("complete", 0)
-            terminated_surveys = traffic_stats.get("terminated", 0) + traffic_stats.get("terminate", 0)
+            completed_surveys = traffic_stats.get("COMPLETE", 0) + traffic_stats.get("complete", 0)
+            terminated_surveys = (
+                traffic_stats.get("TERMINATED", 0) + traffic_stats.get("terminated", 0)
+                + traffic_stats.get("QUALITY_TERM", 0) + traffic_stats.get("OVERQUOTA", 0)
+            )
             completion_rate = (completed_surveys / total_traffic * 100) if total_traffic > 0 else 0
         except Exception:
             total_traffic = 0
