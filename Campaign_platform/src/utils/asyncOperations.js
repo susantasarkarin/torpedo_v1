@@ -139,7 +139,7 @@ export const startAsyncOperation = async (endpoint, data = {}, options = {}) => 
     return {
       operationId: response.operation_id || response.task_id,
       status: response.status || OperationStatus.STARTED,
-      pollUrl: response.poll_url || `/operations/async/${response.operation_id || response.task_id}/status`,
+      pollUrl: response.poll_url || `/api/operations/async/${response.operation_id || response.task_id}/status`,
       ...response
     };
   } catch (error) {
@@ -156,7 +156,7 @@ export const startAsyncOperation = async (endpoint, data = {}, options = {}) => 
  */
 export const getOperationStatus = async (operationId) => {
   try {
-    const response = await api.get(`/operations/async/${operationId}/status`, {}, {
+    const response = await api.get(`/api/operations/async/${operationId}/status`, {}, {
       timeout: 10000,  // 10 second timeout for status check
       cache: false     // Never cache status checks
     });
@@ -332,7 +332,7 @@ export const cancelOperation = async (operationId) => {
     cancelPolling(operationId);
     
     // Send cancel request to server
-    const response = await api.post(`/operations/async/${operationId}/cancel`);
+    const response = await api.post(`/api/operations/async/${operationId}/cancel`);
     
     return {
       operationId,
@@ -354,7 +354,7 @@ export const cancelOperation = async (operationId) => {
 export const listActiveOperations = async (operationType = null) => {
   try {
     const params = operationType ? { type: operationType } : {};
-    const response = await api.get('/operations/async/active', params);
+    const response = await api.get('/api/operations/async/active', params);
     
     return response;
   } catch (error) {

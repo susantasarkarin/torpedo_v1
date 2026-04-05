@@ -102,6 +102,8 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: "", client_name: "", description: "" });
   const [saving, setSaving] = useState(false);
+  const [editingStudy, setEditingStudy] = useState(null); // { id, name, client_name, description }
+  const [editForm, setEditForm] = useState({ name: "", client_name: "", description: "" });
   const [toast, showToast] = useToast();
 
   const load = useCallback(async () => {
@@ -153,6 +155,25 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
     } catch (e) {
       showToast("Error: " + e.message);
     }
+  };
+
+  const openEdit = (s) => {
+    setEditingStudy(s);
+    setEditForm({ name: s.name, client_name: s.client_name, description: s.description || "" });
+  };
+
+  const saveEdit = async () => {
+    if (!editForm.name.trim() || !editForm.client_name.trim()) return;
+    setSaving(true);
+    try {
+      await qreApi.updateStudy(editingStudy.id, editForm);
+      showToast("Study updated");
+      setEditingStudy(null);
+      load();
+    } catch (e) {
+      showToast("Error: " + e.message);
+    }
+    setSaving(false);
   };
 
   if (loading) return <div className="qre-loading">Loading studies…</div>;
@@ -225,6 +246,11 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
                           ><Pause size={11} /></button>
                         ) : null}
                         <button
+                          className="qre-btn qre-btn-outline qre-btn-sm"
+                          title="Edit"
+                          onClick={() => openEdit(s)}
+                        ><Pencil size={11} /></button>
+                        <button
                           className="qre-btn qre-btn-danger qre-btn-sm"
                           title="Delete"
                           onClick={() => deleteStudy(s.id, s.name)}
@@ -240,8 +266,7 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
       </div>
 
       {/* Create modal */}
-      {showCreate && (
-        <div className="qre-modal-overlay" onClick={() => setShowCreate(false)}>
+      {showCreate && (        <div className="qre-modal-overlay" onClick={() => setShowCreate(false)}>
           <div className="qre-modal" onClick={(e) => e.stopPropagation()}>
             <h3 className="qre-modal-title">Create New Study</h3>
             <div className="qre-form">
@@ -281,6 +306,52 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
                 onClick={createStudy}
               >
                 {saving ? "Creating…" : "Create Study"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit modal */}
+      {editingStudy && (
+        <div className="qre-modal-overlay" onClick={() => setEditingStudy(null)}>
+          <div className="qre-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="qre-modal-title">Edit Study</h3>
+            <div className="qre-form">
+              <div>
+                <label className="qre-label">Study Name *</label>
+                <input
+                  className="qre-input"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="qre-label">Client Name *</label>
+                <input
+                  className="qre-input"
+                  value={editForm.client_name}
+                  onChange={(e) => setEditForm((p) => ({ ...p, client_name: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="qre-label">Description</label>
+                <textarea
+                  className="qre-textarea"
+                  placeholder="Optional description…"
+                  value={editForm.description}
+                  onChange={(e) => setEditForm((p) => ({ ...p, description: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="qre-modal-actions">
+              <button className="qre-btn qre-btn-outline" onClick={() => setEditingStudy(null)}>Cancel</button>
+              <button
+                className="qre-btn"
+                disabled={saving || !editForm.name.trim() || !editForm.client_name.trim()}
+                onClick={saveEdit}
+              >
+                {saving ? "Saving…" : "Save Changes"}
               </button>
             </div>
           </div>

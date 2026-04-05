@@ -50,7 +50,7 @@ def _set_cached(key: str, value: Any, ttl: int = CACHE_TTL_SECONDS):
 # ----------------------------
 # Router Setup
 # ----------------------------
-router = APIRouter(prefix="/operations", tags=["Operations"])
+router = APIRouter(prefix="/api/operations", tags=["Operations"])
 
 # ----------------------------
 # MongoDB Connection

@@ -179,8 +179,9 @@ async def _terminate(db, rid: str, reason: str, respondent: dict = None) -> Rout
         )
 
     claims = respondent.get("quota_claims", []) if respondent else []
+    resp_study_id = respondent.get("study_id") if respondent else None
     if claims:
-        await asyncio.gather(*[release_quota(db, qk) for qk in claims])
+        await asyncio.gather(*[release_quota(db, qk, resp_study_id) for qk in claims])
 
     # Lock IP for quality failures only, not for routine screenouts.
     lock_ip = reason.startswith("quality_")
@@ -315,6 +316,7 @@ async def submit_answer(payload: AnswerPayload):
     )
 
     responses = {**respondent.get("responses", {}), qid: answer}
+    _study_id = respondent.get("study_id")  # used for scoped quota enforcement
 
     # ==========================================================================
     # SECTION S â€” SCREENER (Q1-Q7)
@@ -333,7 +335,7 @@ async def submit_answer(payload: AnswerPayload):
         if code not in CITY_CODE_MAP:
             return await _terminate(db, rid, "Q2_not_target_city", respondent=respondent)
         city_key = CITY_CODE_MAP[code]
-        claimed = await try_claim_quota(db, city_key)
+        claimed = await try_claim_quota(db, city_key, _study_id)
         if not claimed:
             return await _terminate(db, rid, f"Q2_city_quota_full_{city_key}", respondent=respondent)
         await db.respondents.update_one(
@@ -349,7 +351,7 @@ async def submit_answer(payload: AnswerPayload):
             return await _terminate(db, rid, "Q3_age_disqualified", respondent=respondent)
         quota_key = AGE_QUOTA_MAP.get(code)
         if quota_key:
-            claimed = await try_claim_quota(db, quota_key)
+            claimed = await try_claim_quota(db, quota_key, _study_id)
             if not claimed:
                 return await _terminate(db, rid, f"Q3_age_quota_full_{quota_key}", respondent=respondent)
             await db.respondents.update_one(
@@ -362,7 +364,7 @@ async def submit_answer(payload: AnswerPayload):
         code = _coerce_int(answer)
         quota_key = GENDER_QUOTA_MAP.get(code)
         if quota_key:
-            claimed = await try_claim_quota(db, quota_key)
+            claimed = await try_claim_quota(db, quota_key, _study_id)
             if claimed:
                 await db.respondents.update_one(
                     {"_id": rid}, {"$push": {"quota_claims": quota_key}}
@@ -394,7 +396,7 @@ async def submit_answer(payload: AnswerPayload):
         if nccs["band"] in ("below_minimum", "nccs_terminate"):
             return await _terminate(db, rid, f"Q7_nccs_disqualified_{nccs['band']}", respondent=respondent)
         quota_key = nccs["band"]
-        claimed = await try_claim_quota(db, quota_key)
+        claimed = await try_claim_quota(db, quota_key, _study_id)
         if not claimed:
             return await _terminate(db, rid, f"Q7_nccs_quota_full_{quota_key}", respondent=respondent)
         await db.respondents.update_one(

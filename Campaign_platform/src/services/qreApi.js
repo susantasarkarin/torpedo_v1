@@ -75,19 +75,30 @@ export const qreApi = {
 
   // --- Export ---
   exportUrl: (type, studyId) => {
-    const base = `${QRE_API_BASE}/api/admin`;
-    if (type === "completed") return studyId ? `${base}/export?study_id=${studyId}` : `${base}/export`;
-    if (type === "spss") return `${base}/export/spss`;
-    return studyId ? `${base}/export/all?study_id=${studyId}` : `${base}/export/all`;
+    const adminBase = `${QRE_API_BASE}/api/admin`;
+    if (type === "spss") return `${adminBase}/export/spss`;
+    if (studyId) {
+      const statusFilter = type === "completed" ? "completed" : "all";
+      return `${QRE_API_BASE}/api/studies/${studyId}/export?status_filter=${statusFilter}`;
+    }
+    if (type === "completed") return `${adminBase}/export`;
+    return `${adminBase}/export/all`;
   },
 
   /** Authenticated download: fetches with Bearer token and triggers browser save. */
   downloadExport: async (type, studyId, filename) => {
-    const base = `${QRE_API_BASE}/api/admin`;
+    const adminBase = `${QRE_API_BASE}/api/admin`;
     let url;
-    if (type === "completed") url = studyId ? `${base}/export?study_id=${studyId}` : `${base}/export`;
-    else if (type === "spss") url = `${base}/export/spss`;
-    else url = studyId ? `${base}/export/all?study_id=${studyId}` : `${base}/export/all`;
+    if (type === "spss") {
+      url = `${adminBase}/export/spss`;
+    } else if (studyId) {
+      const statusFilter = type === "completed" ? "completed" : "all";
+      url = `${QRE_API_BASE}/api/studies/${studyId}/export?status_filter=${statusFilter}`;
+    } else if (type === "completed") {
+      url = `${adminBase}/export`;
+    } else {
+      url = `${adminBase}/export/all`;
+    }
 
     const res = await fetch(url, {
       headers: _token ? { Authorization: `Bearer ${_token}` } : {},

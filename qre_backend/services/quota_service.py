@@ -45,33 +45,59 @@ def _get_limit(key: str) -> int:
     return all_quotas.get(key, 999999)
 
 
-async def _get_limit_async(db: AsyncIOMotorDatabase, key: str) -> int:
-    """Look up the limit for a quota key, checking DB overrides first."""
+async def _get_limit_async(
+    db: AsyncIOMotorDatabase, key: str, study_id: str | None = None
+) -> int:
+    """Look up the limit for a quota key.
+
+    Priority:
+    1. Per-study limits from db.studies.quotas.cells  (when study_id is given)
+    2. Admin overrides from db.quota_limits           (legacy global overrides)
+    3. Hard-coded config defaults
+    """
+    if study_id and study_id != "default":
+        study_doc = await db.studies.find_one(
+            {"_id": study_id}, {"quotas.cells": 1}
+        )
+        if study_doc:
+            cells = study_doc.get("quotas", {}).get("cells", {})
+            if key in cells:
+                return int(cells[key])
+    # Fall back to legacy global quota_limits collection then config
     doc = await db.quota_limits.find_one({"_id": "limits"})
     if doc and key in doc:
         return doc[key]
     return _get_limit(key)
 
 
-async def try_claim_quota(db: AsyncIOMotorDatabase, quota_key: str) -> bool:
+async def try_claim_quota(
+    db: AsyncIOMotorDatabase, quota_key: str, study_id: str | None = None
+) -> bool:
     """
     Atomically attempt to increment a quota counter.
     Returns True if the slot was claimed (counter was below limit).
     Returns False if quota is already full (no increment performed).
+
+    When *study_id* is provided the per-study counter document
+    (``_id: "quota_{study_id}"``) is used; otherwise the global doc is used.
     """
-    limit = await _get_limit_async(db, quota_key)
+    counter_id = f"quota_{study_id}" if (study_id and study_id != "default") else "global"
+    limit = await _get_limit_async(db, quota_key, study_id)
 
     result = await db.quotas.find_one_and_update(
-        {"_id": "global", quota_key: {"$lt": limit}},
+        {"_id": counter_id, quota_key: {"$lt": limit}},
         {"$inc": {quota_key: 1}},
     )
     return result is not None
 
 
-async def release_quota(db: AsyncIOMotorDatabase, quota_key: str):
+async def release_quota(
+    db: AsyncIOMotorDatabase, quota_key: str, study_id: str | None = None
+):
     """Decrement a quota counter (e.g., on termination after quota was claimed)."""
+    counter_id = f"quota_{study_id}" if (study_id and study_id != "default") else "global"
     await db.quotas.update_one(
-        {"_id": "global", quota_key: {"$gt": 0}},
+        {"_id": counter_id, quota_key: {"$gt": 0}},
         {"$inc": {quota_key: -1}},
     )
 
@@ -186,10 +212,13 @@ async def get_all_quotas(
     return result
 
 
-async def check_quota_available(db: AsyncIOMotorDatabase, quota_key: str) -> bool:
+async def check_quota_available(
+    db: AsyncIOMotorDatabase, quota_key: str, study_id: str | None = None
+) -> bool:
     """Check if a quota cell has room without claiming it."""
-    limit = await _get_limit_async(db, quota_key)
-    doc = await db.quotas.find_one({"_id": "global"})
+    counter_id = f"quota_{study_id}" if (study_id and study_id != "default") else "global"
+    limit = await _get_limit_async(db, quota_key, study_id)
+    doc = await db.quotas.find_one({"_id": counter_id})
     if not doc:
         return True
     return doc.get(quota_key, 0) < limit

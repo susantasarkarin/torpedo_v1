@@ -24,6 +24,7 @@ function ProjectsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [recordsPerPage, setRecordsPerPage] = useState(10);
   const [qreStatsMap, setQreStatsMap] = useState({});
+  const [qreStudies, setQreStudies] = useState([]);
 
   const emptyForm = {
     projectName: "",
@@ -310,6 +311,10 @@ function ProjectsPage() {
     fetchVendors();
     fetchClients();
     fetchRfqs();
+    qreApi.login("admin", "admin@QRE2026")
+      .then(res => { qreApi.setToken(res.token); return qreApi.listStudies(); })
+      .then(setQreStudies)
+      .catch(() => {});
   }, [navigate]);
 
   useEffect(() => {
@@ -886,8 +891,13 @@ function ProjectsPage() {
                 </div>
                 <div className="pp-form-row">
                   <div className="pp-field">
-                    <label>QRE Study ID</label>
-                    <input name="qreStudyId" value={formData.qreStudyId || ""} onChange={handleChange} placeholder="e.g. 6d4428ee" />
+                    <label>QRE Study</label>
+                    <select name="qreStudyId" value={formData.qreStudyId || ""} onChange={handleChange}>
+                      <option value="">— None —</option>
+                      {qreStudies.map(s => (
+                        <option key={s.id} value={s.id}>{s.name} ({s.client_name})</option>
+                      ))}
+                    </select>
                     <small className="pp-hint">Links this project to a QRE survey for real-time stats.</small>
                   </div>
                 </div>

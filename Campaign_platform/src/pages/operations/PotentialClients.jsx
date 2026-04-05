@@ -219,7 +219,7 @@ function PotentialClients() {
   // Fetch enriched leads data
   const fetchEnrichedLeads = useCallback(async () => {
     try {
-      const response = await fetch(buildApiUrl("/operations/potential-clients/enriched?limit=500"), {
+      const response = await fetch(buildApiUrl("/api/operations/potential-clients/enriched?limit=500"), {
         headers: {
           Authorization: token,
           "Content-Type": "application/json",
@@ -253,7 +253,7 @@ function PotentialClients() {
   const enrichCompany = async (companyName) => {
     setEnrichingCompany(companyName);
     try {
-      const response = await fetch(buildApiUrl("/operations/potential-clients/enrich"), {
+      const response = await fetch(buildApiUrl("/api/operations/potential-clients/enrich"), {
         method: "POST",
         headers: {
           Authorization: token,
@@ -292,7 +292,7 @@ function PotentialClients() {
 
     setAutoEnriching(true);
     try {
-      const response = await fetch(buildApiUrl("/operations/potential-clients/auto-enrich"), {
+      const response = await fetch(buildApiUrl("/api/operations/potential-clients/auto-enrich"), {
         method: "POST",
         headers: {
           Authorization: token,
