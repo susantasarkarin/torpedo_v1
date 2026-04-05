@@ -854,6 +854,11 @@ def get_operations_dashboard_kpis():
     Get real-time KPIs for the Operations dashboard.
     Replaces mock data with actual aggregated metrics.
     """
+    cache_key = _get_cache_key("dashboard_kpis")
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
     try:
         now = datetime.utcnow()
         start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -962,7 +967,7 @@ def get_operations_dashboard_kpis():
             if item["_id"]
         }
         
-        return {
+        result = {
             # Project KPIs
             "projects": {
                 "total": total_projects,
@@ -998,6 +1003,8 @@ def get_operations_dashboard_kpis():
             # Timestamp
             "updated_at": now.isoformat()
         }
+        _set_cached(cache_key, result, ttl=120)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching dashboard KPIs: {str(e)}")
 
@@ -1005,6 +1012,10 @@ def get_operations_dashboard_kpis():
 @router.get("/dashboard/recent-activity")
 def get_recent_activity(limit: int = Query(10, ge=1, le=50)):
     """Get recent activity across projects, invoices, and traffic"""
+    cache_key = _get_cache_key("recent_activity", limit=limit)
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
     try:
         activities = []
         
@@ -1064,7 +1075,9 @@ def get_recent_activity(limit: int = Query(10, ge=1, le=50)):
             else:
                 activity["timestamp"] = None
         
-        return {"activities": activities[:limit]}
+        result = {"activities": activities[:limit]}
+        _set_cached(cache_key, result, ttl=60)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching recent activity: {str(e)}")
 

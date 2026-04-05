@@ -66,7 +66,7 @@ function Operations() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchDashboardData();
+      fetchDashboardData(false); // silent refresh — don't show loading spinner
     }, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -83,8 +83,8 @@ function Operations() {
     }
   };
 
-  const fetchDashboardData = async () => {
-    setLoading(true);
+  const fetchDashboardData = async (showLoader = true) => {
+    if (showLoader) setLoading(true);
     setError(null);
     try {
       const sessionToken = token();
@@ -140,7 +140,7 @@ function Operations() {
       console.error("Dashboard error:", err);
       setError("Failed to load dashboard");
     } finally {
-      setLoading(false);
+      if (showLoader) setLoading(false);
     }
   };
 

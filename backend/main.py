@@ -1495,7 +1495,10 @@ def background_historic_email_sync():
                 return  # Silent skip if paused
             
             # Run backfill cycle with rate limiting
-            result = ws_service.run_backfill_cycle()
+            run_backfill_fn = getattr(ws_service, 'run_backfill_cycle', None)
+            if not run_backfill_fn:
+                return  # Method not available in this version
+            result = run_backfill_fn()
             
             if result.get("skipped"):
                 return  # Backfill paused, skip silently
