@@ -32,6 +32,62 @@ def serialize_doc(doc):
     return doc
 
 # ========================
+# Panel Vendor CRUD (used by VendorsPage)
+# ========================
+
+@router.get("/")
+def list_panel_vendors(
+    search: Optional[str] = Query(None, description="Search by name or email")
+):
+    """List all panel vendors"""
+    query = {}
+    if search:
+        import re
+        pattern = re.compile(re.escape(search), re.IGNORECASE)
+        query = {"$or": [{"vendorName": pattern}, {"vendorEmail": pattern}]}
+    vendors = [serialize_doc(v) for v in panel_vendors_collection.find(query)]
+    return {"vendors": vendors, "total": len(vendors)}
+
+
+@router.post("/")
+def create_panel_vendor(vendor_data: dict):
+    """Create a new panel vendor"""
+    vendor_data["createdAt"] = datetime.utcnow().isoformat()
+    result = panel_vendors_collection.insert_one(vendor_data)
+    created = panel_vendors_collection.find_one({"_id": result.inserted_id})
+    return serialize_doc(created)
+
+
+@router.put("/{vendor_id}")
+def update_panel_vendor(vendor_id: str, vendor_data: dict):
+    """Update a panel vendor"""
+    try:
+        oid = ObjectId(vendor_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid vendor ID")
+    vendor_data.pop("_id", None)
+    vendor_data["updatedAt"] = datetime.utcnow().isoformat()
+    result = panel_vendors_collection.update_one({"_id": oid}, {"$set": vendor_data})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    updated = panel_vendors_collection.find_one({"_id": oid})
+    return serialize_doc(updated)
+
+
+@router.delete("/{vendor_id}")
+def delete_panel_vendor(vendor_id: str):
+    """Delete a panel vendor"""
+    try:
+        oid = ObjectId(vendor_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid vendor ID")
+    result = panel_vendors_collection.delete_one({"_id": oid})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+    return {"message": "Vendor deleted successfully"}
+
+
+# ========================
 # Unified Vendor Endpoints
 # ========================
 
