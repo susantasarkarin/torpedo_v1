@@ -39,6 +39,25 @@ async def ensure_quota_doc(db: AsyncIOMotorDatabase):
             await db.quotas.update_one({"_id": "global"}, {"$set": missing})
 
 
+async def ensure_study_quota_doc(db: AsyncIOMotorDatabase, study_id: str):
+    """Create the per-study quota counter document if it doesn't exist.
+    Called lazily on each start_survey so the doc is always present before
+    any try_claim_quota call for that study.
+    """
+    counter_id = f"quota_{study_id}"
+    all_keys = {**QUOTA_AGE, **QUOTA_GENDER, **QUOTA_NCCS, **QUOTA_CITY}
+    existing = await db.quotas.find_one({"_id": counter_id})
+    if not existing:
+        try:
+            await db.quotas.insert_one({"_id": counter_id, **{k: 0 for k in all_keys}})
+        except Exception:
+            pass  # duplicate key on race condition — safe to ignore
+    else:
+        missing = {k: 0 for k in all_keys if k not in existing}
+        if missing:
+            await db.quotas.update_one({"_id": counter_id}, {"$set": missing})
+
+
 def _get_limit(key: str) -> int:
     """Look up the limit for a quota key (sync fallback for default)."""
     all_quotas = {**QUOTA_AGE, **QUOTA_GENDER, **QUOTA_NCCS, **QUOTA_CITY}

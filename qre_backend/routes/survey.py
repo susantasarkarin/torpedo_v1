@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request
 from models import AnswerPayload, StartSurveyResponse, RoutingDecision, ResumeSurveyResponse
-from services.quota_service import try_claim_quota, release_quota
+from services.quota_service import try_claim_quota, release_quota, ensure_study_quota_doc
 from services.nccs import classify_nccs
 from config import (
     CITY_CODE_MAP, CATEGORY_PRIORITY,
@@ -267,6 +267,9 @@ async def start_survey(request: Request, study_id: str = "default", rid: str = "
         if study.get("status") not in ("live", "draft"):
             raise HTTPException(status_code=400, detail="Study is not accepting responses")
         wave_id = study.get("active_wave_id")
+
+    if study_id and study_id != "default":
+        await ensure_study_quota_doc(db, study_id)
 
     respondent_id = str(uuid.uuid4())[:12]
     await db.respondents.insert_one({
