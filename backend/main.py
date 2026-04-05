@@ -1489,8 +1489,9 @@ def background_historic_email_sync():
             if not ws_service.is_configured():
                 return  # Silent skip if not configured
             
-            # Check if backfill is enabled
-            if not ws_service.is_backfill_enabled():
+            # Check if backfill is enabled (method may not exist in all versions)
+            is_enabled_fn = getattr(ws_service, 'is_backfill_enabled', None)
+            if is_enabled_fn and not is_enabled_fn():
                 return  # Silent skip if paused
             
             # Run backfill cycle with rate limiting

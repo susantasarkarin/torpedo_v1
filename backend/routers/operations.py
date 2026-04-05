@@ -849,7 +849,7 @@ async def get_projects_with_financials(
 # ============================================================
 
 @router.get("/dashboard/kpis")
-async def get_operations_dashboard_kpis():
+def get_operations_dashboard_kpis():
     """
     Get real-time KPIs for the Operations dashboard.
     Replaces mock data with actual aggregated metrics.
@@ -905,12 +905,15 @@ async def get_operations_dashboard_kpis():
             total_received = 0
             total_outstanding = 0
         
-        # Traffic metrics (from traffic_flow_db)
+        # Traffic metrics (from traffic_flow_db) — single aggregation instead of 3 separate full-scans
         try:
-            total_traffic = traffic_collection.count_documents({})
-            completed_surveys = traffic_collection.count_documents({"status": "COMPLETE"})
-            terminated_surveys = traffic_collection.count_documents({"status": "TERMINATED"})
-            
+            traffic_pipeline = [
+                {"$group": {"_id": {"$toLower": "$status"}, "count": {"$sum": 1}}}
+            ]
+            traffic_stats = {doc["_id"]: doc["count"] for doc in traffic_collection.aggregate(traffic_pipeline)}
+            total_traffic = sum(traffic_stats.values())
+            completed_surveys = traffic_stats.get("complete", 0)
+            terminated_surveys = traffic_stats.get("terminated", 0) + traffic_stats.get("terminate", 0)
             completion_rate = (completed_surveys / total_traffic * 100) if total_traffic > 0 else 0
         except Exception:
             total_traffic = 0
@@ -997,7 +1000,7 @@ async def get_operations_dashboard_kpis():
 
 
 @router.get("/dashboard/recent-activity")
-async def get_recent_activity(limit: int = Query(10, ge=1, le=50)):
+def get_recent_activity(limit: int = Query(10, ge=1, le=50)):
     """Get recent activity across projects, invoices, and traffic"""
     try:
         activities = []

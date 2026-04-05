@@ -10,7 +10,7 @@ from datetime import datetime
 from pymongo import MongoClient
 import os
 
-router = APIRouter(prefix="/vendors", tags=["Unified Vendors"])
+router = APIRouter(prefix="/api/vendors", tags=["Unified Vendors"])
 
 # MongoDB connection
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
