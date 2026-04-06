@@ -878,12 +878,12 @@ class TrafficService:
                 }
             })
             
-            results = list(self.traffic_collection.aggregate(pipeline))
+            results = list(self.traffic_collection.aggregate(pipeline, maxTimeMS=8000))
             
             # Consolidate statuses
             by_status = {}
             total = 0
-            
+
             for r in results:
                 raw_status = r["_id"]
                 count = r["count"]
@@ -935,7 +935,7 @@ class TrafficService:
                 }
             ]
             
-            results = list(self.traffic_collection.aggregate(pipeline))
+            results = list(self.traffic_collection.aggregate(pipeline, maxTimeMS=10000))
             
             # Build stats dictionary
             stats_by_survey = {}
@@ -1038,20 +1038,31 @@ class TrafficService:
                     {"assignedSurveyId": {"$regex": search, "$options": "i"}},
                 ]
             
-            # Get total count
-            total_count = self.traffic_collection.count_documents(query)
-            
-            # Calculate pagination
+            # Use $facet aggregation to get count + records in one round-trip with maxTimeMS
+            MAX_TIME_MS = 10000
             skip = (page - 1) * page_size
+
+            pipeline = [{"$match": query}]
+            pipeline.append({
+                "$facet": {
+                    "total": [{"$count": "count"}],
+                    "records": [
+                        {"$sort": {"_id": -1}},
+                        {"$skip": skip},
+                        {"$limit": page_size},
+                    ]
+                }
+            })
+            facet_result = list(self.traffic_collection.aggregate(pipeline, maxTimeMS=MAX_TIME_MS))
+
+            if facet_result:
+                total_count = (facet_result[0].get("total") or [{}])[0].get("count", 0)
+                records = facet_result[0].get("records", [])
+            else:
+                total_count = 0
+                records = []
+
             total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 0
-            
-            # Fetch records - sort by createdAt if exists, fall back to _id for old records
-            records = list(
-                self.traffic_collection.find(query)
-                .sort([("createdAt", -1), ("timestamp", -1), ("_id", -1)])
-                .skip(skip)
-                .limit(page_size)
-            )
             
             # Serialize for JSON response - handle both old and new schema
             serialized_records = []

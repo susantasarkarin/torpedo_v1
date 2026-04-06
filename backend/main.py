@@ -929,7 +929,7 @@ except Exception as e:
 
 # RFQ (Request for Quote) router
 try:
-    app.include_router(rfq_router.router)
+    app.include_router(rfq_router.router, prefix="/api")
     print("✅ RFQ router included")
 except Exception as e:
     print(f"⚠️ RFQ router not included: {e}")
