@@ -6,11 +6,17 @@ from typing import Dict, Any
 from pymongo import MongoClient
 from datetime import datetime
 import os
+import time
 from dotenv import load_dotenv
 # Import email safety module for kill switch status
 from campaigns.email_safety import get_email_status
 # Load env
 load_dotenv()
+
+# Simple in-memory settings cache (TTL: 60 seconds)
+_settings_cache: Dict[str, Any] = {}
+_settings_cache_ts: Dict[str, float] = {}
+_SETTINGS_CACHE_TTL = 60  # seconds
 
 router = APIRouter(
     prefix="/settings",
@@ -39,12 +45,19 @@ except Exception:
 
 
 def get_settings_by_key(key: str) -> Dict[str, Any]:
-    """Get settings by key from MongoDB"""
+    """Get settings by key from MongoDB, with in-memory cache (TTL 60s)"""
+    now = time.time()
+    if key in _settings_cache and now - _settings_cache_ts.get(key, 0) < _SETTINGS_CACHE_TTL:
+        return _settings_cache[key]
     try:
         settings = app_settings_collection.find_one({"_id": key}, max_time_ms=5000)
         if settings:
             settings.pop("_id", None)
+            _settings_cache[key] = settings
+            _settings_cache_ts[key] = now
             return settings
+        _settings_cache[key] = {}
+        _settings_cache_ts[key] = now
         return {}
     except Exception as e:
         print(f"Error fetching settings for {key}: {e}")
@@ -59,6 +72,9 @@ def save_settings_by_key(key: str, data: Dict[str, Any]) -> bool:
             {"$set": {**data, "last_updated": datetime.utcnow()}},
             upsert=True
         )
+        # Invalidate cache on save
+        _settings_cache.pop(key, None)
+        _settings_cache_ts.pop(key, None)
         return True
     except Exception as e:
         print(f"Error saving settings for {key}: {e}")

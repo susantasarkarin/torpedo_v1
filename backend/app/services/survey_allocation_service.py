@@ -17,6 +17,7 @@ from bson import ObjectId
 from dotenv import load_dotenv
 import hashlib
 import secrets
+import time
 from app.services.cpx_service import CPXService
 
 # Load environment
@@ -119,11 +120,16 @@ class SurveyAllocationService:
     # ============================================
     
     def get_allocation_settings(self) -> AllocationSettings:
-        """Get allocation settings from database with defaults"""
+        """Get allocation settings from database with defaults (cached 60s)"""
+        now = time.time()
+        cached = getattr(self, "_alloc_settings_cache", None)
+        cached_ts = getattr(self, "_alloc_settings_ts", 0)
+        if cached is not None and now - cached_ts < 60:
+            return cached
         try:
             stored = self.settings_collection.find_one({"_id": "allocation_settings"}, max_time_ms=5000)
             if stored:
-                return AllocationSettings(
+                result = AllocationSettings(
                     batch_size=stored.get("batch_size", 100),
                     buffer_multiplier=stored.get("buffer_multiplier", 1.2),
                     max_incomplete_rate=stored.get("max_incomplete_rate", 40.0),
@@ -134,6 +140,9 @@ class SurveyAllocationService:
                     prefer_high_ir_surveys=stored.get("prefer_high_ir_surveys", True),
                     prefer_high_cpi_surveys=stored.get("prefer_high_cpi_surveys", False)
                 )
+                self._alloc_settings_cache = result
+                self._alloc_settings_ts = now
+                return result
         except Exception as e:
             print(f"⚠️ Error loading allocation settings: {e}")
         
@@ -152,6 +161,9 @@ class SurveyAllocationService:
                 },
                 upsert=True
             )
+            # Invalidate cache on save
+            self._alloc_settings_cache = None
+            self._alloc_settings_ts = 0
             return True
         except Exception as e:
             print(f"❌ Error saving allocation settings: {e}")
