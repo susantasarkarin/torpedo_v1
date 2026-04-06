@@ -1874,12 +1874,17 @@ async def get_mail_pool_stats(
                 # Stale but already refreshing - serve stale
                 return _mail_pool_stats_cache["data"]
         
-        # No cache at all - compute synchronously (cold start)
-        result = _compute_mail_pool_stats()
-        if result:
-            return result
-        # Return minimal empty stats if computation failed
-        return {"success": True, "stats": {"total_emails": 0, "gmail_total": 0, "inbox_count": 0, "sent_count": 0, "drafts_count": 0, "segments": {}, "ai_categories": {}, "pending_review": 0, "accounts": [], "total_accounts": 0}}
+        # No cache at all (cold start) - return empty immediately, compute in background
+        # This prevents the first request from blocking for 30-40s
+        if not _mail_pool_stats_cache.get("refreshing", False):
+            _mail_pool_stats_cache["refreshing"] = True
+            def _refresh_cold():
+                try:
+                    _compute_mail_pool_stats()
+                finally:
+                    _mail_pool_stats_cache["refreshing"] = False
+            _threading.Thread(target=_refresh_cold, daemon=True).start()
+        return {"success": True, "stats": {"total_emails": 0, "gmail_total": 0, "inbox_count": 0, "sent_count": 0, "drafts_count": 0, "segments": {}, "ai_categories": {}, "pending_review": 0, "accounts": [], "total_accounts": 0, "_computing": True}}
 
     except HTTPException:
         raise

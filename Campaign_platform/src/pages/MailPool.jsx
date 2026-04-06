@@ -358,6 +358,8 @@ function MailPool() {
 
   // Debounce timer ref for filter changes
   const filterDebounceTimer = useRef(null)
+  // Retry timer for stats when server is still computing (cold start)
+  const statsRetryTimer = useRef(null)
 
   // Fetch stats
   const fetchStats = useCallback(async () => {
@@ -381,6 +383,11 @@ function MailPool() {
       const data = await res.json()
       if (data.success) {
         setStats(data.stats)
+        // If server returned empty stats (computing in background), retry after 45s
+        if (data.stats._computing || data.stats.total_emails === 0) {
+          if (statsRetryTimer.current) clearTimeout(statsRetryTimer.current)
+          statsRetryTimer.current = setTimeout(() => { fetchStats() }, 45000)
+        }
         // Set aliases from accounts - now aliases are objects with their own signatures
         if (data.stats.accounts) {
           const allAliases = []
