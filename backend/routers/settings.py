@@ -19,7 +19,12 @@ router = APIRouter(
 
 # MongoDB connection
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-mongo_client = MongoClient(MONGO_URI)
+mongo_client = MongoClient(
+    MONGO_URI,
+    serverSelectionTimeoutMS=5000,
+    connectTimeoutMS=5000,
+    socketTimeoutMS=8000,
+)
 settings_db = mongo_client["torpedo_settings"]
 app_settings_collection = settings_db["app_settings"]
 survey_filter_collection = settings_db["survey_filters"]
@@ -36,7 +41,7 @@ except Exception:
 def get_settings_by_key(key: str) -> Dict[str, Any]:
     """Get settings by key from MongoDB"""
     try:
-        settings = app_settings_collection.find_one({"_id": key})
+        settings = app_settings_collection.find_one({"_id": key}, max_time_ms=5000)
         if settings:
             settings.pop("_id", None)
             return settings

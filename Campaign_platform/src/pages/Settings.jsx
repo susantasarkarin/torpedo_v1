@@ -98,7 +98,7 @@ function Settings() {
     prefer_high_cpi_surveys: false,
   })
 
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: "", text: "" })
   const [activeTab, setActiveTab] = useState("app") // "app", "allocation", "ai-config"
@@ -872,7 +872,7 @@ function Settings() {
   }
 
   const loadAllSettings = async () => {
-    setLoading(true)
+    setLoading(false) // Show page immediately with defaults; update when data arrives
     try {
       const token = getAuthToken()
 
@@ -902,8 +902,6 @@ function Settings() {
     } catch (error) {
       console.error("Error loading settings:", error)
       setMessage({ type: "error", text: "Failed to load settings" })
-    } finally {
-      setLoading(false)
     }
   }
 

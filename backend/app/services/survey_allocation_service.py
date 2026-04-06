@@ -121,7 +121,7 @@ class SurveyAllocationService:
     def get_allocation_settings(self) -> AllocationSettings:
         """Get allocation settings from database with defaults"""
         try:
-            stored = self.settings_collection.find_one({"_id": "allocation_settings"})
+            stored = self.settings_collection.find_one({"_id": "allocation_settings"}, max_time_ms=5000)
             if stored:
                 return AllocationSettings(
                     batch_size=stored.get("batch_size", 100),
