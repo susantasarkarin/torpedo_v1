@@ -63,6 +63,11 @@ export default function TrafficManagement() {
         return
       }
 
+      const contentType = res.headers.get("content-type") || ""
+      if (!contentType.includes("application/json")) {
+        throw new Error("Server unavailable or request timed out. Please try again.")
+      }
+
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || "Failed to load traffic records")
 
@@ -103,12 +108,12 @@ export default function TrafficManagement() {
     fetchStats()
   }, [currentPage, recordsPerPage, statusFilter])
 
-  // Auto-refresh every 5 seconds for faster data visibility
+  // Auto-refresh every 60 seconds (traffic list queries take ~10s, 5s interval caused constant aborts)
   useEffect(() => {
     const interval = setInterval(() => {
       fetchRecords()
       fetchStats()
-    }, 5000) // 5 seconds - reduced from 30s for faster updates
+    }, 60000) // 60 seconds
     return () => clearInterval(interval)
   }, [currentPage, recordsPerPage, statusFilter, search])
 
