@@ -101,9 +101,11 @@ function Settings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: "", text: "" })
-  const [activeTab, setActiveTab] = useState("app") // "app", "allocation", "mail-operations"
+  const [activeTab, setActiveTab] = useState("app") // "app", "allocation", "ai-config"
   const [testingMongo, setTestingMongo] = useState(false)
   const [testingCpx, setTestingCpx] = useState(false)
+  const [rateLimitsLoading, setRateLimitsLoading] = useState(true)
+  const [allocationError, setAllocationError] = useState(null)
 
   // Mail Operations state
   const [segregationStats, setSegregationStats] = useState(null)
@@ -186,6 +188,7 @@ function Settings() {
 
   // Load Rate Limits
   const loadRateLimits = async () => {
+    setRateLimitsLoading(true)
     try {
       const token = getAuthToken()
       const response = await fetch(buildApiUrl(`/gmail/rate-limits`), {
@@ -199,6 +202,8 @@ function Settings() {
       }
     } catch (error) {
       console.error("Error loading rate limits:", error)
+    } finally {
+      setRateLimitsLoading(false)
     }
   }
 
@@ -810,17 +815,26 @@ function Settings() {
   }
 
   const loadAllocationSettings = async () => {
+    setAllocationError(null)
     try {
       const token = getAuthToken()
       const response = await fetch(buildApiUrl(`/survey-allocation/settings`), {
         headers: { Authorization: token }
       })
       if (response.ok) {
+        const contentType = response.headers.get("content-type") || ""
+        if (!contentType.includes("application/json")) {
+          setAllocationError("Server returned an unexpected response. The survey allocation API may be unavailable.")
+          return
+        }
         const data = await response.json()
         setAllocationSettings(prev => ({ ...prev, ...data.settings }))
+      } else {
+        setAllocationError(`Failed to load allocation settings (HTTP ${response.status})`)
       }
     } catch (error) {
       console.error("Error loading allocation settings:", error)
+      setAllocationError("Failed to load allocation settings. Check your connection.")
     }
   }
 
@@ -970,40 +984,36 @@ function Settings() {
     try {
       const token = getAuthToken()
 
-      // Save app settings
-      const appResponse = await fetch(buildApiUrl(`/settings/app`), {
-        method: "POST",
-        headers: {
-          Authorization: token,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(appSettings)
-      })
+      // Save app settings and survey filters in parallel
+      const [appResponse, filterResponse] = await Promise.all([
+        fetch(buildApiUrl(`/settings/app`), {
+          method: "POST",
+          headers: { Authorization: token, "Content-Type": "application/json" },
+          body: JSON.stringify(appSettings)
+        }),
+        fetch(buildApiUrl(`/settings/survey-filters`), {
+          method: "POST",
+          headers: { Authorization: token, "Content-Type": "application/json" },
+          body: JSON.stringify(surveyFilters)
+        })
+      ])
 
+      const errors = []
       if (!appResponse.ok) {
-        const error = await appResponse.json()
-        setMessage({ type: "error", text: getErrorMessage(error, "Failed to save application settings") })
-        return
+        const err = await appResponse.json().catch(() => ({}))
+        errors.push(getErrorMessage(err, "Failed to save application settings"))
       }
-
-      // Save survey filters
-      const filterResponse = await fetch(buildApiUrl(`/settings/survey-filters`), {
-        method: "POST",
-        headers: {
-          Authorization: token,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(surveyFilters)
-      })
-
       if (!filterResponse.ok) {
-        const error = await filterResponse.json()
-        setMessage({ type: "error", text: getErrorMessage(error, "Failed to save filter settings") })
-        return
+        const err = await filterResponse.json().catch(() => ({}))
+        errors.push(getErrorMessage(err, "Failed to save filter settings"))
       }
 
-      setMessage({ type: "success", text: "All settings saved successfully!" })
-      loadAllSettings() // Reload to get updated masked values
+      if (errors.length > 0) {
+        setMessage({ type: "error", text: errors.join(" | ") })
+      } else {
+        setMessage({ type: "success", text: "All settings saved successfully!" })
+        loadAllSettings() // Reload to get updated masked values
+      }
     } catch (error) {
       console.error("Error saving settings:", error)
       setMessage({ type: "error", text: "Failed to save settings" })
@@ -1790,7 +1800,7 @@ function Settings() {
 
               {/* Email Rate Limits Section */}
               <div className="settings-group">
-                <h3>⏱️ Email Rate Limits</h3>
+                <h3>⏱️ Email Rate Limits {rateLimitsLoading && <span style={{ fontSize: '0.75rem', color: '#9ca3af', fontWeight: 400 }}>Loading...</span>}</h3>
 
                 <div className="setting-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <input
@@ -1798,6 +1808,7 @@ function Settings() {
                     checked={rateLimits.enabled}
                     onChange={(e) => handleRateLimitChange("enabled", e.target.checked)}
                     style={{ width: '18px', height: '18px' }}
+                    disabled={rateLimitsLoading}
                   />
                   <label style={{ margin: 0 }}>Enable Rate Limiting</label>
                 </div>
@@ -1931,6 +1942,18 @@ function Settings() {
             <p className="section-description">
               Configure allocation batch sizes, quality thresholds, and auto-pause rules.
             </p>
+
+            {allocationError && (
+              <div className="settings-message error" style={{ marginBottom: '1rem' }}>
+                ⚠ {allocationError}
+                <button
+                  onClick={loadAllocationSettings}
+                  style={{ marginLeft: '1rem', background: 'none', border: '1px solid currentColor', padding: '2px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85rem' }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
 
             <div className="settings-grid">
               <div className="settings-group">

@@ -65,7 +65,12 @@ router = APIRouter(
 
 # MongoDB connection
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-mongo_client = MongoClient(MONGO_URI)
+mongo_client = MongoClient(
+    MONGO_URI,
+    serverSelectionTimeoutMS=5000,
+    connectTimeoutMS=5000,
+    socketTimeoutMS=8000,
+)
 gmail_db = mongo_client["torpedo_gmail"]
 accounts_collection = gmail_db["accounts"]
 rate_limits_collection = gmail_db["rate_limits"]
@@ -164,7 +169,10 @@ def save_account_to_db(account_data: Dict) -> bool:
 
 def get_rate_limit_settings() -> Dict:
     """Get rate limit settings from MongoDB"""
-    settings = settings_collection.find_one({"_id": "rate_limits"})
+    try:
+        settings = settings_collection.find_one({"_id": "rate_limits"}, max_time_ms=3000)
+    except Exception:
+        settings = None
     if settings:
         return {
             "daily_limit": settings.get("daily_limit", 500),
@@ -909,7 +917,10 @@ async def sync_aliases_from_gmail(account_id: str, request: Request):
 @router.get("/rate-limits")
 async def get_rate_limits(request: Request):
     """Get rate limit settings (frontend-compatible format)"""
-    settings = get_rate_limit_settings()
+    try:
+        settings = get_rate_limit_settings()
+    except Exception:
+        settings = {}
     return {
         "rate_limits": {
             "max_per_day": settings.get("daily_limit", 500),
