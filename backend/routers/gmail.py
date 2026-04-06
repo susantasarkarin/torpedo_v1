@@ -1728,10 +1728,12 @@ async def update_imap_account_settings(
 
 # In-memory cache for Mail Pool stats (reduces database load during heavy background processing)
 import time as _time
+import threading as _threading
 _mail_pool_stats_cache = {
     "data": None,
     "timestamp": 0,
-    "ttl": 120  # Cache for 120 seconds
+    "ttl": 120,  # Cache for 120 seconds
+    "refreshing": False,  # Background refresh flag
 }
 
 # Primary email collection - use torpedo_gmail (Gmail Workspace sync system)
@@ -1840,6 +1842,7 @@ async def get_mail_pool_stats(
     Get consolidated statistics for the Mail Pool - overview of all email activity
     Uses email_automation.emails collection (new sync system)
     Includes caching to reduce database load during background processing.
+    Serves stale cache immediately while refreshing in background.
     """
     global _mail_pool_stats_cache
     
@@ -1848,12 +1851,46 @@ async def get_mail_pool_stats(
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
         
-        # Check cache first (reduces DB load during heavy background processing)
         current_time = _time.time()
-        if (_mail_pool_stats_cache["data"] is not None and 
-            current_time - _mail_pool_stats_cache["timestamp"] < _mail_pool_stats_cache["ttl"]):
-            return _mail_pool_stats_cache["data"]
+        cache_age = current_time - _mail_pool_stats_cache["timestamp"]
         
+        # If we have any cached data (even stale), serve it immediately
+        # and trigger background refresh if stale
+        if _mail_pool_stats_cache["data"] is not None:
+            if cache_age < _mail_pool_stats_cache["ttl"]:
+                # Fresh cache - serve immediately
+                return _mail_pool_stats_cache["data"]
+            elif not _mail_pool_stats_cache.get("refreshing", False):
+                # Stale cache - serve it but kick off background refresh
+                _mail_pool_stats_cache["refreshing"] = True
+                def _refresh():
+                    try:
+                        _compute_mail_pool_stats()
+                    finally:
+                        _mail_pool_stats_cache["refreshing"] = False
+                _threading.Thread(target=_refresh, daemon=True).start()
+                return _mail_pool_stats_cache["data"]
+            else:
+                # Stale but already refreshing - serve stale
+                return _mail_pool_stats_cache["data"]
+        
+        # No cache at all - compute synchronously (cold start)
+        result = _compute_mail_pool_stats()
+        if result:
+            return result
+        # Return minimal empty stats if computation failed
+        return {"success": True, "stats": {"total_emails": 0, "gmail_total": 0, "inbox_count": 0, "sent_count": 0, "drafts_count": 0, "segments": {}, "ai_categories": {}, "pending_review": 0, "accounts": [], "total_accounts": 0}}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching mail pool stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _compute_mail_pool_stats():
+    """Compute mail pool stats and update cache. Returns cached response dict or None on failure."""
+    try:
         # Get all mailbox accounts from both collections
         # 1. Old IMAP mailboxes (mailboxes collection)
         imap_accounts = list(mail_pool_mailboxes.find({"is_active": True}, max_time_ms=3000))
@@ -2020,15 +2057,13 @@ async def get_mail_pool_stats(
         
         # Update cache
         _mail_pool_stats_cache["data"] = response_data
-        _mail_pool_stats_cache["timestamp"] = current_time
+        _mail_pool_stats_cache["timestamp"] = _time.time()
         
         return response_data
     
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Error fetching mail pool stats: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error computing mail pool stats: {e}")
+        return None
 
 
 @router.get("/mail-pool/emails")
