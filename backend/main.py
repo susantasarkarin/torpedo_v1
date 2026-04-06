@@ -1883,7 +1883,16 @@ async def startup_event():
             print("✅ Mail segregation job scheduled (every 10 minutes)")
     except Exception as e:
         print(f"⚠️ Could not schedule mail segregation job: {e}")
-    
+
+    # Pre-warm mail pool stats cache in background (avoids cold-start on first page visit)
+    try:
+        import threading
+        from routers.gmail import _compute_and_persist_mail_pool_stats
+        threading.Thread(target=_compute_and_persist_mail_pool_stats, daemon=True).start()
+        print("🔄 Mail pool stats pre-warm started (background)")
+    except Exception as e:
+        print(f"⚠️ Could not pre-warm mail pool stats: {e}")
+
     # ============== STARTUP SUMMARY BANNER ==============
     print("\n" + "=" * 60)
     print(f"🚀 {APP_NAME} v{APP_VERSION} STARTED SUCCESSFULLY")

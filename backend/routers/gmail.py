@@ -1729,12 +1729,10 @@ async def update_imap_account_settings(
 # In-memory cache for Mail Pool stats (reduces database load during heavy background processing)
 import time as _time
 import threading as _threading
-_mail_pool_stats_cache = {
-    "data": None,
-    "timestamp": 0,
-    "ttl": 120,  # Cache for 120 seconds
-    "refreshing": False,  # Background refresh flag
-}
+
+_STATS_CACHE_ID = "mail_pool_stats_v1"
+_STATS_CACHE_TTL = 300  # 5 minutes TTL before triggering background refresh
+_stats_refresh_lock = _threading.Lock()  # Prevent duplicate background refreshes
 
 # Primary email collection - use torpedo_gmail (Gmail Workspace sync system)
 # This contains all synced emails with full metadata
@@ -1754,6 +1752,9 @@ mail_pool_legacy_emails = gmail_archive_db["emails"]
 mail_pool_email_leads = email_automation_db["email_leads"]
 mail_pool_conversations = email_automation_db["email_conversations"]
 mail_pool_sync_log = gmail_db["email_sync_log"]
+
+# MongoDB-backed stats cache (persisted across restarts, shared across workers)
+_stats_cache_col = torpedo_gmail_db["mail_pool_stats_cache"]
 
 
 # Helper function to parse email address from "Name <email@domain.com>" format
@@ -1839,52 +1840,58 @@ async def get_mail_pool_stats(
     request: Request
 ):
     """
-    Get consolidated statistics for the Mail Pool - overview of all email activity
-    Uses email_automation.emails collection (new sync system)
-    Includes caching to reduce database load during background processing.
-    Serves stale cache immediately while refreshing in background.
+    Get consolidated statistics for the Mail Pool.
+    Reads from MongoDB-backed cache (fast, shared across workers, persists restarts).
+    Triggers background refresh if cache is stale (>5 min).
+    Always returns immediately - never blocks on stats computation.
     """
-    global _mail_pool_stats_cache
-    
     try:
         session_id = request.headers.get("Authorization")
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
-        
-        current_time = _time.time()
-        cache_age = current_time - _mail_pool_stats_cache["timestamp"]
-        
-        # If we have any cached data (even stale), serve it immediately
-        # and trigger background refresh if stale
-        if _mail_pool_stats_cache["data"] is not None:
-            if cache_age < _mail_pool_stats_cache["ttl"]:
-                # Fresh cache - serve immediately
-                return _mail_pool_stats_cache["data"]
-            elif not _mail_pool_stats_cache.get("refreshing", False):
-                # Stale cache - serve it but kick off background refresh
-                _mail_pool_stats_cache["refreshing"] = True
-                def _refresh():
-                    try:
-                        _compute_mail_pool_stats()
-                    finally:
-                        _mail_pool_stats_cache["refreshing"] = False
-                _threading.Thread(target=_refresh, daemon=True).start()
-                return _mail_pool_stats_cache["data"]
-            else:
-                # Stale but already refreshing - serve stale
-                return _mail_pool_stats_cache["data"]
-        
-        # No cache at all (cold start) - return empty immediately, compute in background
-        # This prevents the first request from blocking for 30-40s
-        if not _mail_pool_stats_cache.get("refreshing", False):
-            _mail_pool_stats_cache["refreshing"] = True
-            def _refresh_cold():
+
+        # Read pre-computed stats from MongoDB (single fast find_one, max 2s)
+        cached_doc = None
+        try:
+            cached_doc = _stats_cache_col.find_one({"_id": _STATS_CACHE_ID}, max_time_ms=2000)
+        except Exception as e:
+            logger.warning(f"Could not read stats cache from MongoDB: {e}")
+
+        now = _time.time()
+
+        if cached_doc:
+            cached_at = cached_doc.get("cached_at", 0)
+            age = now - cached_at
+            # Remove internal MongoDB/cache fields from response
+            stats = {k: v for k, v in cached_doc.items() if k not in ("_id", "cached_at")}
+
+            # Trigger background refresh if stale (non-blocking)
+            if age > _STATS_CACHE_TTL:
+                if _stats_refresh_lock.acquire(blocking=False):
+                    def _bg_refresh():
+                        try:
+                            _compute_and_persist_mail_pool_stats()
+                        finally:
+                            _stats_refresh_lock.release()
+                    _threading.Thread(target=_bg_refresh, daemon=True).start()
+
+            return {"success": True, "stats": stats}
+
+        # No cache at all - trigger background computation, return empty immediately
+        if _stats_refresh_lock.acquire(blocking=False):
+            def _bg_cold():
                 try:
-                    _compute_mail_pool_stats()
+                    _compute_and_persist_mail_pool_stats()
                 finally:
-                    _mail_pool_stats_cache["refreshing"] = False
-            _threading.Thread(target=_refresh_cold, daemon=True).start()
-        return {"success": True, "stats": {"total_emails": 0, "gmail_total": 0, "inbox_count": 0, "sent_count": 0, "drafts_count": 0, "segments": {}, "ai_categories": {}, "pending_review": 0, "accounts": [], "total_accounts": 0, "_computing": True}}
+                    _stats_refresh_lock.release()
+            _threading.Thread(target=_bg_cold, daemon=True).start()
+
+        return {"success": True, "stats": {
+            "total_emails": 0, "gmail_total": 0, "inbox_count": 0,
+            "sent_count": 0, "drafts_count": 0, "segments": {},
+            "ai_categories": {}, "pending_review": 0, "accounts": [],
+            "total_accounts": 0, "_computing": True
+        }}
 
     except HTTPException:
         raise
@@ -1893,16 +1900,19 @@ async def get_mail_pool_stats(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _compute_mail_pool_stats():
-    """Compute mail pool stats and update cache. Returns cached response dict or None on failure."""
+def _compute_and_persist_mail_pool_stats():
+    """
+    Compute mail pool stats and persist to MongoDB cache.
+    Runs in background thread - does NOT block HTTP responses.
+    Written to torpedo_gmail.mail_pool_stats_cache, shared across all workers.
+    """
     try:
+        logger.info("Computing mail pool stats (background)...")
+
         # Get all mailbox accounts from both collections
-        # 1. Old IMAP mailboxes (mailboxes collection)
         imap_accounts = list(mail_pool_mailboxes.find({"is_active": True}, max_time_ms=3000))
-        
-        # 2. Gmail Workspace mailboxes (workspace_mailboxes collection)
         workspace_accounts = list(mail_pool_workspace_mailboxes.find({"is_active": True}, max_time_ms=3000))
-        
+
         # Merge both lists, avoiding duplicates by email
         seen_emails = set()
         accounts = []
@@ -1916,159 +1926,136 @@ def _compute_mail_pool_stats():
             if email and email not in seen_emails:
                 seen_emails.add(email)
                 accounts.append(acc)
-        
-        # Use estimated_document_count for fast total (doesn't scan collection)
-        # Falls back to count_documents if estimated returns 0
-        total_emails = mail_pool_emails.estimated_document_count()
-        if total_emails == 0:
-            total_emails = mail_pool_emails.count_documents({})
-        
-        # Count by direction - use indexes (maxTimeMS to prevent hangs)
+
+        # Use estimated_document_count - reads collection metadata, not documents
         try:
-            inbox_count = mail_pool_emails.count_documents({"direction": "inbound"}, maxTimeMS=5000)
+            total_emails = mail_pool_emails.estimated_document_count()
+        except Exception:
+            total_emails = 0
+
+        # Count by direction using indexes
+        try:
+            inbox_count = mail_pool_emails.count_documents({"direction": "inbound"}, maxTimeMS=8000)
         except Exception:
             inbox_count = 0
         try:
-            sent_count = mail_pool_emails.count_documents({"direction": "outbound"}, maxTimeMS=5000)
+            sent_count = mail_pool_emails.count_documents({"direction": "outbound"}, maxTimeMS=8000)
         except Exception:
             sent_count = 0
-        
-        # Count drafts - use labels array membership (faster than regex)
+
+        # Count drafts
         try:
-            drafts_count = mail_pool_emails.count_documents({"labels": "DRAFT"}, maxTimeMS=3000)
+            drafts_count = mail_pool_emails.count_documents({"labels": "DRAFT"}, maxTimeMS=5000)
             if drafts_count == 0:
-                drafts_count = mail_pool_emails.count_documents({"labels": {"$regex": "DRAFT", "$options": "i"}}, maxTimeMS=3000)
+                drafts_count = mail_pool_emails.count_documents(
+                    {"labels": {"$regex": "DRAFT", "$options": "i"}}, maxTimeMS=5000)
         except Exception:
             drafts_count = 0
-        
-        # Get category breakdown - limit to prevent full scan hang
+
+        # Category breakdown
         try:
-            category_pipeline = [
+            category_stats = list(mail_pool_emails.aggregate([
                 {"$group": {"_id": "$category", "count": {"$sum": 1}}},
                 {"$sort": {"count": -1}},
                 {"$limit": 20}
-            ]
-            category_stats = list(mail_pool_emails.aggregate(category_pipeline, maxTimeMS=5000))
+            ], maxTimeMS=8000))
         except Exception:
             category_stats = []
-        
-        # Get AI category breakdown - use indexed ai_tier1_category field
+
+        # AI category breakdown (uses indexed ai_tier1_category)
         try:
-            ai_category_pipeline = [
+            ai_category_stats = list(mail_pool_emails.aggregate([
                 {"$match": {"ai_tier1_category": {"$exists": True, "$ne": None, "$ne": ""}}},
                 {"$group": {"_id": "$ai_tier1_category", "count": {"$sum": 1}}},
                 {"$sort": {"count": -1}},
                 {"$limit": 20}
-            ]
-            ai_category_stats = list(mail_pool_emails.aggregate(ai_category_pipeline, maxTimeMS=5000))
+            ], maxTimeMS=8000))
         except Exception:
             ai_category_stats = []
-        
-        # Get pending review count from ai_review_queue
+
+        # Pending review count
         try:
-            review_queue = mongo_client["email_automation"]["ai_review_queue"]
-            pending_review_count = review_queue.count_documents({"status": "pending"}, maxTimeMS=3000)
-        except Exception as e:
-            logger.debug(f"Could not get review queue count: {e}")
+            pending_review_count = mongo_client["email_automation"]["ai_review_queue"].count_documents(
+                {"status": "pending"}, maxTimeMS=3000)
+        except Exception:
             pending_review_count = 0
-        
-        # Get all counts in one aggregation (fast - uses mailbox_id index)
-        pipeline = [
-            {"$match": {"mailbox_id": {"$in": [str(a["_id"]) for a in accounts]}}},
-            {"$group": {"_id": "$mailbox_id", "count": {"$sum": 1}}}
-        ]
-        
-        # Create a map of mailbox_id -> count
+
+        # Per-mailbox email counts (single aggregation)
         try:
-            counts_map = {doc["_id"]: doc["count"] for doc in mail_pool_emails.aggregate(pipeline, maxTimeMS=5000)}
-        except Exception as e:
-            logger.error(f"Error aggregating counts: {e}")
+            account_ids = [str(a["_id"]) for a in accounts]
+            counts_map = {doc["_id"]: doc["count"] for doc in mail_pool_emails.aggregate([
+                {"$match": {"mailbox_id": {"$in": account_ids}}},
+                {"$group": {"_id": "$mailbox_id", "count": {"$sum": 1}}}
+            ], maxTimeMS=8000)}
+        except Exception:
             counts_map = {}
 
-        # Get emails by account (using mailbox_id in new schema)
+        # Build per-account stats
         account_stats = []
         for acc in accounts:
-            acc_email = acc["email"]
             acc_id = str(acc["_id"])
-            
-            # Match by mailbox_id for accurate count using the pre-fetched map
             count = counts_map.get(acc_id, 0)
-            
-            # Use email_count from the mailbox if available and count is 0 (fallback)
-            if count == 0 and "email_count" in acc:
+            if count == 0:
                 count = acc.get("email_count", 0)
-            
-            # Get aliases for this account - normalize to objects with signatures
-            raw_aliases = acc.get("aliases", [])
-            if not raw_aliases and acc.get("alias_emails"):
-                raw_aliases = acc.get("alias_emails", [])
-            
-            # Skip separate aliases lookup per-account (slow N+1 query in a hot path)
-            # Aliases are already included in account.aliases from workspace_mailboxes
-            
-            # Normalize aliases to objects with email and signature
+
+            raw_aliases = acc.get("aliases", acc.get("alias_emails", []))
             normalized_aliases = []
             for alias in raw_aliases:
                 if isinstance(alias, str):
-                    # Old format: just email string
                     normalized_aliases.append({
-                        "email": alias,
-                        "display_name": alias.split("@")[0],
-                        "signature": acc.get("signature", ""),  # Inherit parent signature
-                        "is_default": False
+                        "email": alias, "display_name": alias.split("@")[0],
+                        "signature": acc.get("signature", ""), "is_default": False
                     })
                 elif isinstance(alias, dict):
-                    # New format: full alias object
                     normalized_aliases.append({
                         "email": alias.get("email", alias.get("alias_email", "")),
-                        "display_name": alias.get("display_name", alias.get("email", alias.get("alias_email", "")).split("@")[0]),
-                        "signature": alias.get("signature", acc.get("signature", "")),  # Use own or inherit
+                        "display_name": alias.get("display_name", alias.get("email", "").split("@")[0]),
+                        "signature": alias.get("signature", acc.get("signature", "")),
                         "is_default": alias.get("is_default", alias.get("is_primary", False))
                     })
-            
+
             account_stats.append({
-                "id": str(acc["_id"]),
+                "id": acc_id,
                 "email": acc["email"],
                 "display_name": acc.get("display_name", acc["email"].split("@")[0]),
                 "total_emails": count,
-                "gmail_total": acc.get("gmail_total", 0),  # Total emails in Gmail account
-                "today": 0,  # Would need date parsing
+                "gmail_total": acc.get("gmail_total", 0),
+                "today": 0,
                 "last_sync": acc.get("last_sync_at"),
                 "aliases": normalized_aliases,
                 "signature": acc.get("signature", ""),
                 "is_default": acc.get("is_default", False)
             })
-        
-        # Calculate total gmail_total across all accounts
+
         total_gmail_total = sum(acc.get("gmail_total", 0) for acc in accounts)
-        
-        response_data = {
-            "success": True,
-            "stats": {
-                "total_emails": total_emails,
-                "gmail_total": total_gmail_total,  # Total emails across all Gmail accounts
-                "emails_today": inbox_count,  # Using inbox count as "today" indicator
-                "emails_this_week": total_emails,
-                "total_accounts": len(accounts),
-                "inbox_count": inbox_count,
-                "sent_count": sent_count,
-                "drafts_count": drafts_count,
-                "segments": {s["_id"]: s["count"] for s in category_stats if s["_id"]},
-                "ai_categories": {s["_id"]: s["count"] for s in ai_category_stats if s["_id"]},
-                "pending_review": pending_review_count,
-                "accounts": account_stats
-            }
+
+        stats_doc = {
+            "_id": _STATS_CACHE_ID,
+            "cached_at": _time.time(),
+            "total_emails": total_emails,
+            "gmail_total": total_gmail_total,
+            "emails_today": inbox_count,
+            "emails_this_week": total_emails,
+            "total_accounts": len(accounts),
+            "inbox_count": inbox_count,
+            "sent_count": sent_count,
+            "drafts_count": drafts_count,
+            "segments": {s["_id"]: s["count"] for s in category_stats if s["_id"]},
+            "ai_categories": {s["_id"]: s["count"] for s in ai_category_stats if s["_id"]},
+            "pending_review": pending_review_count,
+            "accounts": account_stats,
         }
-        
-        # Update cache
-        _mail_pool_stats_cache["data"] = response_data
-        _mail_pool_stats_cache["timestamp"] = _time.time()
-        
-        return response_data
-    
+
+        # Persist to MongoDB (replace_one with upsert = update or insert)
+        _stats_cache_col.replace_one(
+            {"_id": _STATS_CACHE_ID},
+            stats_doc,
+            upsert=True
+        )
+        logger.info(f"Mail pool stats cached: {total_emails} emails, {len(accounts)} accounts")
+
     except Exception as e:
         logger.error(f"Error computing mail pool stats: {e}")
-        return None
 
 
 @router.get("/mail-pool/emails")
@@ -2094,7 +2081,7 @@ async def get_mail_pool_emails(
         session_id = request.headers.get("Authorization")
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
-        
+
         # Build query filter for email_automation.emails (new schema)
         query = {}
         
