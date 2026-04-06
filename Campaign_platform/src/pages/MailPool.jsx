@@ -306,7 +306,8 @@ const getAvatarColor = (name) => {
 
 function MailPool() {
   const navigate = useNavigate()
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
+  const [emailsLoading, setEmailsLoading] = useState(true)
   
   // Stats & Accounts
   const [stats, setStats] = useState({
@@ -369,6 +370,7 @@ function MailPool() {
     try {
       const res = await fetch(buildApiUrl(`/gmail/mail-pool/stats`), {
         headers: { Authorization: sessionId },
+        signal: AbortSignal.timeout(20000),
       })
 
       if (res.status === 401) {
@@ -423,6 +425,7 @@ function MailPool() {
           try {
             const sigRes = await fetch(buildApiUrl(`/gmail-ws/signatures`), {
               headers: { Authorization: sessionId },
+              signal: AbortSignal.timeout(8000),
             })
             const sigData = await sigRes.json()
             if (sigData.success && sigData.signatures) {
@@ -452,6 +455,7 @@ function MailPool() {
     const sessionId = localStorage.getItem("session_id")
     if (!sessionId) return
 
+    setEmailsLoading(true)
     try {
       let url = buildApiUrl(`/gmail/mail-pool/emails?page=${page}&limit=${pagination.limit}`)
       if (filterSegment) url += `&segment=${filterSegment}`
@@ -464,6 +468,7 @@ function MailPool() {
 
       const res = await fetch(url, {
         headers: { Authorization: sessionId },
+        signal: AbortSignal.timeout(20000),
       })
 
       const data = await res.json()
@@ -473,6 +478,8 @@ function MailPool() {
       }
     } catch (e) {
       console.error("Error fetching emails:", e)
+    } finally {
+      setEmailsLoading(false)
     }
   }, [filterSegment, filterAICategory, filterSearch, filterDirection, filterAccount, filterFolder, pagination.limit])
 
@@ -1012,9 +1019,7 @@ function MailPool() {
   // Initial load
   useEffect(() => {
     const loadData = async () => {
-      setLoading(true)
       await Promise.all([fetchStats(), fetchEmails()])
-      setLoading(false)
     }
     loadData()
   }, [fetchStats, fetchEmails])
@@ -1488,7 +1493,12 @@ function MailPool() {
 
             {/* Email Rows */}
             <div style={styles.emailList}>
-              {emails.length > 0 ? emails.map((email) => (
+              {emailsLoading ? (
+                <div style={{ padding: "40px", textAlign: "center", color: "#6b7280" }}>
+                  <div style={{ fontSize: "1.5rem", marginBottom: "8px" }}>📧</div>
+                  Loading emails...
+                </div>
+              ) : emails.length > 0 ? emails.map((email) => (
                 <div 
                   key={email.id}
                   style={{

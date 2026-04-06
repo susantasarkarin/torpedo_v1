@@ -1731,7 +1731,7 @@ import time as _time
 _mail_pool_stats_cache = {
     "data": None,
     "timestamp": 0,
-    "ttl": 10  # Cache for 10 seconds
+    "ttl": 120  # Cache for 120 seconds
 }
 
 # Primary email collection - use torpedo_gmail (Gmail Workspace sync system)
@@ -1856,10 +1856,10 @@ async def get_mail_pool_stats(
         
         # Get all mailbox accounts from both collections
         # 1. Old IMAP mailboxes (mailboxes collection)
-        imap_accounts = list(mail_pool_mailboxes.find({"is_active": True}))
+        imap_accounts = list(mail_pool_mailboxes.find({"is_active": True}, max_time_ms=3000))
         
         # 2. Gmail Workspace mailboxes (workspace_mailboxes collection)
-        workspace_accounts = list(mail_pool_workspace_mailboxes.find({"is_active": True}))
+        workspace_accounts = list(mail_pool_workspace_mailboxes.find({"is_active": True}, max_time_ms=3000))
         
         # Merge both lists, avoiding duplicates by email
         seen_emails = set()
@@ -1881,48 +1881,56 @@ async def get_mail_pool_stats(
         if total_emails == 0:
             total_emails = mail_pool_emails.count_documents({})
         
-        # Count by direction - these use indexes now
-        inbox_count = mail_pool_emails.count_documents({"direction": "inbound"})
-        sent_count = mail_pool_emails.count_documents({"direction": "outbound"})
+        # Count by direction - use indexes (maxTimeMS to prevent hangs)
+        try:
+            inbox_count = mail_pool_emails.count_documents({"direction": "inbound"}, maxTimeMS=5000)
+        except Exception:
+            inbox_count = 0
+        try:
+            sent_count = mail_pool_emails.count_documents({"direction": "outbound"}, maxTimeMS=5000)
+        except Exception:
+            sent_count = 0
         
-        # Count drafts - uses labels index
-        drafts_count = mail_pool_emails.count_documents({"labels": {"$regex": "DRAFT", "$options": "i"}})
+        # Count drafts - use labels array membership (faster than regex)
+        try:
+            drafts_count = mail_pool_emails.count_documents({"labels": "DRAFT"}, maxTimeMS=3000)
+            if drafts_count == 0:
+                drafts_count = mail_pool_emails.count_documents({"labels": {"$regex": "DRAFT", "$options": "i"}}, maxTimeMS=3000)
+        except Exception:
+            drafts_count = 0
         
-        # Get category breakdown (acts as segments) - new schema uses 'category' field
-        category_pipeline = [
-            {"$group": {"_id": "$category", "count": {"$sum": 1}}},
-            {"$sort": {"count": -1}}
-        ]
-        category_stats = list(mail_pool_emails.aggregate(category_pipeline))
+        # Get category breakdown - limit to prevent full scan hang
+        try:
+            category_pipeline = [
+                {"$group": {"_id": "$category", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}},
+                {"$limit": 20}
+            ]
+            category_stats = list(mail_pool_emails.aggregate(category_pipeline, maxTimeMS=5000))
+        except Exception:
+            category_stats = []
         
-        # Get AI category breakdown (check both ai_category and ai_tier1_category fields)
-        ai_category_pipeline = [
-            {"$match": {
-                "$or": [
-                    {"ai_category": {"$exists": True, "$ne": None, "$ne": ""}},
-                    {"ai_tier1_category": {"$exists": True, "$ne": None, "$ne": ""}}
-                ]
-            }},
-            {"$project": {
-                "category": {
-                    "$ifNull": ["$ai_category", "$ai_tier1_category"]
-                }
-            }},
-            {"$group": {"_id": "$category", "count": {"$sum": 1}}},
-            {"$sort": {"count": -1}}
-        ]
-        ai_category_stats = list(mail_pool_emails.aggregate(ai_category_pipeline))
+        # Get AI category breakdown - use indexed ai_tier1_category field
+        try:
+            ai_category_pipeline = [
+                {"$match": {"ai_tier1_category": {"$exists": True, "$ne": None, "$ne": ""}}},
+                {"$group": {"_id": "$ai_tier1_category", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}},
+                {"$limit": 20}
+            ]
+            ai_category_stats = list(mail_pool_emails.aggregate(ai_category_pipeline, maxTimeMS=5000))
+        except Exception:
+            ai_category_stats = []
         
         # Get pending review count from ai_review_queue
         try:
             review_queue = mongo_client["email_automation"]["ai_review_queue"]
-            pending_review_count = review_queue.count_documents({"status": "pending"})
+            pending_review_count = review_queue.count_documents({"status": "pending"}, maxTimeMS=3000)
         except Exception as e:
             logger.debug(f"Could not get review queue count: {e}")
             pending_review_count = 0
         
-        # Optimize: Get all counts in one aggregation
-        # Group by mailbox_id to get counts for all accounts at once
+        # Get all counts in one aggregation (fast - uses mailbox_id index)
         pipeline = [
             {"$match": {"mailbox_id": {"$in": [str(a["_id"]) for a in accounts]}}},
             {"$group": {"_id": "$mailbox_id", "count": {"$sum": 1}}}
@@ -1930,7 +1938,7 @@ async def get_mail_pool_stats(
         
         # Create a map of mailbox_id -> count
         try:
-            counts_map = {doc["_id"]: doc["count"] for doc in mail_pool_emails.aggregate(pipeline)}
+            counts_map = {doc["_id"]: doc["count"] for doc in mail_pool_emails.aggregate(pipeline, maxTimeMS=5000)}
         except Exception as e:
             logger.error(f"Error aggregating counts: {e}")
             counts_map = {}
@@ -1953,21 +1961,8 @@ async def get_mail_pool_stats(
             if not raw_aliases and acc.get("alias_emails"):
                 raw_aliases = acc.get("alias_emails", [])
             
-            # Also check the separate aliases collection (email_automation.aliases)
-            # We can cache this too if needed, but aliases collection is small
-            try:
-                from email_sync.storage import EmailStorage
-                storage = EmailStorage()
-                separate_aliases = list(storage.aliases.find({"mailbox_id": acc_id}))
-                for sa in separate_aliases:
-                    raw_aliases.append({
-                        "email": sa.get("alias_email", ""),
-                        "display_name": sa.get("display_name", ""),
-                        "signature": sa.get("signature", ""),
-                        "is_default": sa.get("is_primary", False)
-                    })
-            except Exception as e:
-                logger.debug(f"Could not fetch separate aliases: {e}")
+            # Skip separate aliases lookup per-account (slow N+1 query in a hot path)
+            # Aliases are already included in account.aliases from workspace_mailboxes
             
             # Normalize aliases to objects with email and signature
             normalized_aliases = []
@@ -2133,14 +2128,32 @@ async def get_mail_pool_emails(
         # Calculate skip
         skip = (page - 1) * limit
         
-        # Get total count
-        total = mail_pool_emails.count_documents(query)
+        # Get total count (with timeout)
+        try:
+            total = mail_pool_emails.count_documents(query, maxTimeMS=8000)
+        except Exception:
+            total = mail_pool_emails.estimated_document_count()
         
         # Fetch emails with pagination - sort by timestamp descending
         emails = list(mail_pool_emails.find(query)
             .sort("timestamp", -1)
             .skip(skip)
-            .limit(limit))
+            .limit(limit)
+            .max_time_ms(10000))
+        
+        # Batch-fetch mailbox accounts to avoid N+1 queries
+        mailbox_ids = list({e.get("mailbox_id") for e in emails if e.get("mailbox_id")})
+        mailbox_map = {}
+        if mailbox_ids:
+            try:
+                mailboxes = mail_pool_workspace_mailboxes.find(
+                    {"_id": {"$in": [ObjectId(mid) for mid in mailbox_ids if mid]}},
+                    {"email": 1},
+                    max_time_ms=3000
+                )
+                mailbox_map = {str(m["_id"]): m.get("email", "") for m in mailboxes}
+            except Exception:
+                pass
         
         # Format for response (adapting email_metadata schema to existing frontend format)
         formatted_emails = []
@@ -2175,13 +2188,9 @@ async def get_mail_pool_emails(
             has_attachments = email_doc.get("has_attachments", False)
             attachment_count = email_doc.get("attachment_count", 0)
             
-            # Get mailbox email for account_email field
+            # Get mailbox email for account_email field (from pre-fetched map)
             mailbox_id = email_doc.get("mailbox_id")
-            account_email = ""
-            if mailbox_id:
-                mailbox = mail_pool_workspace_mailboxes.find_one({"_id": ObjectId(mailbox_id)})
-                if mailbox:
-                    account_email = mailbox.get("email", "")
+            account_email = mailbox_map.get(mailbox_id, "") if mailbox_id else ""
             
             formatted_emails.append({
                 "id": str(email_doc["_id"]),
