@@ -1935,30 +1935,54 @@ async def get_cpx_callback_logs(
         elif success_filter == "false":
             query["success"] = False
         
-        # Get total count
-        total = cpx_callback_logs_collection.count_documents(query)
-        
-        # Calculate pagination
         skip = (page - 1) * page_size
-        total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+
+        # Single aggregation to get counts + paginated results in one round-trip
+        MAX_TIME_MS = 8000
+        pipeline = [
+            {"$match": query},
+            {"$sort": {"timestamp": -1}},
+            {"$facet": {
+                "metadata": [
+                    {"$group": {"_id": "$success", "count": {"$sum": 1}}}
+                ],
+                "data": [
+                    {"$skip": skip},
+                    {"$limit": page_size}
+                ]
+            }}
+        ]
+        facet_result = list(cpx_callback_logs_collection.aggregate(pipeline, maxTimeMS=MAX_TIME_MS))
         
-        # Fetch logs (newest first)
-        logs = list(
-            cpx_callback_logs_collection.find(query)
-            .sort("timestamp", -1)
-            .skip(skip)
-            .limit(page_size)
-        )
+        if facet_result:
+            meta = facet_result[0].get("metadata", [])
+            logs = facet_result[0].get("data", [])
+        else:
+            meta = []
+            logs = []
+
+        success_count = 0
+        failed_count = 0
+        for m in meta:
+            if m["_id"] is True:
+                success_count = m["count"]
+            elif m["_id"] is False:
+                failed_count = m["count"]
+        total = success_count + failed_count
+
+        # If filtered, total is only the matching subset
+        if success_filter == "true":
+            total = success_count
+        elif success_filter == "false":
+            total = failed_count
+        
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 1
         
         # Convert ObjectId to string
         for log in logs:
             log["_id"] = str(log["_id"])
             if log.get("timestamp"):
                 log["timestamp"] = log["timestamp"].isoformat()
-        
-        # Get stats
-        success_count = cpx_callback_logs_collection.count_documents({"success": True})
-        failed_count = cpx_callback_logs_collection.count_documents({"success": False})
         
         return {
             "logs": logs,
@@ -1969,7 +1993,7 @@ async def get_cpx_callback_logs(
                 "total_pages": total_pages
             },
             "stats": {
-                "total": total,
+                "total": success_count + failed_count,
                 "success": success_count,
                 "failed": failed_count
             }

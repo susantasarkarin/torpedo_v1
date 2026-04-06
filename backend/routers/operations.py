@@ -915,7 +915,7 @@ def get_operations_dashboard_kpis():
             traffic_pipeline = [
                 {"$group": {"_id": "$status", "count": {"$sum": 1}}}
             ]
-            traffic_stats = {doc["_id"]: doc["count"] for doc in traffic_collection.aggregate(traffic_pipeline)}
+            traffic_stats = {doc["_id"]: doc["count"] for doc in traffic_collection.aggregate(traffic_pipeline, maxTimeMS=8000)}
             total_traffic = sum(traffic_stats.values())
             completed_surveys = traffic_stats.get("COMPLETE", 0) + traffic_stats.get("complete", 0)
             terminated_surveys = (

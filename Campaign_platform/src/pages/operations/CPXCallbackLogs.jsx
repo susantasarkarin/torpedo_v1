@@ -54,6 +54,11 @@ export default function CPXCallbackLogs() {
         return
       }
 
+      const contentType = res.headers.get("content-type") || ""
+      if (!contentType.includes("application/json")) {
+        throw new Error("Server unavailable or request timed out. Please try again.")
+      }
+
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || "Failed to load logs")
 

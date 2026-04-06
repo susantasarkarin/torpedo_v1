@@ -89,21 +89,12 @@ function Operations() {
     try {
       const sessionToken = token();
       const authHeaders = sessionToken ? { Authorization: sessionToken } : {};
-      const [kpiResult, activityResult, trafficStatsResult] = await Promise.allSettled([
-        fetch(buildApiUrl(`/api/operations/dashboard/kpis`), { headers: authHeaders }),
+      const [activityResult, trafficStatsResult] = await Promise.allSettled([
         fetch(buildApiUrl(`/api/operations/dashboard/recent-activity?limit=8`), { headers: authHeaders }),
         fetch(buildApiUrl(`/api/traffic/dashboard-stats?days=7`), { headers: authHeaders }),
       ]);
 
       let loadedAnyDashboardData = false;
-
-      if (kpiResult.status === "fulfilled" && kpiResult.value.ok) {
-        const kpiData = await parseJsonIfPossible(kpiResult.value);
-        if (kpiData) {
-          setKpis(kpiData);
-          loadedAnyDashboardData = true;
-        }
-      }
 
       if (activityResult.status === "fulfilled" && activityResult.value.ok) {
         const activityData = await parseJsonIfPossible(activityResult.value);
