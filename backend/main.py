@@ -1884,12 +1884,16 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️ Could not schedule mail segregation job: {e}")
 
-    # Pre-warm mail pool stats cache in background (avoids cold-start on first page visit)
+    # Pre-warm mail pool stats cache after a 90s delay (lets server stabilize before heavy MongoDB I/O)
     try:
         import threading
         from routers.gmail import _compute_and_persist_mail_pool_stats
-        threading.Thread(target=_compute_and_persist_mail_pool_stats, daemon=True).start()
-        print("🔄 Mail pool stats pre-warm started (background)")
+        def _delayed_prewarm():
+            import time as _t
+            _t.sleep(90)
+            _compute_and_persist_mail_pool_stats()
+        threading.Thread(target=_delayed_prewarm, daemon=True).start()
+        print("🔄 Mail pool stats pre-warm scheduled (90s delay)")
     except Exception as e:
         print(f"⚠️ Could not pre-warm mail pool stats: {e}")
 
@@ -3579,10 +3583,14 @@ async def create_project(project_data: Dict[str, Any] = Body(...)):
 
 @app.get("/projects/",dependencies=[Depends(verify_session)])
 async def get_projects():
+    import asyncio as _asyncio
     try:
-        projects = list(projects_collection.find())
-        for p in projects:
-            p["_id"] = str(p["_id"])
+        def _fetch():
+            docs = list(projects_collection.find({"is_deleted": {"$ne": True}}))
+            for p in docs:
+                p["_id"] = str(p["_id"])
+            return docs
+        projects = await _asyncio.to_thread(_fetch)
         return {"projects": projects}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fetch projects error: {str(e)}")

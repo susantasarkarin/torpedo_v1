@@ -1731,7 +1731,7 @@ import time as _time
 import threading as _threading
 
 _STATS_CACHE_ID = "mail_pool_stats_v1"
-_STATS_CACHE_TTL = 300  # 5 minutes TTL before triggering background refresh
+_STATS_CACHE_TTL = 900  # 15 minutes TTL before triggering background refresh
 _stats_refresh_lock = _threading.Lock()  # Prevent duplicate background refreshes
 
 # Primary email collection - use torpedo_gmail (Gmail Workspace sync system)

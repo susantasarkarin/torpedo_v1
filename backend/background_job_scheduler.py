@@ -493,7 +493,7 @@ def initialize_scheduler(loop=None):
         except Exception as e:
             logger.warning(f"[Scheduler] Could not add mail pool extraction job: {e}")
 
-        # Mail pool stats cache — pre-compute stats every 5 minutes (lightweight background job)
+        # Mail pool stats cache — pre-compute stats every 15 minutes (lightweight background job)
         try:
             from routers.gmail import _compute_and_persist_mail_pool_stats
 
@@ -507,12 +507,12 @@ def initialize_scheduler(loop=None):
             scheduler.add_job(
                 _run_mail_pool_stats,
                 "interval",
-                minutes=5,
+                minutes=15,
                 id="mail_pool_stats_cache",
                 name="Mail Pool Stats Cache Refresh",
                 max_instances=1,
             )
-            logger.info("[Scheduler] Added mail pool stats cache refresh (every 5 min)")
+            logger.info("[Scheduler] Added mail pool stats cache refresh (every 15 min)")
         except Exception as e:
             logger.warning(f"[Scheduler] Could not add mail pool stats job: {e}")
         
