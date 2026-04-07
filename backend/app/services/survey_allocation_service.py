@@ -11,7 +11,7 @@ Implements:
 import os
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple
-from pymongo import MongoClient, ReturnDocument, ASCENDING, DESCENDING
+from pymongo import ReturnDocument, ASCENDING, DESCENDING
 from pymongo.errors import DuplicateKeyError
 from bson import ObjectId
 from dotenv import load_dotenv
@@ -22,6 +22,11 @@ from app.services.cpx_service import CPXService
 
 # Load environment
 load_dotenv()
+
+try:
+    from ...database import get_client
+except ImportError:
+    from database import get_client
 
 # Import models
 try:
@@ -57,7 +62,7 @@ class SurveyAllocationService:
     def __init__(self, mongo_uri: str = None):
         """Initialize service with MongoDB connection"""
         self.mongo_uri = mongo_uri or os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-        self.client = MongoClient(self.mongo_uri)
+        self.client = get_client()
         self.db = self.client["survey_allocation"]
         
         # Collections

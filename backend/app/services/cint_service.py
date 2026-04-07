@@ -18,8 +18,12 @@ from datetime import datetime, timezone
 from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
 import logging
 import base64
-from pymongo import MongoClient
 from pymongo.collection import Collection
+
+try:
+    from ...database import get_client
+except ImportError:
+    from database import get_client
 
 from app.models.cint import (
     CintOpportunity,
@@ -242,8 +246,7 @@ class CintService:
             # Connect to torpedo_settings database
             MONGO_URI = os.getenv("MONGO_URI")
             if MONGO_URI:
-                mongo_client = MongoClient(MONGO_URI)
-                settings_db = mongo_client["torpedo_settings"]
+                settings_db = get_client()["torpedo_settings"]
                 app_settings = settings_db["app_settings"]
                 
                 # Settings are stored directly at _id='survey_filters' without data wrapper

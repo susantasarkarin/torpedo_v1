@@ -131,10 +131,15 @@ else:
     CORS_ORIGINS = CORS_ORIGINS.split(",")
 
 # ----------------------------
-# MongoDB connection
+# MongoDB connection (pooled singleton — shared across all modules)
 # ----------------------------
-client = MongoClient(MONGO_URI)
-db = client["email_automation"]
+try:
+    from .database import get_client, get_database
+except ImportError:
+    from database import get_client, get_database
+
+client = get_client()
+db = get_database("email_automation")
 
 # Traffic flow database (from app.py)
 try:
@@ -1528,7 +1533,12 @@ def background_historic_email_sync():
 async def startup_event():
     """Initialize scheduler and start background jobs"""
     global cpx_refresh_job
-    
+
+    # NOTE: setup_indexes() is intentionally NOT called on every startup.
+    # On MongoDB 4.2+ the background=True flag is ignored, so 130+ foreground
+    # index builds would lock collections for minutes on large datasets.
+    # Run `python indexes.py` manually on first deploy or after schema changes.
+
     # Initialize Clay-Level Features
     try:
         try:

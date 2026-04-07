@@ -248,7 +248,8 @@ async def _resolve_project_client_variable_async(project_doc: Optional[Dict[str,
                 {"company_name": {"$regex": f"^{escaped_client}$", "$options": "i"}},
                 {"name": {"$regex": f"^{escaped_client}$", "$options": "i"}},
             ]
-        }
+        },
+        max_time_ms=3000,
     )
     return _extract_client_variable_from_customer(customer_doc)
 
@@ -2344,7 +2345,13 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             
             project_doc = await _resolve_live_project_async(project_number)
             if project_doc:
-                client_variable = await _resolve_project_client_variable_async(project_doc)
+                try:
+                    client_variable = await asyncio.wait_for(
+                        _resolve_project_client_variable_async(project_doc), timeout=4.0
+                    )
+                except asyncio.TimeoutError:
+                    print("⚠️ Client variable lookup timed out — proceeding without it")
+                    client_variable = ""
                 base_live_link = project_doc.get("liveLink") or project_doc.get("clientLink") or ""
                 
                 if base_live_link:

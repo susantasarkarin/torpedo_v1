@@ -20,7 +20,6 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, List
-from pymongo import MongoClient
 from dotenv import load_dotenv
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -33,10 +32,13 @@ logger = logging.getLogger(__name__)
 
 # ============== CONFIGURATION ==============
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-client = MongoClient(MONGO_URI)
-db = client["email_automation"]
-settings_db = client["torpedo_settings"]
+try:
+    from .database import get_database
+except ImportError:
+    from database import get_database
+
+db = get_database("email_automation")
+settings_db = get_database("torpedo_settings")
 
 web_search_jobs_collection = db["web_search_jobs"]
 scheduler_config_collection = settings_db["scheduler_config"]

@@ -5,7 +5,11 @@ import hashlib
 from urllib.parse import urlencode
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
-from pymongo import MongoClient
+
+try:
+    from ...database import get_client
+except ImportError:
+    from database import get_client
 
 
 class CPXService:
@@ -65,7 +69,7 @@ class CPXService:
             # Fallback to environment-based initialization
             mongo_uri = os.getenv("MONGO_URI")
             if mongo_uri:
-                client = MongoClient(mongo_uri)
+                client = get_client()
                 db = client["cpx_research"]
                 self.cpx_surveys_collection = db["cpx_surveys"]
                 self.cpx_filters_collection = db["cpx_filters"]

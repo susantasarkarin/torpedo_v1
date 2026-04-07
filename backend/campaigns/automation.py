@@ -16,10 +16,11 @@ import sys
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 from bson import ObjectId
-from pymongo import MongoClient
 
 # Add parent to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from database import get_client
 
 from campaigns.models import (
     CampaignManager,
@@ -45,7 +46,7 @@ class CampaignAutomation:
             mongo_uri: MongoDB connection string
         """
         mongo_uri = mongo_uri or os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        self.client = MongoClient(mongo_uri)
+        self.client = get_client()
         self.db = self.client['email_automation']
         self.campaign_manager = CampaignManager(self.db)
     

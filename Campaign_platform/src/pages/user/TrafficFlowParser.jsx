@@ -340,7 +340,7 @@ export default function TrafficFlowParser() {
 
       // Add timeout controller for better error handling
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      const timeoutId = setTimeout(() => controller.abort(new DOMException("Request timed out after 60 seconds", "AbortError")), 60000); // 60 second timeout
 
       const response = await fetch(buildApiUrl(`/api/store`), {
         method: "POST",
@@ -437,7 +437,7 @@ export default function TrafficFlowParser() {
       // Provide user-friendly error messages
       let errorMessage = err.message;
       if (err.name === "AbortError") {
-        errorMessage = "Request timed out. Please check your internet connection and try again.";
+        errorMessage = "The request took too long. Please try again in a moment.";
       } else if (err.message === "Failed to fetch") {
         errorMessage = "Network error. Please disable any VPN or ad-blockers and try again, or check your internet connection.";
       }

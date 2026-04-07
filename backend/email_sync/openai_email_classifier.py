@@ -32,8 +32,12 @@ import logging
 import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple
-from pymongo import MongoClient
 from bson import ObjectId
+
+try:
+    from ..database import get_client
+except ImportError:
+    from database import get_client
 
 logger = logging.getLogger(__name__)
 
@@ -135,8 +139,7 @@ class OpenAIEmailClassifier:
             review_queue_collection: Collection for review queue
         """
         if db is None:
-            mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-            client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+            client = get_client()
             self.emails = client[emails_db][emails_collection]
             self.review_queue = client["email_automation"][review_queue_collection]
         else:
@@ -156,9 +159,7 @@ class OpenAIEmailClassifier:
         
         # Sales leads collection
         if db is None:
-            mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-            leads_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
-            self.leads_collection = leads_client["torpedo_settings"]["leads"]
+            self.leads_collection = get_client()["torpedo_settings"]["leads"]
         else:
             # When db is provided, use db.client to access other databases
             self.leads_collection = db.client["torpedo_settings"]["leads"]

@@ -15,9 +15,14 @@ Coordinates:
 import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from pymongo import MongoClient, ASCENDING, DESCENDING
+from pymongo import ASCENDING, DESCENDING
 from pymongo.errors import DuplicateKeyError
 from bson import ObjectId
+
+try:
+    from ..database import get_client
+except ImportError:
+    from database import get_client
 
 from .models import (
     MailboxDocument,
@@ -75,8 +80,7 @@ class EmailSyncOrchestrator:
         if db:
             self.db = db
         elif mongo_uri:
-            client = MongoClient(mongo_uri)
-            self.db = client[db_name]
+            self.db = get_client()[db_name]
         else:
             raise ValueError("Either mongo_uri or db must be provided")
         

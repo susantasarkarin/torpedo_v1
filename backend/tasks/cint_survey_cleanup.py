@@ -170,6 +170,11 @@ def _cleanup_stale_surveys_in_db(live_survey_ids: Set[str]) -> dict:
     """
     from pymongo import MongoClient
     
+    try:
+        from ..database import get_client
+    except ImportError:
+        from database import get_client
+    
     mongo_uri = os.getenv("MONGO_URI")
     if not mongo_uri:
         return {"checked": 0, "deactivated": 0, "error": "MONGO_URI not set"}
@@ -178,7 +183,7 @@ def _cleanup_stale_surveys_in_db(live_survey_ids: Set[str]) -> dict:
         return {"checked": 0, "deactivated": 0, "error": "No live surveys to compare against"}
     
     try:
-        client = MongoClient(mongo_uri)
+        client = get_client()
         try:
             cint_db = client["cint_research"]
             cint_collection = cint_db["cint_surveys"]
@@ -284,7 +289,7 @@ def _cleanup_stale_surveys_in_db(live_survey_ids: Set[str]) -> dict:
             }
             
         finally:
-            client.close()
+            pass  # Shared pool — do not close
             
     except Exception as e:
         return {"checked": 0, "deactivated": 0, "error": f"DB cleanup error: {str(e)[:200]}"}
@@ -313,12 +318,17 @@ def _delete_old_surveys(max_age_days: int = 3) -> dict:
     """
     from pymongo import MongoClient
     
+    try:
+        from ..database import get_client
+    except ImportError:
+        from database import get_client
+
     mongo_uri = os.getenv("MONGO_URI")
     if not mongo_uri:
         return {"cint_deleted": 0, "cint_orphans": 0, "cpx_deleted": 0, "error": "MONGO_URI not set"}
     
     try:
-        client = MongoClient(mongo_uri)
+        client = get_client()
         try:
             cutoff = datetime.utcnow() - timedelta(days=max_age_days)
             BATCH_SIZE = 500
@@ -394,7 +404,7 @@ def _delete_old_surveys(max_age_days: int = 3) -> dict:
             }
             
         finally:
-            client.close()
+            pass  # Shared pool — do not close
             
     except Exception as e:
         return {"cint_deleted": 0, "cint_orphans": 0, "cpx_deleted": 0, "error": f"Delete error: {str(e)[:200]}"}

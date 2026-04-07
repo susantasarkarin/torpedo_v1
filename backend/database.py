@@ -55,9 +55,12 @@ class DatabaseManager:
                 mongo_uri,
                 serverSelectionTimeoutMS=5000,
                 connectTimeoutMS=5000,
-                maxPoolSize=50,
+                socketTimeoutMS=20000,
+                maxPoolSize=100,
                 minPoolSize=5,
-                retryWrites=True
+                maxIdleTimeMS=45000,
+                retryWrites=True,
+                retryReads=True,
             )
             self._client.admin.command('ping')
             print("✅ MongoDB sync client initialized")

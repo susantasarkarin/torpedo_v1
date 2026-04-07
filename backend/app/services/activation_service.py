@@ -2,7 +2,11 @@ import logging
 import os
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from pymongo import MongoClient
+
+try:
+    from ...database import get_client
+except ImportError:
+    from database import get_client
 
 from .survey_allocation_service import SurveyAllocationService, SurveyCreate, SurveyStatus
 
@@ -27,7 +31,7 @@ class SurveyActivationService:
             self.allocation_service = survey_allocation_service
             self.client = survey_allocation_service.client
         else:
-            self.client = MongoClient(mongo_uri)
+            self.client = get_client()
             self.allocation_service = SurveyAllocationService(mongo_uri)
 
         self.db = self.client["survey_allocation"]
