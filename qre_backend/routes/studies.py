@@ -329,6 +329,78 @@ async def terminate_overquota_respondents(study_id: str):
     }
 
 
+@router.post("/{study_id}/retroactive-overquota")
+async def retroactive_overquota_study(study_id: str):
+    """Reclassify already-completed respondents that over-achieved quota cells.
+
+    Uses the study's own per-cell limits (from study.quotas.cells), not global
+    config defaults.  Completed respondents are sorted oldest-first; those
+    beyond each cell's limit are reclassified to status='overquota' and have
+    their quota_claims released.
+
+    Returns a summary of how many respondents were reclassified per cell.
+    """
+    import asyncio as _asyncio
+    from datetime import timezone as _tz
+
+    db = _db()
+    study = await db.studies.find_one({"_id": study_id}, {"quotas": 1})
+    if not study:
+        raise HTTPException(status_code=404, detail="Study not found")
+
+    limits: dict = study.get("quotas", {}).get("cells", {})
+    if not limits:
+        return {"ok": True, "reclassified": 0, "details": {}, "message": "Study has no quota cells defined."}
+
+    now = __import__("datetime").datetime.now(_tz.utc)
+
+    # First pass: collect to_reclassify without updating DB yet
+    to_reclassify: dict[str, str] = {}  # respondent_id -> cell_key reason
+
+    for quota_key, limit in limits.items():
+        cursor = db.respondents.find(
+            {"status": "completed", "study_id": study_id, "quota_claims": quota_key},
+            {"_id": 1, "completed_at": 1},
+        ).sort("completed_at", 1)
+
+        idx = 0
+        async for doc in cursor:
+            idx += 1
+            if idx > limit:
+                rid = doc["_id"]
+                if rid not in to_reclassify:
+                    to_reclassify[rid] = quota_key
+
+    if not to_reclassify:
+        return {"ok": True, "reclassified": 0, "details": {}}
+
+    # Second pass: apply updates
+    details: dict[str, int] = {}
+    update_tasks = []
+    for rid, cell_key in to_reclassify.items():
+        update_tasks.append(
+            db.respondents.update_one(
+                {"_id": rid},
+                {"$set": {
+                    "status": "overquota",
+                    "termination_reason": f"overquota_{cell_key}",
+                    "terminated_at": now,
+                    "quota_claims": [],
+                    "ip_locked": False,
+                }},
+            )
+        )
+        details[cell_key] = details.get(cell_key, 0) + 1
+
+    await _asyncio.gather(*update_tasks)
+
+    return {
+        "ok": True,
+        "reclassified": len(to_reclassify),
+        "details": details,
+    }
+
+
 # ---------- Redirect Management (scoped) ----------
 
 @router.get("/{study_id}/redirects")

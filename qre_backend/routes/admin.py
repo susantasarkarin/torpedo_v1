@@ -332,10 +332,11 @@ async def terminate_overquota_global():
 async def retroactive_overquota():
     """Reclassify already-completed respondents that over-achieved quota cells.
 
+    Uses GLOBAL config limits (QUOTA_CITY / QUOTA_AGE / QUOTA_GENDER / QUOTA_NCCS).
+    For per-study limits use POST /api/studies/{study_id}/retroactive-overquota.
+
     For each quota cell, completed respondents are sorted by completed_at ASC.
     Those beyond the cell's limit are reclassified to status='overquota'.
-    Their completed_at is preserved for the audit trail; ip_locked is left
-    False because they completed legitimately.
 
     Returns a summary of how many respondents were reclassified per cell.
     """
@@ -374,19 +375,23 @@ async def retroactive_overquota():
         return {"ok": True, "reclassified": 0, "details": {}}
 
     details: dict[str, int] = {}
+    update_tasks = []
     for rid, cell_key in to_reclassify.items():
-        reason = f"overquota_{cell_key}"
-        await db.respondents.update_one(
-            {"_id": rid},
-            {"$set": {
-                "status": "overquota",
-                "termination_reason": reason,
-                "terminated_at": now,
-                "quota_claims": [],
-                "ip_locked": False,
-            }},
+        update_tasks.append(
+            db.respondents.update_one(
+                {"_id": rid},
+                {"$set": {
+                    "status": "overquota",
+                    "termination_reason": f"overquota_{cell_key}",
+                    "terminated_at": now,
+                    "quota_claims": [],
+                    "ip_locked": False,
+                }},
+            )
         )
         details[cell_key] = details.get(cell_key, 0) + 1
+
+    await _asyncio.gather(*update_tasks)
 
     return {
         "ok": True,
@@ -395,7 +400,6 @@ async def retroactive_overquota():
     }
 
 
-# ---------- Redirect URLs ----------
 
 class RedirectConfig(BaseModel):
     complete_url: Optional[str] = ""
