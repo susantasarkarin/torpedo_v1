@@ -475,7 +475,7 @@ function MailPool() {
 
       const res = await fetch(url, {
         headers: { Authorization: sessionId },
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(30000),
       })
 
       const data = await res.json()
