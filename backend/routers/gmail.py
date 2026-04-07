@@ -2059,7 +2059,7 @@ def _compute_and_persist_mail_pool_stats():
 
 
 @router.get("/mail-pool/emails")
-async def get_mail_pool_emails(
+def get_mail_pool_emails(
     request: Request,
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
@@ -2154,19 +2154,48 @@ async def get_mail_pool_emails(
         
         # Calculate skip
         skip = (page - 1) * limit
-        
-        # Get total count (with timeout)
-        try:
-            total = mail_pool_emails.count_documents(query, maxTimeMS=8000)
-        except Exception:
-            total = mail_pool_emails.estimated_document_count()
-        
-        # Fetch emails with pagination - sort by timestamp descending
-        emails = list(mail_pool_emails.find(query)
+
+        # Projection: only fetch fields needed for list view (exclude large body fields)
+        _PROJECTION = {
+            "from_email": 1, "from_name": 1, "to_emails": 1, "direction": 1,
+            "subject": 1, "snippet": 1, "category": 1, "labels": 1,
+            "timestamp": 1, "has_attachments": 1, "attachment_count": 1,
+            "mailbox_id": 1, "is_starred": 1, "is_read": 1,
+            "gmail_thread_id": 1, "gmail_message_id": 1, "synced_at": 1,
+            "ai_category": 1, "ai_confidence": 1, "ai_urgency": 1,
+            "ai_intent": 1, "ai_tier1_category": 1,
+        }
+
+        # Use cached count for simple direction-only filters (avoids full count scan)
+        _simple_direction = list(query.keys()) == ["direction"]
+        if _simple_direction:
+            try:
+                cached_doc = _stats_cache_col.find_one({"_id": _STATS_CACHE_ID},
+                    {"inbox_count": 1, "sent_count": 1, "total_emails": 1}, max_time_ms=1000)
+                if cached_doc:
+                    if query["direction"] == "inbound":
+                        total = cached_doc.get("inbox_count", 0)
+                    elif query["direction"] == "outbound":
+                        total = cached_doc.get("sent_count", 0)
+                    else:
+                        total = cached_doc.get("total_emails", 0)
+                else:
+                    total = mail_pool_emails.estimated_document_count()
+            except Exception:
+                total = mail_pool_emails.estimated_document_count()
+        else:
+            # Non-simple query: count with timeout, fall back to estimate
+            try:
+                total = mail_pool_emails.count_documents(query, maxTimeMS=5000)
+            except Exception:
+                total = mail_pool_emails.estimated_document_count()
+
+        # Fetch emails with projection (excludes body_html/body_text - huge fields)
+        emails = list(mail_pool_emails.find(query, _PROJECTION)
             .sort("timestamp", -1)
             .skip(skip)
             .limit(limit)
-            .max_time_ms(10000))
+            .max_time_ms(8000))
         
         # Batch-fetch mailbox accounts to avoid N+1 queries
         mailbox_ids = list({e.get("mailbox_id") for e in emails if e.get("mailbox_id")})
