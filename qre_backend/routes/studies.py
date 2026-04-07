@@ -259,6 +259,76 @@ async def reset_study_quotas(study_id: str):
     return {"ok": True}
 
 
+@router.post("/{study_id}/terminate-overquota")
+async def terminate_overquota_respondents(study_id: str):
+    """Terminate all in-progress respondents whose claimed cohort is over-achieved.
+
+    An over-achieved cohort is any quota cell where completed count >= cell limit.
+    In-progress respondents who hold a claim in such a cell are terminated with
+    reason ``overquota_<cell_key>`` and their quota counter claims are released.
+    Returns a summary of how many respondents were terminated per cell.
+    """
+    db = _db()
+    study = await db.studies.find_one({"_id": study_id}, {"quotas": 1})
+    if not study:
+        raise HTTPException(status_code=404, detail="Study not found")
+
+    from services.quota_service import _aggregate_respondent_counts, release_quota
+    limits = study["quotas"]["cells"]
+    counts = await _aggregate_respondent_counts(db, study_id)
+
+    # Identify full / over-achieved cells
+    full_cells = {key for key, limit in limits.items() if counts.get(key, 0) >= limit}
+    if not full_cells:
+        return {"ok": True, "terminated": 0, "message": "No over-achieved quota cells.", "details": {}}
+
+    # Find all in-progress respondents for this study whose quota_claims
+    # intersect with at least one full cell.
+    terminated_count = 0
+    details: dict[str, int] = {}
+    now = datetime.now(timezone.utc)
+
+    async for respondent in db.respondents.find(
+        {
+            "study_id": study_id,
+            "status": "in_progress",
+            "quota_claims": {"$in": list(full_cells)},
+        },
+        {"_id": 1, "quota_claims": 1, "vendor_rid": 1},
+    ):
+        rid = respondent["_id"]
+        claims = respondent.get("quota_claims", [])
+
+        # First full cell found in this respondent's claims → use as reason
+        reason_key = next((c for c in claims if c in full_cells), "overquota")
+        reason = f"overquota_{reason_key}"
+
+        # Release all quota counter claims atomically
+        if claims:
+            import asyncio as _asyncio
+            await _asyncio.gather(*[release_quota(db, qk, study_id) for qk in claims])
+
+        await db.respondents.update_one(
+            {"_id": rid},
+            {"$set": {
+                "status": "terminated",
+                "termination_reason": reason,
+                "terminated_at": now,
+                "quota_claims": [],
+                "ip_locked": False,
+            }},
+        )
+        terminated_count += 1
+        details[reason_key] = details.get(reason_key, 0) + 1
+
+    return {
+        "ok": True,
+        "terminated": terminated_count,
+        "full_cells": sorted(full_cells),
+        "details": details,
+    }
+
+
 # ---------- Redirect Management (scoped) ----------
 
 @router.get("/{study_id}/redirects")

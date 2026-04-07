@@ -271,6 +271,130 @@ async def reset_quotas():
     return {"ok": True, "message": "All quotas reset to zero", "purged_stale_keys": stale_keys}
 
 
+@router.post("/terminate-overquota")
+async def terminate_overquota_global():
+    """Terminate all in-progress respondents (global / no study scope) whose
+    claimed cohort is over-achieved.  Returns a summary of terminations per cell.
+    """
+    import asyncio as _asyncio
+    from datetime import timezone as _tz
+    from config import QUOTA_AGE, QUOTA_GENDER, QUOTA_NCCS, QUOTA_CITY
+    from services.quota_service import get_all_quotas, release_quota
+
+    db = _db()
+    quotas = await get_all_quotas(db)
+    full_cells = {q["quota_key"] for q in quotas if q["is_full"]}
+    if not full_cells:
+        return {"ok": True, "terminated": 0, "message": "No over-achieved quota cells.", "details": {}}
+
+    terminated_count = 0
+    details: dict[str, int] = {}
+    now = __import__("datetime").datetime.now(_tz.utc)
+
+    async for respondent in db.respondents.find(
+        {
+            "status": "in_progress",
+            "quota_claims": {"$in": list(full_cells)},
+            "$or": [{"study_id": {"$exists": False}}, {"study_id": "default"}],
+        },
+        {"_id": 1, "quota_claims": 1},
+    ):
+        rid = respondent["_id"]
+        claims = respondent.get("quota_claims", [])
+        reason_key = next((c for c in claims if c in full_cells), "overquota")
+        reason = f"overquota_{reason_key}"
+
+        if claims:
+            await _asyncio.gather(*[release_quota(db, qk) for qk in claims])
+
+        await db.respondents.update_one(
+            {"_id": rid},
+            {"$set": {
+                "status": "terminated",
+                "termination_reason": reason,
+                "terminated_at": now,
+                "quota_claims": [],
+                "ip_locked": False,
+            }},
+        )
+        terminated_count += 1
+        details[reason_key] = details.get(reason_key, 0) + 1
+
+    return {
+        "ok": True,
+        "terminated": terminated_count,
+        "full_cells": sorted(full_cells),
+        "details": details,
+    }
+
+
+@router.post("/retroactive-overquota")
+async def retroactive_overquota():
+    """Reclassify already-completed respondents that over-achieved quota cells.
+
+    For each quota cell, completed respondents are sorted by completed_at ASC.
+    Those beyond the cell's limit are reclassified to status='overquota'.
+    Their completed_at is preserved for the audit trail; ip_locked is left
+    False because they completed legitimately.
+
+    Returns a summary of how many respondents were reclassified per cell.
+    """
+    import asyncio as _asyncio
+    from datetime import timezone as _tz
+    from config import QUOTA_AGE, QUOTA_GENDER, QUOTA_NCCS, QUOTA_CITY
+
+    db = _db()
+    now = __import__("datetime").datetime.now(_tz.utc)
+    all_cells = {**QUOTA_CITY, **QUOTA_AGE, **QUOTA_GENDER, **QUOTA_NCCS}
+
+    # Collect overachieved respondent IDs: {rid -> first cell that flags it}
+    to_reclassify: dict[str, str] = {}
+
+    # Fetch per-study limits from db.quota_limits (legacy override collection)
+    limits_doc = await db.quota_limits.find_one({"_id": "limits"}) or {}
+
+    for quota_key, default_limit in all_cells.items():
+        limit = limits_doc.get(quota_key, default_limit)
+
+        # Fetch all completed respondents with this claim, oldest first
+        cursor = db.respondents.find(
+            {"status": "completed", "quota_claims": quota_key},
+            {"_id": 1, "completed_at": 1},
+        ).sort("completed_at", 1)
+
+        idx = 0
+        async for doc in cursor:
+            idx += 1
+            if idx > limit:
+                rid = doc["_id"]
+                if rid not in to_reclassify:
+                    to_reclassify[rid] = quota_key
+
+    if not to_reclassify:
+        return {"ok": True, "reclassified": 0, "details": {}}
+
+    details: dict[str, int] = {}
+    for rid, cell_key in to_reclassify.items():
+        reason = f"overquota_{cell_key}"
+        await db.respondents.update_one(
+            {"_id": rid},
+            {"$set": {
+                "status": "overquota",
+                "termination_reason": reason,
+                "terminated_at": now,
+                "quota_claims": [],
+                "ip_locked": False,
+            }},
+        )
+        details[cell_key] = details.get(cell_key, 0) + 1
+
+    return {
+        "ok": True,
+        "reclassified": len(to_reclassify),
+        "details": details,
+    }
+
+
 # ---------- Redirect URLs ----------
 
 class RedirectConfig(BaseModel):
@@ -319,6 +443,7 @@ async def survey_stats():
     total = await db.respondents.count_documents({})
     completed = await db.respondents.count_documents({"status": "completed"})
     terminated = await db.respondents.count_documents({"status": "terminated"})
+    overquota = await db.respondents.count_documents({"status": "overquota"})
     in_progress = await db.respondents.count_documents({"status": "in_progress"})
 
     # Termination reasons breakdown
@@ -335,6 +460,7 @@ async def survey_stats():
         "total_started": total,
         "completed": completed,
         "terminated": terminated,
+        "overquota": overquota,
         "in_progress": in_progress,
         "completion_rate": round(completed / total * 100, 1) if total > 0 else 0,
         "termination_reasons": term_reasons,
@@ -468,6 +594,7 @@ async def client_dashboard():
     total = await db.respondents.count_documents({})
     completed = await db.respondents.count_documents({"status": "completed"})
     terminated = await db.respondents.count_documents({"status": "terminated"})
+    overquota = await db.respondents.count_documents({"status": "overquota"})
     in_progress = await db.respondents.count_documents({"status": "in_progress"})
 
     # Quota fill rates
@@ -532,6 +659,7 @@ async def client_dashboard():
         "total_started": total,
         "completed": completed,
         "terminated": terminated,
+        "overquota": overquota,
         "in_progress": in_progress,
         "completion_rate": round(completed / total * 100, 1) if total > 0 else 0,
         "incidence_rate": round(completed / (completed + terminated) * 100, 1) if (completed + terminated) > 0 else 0,

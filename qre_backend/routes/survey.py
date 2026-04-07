@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request
 from models import AnswerPayload, StartSurveyResponse, RoutingDecision, ResumeSurveyResponse
-from services.quota_service import try_claim_quota, release_quota, ensure_study_quota_doc
+from services.quota_service import try_claim_quota, release_quota, ensure_study_quota_doc, check_overquota_at_completion
 from services.nccs import classify_nccs
 from config import (
     CITY_CODE_MAP, CATEGORY_PRIORITY,
@@ -567,7 +567,7 @@ async def submit_answer(payload: AnswerPayload):
         nxt = {"Q36": "Q37", "Q37": "Q38", "Q38": "Q39", "Q39": "Q40"}[qid]
         return RoutingDecision(action="next", next_question_id=nxt)
 
-    # Q40 - Last question; speeder check, then mark complete and redirect
+    # Q40 - Last question; speeder check, overquota check, then mark complete and redirect
     if qid == "Q40":
         now = datetime.now(timezone.utc)
 
@@ -585,6 +585,48 @@ async def submit_answer(payload: AnswerPayload):
                     f"quality_speeder_{int(elapsed)}s_of_{MIN_COMPLETE_SECONDS}s_required",
                     respondent=respondent,
                 )
+        # ------------------------------------------------------------------
+
+        # --- Overquota check (real-time, before writing completed) ---------
+        # If any claimed quota cell is already at or above its limit, this
+        # respondent would overachieve that cell.  Terminate as overquota
+        # instead of counting them as a valid complete.
+        overquota_cell = await check_overquota_at_completion(db, respondent)
+        if overquota_cell:
+            claims = respondent.get("quota_claims", [])
+            study_id_oq = respondent.get("study_id")
+            vendor_rid_oq = respondent.get("vendor_rid", "")
+            if claims:
+                await asyncio.gather(*[release_quota(db, qk, study_id_oq) for qk in claims])
+            oq_reason = f"overquota_{overquota_cell}"
+            oq_update = db.respondents.update_one(
+                {"_id": rid},
+                {"$set": {
+                    "status": "overquota",
+                    "termination_reason": oq_reason,
+                    "terminated_at": now,
+                    "quota_claims": [],
+                    "ip_locked": False,
+                }},
+            )
+            oq_redirect_url = None
+            if study_id_oq and study_id_oq != "default":
+                _, oq_study = await asyncio.gather(
+                    oq_update,
+                    db.studies.find_one({"_id": study_id_oq}, {"redirects": 1}),
+                )
+                raw_oq_url = oq_study.get("redirects", {}).get("overquota_url", "") if oq_study else ""
+                if raw_oq_url:
+                    oq_redirect_url = (
+                        raw_oq_url
+                        .replace("[RID]", vendor_rid_oq)
+                        .replace("[rid]", vendor_rid_oq)
+                        .replace("{RID}", vendor_rid_oq)
+                        .replace("{rid}", vendor_rid_oq)
+                    )
+            else:
+                await oq_update
+            return RoutingDecision(action="terminate", reason=oq_reason, redirect_url=oq_redirect_url)
         # ------------------------------------------------------------------
 
         study_id = respondent.get("study_id")

@@ -241,3 +241,43 @@ async def check_quota_available(
     if not doc:
         return True
     return doc.get(quota_key, 0) < limit
+
+
+async def check_overquota_at_completion(
+    db: AsyncIOMotorDatabase, respondent: dict
+) -> str | None:
+    """Check whether adding this respondent as 'completed' would overachieve any quota cell.
+
+    Called at Q40 *before* the status is written, so the respondent is still
+    'in_progress'.  The check counts all ALREADY-completed respondents that
+    hold each claim and compares against the cell limit.  If the current
+    respondent would push any cell over its limit this function returns the
+    offending quota_key; otherwise it returns None.
+
+    Using the completed-count (not the atomic counter) guards against clock
+    drift, retries, and any pre-existing over-achievement in the database.
+    """
+    claims: list[str] = respondent.get("quota_claims", [])
+    study_id: str | None = respondent.get("study_id")
+    if not claims:
+        return None
+
+    base_match: dict = {"status": "completed"}
+    if study_id and study_id != "default":
+        base_match["study_id"] = study_id
+
+    async def _check_cell(quota_key: str) -> str | None:
+        limit = await _get_limit_async(db, quota_key, study_id)
+        already_completed = await db.respondents.count_documents(
+            {**base_match, "quota_claims": quota_key}
+        )
+        # If already at or above limit, this next completion would overachieve
+        if already_completed >= limit:
+            return quota_key
+        return None
+
+    results = await asyncio.gather(*[_check_cell(k) for k in claims])
+    for res in results:
+        if res is not None:
+            return res
+    return None

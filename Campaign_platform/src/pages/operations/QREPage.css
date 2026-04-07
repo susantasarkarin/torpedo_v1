@@ -103,6 +103,12 @@
   background: #dc2626;
 }
 .qre-btn-danger:hover { background: #b91c1c; }
+.qre-btn-warning {
+  background: #d97706;
+  color: #fff;
+}
+.qre-btn-warning:hover { background: #b45309; }
+.qre-btn-warning:disabled { background: #e5e7eb; color: #9ca3af; cursor: not-allowed; }
 .qre-btn-success {
   background: #16a34a;
 }
@@ -373,6 +379,33 @@
 .qre-export-icon { font-size: 2rem; margin-bottom: 0.5rem; }
 .qre-export-title { font-size: 0.9rem; font-weight: 700; color: #1a1a2e; }
 .qre-export-desc { font-size: 0.78rem; color: #6b7280; margin-top: 0.3rem; }
+
+/* ---- Over-quota action panel ---- */
+.qre-overquota-action {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  background: #fff7ed;
+  border: 1.5px solid #f59e0b;
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  margin-top: 1.1rem;
+}
+.qre-overquota-info {
+  flex: 1;
+  font-size: 0.83rem;
+  color: #92400e;
+  line-height: 1.45;
+}
+.qre-terminate-result {
+  background: #f0fdf4;
+  border: 1.5px solid #16a34a;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-top: 0.85rem;
+  font-size: 0.83rem;
+  color: #14532d;
+}
 
 /* ---- Study Selector ---- */
 .qre-study-selector {

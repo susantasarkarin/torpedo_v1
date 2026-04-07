@@ -528,6 +528,8 @@ function QuotasTab({ studyId }) {
   const [editLimits, setEditLimits] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [terminating, setTerminating] = useState(false);
+  const [terminateResult, setTerminateResult] = useState(null);
   const [error, setError] = useState(null);
   const [toast, showToast] = useToast();
 
@@ -571,7 +573,37 @@ function QuotasTab({ studyId }) {
     }
   };
 
+  const terminateOverquota = async () => {
+    const fullCells = quotas.filter((q) => q.is_full).map((q) => label(q.quota_key));
+    if (fullCells.length === 0) {
+      showToast("No over-achieved quota cells found.");
+      return;
+    }
+    const msg =
+      `This will terminate all in-progress respondents who have already claimed a slot ` +
+      `in the following full/over-achieved cells:\n\n${fullCells.join(", ")}\n\n` +
+      `Their surveys will be ended immediately. Continue?`;
+    if (!window.confirm(msg)) return;
+    setTerminating(true);
+    setTerminateResult(null);
+    try {
+      const result = await qreApi.terminateOverquota(studyId);
+      setTerminateResult(result);
+      if (result.terminated > 0) {
+        showToast(`Terminated ${result.terminated} over-quota respondent(s).`);
+      } else {
+        showToast("No in-progress respondents to terminate.");
+      }
+      load();
+    } catch (e) {
+      showToast("Error: " + e.message);
+    }
+    setTerminating(false);
+  };
+
   if (loading) return <div className="qre-loading">Loading quotas…</div>;
+
+  const overAchievedCount = quotas.filter((q) => q.is_full).length;
 
   return (
     <>
@@ -605,12 +637,21 @@ function QuotasTab({ studyId }) {
                   group.cells.map((q, i) => {
                     const fillPct = q.limit > 0 ? Math.round((q.current / q.limit) * 100) : 0;
                     return (
-                      <tr key={q.quota_key}>
+                      <tr key={q.quota_key} style={{ background: q.is_full ? "#fff1f2" : undefined }}>
                         <td style={{ color: "#6b7280", fontSize: "0.78rem" }}>
                           {i === 0 ? group.groupLabel : ""}
                         </td>
-                        <td>{label(q.quota_key)}</td>
-                        <td>{q.current}</td>
+                        <td>
+                          {label(q.quota_key)}
+                          {q.is_full && (
+                            <span style={{ marginLeft: 6, fontSize: "0.7rem", color: "#dc2626", fontWeight: 700 }}>
+                              FULL
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ color: q.is_full ? "#dc2626" : undefined, fontWeight: q.is_full ? 700 : undefined }}>
+                          {q.current}
+                        </td>
                         <td>
                           <input
                             type="number"
@@ -644,6 +685,42 @@ function QuotasTab({ studyId }) {
             </table>
           </div>
         )}
+
+        {/* Terminate over-quota in-progress respondents */}
+        {overAchievedCount > 0 && (
+          <div className="qre-overquota-action">
+            <div className="qre-overquota-info">
+              <strong>{overAchievedCount} quota cell{overAchievedCount > 1 ? "s" : ""} are full or over-achieved.</strong>
+              {" "}In-progress respondents who have already claimed a slot in these cohorts
+              will be terminated so they do not inflate the count further.
+            </div>
+            <button
+              className="qre-btn qre-btn-warning"
+              disabled={terminating}
+              onClick={terminateOverquota}
+            >
+              {terminating ? "Terminating…" : `Terminate Over-Quota Respondents`}
+            </button>
+          </div>
+        )}
+
+        {terminateResult && (
+          <div className="qre-terminate-result">
+            <strong>
+              {terminateResult.terminated === 0
+                ? "No in-progress respondents were in over-achieved cohorts."
+                : `${terminateResult.terminated} respondent(s) terminated.`}
+            </strong>
+            {terminateResult.terminated > 0 && Object.keys(terminateResult.details).length > 0 && (
+              <ul style={{ margin: "0.4rem 0 0 1rem", padding: 0 }}>
+                {Object.entries(terminateResult.details).map(([cell, count]) => (
+                  <li key={cell}>{label(cell)}: {count}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
         <div style={{ marginTop: "1.25rem" }}>
           <button className="qre-btn qre-btn-danger" onClick={resetAll}>
             Reset All Counters to Zero

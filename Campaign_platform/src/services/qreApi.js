@@ -65,6 +65,12 @@ export const qreApi = {
       ? req("POST", `/api/studies/${studyId}/quotas/reset`)
       : req("POST", "/api/admin/quotas/reset"),
 
+  // Terminate in-progress respondents in over-achieved quota cohorts
+  terminateOverquota: (studyId) =>
+    studyId
+      ? req("POST", `/api/studies/${studyId}/terminate-overquota`)
+      : req("POST", "/api/admin/terminate-overquota"),
+
   // --- Redirects ---
   getRedirects: (studyId) =>
     studyId ? req("GET", `/api/studies/${studyId}/redirects`) : req("GET", "/api/admin/redirects"),
