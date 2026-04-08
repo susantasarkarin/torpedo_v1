@@ -683,8 +683,13 @@ class TrafficService:
                         {"$group": {
                             "_id": {"day": "$_day", "status": "$_norm_status", "source": "$_source"},
                             "count": {"$sum": 1},
-                            "users": {"$addToSet": {"$ifNull": ["$respondentId", {"$toString": "$_id"}]}},
                         }},
+                    ],
+                    # Active users per day (separate lightweight group)
+                    "daily_users": [
+                        {"$match": {"_day": {"$ne": None}}},
+                        {"$group": {"_id": {"day": "$_day", "user": {"$ifNull": ["$respondentId", {"$toString": "$_id"}]}}}},
+                        {"$group": {"_id": "$_id.day", "count": {"$sum": 1}}},
                     ],
                     # Country clicks (within date window)
                     "country_clicks": [
@@ -705,15 +710,19 @@ class TrafficService:
                         {"$match": {"_source": {"$in": ["CPX", "CINT"]}}},
                         {"$group": {"_id": "$_source", "count": {"$sum": 1}}},
                     ],
-                    # Total & active users
+                    # Total counts
                     "totals": [
                         {"$group": {
                             "_id": None,
                             "total": {"$sum": 1},
                             "total_api_true": {"$sum": {"$cond": ["$_is_api_true", 1, 0]}},
                             "total_api_false": {"$sum": {"$cond": ["$_is_api_true", 0, 1]}},
-                            "active_users": {"$addToSet": {"$ifNull": ["$respondentId", {"$toString": "$_id"}]}},
                         }},
+                    ],
+                    # Distinct active user count
+                    "active_user_count": [
+                        {"$group": {"_id": {"$ifNull": ["$respondentId", {"$toString": "$_id"}]}}},
+                        {"$count": "count"},
                     ],
                 }}
             ]
@@ -726,7 +735,8 @@ class TrafficService:
             total = totals_doc.get("total", 0)
             total_api_true = totals_doc.get("total_api_true", 0)
             total_api_false = totals_doc.get("total_api_false", 0)
-            active_users_total = set(totals_doc.get("active_users", []))
+            active_user_count_doc = agg.get("active_user_count", [{}])[0] if agg.get("active_user_count") else {}
+            active_users_count = active_user_count_doc.get("count", 0)
 
             # Parse by_status
             for doc in agg.get("by_status", []):
@@ -746,23 +756,21 @@ class TrafficService:
             country_clicks = {doc["_id"]: doc["clicks"] for doc in agg.get("country_clicks", [])}
 
             # Parse daily breakdown - rebuild day_buckets from aggregation results
-            daily_users = {}  # day -> set of users
+            daily_user_counts = {}  # day -> distinct user count
+            for doc in agg.get("daily_users", []):
+                daily_user_counts[doc["_id"]] = doc["count"]
+
             for doc in agg.get("daily", []):
                 day = doc["_id"]["day"]
                 status = doc["_id"]["status"]
                 source = doc["_id"]["source"]
                 count = doc["count"]
-                users = doc.get("users", [])
 
                 if day not in day_buckets:
                     continue
 
                 bucket = day_buckets[day]
                 bucket["clicks"] += count
-
-                if day not in daily_users:
-                    daily_users[day] = set()
-                daily_users[day].update(users)
 
                 if source == "CPX":
                     bucket["cpx_entrants"] += count
@@ -781,11 +789,6 @@ class TrafficService:
                     bucket["terminate"] += count
                 elif status == "Quota Full":
                     bucket["quota_full"] += count
-
-            # Set active_users per day bucket
-            for day, users in daily_users.items():
-                if day in day_buckets:
-                    day_buckets[day]["active_users"] = users
 
             daily = []
             for key in day_keys:
@@ -817,7 +820,7 @@ class TrafficService:
                     # Backward-compatible aliases used by current UI cards.
                     "completes": complete,
                     "outs": max(0, clicks - complete),
-                    "active_users": len(bucket["active_users"]),
+                    "active_users": daily_user_counts.get(key, 0),
                 })
 
             top_countries = [
@@ -840,7 +843,7 @@ class TrafficService:
                 "total_api_true": total_api_true,
                 "total_api_false": total_api_false,
                 "daily": daily,
-                "active_users_total": len(active_users_total),
+                "active_users_total": active_users_count,
                 "completes_by_source": completes_by_source,
                 "ir_by_source": ir_by_source,
                 "country_clicks": top_countries,
