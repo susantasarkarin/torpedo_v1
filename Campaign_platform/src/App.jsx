@@ -146,6 +146,7 @@ function App() {
       <Route path="/takesurvey" element={<TrafficFlowParser />} />
       <Route path="/survey-start" element={<TrafficFlowParser />} />
       <Route path="/survey-error" element={<SurveyError />} />
+      <Route path="/nosurvey" element={<SurveyError />} />
       <Route path="/response" element={<SurveyResponse />} />
       <Route path="/survey-response" element={<SurveyResponse />} />
 
