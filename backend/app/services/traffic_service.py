@@ -586,12 +586,9 @@ class TrafficService:
         survey_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Build dashboard-friendly traffic stats:
-        - by_status + total
-        - daily clicks/incomplete/complete/terminate/quota_full for N days
-        - completes split by survey source (CPX vs CINT)
-        - daily IR% split by survey source (CPX vs CINT), where IR = complete/entrants
-        - top country click distribution
+        Build dashboard-friendly traffic stats using a single-pass MongoDB
+        aggregation ($group by date).  No $facet, no $addToSet – constant
+        memory usage so it won't OOM on a 2 GB VM.
         """
         try:
             window_days = max(1, min(int(days or 7), 30))
@@ -600,149 +597,153 @@ class TrafficService:
                 hour=0, minute=0, second=0, microsecond=0
             )
 
-            query: Dict[str, Any] = {}
+            match_stage: Dict[str, Any] = {"createdAt": {"$gte": start_day}}
             if survey_id:
-                query["assignedSurveyId"] = survey_id
+                match_stage["assignedSurveyId"] = survey_id
 
-            # PERF: Filter by date window at DB level to avoid scanning entire collection
-            query["createdAt"] = {"$gte": start_day}
-
-            # Initialize day buckets in ascending order
-            day_keys: List[str] = []
-            day_buckets: Dict[str, Dict[str, Any]] = {}
-            for offset in range(window_days):
-                day = start_day + timedelta(days=offset)
-                key = day.strftime("%Y-%m-%d")
-                day_keys.append(key)
-                day_buckets[key] = {
-                    "date": key,
-                    "clicks": 0,
-                    "complete": 0,
-                    "incomplete": 0,
-                    "terminate": 0,
-                    "quota_full": 0,
-                    "cpx_entrants": 0,
-                    "cpx_complete": 0,
-                    "cint_entrants": 0,
-                    "cint_complete": 0,
-                    "outs": 0,
-                    "active_users": set(),
-                }
-
-            by_status = {"Complete": 0, "Incomplete": 0, "Quota Full": 0, "Terminate": 0}
-            total = 0
-            completes_by_source = {"CPX": 0, "CINT": 0, "UNKNOWN": 0}
-            entrants_by_source = {"CPX": 0, "CINT": 0}
-            country_clicks: Dict[str, int] = {}
-            active_users_total = set()
-
-            by_status_api_true  = {"Complete": 0, "Incomplete": 0, "Quota Full": 0, "Terminate": 0}
-            by_status_api_false = {"Complete": 0, "Incomplete": 0, "Quota Full": 0, "Terminate": 0}
-            total_api_true = 0
-            total_api_false = 0
-
-            # =========================================================================
-            # PERF: Python loop with projection + date filter (createdAt >= start_day)
-            # Scans ~31K records (7-day window) vs 194K+ (full collection)
-            # =========================================================================
-            projection = {
-                "status": 1,
-                "createdAt": 1,
-                "respondentId": 1,
-                "countryCode": 1,
-                "surveySource": 1,
-                "params.api": 1,
+            # ----- status classification via $switch ----- #
+            status_lower = {"$toLower": {"$ifNull": ["$status", ""]}}
+            norm_status = {
+                "$switch": {
+                    "branches": [
+                        {"case": {"$and": [
+                            {"$ne": [{"$indexOfCP": [status_lower, "complete"]}, -1]},
+                            {"$eq": [{"$indexOfCP": [status_lower, "incomplete"]}, -1]},
+                        ]}, "then": "Complete"},
+                        {"case": {"$or": [
+                            {"$ne": [{"$indexOfCP": [status_lower, "quota"]}, -1]},
+                            {"$ne": [{"$indexOfCP": [status_lower, "quotafull"]}, -1]},
+                            {"$ne": [{"$indexOfCP": [status_lower, "overquota"]}, -1]},
+                        ]}, "then": "Quota Full"},
+                        {"case": {"$or": [
+                            {"$ne": [{"$indexOfCP": [status_lower, "terminate"]}, -1]},
+                            {"$ne": [{"$indexOfCP": [status_lower, "screenout"]}, -1]},
+                            {"$ne": [{"$indexOfCP": [status_lower, "term"]}, -1]},
+                            {"$eq": [status_lower, "out"]},
+                        ]}, "then": "Terminate"},
+                        {"case": {"$ne": [{"$indexOfCP": [status_lower, "incomplete"]}, -1]},
+                         "then": "Incomplete"},
+                    ],
+                    "default": "Incomplete",
+                },
             }
 
-            # Pre-build status/source lookup dicts for fast normalization
-            _status_map = {}
-            _source_map = {}
+            # ----- source classification ----- #
+            source_upper = {"$toUpper": {"$ifNull": ["$surveySource", ""]}}
+            norm_source = {
+                "$switch": {
+                    "branches": [
+                        {"case": {"$eq": [source_upper, "CPX"]}, "then": "CPX"},
+                        {"case": {"$eq": [{"$substrCP": [{"$concat": [source_upper, "    "]}, 0, 4]}, "CINT"]},
+                         "then": "CINT"},
+                    ],
+                    "default": "UNKNOWN",
+                },
+            }
 
-            for record in self.traffic_collection.find(query, projection):
-                raw_status = record.get("status", "")
-                # Inline status normalization (avoid method call overhead)
-                ls = raw_status.lower().strip() if raw_status else ""
-                if ls not in _status_map:
-                    _status_map[ls] = self._normalize_status(raw_status)
-                normalized_status = _status_map[ls]
+            # ----- api flag ----- #
+            api_raw = {"$ifNull": ["$params.api", ""]}
+            is_api_true = {"$ne": [{"$toLower": {"$toString": api_raw}}, "false"]}
 
-                raw_source = record.get("surveySource") or ""
-                if raw_source not in _source_map:
-                    _source_map[raw_source] = self._normalize_survey_source(raw_source)
-                source_bucket = _source_map[raw_source]
+            # ----- date string (YYYY-MM-DD) for grouping ----- #
+            date_str = {"$dateToString": {"format": "%Y-%m-%d", "date": "$createdAt"}}
 
-                # API flag check
-                params_doc = record.get("params") or {}
-                api_val = params_doc.get("api", "")
-                is_api_true = str(api_val).strip().lower() != "false" if api_val else True
+            # ==================== PIPELINE ==================== #
+            pipeline = [
+                {"$match": match_stage},
+                {"$addFields": {
+                    "_ns": norm_status,
+                    "_src": norm_source,
+                    "_api": is_api_true,
+                    "_day": date_str,
+                    "_cc": {"$ifNull": [{"$toUpper": "$countryCode"}, "NA"]},
+                }},
+                # --- Stage 1: group by day --- #
+                {"$group": {
+                    "_id": "$_day",
+                    "clicks": {"$sum": 1},
+                    "complete": {"$sum": {"$cond": [{"$eq": ["$_ns", "Complete"]}, 1, 0]}},
+                    "incomplete": {"$sum": {"$cond": [{"$eq": ["$_ns", "Incomplete"]}, 1, 0]}},
+                    "terminate": {"$sum": {"$cond": [{"$eq": ["$_ns", "Terminate"]}, 1, 0]}},
+                    "quota_full": {"$sum": {"$cond": [{"$eq": ["$_ns", "Quota Full"]}, 1, 0]}},
+                    "cpx_entrants": {"$sum": {"$cond": [{"$eq": ["$_src", "CPX"]}, 1, 0]}},
+                    "cpx_complete": {"$sum": {"$cond": [{"$and": [{"$eq": ["$_ns", "Complete"]}, {"$eq": ["$_src", "CPX"]}]}, 1, 0]}},
+                    "cint_entrants": {"$sum": {"$cond": [{"$eq": ["$_src", "CINT"]}, 1, 0]}},
+                    "cint_complete": {"$sum": {"$cond": [{"$and": [{"$eq": ["$_ns", "Complete"]}, {"$eq": ["$_src", "CINT"]}]}, 1, 0]}},
+                    # API splits
+                    "api_true": {"$sum": {"$cond": ["$_api", 1, 0]}},
+                    "api_false": {"$sum": {"$cond": ["$_api", 0, 1]}},
+                    "api_true_complete": {"$sum": {"$cond": [{"$and": ["$_api", {"$eq": ["$_ns", "Complete"]}]}, 1, 0]}},
+                    "api_true_incomplete": {"$sum": {"$cond": [{"$and": ["$_api", {"$eq": ["$_ns", "Incomplete"]}]}, 1, 0]}},
+                    "api_true_terminate": {"$sum": {"$cond": [{"$and": ["$_api", {"$eq": ["$_ns", "Terminate"]}]}, 1, 0]}},
+                    "api_true_quota": {"$sum": {"$cond": [{"$and": ["$_api", {"$eq": ["$_ns", "Quota Full"]}]}, 1, 0]}},
+                    "api_false_complete": {"$sum": {"$cond": [{"$and": [{"$not": "$_api"}, {"$eq": ["$_ns", "Complete"]}]}, 1, 0]}},
+                    "api_false_incomplete": {"$sum": {"$cond": [{"$and": [{"$not": "$_api"}, {"$eq": ["$_ns", "Incomplete"]}]}, 1, 0]}},
+                    "api_false_terminate": {"$sum": {"$cond": [{"$and": [{"$not": "$_api"}, {"$eq": ["$_ns", "Terminate"]}]}, 1, 0]}},
+                    "api_false_quota": {"$sum": {"$cond": [{"$and": [{"$not": "$_api"}, {"$eq": ["$_ns", "Quota Full"]}]}, 1, 0]}},
+                    # Source completes (including UNKNOWN)
+                    "cpx_completes_total": {"$sum": {"$cond": [{"$and": [{"$eq": ["$_ns", "Complete"]}, {"$eq": ["$_src", "CPX"]}]}, 1, 0]}},
+                    "cint_completes_total": {"$sum": {"$cond": [{"$and": [{"$eq": ["$_ns", "Complete"]}, {"$eq": ["$_src", "CINT"]}]}, 1, 0]}},
+                    "unk_completes_total": {"$sum": {"$cond": [{"$and": [{"$eq": ["$_ns", "Complete"]}, {"$eq": ["$_src", "UNKNOWN"]}]}, 1, 0]}},
+                    # active users per day – small set (~4K per day, not 31K total)
+                    "unique_users": {"$addToSet": {"$ifNull": ["$respondentId", {"$toString": "$_id"}]}},
+                }},
+                {"$sort": {"_id": 1}},
+            ]
 
-                by_status[normalized_status] = by_status.get(normalized_status, 0) + 1
-                if is_api_true:
-                    by_status_api_true[normalized_status] = by_status_api_true.get(normalized_status, 0) + 1
-                    total_api_true += 1
-                else:
-                    by_status_api_false[normalized_status] = by_status_api_false.get(normalized_status, 0) + 1
-                    total_api_false += 1
-                total += 1
+            # Run the main aggregation
+            day_results = list(self.traffic_collection.aggregate(pipeline, allowDiskUse=True))
 
-                # Use createdAt directly (already a datetime from MongoDB)
-                created_dt = record.get("createdAt")
-                if created_dt and isinstance(created_dt, datetime):
-                    day_key = created_dt.strftime("%Y-%m-%d")
-                    if day_key in day_buckets:
-                        bucket = day_buckets[day_key]
-                        bucket["clicks"] += 1
+            # ----- Separate aggregation for top countries (lightweight) ----- #
+            country_pipeline = [
+                {"$match": match_stage},
+                {"$group": {
+                    "_id": {"$ifNull": [{"$toUpper": "$countryCode"}, "NA"]},
+                    "clicks": {"$sum": 1},
+                }},
+                {"$sort": {"clicks": -1}},
+                {"$limit": 12},
+            ]
+            country_results = list(self.traffic_collection.aggregate(country_pipeline, allowDiskUse=True))
 
-                        user_key = record.get("respondentId") or str(record.get("_id"))
-                        if user_key:
-                            bucket["active_users"].add(str(user_key))
-                            active_users_total.add(str(user_key))
+            # ----- Build day buckets ----- #
+            day_keys: List[str] = []
+            for offset in range(window_days):
+                day = start_day + timedelta(days=offset)
+                day_keys.append(day.strftime("%Y-%m-%d"))
 
-                        cc = str(record.get("countryCode") or "").strip().upper() or "NA"
-                        country_clicks[cc] = country_clicks.get(cc, 0) + 1
+            day_map = {r["_id"]: r for r in day_results}
 
-                        if source_bucket == "CPX":
-                            bucket["cpx_entrants"] += 1
-                            entrants_by_source["CPX"] += 1
-                        elif source_bucket == "CINT":
-                            bucket["cint_entrants"] += 1
-                            entrants_by_source["CINT"] += 1
-
-                        if normalized_status == "Complete":
-                            bucket["complete"] += 1
-                            if source_bucket == "CPX":
-                                bucket["cpx_complete"] += 1
-                            elif source_bucket == "CINT":
-                                bucket["cint_complete"] += 1
-                        elif normalized_status == "Incomplete":
-                            bucket["incomplete"] += 1
-                        elif normalized_status == "Terminate":
-                            bucket["terminate"] += 1
-                        elif normalized_status == "Quota Full":
-                            bucket["quota_full"] += 1
-
-                if self._is_complete_status(raw_status):
-                    if source_bucket == "CPX":
-                        completes_by_source["CPX"] += 1
-                    elif source_bucket == "CINT":
-                        completes_by_source["CINT"] += 1
-                    else:
-                        completes_by_source["UNKNOWN"] += 1
+            by_status = {"Complete": 0, "Incomplete": 0, "Quota Full": 0, "Terminate": 0}
+            by_status_api_true = {"Complete": 0, "Incomplete": 0, "Quota Full": 0, "Terminate": 0}
+            by_status_api_false = {"Complete": 0, "Incomplete": 0, "Quota Full": 0, "Terminate": 0}
+            total = 0
+            total_api_true = 0
+            total_api_false = 0
+            completes_by_source = {"CPX": 0, "CINT": 0, "UNKNOWN": 0}
+            entrants_by_source = {"CPX": 0, "CINT": 0}
+            active_users_total: set = set()
 
             daily = []
             for key in day_keys:
-                bucket = day_buckets[key]
-                clicks = int(bucket["clicks"])
-                complete = int(bucket["complete"])
-                incomplete = int(bucket["incomplete"])
-                terminate = int(bucket["terminate"])
-                quota_full = int(bucket["quota_full"])
-                cpx_entrants = int(bucket["cpx_entrants"])
-                cpx_complete = int(bucket["cpx_complete"])
-                cint_entrants = int(bucket["cint_entrants"])
-                cint_complete = int(bucket["cint_complete"])
-                ir_cpx = round((cpx_complete / cpx_entrants) * 100, 2) if cpx_entrants > 0 else 0.0
-                ir_cint = round((cint_complete / cint_entrants) * 100, 2) if cint_entrants > 0 else 0.0
+                r = day_map.get(key, {})
+                clicks = r.get("clicks", 0)
+                complete = r.get("complete", 0)
+                incomplete = r.get("incomplete", 0)
+                terminate = r.get("terminate", 0)
+                quota_full = r.get("quota_full", 0)
+                cpx_ent = r.get("cpx_entrants", 0)
+                cpx_comp = r.get("cpx_complete", 0)
+                cint_ent = r.get("cint_entrants", 0)
+                cint_comp = r.get("cint_complete", 0)
+
+                ir_cpx = round((cpx_comp / cpx_ent) * 100, 2) if cpx_ent > 0 else 0.0
+                ir_cint = round((cint_comp / cint_ent) * 100, 2) if cint_ent > 0 else 0.0
+
+                # unique users for this day
+                day_users = r.get("unique_users", [])
+                active_users_total.update(day_users)
+
                 daily.append({
                     "date": key,
                     "clicks": clicks,
@@ -750,21 +751,44 @@ class TrafficService:
                     "incomplete": incomplete,
                     "terminate": terminate,
                     "quota_full": quota_full,
-                    "cpx_entrants": cpx_entrants,
-                    "cpx_complete": cpx_complete,
-                    "cint_entrants": cint_entrants,
-                    "cint_complete": cint_complete,
+                    "cpx_entrants": cpx_ent,
+                    "cpx_complete": cpx_comp,
+                    "cint_entrants": cint_ent,
+                    "cint_complete": cint_comp,
                     "ir_cpx": ir_cpx,
                     "ir_cint": ir_cint,
-                    # Backward-compatible aliases used by current UI cards.
                     "completes": complete,
                     "outs": max(0, clicks - complete),
-                    "active_users": len(bucket["active_users"]),
+                    "active_users": len(day_users),
                 })
 
+                # Accumulate totals
+                total += clicks
+                by_status["Complete"] += complete
+                by_status["Incomplete"] += incomplete
+                by_status["Terminate"] += terminate
+                by_status["Quota Full"] += quota_full
+
+                total_api_true += r.get("api_true", 0)
+                total_api_false += r.get("api_false", 0)
+                by_status_api_true["Complete"] += r.get("api_true_complete", 0)
+                by_status_api_true["Incomplete"] += r.get("api_true_incomplete", 0)
+                by_status_api_true["Terminate"] += r.get("api_true_terminate", 0)
+                by_status_api_true["Quota Full"] += r.get("api_true_quota", 0)
+                by_status_api_false["Complete"] += r.get("api_false_complete", 0)
+                by_status_api_false["Incomplete"] += r.get("api_false_incomplete", 0)
+                by_status_api_false["Terminate"] += r.get("api_false_terminate", 0)
+                by_status_api_false["Quota Full"] += r.get("api_false_quota", 0)
+
+                entrants_by_source["CPX"] += cpx_ent
+                entrants_by_source["CINT"] += cint_ent
+                completes_by_source["CPX"] += r.get("cpx_completes_total", 0)
+                completes_by_source["CINT"] += r.get("cint_completes_total", 0)
+                completes_by_source["UNKNOWN"] += r.get("unk_completes_total", 0)
+
             top_countries = [
-                {"code": code, "clicks": clicks}
-                for code, clicks in sorted(country_clicks.items(), key=lambda item: item[1], reverse=True)[:12]
+                {"code": r["_id"] or "NA", "clicks": r["clicks"]}
+                for r in country_results
             ]
 
             ir_by_source = {
@@ -790,6 +814,8 @@ class TrafficService:
             }
         except Exception as e:
             print(f"❌ Error building dashboard traffic stats: {e}")
+            import traceback
+            traceback.print_exc()
             _empty_status = {"Complete": 0, "Incomplete": 0, "Quota Full": 0, "Terminate": 0}
             return {
                 "total": 0,
