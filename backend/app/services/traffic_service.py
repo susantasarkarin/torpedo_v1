@@ -641,81 +641,151 @@ class TrafficService:
             total_api_true = 0
             total_api_false = 0
 
-            projection = {
-                "status": 1,
-                "createdAt": 1,
-                "updatedAt": 1,
-                "completedAt": 1,
-                "respondentId": 1,
-                "countryCode": 1,
-                "surveySource": 1,
-                "params": 1,
-            }
+            # =========================================================================
+            # PERF: Use MongoDB aggregation instead of Python iteration (31K+ records)
+            # =========================================================================
+            _status_switch = {"$switch": {"branches": [
+                {"case": {"$in": [{"$toLower": "$status"}, ["complete", "completed", "10"]]}, "then": "Complete"},
+                {"case": {"$in": [{"$toLower": "$status"}, ["terminate", "terminated", "20"]]}, "then": "Terminate"},
+                {"case": {"$in": [{"$toLower": "$status"}, ["quota full", "quotafull", "quota_full", "40"]]}, "then": "Quota Full"},
+            ], "default": "Incomplete"}}
 
-            for record in self.traffic_collection.find(query, projection):
-                raw_status = record.get("status", "")
-                normalized_status = self._normalize_status(raw_status)
-                source_bucket = self._normalize_survey_source(record.get("surveySource"))
-                # Determine api flag from params
-                params_doc = record.get("params") or {}
-                api_flag_raw = str(params_doc.get("api", "") or "").strip().lower()
-                is_api_true = api_flag_raw != "false"  # treat missing/"true" as api=true
-                by_status[normalized_status] = by_status.get(normalized_status, 0) + 1
-                if is_api_true:
-                    by_status_api_true[normalized_status] = by_status_api_true.get(normalized_status, 0) + 1
-                    total_api_true += 1
-                else:
-                    by_status_api_false[normalized_status] = by_status_api_false.get(normalized_status, 0) + 1
-                    total_api_false += 1
-                total += 1
+            _source_switch = {"$switch": {"branches": [
+                {"case": {"$in": [{"$toUpper": {"$ifNull": ["$surveySource", ""]}}, ["CPX"]]}, "then": "CPX"},
+                {"case": {"$in": [{"$toUpper": {"$ifNull": ["$surveySource", ""]}}, ["CINT"]]}, "then": "CINT"},
+            ], "default": "UNKNOWN"}}
 
-                created_dt = (
-                    self._safe_parse_datetime(record.get("createdAt"))
-                    or self._safe_parse_datetime(record.get("updatedAt"))
-                    or self._safe_parse_datetime(record.get("completedAt"))
-                )
-                if created_dt:
-                    day_key = created_dt.strftime("%Y-%m-%d")
-                    if day_key in day_buckets:
-                        bucket = day_buckets[day_key]
-                        bucket["clicks"] += 1
+            pipeline = [
+                {"$match": query},
+                {"$addFields": {
+                    "_norm_status": _status_switch,
+                    "_source": _source_switch,
+                    "_day": {"$dateToString": {"format": "%Y-%m-%d", "date": {"$ifNull": ["$createdAt", "$updatedAt"]}}},
+                    "_is_api_true": {"$ne": [{"$toLower": {"$ifNull": [{"$toString": {"$ifNull": ["$params.api", ""]}}, ""]}}, "false"]},
+                }},
+                {"$facet": {
+                    # Overall status counts
+                    "by_status": [
+                        {"$group": {"_id": "$_norm_status", "count": {"$sum": 1}}}
+                    ],
+                    # Status by api flag
+                    "by_status_api_true": [
+                        {"$match": {"_is_api_true": True}},
+                        {"$group": {"_id": "$_norm_status", "count": {"$sum": 1}}}
+                    ],
+                    "by_status_api_false": [
+                        {"$match": {"_is_api_true": False}},
+                        {"$group": {"_id": "$_norm_status", "count": {"$sum": 1}}}
+                    ],
+                    # Daily breakdown
+                    "daily": [
+                        {"$match": {"_day": {"$ne": None}}},
+                        {"$group": {
+                            "_id": {"day": "$_day", "status": "$_norm_status", "source": "$_source"},
+                            "count": {"$sum": 1},
+                            "users": {"$addToSet": {"$ifNull": ["$respondentId", {"$toString": "$_id"}]}},
+                        }},
+                    ],
+                    # Country clicks (within date window)
+                    "country_clicks": [
+                        {"$group": {
+                            "_id": {"$ifNull": [{"$toUpper": "$countryCode"}, "NA"]},
+                            "clicks": {"$sum": 1},
+                        }},
+                        {"$sort": {"clicks": -1}},
+                        {"$limit": 12},
+                    ],
+                    # Completes by source (overall)
+                    "completes_by_source": [
+                        {"$match": {"_norm_status": "Complete"}},
+                        {"$group": {"_id": "$_source", "count": {"$sum": 1}}},
+                    ],
+                    # Entrants by source
+                    "entrants_by_source": [
+                        {"$match": {"_source": {"$in": ["CPX", "CINT"]}}},
+                        {"$group": {"_id": "$_source", "count": {"$sum": 1}}},
+                    ],
+                    # Total & active users
+                    "totals": [
+                        {"$group": {
+                            "_id": None,
+                            "total": {"$sum": 1},
+                            "total_api_true": {"$sum": {"$cond": ["$_is_api_true", 1, 0]}},
+                            "total_api_false": {"$sum": {"$cond": ["$_is_api_true", 0, 1]}},
+                            "active_users": {"$addToSet": {"$ifNull": ["$respondentId", {"$toString": "$_id"}]}},
+                        }},
+                    ],
+                }}
+            ]
 
-                        user_key = record.get("respondentId") or str(record.get("_id"))
-                        if user_key:
-                            user_key = str(user_key)
-                            bucket["active_users"].add(user_key)
-                            active_users_total.add(user_key)
+            result = list(self.traffic_collection.aggregate(pipeline, allowDiskUse=True))
+            agg = result[0] if result else {}
 
-                        country_code = str(record.get("countryCode") or "").strip().upper() or "NA"
-                        country_clicks[country_code] = country_clicks.get(country_code, 0) + 1
+            # Parse totals
+            totals_doc = agg.get("totals", [{}])[0] if agg.get("totals") else {}
+            total = totals_doc.get("total", 0)
+            total_api_true = totals_doc.get("total_api_true", 0)
+            total_api_false = totals_doc.get("total_api_false", 0)
+            active_users_total = set(totals_doc.get("active_users", []))
 
-                        if source_bucket == "CPX":
-                            bucket["cpx_entrants"] += 1
-                            entrants_by_source["CPX"] += 1
-                        elif source_bucket == "CINT":
-                            bucket["cint_entrants"] += 1
-                            entrants_by_source["CINT"] += 1
+            # Parse by_status
+            for doc in agg.get("by_status", []):
+                by_status[doc["_id"]] = doc["count"]
+            for doc in agg.get("by_status_api_true", []):
+                by_status_api_true[doc["_id"]] = doc["count"]
+            for doc in agg.get("by_status_api_false", []):
+                by_status_api_false[doc["_id"]] = doc["count"]
 
-                        if normalized_status == "Complete":
-                            bucket["complete"] += 1
-                            if source_bucket == "CPX":
-                                bucket["cpx_complete"] += 1
-                            elif source_bucket == "CINT":
-                                bucket["cint_complete"] += 1
-                        elif normalized_status == "Incomplete":
-                            bucket["incomplete"] += 1
-                        elif normalized_status == "Terminate":
-                            bucket["terminate"] += 1
-                        elif normalized_status == "Quota Full":
-                            bucket["quota_full"] += 1
+            # Parse completes/entrants by source
+            for doc in agg.get("completes_by_source", []):
+                completes_by_source[doc["_id"]] = doc["count"]
+            for doc in agg.get("entrants_by_source", []):
+                entrants_by_source[doc["_id"]] = doc["count"]
 
-                if self._is_complete_status(raw_status):
-                    if source_bucket == "CPX":
-                        completes_by_source["CPX"] += 1
-                    elif source_bucket == "CINT":
-                        completes_by_source["CINT"] += 1
-                    else:
-                        completes_by_source["UNKNOWN"] += 1
+            # Parse country clicks
+            country_clicks = {doc["_id"]: doc["clicks"] for doc in agg.get("country_clicks", [])}
+
+            # Parse daily breakdown - rebuild day_buckets from aggregation results
+            daily_users = {}  # day -> set of users
+            for doc in agg.get("daily", []):
+                day = doc["_id"]["day"]
+                status = doc["_id"]["status"]
+                source = doc["_id"]["source"]
+                count = doc["count"]
+                users = doc.get("users", [])
+
+                if day not in day_buckets:
+                    continue
+
+                bucket = day_buckets[day]
+                bucket["clicks"] += count
+
+                if day not in daily_users:
+                    daily_users[day] = set()
+                daily_users[day].update(users)
+
+                if source == "CPX":
+                    bucket["cpx_entrants"] += count
+                elif source == "CINT":
+                    bucket["cint_entrants"] += count
+
+                if status == "Complete":
+                    bucket["complete"] += count
+                    if source == "CPX":
+                        bucket["cpx_complete"] += count
+                    elif source == "CINT":
+                        bucket["cint_complete"] += count
+                elif status == "Incomplete":
+                    bucket["incomplete"] += count
+                elif status == "Terminate":
+                    bucket["terminate"] += count
+                elif status == "Quota Full":
+                    bucket["quota_full"] += count
+
+            # Set active_users per day bucket
+            for day, users in daily_users.items():
+                if day in day_buckets:
+                    day_buckets[day]["active_users"] = users
 
             daily = []
             for key in day_keys:
