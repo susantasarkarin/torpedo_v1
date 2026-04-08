@@ -2586,22 +2586,6 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # ===============================================================================
         # BUILD RESPONSE
         # ===============================================================================
-
-        # When no allocation, resolve vendor terminate URL so frontend can redirect
-        terminate_url = ""
-        if not allocation_success and vendor_id:
-            try:
-                vendor_doc = await _resolve_vendor_async(vendor_id)
-                terminate_url = _build_vendor_redirect_url(
-                    vendor_doc,
-                    ["terminateRD", "terminate_url"],
-                    f"{FRONTEND_URL}/nosurvey",
-                    respondent_id,
-                )
-            except Exception as ve:
-                print(f"⚠️ Failed to resolve vendor terminate URL: {ve}")
-                terminate_url = f"{FRONTEND_URL}/nosurvey"
-
         response_data = {
             "id": str(traffic_id) if traffic_id else None,
             "type": actual_provider.lower() if actual_provider else "unknown",
@@ -2610,7 +2594,6 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             "traffic_id": str(traffic_id) if traffic_id else "",
             "allocation_success": allocation_success,
             "allocation_error": allocation_error,
-            "redirect_url": terminate_url,
             "source": actual_provider or "UNKNOWN",
             "debug_info": {
                 "provider": actual_provider,
@@ -2622,8 +2605,20 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         
         if not allocation_success:
             print(f"⚠️ No allocation achieved. Error: {allocation_error}")
-            if terminate_url:
-                print(f"   ↪ Terminate redirect: {terminate_url}")
+            # Build vendor terminate redirect so the user is sent back to vendor
+            if vendor_id:
+                try:
+                    vendor_doc = await _resolve_vendor_async(vendor_id)
+                    terminate_url = _build_vendor_redirect_url(
+                        vendor_doc, ["terminateRD"], ZOHO_TERMINATE_URL, respondent_id
+                    )
+                    response_data["redirect_url"] = terminate_url
+                    print(f"🔀 Terminate redirect: {terminate_url}")
+                except Exception as vex:
+                    print(f"⚠️ Could not build vendor terminate URL: {vex}")
+                    response_data["redirect_url"] = f"{ZOHO_TERMINATE_URL}?id={respondent_id}" if respondent_id else ZOHO_TERMINATE_URL
+            else:
+                response_data["redirect_url"] = f"{ZOHO_TERMINATE_URL}?id={respondent_id}" if respondent_id else ZOHO_TERMINATE_URL
         
         return response_data
 

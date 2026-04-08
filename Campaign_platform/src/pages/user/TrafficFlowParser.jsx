@@ -394,16 +394,16 @@ export default function TrafficFlowParser() {
           window.location.href = buildApiUrl(`/cpx/redirect?id=${objectId}`);
         } else {
           // ===============================================================
-          // NO SURVEYS AVAILABLE - THIS IS A VALID OUTCOME, NOT AN ERROR
+          // NO SURVEYS AVAILABLE — redirect to vendor terminate URL
           // ===============================================================
-          // CPX RULES: 
-          // - Do NOT retry - each API call binds identity
-          // - Do NOT sync and retry - violates timing rules
-          // - Do NOT pool fallback - hrefs are bound to ext_user_id
-          // - Accept "no surveys" as a clean exit
-          // ===============================================================
+          const terminateUrl = result.redirect_url;
+          if (terminateUrl) {
+            console.log(`🔀 No surveys available, redirecting to vendor terminate: ${terminateUrl}`);
+            window.location.href = terminateUrl;
+            return;
+          }
           
-          // Log diagnostic info for debugging
+          // Fallback: show error if no redirect URL provided
           if (allocationError) {
             console.log(`ℹ️ No surveys available: ${allocationError}`);
           }
@@ -411,18 +411,8 @@ export default function TrafficFlowParser() {
             console.log(`🔍 Debug info:`, debugInfo);
           }
           
-          // Redirect to vendor terminate URL (or /nosurvey fallback)
-          const terminateUrl = result.redirect_url;
-          if (terminateUrl) {
-            console.log(`↪ No surveys — redirecting to vendor terminate: ${terminateUrl}`);
-            window.location.href = terminateUrl;
-            return;
-          }
-
-          // Fallback: if no redirect URL, show error on page
           let errorMsg;
           if (allocationError && allocationError.includes("only available for participants")) {
-            // Country mismatch - show the error directly
             errorMsg = allocationError;
           } else if (allocationError) {
             errorMsg = `No surveys available for your profile: ${allocationError}`;
