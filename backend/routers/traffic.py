@@ -2779,7 +2779,7 @@ async def get_dashboard_traffic_stats(
                 return cached
 
         stats = traffic_service.get_dashboard_traffic_stats(days=days, survey_id=survey_id)
-        _set_traffic_cached(cache_key, stats, ttl=15)
+        _set_traffic_cached(cache_key, stats, ttl=60)
         return stats
     except HTTPException:
         raise
