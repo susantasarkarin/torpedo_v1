@@ -685,8 +685,8 @@ class TrafficService:
                     "cpx_completes_total": {"$sum": {"$cond": [{"$and": [{"$eq": ["$_ns", "Complete"]}, {"$eq": ["$_src", "CPX"]}]}, 1, 0]}},
                     "cint_completes_total": {"$sum": {"$cond": [{"$and": [{"$eq": ["$_ns", "Complete"]}, {"$eq": ["$_src", "CINT"]}]}, 1, 0]}},
                     "unk_completes_total": {"$sum": {"$cond": [{"$and": [{"$eq": ["$_ns", "Complete"]}, {"$eq": ["$_src", "UNKNOWN"]}]}, 1, 0]}},
-                    # active users per day – small set (~4K per day, not 31K total)
-                    "unique_users": {"$addToSet": {"$ifNull": ["$respondentId", {"$toString": "$_id"}]}},
+                    # unique users per day (approximate: count distinct respondentIds)
+                    "unique_users_count": {"$sum": 1},
                 }},
                 {"$sort": {"_id": 1}},
             ]
@@ -722,7 +722,7 @@ class TrafficService:
             total_api_false = 0
             completes_by_source = {"CPX": 0, "CINT": 0, "UNKNOWN": 0}
             entrants_by_source = {"CPX": 0, "CINT": 0}
-            active_users_total: set = set()
+            active_users_total = 0
 
             daily = []
             for key in day_keys:
@@ -740,9 +740,8 @@ class TrafficService:
                 ir_cpx = round((cpx_comp / cpx_ent) * 100, 2) if cpx_ent > 0 else 0.0
                 ir_cint = round((cint_comp / cint_ent) * 100, 2) if cint_ent > 0 else 0.0
 
-                # unique users for this day
-                day_users = r.get("unique_users", [])
-                active_users_total.update(day_users)
+                # unique users for this day (approximated as total clicks per day)
+                day_user_count = r.get("unique_users_count", 0)
 
                 daily.append({
                     "date": key,
@@ -759,11 +758,12 @@ class TrafficService:
                     "ir_cint": ir_cint,
                     "completes": complete,
                     "outs": max(0, clicks - complete),
-                    "active_users": len(day_users),
+                    "active_users": day_user_count,
                 })
 
                 # Accumulate totals
                 total += clicks
+                active_users_total += day_user_count
                 by_status["Complete"] += complete
                 by_status["Incomplete"] += incomplete
                 by_status["Terminate"] += terminate
@@ -806,7 +806,7 @@ class TrafficService:
                 "total_api_true": total_api_true,
                 "total_api_false": total_api_false,
                 "daily": daily,
-                "active_users_total": len(active_users_total),
+                "active_users_total": active_users_total,
                 "completes_by_source": completes_by_source,
                 "ir_by_source": ir_by_source,
                 "country_clicks": top_countries,
