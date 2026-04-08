@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { buildApiUrl } from "../../config";
 import "./PotentialClients.css";
@@ -10,6 +10,7 @@ function PotentialClients() {
   const [surveys, setSurveys] = useState([]);
   const [clients, setClients] = useState([]);
   const [persistedClients, setPersistedClients] = useState(() => {
+    // Seed from localStorage as initial value while backend loads
     if (typeof window === "undefined") return [];
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -18,10 +19,11 @@ function PotentialClients() {
         return parsed.filter((entry) => entry && entry.key && entry.name);
       }
     } catch (err) {
-      console.warn("Failed to load persisted clients:", err);
+      console.warn("Failed to load persisted clients from localStorage:", err);
     }
     return [];
   });
+  const rosterSavedToBackend = useRef(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
@@ -38,8 +40,28 @@ function PotentialClients() {
     if (token) {
       fetchAllSurveys();
       fetchClients();
+      loadRosterFromBackend();
     }
   }, [token]);
+
+  // Load the shared roster from the backend (overwrites localStorage seed)
+  const loadRosterFromBackend = async () => {
+    try {
+      const res = await fetch(buildApiUrl("/api/operations/potential-clients/roster"), {
+        headers: { Authorization: token, "Content-Type": "application/json" },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const backendRoster = Array.isArray(data.roster) ? data.roster.filter((e) => e && e.key && e.name) : [];
+        if (backendRoster.length > 0) {
+          setPersistedClients(backendRoster);
+          rosterSavedToBackend.current = true;
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to load roster from backend, using localStorage fallback:", err);
+    }
+  };
 
   useEffect(() => {
     if (!surveys.length) return;
@@ -62,10 +84,19 @@ function PotentialClients() {
     if (hasChanges) {
       const updated = Array.from(nextMap.values());
       setPersistedClients(updated);
+      // Persist to localStorage as fallback
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       } catch (err) {
-        console.warn("Failed to persist clients:", err);
+        console.warn("Failed to persist clients to localStorage:", err);
+      }
+      // Persist to backend (shared across all users/devices)
+      if (token) {
+        fetch(buildApiUrl("/api/operations/potential-clients/roster"), {
+          method: "PUT",
+          headers: { Authorization: token, "Content-Type": "application/json" },
+          body: JSON.stringify({ clients: updated }),
+        }).catch((err) => console.warn("Failed to save roster to backend:", err));
       }
     }
   }, [surveys, clients, persistedClients]);

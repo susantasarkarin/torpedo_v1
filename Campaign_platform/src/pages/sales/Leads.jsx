@@ -36,6 +36,8 @@ function Leads() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
+  const [importingRfqs, setImportingRfqs] = useState(false)
+  const [importResult, setImportResult] = useState(null)
 
   const fetchLeads = useCallback(async () => {
     if (!sessionId) { navigate("/login"); return }
@@ -66,6 +68,27 @@ function Leads() {
 
   useEffect(() => { fetchLeads() }, [fetchLeads])
 
+  const importFromRfqs = async () => {
+    if (!sessionId) return
+    setImportingRfqs(true)
+    setImportResult(null)
+    try {
+      const res = await fetch(buildApiUrl("/leads/import/from-rfqs"), {
+        method: "POST",
+        headers: { Authorization: sessionId, "Content-Type": "application/json" },
+        body: JSON.stringify({ skip_classification: true }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || "Import failed")
+      setImportResult(data)
+      fetchLeads()
+    } catch (e) {
+      setImportResult({ error: e.message })
+    } finally {
+      setImportingRfqs(false)
+    }
+  }
+
   return (
     <div className="ai-leads-page">
       {/* Header */}
@@ -75,11 +98,44 @@ function Leads() {
           <p className="subtitle">{total.toLocaleString()} leads from AI Database</p>
         </div>
         <div className="header-actions">
+          <button
+            className="btn btn-secondary"
+            onClick={importFromRfqs}
+            disabled={importingRfqs}
+            title="Import all unique contacts from submitted RFQs as leads"
+          >
+            {importingRfqs ? "Importing…" : "⬇ Import from RFQs"}
+          </button>
           <button className="btn btn-primary" onClick={() => navigate("/admin/sales/campaign/ai-leads")}>
             Open AI Database →
           </button>
         </div>
       </div>
+
+      {/* Import result banner */}
+      {importResult && (
+        <div style={{
+          margin: "0 0 12px",
+          padding: "10px 16px",
+          borderRadius: 8,
+          background: importResult.error ? "#fef2f2" : "#f0fdf4",
+          border: `1px solid ${importResult.error ? "#fca5a5" : "#86efac"}`,
+          color: importResult.error ? "#991b1b" : "#166534",
+          fontSize: "0.875rem",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}>
+          {importResult.error ? (
+            <span>Import failed: {importResult.error}</span>
+          ) : (
+            <span>
+              Import complete — <strong>{importResult.inserted}</strong> new, <strong>{importResult.updated}</strong> updated, <strong>{importResult.skipped}</strong> skipped (from {importResult.total_rfq_contacts} RFQ contacts)
+            </span>
+          )}
+          <button onClick={() => setImportResult(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1rem", lineHeight: 1 }}>×</button>
+        </div>
+      )}
 
       {/* Filters */}
       <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>

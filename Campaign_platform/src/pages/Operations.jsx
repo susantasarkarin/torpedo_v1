@@ -179,7 +179,7 @@ function Operations() {
   const fetchVendorEmails = async () => {
     try {
       const res = await fetch(
-        buildApiUrl(`/inbox?category=vendor_communication&page_size=10`),
+        buildApiUrl(`/api/inbox?category=vendor_communication&page_size=10`),
         { headers: { Authorization: token() } }
       );
       const data = await parseJsonIfPossible(res);

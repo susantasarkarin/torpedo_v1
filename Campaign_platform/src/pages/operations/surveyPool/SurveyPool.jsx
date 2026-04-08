@@ -253,7 +253,7 @@ export default function SurveyPool() {
   // Fetch traffic stats for all surveys
   const fetchTrafficStats = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/traffic/surveys-stats`), {
+      const response = await fetch(buildApiUrl(`/api/traffic/surveys-stats`), {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
@@ -272,7 +272,7 @@ export default function SurveyPool() {
   // Fetch clients for client name lookup
   const fetchClients = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/customers/`), {
+      const response = await fetch(buildApiUrl(`/api/finance/customers/`), {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
@@ -291,7 +291,7 @@ export default function SurveyPool() {
   // Fetch pool statistics
   const fetchPoolStats = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/survey-pool/stats`), {
+      const response = await fetch(buildApiUrl(`/api/survey-pool/stats`), {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',
@@ -372,7 +372,7 @@ export default function SurveyPool() {
     const surveyId = survey.survey_id || survey.id || survey._id;
     
     try {
-      const response = await fetch(buildApiUrl(`/survey-pool/toggle/${provider}/${surveyId}`), {
+      const response = await fetch(buildApiUrl(`/api/survey-pool/toggle/${provider}/${surveyId}`), {
         method: 'POST',
         headers: {
           'Authorization': token,
@@ -751,12 +751,43 @@ export default function SurveyPool() {
                 <div className="stat-card total">
                   <h4>Total Pool</h4>
                   <div className="stat-numbers">
-                    <span className="active">{poolStats.cint?.active || 0} Active</span>
-                    <span className="total">/ {poolStats.cint?.total || 0} Total</span>
+                    <span className="active">
+                      {surveys.filter(s => s.is_active_in_pool === true || s.is_live === true).length} Active
+                    </span>
+                    <span className="total">/ {surveys.length} Total</span>
                   </div>
                 </div>
               </div>
             )}
+
+            {/* API vs DIY Distribution */}
+            {surveys.length > 0 && (() => {
+              const apiSurveys = surveys.filter(s => s.account_name || s.source === 'CINT' || s.provider === 'CPX' || s.source === 'CPX');
+              const diySurveys = surveys.filter(s => !s.account_name && s.source !== 'CINT' && s.provider !== 'CPX' && s.source !== 'CPX' && s.client_name);
+              const apiActive = apiSurveys.filter(s => s.is_active_in_pool === true || s.is_live === true).length;
+              const diyActive = diySurveys.filter(s => s.is_active_in_pool === true).length;
+              const apiPct = surveys.length > 0 ? Math.round((apiSurveys.length / surveys.length) * 100) : 0;
+              return (
+                <div className="pool-distribution">
+                  <div className="distribution-header">
+                    <span>Distribution: API vs DIY</span>
+                    <span className="distribution-total">{surveys.length} total studies</span>
+                  </div>
+                  <div className="distribution-bar">
+                    <div className="dist-segment api-segment" style={{ width: `${apiPct}%` }} title={`API: ${apiSurveys.length}`}>
+                      {apiPct > 10 ? `API ${apiPct}%` : ''}
+                    </div>
+                    <div className="dist-segment diy-segment" style={{ width: `${100 - apiPct}%` }} title={`DIY: ${diySurveys.length}`}>
+                      {(100 - apiPct) > 10 ? `DIY ${100 - apiPct}%` : ''}
+                    </div>
+                  </div>
+                  <div className="distribution-legend">
+                    <span className="legend-api">API (CINT/CPX): {apiSurveys.length} total, {apiActive} active</span>
+                    <span className="legend-diy">DIY (Projects): {diySurveys.length} total, {diyActive} active</span>
+                  </div>
+                </div>
+              );
+            })()}
             
             {/* Sync Controls */}
             <div className="pool-controls">

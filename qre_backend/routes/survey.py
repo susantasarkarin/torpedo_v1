@@ -399,16 +399,17 @@ async def submit_answer(payload: AnswerPayload):
         if nccs["band"] in ("below_minimum", "nccs_terminate"):
             return await _terminate(db, rid, f"Q7_nccs_disqualified_{nccs['band']}", respondent=respondent)
         quota_key = nccs["band"]
+        # NCCS A/B are soft quotas — track and attempt claim but never terminate.
+        # Even if the cell is full, the respondent continues to the next question.
         claimed = await try_claim_quota(db, quota_key, _study_id)
-        if not claimed:
-            return await _terminate(db, rid, f"Q7_nccs_quota_full_{quota_key}", respondent=respondent)
-        await db.respondents.update_one(
-            {"_id": rid},
-            {
-                "$push": {"quota_claims": quota_key},
-                "$set": {"nccs_grade": nccs["grade"], "nccs_band": quota_key},
-            },
-        )
+        update_fields: dict = {"nccs_grade": nccs["grade"], "nccs_band": quota_key}
+        update_push: dict = {}
+        if claimed:
+            update_push["quota_claims"] = quota_key
+        update_op: dict = {"$set": update_fields}
+        if update_push:
+            update_op["$push"] = update_push
+        await db.respondents.update_one({"_id": rid}, update_op)
         return RoutingDecision(action="next", next_question_id="Q8")
 
     # ==========================================================================

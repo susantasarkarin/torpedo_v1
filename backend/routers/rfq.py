@@ -335,8 +335,16 @@ def generate_rfq_id() -> str:
     return f"RFQ-{year}-{new_num:04d}"
 
 
-def rfq_to_response(rfq: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert MongoDB RFQ document to response format"""
+def rfq_to_response(rfq: Dict[str, Any], leads_cache: Optional[Dict] = None) -> Dict[str, Any]:
+    """Convert MongoDB RFQ document to response format.
+    
+    Args:
+        rfq: The RFQ document from MongoDB
+        leads_cache: Optional pre-fetched leads dict with keys:
+            - "by_id": {str(lead_id): lead_doc, ...}
+            - "by_email": {email_lower: lead_doc, ...}
+            If provided, skips per-RFQ DB queries (batch optimization).
+    """
     # Calculate final value
     final_value = rfq.get("manual_value") if rfq.get("manual_value") is not None else rfq.get("extracted_value")
     final_currency = rfq.get("manual_currency") if rfq.get("manual_currency") else rfq.get("extracted_currency", "USD")
@@ -346,44 +354,61 @@ def rfq_to_response(rfq: Dict[str, Any]) -> Dict[str, Any]:
     lead_name = None
     lead = None
     
-    if lead_id:
-        # Verify lead exists
-        try:
-            lead = email_leads_collection.find_one({"_id": ObjectId(lead_id)})
+    if leads_cache is not None:
+        # Use pre-fetched leads (batch mode - no DB queries)
+        by_id = leads_cache.get("by_id", {})
+        by_email = leads_cache.get("by_email", {})
+        
+        if lead_id and str(lead_id) in by_id:
+            lead = by_id[str(lead_id)]
+            lead_name = lead.get("name") or ((lead.get("first_name", "") + " " + lead.get("last_name", "")).strip()) or lead.get("email")
+            lead_name = lead_name.strip() if lead_name else None
+        
+        if not lead and rfq.get("contact_email"):
+            contact_email = rfq.get("contact_email", "").lower().strip()
+            lead = by_email.get(contact_email)
             if lead:
+                lead_id = str(lead["_id"])
+                lead_name = lead.get("name") or ((lead.get("first_name", "") + " " + lead.get("last_name", "")).strip()) or lead.get("email")
+                lead_name = lead_name.strip() if lead_name else None
+        
+        if not lead and rfq.get("sender_email") and rfq.get("sender_email") != rfq.get("contact_email"):
+            sender_email = rfq.get("sender_email", "").lower().strip()
+            lead = by_email.get(sender_email)
+            if lead:
+                lead_id = str(lead["_id"])
+                lead_name = lead.get("name") or ((lead.get("first_name", "") + " " + lead.get("last_name", "")).strip()) or lead.get("email")
+                lead_name = lead_name.strip() if lead_name else None
+    else:
+        # Original per-RFQ DB lookup (used for single-RFQ endpoints)
+        if lead_id:
+            try:
+                lead = email_leads_collection.find_one({"_id": ObjectId(lead_id)})
+                if lead:
+                    lead_name = lead.get("name") or lead.get("first_name", "") + " " + lead.get("last_name", "") or lead.get("email")
+                    lead_name = lead_name.strip() if lead_name else None
+            except:
+                pass
+        
+        if not lead and rfq.get("contact_email"):
+            contact_email = rfq.get("contact_email", "").lower().strip()
+            lead = email_leads_collection.find_one({"email": {"$regex": f"^{contact_email}$", "$options": "i"}})
+            if lead:
+                lead_id = str(lead["_id"])
                 lead_name = lead.get("name") or lead.get("first_name", "") + " " + lead.get("last_name", "") or lead.get("email")
                 lead_name = lead_name.strip() if lead_name else None
-        except:
-            pass
-    
-    # If no valid lead_id or lead not found, try to find by contact_email
-    if not lead and rfq.get("contact_email"):
-        contact_email = rfq.get("contact_email", "").lower().strip()
-        lead = email_leads_collection.find_one({"email": {"$regex": f"^{contact_email}$", "$options": "i"}})
+                try:
+                    rfqs_collection.update_one({"_id": rfq["_id"]}, {"$set": {"lead_id": lead_id}})
+                except Exception as e:
+                    logger.warning(f"Failed to backfill lead_id for RFQ {rfq.get('rfq_id')}: {e}")
         
-        if lead:
-            lead_id = str(lead["_id"])
-            lead_name = lead.get("name") or lead.get("first_name", "") + " " + lead.get("last_name", "") or lead.get("email")
-            lead_name = lead_name.strip() if lead_name else None
-            
-            # Backfill lead_id in the RFQ document for future queries
-            try:
-                rfqs_collection.update_one(
-                    {"_id": rfq["_id"]},
-                    {"$set": {"lead_id": lead_id}}
-                )
-            except Exception as e:
-                logger.warning(f"Failed to backfill lead_id for RFQ {rfq.get('rfq_id')}: {e}")
-    
-    # If still no lead, try sender_email as fallback
-    if not lead and rfq.get("sender_email") and rfq.get("sender_email") != rfq.get("contact_email"):
-        sender_email = rfq.get("sender_email", "").lower().strip()
-        lead = email_leads_collection.find_one({"email": {"$regex": f"^{sender_email}$", "$options": "i"}})
-        
-        if lead:
-            lead_id = str(lead["_id"])
-            lead_name = lead.get("name") or lead.get("first_name", "") + " " + lead.get("last_name", "") or lead.get("email")
-            lead_name = lead_name.strip() if lead_name else None
+        if not lead and rfq.get("sender_email") and rfq.get("sender_email") != rfq.get("contact_email"):
+            sender_email = rfq.get("sender_email", "").lower().strip()
+            lead = email_leads_collection.find_one({"email": {"$regex": f"^{sender_email}$", "$options": "i"}})
+            if lead:
+                lead_id = str(lead["_id"])
+                lead_name = lead.get("name") or lead.get("first_name", "") + " " + lead.get("last_name", "") or lead.get("email")
+                lead_name = lead_name.strip() if lead_name else None
     
     return {
         "_id": str(rfq["_id"]),
@@ -474,9 +499,39 @@ async def list_rfqs(
         .limit(limit)
     )
     
+    # PERF: Batch-fetch all referenced leads in 2 queries instead of N+1
+    lead_ids = []
+    emails = set()
+    for r in rfqs:
+        if r.get("lead_id"):
+            try:
+                lead_ids.append(ObjectId(r["lead_id"]))
+            except Exception:
+                pass
+        if r.get("contact_email"):
+            emails.add(r["contact_email"].lower().strip())
+        if r.get("sender_email"):
+            emails.add(r["sender_email"].lower().strip())
+    
+    leads_by_id = {}
+    leads_by_email = {}
+    if lead_ids:
+        for lead in email_leads_collection.find({"_id": {"$in": lead_ids}}):
+            leads_by_id[str(lead["_id"])] = lead
+            if lead.get("email"):
+                leads_by_email[lead["email"].lower().strip()] = lead
+    if emails:
+        remaining_emails = [e for e in emails if e not in leads_by_email]
+        if remaining_emails:
+            for lead in email_leads_collection.find({"email": {"$in": remaining_emails}}):
+                leads_by_email[lead["email"].lower().strip()] = lead
+                leads_by_id[str(lead["_id"])] = lead
+    
+    leads_cache = {"by_id": leads_by_id, "by_email": leads_by_email}
+    
     return {
         "success": True,
-        "rfqs": [rfq_to_response(rfq) for rfq in rfqs],
+        "rfqs": [rfq_to_response(rfq, leads_cache) for rfq in rfqs],
         "total": total,
         "page": page,
         "limit": limit,

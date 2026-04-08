@@ -127,7 +127,7 @@ function RFQ() {
   const loadCustomers = async () => {
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/finance/customers/`), {
+      const response = await fetch(buildApiUrl(`/finance/finance/customers/`), {
         headers: { Authorization: token }
       })
       

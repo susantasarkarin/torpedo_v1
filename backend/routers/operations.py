@@ -497,13 +497,20 @@ def list_operations_projects(
                 {"vendorName": {"$regex": search, "$options": "i"}},
             ]
 
-        total = projects_collection.count_documents(query)
+        # PERF: Use $facet to get count + data in one round-trip, with projection
+        _project_projection = {
+            "projectName": 1, "client": 1, "surveyNo": 1, "vendorName": 1,
+            "projectStatus": 1, "createdAt": 1, "updatedAt": 1, "countryCode": 1,
+            "totalSample": 1, "sampleSize": 1, "ir": 1, "loi": 1, "cpi": 1,
+            "projectType": 1, "methodology": 1, "clientLink": 1, "liveLink": 1,
+        }
         projects = list(
-            projects_collection.find(query)
+            projects_collection.find(query, _project_projection)
             .sort("createdAt", -1)
             .skip(skip)
             .limit(limit)
         )
+        total = projects_collection.count_documents(query)
 
         for p in projects:
             p["_id"] = str(p["_id"])
@@ -1019,9 +1026,12 @@ def get_recent_activity(limit: int = Query(10, ge=1, le=50)):
     try:
         activities = []
         
-        # Recent projects
+        # Recent projects (PERF: projection to fetch only needed fields)
         recent_projects = list(
-            projects_collection.find()
+            projects_collection.find(
+                {},
+                {"projectName": 1, "client": 1, "createdAt": 1, "updatedAt": 1}
+            )
             .sort("createdAt", -1)
             .limit(limit)
         )
@@ -1039,9 +1049,12 @@ def get_recent_activity(limit: int = Query(10, ge=1, le=50)):
                 "id": str(proj["_id"])
             })
         
-        # Recent invoices linked to projects
+        # Recent invoices linked to projects (PERF: projection)
         recent_invoices = list(
-            invoices_collection.find({"project_id": {"$exists": True, "$ne": None}})
+            invoices_collection.find(
+                {"project_id": {"$exists": True, "$ne": None}},
+                {"invoice_number": 1, "total_amount": 1, "created_at": 1, "createdAt": 1, "updated_at": 1}
+            )
             .sort("created_at", -1)
             .limit(limit)
         )
@@ -1354,5 +1367,46 @@ def get_unenriched_potential_clients(
         }
     except ImportError as e:
         raise HTTPException(status_code=503, detail=f"Enrichment module not available: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# POTENTIAL CLIENTS ROSTER PERSISTENCE
+# Stores the shared client roster in MongoDB so all users/devices
+# see the same list rather than device-local localStorage.
+# ============================================================
+_ROSTER_DOC_ID = "potential_clients_roster"
+_app_settings_collection = operations_db["app_settings"]
+
+
+@router.get("/potential-clients/roster")
+def get_clients_roster():
+    """Return the persisted potential-client roster (shared across all users and devices)."""
+    try:
+        doc = _app_settings_collection.find_one({"_id": _ROSTER_DOC_ID})
+        return {"roster": doc.get("clients", []) if doc else []}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/potential-clients/roster")
+def save_clients_roster(payload: Dict[str, Any] = Body(...)):
+    """
+    Save / merge the potential-client roster.
+    Expected body: {"clients": [{"key": "...", "name": "..."}, ...]}
+    """
+    try:
+        clients_data = payload.get("clients", [])
+        if not isinstance(clients_data, list):
+            raise HTTPException(status_code=422, detail="'clients' must be a list")
+        _app_settings_collection.update_one(
+            {"_id": _ROSTER_DOC_ID},
+            {"$set": {"clients": clients_data, "updated_at": datetime.utcnow()}},
+            upsert=True,
+        )
+        return {"ok": True, "count": len(clients_data)}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -3661,3 +3661,120 @@ async def get_skrapp_usage():
 
     return {"accounts": stats}
 
+
+# ============== IMPORT FROM RFQS / CONTACTS ==============
+
+_rfqs_col = _jobs_db["rfqs"]
+_torpedo_gmail_col = _mongo_client["torpedo_gmail"]["email_metadata"]
+
+
+@router.post("/import/from-rfqs")
+async def import_leads_from_rfqs(payload: Dict[str, Any] = Body(default={})):
+    """
+    POST /leads/import/from-rfqs
+    Scans email_automation.rfqs for unique contacts and creates leads.
+    For each unique email found in RFQs it records:
+      - name, email, company (from the RFQ)
+      - rfq_ids: list of linked RFQ IDs
+      - last_email_date: last inbound/outbound email timestamp (from torpedo_gmail)
+      - conversation_summary: latest RFQ subject/description as AI summary placeholder
+    Returns import stats.
+    """
+    from .canonical_ingestion import ingest_lead
+
+    skip_classification: bool = payload.get("skip_classification", True)
+
+    # 1. Aggregate unique contacts from RFQs
+    pipeline = [
+        {"$match": {"contact_email": {"$exists": True, "$ne": None, "$ne": ""}}},
+        {"$group": {
+            "_id": {"$toLower": "$contact_email"},
+            "name": {"$first": "$contact_name"},
+            "company": {"$first": "$company_name"},
+            "rfq_ids": {"$push": {"$ifNull": ["$rfq_id", {"$toString": "$_id"}]}},
+            "latest_subject": {"$last": "$subject"},
+            "latest_description": {"$last": "$description"},
+            "latest_date": {"$max": "$created_at"},
+        }},
+        {"$limit": 2000},
+    ]
+    rfq_contacts = list(_rfqs_col.aggregate(pipeline))
+
+    # 2. Build email → last_email_date map from torpedo_gmail
+    all_emails = [c["_id"] for c in rfq_contacts if c["_id"]]
+    email_dates: Dict[str, Any] = {}
+    if all_emails:
+        gmail_pipeline = [
+            {"$match": {"from_email": {"$in": all_emails}}},
+            {"$group": {
+                "_id": "$from_email",
+                "last_date": {"$max": "$date"},
+            }},
+        ]
+        for row in _torpedo_gmail_col.aggregate(gmail_pipeline):
+            email_dates[row["_id"]] = row["last_date"]
+
+    # 3. Ingest each unique contact
+    inserted = 0
+    updated = 0
+    skipped = 0
+    errors = 0
+
+    for contact in rfq_contacts:
+        email = contact["_id"]
+        if not email or "@" not in email:
+            skipped += 1
+            continue
+
+        last_date = email_dates.get(email) or contact.get("latest_date")
+        days_since: Optional[int] = None
+        if last_date:
+            try:
+                if isinstance(last_date, str):
+                    from dateutil import parser as _dateparser
+                    last_date = _dateparser.parse(last_date)
+                delta = datetime.utcnow() - last_date.replace(tzinfo=None) if hasattr(last_date, "replace") else None
+                if delta:
+                    days_since = delta.days
+            except Exception:
+                pass
+
+        lead_payload = {
+            "email": email,
+            "name": contact.get("name") or "",
+            "company": contact.get("company") or "",
+            "company_name": contact.get("company") or "",
+            "source": "rfq",
+            "source_detail": "import_from_rfqs",
+            "rfq_ids": contact.get("rfq_ids", [])[:20],
+            "last_email_date": last_date.isoformat() if hasattr(last_date, "isoformat") else str(last_date) if last_date else None,
+            "days_since_last_contact": days_since,
+            "conversation_summary": contact.get("latest_subject") or contact.get("latest_description") or "",
+        }
+
+        try:
+            result = ingest_lead(
+                payload=lead_payload,
+                source="rfq",
+                source_detail="import_from_rfqs",
+                skip_classification=skip_classification,
+            )
+            if result["success"]:
+                if result["action"] == "inserted":
+                    inserted += 1
+                else:
+                    updated += 1
+            else:
+                skipped += 1
+        except Exception:
+            errors += 1
+
+    return {
+        "success": True,
+        "total_rfq_contacts": len(rfq_contacts),
+        "inserted": inserted,
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors,
+    }
+

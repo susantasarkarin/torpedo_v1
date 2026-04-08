@@ -18,8 +18,14 @@ import json
 import hmac
 import hashlib
 import asyncio
+import time as _time
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://surveyfieldwork.com")
+
+# Rate card cache (5-minute TTL)
+_rate_card_cache: Dict[str, Any] = {}
+_rate_card_cache_ts: float = 0
+_RATE_CARD_TTL = 300  # 5 minutes
 
 from app.models.cint import (
     CintOpportunity,
@@ -1646,6 +1652,15 @@ async def get_rate_card(
         }
     """
     try:
+        global _rate_card_cache, _rate_card_cache_ts
+        
+        # Check cache first (5-minute TTL)
+        cache_key = f"rate_card_{(country or 'all').upper()}"
+        now = _time.time()
+        if cache_key in _rate_card_cache and (now - _rate_card_cache_ts) < _RATE_CARD_TTL:
+            logger.info(f"Rate card cache hit for {cache_key}")
+            return _rate_card_cache[cache_key]
+        
         logger.info(f"Building rate card matrix for country: {country}")
         
         # Get all surveys (no pagination limit for internal use)
@@ -1739,7 +1754,7 @@ async def get_rate_card(
                     cell["max"] = round(max(surveys), 2)
                 del cell["surveys"]  # Don't send raw data to frontend
         
-        return {
+        result = {
             "success": True,
             "country": country.upper() if country else None,
             "countries": countries,
@@ -1749,6 +1764,12 @@ async def get_rate_card(
             "total_surveys": total_surveys,
             "filtered_surveys": filtered_surveys,
         }
+        
+        # Cache the result
+        _rate_card_cache[cache_key] = result
+        _rate_card_cache_ts = now
+        
+        return result
     
     except Exception as e:
         logger.error(f"Error building rate card: {str(e)}")

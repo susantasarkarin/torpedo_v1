@@ -2509,7 +2509,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 
                 # Try candidates one by one until we get a working entry link
                 # user_email is accessible from the enclosing /api/store scope
-                for sid in candidates[:15]:
+                for sid in candidates[:5]:
                     link = await create_cint_entry_link(
                         sid,
                         traffic_id,
@@ -2552,18 +2552,36 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # EXECUTE ALLOCATION STRATEGY
         # ===============================================================================
         if not allocation_success and vendor_id and country_code and traffic_id:
-            # Try CPX allocation first
-            await try_cpx_allocation()
-            
-            # If CPX fails and we have country code, fallback to CINT
-            if not allocation_success and country_code:
-                if enable_cint_primary_fallback:
-                    print("📌 CPX allocation failed, attempting CINT fallback (enabled via env)...")
-                    await try_cint_allocation()
-                else:
-                    print("📌 CPX allocation failed; CINT primary fallback is disabled")
-                    if not allocation_error:
-                        allocation_error = "No CPX survey available for this respondent"
+            async def _run_allocation():
+                nonlocal allocation_success, allocation_error
+                # Try CPX allocation first (with 8s timeout)
+                try:
+                    await asyncio.wait_for(try_cpx_allocation(), timeout=8.0)
+                except asyncio.TimeoutError:
+                    print("⏱️ CPX allocation timed out after 8s")
+                    allocation_error = "CPX allocation timed out"
+
+                # If CPX fails and we have country code, fallback to CINT (with 12s timeout)
+                if not allocation_success and country_code:
+                    if enable_cint_primary_fallback:
+                        print("📌 CPX allocation failed, attempting CINT fallback (enabled via env)...")
+                        try:
+                            await asyncio.wait_for(try_cint_allocation(), timeout=12.0)
+                        except asyncio.TimeoutError:
+                            print("⏱️ CINT allocation timed out after 12s")
+                            allocation_error = "CINT allocation timed out"
+                    else:
+                        print("📌 CPX allocation failed; CINT primary fallback is disabled")
+                        if not allocation_error:
+                            allocation_error = "No CPX survey available for this respondent"
+
+            # Overall allocation timeout: 15 seconds max
+            try:
+                await asyncio.wait_for(_run_allocation(), timeout=15.0)
+            except asyncio.TimeoutError:
+                print("⏱️ Overall allocation timed out after 15s")
+                if not allocation_error:
+                    allocation_error = "Survey allocation timed out (15s)"
         
         # ===============================================================================
         # BUILD RESPONSE

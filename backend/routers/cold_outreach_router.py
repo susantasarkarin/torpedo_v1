@@ -972,10 +972,11 @@ def remove_suppression(email: str):
 def enroll_dual_fit(background_tasks: BackgroundTasks):
     """Manually trigger Dual Fit enrollment across all active campaigns."""
     db = get_db()
+    leads_db = get_leads_db()
     suppressed = {
         doc["email"] for doc in db["outreach_bounce_suppression"].find({}, {"email": 1, "_id": 0})
     }
-    background_tasks.add_task(_enroll_dual_fit_leads, db, suppressed)
+    background_tasks.add_task(_enroll_dual_fit_leads, db, leads_db, suppressed)
     return {"ok": True, "message": "Dual Fit enrollment started in background"}
 
 

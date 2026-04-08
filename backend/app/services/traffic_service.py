@@ -604,6 +604,9 @@ class TrafficService:
             if survey_id:
                 query["assignedSurveyId"] = survey_id
 
+            # PERF: Filter by date window at DB level to avoid scanning entire collection
+            query["createdAt"] = {"$gte": start_day}
+
             # Initialize day buckets in ascending order
             day_keys: List[str] = []
             day_buckets: Dict[str, Dict[str, Any]] = {}

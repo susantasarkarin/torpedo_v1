@@ -18,7 +18,7 @@ client = MongoClient(MONGO_URI)
 
 # Panel vendors are in email_automation database
 operations_db = client["email_automation"]
-panel_vendors_collection = operations_db["panel_vendors"]
+panel_vendors_collection = operations_db["vendors"]
 
 # Billing vendors are in finance_db database
 finance_db = client["finance_db"]
