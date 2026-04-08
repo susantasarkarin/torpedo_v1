@@ -411,9 +411,15 @@ export default function TrafficFlowParser() {
             console.log(`🔍 Debug info:`, debugInfo);
           }
           
-          // Show user-friendly message
-          // Country mismatch errors should be shown directly (they're already user-friendly)
-          // Other errors get the generic prefix
+          // Redirect to vendor terminate URL (or /nosurvey fallback)
+          const terminateUrl = result.redirect_url;
+          if (terminateUrl) {
+            console.log(`↪ No surveys — redirecting to vendor terminate: ${terminateUrl}`);
+            window.location.href = terminateUrl;
+            return;
+          }
+
+          // Fallback: if no redirect URL, show error on page
           let errorMsg;
           if (allocationError && allocationError.includes("only available for participants")) {
             // Country mismatch - show the error directly
