@@ -515,7 +515,7 @@ def setup_indexes(db_manager=None):
                       name="email_metadata_mailbox_category_time")
     
     # RFQ collection (sales funnel)
-    rfqs = email_db.get("rfqs") or email_db["rfqs"]
+    rfqs = email_db["rfqs"]
     create_index_safe(rfqs, [("status", ASCENDING), ("created_at", DESCENDING)],
                       name="rfqs_status_date")
     
