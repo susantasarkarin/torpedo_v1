@@ -48,7 +48,7 @@ celery_app.conf.update(
     task_soft_time_limit=3300,  # Soft limit 55 min
     
     # Worker settings
-    worker_prefetch_multiplier=1,  # Fair distribution
+    worker_prefetch_multiplier=4,  # Better throughput (was 1)
     worker_concurrency=4,  # Number of parallel workers
     worker_max_tasks_per_child=100,  # Restart worker after 100 tasks (memory management)
     

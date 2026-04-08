@@ -94,43 +94,43 @@ def serialize_docs(docs: list) -> list:
 
 def generate_invoice_number() -> str:
     """Generate unique invoice number"""
-    count = invoices_collection.count_documents({}) + 1
+    count = invoices_collection.estimated_document_count() + 1
     return f"INV-{datetime.utcnow().strftime('%Y%m')}-{str(count).zfill(4)}"
 
 
 def generate_estimate_number() -> str:
     """Generate unique estimate number"""
-    count = estimates_collection.count_documents({}) + 1
+    count = estimates_collection.estimated_document_count() + 1
     return f"EST-{datetime.utcnow().strftime('%Y%m')}-{str(count).zfill(4)}"
 
 
 def generate_bill_number() -> str:
     """Generate unique bill number"""
-    count = bills_collection.count_documents({}) + 1
+    count = bills_collection.estimated_document_count() + 1
     return f"BILL-{datetime.utcnow().strftime('%Y%m')}-{str(count).zfill(4)}"
 
 
 def generate_po_number() -> str:
     """Generate unique purchase order number"""
-    count = purchase_orders_collection.count_documents({}) + 1
+    count = purchase_orders_collection.estimated_document_count() + 1
     return f"PO-{datetime.utcnow().strftime('%Y%m')}-{str(count).zfill(4)}"
 
 
 def generate_expense_number() -> str:
     """Generate unique expense number"""
-    count = expenses_collection.count_documents({}) + 1
+    count = expenses_collection.estimated_document_count() + 1
     return f"EXP-{datetime.utcnow().strftime('%Y%m')}-{str(count).zfill(4)}"
 
 
 def generate_payment_number(prefix: str = "PMT") -> str:
     """Generate unique payment number"""
-    count = payments_received_collection.count_documents({}) + payments_made_collection.count_documents({}) + 1
+    count = payments_received_collection.estimated_document_count() + payments_made_collection.estimated_document_count() + 1
     return f"{prefix}-{datetime.utcnow().strftime('%Y%m')}-{str(count).zfill(4)}"
 
 
 def generate_sku() -> str:
     """Generate unique SKU for items"""
-    count = items_collection.count_documents({}) + 1
+    count = items_collection.estimated_document_count() + 1
     return f"SKU-{str(count).zfill(5)}"
 
 
@@ -386,55 +386,41 @@ ITEM_COLUMN_MAPPINGS = {
 @router.get("/finance/customers/")
 async def get_customers():
     """Get all customers with linked contacts"""
+    import asyncio as _asyncio
     try:
-        customers = list(customers_collection.find().sort("name", 1))
-        
-        # Get all contacts and build a map by linked_customer_id and company_name
-        all_contacts = list(contacts_collection.find())
-        contacts_by_customer_id = {}
-        contacts_by_company_name = {}
-        
-        for contact in all_contacts:
-            # By linked_customer_id
-            if contact.get("linked_customer_id"):
-                cid = contact["linked_customer_id"]
-                if cid not in contacts_by_customer_id:
-                    contacts_by_customer_id[cid] = []
-                contacts_by_customer_id[cid].append({
+        def _fetch():
+            customers = list(customers_collection.find().sort("name", 1))
+            all_contacts = list(contacts_collection.find(
+                {}, {"_id": 1, "name": 1, "firstName": 1, "lastName": 1,
+                     "email": 1, "title": 1, "stage": 1,
+                     "linked_customer_id": 1, "companyName": 1}
+            ))
+            contacts_by_customer_id: dict = {}
+            contacts_by_company_name: dict = {}
+            for contact in all_contacts:
+                entry = {
                     "_id": str(contact["_id"]),
                     "name": contact.get("name") or f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
                     "email": contact.get("email", ""),
                     "title": contact.get("title", ""),
                     "stage": contact.get("stage", ""),
-                })
-            # By company name (fallback)
-            if contact.get("companyName"):
-                cn = contact["companyName"]
-                if cn not in contacts_by_company_name:
-                    contacts_by_company_name[cn] = []
-                contacts_by_company_name[cn].append({
-                    "_id": str(contact["_id"]),
-                    "name": contact.get("name") or f"{contact.get('firstName', '')} {contact.get('lastName', '')}".strip(),
-                    "email": contact.get("email", ""),
-                    "title": contact.get("title", ""),
-                    "stage": contact.get("stage", ""),
-                })
-        
-        # Attach linked contacts to each customer
-        result = []
-        for customer in customers:
-            cust_id = str(customer["_id"])
-            company_name = customer.get("company_name") or customer.get("name")
-            
-            linked_contacts = contacts_by_customer_id.get(cust_id, [])
-            # Fallback to company name match if no linked_customer_id match
-            if not linked_contacts and company_name:
-                linked_contacts = contacts_by_company_name.get(company_name, [])
-            
-            customer["linked_contacts"] = linked_contacts
-            customer["linked_contacts_count"] = len(linked_contacts)
-            result.append(customer)
-        
+                }
+                if contact.get("linked_customer_id"):
+                    contacts_by_customer_id.setdefault(contact["linked_customer_id"], []).append(entry)
+                if contact.get("companyName"):
+                    contacts_by_company_name.setdefault(contact["companyName"], []).append(entry)
+            result = []
+            for customer in customers:
+                cust_id = str(customer["_id"])
+                company_name = customer.get("company_name") or customer.get("name")
+                linked_contacts = contacts_by_customer_id.get(cust_id, [])
+                if not linked_contacts and company_name:
+                    linked_contacts = contacts_by_company_name.get(company_name, [])
+                customer["linked_contacts"] = linked_contacts
+                customer["linked_contacts_count"] = len(linked_contacts)
+                result.append(customer)
+            return result
+        result = await _asyncio.to_thread(_fetch)
         return serialize_docs(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching customers: {str(e)}")
@@ -3312,55 +3298,77 @@ async def get_dashboard_summary():
         start_of_month = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         start_of_year = today.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
         
-        # Revenue (from invoices)
-        total_invoices = invoices_collection.count_documents({})
-        total_sales = sum(
-            inv.get("total_amount", 0) 
-            for inv in invoices_collection.find({"status": {"$in": ["sent", "paid"]}})
-        )
+        # Revenue (from invoices) - use aggregation instead of iterating
+        invoice_stats_pipeline = [
+            {"$facet": {
+                "total_count": [{"$count": "count"}],
+                "total_sales": [
+                    {"$match": {"status": {"$in": ["sent", "paid"]}}},
+                    {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$total_amount", 0]}}}}
+                ],
+                "outstanding_receivables": [
+                    {"$match": {"status": {"$ne": "paid"}}},
+                    {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$balance_due", 0]}}}}
+                ],
+                "overdue_count": [
+                    {"$match": {"due_date": {"$lt": today.isoformat()}, "status": {"$ne": "paid"}}},
+                    {"$count": "count"}
+                ],
+                "recent": [
+                    {"$sort": {"created_at": -1}},
+                    {"$limit": 5}
+                ]
+            }}
+        ]
+        invoice_stats = list(invoices_collection.aggregate(invoice_stats_pipeline))
+        inv = invoice_stats[0] if invoice_stats else {}
         
-        # Expenses
-        total_expenses = sum(
-            exp.get("amount", 0) 
-            for exp in expenses_collection.find({"approval_status": "approved"})
-        )
+        total_invoices = inv.get("total_count", [{}])[0].get("count", 0) if inv.get("total_count") else 0
+        total_sales = inv.get("total_sales", [{}])[0].get("total", 0) if inv.get("total_sales") else 0
+        outstanding_receivables = inv.get("outstanding_receivables", [{}])[0].get("total", 0) if inv.get("outstanding_receivables") else 0
+        overdue_invoices = inv.get("overdue_count", [{}])[0].get("count", 0) if inv.get("overdue_count") else 0
+        recent_invoices = inv.get("recent", [])
         
-        # Bills total
-        total_bills = sum(
-            bill.get("total_amount", 0) 
-            for bill in bills_collection.find({})
-        )
+        # Expenses - aggregation
+        total_expenses_result = list(expenses_collection.aggregate([
+            {"$match": {"approval_status": "approved"}},
+            {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$amount", 0]}}}}
+        ]))
+        total_expenses = total_expenses_result[0]["total"] if total_expenses_result else 0
         
-        # Receivables
-        outstanding_receivables = sum(
-            inv.get("balance_due", 0) 
-            for inv in invoices_collection.find({"status": {"$ne": "paid"}})
-        )
-        overdue_invoices = invoices_collection.count_documents({
-            "due_date": {"$lt": today.isoformat()},
-            "status": {"$ne": "paid"}
-        })
+        # Bills total - aggregation with facet
+        bills_stats_pipeline = [
+            {"$facet": {
+                "total_bills": [
+                    {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$total_amount", 0]}}}}
+                ],
+                "outstanding_payables": [
+                    {"$match": {"status": {"$ne": "paid"}}},
+                    {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$balance_due", 0]}}}}
+                ]
+            }}
+        ]
+        bills_stats = list(bills_collection.aggregate(bills_stats_pipeline))
+        bs = bills_stats[0] if bills_stats else {}
+        total_bills = bs.get("total_bills", [{}])[0].get("total", 0) if bs.get("total_bills") else 0
+        outstanding_payables = bs.get("outstanding_payables", [{}])[0].get("total", 0) if bs.get("outstanding_payables") else 0
         
-        # Payables
-        outstanding_payables = sum(
-            bill.get("balance_due", 0) 
-            for bill in bills_collection.find({"status": {"$ne": "paid"}})
-        )
+        # Payments - aggregation
+        payments_received_result = list(payments_received_collection.aggregate([
+            {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$amount", 0]}}}}
+        ]))
+        payments_received_total = payments_received_result[0]["total"] if payments_received_result else 0
         
-        # Cash flow
-        payments_received_total = sum(
-            p.get("amount", 0) for p in payments_received_collection.find({})
-        )
-        payments_made_total = sum(
-            p.get("amount", 0) for p in payments_made_collection.find({})
-        )
+        payments_made_result = list(payments_made_collection.aggregate([
+            {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$amount", 0]}}}}
+        ]))
+        payments_made_total = payments_made_result[0]["total"] if payments_made_result else 0
         
         # Net profit
         net_profit = total_sales - total_expenses - total_bills
         profit_margin = (net_profit / total_sales * 100) if total_sales > 0 else 0
         
         # Recent activities
-        recent_invoices = list(invoices_collection.find().sort("created_at", -1).limit(5))
         recent_payments = list(payments_received_collection.find().sort("created_at", -1).limit(5))
         
         activities = []

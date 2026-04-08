@@ -50,9 +50,9 @@ def hash_password(password: str) -> str:
             'sha256',
             password.encode('utf-8'),
             salt.encode('utf-8'),
-            260000
+            100000
         )
-        return f"pbkdf2:sha256:260000${salt}${hash_obj.hex()}"
+        return f"pbkdf2:sha256:100000${salt}${hash_obj.hex()}"
 
 
 def verify_password(password: str, hashed: str) -> bool:

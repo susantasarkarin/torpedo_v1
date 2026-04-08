@@ -46,14 +46,15 @@ class SessionStore:
                 password=REDIS_PASSWORD,
                 db=REDIS_DB,
                 decode_responses=True,
-                max_connections=10,
-                socket_timeout=0.5,  # 0.5 second timeout for faster fallback
-                socket_connect_timeout=0.5  # 0.5 second connect timeout
+                max_connections=100,
+                socket_timeout=3,  # 3 second timeout (was 0.5s - too aggressive)
+                socket_connect_timeout=3,  # 3 second connect timeout
+                retry_on_timeout=True
             )
             self._client = redis.Redis(connection_pool=self._pool)
             # Test connection with timeout
             import asyncio
-            await asyncio.wait_for(self._client.ping(), timeout=0.5)
+            await asyncio.wait_for(self._client.ping(), timeout=3)
             self._available = True
             logger.info(f"Redis session store connected: {REDIS_HOST}:{REDIS_PORT}")
         except asyncio.TimeoutError:

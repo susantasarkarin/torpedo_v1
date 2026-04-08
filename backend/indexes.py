@@ -447,6 +447,78 @@ def setup_indexes(db_manager=None):
     create_index_safe(dedup_logs, "reason")
     create_index_safe(dedup_logs, "source")
     
+    # ============== HIGH-TRAFFIC COMPOUND INDEXES (Performance Optimization) ==============
+    
+    # Projects - compound indexes for dashboard/operations queries
+    create_index_safe(projects, [("projectStatus", ASCENDING), ("createdAt", DESCENDING)],
+                      name="projects_status_date")
+    create_index_safe(projects, [("user_id", ASCENDING), ("createdAt", DESCENDING)],
+                      name="projects_user_date")
+    
+    # Leads - compound indexes for filtering and search
+    create_index_safe(leads, [("source", ASCENDING), ("createdAt", DESCENDING)],
+                      name="leads_source_date")
+    create_index_safe(leads, [("classification_status", ASCENDING), ("createdAt", DESCENDING)],
+                      name="leads_classification_date")
+    create_index_safe(leads, [("country", ASCENDING), ("seniority", ASCENDING), ("createdAt", DESCENDING)],
+                      name="leads_country_seniority_date")
+    
+    # Finance - compound indexes for dashboard summary queries
+    create_index_safe(invoices, [("status", ASCENDING), ("created_at", DESCENDING)],
+                      name="invoices_status_date")
+    create_index_safe(invoices, [("customer_id", ASCENDING), ("status", ASCENDING)],
+                      name="invoices_customer_status")
+    
+    # Bills - compound index for payables
+    bills = finance_db["bills"]
+    create_index_safe(bills, [("status", ASCENDING), ("due_date", ASCENDING)],
+                      name="bills_status_due")
+    create_index_safe(bills, [("vendor_id", ASCENDING), ("status", ASCENDING)],
+                      name="bills_vendor_status")
+    
+    # Expenses
+    expenses = finance_db["expenses"]
+    create_index_safe(expenses, [("approval_status", ASCENDING), ("created_at", DESCENDING)],
+                      name="expenses_approval_date")
+    
+    # Payments
+    payments_received = finance_db["payments_received"]
+    create_index_safe(payments_received, [("invoice_id", ASCENDING), ("created_at", DESCENDING)],
+                      name="payments_received_invoice_date")
+    payments_made = finance_db["payments_made"]
+    create_index_safe(payments_made, [("bill_id", ASCENDING), ("created_at", DESCENDING)],
+                      name="payments_made_bill_date")
+    
+    # Purchase Orders
+    purchase_orders = finance_db["purchase_orders"]
+    create_index_safe(purchase_orders, [("status", ASCENDING), ("created_at", DESCENDING)],
+                      name="po_status_date")
+    
+    # Sales accounts - compound for dashboard filtering
+    create_index_safe(sales_accounts, [("status", ASCENDING), ("createdAt", DESCENDING)],
+                      name="sales_accounts_status_date")
+    
+    # Panel Vendors - compound for operations filtering
+    create_index_safe(panel_vendors, [("status", ASCENDING), ("createdAt", DESCENDING)],
+                      name="panel_vendors_status_date")
+    
+    # Clients - compound for operations filtering
+    create_index_safe(clients, [("status", ASCENDING), ("createdAt", DESCENDING)],
+                      name="clients_status_date")
+    
+    # Traffic URL parameters - compound for listing queries
+    create_index_safe(url_params, [("vendorId", ASCENDING), ("status", ASCENDING), ("createdAt", DESCENDING)],
+                      name="url_params_vendor_status_date")
+    
+    # Gmail email metadata - compound for inbox queries
+    create_index_safe(email_metadata, [("mailbox_id", ASCENDING), ("ai_category", ASCENDING), ("timestamp", DESCENDING)],
+                      name="email_metadata_mailbox_category_time")
+    
+    # RFQ collection (sales funnel)
+    rfqs = email_db.get("rfqs") or email_db["rfqs"]
+    create_index_safe(rfqs, [("status", ASCENDING), ("created_at", DESCENDING)],
+                      name="rfqs_status_date")
+    
     print("✅ Database indexes setup complete!")
     return True
 

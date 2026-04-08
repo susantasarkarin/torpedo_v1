@@ -56,11 +56,12 @@ class DatabaseManager:
                 serverSelectionTimeoutMS=5000,
                 connectTimeoutMS=5000,
                 socketTimeoutMS=20000,
-                maxPoolSize=100,
+                maxPoolSize=30,
                 minPoolSize=5,
                 maxIdleTimeMS=45000,
                 retryWrites=True,
                 retryReads=True,
+                compressors='zstd,snappy,zlib',
             )
             self._client.admin.command('ping')
             print("✅ MongoDB sync client initialized")
@@ -76,9 +77,10 @@ class DatabaseManager:
                 mongo_uri,
                 serverSelectionTimeoutMS=5000,
                 connectTimeoutMS=5000,
-                maxPoolSize=200,  # Higher pool size for async
-                minPoolSize=10,
-                retryWrites=True
+                maxPoolSize=50,
+                minPoolSize=5,
+                retryWrites=True,
+                compressors='zstd,snappy,zlib',
             )
             print("✅ MongoDB async (Motor) client initialized")
         except Exception as e:

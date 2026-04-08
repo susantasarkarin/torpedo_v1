@@ -16,7 +16,7 @@ import { API_BASE_URL, buildApiUrl } from "../config"
 
 // Simple in-memory cache
 const cache = new Map()
-const CACHE_TTL = 5 * 60 * 1000 // 5 minutes default
+const CACHE_TTL = 10 * 60 * 1000 // 10 minutes default
 
 /**
  * Get cached data if still valid

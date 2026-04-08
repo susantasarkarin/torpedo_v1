@@ -27,7 +27,7 @@ const RETRY_DELAY = 1000; // 1 second
 
 // In-memory cache for GET requests (TTL-based)
 const responseCache = new Map();
-const DEFAULT_CACHE_TTL = 30000; // 30 seconds
+const DEFAULT_CACHE_TTL = 120000; // 2 minutes
 
 // In-flight request deduplication (prevents duplicate concurrent requests)
 const inflightRequests = new Map();

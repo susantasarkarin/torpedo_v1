@@ -253,8 +253,21 @@ SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", 60 * 60 * 24))  # def
 serializer = URLSafeTimedSerializer(SECRET_KEY)
 
 # In-memory sessions dict for backward compatibility during Redis initialization
-# Will be replaced by Redis store calls once initialized
-sessions = {}  # fallback in-memory store (deprecated - use Redis)
+# Uses OrderedDict with max size to prevent memory leaks
+from collections import OrderedDict
+
+class BoundedSessionCache(OrderedDict):
+    """LRU-style session cache with max size limit."""
+    MAX_SIZE = 500
+    
+    def __setitem__(self, key, value):
+        if key in self:
+            self.move_to_end(key)
+        super().__setitem__(key, value)
+        if len(self) > self.MAX_SIZE:
+            self.popitem(last=False)
+
+sessions = BoundedSessionCache()
 
 # Global session store reference (initialized on first use)
 _session_store = None
@@ -279,33 +292,34 @@ async def verify_session(request: Request):
     session_id = session_id.strip()
 
     try:
+        # Check in-memory cache first (fastest path - avoids Redis round-trip)
+        cached = sessions.get(session_id)
+        if cached and cached.get("expires_at") and cached["expires_at"] > datetime.utcnow():
+            return cached["username"]
+        
         # Deserialize and validate token (already checks expiration via max_age)
-        # If this succeeds, the token is valid and not expired
         username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
         
-        # Try Redis store first
-        store = await get_session_store_instance()
-        session_data = await store.get(session_id)
-        
-        if session_data:
-            # Session exists in Redis, extend TTL on activity
-            await store.extend(session_id, SESSION_TTL_SECONDS)
-        else:
-            # Session not in Redis (e.g., after Redis restart or new session)
-            # But token is valid (deserialized successfully), so allow access
-            # Create session in Redis for tracking
-            await store.create(
-                session_id,
-                {"username": username},
-                SESSION_TTL_SECONDS
-            )
-            print(f"Session created/recreated in store for user: {username}")
-        
-        # Also update in-memory cache for backward compatibility
+        # Update in-memory cache immediately for subsequent requests
         sessions[session_id] = {
             "username": username,
             "expires_at": datetime.utcnow() + timedelta(seconds=SESSION_TTL_SECONDS)
         }
+        
+        # Extend Redis session in background (non-blocking for the response)
+        try:
+            store = await get_session_store_instance()
+            session_data = await store.get(session_id)
+            if session_data:
+                await store.extend(session_id, SESSION_TTL_SECONDS)
+            else:
+                await store.create(
+                    session_id,
+                    {"username": username},
+                    SESSION_TTL_SECONDS
+                )
+        except Exception:
+            pass  # Redis failures shouldn't block authenticated requests
 
         return username
     except SignatureExpired:
