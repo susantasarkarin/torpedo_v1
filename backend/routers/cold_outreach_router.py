@@ -1283,13 +1283,14 @@ def _generate_personalized_email(
     sender_name: str,
 ) -> tuple[str, str]:
     """
-    Call OpenAI to produce a unique (subject, body_html) for this specific lead.
+    Call Gemini to produce a unique (subject, body_html) for this specific lead.
+    Uses the Gemini key rotator (7 free-tier keys).
     Returns (subject, body_html). Raises on failure.
     """
-    import openai as _openai
-    from leads.openai_rotator import get_pipeline_rotator
+    import google.generativeai as genai
+    from leads.gemini_rotator import get_pipeline_rotator as get_gemini_pipeline_rotator
 
-    rotator = get_pipeline_rotator("outreach")
+    rotator = get_gemini_pipeline_rotator("outreach")
     key_index, api_key = rotator.get_available_key()
 
     tone_map = {
@@ -1343,20 +1344,12 @@ Rules:
 - Keep the tone {tone}
 """
 
-    client = _openai.OpenAI(api_key=api_key)
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "You are a B2B cold email copywriter specialising in market research and data services. Follow instructions precisely."},
-            {"role": "user", "content": prompt},
-        ],
-        max_tokens=500,
-        temperature=0.8,
-    )
-    tokens = response.usage.total_tokens if response.usage else 0
-    rotator.log_request(key_index, tokens, "outreach_email_gen", success=True)
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    response = model.generate_content(prompt)
+    rotator.log_request(key_index, 0, "outreach_email_gen", success=True)
 
-    raw = response.choices[0].message.content.strip()
+    raw = response.text.strip()
     subject = ""
     body = ""
     if "SUBJECT:" in raw:
@@ -1478,7 +1471,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         except Exception as gen_err:
             err_str = str(gen_err)
             # Re-raise quota errors so the outer cycle loop can abort early
-            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+            if "RESOURCE_EXHAUSTED" in err_str or ("429" in err_str and "quota" in err_str.lower()):
                 raise
             logger.warning(
                 f"[Outreach] Gemini generation failed for {email} step {next_step_number}: {gen_err}"
@@ -1551,7 +1544,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
     except Exception as e:
         err_str = str(e)
         # Re-raise quota errors so the scheduler cycle aborts early
-        if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+        if "RESOURCE_EXHAUSTED" in err_str or ("429" in err_str and "quota" in err_str.lower()):
             raise
         logger.error(
             f"[Outreach] Failed to process {lead_record.get('email')}: {e}",
@@ -1605,7 +1598,8 @@ def process_due_outreach_sends() -> dict:
                     skipped += 1
             except Exception as loop_err:
                 err_str = str(loop_err)
-                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                # Only trigger cooldown on genuine Gemini rate-limit errors
+                if "RESOURCE_EXHAUSTED" in err_str or ("429" in err_str and "quota" in err_str.lower()):
                     logger.warning(
                         f"[Outreach] Gemini quota hit — setting {_GEMINI_COOLDOWN_MINUTES}m cooldown"
                     )
