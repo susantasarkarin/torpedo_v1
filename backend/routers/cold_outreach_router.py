@@ -1135,6 +1135,24 @@ _BUSINESS_DISPLAY_NAME: Dict[str, str] = {
 _gemini_quota_cooldown_until: Optional[datetime] = None
 _GEMINI_COOLDOWN_MINUTES = 10  # backoff when all keys exhausted
 
+# Daily send cap per sender email (AWS SES mailboxes are exempt)
+_DAILY_SEND_LIMIT_PER_MAILBOX = 2000
+
+
+def _sender_at_daily_limit(db, from_email: str) -> bool:
+    """Return True if this sender has hit the daily send cap.
+    AWS SES mailboxes are exempt (no limit)."""
+    mailbox = db["outreach_mailboxes"].find_one({"email_address": from_email})
+    if mailbox and mailbox.get("provider") == "ses":
+        return False
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    sent_today = db["outreach_sends_v2"].count_documents({
+        "from_email": from_email,
+        "sent_at": {"$gte": today_start},
+    })
+    return sent_today >= _DAILY_SEND_LIMIT_PER_MAILBOX
+
+
 # Per-business step context for AI generation
 _STEP_INSTRUCTIONS: Dict[int, str] = {
     1: (
@@ -1349,6 +1367,16 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         display_name = _BUSINESS_DISPLAY_NAME.get(business, "Indira Das")
         business_label = BUSINESS_LABEL.get(business, business)
         campaign_ctx = campaign.get("business_context") or {}
+
+        # Daily send cap per mailbox (SES exempt)
+        if _sender_at_daily_limit(db, from_email):
+            tomorrow = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {"next_send_at": tomorrow, "updated_at": datetime.utcnow()}}
+            )
+            logger.info(f"[Outreach] Daily limit reached for {from_email} — rescheduling {email} to tomorrow")
+            return False
 
         # Generate personalized email for this specific lead
         try:
