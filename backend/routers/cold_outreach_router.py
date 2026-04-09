@@ -70,6 +70,16 @@ def get_leads_db():
     return client["email_automation"]
 
 
+def _get_gmail_db():
+    """Return the torpedo_gmail database that holds workspace_mailboxes."""
+    try:
+        uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+        client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+        return client["torpedo_gmail"]
+    except Exception:
+        return None
+
+
 # ── Request/response models ────────────────────────────────────────────────────
 
 class StepTemplate(BaseModel):
@@ -542,9 +552,11 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
     """
     Send a test version of one step to a given address.
     Tokens are replaced with sample placeholder values.
-    Uses the first active SMTP mailbox for this campaign's business.
+    Uses Gmail API via the workspace service (service account delegation).
+    Falls back to SMTP if no Gmail mailbox is found.
     """
-    import smtplib
+    import base64
+    import re
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
 
@@ -560,10 +572,28 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
     if not step.get("subject") and not step.get("body_html"):
         raise HTTPException(400, "Step has no content yet — save the template first")
 
-    # Find first active mailbox for this business
-    mailbox = db["outreach_mailboxes"].find_one({"business": campaign["business"], "is_active": True})
-    if not mailbox:
-        raise HTTPException(400, "No active mailbox found for this business — add one in the Mailboxes tab first")
+    # ── Find a mailbox to send from ──────────────────────────────────────────
+    # Priority 1: Gmail API via workspace_mailboxes (torpedo_gmail DB)
+    gmail_db = _get_gmail_db()
+    gmail_mailbox = gmail_db["workspace_mailboxes"].find_one(
+        {"is_active": True},
+        sort=[("email", 1)],
+    ) if gmail_db else None
+
+    # Priority 2: SMTP mailbox from outreach_mailboxes (torpedo DB)
+    smtp_mailbox = db["outreach_mailboxes"].find_one(
+        {"business": campaign["business"], "is_active": True}
+    )
+
+    if not gmail_mailbox and not smtp_mailbox:
+        raise HTTPException(
+            400,
+            "No mailbox found — connect a Gmail account via the Mailboxes tab "
+            "or add SMTP credentials"
+        )
+
+    sender_email = (gmail_mailbox or smtp_mailbox).get("email") or (smtp_mailbox or {}).get("email_address", "")
+    sender_name = (gmail_mailbox or smtp_mailbox).get("display_name", "Team")
 
     # Replace tokens with sample data
     sample = {
@@ -572,7 +602,7 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
         "{{company}}": "Acme Corp",
         "{{title}}": "Head of Research",
         "{{industry}}": "Market Research",
-        "{{sender_name}}": mailbox.get("display_name", "Team"),
+        "{{sender_name}}": sender_name,
     }
 
     def _replace(text: str) -> str:
@@ -583,8 +613,6 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
     subject = _replace(step.get("subject", "(no subject)"))
     body_html = _replace(step.get("body_html", ""))
     body_text = body_html.replace("<br>", "\n").replace("<br/>", "\n")
-    # Strip remaining HTML tags for plain text
-    import re
     body_text = re.sub(r"<[^>]+>", "", body_text)
 
     # Build test banner
@@ -597,24 +625,49 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
     )
 
     msg = MIMEMultipart("alternative")
-    msg["From"] = f"{mailbox['display_name']} <{mailbox['email_address']}>"
+    msg["From"] = f"{sender_name} <{sender_email}>"
     msg["To"] = req.recipient_email
     msg["Subject"] = f"[TEST] {subject}"
-
     msg.attach(MIMEText(f"TEST EMAIL\n{body_text}", "plain"))
     msg.attach(MIMEText(test_banner + body_html, "html"))
 
-    try:
-        with smtplib.SMTP(mailbox["smtp_host"], mailbox["smtp_port"], timeout=30) as server:
-            server.starttls()
-            server.login(mailbox["smtp_username"], mailbox["smtp_password"])
-            server.send_message(msg)
-    except Exception as e:
-        logger.error(f"Test email send failed: {e}")
-        raise HTTPException(500, f"SMTP error: {e}")
+    # ── Send via Gmail API or SMTP ───────────────────────────────────────────
+    if gmail_mailbox:
+        try:
+            from app.services.gmail_workspace_service import GmailWorkspaceService
+        except ImportError:
+            from backend.app.services.gmail_workspace_service import GmailWorkspaceService
 
-    logger.info(f"Test email for step {step_number} sent to {req.recipient_email} via {mailbox['email_address']}")
-    return {"ok": True, "sent_to": req.recipient_email, "from": mailbox["email_address"]}
+        mongo_uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+        ws = GmailWorkspaceService(mongo_uri=mongo_uri)
+        ws.load_service_account()
+
+        if not ws.is_configured():
+            raise HTTPException(500, "Gmail service account not configured on server")
+
+        try:
+            service = ws._get_service(sender_email)
+            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+            result = service.users().messages().send(
+                userId="me", body={"raw": raw}
+            ).execute()
+        except Exception as e:
+            logger.error(f"Gmail API test send failed: {e}")
+            raise HTTPException(500, f"Gmail API error: {e}")
+    else:
+        # Fallback: SMTP
+        import smtplib
+        try:
+            with smtplib.SMTP(smtp_mailbox["smtp_host"], smtp_mailbox["smtp_port"], timeout=30) as server:
+                server.starttls()
+                server.login(smtp_mailbox["smtp_username"], smtp_mailbox["smtp_password"])
+                server.send_message(msg)
+        except Exception as e:
+            logger.error(f"SMTP test send failed: {e}")
+            raise HTTPException(500, f"SMTP error: {e}")
+
+    logger.info(f"Test email for step {step_number} sent to {req.recipient_email} via {sender_email}")
+    return {"ok": True, "sent_to": req.recipient_email, "from": sender_email}
 
 
 @router.post("/campaigns/{campaign_id}/launch")
