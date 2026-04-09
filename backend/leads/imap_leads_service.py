@@ -407,6 +407,203 @@ def parse_email_signature(body: str) -> Dict[str, str]:
     return info
 
 
+# ============== ENHANCED REGEX EXTRACTION (No AI) ==============
+
+def extract_company_from_domain(email_addr: str) -> str:
+    """
+    Infer company name from email domain.
+    e.g., john@acme-corp.com → Acme Corp
+    """
+    if not email_addr or "@" not in email_addr:
+        return ""
+    
+    domain = email_addr.split("@")[-1].lower()
+    
+    # Skip generic email providers
+    generic_providers = {
+        "gmail.com", "googlemail.com", "yahoo.com", "hotmail.com",
+        "outlook.com", "live.com", "aol.com", "icloud.com", "me.com",
+        "protonmail.com", "mail.com", "zoho.com", "yandex.com",
+        "gmx.com", "fastmail.com",
+    }
+    if domain in generic_providers:
+        return ""
+    
+    # Strip TLD and format as company name
+    name_part = domain.split(".")[0]
+    # Handle common domain patterns
+    name_part = name_part.replace("-", " ").replace("_", " ")
+    return name_part.title()
+
+
+def extract_contact_info_regex(
+    email_body: str,
+    from_email: str = "",
+    from_name: str = "",
+) -> dict:
+    """
+    Extract structured contact information from email using ONLY regex/script.
+    Drop-in replacement for gemini_enrichment.extract_contact_info().
+    
+    Args:
+        email_body: Raw email text
+        from_email: Sender email address (from header)
+        from_name: Sender name (from header)
+    
+    Returns:
+        {
+            "contacts": [{name, title, email, phone, company}],
+            "primary_contact": {...},
+            "signature_extracted": bool,
+            "method": "regex"
+        }
+    """
+    contacts = []
+    
+    # Extract from signature
+    sig_info = parse_email_signature(email_body)
+    
+    # Build primary contact from header + signature
+    primary = {
+        "name": from_name or sig_info.get("name", ""),
+        "title": sig_info.get("title", ""),
+        "email": from_email,
+        "phone": sig_info.get("phone", ""),
+        "company": sig_info.get("company", "") or extract_company_from_domain(from_email),
+        "linkedin": sig_info.get("linkedin", ""),
+    }
+    
+    # Try to split name if we have from_name
+    if primary["name"]:
+        parts = primary["name"].split()
+        primary["first_name"] = parts[0] if parts else ""
+        primary["last_name"] = " ".join(parts[1:]) if len(parts) > 1 else ""
+    
+    contacts.append(primary)
+    
+    # Extract additional emails from body
+    body_emails = set()
+    email_pattern = r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
+    for match in re.finditer(email_pattern, email_body):
+        found_email = match.group().lower()
+        # Skip the sender's email and generic addresses
+        if found_email != from_email.lower() and not any(
+            found_email.startswith(p) for p in ["noreply@", "no-reply@", "unsubscribe@", "mailer-daemon@"]
+        ):
+            body_emails.add(found_email)
+    
+    # Add other emails found in body as secondary contacts
+    for extra_email in list(body_emails)[:5]:  # Limit to 5 extra contacts
+        contacts.append({
+            "name": "",
+            "title": "",
+            "email": extra_email,
+            "phone": "",
+            "company": extract_company_from_domain(extra_email),
+            "linkedin": "",
+        })
+    
+    # Extract phone numbers from body (beyond signature)
+    phone_pattern = r'(?:[\+]?[(]?[0-9]{1,3}[)]?[-\s\.]?)?[0-9]{3}[-\s\.]?[0-9]{4,6}'
+    phones_in_body = re.findall(phone_pattern, email_body)
+    if phones_in_body and not primary["phone"]:
+        # Filter out numbers that are too short (likely not phones)
+        valid_phones = [p.strip() for p in phones_in_body if len(re.sub(r'\D', '', p)) >= 7]
+        if valid_phones:
+            primary["phone"] = valid_phones[0]
+    
+    # Extract LinkedIn URLs from body
+    linkedin_pattern = r'linkedin\.com/in/([a-zA-Z0-9\-]+)'
+    linkedin_matches = re.findall(linkedin_pattern, email_body, re.I)
+    if linkedin_matches and not primary["linkedin"]:
+        primary["linkedin"] = f"https://linkedin.com/in/{linkedin_matches[0]}"
+    
+    # Extract monetary amounts (useful for RFQ/pricing context)
+    amount_pattern = r'[\$€£₹]\s*([\d,]+(?:\.\d{2})?)'
+    amounts = re.findall(amount_pattern, email_body)
+    
+    return {
+        "contacts": contacts,
+        "primary_contact": primary,
+        "signature_extracted": bool(sig_info.get("name") or sig_info.get("phone") or sig_info.get("linkedin")),
+        "amounts_found": amounts[:5] if amounts else [],
+        "method": "regex",
+    }
+
+
+# ============== KEYWORD-BASED SENTIMENT SCORING (No AI) ==============
+
+POSITIVE_KEYWORDS = [
+    "interested", "great", "excellent", "perfect", "wonderful", "love",
+    "amazing", "fantastic", "pleased", "happy", "excited", "looking forward",
+    "absolutely", "definitely", "yes", "agreed", "sounds good", "let's do it",
+    "approve", "confirmed", "thank you", "thanks", "appreciate",
+]
+
+NEGATIVE_KEYWORDS = [
+    "not interested", "no thanks", "unsubscribe", "remove me", "stop",
+    "disappointed", "frustrated", "terrible", "awful", "worst",
+    "complaint", "issue", "problem", "broken", "failed", "error",
+    "cancel", "refund", "unfortunately", "regret", "decline", "reject",
+    "not happy", "dissatisfied", "unacceptable",
+]
+
+NEUTRAL_KEYWORDS = [
+    "following up", "checking in", "update", "status", "information",
+    "question", "clarification", "details", "attached", "please find",
+    "fyi", "for your information", "as discussed", "per our conversation",
+]
+
+
+def score_email_sentiment(subject: str, body: str) -> dict:
+    """
+    Rule-based email sentiment scoring — NO AI.
+    
+    Returns:
+        {
+            "sentiment": "positive" | "neutral" | "negative",
+            "confidence": float (0.0-1.0),
+            "positive_score": int,
+            "negative_score": int,
+            "method": "keyword_scoring"
+        }
+    """
+    content = f"{subject} {body[:2000]}".lower()
+    
+    pos_score = sum(1 for kw in POSITIVE_KEYWORDS if kw in content)
+    neg_score = sum(1 for kw in NEGATIVE_KEYWORDS if kw in content)
+    neutral_score = sum(1 for kw in NEUTRAL_KEYWORDS if kw in content)
+    
+    total = pos_score + neg_score + neutral_score
+    
+    if total == 0:
+        return {
+            "sentiment": "neutral",
+            "confidence": 0.3,
+            "positive_score": 0,
+            "negative_score": 0,
+            "method": "keyword_scoring",
+        }
+    
+    if neg_score > pos_score and neg_score >= 2:
+        sentiment = "negative"
+        confidence = min(0.9, 0.5 + (neg_score - pos_score) * 0.1)
+    elif pos_score > neg_score and pos_score >= 2:
+        sentiment = "positive"
+        confidence = min(0.9, 0.5 + (pos_score - neg_score) * 0.1)
+    else:
+        sentiment = "neutral"
+        confidence = 0.5
+    
+    return {
+        "sentiment": sentiment,
+        "confidence": round(confidence, 2),
+        "positive_score": pos_score,
+        "negative_score": neg_score,
+        "method": "keyword_scoring",
+    }
+
+
 # ============== IMAP CONNECTION ==============
 
 def connect_imap(account: IMAPAccount) -> imaplib.IMAP4_SSL:

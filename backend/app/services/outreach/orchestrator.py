@@ -3,9 +3,11 @@ Outreach Orchestrator.
 
 Main coordinator for the AI-powered outreach system.
 Coordinates all services with proper guardrails and flow control.
+Supports template_only mode to skip all AI calls.
 """
 
 import logging
+import re
 from datetime import datetime
 from typing import Any, Optional
 
@@ -210,6 +212,143 @@ class OutreachOrchestrator:
         except Exception as exc:
             logger.error("Failed to process lead %s: %s", contact_email, exc)
             return OutreachResult(success=False, action="error", reason=str(exc))
+
+    async def process_new_lead_template_only(
+        self,
+        contact_name: str,
+        contact_role: str,
+        contact_email: str,
+        company_name: str,
+        industry: str = "",
+        seniority: str = "",
+        department: str = "",
+        trigger: str = None,
+        sender_company: str = "surveyfieldwork",
+        recipient_timezone: str = "UTC",
+    ) -> OutreachResult:
+        """
+        Process a lead using template-only mode — NO AI calls.
+        Uses pre-built industry/seniority templates + keyword spam check.
+        """
+        from campaigns.email_templates import get_template_only_template, render_template
+        from campaigns.email_safety import check_spam_keywords
+
+        logger.info("Processing lead (template-only): %s", contact_email)
+
+        try:
+            # Guardrails still apply
+            can_send_now, time_reason = self.guardrails.is_valid_send_time(
+                recipient_timezone=recipient_timezone
+            )
+            if not can_send_now:
+                return OutreachResult(
+                    success=False, action="defer", reason=time_reason,
+                )
+
+            # Sender allocation still applies
+            sender_allocation = await self.sender_manager.allocate_sender(
+                recipient_timezone=recipient_timezone, priority="B",
+            )
+            if not sender_allocation.selected_sender_id:
+                return OutreachResult(
+                    success=False, action="defer",
+                    reason=sender_allocation.reasoning,
+                    sender_allocation=sender_allocation,
+                )
+
+            # Get template (no AI)
+            template = get_template_only_template(
+                industry=industry,
+                seniority=seniority,
+                step="initial",
+                trigger=trigger,
+                company=sender_company,
+            )
+
+            # Build variables from lead data
+            first_name = contact_name.split()[0] if contact_name else "there"
+            variables = {
+                "first_name": first_name,
+                "company": company_name,
+                "industry": industry or "your industry",
+                "department": department or "your department",
+            }
+
+            # Render template
+            rendered = render_template(template, variables)
+
+            # Strip HTML for spam check
+            body_plain = re.sub(r'<[^>]+>', '', rendered["body_html"])
+
+            # Keyword-based spam check (no AI)
+            spam_result = check_spam_keywords(rendered["subject"], body_plain)
+
+            email = GeneratedEmail(
+                subject=rendered["subject"],
+                body=rendered["body_html"],
+                word_count=len(body_plain.split()),
+                strategy_used="template_only",
+            )
+            spam_check = SpamCheckResult(
+                spam_score=spam_result["spam_score"],
+                is_safe_to_send=spam_result["is_safe_to_send"],
+                issues_found=spam_result["issues_found"],
+            )
+
+            return OutreachResult(
+                success=True,
+                action="send",
+                email=email,
+                spam_check=spam_check,
+                sender_allocation=sender_allocation,
+                lead_score=None,
+                metadata={"mode": "template_only", "template_used": template.get("name", "unknown")},
+            )
+        except Exception as exc:
+            logger.error("Failed template-only processing for %s: %s", contact_email, exc)
+            return OutreachResult(success=False, action="error", reason=str(exc))
+
+    async def process_followup_template_only(
+        self,
+        contact_email: str,
+        contact_name: str,
+        company_name: str,
+        industry: str = "",
+        seniority: str = "",
+        followup_number: int = 1,
+        sender_company: str = "surveyfieldwork",
+    ) -> FollowUpResult:
+        """
+        Generate a follow-up email using templates only — NO AI calls.
+        """
+        from campaigns.email_templates import get_template_only_template, render_template
+
+        logger.info("Processing follow-up (template-only) for %s", contact_email)
+
+        step = f"followup{followup_number}"
+        template = get_template_only_template(
+            industry=industry,
+            seniority=seniority,
+            step=step,
+            company=sender_company,
+        )
+
+        first_name = contact_name.split()[0] if contact_name else "there"
+        variables = {
+            "first_name": first_name,
+            "company": company_name,
+            "industry": industry or "your industry",
+        }
+        rendered = render_template(template, variables)
+
+        body_plain = re.sub(r'<[^>]+>', '', rendered["body_html"])
+        email = GeneratedEmail(
+            subject=rendered["subject"],
+            body=rendered["body_html"],
+            word_count=len(body_plain.split()),
+            strategy_used="template_only",
+        )
+        return FollowUpResult(success=True, action="send_followup", email=email)
 
     async def process_followup(
         self,

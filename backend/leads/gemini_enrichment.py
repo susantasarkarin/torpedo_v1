@@ -6,10 +6,13 @@ Provides intelligent lead classification, enrichment, and email processing using
 import os
 import json
 import re
+import logging
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 import openai
 from .openai_rotator import get_rotator
+
+logger = logging.getLogger(__name__)
 
 # Constants
 MODEL_NAME = "gpt-4o-mini"
@@ -26,9 +29,149 @@ def estimate_tokens(text: str) -> int:
     return int(len(text) * TOKENS_PER_CHAR)
 
 
+def _classify_lead_rule_based(lead_data: dict) -> dict:
+    """
+    Rule-based lead classification using keywords and patterns — NO AI.
+    """
+    title = (lead_data.get("title") or "").lower()
+    email_addr = (lead_data.get("email") or "").lower()
+    subject = (lead_data.get("email_subject") or "").lower()
+    body = (lead_data.get("email_body") or "")[:2000].lower()
+    company = (lead_data.get("company") or "").lower()
+    content = f"{subject} {body}"
+    
+    # Seniority from title
+    seniority = "Unknown"
+    seniority_tiers = {
+        "C-Level": ["ceo", "cto", "cfo", "coo", "cmo", "cro", "chief", "founder", "co-founder"],
+        "VP": ["vp", "vice president", "evp", "svp"],
+        "Director": ["director", "head of"],
+        "Manager": ["manager", "lead", "senior manager"],
+        "IC": ["analyst", "specialist", "coordinator", "associate", "engineer", "developer"],
+        "Entry": ["intern", "trainee", "assistant", "junior"],
+    }
+    for level, keywords in seniority_tiers.items():
+        if any(kw in title for kw in keywords):
+            seniority = level
+            break
+    
+    # Department from title
+    department = "Other"
+    dept_map = {
+        "Sales": ["sales", "business development", "account executive", "revenue"],
+        "Marketing": ["marketing", "growth", "brand", "content", "seo"],
+        "Engineering": ["engineering", "developer", "software", "devops", "tech lead"],
+        "HR": ["hr", "human resources", "people", "talent", "recruiting"],
+        "Finance": ["finance", "accounting", "controller"],
+        "Operations": ["operations", "ops", "supply chain"],
+        "Product": ["product", "ux", "design"],
+        "Legal": ["legal", "counsel", "compliance"],
+    }
+    for dept, keywords in dept_map.items():
+        if any(kw in title for kw in keywords):
+            department = dept
+            break
+    
+    # Category detection
+    category = "CLIENT"  # Default assumption
+    confidence = 0.4
+    reasoning = "Default classification"
+    buying_intent = 0.3
+    
+    # VENDOR indicators (someone offering services TO us)
+    vendor_keywords = [
+        "we offer", "our services", "our solution", "our platform",
+        "i'd like to introduce", "reaching out on behalf of", "partnership",
+        "schedule a demo", "free trial", "special offer", "our company",
+    ]
+    vendor_score = sum(1 for kw in vendor_keywords if kw in content)
+    
+    # CLIENT indicators (someone interested in OUR services)
+    client_keywords = [
+        "interested in", "looking for", "need help", "rfp", "rfq",
+        "quote", "pricing", "how much", "do you offer", "can you",
+        "we need", "project", "requirement", "budget",
+    ]
+    client_score = sum(1 for kw in client_keywords if kw in content)
+    
+    # RECRUITER indicators
+    recruiter_keywords = [
+        "job opportunity", "open position", "hiring", "career",
+        "recruitment", "candidate", "resume", "cv", "talent acquisition",
+    ]
+    recruiter_score = sum(1 for kw in recruiter_keywords if kw in content)
+    
+    # SPAM indicators
+    spam_keywords = [
+        "unsubscribe", "click here", "act now", "free", "winner",
+        "congratulations", "limited time", "million dollars",
+    ]
+    spam_score = sum(1 for kw in spam_keywords if kw in content)
+    
+    # Pick highest
+    scores = {
+        "CLIENT": client_score,
+        "VENDOR": vendor_score,
+        "RECRUITER": recruiter_score,
+        "SPAM": spam_score,
+    }
+    top = max(scores, key=scores.get)
+    top_score = scores[top]
+    
+    if top_score >= 3:
+        category = top
+        confidence = min(0.9, 0.5 + top_score * 0.1)
+        reasoning = f"Keyword match: {top_score} indicators for {top}"
+    elif top_score >= 1:
+        category = top
+        confidence = 0.4 + top_score * 0.1
+        reasoning = f"Weak keyword match: {top_score} indicators for {top}"
+    else:
+        # No strong signals in content — use title/email heuristics
+        if seniority in ["C-Level", "VP", "Director"]:
+            buying_intent = 0.5
+            category = "CLIENT"
+            confidence = 0.5
+            reasoning = "Senior title, assumed potential client"
+        else:
+            category = "CLIENT"
+            confidence = 0.35
+            reasoning = "No strong signals, default to CLIENT"
+    
+    # Buying intent based on seniority + category
+    if category == "CLIENT":
+        intent_map = {"C-Level": 0.8, "VP": 0.7, "Director": 0.6, "Manager": 0.5, "IC": 0.3}
+        buying_intent = intent_map.get(seniority, 0.3)
+        if client_score >= 3:
+            buying_intent = min(1.0, buying_intent + 0.2)
+    else:
+        buying_intent = 0.1
+    
+    # Priority
+    if buying_intent >= 0.7:
+        priority = "HIGH"
+    elif buying_intent >= 0.4:
+        priority = "MEDIUM"
+    else:
+        priority = "LOW"
+    
+    return {
+        "category": category,
+        "confidence": round(confidence, 2),
+        "department": department,
+        "seniority": seniority,
+        "reasoning": reasoning,
+        "buying_intent": round(buying_intent, 2),
+        "priority": priority,
+        "method": "rule_based",
+    }
+
+
 def classify_lead(lead_data: dict, rotator=None) -> dict:
     """
-    Classify a lead into categories using Gemini
+    Classify a lead into categories using Gemini.
+    
+    HYBRID: Tries rule-based classification first. Falls back to AI if confidence < 0.7.
     
     Args:
         lead_data: Dictionary containing lead information (email, company, title, etc.)
@@ -38,13 +181,20 @@ def classify_lead(lead_data: dict, rotator=None) -> dict:
         {
             "category": str,  # CLIENT, VENDOR, RECRUITER, INTERNAL, SPAM
             "confidence": float,  # 0.0 to 1.0
-            "department": str,  # Sales, Marketing, Engineering, HR, etc.
-            "seniority": str,  # C-Level, VP, Director, Manager, IC, Entry
-            "reasoning": str,  # Why this classification
-            "buying_intent": float,  # 0.0 to 1.0
-            "priority": str  # HIGH, MEDIUM, LOW
+            "department": str,
+            "seniority": str,
+            "reasoning": str,
+            "buying_intent": float,
+            "priority": str
         }
     """
+    # Try rule-based classification first
+    rule_result = _classify_lead_rule_based(lead_data)
+    if rule_result["confidence"] >= 0.7:
+        logger.info(f"Rule-based lead classification: {rule_result['category']} (confidence={rule_result['confidence']})")
+        return rule_result
+    
+    logger.info(f"Rule-based low confidence ({rule_result['confidence']}), falling back to AI")
     if rotator is None:
         rotator = get_rotator()
     
@@ -246,29 +396,45 @@ Be specific and actionable. Base inferences on typical patterns for this role/co
         }
 
 
-def extract_contact_info(email_body: str, rotator=None) -> dict:
+def extract_contact_info(email_body: str, from_email: str = "", from_name: str = "", rotator=None) -> dict:
     """
-    Extract structured contact information from email body
+    Extract structured contact information from email body.
+    
+    HYBRID: Tries regex first. Falls back to AI only if regex extraction is poor.
     
     Args:
         email_body: Raw email text
+        from_email: Sender email address (from header)
+        from_name: Sender display name (from header)
         rotator: Optional GeminiRotator instance
         
     Returns:
         {
-            "contacts": [
-                {
-                    "name": str,
-                    "title": str,
-                    "email": str,
-                    "phone": str,
-                    "company": str
-                }
-            ],
-            "primary_contact": {...},  # Most relevant contact
+            "contacts": [{name, title, email, phone, company}],
+            "primary_contact": {...},
             "signature_extracted": bool
         }
     """
+    # Try regex extraction first
+    try:
+        from .imap_leads_service import extract_contact_info_regex
+        regex_result = extract_contact_info_regex(email_body, from_email, from_name)
+        
+        primary = regex_result.get("primary_contact", {})
+        has_name = bool(primary.get("name"))
+        has_phone = bool(primary.get("phone"))
+        has_company = bool(primary.get("company"))
+        has_linkedin = bool(primary.get("linkedin"))
+        
+        # If regex got enough data, skip AI
+        fields_found = sum([has_name, has_phone, has_company, has_linkedin])
+        if fields_found >= 2:
+            logger.info(f"Regex extraction sufficient ({fields_found} fields), skipping AI")
+            return regex_result
+        
+        logger.info(f"Regex extraction found {fields_found} fields, falling back to AI")
+    except Exception as e:
+        logger.warning(f"Regex extraction failed: {e}, falling back to AI")
     if rotator is None:
         rotator = get_rotator()
     

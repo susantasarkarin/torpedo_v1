@@ -117,6 +117,216 @@ Body:
 Respond with JSON only."""
 
 
+# ============== RULE-BASED CLASSIFIER (No AI) ==============
+
+# Keywords mapped to the 9 EMAIL_CATEGORIES
+RULE_BASED_CATEGORY_KEYWORDS = {
+    "client": {
+        "keywords": [
+            "inquiry", "request for proposal", "rfp", "interested in your services",
+            "looking for a vendor", "need help with", "project requirement", "can you help",
+            "we're looking for", "requesting quote", "need a solution", "seeking partner",
+            "client", "customer request", "support ticket", "feedback", "complaint",
+            "order", "purchase", "buying", "interested in purchasing", "budget approved",
+            "schedule a meeting", "set up a call", "next steps", "moving forward",
+        ],
+        "sender_patterns": [],  # Client domains are dynamic
+        "weight": 1.0,
+    },
+    "vendor": {
+        "keywords": [
+            "we offer", "our services", "our solution", "special offer for you",
+            "partnership opportunity", "reseller", "supplier", "vendor",
+            "wholesale", "bulk pricing", "distribute", "our platform",
+            "schedule a demo", "free trial", "limited time", "exclusive access",
+            "we can help you", "our company provides", "i'd like to introduce",
+            "reaching out from", "on behalf of", "sales representative",
+        ],
+        "sender_patterns": [],
+        "weight": 1.0,
+    },
+    "internal": {
+        "keywords": [
+            "team update", "meeting notes", "standup", "sprint", "all hands",
+            "internal", "company announcement", "policy update", "hr notice",
+            "desk booking", "office", "leave request", "timesheet",
+            "performance review", "1-on-1", "team lunch", "town hall",
+        ],
+        "sender_patterns": [],
+        "weight": 1.2,
+    },
+    "promotional": {
+        "keywords": [
+            "newsletter", "unsubscribe", "marketing", "webinar", "event invitation",
+            "new blog post", "weekly digest", "monthly roundup", "product launch",
+            "announcement", "register now", "save your spot", "early bird",
+            "limited seats", "join us", "rsvp", "promo code", "discount code",
+            "black friday", "cyber monday", "end of year sale", "flash sale",
+        ],
+        "sender_patterns": [
+            r"noreply@", r"no-reply@", r"marketing@", r"news@", r"promo@",
+            r"updates@", r"digest@", r"newsletter@", r"campaign@",
+        ],
+        "weight": 1.0,
+    },
+    "invoice": {
+        "keywords": [
+            "invoice", "billing", "payment due", "receipt", "statement",
+            "amount due", "overdue", "remittance", "purchase order",
+            "po number", "net 30", "net 60", "total amount", "tax invoice",
+            "credit note", "debit note", "billing cycle", "subscription renewal",
+        ],
+        "sender_patterns": [
+            r"billing@", r"invoices?@", r"accounts@", r"finance@", r"payments?@",
+        ],
+        "weight": 1.3,
+    },
+    "banking": {
+        "keywords": [
+            "bank statement", "transaction alert", "wire transfer", "swift",
+            "iban", "ach transfer", "account balance", "credit card",
+            "deposit", "withdrawal", "routing number", "bank notification",
+            "direct debit", "standing order", "bank of", "citibank", "hsbc",
+            "chase", "wells fargo", "barclays",
+        ],
+        "sender_patterns": [
+            r"@.*bank", r"@.*financial", r"alerts?@", r"notifications?@.*bank",
+        ],
+        "weight": 1.3,
+    },
+    "automated": {
+        "keywords": [
+            "auto-reply", "automatic reply", "out of office", "away from office",
+            "currently unavailable", "on vacation", "delivery notification",
+            "read receipt", "calendar invitation", "meeting invitation",
+            "reminder:", "notification:", "alert:", "system notification",
+            "do not reply", "this is an automated", "noreply",
+            "password reset", "verification code", "confirm your email",
+            "login alert", "security alert", "two-factor",
+        ],
+        "sender_patterns": [
+            r"noreply@", r"no-reply@", r"notifications?@", r"alerts?@",
+            r"system@", r"admin@", r"postmaster@", r"mailer-daemon@",
+        ],
+        "weight": 1.2,
+    },
+    "spam": {
+        "keywords": [
+            "congratulations you won", "lottery", "million dollars",
+            "click here to claim", "act now", "risk free", "100% free",
+            "no credit card", "work from home", "earn money fast",
+            "double your income", "free money", "cash bonus", "you have been selected",
+            "nigerian prince", "beneficiary", "inheritance", "unclaimed funds",
+            "adult content", "weight loss", "miracle cure",
+        ],
+        "sender_patterns": [],
+        "weight": 1.0,
+    },
+}
+
+
+def classify_email_rule_based(
+    from_email: str,
+    to_email: str,
+    subject: str,
+    body: str,
+    internal_domains: list = None,
+) -> dict:
+    """
+    Rule-based email classification into the same 9 categories as the AI classifier.
+    Returns a result with category, confidence, and reasoning.
+    No AI/LLM calls — runs in <5ms.
+    
+    Args:
+        from_email: Sender email address
+        to_email: Recipient email address
+        subject: Email subject
+        body: Email body (plain text, truncated to ~2000 chars)
+        internal_domains: List of domains considered internal (e.g., ["cogentixresearch.com"])
+    
+    Returns:
+        {
+            "category": str,
+            "confidence_score": float (0.0-1.0),
+            "reasoning": str,
+            "method": "rule_based"
+        }
+    """
+    import re
+    
+    content = f"{subject} {body[:2000]}".lower()
+    from_email_lower = (from_email or "").lower()
+    
+    # Check internal first (by domain)
+    if internal_domains:
+        sender_domain = from_email_lower.split("@")[-1] if "@" in from_email_lower else ""
+        if sender_domain in [d.lower() for d in internal_domains]:
+            return {
+                "category": "internal",
+                "confidence_score": 0.9,
+                "reasoning": f"Sender domain {sender_domain} is internal",
+                "method": "rule_based",
+            }
+    
+    # Score each category
+    scores = {}
+    for category, config in RULE_BASED_CATEGORY_KEYWORDS.items():
+        score = 0
+        matched = []
+        
+        # Keyword matching
+        for kw in config["keywords"]:
+            if kw in content:
+                score += 1
+                matched.append(kw)
+        
+        # Sender pattern matching
+        for pattern in config.get("sender_patterns", []):
+            if re.search(pattern, from_email_lower, re.I):
+                score += 2
+                matched.append(f"sender:{pattern}")
+        
+        # Apply category weight
+        score *= config.get("weight", 1.0)
+        
+        if score > 0:
+            scores[category] = {"score": score, "matched": matched}
+    
+    if not scores:
+        return {
+            "category": "others",
+            "confidence_score": 0.3,
+            "reasoning": "No keyword matches found",
+            "method": "rule_based",
+        }
+    
+    # Get top category
+    top_category = max(scores, key=lambda k: scores[k]["score"])
+    top_score = scores[top_category]["score"]
+    matched_keywords = scores[top_category]["matched"]
+    
+    # Calculate confidence based on score magnitude and separation from runner-up
+    sorted_scores = sorted(scores.values(), key=lambda x: x["score"], reverse=True)
+    runner_up_score = sorted_scores[1]["score"] if len(sorted_scores) > 1 else 0
+    
+    # Confidence factors: absolute score + margin over runner-up
+    if top_score >= 5 and (top_score - runner_up_score) >= 2:
+        confidence = min(0.95, 0.6 + (top_score * 0.05))
+    elif top_score >= 3:
+        confidence = min(0.85, 0.5 + (top_score * 0.05))
+    elif top_score >= 1:
+        confidence = 0.4 + (top_score * 0.05)
+    else:
+        confidence = 0.3
+    
+    return {
+        "category": top_category,
+        "confidence_score": round(confidence, 2),
+        "reasoning": f"Matched keywords: {', '.join(matched_keywords[:5])}",
+        "method": "rule_based",
+    }
+
+
 class OpenAIEmailClassifier:
     """
     OpenAI-based email classifier with two-tier approach and Gemini fallback.
@@ -251,14 +461,50 @@ class OpenAIEmailClassifier:
         # ============================================
         # Normal Path: LLM Classification
         # ============================================
-        from ..leads.openai_wrapper import chat_completion_with_escalation
         
-        # Extract email data
+        # TRY RULE-BASED FIRST (saves AI costs ~60% of the time)
         from_email = self._extract_email_address(email.get("from_address"))
         to_email = self._extract_email_address(email.get("to_addresses", [{}])[0] if email.get("to_addresses") else {})
         subject = email.get("subject", "")
         body = (email.get("body_plain") or email.get("snippet") or "")[:2000]
         date = email.get("received_at") or email.get("timestamp") or ""
+        
+        rule_result = classify_email_rule_based(
+            from_email=from_email,
+            to_email=to_email,
+            subject=subject,
+            body=body,
+        )
+        
+        # If rule-based confidence is high enough, skip AI
+        if rule_result["confidence_score"] >= 0.7:
+            logger.info(f"Rule-based classification for {email.get('_id')}: {rule_result['category']} (confidence={rule_result['confidence_score']})")
+            
+            rule_classification = {
+                "success": True,
+                "email_id": str(email.get("_id")),
+                "category": rule_result["category"],
+                "confidence": rule_result["confidence_score"],
+                "reasoning": rule_result["reasoning"],
+                "model": None,
+                "provider": None,
+                "escalated": False,
+                "human_intervention_needed": False,
+                "tier2_analysis": None,
+                "classified_at": datetime.utcnow(),
+                "llm_skipped": True,
+                "skip_reason": "rule_based_high_confidence",
+                "method": "rule_based",
+            }
+            
+            self._update_email_classification(email["_id"], rule_classification)
+            self._add_to_review_queue(email, rule_classification, priority="low")
+            return rule_classification
+        
+        # Rule-based confidence too low — fall through to AI
+        logger.info(f"Rule-based low confidence ({rule_result['confidence_score']}) for {email.get('_id')}, falling through to AI")
+        
+        from ..leads.openai_wrapper import chat_completion_with_escalation
         
         # Build prompt
         user_prompt = EMAIL_PROMPT_TEMPLATE.format(

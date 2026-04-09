@@ -198,6 +198,7 @@ class Campaign(BaseModel):
     # Campaign type and configuration
     campaign_type: Optional[str] = "cold"  # cold | drip | reengagement
     personalization_level: int = 2  # 1=Light, 2=Role-Based, 3=Deep
+    template_only: bool = False  # When True, skip all AI calls (no AI email generation, scoring, spam check)
     ab_test_config: Optional[Dict] = None  # A/B test configuration
     reengagement_timeline: Optional[Dict] = None  # {soft_drip_start_days, trigger_based_start_days, reset_outreach_start_days}
     

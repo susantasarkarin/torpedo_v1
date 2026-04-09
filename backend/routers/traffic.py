@@ -17,6 +17,7 @@ import time
 import hashlib
 import hmac
 import asyncio
+from functools import partial
 import uuid
 import httpx
 import re
@@ -2730,7 +2731,14 @@ async def get_traffic_stats(
         if traffic_service is None:
             raise HTTPException(status_code=503, detail="Traffic service not initialized")
         
-        stats = traffic_service.get_traffic_stats(survey_id=survey_id)
+        # Check cache first (60s TTL to avoid repeated heavy queries)
+        cache_key = _get_traffic_cache_key("stats", survey_id=survey_id)
+        cached = _get_traffic_cached(cache_key)
+        if cached is not None:
+            return cached
+        
+        stats = await asyncio.to_thread(traffic_service.get_traffic_stats, survey_id=survey_id)
+        _set_traffic_cached(cache_key, stats, ttl=60)
         return stats
         
     except HTTPException:
@@ -2757,7 +2765,7 @@ async def get_project_traffic_stats(
         if traffic_service is None:
             raise HTTPException(status_code=503, detail="Traffic service not initialized")
 
-        stats = traffic_service.get_project_traffic_stats(pid)
+        stats = await asyncio.to_thread(traffic_service.get_project_traffic_stats, pid)
         return stats
     except HTTPException:
         raise
@@ -2792,7 +2800,7 @@ async def get_dashboard_traffic_stats(
             if cached is not None:
                 return cached
 
-        stats = traffic_service.get_dashboard_traffic_stats(days=days, survey_id=survey_id)
+        stats = await asyncio.to_thread(traffic_service.get_dashboard_traffic_stats, days=days, survey_id=survey_id)
         _set_traffic_cached(cache_key, stats, ttl=60)
         return stats
     except HTTPException:
@@ -2817,7 +2825,7 @@ async def get_all_surveys_traffic_stats(request: Request):
         if traffic_service is None:
             raise HTTPException(status_code=503, detail="Traffic service not initialized")
         
-        surveys_stats = traffic_service.get_all_surveys_traffic_stats()
+        surveys_stats = await asyncio.to_thread(traffic_service.get_all_surveys_traffic_stats)
         return {"surveys_stats": surveys_stats}
         
     except HTTPException:
@@ -2949,7 +2957,8 @@ async def list_traffic_records(
             if cached_result is not None:
                 return cached_result
         
-        result = traffic_service.list_traffic_records(
+        result = await asyncio.to_thread(
+            traffic_service.list_traffic_records,
             page=page,
             page_size=page_size,
             status=status,

@@ -65,7 +65,7 @@ export default function TrafficManagement() {
 
       const contentType = res.headers.get("content-type") || ""
       if (!contentType.includes("application/json")) {
-        throw new Error("Server unavailable or request timed out. Please try again.")
+        throw new Error(`Server returned ${res.status} (non-JSON). Backend may be down or restarting.`)
       }
 
       const data = await res.json()
@@ -75,7 +75,11 @@ export default function TrafficManagement() {
       setTotalRecords(data.pagination?.total || 0)
       setTotalPages(data.pagination?.total_pages || 0)
     } catch (e) {
-      setError(e.message || "Failed to load traffic records")
+      if (e.name === "TypeError" && e.message.includes("fetch")) {
+        setError("Network error — cannot reach the server. Please check your connection.")
+      } else {
+        setError(e.message || "Failed to load traffic records")
+      }
     } finally {
       setLoading(false)
     }

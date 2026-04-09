@@ -12,14 +12,12 @@ import os
 import hmac
 import hashlib
 import json
-import asyncio
 import httpx
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
 from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
 import logging
 import base64
-from pymongo import UpdateOne
 from pymongo.collection import Collection
 
 try:
@@ -1012,26 +1010,8 @@ class CintService:
         
         processed = []
         entry_links_created = 0
-        bulk_ops = []  # Collect bulk upsert operations
         
-        # Pre-fetch existing survey_ids in one query to avoid N+1 find_one calls
-        existing_survey_ids = set()
-        if self.cint_surveys_collection is not None and auto_create_entry_links:
-            all_survey_ids = []
-            for opp_data in opportunities:
-                sid = opp_data.get("survey_id")
-                if sid is not None:
-                    all_survey_ids.append(sid)
-            if all_survey_ids:
-                existing_docs = self.cint_surveys_collection.find(
-                    {"survey_id": {"$in": all_survey_ids}},
-                    {"survey_id": 1}
-                )
-                existing_survey_ids = {doc["survey_id"] for doc in existing_docs}
-            # Yield event loop after the batch query
-            await asyncio.sleep(0)
-        
-        for i, opp_data in enumerate(opportunities):
+        for opp_data in opportunities:
             try:
                 # Add webhook timestamp if not present
                 if "webhook_timestamp" not in opp_data:
@@ -1054,24 +1034,19 @@ class CintService:
                 # Determine if survey is active
                 opportunity.is_active = opportunity.is_live and opportunity.message_reason != "deactivated"
                 
-                # Check if this is a new survey using pre-fetched set
-                is_new_survey = opportunity.survey_id not in existing_survey_ids
-                
-                # Collect bulk upsert operation instead of individual DB call
+                # Check if this is a new survey (for auto-creating entry links)
+                is_new_survey = False
                 if self.cint_surveys_collection is not None:
-                    bulk_ops.append(UpdateOne(
-                        {"survey_id": opportunity.survey_id},
-                        {
-                            "$set": opportunity.dict(exclude={"id"}, exclude_none=False),
-                            "$setOnInsert": {
-                                "created_at": datetime.now(timezone.utc),
-                                "click_count": 0,
-                                "last_clicked_at": None,
-                                "is_active_in_pool": False,
-                            },
-                        },
-                        upsert=True,
-                    ))
+                    existing = self.cint_surveys_collection.find_one({"survey_id": opportunity.survey_id})
+                    is_new_survey = existing is None
+                
+                # Store ALL surveys without filtering during ingestion
+                # Filters are now applied only during display/routing, not during ingestion
+                # This allows us to keep a complete inventory and apply dynamic filters
+                
+                # Store in MongoDB if collection provided
+                if self.cint_surveys_collection is not None:
+                    self._upsert_opportunity(opportunity)
                 
                 # Auto-create entry links for new active surveys
                 if auto_create_entry_links and is_new_survey and opportunity.is_active:
@@ -1088,18 +1063,6 @@ class CintService:
             except Exception as e:
                 logger.error(f"Error processing opportunity {opp_data.get('survey_id')}: {str(e)}")
                 continue
-            
-            # Yield event loop every 100 items so other requests can proceed
-            if (i + 1) % 100 == 0:
-                await asyncio.sleep(0)
-        
-        # Execute all upserts in one bulk_write call (1 DB round-trip instead of N)
-        if bulk_ops and self.cint_surveys_collection is not None:
-            try:
-                self.cint_surveys_collection.bulk_write(bulk_ops, ordered=False)
-            except Exception as bw_err:
-                logger.error(f"Bulk write failed: {bw_err}")
-            await asyncio.sleep(0)
         
         logger.info(f"Processed {len(processed)} opportunities (entry links created: {entry_links_created})")
         return processed

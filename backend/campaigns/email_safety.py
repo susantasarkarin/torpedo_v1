@@ -112,3 +112,115 @@ async def pre_send_checks(
             return False, "rate_limited"
     
     return True, None
+
+
+# ============== KEYWORD-BASED SPAM CHECK (No AI) ==============
+
+# Spam trigger words/phrases that commonly cause deliverability issues
+SPAM_TRIGGER_WORDS = {
+    "high": [
+        "act now", "buy now", "click here", "free money", "no obligation",
+        "limited time offer", "congratulations", "you have been selected",
+        "100% free", "risk free", "no cost", "winner", "cash bonus",
+        "double your", "earn extra cash", "fast cash", "free access",
+        "free gift", "free trial", "great offer", "guarantee",
+        "incredible deal", "order now", "special promotion", "urgent",
+        "while supplies last", "you're a winner", "apply now",
+        "be your own boss", "billion dollars", "cash prize",
+    ],
+    "medium": [
+        "as seen on", "call now", "dear friend", "don't delete",
+        "don't hesitate", "exclusive deal", "for free", "get it now",
+        "information you requested", "instant", "new customers only",
+        "once in a lifetime", "please read", "satisfied customers",
+        "this isn't spam", "unsubscribe", "what are you waiting for",
+        "will not believe", "amazing", "lowest price",
+    ],
+    "low": [
+        "click below", "discount", "increase", "no strings attached",
+        "offer", "opt in", "opt-in", "remove", "success",
+        "traffic", "unsolicited", "visit our website",
+    ]
+}
+
+# Patterns that are red flags
+SPAM_PATTERNS = [
+    r'\$\d{3,}',              # Dollar amounts ($100+)
+    r'\d+%\s*off',            # Percentage discounts
+    r'!!!+',                  # Multiple exclamation marks
+    r'\?\?\?+',               # Multiple question marks
+    r'[A-Z\s]{20,}',          # ALL CAPS blocks (20+ chars)
+    r'https?://\S+',         # URLs in body
+    r'<a\s+href',            # HTML links
+]
+
+
+def check_spam_keywords(subject: str, body_plain: str) -> dict:
+    """
+    Rule-based spam check using keyword matching and pattern detection.
+    No AI/LLM calls — runs in <1ms.
+    
+    Args:
+        subject: Email subject line
+        body_plain: Plain text email body (strip HTML first)
+    
+    Returns:
+        {
+            "spam_score": int (0-100),
+            "is_safe_to_send": bool,
+            "issues_found": list of str,
+            "method": "keyword_blacklist"
+        }
+    """
+    import re
+    
+    content = f"{subject} {body_plain}".lower()
+    issues = []
+    score = 0
+    
+    # Check trigger words
+    for word in SPAM_TRIGGER_WORDS["high"]:
+        if word in content:
+            score += 8
+            issues.append(f"High-risk phrase: '{word}'")
+    
+    for word in SPAM_TRIGGER_WORDS["medium"]:
+        if word in content:
+            score += 4
+            issues.append(f"Medium-risk phrase: '{word}'")
+    
+    for word in SPAM_TRIGGER_WORDS["low"]:
+        if word in content:
+            score += 2
+            issues.append(f"Low-risk phrase: '{word}'")
+    
+    # Check patterns
+    for pattern in SPAM_PATTERNS:
+        matches = re.findall(pattern, f"{subject} {body_plain}")
+        if matches:
+            score += 5 * len(matches)
+            issues.append(f"Pattern match: {pattern} ({len(matches)}x)")
+    
+    # Subject-specific checks
+    subject_lower = subject.lower()
+    if subject_lower == subject_lower.upper() and len(subject) > 10:
+        score += 10
+        issues.append("Subject is ALL CAPS")
+    
+    if subject.count("!") > 1:
+        score += 5
+        issues.append("Multiple exclamation marks in subject")
+    
+    if subject.startswith("Re:") or subject.startswith("Fwd:"):
+        score += 3
+        issues.append("Fake Re:/Fwd: in subject")
+    
+    # Cap at 100
+    score = min(score, 100)
+    
+    return {
+        "spam_score": score,
+        "is_safe_to_send": score <= 30,
+        "issues_found": issues[:10],  # Limit to top 10 issues
+        "method": "keyword_blacklist"
+    }

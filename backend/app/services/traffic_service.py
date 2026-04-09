@@ -900,55 +900,61 @@ class TrafficService:
             Dictionary with counts by consolidated status
         """
         try:
-            # Build match stage for filtering
-            match_stage = {}
+            # Build base filter
+            base_filter = {}
             if survey_id:
-                match_stage["assignedSurveyId"] = survey_id
+                base_filter["assignedSurveyId"] = survey_id
             
-            pipeline = []
+            # Use targeted count_documents queries with the status index
+            # instead of a full-collection $group aggregation
+            complete_statuses = ["complete", "COMPLETE"]
+            terminate_statuses = ["terminated", "TERMINATED", "screenout", "SCREENOUT", 
+                                 "out", "OUT", "quality_terminate", "QUALITY_TERM", 
+                                 "TERMINATE", "terminate"]
+            quota_statuses = ["quotafull", "QUOTAFULL", "QUOTA_FULL", "quota_full",
+                            "overquota", "OVERQUOTA"]
+            incomplete_statuses = ["incomplete", "INCOMPLETE", 
+                                  "CPX_TERMINATED_CINT_FALLBACK", "CPX_FALLBACK",
+                                  "fallback", "FALLBACK", "CINT_WATERFALL_1"]
             
-            # Add match stage if filtering
-            if match_stage:
-                pipeline.append({"$match": match_stage})
+            # Run counts in 2 sequential pairs to avoid OOM on 2GB server
+            from concurrent.futures import ThreadPoolExecutor
             
-            # Group by status
-            pipeline.append({
-                "$group": {
-                    "_id": "$status",
-                    "count": {"$sum": 1}
-                }
-            })
+            def _count(statuses):
+                return self.traffic_collection.count_documents(
+                    {**base_filter, "status": {"$in": statuses}}, maxTimeMS=15000)
             
-            results = list(self.traffic_collection.aggregate(pipeline, maxTimeMS=8000))
+            # Pair 1: terminate (largest) + complete (smallest) 
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                f_terminate = executor.submit(_count, terminate_statuses)
+                f_complete = executor.submit(_count, complete_statuses)
+                terminate_count = f_terminate.result()
+                complete_count = f_complete.result()
             
-            # Consolidate statuses
-            by_status = {}
-            total = 0
-
-            for r in results:
-                raw_status = r["_id"]
-                count = r["count"]
-                normalized_status = self._normalize_status(raw_status)
-                
-                by_status[normalized_status] = by_status.get(normalized_status, 0) + count
-                total += count
+            # Pair 2: incomplete + quota
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                f_incomplete = executor.submit(_count, incomplete_statuses)
+                f_quota = executor.submit(_count, quota_statuses)
+                incomplete_count = f_incomplete.result()
+                quota_count = f_quota.result()
             
-            # Ensure all categories are present (even if 0)
-            display_statuses = ["Complete", "Incomplete", "Quota Full", "Terminate"]
-            for status in display_statuses:
-                if status not in by_status:
-                    by_status[status] = 0
+            total = complete_count + terminate_count + quota_count + incomplete_count
             
             stats = {
                 "total": total,
-                "by_status": by_status
+                "by_status": {
+                    "Complete": complete_count,
+                    "Terminate": terminate_count,
+                    "Quota Full": quota_count,
+                    "Incomplete": incomplete_count,
+                }
             }
             
             return stats
             
         except Exception as e:
             print(f"❌ Error getting traffic stats: {e}")
-            return {"total": 0, "by_status": {"Complete": 0, "Incomplete": 0, "Quota Full": 0}}
+            return {"total": 0, "by_status": {"Complete": 0, "Incomplete": 0, "Quota Full": 0, "Terminate": 0}}
     
     def get_all_surveys_traffic_stats(self) -> Dict[str, Dict[str, int]]:
         """
@@ -1079,29 +1085,25 @@ class TrafficService:
                     {"assignedSurveyId": {"$regex": search, "$options": "i"}},
                 ]
             
-            # Use $facet aggregation to get count + records in one round-trip with maxTimeMS
-            MAX_TIME_MS = 10000
+            # Use separate count + find instead of $facet aggregation for better performance
+            # $facet does a full collection scan; find().sort().skip().limit() uses _id index
+            MAX_TIME_MS = 30000
             skip = (page - 1) * page_size
 
-            pipeline = [{"$match": query}]
-            pipeline.append({
-                "$facet": {
-                    "total": [{"$count": "count"}],
-                    "records": [
-                        {"$sort": {"_id": -1}},
-                        {"$skip": skip},
-                        {"$limit": page_size},
-                    ]
-                }
-            })
-            facet_result = list(self.traffic_collection.aggregate(pipeline, maxTimeMS=MAX_TIME_MS))
-
-            if facet_result:
-                total_count = (facet_result[0].get("total") or [{}])[0].get("count", 0)
-                records = facet_result[0].get("records", [])
+            # Get total count - use fast estimated_document_count when no filters
+            if not query:
+                total_count = self.traffic_collection.estimated_document_count()
             else:
-                total_count = 0
-                records = []
+                total_count = self.traffic_collection.count_documents(query, maxTimeMS=MAX_TIME_MS)
+            
+            # Get records using find (sort by _id desc uses the default _id index)
+            records = list(
+                self.traffic_collection.find(query)
+                .sort("_id", -1)
+                .skip(skip)
+                .limit(page_size)
+                .max_time_ms(MAX_TIME_MS)
+            )
 
             total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 0
             
