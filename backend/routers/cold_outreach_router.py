@@ -1345,7 +1345,7 @@ Rules:
 """
 
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.0-flash")
     response = model.generate_content(prompt)
     rotator.log_request(key_index, 0, "outreach_email_gen", success=True)
 
