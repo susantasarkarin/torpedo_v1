@@ -75,7 +75,7 @@ function Outreach() {
   const [suppTotal, setSuppTotal] = useState(0)
   const [manualEmail, setManualEmail] = useState("")
 
-  const flash = (msg) => { setActionMsg(msg); setTimeout(() => setActionMsg(""), 4000) }
+  const flash = (msg) => { setActionMsg(msg); setTimeout(() => setActionMsg(""), 5000) }
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
@@ -188,18 +188,23 @@ function Outreach() {
     const recipient = testRecipient[stepKey] || ""
     if (!recipient.trim()) { flash("Enter a recipient email first"); return }
     setSendingTest(stepKey)
-    const res = await fetch(
-      buildApiUrl(`/api/cold-outreach/campaigns/${campaignId}/steps/${stepNum}/test`),
-      { method: "POST", headers: AUTH(), body: JSON.stringify({ recipient_email: recipient }) }
-    )
-    setSendingTest(null)
-    if (res.ok) {
-      const d = await res.json()
-      flash(`✓ Test sent to ${d.sent_to} from ${d.from}`)
-      setShowTestInput(prev => ({ ...prev, [stepKey]: false }))
-    } else {
-      const d = await res.json().catch(() => ({}))
-      flash(`Send failed: ${d.detail || "unknown error"}`)
+    try {
+      const res = await fetch(
+        buildApiUrl(`/api/cold-outreach/campaigns/${campaignId}/steps/${stepNum}/test`),
+        { method: "POST", headers: AUTH(), body: JSON.stringify({ recipient_email: recipient }) }
+      )
+      if (res.ok) {
+        const d = await res.json()
+        flash(`✓ Test sent to ${d.sent_to} from ${d.from}`)
+        setShowTestInput(prev => ({ ...prev, [stepKey]: false }))
+      } else {
+        const d = await res.json().catch(() => ({}))
+        flash(`Send failed: ${d.detail || d.error || "unknown error"}`)
+      }
+    } catch (err) {
+      flash(`Send failed: ${err.message || "network error"}`)
+    } finally {
+      setSendingTest(null)
     }
   }
 
@@ -331,7 +336,14 @@ function Outreach() {
       </div>
 
       {actionMsg && (
-        <div style={{ background: "#dcfce7", border: "1px solid #86efac", borderRadius: 8, padding: "10px 16px", marginBottom: 16, color: "#166534", fontWeight: 500 }}>
+        <div style={{
+          position: "fixed", top: 20, right: 20, zIndex: 9999, minWidth: 300, maxWidth: 500,
+          background: actionMsg.startsWith("✓") || actionMsg.startsWith("✨") ? "#dcfce7" : actionMsg.startsWith("Send failed") || actionMsg.startsWith("Error") ? "#fee2e2" : "#dcfce7",
+          border: `1px solid ${actionMsg.startsWith("✓") || actionMsg.startsWith("✨") ? "#86efac" : actionMsg.startsWith("Send failed") || actionMsg.startsWith("Error") ? "#fca5a5" : "#86efac"}`,
+          borderRadius: 10, padding: "12px 18px", boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+          color: actionMsg.startsWith("Send failed") || actionMsg.startsWith("Error") ? "#991b1b" : "#166534",
+          fontWeight: 500, fontSize: "0.9rem", cursor: "pointer",
+        }} onClick={() => setActionMsg("")}>
           {actionMsg}
         </div>
       )}

@@ -605,7 +605,7 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
     msg.attach(MIMEText(test_banner + body_html, "html"))
 
     try:
-        with smtplib.SMTP(mailbox["smtp_host"], mailbox["smtp_port"]) as server:
+        with smtplib.SMTP(mailbox["smtp_host"], mailbox["smtp_port"], timeout=30) as server:
             server.starttls()
             server.login(mailbox["smtp_username"], mailbox["smtp_password"])
             server.send_message(msg)
