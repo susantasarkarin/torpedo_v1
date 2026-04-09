@@ -1,6 +1,3 @@
-  const [currentPage, setCurrentPage] = useState(1)
-  const [recordsPerPage, setRecordsPerPage] = useState(100)
-  const [totalPayments, setTotalPayments] = useState(0)
 "use client"
 
 import { useState, useEffect, useRef } from "react"
@@ -9,6 +6,7 @@ import { CreditCard, Plus, Search, X, Loader2, ArrowDownCircle, ArrowUpCircle, T
 import { API_BASE_URL } from "../../config"
 import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "../../utils/currency"
 import { buildApiUrl } from "../../config"
+import Pagination from "../../components/ui/Pagination"
 
 function PaymentsPage() {
   const navigate = useNavigate()
@@ -24,6 +22,9 @@ function PaymentsPage() {
   const [showModal, setShowModal] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [recordsPerPage, setRecordsPerPage] = useState(100)
+  const [totalPayments, setTotalPayments] = useState(0)
   const fileInputRef = useRef(null)
   const [formData, setFormData] = useState({
     payment_type: "received",
@@ -505,15 +506,6 @@ function PaymentsPage() {
                 </tr>
               ))}
               {currentPayments.length === 0 && (
-                      <Pagination
-                        currentPage={currentPage}
-                        totalPages={totalPages}
-                        totalRecords={totalPayments}
-                        pageSize={recordsPerPage}
-                        onPageChange={handlePageChange}
-                        onPageSizeChange={handleRecordsPerPageChange}
-                        loading={loading}
-                      />
                 <tr>
                   <td colSpan={6} style={styles.emptyState}>
                     <CreditCard style={{ width: "48px", height: "48px", margin: "0 auto 1rem", opacity: 0.5 }} />
@@ -525,6 +517,16 @@ function PaymentsPage() {
           </table>
         </div>
       )}
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalRecords={totalPayments}
+        pageSize={recordsPerPage}
+        onPageChange={handlePageChange}
+        onPageSizeChange={handleRecordsPerPageChange}
+        loading={loading}
+      />
 
       {/* Payment Modal */}
       {showModal && (
