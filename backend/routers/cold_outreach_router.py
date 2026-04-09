@@ -241,6 +241,8 @@ def remove_mailbox(mailbox_id: str):
 @router.get("/campaigns")
 def list_campaigns():
     db = get_db()
+    leads_db = get_leads_db()
+    leads_enriched = leads_db["leads_enriched"]
     campaigns = list(db["outreach_campaigns_v2"].find())
     # Attach live stats to each
     sends_col = db["outreach_sends_v2"]
@@ -267,7 +269,34 @@ def list_campaigns():
         enrolled = db["outreach_leads_v2"].count_documents({"campaign_id": cid})
         c["stats"]["enrolled"] = enrolled
 
-    return {"campaigns": campaigns}
+    # Basket lead counts from leads_enriched (source of truth)
+    basket_pipeline = [
+        {"$match": {"email": {"$exists": True, "$ne": ""}}},
+        {"$group": {"_id": "$classification_basket", "count": {"$sum": 1}}},
+    ]
+    basket_counts = {
+        row["_id"]: row["count"]
+        for row in leads_enriched.aggregate(basket_pipeline)
+        if row["_id"]
+    }
+    total_leads = leads_enriched.count_documents({})
+    total_with_email = leads_enriched.count_documents({"email": {"$exists": True, "$ne": ""}})
+    no_basket = leads_enriched.count_documents({
+        "email": {"$exists": True, "$ne": ""},
+        "$or": [
+            {"classification_basket": {"$exists": False}},
+            {"classification_basket": None},
+            {"classification_basket": ""},
+        ]
+    })
+
+    return {
+        "campaigns": campaigns,
+        "basket_counts": basket_counts,
+        "total_leads": total_leads,
+        "total_with_email": total_with_email,
+        "no_basket": no_basket,
+    }
 
 
 @router.post("/campaigns", status_code=201)

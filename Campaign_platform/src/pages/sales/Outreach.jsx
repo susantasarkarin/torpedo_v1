@@ -35,6 +35,8 @@ function Outreach() {
   const [campaigns, setCampaigns] = useState([])
   const [mailboxes, setMailboxes] = useState([])
   const [suppStats, setSuppStats] = useState({ total_suppressed: 0 })
+  const [basketCounts, setBasketCounts] = useState({})  // { A: 123, B: 456, ... }
+  const [totalLeads, setTotalLeads] = useState(0)
   const [loading, setLoading] = useState(true)
   const [selectedBiz, setSelectedBiz] = useState(null)   // "sfw" | "cogentix" | "bimwave" | "dual_fit"
   const [activeTab, setActiveTab] = useState("templates") // "templates" | "stats" | "mailboxes" | "suppression"
@@ -84,7 +86,7 @@ function Outreach() {
         fetch(buildApiUrl("/api/cold-outreach/mailboxes"), { headers: AUTH() }),
         fetch(buildApiUrl("/api/cold-outreach/suppression/stats"), { headers: AUTH() }),
       ])
-      if (cRes.ok) { const d = await cRes.json(); setCampaigns(d.campaigns || []) }
+      if (cRes.ok) { const d = await cRes.json(); setCampaigns(d.campaigns || []); setBasketCounts(d.basket_counts || {}); setTotalLeads(d.total_leads || 0) }
       if (mRes.ok) { const d = await mRes.json(); setMailboxes(d.mailboxes || []) }
       if (sRes.ok) { const d = await sRes.json(); setSuppStats(d) }
     } catch (e) {
@@ -323,7 +325,7 @@ function Outreach() {
         <div className="header-left">
           <h1>Cold Outreach</h1>
           <p className="subtitle">
-            4-step sequences · {suppStats.total_suppressed.toLocaleString()} bounced addresses suppressed globally
+            {totalLeads.toLocaleString()} AI leads · 4-step sequences · {suppStats.total_suppressed.toLocaleString()} bounced addresses suppressed globally
           </p>
         </div>
       </div>
@@ -339,6 +341,7 @@ function Outreach() {
         {BUSINESSES.map(biz => {
           const campaign = biz.key === "dual_fit" ? null : getCampaignForBiz(biz.key)
           const stats = campaign?.stats || { enrolled: 0, sent: 0, opened: 0, replied: 0 }
+          const basketTotal = basketCounts[biz.basket] || 0
           const isActive = campaign?.is_active
           const isSelected = selectedBiz === biz.key
 
@@ -370,6 +373,7 @@ function Outreach() {
                 <div style={{ color: "#6b7280", fontSize: "0.85rem" }}>
                   <div>Enrolled in all 3 sequences</div>
                   <div style={{ marginTop: 4 }}>Score-ordered · 21d gap</div>
+                  <div style={{ marginTop: 8, fontWeight: 600, color: "#111827", fontSize: "0.95rem" }}>{basketTotal.toLocaleString()} <span style={{ fontSize: "0.75rem", color: "#6b7280", fontWeight: 400 }}>leads</span></div>
                   <button
                     style={{ marginTop: 12, width: "100%", padding: "8px", borderRadius: 8, border: "none", background: "#0e7490", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}
                     onClick={(e) => { e.stopPropagation(); enrollDualFit() }}
@@ -380,7 +384,7 @@ function Outreach() {
               ) : (
                 <>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
-                    <Stat label="Enrolled" value={stats.enrolled?.toLocaleString()} />
+                    <Stat label="Enrolled" value={`${stats.enrolled?.toLocaleString()} / ${basketTotal.toLocaleString()}`} />
                     <Stat label="Sent" value={stats.sent?.toLocaleString()} />
                     <Stat label="Open Rate" value={statsRate(stats.opened, stats.sent)} />
                     <Stat label="Reply Rate" value={statsRate(stats.replied, stats.sent)} />
@@ -418,6 +422,22 @@ function Outreach() {
           )
         })}
       </div>
+
+      {/* ── Basket breakdown summary ─────────────────────────────────────── */}
+      {totalLeads > 0 && (
+        <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap", fontSize: "0.8rem", color: "#6b7280" }}>
+          {basketCounts["E"] > 0 && (
+            <span style={{ background: "#f3f4f6", padding: "4px 10px", borderRadius: 6 }}>
+              Basket E (Nurture): <strong style={{ color: "#374151" }}>{basketCounts["E"].toLocaleString()}</strong>
+            </span>
+          )}
+          {BUSINESSES.map(b => (
+            <span key={b.basket} style={{ background: "#f3f4f6", padding: "4px 10px", borderRadius: 6 }}>
+              {b.basket}: <strong style={{ color: "#374151" }}>{(basketCounts[b.basket] || 0).toLocaleString()}</strong>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* ── Detail panel ─────────────────────────────────────────────────── */}
       {selectedBiz && selectedBiz !== "dual_fit" && (
