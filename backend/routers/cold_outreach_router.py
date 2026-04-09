@@ -575,10 +575,12 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
     # ── Find a mailbox to send from ──────────────────────────────────────────
     # Priority 1: Gmail API via workspace_mailboxes (torpedo_gmail DB)
     gmail_db = _get_gmail_db()
-    gmail_mailbox = gmail_db["workspace_mailboxes"].find_one(
-        {"is_active": True},
-        sort=[("email", 1)],
-    ) if gmail_db else None
+    gmail_mailbox = None
+    if gmail_db is not None:
+        gmail_mailbox = gmail_db["workspace_mailboxes"].find_one(
+            {"is_active": True},
+            sort=[("email", 1)],
+        )
 
     # Priority 2: SMTP mailbox from outreach_mailboxes (torpedo DB)
     smtp_mailbox = db["outreach_mailboxes"].find_one(
