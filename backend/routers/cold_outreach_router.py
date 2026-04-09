@@ -1197,10 +1197,6 @@ _BUSINESS_DISPLAY_NAME: Dict[str, str] = {
     "bimwave": "Susanta Sarkar",
 }
 
-# Gemini 429 cooldown — skip outreach sends entirely until this time
-_gemini_quota_cooldown_until: Optional[datetime] = None
-_GEMINI_COOLDOWN_MINUTES = 10  # backoff when all keys exhausted
-
 # Daily send cap per sender email (AWS SES mailboxes are exempt)
 _DAILY_SEND_LIMIT_PER_MAILBOX = 2000
 
@@ -1406,7 +1402,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
     For one outreach_leads_v2 record:
       1. Verify campaign is active
       2. Check suppression
-      3. Generate a personalized email with Gemini
+      3. Use the pre-written step template and replace placeholders with lead data
       4. Send via Gmail API (service account / domain-wide delegation)
       5. Record the send and advance workflow state
     Returns True on success, False on any error (does not raise).
@@ -1458,33 +1454,48 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             logger.info(f"[Outreach] Daily limit reached for {from_email} — rescheduling {email} to tomorrow")
             return False
 
-        # Generate personalized email for this specific lead
-        try:
-            subject, body_html = _generate_personalized_email(
-                lead=lead_record,
-                step_number=next_step_number,
-                business=business,
-                business_label=business_label,
-                campaign_ctx=campaign_ctx,
-                sender_name=display_name,
-            )
-        except Exception as gen_err:
-            err_str = str(gen_err)
-            # Re-raise quota errors so the outer cycle loop can abort early
-            if "RESOURCE_EXHAUSTED" in err_str or ("429" in err_str and "quota" in err_str.lower()):
-                raise
+        # Use the pre-written step template and replace placeholders with lead data
+        step_template = next(
+            (s for s in campaign.get("steps", []) if s.get("step_number") == next_step_number),
+            None,
+        )
+        if not step_template or (not step_template.get("subject") and not step_template.get("body_html")):
             logger.warning(
-                f"[Outreach] Gemini generation failed for {email} step {next_step_number}: {gen_err}"
+                f"[Outreach] No template content for step {next_step_number} "
+                f"in campaign {campaign['campaign_id']} — skipping {email}"
             )
             db["outreach_leads_v2"].update_one(
                 {"_id": lead_record["_id"]},
                 {"$set": {
-                    "last_send_error": f"AI generation failed: {gen_err}"[:300],
+                    "last_send_error": f"Step {next_step_number} has no template content",
                     "last_send_error_at": datetime.utcnow(),
                     "updated_at": datetime.utcnow(),
                 }}
             )
             return False
+
+        first_name = (
+            lead_record.get("first_name")
+            or (lead_record.get("name") or "").split()[0]
+            or "there"
+        )
+        placeholders = {
+            "{{first_name}}": first_name,
+            "{{last_name}}": lead_record.get("last_name") or "",
+            "{{name}}": lead_record.get("name") or first_name,
+            "{{company}}": lead_record.get("company_name") or "",
+            "{{title}}": lead_record.get("title") or "",
+            "{{industry}}": lead_record.get("company_industry") or "",
+            "{{sender_name}}": display_name,
+        }
+
+        def _replace_tokens(text: str) -> str:
+            for token, val in placeholders.items():
+                text = text.replace(token, val)
+            return text
+
+        subject = _replace_tokens(step_template.get("subject", "(no subject)"))
+        body_html = _replace_tokens(step_template.get("body_html", ""))
 
         # Send via Gmail API
         gmail_message_id = _send_via_gmail_api(from_email, email, subject, body_html, display_name)
@@ -1542,10 +1553,6 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         return True
 
     except Exception as e:
-        err_str = str(e)
-        # Re-raise quota errors so the scheduler cycle aborts early
-        if "RESOURCE_EXHAUSTED" in err_str or ("429" in err_str and "quota" in err_str.lower()):
-            raise
         logger.error(
             f"[Outreach] Failed to process {lead_record.get('email')}: {e}",
             exc_info=True
@@ -1565,17 +1572,11 @@ def process_due_outreach_sends() -> dict:
     """
     Called by APScheduler every 60 seconds.
     Picks up to 5 outreach_leads_v2 records that are due and sends their next step.
-    Stops early if a Gemini 429 quota error is detected and sets a cooldown.
+    Uses the pre-written step templates (no AI generation).
     Returns a summary dict.
     """
-    global _gemini_quota_cooldown_until
     try:
         now = datetime.utcnow()
-
-        # Check cooldown — skip entirely if Gemini keys are known-exhausted
-        if _gemini_quota_cooldown_until and now < _gemini_quota_cooldown_until:
-            return {"processed": 0, "sent": 0, "skipped": 0, "cooldown_until": str(_gemini_quota_cooldown_until)}
-
         db = get_db()
 
         due = list(db["outreach_leads_v2"].find({
@@ -1588,7 +1589,6 @@ def process_due_outreach_sends() -> dict:
 
         sent = 0
         skipped = 0
-        quota_abort = False
         for record in due:
             try:
                 ok = _process_one_outreach_lead(db, record)
@@ -1597,25 +1597,13 @@ def process_due_outreach_sends() -> dict:
                 else:
                     skipped += 1
             except Exception as loop_err:
-                err_str = str(loop_err)
-                # Only trigger cooldown on genuine Gemini rate-limit errors
-                if "RESOURCE_EXHAUSTED" in err_str or ("429" in err_str and "quota" in err_str.lower()):
-                    logger.warning(
-                        f"[Outreach] Gemini quota hit — setting {_GEMINI_COOLDOWN_MINUTES}m cooldown"
-                    )
-                    _gemini_quota_cooldown_until = now + timedelta(minutes=_GEMINI_COOLDOWN_MINUTES)
-                    quota_abort = True
-                    break
+                logger.error(f"[Outreach] Error processing lead {record.get('email')}: {loop_err}")
                 skipped += 1
 
-        if sent > 0 or skipped > 0 or quota_abort:
-            logger.info(f"[Outreach] Cycle complete: sent={sent} skipped={skipped} quota_abort={quota_abort}")
+        if sent > 0 or skipped > 0:
+            logger.info(f"[Outreach] Cycle complete: sent={sent} skipped={skipped}")
 
-        # Clear cooldown if we successfully sent at least one
-        if sent > 0:
-            _gemini_quota_cooldown_until = None
-
-        return {"processed": len(due), "sent": sent, "skipped": skipped, "quota_abort": quota_abort}
+        return {"processed": len(due), "sent": sent, "skipped": skipped}
 
     except Exception as e:
         logger.error(f"[Outreach] process_due_outreach_sends error: {e}", exc_info=True)
