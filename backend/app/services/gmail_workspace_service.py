@@ -1086,6 +1086,7 @@ class GmailWorkspaceService:
             # Store the sent email in our database
             sent_doc = {
                 "mailbox_id": str(mailbox["_id"]),
+                "gmail_message_id": sent_message_id,
                 "provider_message_id": sent_message_id,
                 "provider_thread_id": result.get("threadId", thread_id),
                 "direction": "outbound",
