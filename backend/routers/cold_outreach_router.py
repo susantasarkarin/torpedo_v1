@@ -614,41 +614,52 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
 
     subject = _replace(step.get("subject", "(no subject)"))
     body_html = _replace(step.get("body_html", ""))
-    body_text = body_html.replace("<br>", "\n").replace("<br/>", "\n")
-    body_text = re.sub(r"<[^>]+>", "", body_text)
+    # ── Fetch sender signature via Gmail API ────────────────────────────
+    signature_html = ""
+    if gmail_mailbox:
+        try:
+            from app.services.gmail_workspace_service import GmailWorkspaceService as _GWS
+        except ImportError:
+            from backend.app.services.gmail_workspace_service import GmailWorkspaceService as _GWS
+        _mongo = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+        _ws = _GWS(mongo_uri=_mongo)
+        _ws.load_service_account()
+        if _ws.is_configured():
+            signature_html = _ws.get_signature(sender_email) or ""
 
-    # Build test banner
-    test_banner = (
-        f'<div style="background:#fef9c3;border:1px solid #fbbf24;padding:10px 14px;'
-        f'border-radius:6px;margin-bottom:16px;font-family:sans-serif;font-size:13px;">'
-        f'<strong>⚠️ TEST EMAIL</strong> — Step {step_number} of campaign '
-        f'<em>{campaign.get("name", campaign_id)}</em>. '
-        f'Tokens replaced with sample data.</div>'
-    )
+    # Build final body with signature
+    if signature_html:
+        full_body_html = body_html + "<br><br>" + signature_html
+    else:
+        full_body_html = body_html
+
+    body_text = full_body_html.replace("<br>", "\n").replace("<br/>", "\n")
+    body_text = re.sub(r"<[^>]+>", "", body_text)
 
     msg = MIMEMultipart("alternative")
     msg["From"] = f"{sender_name} <{sender_email}>"
     msg["To"] = req.recipient_email
-    msg["Subject"] = f"[TEST] {subject}"
-    msg.attach(MIMEText(f"TEST EMAIL\n{body_text}", "plain"))
-    msg.attach(MIMEText(test_banner + body_html, "html"))
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body_text, "plain"))
+    msg.attach(MIMEText(full_body_html, "html"))
 
     # ── Send via Gmail API or SMTP ───────────────────────────────────────────
     if gmail_mailbox:
-        try:
-            from app.services.gmail_workspace_service import GmailWorkspaceService
-        except ImportError:
-            from backend.app.services.gmail_workspace_service import GmailWorkspaceService
+        # Reuse the workspace service created for signature fetch, or create one
+        if not signature_html:
+            try:
+                from app.services.gmail_workspace_service import GmailWorkspaceService as _GWS2
+            except ImportError:
+                from backend.app.services.gmail_workspace_service import GmailWorkspaceService as _GWS2
+            _mongo = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+            _ws = _GWS2(mongo_uri=_mongo)
+            _ws.load_service_account()
 
-        mongo_uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
-        ws = GmailWorkspaceService(mongo_uri=mongo_uri)
-        ws.load_service_account()
-
-        if not ws.is_configured():
+        if not _ws.is_configured():
             raise HTTPException(500, "Gmail service account not configured on server")
 
         try:
-            service = ws._get_service(sender_email)
+            service = _ws._get_service(sender_email)
             raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
             result = service.users().messages().send(
                 userId="me", body={"raw": raw}
