@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from "react"
 import { API_BASE_URL } from "../../config"
 import { Building2, Search, Pencil, Trash2, Loader2, Upload, Download, Link2, Unlink } from "lucide-react"
 import { buildApiUrl } from "../../config"
+import Pagination from "../../components/ui/Pagination"
 
 // GST Treatment options
 const GST_TREATMENT_OPTIONS = [
@@ -43,7 +44,9 @@ function VendorsPage() {
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
-  const [recordsPerPage, setRecordsPerPage] = useState(10)
+  const [recordsPerPage, setRecordsPerPage] = useState(100)
+  const [totalRecords, setTotalRecords] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
   const fileInputRef = useRef(null)
   
   const initialFormData = {
@@ -84,14 +87,19 @@ function VendorsPage() {
 
   useEffect(() => {
     fetchVendors()
-  }, [])
+  }, [currentPage])
 
-  const fetchVendors = async () => {
+  const fetchVendors = async (pg = currentPage, ps = recordsPerPage, srch = searchTerm) => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/vendors/`))
+      setLoading(true)
+      const params = new URLSearchParams({ page: String(pg), page_size: String(ps) })
+      if (srch) params.set("search", srch)
+      const response = await fetch(buildApiUrl(`/finance/finance/vendors/?${params}`))
       if (response.ok) {
         const data = await response.json()
-        setVendors(data)
+        setVendors(data.vendors || [])
+        setTotalRecords(data.total || 0)
+        setTotalPages(data.pages || 1)
       }
     } catch (error) {
       console.error("Error fetching vendors:", error)
@@ -325,31 +333,19 @@ function VendorsPage() {
     setFormErrors({})
   }
 
-  const filteredVendors = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase()
-    if (!q) return vendors
-    return vendors.filter(
-      (v) =>
-        v.name?.toLowerCase().includes(q) ||
-        v.email?.toLowerCase().includes(q) ||
-        v.gstin?.toLowerCase().includes(q)
-    )
-  }, [vendors, searchTerm])
-
-  // Pagination
-  const totalPages = Math.ceil(filteredVendors.length / recordsPerPage)
-  const startIdx = (currentPage - 1) * recordsPerPage
-  const endIdx = startIdx + recordsPerPage
-  const paginatedVendors = filteredVendors.slice(startIdx, endIdx)
+  const paginatedVendors = vendors
 
   const handleSearch = (value) => {
     setSearchTerm(value)
     setCurrentPage(1)
+    fetchVendors(1, recordsPerPage, value)
   }
 
   const handleRecordsPerPageChange = (value) => {
-    setRecordsPerPage(parseInt(value))
+    const ps = typeof value === 'number' ? value : parseInt(value)
+    setRecordsPerPage(ps)
     setCurrentPage(1)
+    fetchVendors(1, ps, searchTerm)
   }
 
   const formatCurrency = (amount) => {
@@ -632,27 +628,15 @@ function VendorsPage() {
       )}
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div style={styles.paginationContainer}>
-          <button
-            style={{...styles.paginationBtn, ...(currentPage === 1 ? styles.paginationBtnDisabled : {})}}
-            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-            disabled={currentPage === 1}
-          >
-            ← Previous
-          </button>
-          <div style={styles.pageInfo}>
-            Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
-          </div>
-          <button
-            style={{...styles.paginationBtn, ...(currentPage === totalPages ? styles.paginationBtnDisabled : {})}}
-            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-            disabled={currentPage === totalPages}
-          >
-            Next →
-          </button>
-        </div>
-      )}
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalRecords={totalRecords}
+        pageSize={recordsPerPage}
+        onPageChange={(p) => setCurrentPage(p)}
+        onPageSizeChange={handleRecordsPerPageChange}
+        loading={loading}
+      />
 
       {showModal && (
         <div style={styles.modal} onClick={handleCloseModal}>

@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { Users, Search, Pencil, Trash2, FileText, Loader2, Upload, Download } from "lucide-react"
 import { buildApiUrl } from "../../config"
+import Pagination from "../../components/ui/Pagination"
 
 // GST Treatment options
 const GST_TREATMENT_OPTIONS = [
@@ -43,7 +44,9 @@ function CustomersPage() {
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
-  const [recordsPerPage, setRecordsPerPage] = useState(10)
+  const [recordsPerPage, setRecordsPerPage] = useState(100)
+  const [totalRecords, setTotalRecords] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
   
   // Operations clients for linking
   const [operationsClients, setOperationsClients] = useState([])
@@ -85,9 +88,12 @@ function CustomersPage() {
   
   const [formData, setFormData] = useState(initialFormData)
 
-  // Fetch on mount
+  // Fetch on mount and when page changes
   useEffect(() => {
     fetchCustomers()
+  }, [currentPage])
+
+  useEffect(() => {
     fetchOperationsClients()
   }, [])
 
@@ -173,7 +179,7 @@ function CustomersPage() {
     };
   }, []);
 
-  const fetchCustomers = async () => {
+  const fetchCustomers = async (pg = currentPage, ps = recordsPerPage, srch = searchTerm) => {
     const sessionId = localStorage.getItem("session_id")
     if (!sessionId) {
       navigate("/admin/login")
@@ -182,14 +188,15 @@ function CustomersPage() {
 
     try {
       setError(null)
-      console.log("Fetching customers from:", buildApiUrl(`/finance/finance/customers/`))
-      const response = await fetch(buildApiUrl(`/finance/finance/customers/`), {
+      setLoading(true)
+      const params = new URLSearchParams({ page: String(pg), page_size: String(ps) })
+      if (srch) params.set("search", srch)
+      const response = await fetch(buildApiUrl(`/finance/finance/customers/?${params}`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
         },
       })
-      console.log("Response status:", response.status)
       
       if (response.status === 401) {
         alert("Session expired. Please login again.")
@@ -200,8 +207,9 @@ function CustomersPage() {
 
       if (response.ok) {
         const data = await response.json()
-        console.log("Customers loaded:", data.length, data)
-        setCustomers(data)
+        setCustomers(data.customers || [])
+        setTotalRecords(data.total || 0)
+        setTotalPages(data.pages || 1)
       } else {
         const errorData = await response.json().catch(() => ({}))
         throw new Error(errorData.detail || "Failed to fetch customers")
@@ -416,34 +424,19 @@ function CustomersPage() {
     setError(null)
   }
 
-  // Filtered customers with search
-  const filteredCustomers = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase()
-    if (!q) return customers
-    return customers.filter(
-      (c) =>
-        c.name?.toLowerCase().includes(q) ||
-        c.email?.toLowerCase().includes(q) ||
-        c.phone?.toLowerCase().includes(q) ||
-        c.gstin?.toLowerCase().includes(q) ||
-        c.customer_number?.toLowerCase().includes(q)
-    )
-  }, [customers, searchTerm])
-
-  // Pagination
-  const totalPages = Math.ceil(filteredCustomers.length / recordsPerPage)
-  const startIdx = (currentPage - 1) * recordsPerPage
-  const endIdx = startIdx + recordsPerPage
-  const paginatedCustomers = filteredCustomers.slice(startIdx, endIdx)
+  const paginatedCustomers = customers
 
   const handleSearch = (value) => {
     setSearchTerm(value)
     setCurrentPage(1)
+    fetchCustomers(1, recordsPerPage, value)
   }
 
   const handleRecordsPerPageChange = (value) => {
-    setRecordsPerPage(parseInt(value))
+    const ps = typeof value === 'number' ? value : parseInt(value)
+    setRecordsPerPage(ps)
     setCurrentPage(1)
+    fetchCustomers(1, ps, searchTerm)
   }
 
   const formatCurrency = (amount) => {
@@ -700,7 +693,7 @@ function CustomersPage() {
                   </td>
                 </tr>
               ))}
-              {paginatedCustomers.length === 0 && filteredCustomers.length === 0 && (
+              {paginatedCustomers.length === 0 && (
                 <tr>
                   <td colSpan={9} style={styles.emptyState}>
                     <Users style={{ width: "48px", height: "48px", margin: "0 auto 1rem", opacity: 0.5 }} />
@@ -714,27 +707,15 @@ function CustomersPage() {
       )}
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div style={styles.paginationContainer}>
-          <button
-            style={{...styles.paginationBtn, ...(currentPage === 1 ? styles.paginationBtnDisabled : {})}}
-            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-            disabled={currentPage === 1}
-          >
-            ← Previous
-          </button>
-          <div style={styles.pageInfo}>
-            Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
-          </div>
-          <button
-            style={{...styles.paginationBtn, ...(currentPage === totalPages ? styles.paginationBtnDisabled : {})}}
-            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-            disabled={currentPage === totalPages}
-          >
-            Next →
-          </button>
-        </div>
-      )}
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalRecords={totalRecords}
+        pageSize={recordsPerPage}
+        onPageChange={(p) => setCurrentPage(p)}
+        onPageSizeChange={handleRecordsPerPageChange}
+        loading={loading}
+      />
 
       {showModal && (
         <div style={styles.modal} onClick={handleCloseModal}>

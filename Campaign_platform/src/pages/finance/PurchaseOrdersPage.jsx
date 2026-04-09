@@ -1,3 +1,52 @@
+  const [totalPOs, setTotalPOs] = useState(0)
+  const [recordsPerPage, setRecordsPerPage] = useState(100)
+  const totalPages = Math.ceil(totalPOs / recordsPerPage)
+
+  useEffect(() => {
+    fetchPurchaseOrders(currentPage, recordsPerPage, searchTerm, statusFilter)
+    fetchVendors()
+    fetchItems()
+  }, [currentPage, recordsPerPage, searchTerm, statusFilter])
+
+  const handleRecordsPerPageChange = (value) => {
+    setRecordsPerPage(parseInt(value))
+    setCurrentPage(1)
+  }
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page)
+  }
+
+  const fetchPurchaseOrders = async (page = 1, page_size = 100, search = "", status = "all") => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams({
+        page: page.toString(),
+        page_size: page_size.toString(),
+        ...(search ? { search } : {}),
+        ...(status && status !== "all" ? { status } : {}),
+      })
+      const response = await fetch(buildApiUrl(`/finance/purchase-orders/?${params}`))
+      if (response.ok) {
+        const data = await response.json()
+        setPurchaseOrders(data.items || [])
+        setTotalPOs(data.total || 0)
+      }
+    } catch (error) {
+      console.error("Error fetching purchase orders:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalRecords={totalPOs}
+        pageSize={recordsPerPage}
+        onPageChange={handlePageChange}
+        onPageSizeChange={handleRecordsPerPageChange}
+        loading={loading}
+      />
 "use client"
 
 import { useState, useEffect, useRef, useMemo } from "react"
@@ -193,22 +242,6 @@ function PurchaseOrdersPage() {
     }, 0)
   }
 
-  const filteredPOs = useMemo(() => {
-    return purchaseOrders.filter((po) => {
-      const q = searchTerm.trim().toLowerCase()
-      const matchesSearch = !q ||
-        po.po_number?.toLowerCase().includes(q) ||
-        po.vendor_name?.toLowerCase().includes(q)
-      const matchesStatus = statusFilter === "all" || po.status === statusFilter
-      return matchesSearch && matchesStatus
-    })
-  }, [purchaseOrders, searchTerm, statusFilter])
-
-  // Pagination
-  const totalPages = Math.ceil(filteredPOs.length / recordsPerPage)
-  const startIdx = (currentPage - 1) * recordsPerPage
-  const endIdx = startIdx + recordsPerPage
-  const paginatedPOs = filteredPOs.slice(startIdx, endIdx)
 
   const handleSearch = (value) => {
     setSearchTerm(value)
@@ -443,28 +476,7 @@ function PurchaseOrdersPage() {
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div style={styles.paginationContainer}>
-          <button
-            style={{...styles.paginationBtn, ...(currentPage === 1 ? styles.paginationBtnDisabled : {})}}
-            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-            disabled={currentPage === 1}
-          >
-            ← Previous
-          </button>
-          <div style={styles.pageInfo}>
-            Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
-          </div>
-          <button
-            style={{...styles.paginationBtn, ...(currentPage === totalPages ? styles.paginationBtnDisabled : {})}}
-            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-            disabled={currentPage === totalPages}
-          >
-            Next →
-          </button>
-        </div>
-      )}
+
 
       {showModal && (
         <div style={styles.modal} onClick={handleCloseModal}>

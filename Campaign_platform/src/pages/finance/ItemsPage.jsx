@@ -4,11 +4,16 @@ import { useState, useEffect, useRef } from "react"
 import { API_BASE_URL } from "../../config"
 import { Package, Search, Pencil, Trash2, Loader2, Wrench, Upload, Download } from "lucide-react"
 import { buildApiUrl } from "../../config"
+import Pagination from "../../components/ui/Pagination"
 
 function ItemsPage() {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [recordsPerPage, setRecordsPerPage] = useState(100)
+  const [totalRecords, setTotalRecords] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
   const [showModal, setShowModal] = useState(false)
   const [editingItem, setEditingItem] = useState(null)
   const [exporting, setExporting] = useState(false)
@@ -31,14 +36,28 @@ function ItemsPage() {
 
   useEffect(() => {
     fetchItems()
-  }, [])
+  }, [currentPage])
 
-  const fetchItems = async () => {
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setCurrentPage(1)
+      fetchItems(1, recordsPerPage, searchTerm)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchTerm])
+
+  const fetchItems = async (pg = currentPage, ps = recordsPerPage, srch = searchTerm) => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/items/`))
+      setLoading(true)
+      const params = new URLSearchParams({ page: String(pg), page_size: String(ps) })
+      if (srch) params.set("search", srch)
+      const response = await fetch(buildApiUrl(`/finance/finance/items/?${params}`))
       if (response.ok) {
         const data = await response.json()
-        setItems(data)
+        setItems(data.items || [])
+        setTotalRecords(data.total || 0)
+        setTotalPages(data.pages || 1)
       }
     } catch (error) {
       console.error("Error fetching items:", error)
@@ -124,11 +143,7 @@ function ItemsPage() {
     })
   }
 
-  const filteredItems = items.filter(
-    (item) =>
-      item.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.sku?.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  const filteredItems = items
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat("en-IN", {
@@ -292,7 +307,7 @@ function ItemsPage() {
         </div>
         <div style={styles.stats}>
           <span>
-            Total: <strong>{filteredItems.length}</strong>
+            Total: <strong>{totalRecords}</strong>
           </span>
         </div>
       </div>
@@ -403,6 +418,16 @@ function ItemsPage() {
           </table>
         </div>
       )}
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalRecords={totalRecords}
+        pageSize={recordsPerPage}
+        onPageChange={(p) => setCurrentPage(p)}
+        onPageSizeChange={(ps) => { setRecordsPerPage(ps); setCurrentPage(1); fetchItems(1, ps, searchTerm) }}
+        loading={loading}
+      />
 
       {showModal && (
         <div style={styles.modal} onClick={handleCloseModal}>

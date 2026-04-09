@@ -1,3 +1,12 @@
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalRecords={totalExpenses}
+        pageSize={recordsPerPage}
+        onPageChange={handlePageChange}
+        onPageSizeChange={handleRecordsPerPageChange}
+        loading={loading}
+      />
 "use client"
 
 import { useState, useEffect, useRef } from "react"

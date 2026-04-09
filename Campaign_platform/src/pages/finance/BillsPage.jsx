@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useMemo } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "../../utils/currency"
@@ -13,11 +13,12 @@ function BillsPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [bills, setBills] = useState([])
+  const [totalBills, setTotalBills] = useState(0)
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
-  const [recordsPerPage, setRecordsPerPage] = useState(10)
+  const [recordsPerPage, setRecordsPerPage] = useState(100)
   const fileInputRef = useRef(null)
   const [formData, setFormData] = useState({
     vendor_id: "",
@@ -29,27 +30,11 @@ function BillsPage() {
   const [vendors, setVendors] = useState([])
 
   useEffect(() => {
-    fetchBills()
+    fetchBills(currentPage, recordsPerPage, searchTerm, statusFilter)
     fetchVendors()
-  }, [])
+  }, [currentPage, recordsPerPage, searchTerm, statusFilter])
 
-  // Filtered bills with useMemo
-  const filteredBills = useMemo(() => {
-    return bills.filter((bill) => {
-      const q = searchTerm.trim().toLowerCase()
-      const matchesSearch = !q ||
-        bill.bill_number?.toLowerCase().includes(q) ||
-        bill.vendor_name?.toLowerCase().includes(q)
-      const matchesStatus = statusFilter === "all" || bill.status === statusFilter
-      return matchesSearch && matchesStatus
-    })
-  }, [bills, searchTerm, statusFilter])
-
-  // Pagination
-  const totalPages = Math.ceil(filteredBills.length / recordsPerPage)
-  const startIdx = (currentPage - 1) * recordsPerPage
-  const endIdx = startIdx + recordsPerPage
-  const paginatedBills = filteredBills.slice(startIdx, endIdx)
+  const totalPages = Math.ceil(totalBills / recordsPerPage)
 
   const handleSearch = (value) => {
     setSearchTerm(value)
@@ -66,12 +51,24 @@ function BillsPage() {
     setCurrentPage(1)
   }
 
-  const fetchBills = async () => {
+  const handlePageChange = (page) => {
+    setCurrentPage(page)
+  }
+
+  const fetchBills = async (page = 1, page_size = 100, search = "", status = "all") => {
+    setLoading(true)
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/bills/`))
+      const params = new URLSearchParams({
+        page: page.toString(),
+        page_size: page_size.toString(),
+        ...(search ? { search } : {}),
+        ...(status && status !== "all" ? { status } : {}),
+      })
+      const response = await fetch(buildApiUrl(`/finance/finance/bills/?${params}`))
       if (response.ok) {
         const data = await response.json()
-        setBills(data)
+        setBills(data.items || [])
+        setTotalBills(data.total || 0)
       }
     } catch (error) {
       console.error("Error fetching bills:", error)
@@ -703,10 +700,7 @@ function BillsPage() {
           <option value={100}>100 per page</option>
         </select>
         <div style={styles.stats}>
-          <span>Total: <strong>{bills.length}</strong></span>
-          <span>Pending: <strong>{bills.filter(b => b.status === "pending").length}</strong></span>
-          <span>Paid: <strong>{bills.filter(b => b.status === "paid").length}</strong></span>
-          <span>Overdue: <strong>{bills.filter(b => b.status === "overdue").length}</strong></span>
+          <span>Total: <strong>{totalBills}</strong></span>
         </div>
       </div>
 
@@ -741,7 +735,7 @@ function BillsPage() {
               </tr>
             </thead>
             <tbody>
-              {paginatedBills.map((bill) => (
+              {bills.map((bill) => (
                 <tr key={bill._id} style={styles.tr}>
                   <td style={styles.td}>
                     <code
@@ -784,7 +778,7 @@ function BillsPage() {
                   </td>
                 </tr>
               ))}
-              {paginatedBills.length === 0 && filteredBills.length === 0 && (
+              {bills.length === 0 && (
                 <tr style={styles.tr}>
                   <td colSpan={8} style={styles.emptyState}>
                     <FileText style={{ width: "48px", height: "48px", margin: "0 auto 1rem", opacity: "0.5" }} />
@@ -797,28 +791,15 @@ function BillsPage() {
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div style={styles.paginationContainer}>
-          <button
-            style={{...styles.paginationBtn, ...(currentPage === 1 ? styles.paginationBtnDisabled : {})}}
-            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-            disabled={currentPage === 1}
-          >
-            ← Previous
-          </button>
-          <div style={styles.pageInfo}>
-            Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
-          </div>
-          <button
-            style={{...styles.paginationBtn, ...(currentPage === totalPages ? styles.paginationBtnDisabled : {})}}
-            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-            disabled={currentPage === totalPages}
-          >
-            Next →
-          </button>
-        </div>
-      )}
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalRecords={totalBills}
+        pageSize={recordsPerPage}
+        onPageChange={handlePageChange}
+        onPageSizeChange={handleRecordsPerPageChange}
+        loading={loading}
+      />
 
       {showModal && (
         <div style={styles.modal} onClick={handleCloseModal}>

@@ -181,15 +181,17 @@ def _safe_to_datetime(value: Any) -> Optional[datetime]:
 
 @router.get("/accounts/")
 def get_accounts(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(100, ge=1, le=200, description="Records per page"),
     account_type: Optional[str] = Query(None, description="Filter by type: client, customer, vendor, both"),
     status: Optional[str] = Query(None, description="Filter by status: active, inactive, prospect"),
     search: Optional[str] = Query(None, description="Search by name, email, or phone"),
     bypass_cache: bool = Query(False, description="Force fresh data"),
 ):
-    """Get all unified accounts with optional filters (CACHED + BATCH OPTIMIZED)"""
+    """Get unified accounts with optional filters, paginated (CACHED + BATCH OPTIMIZED)"""
     
     # Try cache first
-    cache_key = _get_cache_key("accounts", type=account_type, status=status, search=search)
+    cache_key = _get_cache_key("accounts", type=account_type, status=status, search=search, page=page, page_size=page_size)
     if not bypass_cache:
         cached = _get_cached(cache_key)
         if cached:
@@ -209,8 +211,9 @@ def get_accounts(
                 {"phone": {"$regex": search, "$options": "i"}},
             ]
         
-        # Fetch accounts with projection for faster query
-        accounts = list(accounts_collection.find(query).sort("name", 1))
+        total = accounts_collection.count_documents(query)
+        skip = (page - 1) * page_size
+        accounts = list(accounts_collection.find(query).sort("name", 1).skip(skip).limit(page_size))
         
         # BATCH: Get all account names for project counting
         account_names = [a.get("name") for a in accounts if a.get("name")]
@@ -269,7 +272,7 @@ def get_accounts(
                 account["total_receivables"] = inv.get("total_receivables", 0)
                 account["total_paid"] = inv.get("total_paid", 0)
         
-        result = {"accounts": accounts}
+        result = {"accounts": accounts, "total": total, "page": page, "page_size": page_size, "pages": max(1, -(-total // page_size))}
         _set_cached(cache_key, result)
         return result
     except Exception as e:

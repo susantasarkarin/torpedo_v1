@@ -702,31 +702,15 @@ function EstimatesPage() {
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div style={styles.paginationContainer}>
-          <button
-            style={{ ...styles.paginationBtn, ...(currentPage === 1 ? styles.paginationBtnDisabled : {}) }}
-            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-            disabled={currentPage === 1}
-          >
-            ← Previous
-          </button>
-          <div style={styles.pageInfo}>
-            Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
-          </div>
-          <button
-            style={{
-              ...styles.paginationBtn,
-              ...(currentPage === totalPages ? styles.paginationBtnDisabled : {}),
-            }}
-            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-            disabled={currentPage === totalPages}
-          >
-            Next →
-          </button>
-        </div>
-      )}
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalRecords={totalEstimates}
+        pageSize={recordsPerPage}
+        onPageChange={handlePageChange}
+        onPageSizeChange={handleRecordsPerPageChange}
+        loading={loading}
+      />
 
       {/* Modal for Add/Edit Estimate */}
       {showModal && (

@@ -384,12 +384,27 @@ ITEM_COLUMN_MAPPINGS = {
 # ============================================================
 
 @router.get("/finance/customers/")
-async def get_customers():
-    """Get all customers with linked contacts"""
+async def get_customers(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(100, ge=1, le=200, description="Records per page"),
+    search: Optional[str] = Query(None, description="Search by name, email, phone, or GSTIN"),
+):
+    """Get customers with linked contacts (paginated)"""
     import asyncio as _asyncio
     try:
         def _fetch():
-            customers = list(customers_collection.find().sort("name", 1))
+            query = {}
+            if search:
+                query["$or"] = [
+                    {"name": {"$regex": search, "$options": "i"}},
+                    {"email": {"$regex": search, "$options": "i"}},
+                    {"phone": {"$regex": search, "$options": "i"}},
+                    {"gstin": {"$regex": search, "$options": "i"}},
+                    {"customer_number": {"$regex": search, "$options": "i"}},
+                ]
+            total = customers_collection.count_documents(query)
+            skip = (page - 1) * page_size
+            customers = list(customers_collection.find(query).sort("name", 1).skip(skip).limit(page_size))
             all_contacts = list(contacts_collection.find(
                 {}, {"_id": 1, "name": 1, "firstName": 1, "lastName": 1,
                      "email": 1, "title": 1, "stage": 1,
@@ -419,9 +434,17 @@ async def get_customers():
                 customer["linked_contacts"] = linked_contacts
                 customer["linked_contacts_count"] = len(linked_contacts)
                 result.append(customer)
-            return result
-        result = await _asyncio.to_thread(_fetch)
-        return serialize_docs(result)
+            return result, total
+        result, total = await _asyncio.to_thread(_fetch)
+        import math
+        pages = math.ceil(total / page_size) if total > 0 else 1
+        return {
+            "customers": serialize_docs(result),
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": pages,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching customers: {str(e)}")
 
@@ -714,11 +737,32 @@ async def import_customers_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/finance/vendors/")
-async def get_vendors():
-    """Get all vendors"""
+async def get_vendors(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(100, ge=1, le=200, description="Records per page"),
+    search: Optional[str] = Query(None, description="Search by name, email, or GSTIN"),
+):
+    """Get vendors (paginated)"""
     try:
-        vendors = list(vendors_collection.find().sort("name", 1))
-        return serialize_docs(vendors)
+        query = {}
+        if search:
+            query["$or"] = [
+                {"name": {"$regex": search, "$options": "i"}},
+                {"email": {"$regex": search, "$options": "i"}},
+                {"gstin": {"$regex": search, "$options": "i"}},
+            ]
+        total = vendors_collection.count_documents(query)
+        skip = (page - 1) * page_size
+        vendors = list(vendors_collection.find(query).sort("name", 1).skip(skip).limit(page_size))
+        import math
+        pages = math.ceil(total / page_size) if total > 0 else 1
+        return {
+            "vendors": serialize_docs(vendors),
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": pages,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching vendors: {str(e)}")
 
@@ -1176,14 +1220,36 @@ async def import_vendors_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/finance/items/")
-async def get_items():
-    """
-    Get all items (excluding soft-deleted).
-    P0.16: Filters out soft-deleted items.
-    """
+async def get_items(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(100, ge=1, le=200, description="Records per page"),
+    search: Optional[str] = Query(None, description="Search by name, SKU, or description"),
+):
+    """Get items excluding soft-deleted (paginated)"""
     try:
-        items = list(items_collection.find({"is_deleted": {"$ne": True}}).sort("name", 1))
-        return serialize_docs(items)
+        query = {"is_deleted": {"$ne": True}}
+        if search:
+            query["$and"] = [
+                {"is_deleted": {"$ne": True}},
+                {"$or": [
+                    {"name": {"$regex": search, "$options": "i"}},
+                    {"sku": {"$regex": search, "$options": "i"}},
+                    {"description": {"$regex": search, "$options": "i"}},
+                ]},
+            ]
+            del query["is_deleted"]
+        total = items_collection.count_documents(query)
+        skip = (page - 1) * page_size
+        items = list(items_collection.find(query).sort("name", 1).skip(skip).limit(page_size))
+        import math
+        pages = math.ceil(total / page_size) if total > 0 else 1
+        return {
+            "items": serialize_docs(items),
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": pages,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching items: {str(e)}")
 
@@ -1440,14 +1506,24 @@ async def import_items_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/finance/estimates/")
-async def get_estimates():
-    """
-    Get all estimates with customer details (excluding soft-deleted).
-    P0.16: Filters out soft-deleted estimates.
-    """
+async def get_estimates(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(100, ge=1, le=200, description="Records per page"),
+    search: Optional[str] = Query(None, description="Search by estimate number or customer name"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+):
+    """Get estimates with customer details, paginated"""
     try:
+        match_stage = {"is_deleted": {"$ne": True}}
+        if status:
+            match_stage["status"] = status
+        if search:
+            match_stage["$or"] = [
+                {"estimate_number": {"$regex": search, "$options": "i"}},
+            ]
+        skip = (page - 1) * page_size
         pipeline = [
-            {"$match": {"is_deleted": {"$ne": True}}},  # P0.16: Exclude soft-deleted
+            {"$match": match_stage},
             {
                 "$lookup": {
                     "from": "customers",
@@ -1461,10 +1537,34 @@ async def get_estimates():
             {"$unwind": {"path": "$customer", "preserveNullAndEmptyArrays": True}},
             {"$addFields": {"customer_name": "$customer.name"}},
             {"$project": {"customer": 0}},
-            {"$sort": {"created_at": -1}}
         ]
-        estimates = list(estimates_collection.aggregate(pipeline))
-        return serialize_docs(estimates)
+        if search:
+            pipeline.append({"$match": {"$or": [
+                {"estimate_number": {"$regex": search, "$options": "i"}},
+                {"customer_name": {"$regex": search, "$options": "i"}},
+            ]}})
+            # Remove the pre-lookup search since we now search customer_name post-lookup
+            match_stage.pop("$or", None)
+            pipeline[0] = {"$match": match_stage}
+        pipeline.extend([
+            {"$sort": {"created_at": -1}},
+            {"$facet": {
+                "metadata": [{"$count": "total"}],
+                "data": [{"$skip": skip}, {"$limit": page_size}],
+            }},
+        ])
+        result = list(estimates_collection.aggregate(pipeline))
+        data = result[0]["data"] if result else []
+        total = result[0]["metadata"][0]["total"] if result and result[0]["metadata"] else 0
+        import math
+        pages = math.ceil(total / page_size) if total > 0 else 1
+        return {
+            "estimates": serialize_docs(data),
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": pages,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching estimates: {str(e)}")
 
@@ -1754,24 +1854,24 @@ async def import_estimates_csv(file: UploadFile = File(...)):
 @router.get("/finance/invoices/")
 @require_any_permission(Permissions.FINANCE_INVOICE_READ, Permissions.ADMIN_ALL)
 async def get_invoices(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(100, ge=1, le=200, description="Records per page"),
     project_id: Optional[str] = Query(None, description="Filter by project ID"),
     customer_id: Optional[str] = Query(None, description="Filter by customer ID"),
     status: Optional[str] = Query(None, description="Filter by status"),
+    search: Optional[str] = Query(None, description="Search by invoice number or customer name"),
 ):
-    """
-    Get all invoices with customer details (excluding soft-deleted).
-    P0.16: Filters out soft-deleted invoices.
-    """
+    """Get invoices with customer details, paginated"""
     try:
-        # Build match stage for filters - always exclude soft-deleted
-        match_stage = {"is_deleted": {"$ne": True}}  # P0.16: Exclude soft-deleted
+        match_stage = {"is_deleted": {"$ne": True}}
         if project_id:
             match_stage["project_id"] = project_id
         if customer_id:
             match_stage["customer_id"] = customer_id
         if status:
             match_stage["status"] = status
-        
+
+        skip = (page - 1) * page_size
         pipeline = [
             {"$match": match_stage},
             {
@@ -1787,10 +1887,31 @@ async def get_invoices(
             {"$unwind": {"path": "$customer", "preserveNullAndEmptyArrays": True}},
             {"$addFields": {"customer_name": "$customer.name"}},
             {"$project": {"customer": 0}},
-            {"$sort": {"created_at": -1}}
         ]
-        invoices = list(invoices_collection.aggregate(pipeline))
-        return serialize_docs(invoices)
+        if search:
+            pipeline.append({"$match": {"$or": [
+                {"invoice_number": {"$regex": search, "$options": "i"}},
+                {"customer_name": {"$regex": search, "$options": "i"}},
+            ]}})
+        pipeline.extend([
+            {"$sort": {"created_at": -1}},
+            {"$facet": {
+                "metadata": [{"$count": "total"}],
+                "data": [{"$skip": skip}, {"$limit": page_size}],
+            }},
+        ])
+        result = list(invoices_collection.aggregate(pipeline))
+        data = result[0]["data"] if result else []
+        total = result[0]["metadata"][0]["total"] if result and result[0]["metadata"] else 0
+        import math
+        pages = math.ceil(total / page_size) if total > 0 else 1
+        return {
+            "invoices": serialize_docs(data),
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": pages,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching invoices: {str(e)}")
 
@@ -2116,24 +2237,24 @@ async def import_invoices_csv(file: UploadFile = File(...)):
 @router.get("/finance/bills/")
 @require_any_permission(Permissions.FINANCE_BILL_READ, Permissions.ADMIN_ALL)
 async def get_bills(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(100, ge=1, le=200, description="Records per page"),
     project_id: Optional[str] = Query(None, description="Filter by project ID"),
     vendor_id: Optional[str] = Query(None, description="Filter by vendor ID"),
     status: Optional[str] = Query(None, description="Filter by status"),
+    search: Optional[str] = Query(None, description="Search by bill number or vendor name"),
 ):
-    """
-    Get all bills with vendor details (excluding soft-deleted).
-    P0.16: Filters out soft-deleted bills.
-    """
+    """Get bills with vendor details, paginated"""
     try:
-        # Build match stage for filters - always exclude soft-deleted
-        match_stage = {"is_deleted": {"$ne": True}}  # P0.16: Exclude soft-deleted
+        match_stage = {"is_deleted": {"$ne": True}}
         if project_id:
             match_stage["project_id"] = project_id
         if vendor_id:
             match_stage["vendor_id"] = vendor_id
         if status:
             match_stage["status"] = status
-        
+
+        skip = (page - 1) * page_size
         pipeline = [
             {"$match": match_stage},
             {
@@ -2149,10 +2270,31 @@ async def get_bills(
             {"$unwind": {"path": "$vendor", "preserveNullAndEmptyArrays": True}},
             {"$addFields": {"vendor_name": "$vendor.name"}},
             {"$project": {"vendor": 0}},
-            {"$sort": {"created_at": -1}}
         ]
-        bills = list(bills_collection.aggregate(pipeline))
-        return serialize_docs(bills)
+        if search:
+            pipeline.append({"$match": {"$or": [
+                {"bill_number": {"$regex": search, "$options": "i"}},
+                {"vendor_name": {"$regex": search, "$options": "i"}},
+            ]}})
+        pipeline.extend([
+            {"$sort": {"created_at": -1}},
+            {"$facet": {
+                "metadata": [{"$count": "total"}],
+                "data": [{"$skip": skip}, {"$limit": page_size}],
+            }},
+        ])
+        result = list(bills_collection.aggregate(pipeline))
+        data = result[0]["data"] if result else []
+        total = result[0]["metadata"][0]["total"] if result and result[0]["metadata"] else 0
+        import math
+        pages = math.ceil(total / page_size) if total > 0 else 1
+        return {
+            "bills": serialize_docs(data),
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": pages,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching bills: {str(e)}")
 
@@ -2442,10 +2584,20 @@ async def import_bills_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/purchase-orders/")
-async def get_purchase_orders():
-    """Get all purchase orders with vendor details"""
+async def get_purchase_orders(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(100, ge=1, le=200, description="Records per page"),
+    search: Optional[str] = Query(None, description="Search by PO number or vendor name"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+):
+    """Get purchase orders with vendor details, paginated"""
     try:
+        match_stage = {}
+        if status:
+            match_stage["status"] = status
+        skip = (page - 1) * page_size
         pipeline = [
+            {"$match": match_stage} if match_stage else {"$match": {}},
             {
                 "$lookup": {
                     "from": "vendors",
@@ -2459,10 +2611,31 @@ async def get_purchase_orders():
             {"$unwind": {"path": "$vendor", "preserveNullAndEmptyArrays": True}},
             {"$addFields": {"vendor_name": "$vendor.name"}},
             {"$project": {"vendor": 0}},
-            {"$sort": {"created_at": -1}}
         ]
-        pos = list(purchase_orders_collection.aggregate(pipeline))
-        return serialize_docs(pos)
+        if search:
+            pipeline.append({"$match": {"$or": [
+                {"po_number": {"$regex": search, "$options": "i"}},
+                {"vendor_name": {"$regex": search, "$options": "i"}},
+            ]}})
+        pipeline.extend([
+            {"$sort": {"created_at": -1}},
+            {"$facet": {
+                "metadata": [{"$count": "total"}],
+                "data": [{"$skip": skip}, {"$limit": page_size}],
+            }},
+        ])
+        result = list(purchase_orders_collection.aggregate(pipeline))
+        data = result[0]["data"] if result else []
+        total = result[0]["metadata"][0]["total"] if result and result[0]["metadata"] else 0
+        import math
+        pages = math.ceil(total / page_size) if total > 0 else 1
+        return {
+            "purchase_orders": serialize_docs(data),
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": pages,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching purchase orders: {str(e)}")
 
@@ -2687,26 +2860,39 @@ async def import_purchase_orders_csv(file: UploadFile = File(...)):
 
 @router.get("/expenses/")
 async def get_expenses(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(100, ge=1, le=200, description="Records per page"),
     project_id: Optional[str] = Query(None, description="Filter by project ID"),
     category: Optional[str] = Query(None, description="Filter by category"),
     approval_status: Optional[str] = Query(None, description="Filter by approval status"),
+    search: Optional[str] = Query(None, description="Search by description or expense number"),
 ):
-    """
-    Get all expenses (excluding soft-deleted).
-    P0.16: Filters out soft-deleted expenses.
-    """
+    """Get expenses excluding soft-deleted (paginated)"""
     try:
-        # Always exclude soft-deleted
-        query = {"is_deleted": {"$ne": True}}  # P0.16: Exclude soft-deleted
+        query = {"is_deleted": {"$ne": True}}
         if project_id:
             query["project_id"] = project_id
         if category:
             query["category"] = category
         if approval_status:
             query["approval_status"] = approval_status
-        
-        expenses = list(expenses_collection.find(query).sort("expense_date", -1))
-        return serialize_docs(expenses)
+        if search:
+            query["$or"] = [
+                {"description": {"$regex": search, "$options": "i"}},
+                {"expense_number": {"$regex": search, "$options": "i"}},
+            ]
+        total = expenses_collection.count_documents(query)
+        skip = (page - 1) * page_size
+        expenses = list(expenses_collection.find(query).sort("expense_date", -1).skip(skip).limit(page_size))
+        import math
+        pages = math.ceil(total / page_size) if total > 0 else 1
+        return {
+            "expenses": serialize_docs(expenses),
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": pages,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching expenses: {str(e)}")
 
@@ -2910,9 +3096,14 @@ async def import_expenses_csv(file: UploadFile = File(...)):
 # ============================================================
 
 @router.get("/payments/received/")
-async def get_payments_received():
-    """Get all payments received"""
+async def get_payments_received(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(100, ge=1, le=200, description="Records per page"),
+    search: Optional[str] = Query(None, description="Search by payment number or customer name"),
+):
+    """Get payments received, paginated"""
     try:
+        skip = (page - 1) * page_size
         pipeline = [
             {
                 "$lookup": {
@@ -2927,18 +3118,44 @@ async def get_payments_received():
             {"$unwind": {"path": "$customer", "preserveNullAndEmptyArrays": True}},
             {"$addFields": {"customer_name": "$customer.name"}},
             {"$project": {"customer": 0}},
-            {"$sort": {"payment_date": -1}}
         ]
-        payments = list(payments_received_collection.aggregate(pipeline))
-        return serialize_docs(payments)
+        if search:
+            pipeline.append({"$match": {"$or": [
+                {"payment_number": {"$regex": search, "$options": "i"}},
+                {"customer_name": {"$regex": search, "$options": "i"}},
+            ]}})
+        pipeline.extend([
+            {"$sort": {"payment_date": -1}},
+            {"$facet": {
+                "metadata": [{"$count": "total"}],
+                "data": [{"$skip": skip}, {"$limit": page_size}],
+            }},
+        ])
+        result = list(payments_received_collection.aggregate(pipeline))
+        data = result[0]["data"] if result else []
+        total = result[0]["metadata"][0]["total"] if result and result[0]["metadata"] else 0
+        import math
+        pages = math.ceil(total / page_size) if total > 0 else 1
+        return {
+            "payments": serialize_docs(data),
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": pages,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching payments received: {str(e)}")
 
 
 @router.get("/payments/made/")
-async def get_payments_made():
-    """Get all payments made"""
+async def get_payments_made(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(100, ge=1, le=200, description="Records per page"),
+    search: Optional[str] = Query(None, description="Search by payment number or vendor name"),
+):
+    """Get payments made, paginated"""
     try:
+        skip = (page - 1) * page_size
         pipeline = [
             {
                 "$lookup": {
@@ -2953,10 +3170,31 @@ async def get_payments_made():
             {"$unwind": {"path": "$vendor", "preserveNullAndEmptyArrays": True}},
             {"$addFields": {"vendor_name": "$vendor.name"}},
             {"$project": {"vendor": 0}},
-            {"$sort": {"payment_date": -1}}
         ]
-        payments = list(payments_made_collection.aggregate(pipeline))
-        return serialize_docs(payments)
+        if search:
+            pipeline.append({"$match": {"$or": [
+                {"payment_number": {"$regex": search, "$options": "i"}},
+                {"vendor_name": {"$regex": search, "$options": "i"}},
+            ]}})
+        pipeline.extend([
+            {"$sort": {"payment_date": -1}},
+            {"$facet": {
+                "metadata": [{"$count": "total"}],
+                "data": [{"$skip": skip}, {"$limit": page_size}],
+            }},
+        ])
+        result = list(payments_made_collection.aggregate(pipeline))
+        data = result[0]["data"] if result else []
+        total = result[0]["metadata"][0]["total"] if result and result[0]["metadata"] else 0
+        import math
+        pages = math.ceil(total / page_size) if total > 0 else 1
+        return {
+            "payments": serialize_docs(data),
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "pages": pages,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching payments made: {str(e)}")
 

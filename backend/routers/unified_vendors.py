@@ -37,16 +37,22 @@ def serialize_doc(doc):
 
 @router.get("/")
 def list_panel_vendors(
-    search: Optional[str] = Query(None, description="Search by name or email")
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(100, ge=1, le=200, description="Records per page"),
+    search: Optional[str] = Query(None, description="Search by name or email"),
 ):
-    """List all panel vendors"""
+    """List panel vendors, paginated"""
     query = {}
     if search:
         import re
         pattern = re.compile(re.escape(search), re.IGNORECASE)
         query = {"$or": [{"vendorName": pattern}, {"vendorEmail": pattern}]}
-    vendors = [serialize_doc(v) for v in panel_vendors_collection.find(query)]
-    return {"vendors": vendors, "total": len(vendors)}
+    total = panel_vendors_collection.count_documents(query)
+    skip = (page - 1) * page_size
+    vendors = [serialize_doc(v) for v in panel_vendors_collection.find(query).skip(skip).limit(page_size)]
+    import math
+    pages = math.ceil(total / page_size) if total > 0 else 1
+    return {"vendors": vendors, "total": total, "page": page, "page_size": page_size, "pages": pages}
 
 
 @router.post("/")

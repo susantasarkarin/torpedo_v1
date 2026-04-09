@@ -14,6 +14,8 @@ import { buildApiUrl } from "../../config"
 function Contacts() {
   const navigate = useNavigate();
   const [contacts, setContacts] = useState([])
+  const [total, setTotal] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -58,38 +60,46 @@ function Contacts() {
 
   // Fetch contacts
   useEffect(() => {
-    const run = async () => {
+    const fetchContacts = async () => {
       const sessionId = localStorage.getItem("session_id");
       if (!sessionId) {
         navigate("/login");
         return;
       }
-
+      setLoading(true);
+      setError(null);
       try {
-        // Fetch from /leads endpoint with lead_stage=contacts filter
-        const res = await fetch(buildApiUrl(`/leads?lead_stage=contacts&limit=200`), {
+        const params = new URLSearchParams({
+          lead_stage: "contacts",
+          page: String(currentPage),
+          limit: String(recordsPerPage),
+        });
+        if (search) params.set("search", search);
+        const res = await fetch(buildApiUrl(`/leads?${params}`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
           },
         });
-
         if (res.status === 401) {
           alert("Session expired. Please login again.");
           localStorage.removeItem("session_id");
           navigate("/login");
           return;
         }
-
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Failed to load contacts");
         setContacts(data.leads || []);
+        setTotal(data.total || 0);
+        setTotalPages(data.pages || 1);
       } catch (e) {
         setError(e.message || "Failed to load contacts");
+      } finally {
+        setLoading(false);
       }
     };
-    run();
-  }, [navigate]);
+    fetchContacts();
+  }, [navigate, currentPage, recordsPerPage, search]);
 
   // Handle form input
   const handleChange = (e) => {
@@ -290,21 +300,8 @@ function Contacts() {
     }
   };
 
-  const filtered = useMemo(() => {
-    // Server already filters by lead_stage=contacts, just apply search filter
-    const q = search.trim().toLowerCase();
-    if (!q) return contacts;
-    return contacts.filter((c) =>
-      ["name", "firstName", "lastName", "email", "title", "companyName", "company_name", "companyIndustry", "company_industry", "location", "stage"].some((field) =>
-        String(c[field] || "").toLowerCase().includes(q)
-      )
-    );
-  }, [contacts, search]);
-
-  const totalPages = Math.ceil(filtered.length / recordsPerPage);
-  const startIdx = (currentPage - 1) * recordsPerPage;
-  const endIdx = startIdx + recordsPerPage;
-  const paginatedContacts = filtered.slice(startIdx, endIdx);
+  // Server-side pagination: contacts is already paginated from backend
+  const paginatedContacts = contacts;
 
   const handleSearch = (value) => {
     setSearch(value);
@@ -543,17 +540,21 @@ function Contacts() {
             onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
             disabled={currentPage === 1}
           >
-            ← Previous
+             Previous
           </button>
           <span className="page-info">
             Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+            {" "}
+            <span style={{ marginLeft: 8 }}>
+              ({total.toLocaleString()} contacts)
+            </span>
           </span>
           <button
             className="btn btn-outline"
             onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
             disabled={currentPage === totalPages}
           >
-            Next →
+            Next 
           </button>
         </div>
       )}

@@ -25,14 +25,14 @@ function InvoicesPage() {
   const [invoices, setInvoices] = useState([])
   const [customers, setCustomers] = useState([])
   const [items, setItems] = useState([])
-  const [loading, setLoading] = useState(true)
+    const [loading, setLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [showModal, setShowModal] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
-  const [recordsPerPage, setRecordsPerPage] = useState(10)
+    const [recordsPerPage, setRecordsPerPage] = useState(100)
   const fileInputRef = useRef(null)
   
   const initialFormData = {
@@ -57,17 +57,25 @@ function InvoicesPage() {
   const [formData, setFormData] = useState(initialFormData)
 
   useEffect(() => {
-    fetchInvoices()
+    fetchInvoices(currentPage, recordsPerPage, searchTerm, statusFilter)
     fetchCustomers()
     fetchItems()
-  }, [])
+  }, [currentPage, recordsPerPage, searchTerm, statusFilter])
 
-  const fetchInvoices = async () => {
+  const fetchInvoices = async (page = 1, page_size = 100, search = "", status = "all") => {
+    setLoading(true)
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/invoices/`))
+      const params = new URLSearchParams({
+        page: page.toString(),
+        page_size: page_size.toString(),
+        ...(search ? { search } : {}),
+        ...(status && status !== "all" ? { status } : {}),
+      })
+      const response = await fetch(buildApiUrl(`/finance/finance/invoices/?${params}`))
       if (response.ok) {
         const data = await response.json()
-        setInvoices(data)
+        setInvoices(data.items || [])
+        setTotalInvoices(data.total || 0)
       }
     } catch (error) {
       console.error("Error fetching invoices:", error)
@@ -272,22 +280,7 @@ function InvoicesPage() {
     }
   }
 
-  const filteredInvoices = useMemo(() => {
-    return invoices.filter((inv) => {
-      const q = searchTerm.trim().toLowerCase()
-      const matchesSearch = !q || 
-        inv.invoice_number?.toLowerCase().includes(q) ||
-        inv.customer_name?.toLowerCase().includes(q)
-      const matchesStatus = statusFilter === "all" || inv.status === statusFilter
-      return matchesSearch && matchesStatus
-    })
-  }, [invoices, searchTerm, statusFilter])
-
-  // Pagination
-  const totalPages = Math.ceil(filteredInvoices.length / recordsPerPage)
-  const startIdx = (currentPage - 1) * recordsPerPage
-  const endIdx = startIdx + recordsPerPage
-  const paginatedInvoices = filteredInvoices.slice(startIdx, endIdx)
+  const totalPages = Math.ceil(totalInvoices / recordsPerPage)
 
   const handleSearch = (value) => {
     setSearchTerm(value)
@@ -473,28 +466,15 @@ function InvoicesPage() {
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div style={styles.paginationContainer}>
-          <button
-            style={{...styles.paginationBtn, ...(currentPage === 1 ? styles.paginationBtnDisabled : {})}}
-            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-            disabled={currentPage === 1}
-          >
-            ← Previous
-          </button>
-          <div style={styles.pageInfo}>
-            Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
-          </div>
-          <button
-            style={{...styles.paginationBtn, ...(currentPage === totalPages ? styles.paginationBtnDisabled : {})}}
-            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-            disabled={currentPage === totalPages}
-          >
-            Next →
-          </button>
-        </div>
-      )}
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalRecords={totalInvoices}
+        pageSize={recordsPerPage}
+        onPageChange={handlePageChange}
+        onPageSizeChange={handleRecordsPerPageChange}
+        loading={loading}
+      />
 
       {showModal && (
         <div style={styles.modal} onClick={handleCloseModal}>

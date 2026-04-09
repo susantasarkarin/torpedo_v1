@@ -1,3 +1,6 @@
+  const [currentPage, setCurrentPage] = useState(1)
+  const [recordsPerPage, setRecordsPerPage] = useState(100)
+  const [totalPayments, setTotalPayments] = useState(0)
 "use client"
 
 import { useState, useEffect, useRef } from "react"
@@ -37,22 +40,35 @@ function PaymentsPage() {
   })
 
   useEffect(() => {
-    fetchAllData()
-  }, [])
+    fetchPaginatedPayments(currentPage, recordsPerPage, searchTerm)
+    fetchCustomers()
+    fetchVendors()
+    fetchInvoices()
+    fetchBills()
+  }, [activeTab, currentPage, recordsPerPage, searchTerm])
 
-  const fetchAllData = async () => {
+  const fetchPaginatedPayments = async (page = 1, page_size = 100, search = "") => {
     setLoading(true)
     try {
-      await Promise.all([
-        fetchPaymentsReceived(),
-        fetchPaymentsMade(),
-        fetchCustomers(),
-        fetchVendors(),
-        fetchInvoices(),
-        fetchBills(),
-      ])
+      const params = new URLSearchParams({
+        page: page.toString(),
+        page_size: page_size.toString(),
+        ...(search ? { search } : {}),
+      })
+      const endpoint = activeTab === "received" ? "/finance/payments/received/" : "/finance/payments/made/"
+      const response = await fetch(buildApiUrl(`${endpoint}?${params}`))
+      if (response.ok) {
+        const data = await response.json()
+        if (activeTab === "received") {
+          setPaymentsReceived(data.items || [])
+          setTotalPayments(data.total || 0)
+        } else {
+          setPaymentsMade(data.items || [])
+          setTotalPayments(data.total || 0)
+        }
+      }
     } catch (error) {
-      console.error("Error fetching data:", error)
+      console.error("Error fetching payments:", error)
     } finally {
       setLoading(false)
     }
@@ -229,14 +245,15 @@ function PaymentsPage() {
   ]
 
   const currentPayments = activeTab === "received" ? paymentsReceived : paymentsMade
+  const totalPages = Math.ceil(totalPayments / recordsPerPage)
+  const handlePageChange = (page) => {
+    setCurrentPage(page)
+  }
 
-  const filteredPayments = currentPayments.filter((payment) => {
-    const name = activeTab === "received" ? payment.customer_name : payment.vendor_name
-    return (
-      name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      payment.reference_number?.toLowerCase().includes(searchTerm.toLowerCase())
-    )
-  })
+  const handleRecordsPerPageChange = (value) => {
+    setRecordsPerPage(parseInt(value))
+    setCurrentPage(1)
+  }
 
   // Calculate totals
   const totalReceived = paymentsReceived.reduce((sum, p) => sum + (p.amount || 0), 0)
@@ -425,7 +442,7 @@ function PaymentsPage() {
         </div>
         <div style={styles.stats}>
           <span>
-            Total: <strong>{filteredPayments.length}</strong>
+            Total: <strong>{totalPayments}</strong>
           </span>
         </div>
       </div>
@@ -460,7 +477,7 @@ function PaymentsPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredPayments.map((payment) => (
+              {currentPayments.map((payment) => (
                 <tr key={payment._id} style={styles.tr}>
                   <td style={styles.td}>{new Date(payment.payment_date).toLocaleDateString("en-IN")}</td>
                   <td style={{ ...styles.td, fontWeight: "500" }}>
@@ -487,7 +504,16 @@ function PaymentsPage() {
                   </td>
                 </tr>
               ))}
-              {filteredPayments.length === 0 && (
+              {currentPayments.length === 0 && (
+                      <Pagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalRecords={totalPayments}
+                        pageSize={recordsPerPage}
+                        onPageChange={handlePageChange}
+                        onPageSizeChange={handleRecordsPerPageChange}
+                        loading={loading}
+                      />
                 <tr>
                   <td colSpan={6} style={styles.emptyState}>
                     <CreditCard style={{ width: "48px", height: "48px", margin: "0 auto 1rem", opacity: 0.5 }} />
