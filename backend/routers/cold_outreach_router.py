@@ -1189,6 +1189,25 @@ def _get_gmail_workspace_service():
     return svc
 
 
+# ── Gmail signature cache (keyed by from_email, refreshed every 6 hours) ──
+_signature_cache: dict[str, tuple[str | None, float]] = {}
+_SIGNATURE_TTL = 6 * 3600  # 6 hours in seconds
+
+
+def _get_gmail_signature(from_email: str) -> str | None:
+    """Return the Gmail signature HTML for *from_email* (cached)."""
+    import time
+    now = time.time()
+    cached = _signature_cache.get(from_email)
+    if cached and (now - cached[1]) < _SIGNATURE_TTL:
+        return cached[0]
+
+    svc = _get_gmail_workspace_service()
+    sig = svc.get_signature(from_email)
+    _signature_cache[from_email] = (sig, now)
+    return sig
+
+
 def _generate_personalized_email(
     lead: dict,
     step_number: int,
@@ -1310,11 +1329,13 @@ def _send_via_gmail_api(
         actual_to = _OUTREACH_TEST_OVERRIDE_EMAIL
 
     svc = _get_gmail_workspace_service()
+    signature_html = _get_gmail_signature(from_email)
     result = svc.send_email(
         from_email=from_email,
         to=[actual_to],
         subject=subject,
         body_html=body_html,
+        signature_html=signature_html,
     )
     if not result.get("success"):
         raise RuntimeError(result.get("error") or "Gmail API send failed")

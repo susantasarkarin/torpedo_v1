@@ -238,7 +238,36 @@ class GmailWorkspaceService:
         """Get Gmail API service for a specific user"""
         credentials = self._get_credentials(user_email)
         return build("gmail", "v1", credentials=credentials)
-    
+
+    def get_signature(self, email: str) -> Optional[str]:
+        """
+        Fetch the Gmail signature HTML for a mailbox via the sendAs settings API.
+
+        Args:
+            email: The mailbox email address whose signature to fetch.
+
+        Returns:
+            The signature HTML string, or None if not set / on error.
+        """
+        try:
+            service = self._get_service(email)
+            send_as = (
+                service.users()
+                .settings()
+                .sendAs()
+                .get(userId="me", sendAsEmail=email)
+                .execute()
+            )
+            sig = send_as.get("signature") or None
+            if sig:
+                logger.info(f"Fetched Gmail signature for {email} ({len(sig)} chars)")
+            else:
+                logger.info(f"No Gmail signature configured for {email}")
+            return sig
+        except Exception as exc:
+            logger.warning(f"Could not fetch Gmail signature for {email}: {exc}")
+            return None
+
     def test_connection(self, email: str) -> Dict[str, Any]:
         """
         Test connection to a mailbox.
