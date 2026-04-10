@@ -1182,7 +1182,7 @@ async def ses_sns_webhook(request: Request):
 
 # Set to an email address to redirect ALL outgoing outreach mail (test mode).
 # Set to None to send to actual recipient.
-_OUTREACH_TEST_OVERRIDE_EMAIL: Optional[str] = "susantasarkar7447@gmail.com"
+_OUTREACH_TEST_OVERRIDE_EMAIL: Optional[str] = None
 
 # Sender mailbox for each business (must exist in torpedo_gmail.workspace_mailboxes)
 _BUSINESS_SENDER: Dict[str, str] = {
