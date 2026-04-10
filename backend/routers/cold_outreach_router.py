@@ -1371,10 +1371,10 @@ def _send_via_gmail_api(
     subject: str,
     body_html: str,
     display_name: str,
-) -> str:
+) -> dict:
     """
     Send one email via GmailWorkspaceService (service account / domain-wide delegation).
-    Returns the Gmail message_id. Raises on failure.
+    Returns dict with 'message_id' and 'thread_id'. Raises on failure.
     """
     actual_to = to_email
     if _OUTREACH_TEST_OVERRIDE_EMAIL:
@@ -1394,7 +1394,10 @@ def _send_via_gmail_api(
     )
     if not result.get("success"):
         raise RuntimeError(result.get("error") or "Gmail API send failed")
-    return result.get("message_id") or ""
+    return {
+        "message_id": result.get("message_id") or "",
+        "thread_id": result.get("thread_id") or "",
+    }
 
 
 def _process_one_outreach_lead(db, lead_record: dict) -> bool:
@@ -1499,7 +1502,9 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         body_html = _replace_tokens(step_template.get("body_html", ""))
 
         # Send via Gmail API
-        gmail_message_id = _send_via_gmail_api(from_email, email, subject, body_html, display_name)
+        send_result = _send_via_gmail_api(from_email, email, subject, body_html, display_name)
+        gmail_message_id = send_result["message_id"]
+        gmail_thread_id = send_result["thread_id"]
 
         now = datetime.utcnow()
 
@@ -1514,6 +1519,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             "workflow_step": steps_sent,   # 0-indexed for stats aggregation
             "subject": subject,
             "gmail_message_id": gmail_message_id,
+            "gmail_thread_id": gmail_thread_id,
             "status": "sent",
             "reply_received": False,
             "open_count": 0,
@@ -1618,4 +1624,287 @@ def trigger_process_due():
     Normally runs automatically every 60 seconds via APScheduler.
     """
     result = process_due_outreach_sends()
+    return {"ok": True, **result}
+
+
+# ── Bounce & Reply Scanner ────────────────────────────────────────────────────
+
+import re as _re
+
+_BOUNCE_FROM_PATTERN = _re.compile(
+    r"mailer-daemon|postmaster|mail[\s_-]?delivery|bounce",
+    _re.IGNORECASE,
+)
+_BOUNCE_SUBJECT_PATTERN = _re.compile(
+    r"undeliverable|delivery.*(?:fail|status|notification)|returned.*mail|"
+    r"mail.*(?:delivery|undeliverable)|permanent.*failure|"
+    r"undelivered\s+mail",
+    _re.IGNORECASE,
+)
+_OOO_SUBJECT_PATTERN = _re.compile(
+    r"out\s+of\s+(?:the\s+)?office|automatic\s+reply|auto[\s-]?reply|"
+    r"away\s+from\s+(?:the\s+)?office|on\s+(?:annual\s+)?leave|"
+    r"(?:i\s+am|i'm)\s+(?:currently\s+)?(?:out|away|on\s+vacation)",
+    _re.IGNORECASE,
+)
+
+# Outreach sender emails (used to scope gmail metadata queries)
+_OUTREACH_SENDERS = list(_BUSINESS_SENDER.values())
+
+
+def _extract_bounced_recipient(body_text: str) -> Optional[str]:
+    """Try to extract the original recipient email from a bounce-back message body."""
+    if not body_text:
+        return None
+    # Common patterns in DSN bounce messages
+    patterns = [
+        _re.compile(r"(?:original|final)[\s-]*recipient[:\s]*<?([^\s<>@]+@[^\s<>]+)>?", _re.I),
+        _re.compile(r"(?:delivery|message).*?to\s+<?([^\s<>@]+@[^\s<>]+)>?\s+(?:has\s+)?(?:failed|was\s+rejected)", _re.I),
+        _re.compile(r"<?([^\s<>@]+@[^\s<>]+)>?\s+(?:was\s+)?(?:not\s+)?(?:delivered|rejected|undeliverable)", _re.I),
+        _re.compile(r"address[:\s]*<?([^\s<>@]+@[^\s<>]+)>?", _re.I),
+    ]
+    for pat in patterns:
+        m = pat.search(body_text[:3000])
+        if m:
+            candidate = m.group(1).lower().strip().rstrip(".")
+            # Don't return the sender's own email
+            if candidate not in _OUTREACH_SENDERS:
+                return candidate
+    # Fallback: look for any email address that's in our outreach leads
+    emails_found = _re.findall(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", body_text[:3000])
+    for e in emails_found:
+        e_lower = e.lower()
+        if e_lower not in _OUTREACH_SENDERS and "mailer-daemon" not in e_lower and "postmaster" not in e_lower:
+            return e_lower
+    return None
+
+
+def process_outreach_bounces_and_replies() -> dict:
+    """
+    Called by APScheduler every 5 minutes.
+    Scans gmail email_metadata for bounce-back emails and replies to outreach emails.
+
+    Bounce detection:
+      - Matches inbound emails from mailer-daemon/postmaster with bounce subjects
+      - Extracts the original recipient from the bounce body
+      - Marks the outreach send as bounced, the lead as bounced
+      - Adds the email to outreach_bounce_suppression
+
+    Reply detection:
+      - Matches inbound emails by gmail_thread_id to outreach sends
+      - Updates outreach_sends_v2 with reply_received=True
+      - Updates outreach_leads_v2 workflow_status to "replied"
+
+    OOO detection:
+      - Detects out-of-office auto-replies by subject pattern
+      - Marks sends with ooo_received=True (does not stop sequence)
+    """
+    try:
+        db = get_db()
+        gmail_db = _get_gmail_db()
+        if not gmail_db:
+            return {"error": "gmail_db not available"}
+
+        # Get outreach mailbox IDs
+        outreach_mailboxes = list(gmail_db["workspace_mailboxes"].find(
+            {"email": {"$in": _OUTREACH_SENDERS}},
+            {"_id": 1, "email": 1}
+        ))
+        if not outreach_mailboxes:
+            return {"error": "no outreach mailboxes found"}
+
+        mailbox_ids = [str(m["_id"]) for m in outreach_mailboxes]
+        mailbox_email_map = {str(m["_id"]): m["email"] for m in outreach_mailboxes}
+
+        # Find the last scan timestamp (or default to 6 hours ago)
+        scan_state = db["outreach_scan_state"].find_one({"_id": "bounce_reply_scanner"})
+        last_scan = (
+            scan_state["last_scan_at"]
+            if scan_state
+            else datetime.utcnow() - timedelta(hours=6)
+        )
+
+        # Query inbound emails synced since last scan for outreach mailboxes
+        inbound_cursor = gmail_db["email_metadata"].find(
+            {
+                "mailbox_id": {"$in": mailbox_ids},
+                "direction": "inbound",
+                "synced_at": {"$gt": last_scan},
+            },
+            {
+                "gmail_message_id": 1,
+                "gmail_thread_id": 1,
+                "mailbox_id": 1,
+                "from_email": 1,
+                "to_emails": 1,
+                "subject": 1,
+                "body_plain": 1,
+                "snippet": 1,
+                "synced_at": 1,
+            }
+        ).sort("synced_at", 1).limit(200)
+
+        inbound_emails = list(inbound_cursor)
+        if not inbound_emails:
+            # Update scan timestamp even if nothing found
+            db["outreach_scan_state"].update_one(
+                {"_id": "bounce_reply_scanner"},
+                {"$set": {"last_scan_at": datetime.utcnow()}},
+                upsert=True,
+            )
+            return {"processed": 0, "bounces": 0, "replies": 0, "ooo": 0}
+
+        bounces = 0
+        replies = 0
+        ooo_count = 0
+        now = datetime.utcnow()
+
+        for email_doc in inbound_emails:
+            from_email = (email_doc.get("from_email") or "").lower()
+            subject = email_doc.get("subject") or ""
+            body_text = email_doc.get("body_plain") or email_doc.get("snippet") or ""
+            thread_id = email_doc.get("gmail_thread_id") or ""
+            msg_id = email_doc.get("gmail_message_id") or ""
+
+            is_bounce = bool(
+                _BOUNCE_FROM_PATTERN.search(from_email)
+                or _BOUNCE_SUBJECT_PATTERN.search(subject)
+            )
+            is_ooo = bool(_OOO_SUBJECT_PATTERN.search(subject)) and not is_bounce
+
+            if is_bounce:
+                # Extract the original recipient from the bounce body
+                recipient = _extract_bounced_recipient(body_text)
+                if not recipient:
+                    # Try to find the recipient via gmail_thread_id → outreach_sends_v2
+                    if thread_id:
+                        send = db["outreach_sends_v2"].find_one(
+                            {"gmail_thread_id": thread_id},
+                            {"email": 1}
+                        )
+                        if send:
+                            recipient = send["email"]
+
+                if recipient:
+                    recipient = recipient.lower().strip()
+                    # 1. Add to suppression list
+                    db["outreach_bounce_suppression"].update_one(
+                        {"email": recipient},
+                        {"$set": {
+                            "email": recipient,
+                            "bounced_at": now,
+                            "reason": "gmail_bounce",
+                            "source": "bounce_scanner",
+                            "bounce_subject": subject[:200],
+                            "created_at": now,
+                        }},
+                        upsert=True,
+                    )
+                    # 2. Mark all sends to this email as bounced
+                    db["outreach_sends_v2"].update_many(
+                        {"email": recipient, "status": "sent"},
+                        {"$set": {"status": "bounced", "bounced_at": now}},
+                    )
+                    # 3. Mark the lead as bounced (stop further sends)
+                    db["outreach_leads_v2"].update_many(
+                        {"email": recipient, "workflow_status": {"$nin": ["bounced", "completed", "replied"]}},
+                        {"$set": {
+                            "workflow_status": "bounced",
+                            "bounced_at": now,
+                            "updated_at": now,
+                        }},
+                    )
+                    # 4. Also update leads_enriched for global suppression
+                    try:
+                        leads_db = get_leads_db()
+                        leads_db["leads_enriched"].update_many(
+                            {"email": recipient},
+                            {"$set": {
+                                "email_status": "bounced",
+                                "bounce_suppressed": True,
+                                "bounced_at": now,
+                            }},
+                        )
+                    except Exception:
+                        pass
+
+                    bounces += 1
+
+            elif is_ooo:
+                # OOO: match by thread_id to find the original send
+                if thread_id:
+                    send = db["outreach_sends_v2"].find_one(
+                        {"gmail_thread_id": thread_id},
+                        {"_id": 1, "email": 1}
+                    )
+                    if send:
+                        db["outreach_sends_v2"].update_one(
+                            {"_id": send["_id"]},
+                            {"$set": {"ooo_received": True, "ooo_at": now}},
+                        )
+                        ooo_count += 1
+
+            else:
+                # Potential reply — match by gmail_thread_id
+                if thread_id:
+                    send = db["outreach_sends_v2"].find_one(
+                        {"gmail_thread_id": thread_id},
+                        {"_id": 1, "email": 1, "campaign_id": 1, "outreach_lead_id": 1}
+                    )
+                    if send:
+                        # Mark send as replied
+                        db["outreach_sends_v2"].update_one(
+                            {"_id": send["_id"]},
+                            {"$set": {
+                                "reply_received": True,
+                                "replied_at": now,
+                                "reply_from": from_email,
+                                "reply_subject": subject[:200],
+                                "reply_snippet": (body_text or "")[:300],
+                            }},
+                        )
+                        # Mark lead as replied (stops further sends in sequence)
+                        db["outreach_leads_v2"].update_one(
+                            {"_id": ObjectId(send["outreach_lead_id"])},
+                            {"$set": {
+                                "workflow_status": "replied",
+                                "replied_at": now,
+                                "updated_at": now,
+                            }},
+                        )
+                        replies += 1
+
+        # Update scan watermark
+        last_synced = max(
+            (e.get("synced_at") for e in inbound_emails if e.get("synced_at")),
+            default=now,
+        )
+        db["outreach_scan_state"].update_one(
+            {"_id": "bounce_reply_scanner"},
+            {"$set": {"last_scan_at": last_synced}},
+            upsert=True,
+        )
+
+        if bounces > 0 or replies > 0 or ooo_count > 0:
+            logger.info(
+                f"[Outreach Scanner] Processed {len(inbound_emails)} inbound emails: "
+                f"bounces={bounces}, replies={replies}, ooo={ooo_count}"
+            )
+
+        return {
+            "processed": len(inbound_emails),
+            "bounces": bounces,
+            "replies": replies,
+            "ooo": ooo_count,
+        }
+
+    except Exception as e:
+        logger.error(f"[Outreach Scanner] Error: {e}", exc_info=True)
+        return {"error": str(e)}
+
+
+@router.post("/scan-bounces-replies")
+def trigger_bounce_reply_scan():
+    """Manually trigger one cycle of the bounce & reply scanner."""
+    result = process_outreach_bounces_and_replies()
     return {"ok": True, **result}

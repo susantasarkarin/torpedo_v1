@@ -1830,6 +1830,32 @@ async def startup_event():
             print("✅ Cold outreach send processor scheduled (every 60 seconds)")
     except Exception as e:
         print(f"⚠️ Could not schedule outreach send processor: {e}")
+
+    # ----------------------------
+    # Cold Outreach Bounce & Reply Scanner (every 5 minutes)
+    # ----------------------------
+    try:
+        if scheduler.running:
+            def _outreach_bounce_reply_job():
+                try:
+                    try:
+                        from .routers.cold_outreach_router import process_outreach_bounces_and_replies
+                    except ImportError:
+                        from routers.cold_outreach_router import process_outreach_bounces_and_replies
+                    process_outreach_bounces_and_replies()
+                except Exception as e:
+                    print(f"[OutreachScanner] Error: {e}")
+
+            scheduler.add_job(
+                _outreach_bounce_reply_job,
+                IntervalTrigger(seconds=300),
+                id="outreach_bounce_reply_scanner",
+                name="Cold Outreach Bounce & Reply Scanner",
+                replace_existing=True
+            )
+            print("✅ Cold outreach bounce & reply scanner scheduled (every 5 minutes)")
+    except Exception as e:
+        print(f"⚠️ Could not schedule outreach bounce & reply scanner: {e}")
     
     # ----------------------------
     # Email Classification Job (every 2 minutes, batch of 10)
