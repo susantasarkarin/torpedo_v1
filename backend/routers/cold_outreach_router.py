@@ -1702,7 +1702,7 @@ def process_outreach_bounces_and_replies() -> dict:
     try:
         db = get_db()
         gmail_db = _get_gmail_db()
-        if not gmail_db:
+        if gmail_db is None:
             return {"error": "gmail_db not available"}
 
         # Get outreach mailbox IDs
