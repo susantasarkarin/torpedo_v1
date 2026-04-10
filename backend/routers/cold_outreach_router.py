@@ -1200,6 +1200,38 @@ _BUSINESS_DISPLAY_NAME: Dict[str, str] = {
 # Daily send cap per sender email (AWS SES mailboxes are exempt)
 _DAILY_SEND_LIMIT_PER_MAILBOX = 2000
 
+# ── Per-mailbox 429 cooldown tracking ──────────────────────────────────────────
+# {sender_email: datetime_when_cooldown_expires}  — in-memory, resets on restart
+_MAILBOX_COOLDOWN: Dict[str, datetime] = {}
+_COOLDOWN_SECONDS = 900  # 15 minutes after a 429 error
+
+
+def _is_mailbox_in_cooldown(sender_email: str) -> bool:
+    """Return True if this mailbox recently hit a Gmail 429."""
+    expires = _MAILBOX_COOLDOWN.get(sender_email)
+    if expires and datetime.utcnow() < expires:
+        return True
+    return False
+
+
+def _set_mailbox_cooldown(sender_email: str, retry_after_str: str = ""):
+    """Set a 429 cooldown for this mailbox. Parses 'Retry after' from error if available."""
+    cooldown_until = datetime.utcnow() + timedelta(seconds=_COOLDOWN_SECONDS)
+    # Try to parse the actual retry-after timestamp from Gmail error
+    if retry_after_str:
+        try:
+            # Format: "2026-04-10T13:14:10.001Z"
+            import re as _re_cd
+            match = _re_cd.search(r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})', retry_after_str)
+            if match:
+                parsed = datetime.strptime(match.group(1), '%Y-%m-%dT%H:%M:%S')
+                if parsed > datetime.utcnow():
+                    cooldown_until = parsed + timedelta(seconds=60)  # +1 min buffer
+        except Exception:
+            pass
+    _MAILBOX_COOLDOWN[sender_email] = cooldown_until
+    logger.warning(f"[Outreach] Mailbox {sender_email} in cooldown until {cooldown_until.isoformat()}")
+
 
 def _sender_at_daily_limit(db, from_email: str) -> bool:
     """Return True if this sender has hit the daily send cap.
@@ -1560,25 +1592,44 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         return True
 
     except Exception as e:
+        err_str = str(e)
         logger.error(
             f"[Outreach] Failed to process {lead_record.get('email')}: {e}",
             exc_info=True
         )
-        db["outreach_leads_v2"].update_one(
-            {"_id": lead_record["_id"]},
-            {"$set": {
-                "last_send_error": str(e)[:300],
-                "last_send_error_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow(),
-            }}
-        )
+        _from = locals().get("from_email", "")
+        # On Gmail 429, set mailbox cooldown, push lead out, and RE-RAISE
+        # so the outer loop can skip remaining leads for this sender
+        if '429' in err_str and 'rate' in err_str.lower():
+            if _from:
+                _set_mailbox_cooldown(_from, err_str)
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {
+                    "next_send_at": datetime.utcnow() + timedelta(seconds=_COOLDOWN_SECONDS),
+                    "last_send_error": err_str[:300],
+                    "last_send_error_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                }}
+            )
+            raise  # Re-raise so outer send loop can track failed senders
+        else:
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {
+                    "last_send_error": err_str[:300],
+                    "last_send_error_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                }}
+            )
         return False
 
 
 def process_due_outreach_sends() -> dict:
     """
     Called by APScheduler every 60 seconds.
-    Picks up to 5 outreach_leads_v2 records that are due and sends their next step.
+    Round-robins across active campaigns, picking up to 2 leads per campaign
+    per cycle (max 6 total). Respects per-mailbox 429 cooldowns.
     Uses the pre-written step templates (no AI generation).
     Returns a summary dict.
     """
@@ -1586,17 +1637,56 @@ def process_due_outreach_sends() -> dict:
         now = datetime.utcnow()
         db = get_db()
 
-        due = list(db["outreach_leads_v2"].find({
-            "workflow_status": {"$in": ["not_started", "pending_scheduled", "in_sequence"]},
-            "next_send_at": {"$lte": now},
-        }).limit(5))
+        # Get active campaigns (campaigns use is_active flag, not status)
+        active_campaigns = list(db["outreach_campaigns_v2"].find(
+            {"is_active": True},
+            {"campaign_id": 1, "business": 1}
+        ))
+
+        if not active_campaigns:
+            return {"processed": 0, "sent": 0, "skipped": 0}
+
+        # Build list of leads round-robin: up to 2 per campaign
+        due = []
+        cooldown_skipped = []
+        for camp in active_campaigns:
+            cid = camp.get("campaign_id")
+            business = camp.get("business", "sfw")
+            sender = _BUSINESS_SENDER.get(business, "indira@surveyfieldwork.com")
+
+            # Skip campaigns whose mailbox is in 429 cooldown
+            if _is_mailbox_in_cooldown(sender):
+                cooldown_skipped.append(business)
+                continue
+
+            camp_due = list(db["outreach_leads_v2"].find({
+                "campaign_id": cid,
+                "workflow_status": {"$in": ["not_started", "pending_scheduled", "in_sequence"]},
+                "next_send_at": {"$lte": now},
+            }).limit(2))
+            due.extend(camp_due)
+
+        if cooldown_skipped:
+            logger.info(f"[Outreach] Skipped campaigns in 429 cooldown: {cooldown_skipped}")
 
         if not due:
             return {"processed": 0, "sent": 0, "skipped": 0}
 
         sent = 0
         skipped = 0
+        failed_senders = set()  # Track senders that fail in this cycle
         for record in due:
+            # If this record's business sender already failed this cycle, skip it
+            camp = db["outreach_campaigns_v2"].find_one(
+                {"campaign_id": record.get("campaign_id")},
+                {"business": 1}
+            )
+            if camp:
+                sender = _BUSINESS_SENDER.get(camp.get("business", "sfw"), "indira@surveyfieldwork.com")
+                if sender in failed_senders:
+                    skipped += 1
+                    continue
+
             try:
                 ok = _process_one_outreach_lead(db, record)
                 if ok:
@@ -1606,6 +1696,10 @@ def process_due_outreach_sends() -> dict:
             except Exception as loop_err:
                 logger.error(f"[Outreach] Error processing lead {record.get('email')}: {loop_err}")
                 skipped += 1
+                # If 429, mark this sender as failed for the rest of the cycle
+                if '429' in str(loop_err):
+                    if camp:
+                        failed_senders.add(_BUSINESS_SENDER.get(camp.get("business", "sfw"), ""))
 
         if sent > 0 or skipped > 0:
             logger.info(f"[Outreach] Cycle complete: sent={sent} skipped={skipped}")
