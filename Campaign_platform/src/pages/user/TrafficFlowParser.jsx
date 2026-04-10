@@ -51,6 +51,7 @@ async function fetchClientIP() {
 // Fetch IPv4 specifically - CRITICAL for CPX
 // These services return IPv4 which matches what CPX sees when user clicks survey
 // Also extracts country code from ipinfo.io for validation against URL country
+// OPTIMIZED: All services race in parallel - fastest response wins
 async function fetchClientIPv4() {
   const ipServices = [
     { 
@@ -65,41 +66,49 @@ async function fetchClientIPv4() {
     },
   ];
 
-  for (const service of ipServices) {
+  // Fire ALL services in parallel - use the first successful response
+  const racePromises = ipServices.map(async (service) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
-      
       const response = await fetch(service.url, {
         signal: controller.signal,
         mode: "cors",
       });
       clearTimeout(timeoutId);
 
-      if (response.ok) {
-        const contentType = response.headers.get("content-type") || "";
-        let result;
-        if (contentType.includes("application/json")) {
-          const data = await response.json();
-          result = service.parser(data);
-        } else {
-          const text = await response.text();
-          result = service.parser(text);
-        }
-        if (result.ip && result.ip.match(/^[\d.:a-fA-F]+$/)) {
-          console.log(`✅ Fetched client IP: ${result.ip} from ${service.url}`);
-          if (result.country) {
-            console.log(`🌍 IP country detected: ${result.country}`);
-          }
-          return { ip: result.ip, source: service.url, ipCountry: result.country, ipCity: result.city || null, ipRegion: result.region || null, ipPostal: result.postal || null };
-        }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const contentType = response.headers.get("content-type") || "";
+      let result;
+      if (contentType.includes("application/json")) {
+        const data = await response.json();
+        result = service.parser(data);
+      } else {
+        const text = await response.text();
+        result = service.parser(text);
       }
+      if (result.ip && result.ip.match(/^[\d.:a-fA-F]+$/)) {
+        console.log(`✅ Fetched client IP: ${result.ip} from ${service.url}`);
+        if (result.country) {
+          console.log(`🌍 IP country detected: ${result.country}`);
+        }
+        return { ip: result.ip, source: service.url, ipCountry: result.country, ipCity: result.city || null, ipRegion: result.region || null, ipPostal: result.postal || null };
+      }
+      throw new Error('Invalid IP result');
     } catch (err) {
+      clearTimeout(timeoutId);
       console.warn(`⚠️ IP fetch failed from ${service.url}:`, err.message);
+      throw err; // Re-throw so Promise.any skips this one
     }
+  });
+
+  try {
+    return await Promise.any(racePromises);
+  } catch {
+    console.error("❌ Could not fetch client IP from any service");
+    return { ip: null, source: null, ipCountry: null };
   }
-  console.error("❌ Could not fetch client IP from any service");
-  return { ip: null, source: null, ipCountry: null };
 }
 
 // Generate device fingerprint for fraud detection
@@ -180,19 +189,19 @@ export default function TrafficFlowParser() {
     for (let [key, value] of params.entries()) parsedParams[key] = value;
     setUrlParams(parsedParams);
     
-    // ZERO-DELAY OPTIMIZATION: Prefetch IP on page load
+    // ZERO-DELAY OPTIMIZATION: Prefetch IP + fingerprint IN PARALLEL on page load
     // This eliminates the 3-9 second delay when user clicks PROCEED
-    // because the IP is already captured from server headers
-    const prefetchIp = async () => {
+    const prefetchAll = async () => {
       try {
-        console.log('🚀 Prefetching client IP on page load...');
-        const ipData = await fetchClientIP();
+        console.log('🚀 Prefetching IP + fingerprint in parallel...');
+        const [ipData, fingerprint] = await Promise.all([
+          fetchClientIP(),
+          generateDeviceFingerprint(),
+        ]);
         if (ipData.ip) {
           prefetchedIpRef.current = ipData;
           console.log(`✅ IP prefetched and cached: ${ipData.ip} (source: ${ipData.source})`);
           
-          // Generate device fingerprint for diagnostics
-          const fingerprint = await generateDeviceFingerprint();
           setDiagnosticData({
             ip: ipData.ip,
             ipSource: ipData.source,
@@ -203,7 +212,6 @@ export default function TrafficFlowParser() {
             countryCode: parsedParams.cc || 'not_provided'
           });
           
-          // Log diagnostics to console for debugging
           console.log('📊 CPX DIAGNOSTIC DATA:', {
             ip: ipData.ip,
             ipSource: ipData.source,
@@ -213,10 +221,10 @@ export default function TrafficFlowParser() {
           });
         }
       } catch (err) {
-        console.warn('⚠️ IP prefetch on load failed:', err.message);
+        console.warn('⚠️ Prefetch on load failed:', err.message);
       }
     };
-    prefetchIp();
+    prefetchAll();
   }, []);
 
   // NOTE: triggerSurveySync removed - CPX forbids sync/retry flows
@@ -295,14 +303,19 @@ export default function TrafficFlowParser() {
 
     try {
       // ============================================
-      // FRESH IP COLLECTION ON CLICK (CRITICAL FIX)
+      // FRESH IP + FINGERPRINT IN PARALLEL (CRITICAL FIX)
       // ============================================
       // Mobile carriers (Jio, Airtel) rotate IPs frequently (30-60 seconds)
       // Prefetched IP from page load may be stale by the time user clicks
       // CPX validates: API call IP MUST match survey click IP
-      // Solution: Always fetch FRESH IP right before CPX API call
-      console.log("🔄 Fetching FRESH IP right before CPX API call...");
-      let ipResult = await fetchClientIP();
+      // Solution: Fetch FRESH IP + fingerprint simultaneously
+      console.log("🔄 Fetching FRESH IP + fingerprint in parallel...");
+      const [ipResult_raw, fingerprint] = await Promise.all([
+        fetchClientIP(),
+        generateDeviceFingerprint(),
+      ]);
+
+      let ipResult = ipResult_raw;
 
       // If fresh fetch failed, use prefetched as emergency fallback
       if (!ipResult || !ipResult.ip) {
@@ -326,8 +339,6 @@ export default function TrafficFlowParser() {
         }
       }
 
-      // Generate fingerprint in parallel (fast, ~100ms)
-      const fingerprint = await generateDeviceFingerprint();
       console.log(`🔐 Device fingerprint: ${fingerprint?.hash?.substring(0, 20)}...`);
 
       // Generate unique transaction ID for this survey attempt
@@ -384,6 +395,25 @@ export default function TrafficFlowParser() {
         const debugInfo = result.debug_info;
 
         console.log(`✅ Traffic record created: ${objectId} (type: ${recordType})`);
+
+        // Fire retargeting pixel events on successful survey allocation
+        try {
+          // Google Ads conversion
+          if (typeof gtag === 'function') {
+            gtag('event', 'conversion', { send_to: 'AW-XXXXXXXXXX/CONVERSION_LABEL' }); // TODO: replace with actual label
+            gtag('event', 'survey_start', { country: urlParams.cc, vendor: urlParams.vid });
+          }
+          // Meta Pixel
+          if (typeof fbq === 'function') {
+            fbq('track', 'Lead', { content_name: 'survey_start', content_category: urlParams.cc });
+          }
+          // TikTok Pixel
+          if (typeof ttq !== 'undefined' && ttq.track) {
+            ttq.track('SubmitForm', { content_name: 'survey_start' });
+          }
+        } catch (pixelErr) {
+          console.warn('⚠️ Pixel event fire failed (non-blocking):', pixelErr.message);
+        }
 
         // Check if survey was allocated successfully
         if (allocationSuccess && entryLink) {
