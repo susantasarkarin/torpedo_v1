@@ -1467,6 +1467,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             db["outreach_leads_v2"].update_one(
                 {"_id": lead_record["_id"]},
                 {"$set": {
+                    "workflow_status": "error",
                     "last_send_error": f"Step {next_step_number} has no template content",
                     "last_send_error_at": datetime.utcnow(),
                     "updated_at": datetime.utcnow(),
