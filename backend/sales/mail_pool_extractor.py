@@ -161,15 +161,30 @@ def _derive_company(domain: str) -> str:
 def _infer_name_from_email(email: str) -> str:
     """
     Fallback: infer a plausible name from the email local-part.
-    e.g. "john.smith@..." → "John Smith"
-         "jsmith@..."     → "Jsmith"   (single token, less reliable)
+    e.g. "john.smith@..."  → "John Smith"
+         "jsmith@..."      → "J Smith"  (attempt first-initial + last split)
+         "john_doe123@..." → "John Doe"
     """
     local = email.split("@")[0] if "@" in email else email
+    # Strip trailing digits (john.smith2 → john.smith)
+    local = re.sub(r'\d+$', '', local)
     # Replace separators
-    parts = re.split(r'[\._\-\+]', local)
-    # Filter numeric-only tokens (e.g. user123 → just "user")
+    parts = re.split(r'[\.\-_\+]', local)
+    # Filter empty and pure-digit tokens
     parts = [p for p in parts if p and not p.isdigit()]
-    return " ".join(p.title() for p in parts[:2])  # max 2 tokens
+    if not parts:
+        return ""
+    if len(parts) >= 2:
+        return " ".join(p.capitalize() for p in parts[:2])
+    # Single token: try to split camelCase (e.g. "johnSmith" → ["john","Smith"])
+    token = parts[0]
+    camel = re.split(r'(?<=[a-z])(?=[A-Z])', token)
+    if len(camel) >= 2:
+        return " ".join(p.capitalize() for p in camel[:2])
+    # Single lowercase token: if len>3, try first-initial + rest (e.g. "jsmith" → "J Smith")
+    if len(token) > 3 and token[0].isalpha() and token[1:].isalpha():
+        return f"{token[0].upper()} {token[1:].capitalize()}"
+    return token.capitalize()
 
 
 def _is_excluded(email: str, domain: str) -> bool:

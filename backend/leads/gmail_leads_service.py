@@ -180,37 +180,65 @@ def classify_email_segment(subject: str, body: str) -> EmailSegment:
 
 # ============== CONTACT EXTRACTION ==============
 
+# Suffixes to strip from display names
+_NAME_SUFFIXES = re.compile(
+    r',?\s+(?:Jr\.?|Sr\.?|I{1,3}|IV|Ph\.?D\.?|MD|MBA|CPA|Esq\.?|M\.?S\.?|B\.?S\.?)$',
+    re.IGNORECASE,
+)
+
+
 def extract_name_from_email(email_address: str, display_name: str = "") -> Tuple[str, str, str]:
     """
     Extract full name, first name, and last name from email.
+    Handles display name pollution, suffixes, and falls back to email local part.
     Returns: (full_name, first_name, last_name)
     """
     # First try display name
     if display_name and display_name.strip():
         name = display_name.strip().strip('"').strip("'")
-        # Remove any email in parentheses
+        # Remove any email in angle brackets: "John Smith <john@co.com>" → "John Smith"
         name = re.sub(r'\s*<[^>]+>\s*', '', name)
+        # Remove parenthetical info: "John Smith (CEO)" → "John Smith"
         name = re.sub(r'\s*\([^)]+\)\s*', '', name)
-        name = name.strip()
-        
-        if name:
+        # Strip suffixes (Jr., PhD, etc.)
+        name = _NAME_SUFFIXES.sub('', name).strip()
+        # Reject if name looks like an email or company (contains @ or is all-caps >2 words)
+        if name and '@' not in name:
             parts = name.split()
+            # Filter single-char stray tokens except legitimate initials
+            parts = [p for p in parts if len(p) > 1 or p.isalpha()]
             if len(parts) >= 2:
-                return name, parts[0], " ".join(parts[1:])
-            return name, parts[0] if parts else "", ""
-    
+                return " ".join(parts), parts[0], " ".join(parts[1:])
+            if len(parts) == 1:
+                return parts[0], parts[0], ""
+
     # Fall back to email local part
     local_part = email_address.split('@')[0] if '@' in email_address else email_address
-    
-    # Try to split on common separators
+    # Strip trailing digits
+    local_part = re.sub(r'\d+$', '', local_part)
+
+    # Try to split on common separators (., _, -)
     for sep in ['.', '_', '-']:
         if sep in local_part:
-            parts = local_part.split(sep)
+            parts = [p for p in local_part.split(sep) if p and not p.isdigit()]
             if len(parts) >= 2:
                 first = parts[0].capitalize()
-                last = ' '.join(p.capitalize() for p in parts[1:])
+                last = parts[1].capitalize()
                 return f"{first} {last}", first, last
-    
+
+    # Single token: try camelCase split ("johnSmith" → "John Smith")
+    camel = re.split(r'(?<=[a-z])(?=[A-Z])', local_part)
+    if len(camel) >= 2:
+        first = camel[0].capitalize()
+        last = camel[1].capitalize()
+        return f"{first} {last}", first, last
+
+    # Last resort: first-initial + rest ("jsmith" → "J Smith")
+    if len(local_part) > 3 and local_part[0].isalpha() and local_part[1:].isalpha():
+        first = local_part[0].upper()
+        last = local_part[1:].capitalize()
+        return f"{first} {last}", first, last
+
     return local_part.capitalize(), local_part.capitalize(), ""
 
 

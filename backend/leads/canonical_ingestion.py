@@ -593,6 +593,220 @@ def classify_lead_ai(lead: Dict[str, Any]) -> Tuple[str, float, Optional[Dict[st
 # MAIN INGESTION FUNCTION
 # =============================================================================
 
+def _strip_guessed_email_if_unverified(normalized: Dict[str, Any]) -> None:
+    """
+    For websearch leads: strip the email if the domain has no CSV-verified
+    email pattern.  This prevents Google-Search-guessed emails from entering
+    the system.  The email field is set to None and email_status to
+    'pending_pattern' so pattern discovery (CSV / Skrapp) can fill it later.
+    """
+    email = normalized.get('email')
+    if not email:
+        return
+
+    domain = email.split('@')[1] if '@' in email else ''
+    if not domain:
+        return
+
+    try:
+        from .email_pattern_system import get_pattern_system
+        ps = get_pattern_system()
+        existing = ps.patterns_collection.find_one(
+            {"domain": domain, "source": {"$in": ["csv_leads_analysis", "skrapp"]}},
+            {"confidence": 1},
+        )
+        if existing and existing.get("confidence", 0) >= 0.6:
+            return  # Verified pattern exists — keep the email
+    except Exception:
+        pass  # If pattern system unavailable, strip to be safe
+
+    # No verified pattern — strip the guessed email
+    logger.info(f"Stripping guessed email {email} (no verified pattern for {domain})")
+    normalized['email'] = None
+    normalized['email_status'] = 'pending_pattern'
+    # Preserve the guessed email for reference
+    normalized['guessed_email'] = email
+
+
+def _store_csv_email_pattern(normalized: Dict[str, Any]) -> None:
+    """
+    For CSV leads with a valid email: analyse existing leads for the domain
+    and store/update the email pattern.  This builds the verified-pattern DB
+    that websearch and Skrapp leads can lean on later.
+    """
+    email = normalized.get('email')
+    if not email or '@' not in email:
+        return
+    domain = email.split('@')[1]
+    if domain in PERSONAL_EMAIL_PROVIDERS:
+        return
+    try:
+        from .email_pattern_system import get_pattern_system
+        ps = get_pattern_system()
+        # Only run CSV analysis — do NOT guess/discover
+        pattern = ps._analyze_patterns_from_known_emails(domain)
+        if pattern:
+            ps._store_pattern(pattern)
+            logger.debug(f"CSV email pattern stored for {domain}: {pattern.get('pattern')}")
+    except Exception as e:
+        logger.debug(f"CSV pattern analysis skipped for {domain}: {e}")
+
+
+def _discover_and_apply_email_pattern(normalized: Dict[str, Any]) -> None:
+    """
+    For leads without an email: try to discover the org email pattern via
+    Skrapp.io (Tier 2.5) and apply it to this lead + other leads of the
+    same domain.
+    """
+    domain = normalized.get('company_domain')
+    if not domain or domain in PERSONAL_EMAIL_PROVIDERS:
+        return
+    try:
+        from .email_pattern_system import get_pattern_system
+        ps = get_pattern_system()
+
+        # Check if we already have a pattern (any source)
+        existing = ps._lookup_database(domain)
+        if existing:
+            pattern_str = existing.get("pattern")
+        else:
+            first = normalized.get('first_name') or 'test'
+            last = normalized.get('last_name') or 'user'
+            pattern_str = ps.discover_company_email_pattern(domain, first, last)
+
+        if pattern_str:
+            # Apply the pattern to this lead if it still lacks an email
+            if not normalized.get('email') and normalized.get('first_name'):
+                first = (normalized.get('first_name') or '').lower().strip()
+                last = (normalized.get('last_name') or '').lower().strip()
+                try:
+                    derived = pattern_str.format(
+                        first=first, last=last,
+                        f=first[0] if first else '',
+                        l=last[0] if last else '',
+                        domain=domain,
+                    )
+                    normalized['email'] = derived
+                    normalized['email_status'] = 'pattern_derived'
+                    normalized['email_source'] = 'pattern_derived'
+                except (KeyError, IndexError):
+                    pass
+            # Also fill in other leads of the same domain that lack emails
+            ps.apply_pattern_to_domain_leads(domain, pattern_str)
+    except Exception as e:
+        logger.debug(f"Pattern discovery skipped for {domain}: {e}")
+
+
+def _auto_enroll_in_outreach(lead_data: Dict[str, Any], enriched_id: str) -> None:
+    """
+    Auto-enroll a newly classified lead into the matching active cold-outreach
+    campaign, if one exists.  Basket E (Nurture) leads are skipped.
+    """
+    basket = lead_data.get('classification_basket')
+    email = lead_data.get('email')
+    if not basket or basket == 'E' or not email:
+        return
+
+    try:
+        from pymongo import MongoClient as _MC
+        import os as _os
+        _uri = _os.getenv('MONGO_URI') or _os.getenv('MONGODB_URI') or 'mongodb://localhost:27017/'
+        _torpedo_db = _MC(_uri, serverSelectionTimeoutMS=5000)[_os.getenv('MONGO_DB_NAME', 'torpedo')]
+        campaigns_col = _torpedo_db['outreach_campaigns_v2']
+        outreach_leads = _torpedo_db['outreach_leads_v2']
+        suppression = _torpedo_db['outreach_bounce_suppression']
+
+        email_lower = email.lower().strip()
+
+        # Check suppression
+        if suppression.find_one({'email': email_lower}):
+            return
+
+        BASKET_BUSINESS_MAP = {'A': 'sfw', 'B': 'cogentix', 'C': 'bimwave'}
+
+        if basket == 'D':
+            # Dual Fit: enroll into all 3 active campaigns with staggered starts
+            SEQUENCE_DURATION_DAYS = 12
+            DUAL_FIT_GAP_DAYS = 21
+            sequence_window = SEQUENCE_DURATION_DAYS + DUAL_FIT_GAP_DAYS
+            now = datetime.utcnow()
+            campaigns_found = []
+            for biz in ['sfw', 'cogentix', 'bimwave']:
+                c = campaigns_col.find_one({'business': biz, 'is_active': True})
+                if c:
+                    campaigns_found.append((biz, c))
+            for seq_idx, (biz, campaign) in enumerate(campaigns_found):
+                cid = campaign['campaign_id']
+                if outreach_leads.find_one({'email': email_lower, 'campaign_id': cid}):
+                    continue
+                from datetime import timedelta
+                start_offset = timedelta(days=seq_idx * sequence_window)
+                _basket = {'sfw': 'A', 'cogentix': 'B', 'bimwave': 'C'}.get(biz, 'A')
+                outreach_leads.insert_one({
+                    'lead_id': enriched_id,
+                    'campaign_id': cid,
+                    'email': email_lower,
+                    'name': lead_data.get('name', ''),
+                    'first_name': lead_data.get('first_name') or (lead_data.get('name') or '').split()[0] if lead_data.get('name') else '',
+                    'company_name': lead_data.get('company_name') or lead_data.get('company', ''),
+                    'title': lead_data.get('title', ''),
+                    'company_industry': lead_data.get('company_industry', ''),
+                    'seniority_level': lead_data.get('seniority_level', ''),
+                    'classification_basket': 'D',
+                    'lead_service_type': {'sfw': 'data_services', 'cogentix': 'consumer_insights', 'bimwave': 'bimwave'}.get(biz, 'data_services'),
+                    'personalization_level': 'medium',
+                    'workflow_status': 'not_started' if seq_idx == 0 else 'pending_scheduled',
+                    'current_step': 0,
+                    'next_send_at': now + start_offset,
+                    'dual_fit': True,
+                    'dual_fit_sequence_index': seq_idx + 1,
+                    'enrolled_at': now,
+                    'created_at': now,
+                    'updated_at': now,
+                })
+            return
+
+        # Regular basket (A/B/C)
+        biz = BASKET_BUSINESS_MAP.get(basket)
+        if not biz:
+            return
+        campaign = campaigns_col.find_one({'business': biz, 'is_active': True})
+        if not campaign:
+            logger.debug(f"No active campaign for basket {basket} ({biz}) — skipping auto-enrollment")
+            return
+        cid = campaign['campaign_id']
+
+        # Already enrolled?
+        if outreach_leads.find_one({'email': email_lower, 'campaign_id': cid}):
+            return
+
+        now = datetime.utcnow()
+        outreach_leads.insert_one({
+            'lead_id': enriched_id,
+            'campaign_id': cid,
+            'email': email_lower,
+            'name': lead_data.get('name', ''),
+            'first_name': lead_data.get('first_name') or (lead_data.get('name') or '').split()[0] if lead_data.get('name') else '',
+            'company_name': lead_data.get('company_name') or lead_data.get('company', ''),
+            'title': lead_data.get('title', ''),
+            'company_industry': lead_data.get('company_industry', ''),
+            'seniority_level': lead_data.get('seniority_level', ''),
+            'classification_basket': basket,
+            'lead_service_type': {'A': 'data_services', 'B': 'consumer_insights', 'C': 'bimwave'}.get(basket, 'data_services'),
+            'personalization_level': 'medium',
+            'workflow_status': 'not_started',
+            'current_step': 0,
+            'next_send_at': now,
+            'enrolled_at': now,
+            'created_at': now,
+            'updated_at': now,
+        })
+        logger.info(f"Auto-enrolled {email_lower} into campaign {cid} (basket {basket})")
+
+    except Exception as e:
+        logger.debug(f"Auto-enrollment skipped for {email}: {e}")
+
+
 def ingest_lead(
     payload: Dict[str, Any],
     source: str,
@@ -607,17 +821,23 @@ def ingest_lead(
     
     Pipeline:
     1. normalize_payload
-    2. deduplicate_by_email
-    3. validate_fields
-    4. conditional_enrichment
-    5. AI_classification
+    2. Strip guessed emails (websearch) / Store CSV email pattern
+    3. deduplicate_by_email
+    4. Discover email pattern via Skrapp if needed
+    5. Determine lead bracket
     6. insert_into_leads_raw
+    7. ALWAYS run rule-based ICP basket classification + sync to leads_enriched
+    8. Auto-enroll into matching cold outreach campaign
+    
+    NOTE: AI classification (Gemini) is NO LONGER run at import time.
+          It can still be triggered manually via bulk-classify.
     
     Args:
         payload: Raw lead data from source
         source: 'gmail' | 'websearch' | 'csv'
         source_detail: Additional context (e.g., 'email_extraction', 'linkedin_search')
-        skip_classification: Skip AI classification (for batch processing)
+        skip_classification: Legacy param (AI classification disabled at import regardless)
+        icp_segment: Optional ICP slug to tag this lead
     
     Returns:
         {
@@ -649,14 +869,22 @@ def ingest_lead(
             result['error'] = 'unknown_company'
             logger.info("Lead skipped: unknown company value")
             return result
-        
+
+        # Step 2a: For CSV leads — store the email pattern from known emails
+        if source == 'csv' and normalized.get('email'):
+            _store_csv_email_pattern(normalized)
+
+        # Step 2b: For websearch leads — strip guessed emails unless verified
+        if source == 'websearch' and normalized.get('email'):
+            _strip_guessed_email_if_unverified(normalized)
+
     except ValueError as e:
         result['error'] = str(e)
         logger.warning(f"Lead rejected: {e}")
         return result
     
     try:
-        # Step 2: Check for existing lead (dedup by email, or linkedin_url for no-email leads)
+        # Step 3: Check for existing lead (dedup by email, or linkedin_url for no-email leads)
         if normalized['email']:
             existing = leads_raw.find_one({'email': normalized['email']})
         else:
@@ -667,69 +895,11 @@ def ingest_lead(
             merged = deduplicate_and_merge(existing, normalized)
             merged['updated_at'] = datetime.utcnow()
 
-            # Step 3: Conditional enrichment
+            # Conditional enrichment status
             if needs_enrichment(merged):
                 merged['enrichment_status'] = 'needed'
             else:
                 merged['enrichment_status'] = 'skipped'
-
-            # Step 4: AI classification (if not already classified and not skipped)
-            if not skip_classification and merged.get('classification') == 'pending':
-                classification, confidence, full_result = classify_lead_ai(merged)
-                merged['classification'] = classification
-                merged['classification_confidence'] = confidence
-
-                # Store all AI enrichment fields if classification succeeded
-                if full_result:
-                    merged['classification_status'] = 'Classified'
-                    # Personal enrichment fields
-                    if full_result.get('first_name') and not merged.get('first_name'):
-                        merged['first_name'] = full_result['first_name']
-                    if full_result.get('last_name') and not merged.get('last_name'):
-                        merged['last_name'] = full_result['last_name']
-                    if full_result.get('predicted_email') and not merged.get('email'):
-                        merged['email'] = full_result['predicted_email']
-                    if full_result.get('inferred_location') and not merged.get('location'):
-                        merged['location'] = full_result['inferred_location']
-                    
-                    # AI Classification fields (always update from AI)
-                    merged['seniority_level'] = full_result.get('seniority_level')
-                    merged['department'] = full_result.get('department')
-                    merged['persona'] = full_result.get('persona')
-                    merged['buying_role'] = full_result.get('buying_role')
-                    merged['gender'] = full_result.get('gender')
-                    merged['company_size'] = full_result.get('company_size')
-                    merged['region'] = full_result.get('region')
-                    merged['confidence_score'] = full_result.get('confidence_score', confidence)
-                    
-                    # Company enrichment fields (prefer AI over existing)
-                    if full_result.get('company_name') and not is_unknown_company(full_result.get('company_name')):
-                        merged['company'] = full_result['company_name']
-                        merged['company_name'] = full_result['company_name']
-                    if full_result.get('company_domain') and not merged.get('company_domain'):
-                        merged['company_domain'] = full_result['company_domain']
-                    if full_result.get('company_website'):
-                        merged['company_website'] = full_result['company_website']
-                    if full_result.get('company_employee_count'):
-                        merged['company_employee_count'] = full_result['company_employee_count']
-                    if full_result.get('company_employee_count_range'):
-                        merged['company_employee_count_range'] = full_result['company_employee_count_range']
-                    if full_result.get('company_founded'):
-                        merged['company_founded'] = full_result['company_founded']
-                    if full_result.get('company_industry'):
-                        merged['company_industry'] = full_result['company_industry']
-                    if full_result.get('company_type'):
-                        merged['company_type'] = full_result['company_type']
-                    if full_result.get('company_headquarters'):
-                        merged['company_headquarters'] = full_result['company_headquarters']
-                    if full_result.get('company_revenue_range'):
-                        merged['company_revenue_range'] = full_result['company_revenue_range']
-                    if full_result.get('company_linkedin_url'):
-                        merged['company_linkedin_url'] = full_result['company_linkedin_url']
-                    
-                    merged['classified_at'] = datetime.utcnow()
-                else:
-                    merged['classification_status'] = 'Failed'
 
             # Recalculate bracket after merging
             merged['lead_bracket'] = determine_lead_bracket(merged)
@@ -739,16 +909,17 @@ def ingest_lead(
                 {'_id': existing['_id']},
                 {'$set': merged}
             )
-            result['email'] = normalized.get('email')
+            result['email'] = merged.get('email') or normalized.get('email')
             
-            # Sync to leads_enriched for frontend display (if classified or gmail)
-            if merged.get('classification_status') == 'Classified' or source == 'gmail':
-                enriched_id = sync_to_enriched(merged, str(existing['_id']))
-                if enriched_id:
-                    leads_raw.update_one(
-                        {'_id': existing['_id']},
-                        {'$set': {'enriched_lead_id': enriched_id}}
-                    )
+            # ALWAYS sync to leads_enriched with ICP basket (rule-based, no AI)
+            enriched_id = sync_to_enriched(merged, str(existing['_id']))
+            if enriched_id:
+                leads_raw.update_one(
+                    {'_id': existing['_id']},
+                    {'$set': {'enriched_lead_id': enriched_id}}
+                )
+                # Auto-enroll into outreach if basket is A-D and has email
+                _auto_enroll_in_outreach(merged, enriched_id)
             
             result['success'] = True
             result['action'] = 'updated'
@@ -757,69 +928,15 @@ def ingest_lead(
         else:
             # New lead
             
-            # Step 3: Conditional enrichment
+            # Conditional enrichment status
             if needs_enrichment(normalized):
                 normalized['enrichment_status'] = 'needed'
             else:
                 normalized['enrichment_status'] = 'skipped'
-            
-            # Step 4: AI classification (if not skipped)
-            if not skip_classification:
-                classification, confidence, full_result = classify_lead_ai(normalized)
-                normalized['classification'] = classification
-                normalized['classification_confidence'] = confidence
-                
-                # Store all AI enrichment fields if classification succeeded
-                if full_result:
-                    normalized['classification_status'] = 'Classified'
-                    # Personal enrichment fields
-                    if full_result.get('first_name') and not normalized.get('first_name'):
-                        normalized['first_name'] = full_result['first_name']
-                    if full_result.get('last_name') and not normalized.get('last_name'):
-                        normalized['last_name'] = full_result['last_name']
-                    if full_result.get('predicted_email') and not normalized.get('email'):
-                        normalized['email'] = full_result['predicted_email']
-                    if full_result.get('inferred_location') and not normalized.get('location'):
-                        normalized['location'] = full_result['inferred_location']
-                    
-                    # AI Classification fields (always update from AI)
-                    normalized['seniority_level'] = full_result.get('seniority_level')
-                    normalized['department'] = full_result.get('department')
-                    normalized['persona'] = full_result.get('persona')
-                    normalized['buying_role'] = full_result.get('buying_role')
-                    normalized['gender'] = full_result.get('gender')
-                    normalized['company_size'] = full_result.get('company_size')
-                    normalized['region'] = full_result.get('region')
-                    normalized['confidence_score'] = full_result.get('confidence_score', confidence)
-                    
-                    # Company enrichment fields (prefer AI over existing)
-                    if full_result.get('company_name') and not is_unknown_company(full_result.get('company_name')):
-                        normalized['company'] = full_result['company_name']
-                        normalized['company_name'] = full_result['company_name']
-                    if full_result.get('company_domain') and not normalized.get('company_domain'):
-                        normalized['company_domain'] = full_result['company_domain']
-                    if full_result.get('company_website'):
-                        normalized['company_website'] = full_result['company_website']
-                    if full_result.get('company_employee_count'):
-                        normalized['company_employee_count'] = full_result['company_employee_count']
-                    if full_result.get('company_employee_count_range'):
-                        normalized['company_employee_count_range'] = full_result['company_employee_count_range']
-                    if full_result.get('company_founded'):
-                        normalized['company_founded'] = full_result['company_founded']
-                    if full_result.get('company_industry'):
-                        normalized['company_industry'] = full_result['company_industry']
-                    if full_result.get('company_type'):
-                        normalized['company_type'] = full_result['company_type']
-                    if full_result.get('company_headquarters'):
-                        normalized['company_headquarters'] = full_result['company_headquarters']
-                    if full_result.get('company_revenue_range'):
-                        normalized['company_revenue_range'] = full_result['company_revenue_range']
-                    if full_result.get('company_linkedin_url'):
-                        normalized['company_linkedin_url'] = full_result['company_linkedin_url']
-                    
-                    normalized['classified_at'] = datetime.utcnow()
-                else:
-                    normalized['classification_status'] = 'Failed'
+
+            # Step 4: Discover email pattern via Skrapp if lead has no email
+            if not normalized.get('email') and normalized.get('company_domain'):
+                _discover_and_apply_email_pattern(normalized)
 
             # Step 5: Determine lead bracket
             normalized['lead_bracket'] = determine_lead_bracket(normalized)
@@ -827,29 +944,15 @@ def ingest_lead(
             # Step 6: Insert into leads_raw
             insert_result = leads_raw.insert_one(normalized)
 
-            # Sync to leads_enriched for frontend display (if classified or gmail)
-            if normalized.get('classification_status') == 'Classified' or source == 'gmail':
-                enriched_id = sync_to_enriched(normalized, str(insert_result.inserted_id))
-                if enriched_id:
-                    leads_raw.update_one(
-                        {'_id': insert_result.inserted_id},
-                        {'$set': {'enriched_lead_id': enriched_id}}
-                    )
-
-            # Post-insert: Skrapp company email pattern discovery
-            # Runs when lead has no email but we have a company domain + name
-            domain = normalized.get('company_domain')
-            if not normalized.get('email') and domain:
-                try:
-                    from .email_pattern_system import get_pattern_system
-                    ps = get_pattern_system()
-                    first = normalized.get('first_name') or 'test'
-                    last = normalized.get('last_name') or 'user'
-                    pattern_str = ps.discover_company_email_pattern(domain, first, last)
-                    if pattern_str:
-                        ps.apply_pattern_to_domain_leads(domain, pattern_str)
-                except Exception as _skrapp_err:
-                    logger.debug(f"Skrapp pattern discovery skipped: {_skrapp_err}")
+            # Step 7: ALWAYS sync to leads_enriched with ICP basket (rule-based, no AI)
+            enriched_id = sync_to_enriched(normalized, str(insert_result.inserted_id))
+            if enriched_id:
+                leads_raw.update_one(
+                    {'_id': insert_result.inserted_id},
+                    {'$set': {'enriched_lead_id': enriched_id}}
+                )
+                # Step 8: Auto-enroll into outreach if basket is A-D and has email
+                _auto_enroll_in_outreach(normalized, enriched_id)
 
             result['success'] = True
             result['action'] = 'inserted'

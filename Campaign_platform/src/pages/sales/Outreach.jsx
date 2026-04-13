@@ -459,6 +459,7 @@ function Outreach() {
             {[
               { key: "templates", label: "📝 Templates" },
               { key: "context",   label: "🏢 AI Context" },
+              { key: "leads",     label: "📋 Leads" },
               { key: "stats",     label: "📊 Stats" },
               { key: "mailboxes", label: "📬 Mailboxes" },
               { key: "suppression", label: "🚫 Suppression" },
@@ -579,6 +580,11 @@ function Outreach() {
                 onSave={() => saveContext(selectedCampaign?.campaign_id)}
                 saving={savingContext}
               />
+            )}
+
+            {/* ── Leads by status tab ──────────────────────────────────── */}
+            {activeTab === "leads" && (
+              <LeadsByStatusPanel campaignId={selectedCampaign?.campaign_id} />
             )}
 
             {/* ── Stats tab ──────────────────────────────────────────────── */}
@@ -844,6 +850,124 @@ function MailboxTable({ mailboxes, filterBiz, onRemove }) {
         ))}
       </tbody>
     </table>
+  )
+}
+
+function LeadsByStatusPanel({ campaignId }) {
+  const [sends, setSends] = useState([])
+  const [summary, setSummary] = useState({})
+  const [loading, setLoading] = useState(false)
+  const [statusFilter, setStatusFilter] = useState("all")
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [total, setTotal] = useState(0)
+
+  useEffect(() => {
+    if (!campaignId) return
+    setLoading(true)
+    const params = new URLSearchParams({ status: statusFilter, page: String(page), limit: "50" })
+    fetch(buildApiUrl(`/api/cold-outreach/campaigns/${campaignId}/leads-by-status?${params}`), { headers: AUTH() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d) {
+          setSends(d.sends || [])
+          setSummary(d.summary || {})
+          setTotalPages(d.pages || 1)
+          setTotal(d.total || 0)
+        }
+      })
+      .finally(() => setLoading(false))
+  }, [campaignId, statusFilter, page])
+
+  if (!campaignId) return <p style={{ color: "#6b7280" }}>Create a campaign first.</p>
+
+  const STATUS_TABS = [
+    { key: "all",        label: "All",        count: summary.total_sent,  color: "#6b7280", bg: "#f3f4f6" },
+    { key: "opened",     label: "Opened",     count: summary.opened,     color: "#059669", bg: "#d1fae5" },
+    { key: "not_opened", label: "Not Opened", count: summary.not_opened, color: "#d97706", bg: "#fef3c7" },
+    { key: "bounced",    label: "Bounced",    count: summary.bounced,    color: "#dc2626", bg: "#fee2e2" },
+    { key: "replied",    label: "Replied",    count: summary.replied,    color: "#2563eb", bg: "#dbeafe" },
+  ]
+
+  return (
+    <div>
+      {/* Status filter badges */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        {STATUS_TABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => { setStatusFilter(t.key); setPage(1) }}
+            style={{
+              padding: "6px 14px", borderRadius: 9999, border: "none", cursor: "pointer",
+              fontSize: "0.8rem", fontWeight: statusFilter === t.key ? 700 : 500,
+              background: statusFilter === t.key ? t.bg : "#f9fafb",
+              color: statusFilter === t.key ? t.color : "#6b7280",
+              outline: statusFilter === t.key ? `2px solid ${t.color}` : "1px solid #e5e7eb",
+            }}
+          >
+            {t.label} {t.count != null ? `(${t.count})` : ""}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="loading-container"><div className="loading-spinner" /></div>
+      ) : sends.length === 0 ? (
+        <p style={{ textAlign: "center", color: "#9ca3af", padding: 32 }}>No emails matching this filter.</p>
+      ) : (
+        <>
+          <table className="data-table" style={{ width: "100%" }}>
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Step</th>
+                <th>Subject</th>
+                <th>Status</th>
+                <th>Opens</th>
+                <th>Clicks</th>
+                <th>Replied</th>
+                <th>Sent At</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sends.map(s => {
+                const isOpen = (s.open_count || 0) > 0
+                const isBounce = s.status === "bounced"
+                const isReply = s.reply_received
+                const statusLabel = isBounce ? "Bounced" : isReply ? "Replied" : isOpen ? "Opened" : "Not Opened"
+                const statusColor = isBounce ? "#dc2626" : isReply ? "#2563eb" : isOpen ? "#059669" : "#d97706"
+                const statusBg = isBounce ? "#fee2e2" : isReply ? "#dbeafe" : isOpen ? "#d1fae5" : "#fef3c7"
+                return (
+                  <tr key={s._id}>
+                    <td style={{ fontFamily: "monospace", fontSize: "0.85rem" }}>{s.email}</td>
+                    <td>Step {(s.workflow_step || 0) + 1}</td>
+                    <td style={{ maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.subject || "—"}</td>
+                    <td>
+                      <span style={{ padding: "2px 8px", borderRadius: 9999, fontSize: "0.75rem", fontWeight: 600, background: statusBg, color: statusColor }}>
+                        {statusLabel}
+                      </span>
+                    </td>
+                    <td>{s.open_count || 0}</td>
+                    <td>{s.click_count || 0}</td>
+                    <td>{isReply ? <span style={{ color: "#2563eb" }}>✓ {s.reply_snippet ? s.reply_snippet.slice(0, 60) + "…" : "Yes"}</span> : "—"}</td>
+                    <td style={{ fontSize: "0.8rem", color: "#6b7280" }}>{s.created_at ? new Date(s.created_at).toLocaleString() : "—"}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 16, alignItems: "center" }}>
+              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #e5e7eb", cursor: page <= 1 ? "not-allowed" : "pointer", opacity: page <= 1 ? 0.5 : 1, background: "#fff" }}>←</button>
+              <span style={{ fontSize: "0.85rem", color: "#374151" }}>Page {page} of {totalPages} ({total} total)</span>
+              <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #e5e7eb", cursor: page >= totalPages ? "not-allowed" : "pointer", opacity: page >= totalPages ? 0.5 : 1, background: "#fff" }}>→</button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   )
 }
 

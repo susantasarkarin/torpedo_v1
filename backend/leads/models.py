@@ -576,6 +576,7 @@ class LeadFilterParams(BaseModel):
     search: Optional[str] = None
     fit_tier: Optional[int] = None
     basket: Optional[str] = None
+    qualified_only: bool = False  # If True, show only Gmail contacts + outreach-replied leads
     page: int = 1
     limit: int = 50
 

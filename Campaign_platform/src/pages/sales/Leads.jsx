@@ -1,7 +1,7 @@
 /**
  * Sales Leads Page
- * Reads from leads_enriched via GET /leads — same data source as AI Database.
- * Table UI matches AILeads.jsx style.
+ * Shows ONLY qualified leads: Gmail contacts + cold outreach replies.
+ * Reads from leads_enriched via GET /leads?qualified_only=true
  */
 import { useEffect, useState, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
@@ -44,7 +44,7 @@ function Leads() {
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ page: String(page), limit: "50" })
+      const params = new URLSearchParams({ page: String(page), limit: "50", qualified_only: "true" })
       if (search) params.set("search", search)
       if (fitTier) params.set("fit_tier", fitTier)
       if (basket) params.set("basket", basket)
@@ -95,7 +95,7 @@ function Leads() {
       <div className="page-header">
         <div className="header-left">
           <h1>Sales Leads</h1>
-          <p className="subtitle">{total.toLocaleString()} leads from AI Database</p>
+          <p className="subtitle">{total.toLocaleString()} qualified leads (Gmail contacts &amp; outreach replies)</p>
         </div>
         <div className="header-actions">
           <button
@@ -174,12 +174,10 @@ function Leads() {
           style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #e5e7eb", fontSize: "0.9rem" }}
         >
           <option value="">All Sources</option>
-          <option value="csv_import">📄 CSV Import</option>
-          <option value="web_search">🌐 Web Search</option>
-          <option value="google_search">🔍 Google Search</option>
-          <option value="linkedin">💼 LinkedIn</option>
           <option value="gmail">✉️ Gmail</option>
-          <option value="manual">✋ Manual</option>
+          <option value="gmail_contact">📇 Gmail Contact</option>
+          <option value="gmail_calendar">📅 Gmail Calendar</option>
+          <option value="outreach_reply">💬 Outreach Reply</option>
         </select>
       </div>
 
@@ -234,11 +232,10 @@ function Leads() {
                   <td>{lead.company_industry || "—"}</td>
                   <td>
                     <span className={`source-badge ${(lead.source || "").replace(/_/g, "-")}`}>
-                      {lead.source === "web_search" ? "🌐 Web" :
-                       lead.source === "google_search" ? "🔍 Google" :
-                       lead.source === "csv" || lead.source === "csv_import" ? "📄 CSV" :
-                       lead.source === "linkedin" ? "💼 LinkedIn" :
-                       lead.source === "gmail" ? "✉️ Gmail" :
+                      {lead.source === "gmail" ? "✉️ Gmail" :
+                       lead.source === "gmail_contact" ? "📧 Contact" :
+                       lead.source === "gmail_calendar" ? "📅 Calendar" :
+                       lead.source === "outreach_reply" ? "💬 Reply" :
                        lead.source || "Unknown"}
                     </span>
                   </td>

@@ -1294,6 +1294,7 @@ async def get_leads_endpoint(
     search: Optional[str] = None,
     fit_tier: Optional[int] = None,
     basket: Optional[str] = None,
+    qualified_only: bool = Query(False, description="If true, show only Gmail contacts + outreach-replied leads"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200)
 ):
@@ -1304,6 +1305,8 @@ async def get_leads_endpoint(
     Args:
         source: Filter by source (google_search, csv_import, gmail, etc.). 
                 Supports comma-separated values for multiple sources.
+        qualified_only: When true, restrict results to Gmail contacts and
+                        outreach-replied leads (used by the Sales Leads page).
     """
     filters = LeadFilterParams(
         seniority_level=seniority_level,
@@ -1318,6 +1321,7 @@ async def get_leads_endpoint(
         search=search,
         fit_tier=fit_tier,
         basket=basket,
+        qualified_only=qualified_only,
         page=page,
         limit=limit
     )

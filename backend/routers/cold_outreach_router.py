@@ -2053,14 +2053,38 @@ def process_outreach_bounces_and_replies() -> dict:
                             }},
                         )
                         # Mark lead as replied (stops further sends in sequence)
-                        db["outreach_leads_v2"].update_one(
+                        outreach_lead = db["outreach_leads_v2"].find_one_and_update(
                             {"_id": ObjectId(send["outreach_lead_id"])},
                             {"$set": {
                                 "workflow_status": "replied",
                                 "replied_at": now,
                                 "updated_at": now,
                             }},
+                            return_document=True,
                         )
+
+                        # Promote replied lead to the Leads module
+                        # (upsert into leads_enriched with source="outreach_reply")
+                        if outreach_lead:
+                            try:
+                                leads_db = get_leads_db()
+                                reply_email = (outreach_lead.get("email") or "").lower().strip()
+                                if reply_email:
+                                    leads_db["leads_enriched"].update_one(
+                                        {"email": reply_email},
+                                        {"$set": {
+                                            "source": "outreach_reply",
+                                            "stage": "new",
+                                            "outreach_replied_at": now,
+                                            "outreach_campaign_id": send.get("campaign_id"),
+                                            "reply_subject": subject[:200],
+                                            "reply_snippet": (body_text or "")[:300],
+                                            "updated_at": now,
+                                        }},
+                                    )
+                            except Exception:
+                                pass
+
                         replies += 1
 
         # Update scan watermark
@@ -2097,3 +2121,76 @@ def trigger_bounce_reply_scan():
     """Manually trigger one cycle of the bounce & reply scanner."""
     result = process_outreach_bounces_and_replies()
     return {"ok": True, **result}
+
+
+@router.get("/campaigns/{campaign_id}/leads-by-status")
+def get_leads_by_status(
+    campaign_id: str,
+    status: str = Query("all", description="Filter: all|opened|not_opened|bounced|replied|sent"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """
+    GET /api/cold-outreach/campaigns/{campaign_id}/leads-by-status
+    Returns outreach sends bucketed by email status:
+      - sent:       all sent (excluding bounced)
+      - opened:     open_count > 0
+      - not_opened: open_count == 0 and status != 'bounced'
+      - bounced:    status == 'bounced'
+      - replied:    reply_received == True
+    """
+    db = get_db()
+    sends_col = db["outreach_sends_v2"]
+
+    query: Dict[str, Any] = {"campaign_id": campaign_id}
+
+    if status == "opened":
+        query["open_count"] = {"$gt": 0}
+        query["status"] = {"$ne": "bounced"}
+    elif status == "not_opened":
+        query["$or"] = [{"open_count": 0}, {"open_count": {"$exists": False}}]
+        query["status"] = {"$ne": "bounced"}
+        query["reply_received"] = {"$ne": True}
+    elif status == "bounced":
+        query["status"] = "bounced"
+    elif status == "replied":
+        query["reply_received"] = True
+    elif status == "sent":
+        query["status"] = {"$ne": "bounced"}
+    # else "all" — no extra filter
+
+    total = sends_col.count_documents(query)
+    skip = (page - 1) * limit
+    sends = list(
+        sends_col.find(query, {
+            "send_id": 1, "email": 1, "from_email": 1,
+            "workflow_step": 1, "subject": 1, "status": 1,
+            "open_count": 1, "click_count": 1,
+            "reply_received": 1, "replied_at": 1,
+            "reply_from": 1, "reply_subject": 1, "reply_snippet": 1,
+            "last_opened_at": 1, "bounced_at": 1,
+            "created_at": 1,
+        })
+        .sort("created_at", -1)
+        .skip(skip)
+        .limit(limit)
+    )
+    for s in sends:
+        s["_id"] = str(s["_id"])
+
+    # Quick summary counts for header badges
+    summary = {
+        "total_sent": sends_col.count_documents({"campaign_id": campaign_id}),
+        "opened": sends_col.count_documents({"campaign_id": campaign_id, "open_count": {"$gt": 0}}),
+        "bounced": sends_col.count_documents({"campaign_id": campaign_id, "status": "bounced"}),
+        "replied": sends_col.count_documents({"campaign_id": campaign_id, "reply_received": True}),
+    }
+    summary["not_opened"] = summary["total_sent"] - summary["opened"] - summary["bounced"]
+
+    return {
+        "sends": sends,
+        "total": total,
+        "page": page,
+        "pages": (total + limit - 1) // limit,
+        "summary": summary,
+    }
