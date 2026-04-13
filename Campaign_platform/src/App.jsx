@@ -56,6 +56,7 @@ const Templates = lazy(() => import("./pages/sales/campaign/Templates"))
 const Workflow = lazy(() => import("./pages/sales/campaign/Workflow"))
 const Reports = lazy(() => import("./pages/sales/campaign/Reports"))
 const OutreachMonitor = lazy(() => import("./pages/sales/campaign/OutreachMonitor"))
+const EmailPatterns = lazy(() => import("./pages/sales/campaign/EmailPatterns"))
 const ColdOutreach = lazy(() => import("./pages/sales/Outreach"))
 const AILeads = lazy(() => import("./pages/sales/campaign/AILeads"))
 const AILeadDetail = lazy(() => import("./pages/sales/campaign/AILeadDetail"))
@@ -210,6 +211,7 @@ function App() {
         <Route path="sales/campaign/workflow" element={<LazyPage><Workflow /></LazyPage>} />
         <Route path="sales/campaign/reports" element={<LazyPage><Reports /></LazyPage>} />
         <Route path="sales/campaign/outreach-monitor" element={<LazyPage><OutreachMonitor /></LazyPage>} />
+        <Route path="sales/campaign/email-patterns" element={<LazyPage><EmailPatterns /></LazyPage>} />
         <Route path="sales/outreach" element={<LazyPage><ColdOutreach /></LazyPage>} />
 
         {/* AI Agent Routes */}

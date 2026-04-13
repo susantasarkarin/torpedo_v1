@@ -82,6 +82,12 @@ function RightSidebar() {
                     Outreach Monitor
                   </Link>
                 </li>
+                <li className={`sidebar-item ${isActive("/admin/sales/campaign/email-patterns") ? "active" : ""}`}>
+                  <Link to="/admin/sales/campaign/email-patterns" className="sidebar-link submenu-link">
+                    <span className="sidebar-icon">📧</span>
+                    Email Patterns
+                  </Link>
+                </li>
                 <li className={`sidebar-item ${isActive("/admin/sales/outreach") ? "active" : ""}`}>
                   <Link to="/admin/sales/outreach" className="sidebar-link submenu-link">
                     <span className="sidebar-icon">📨</span>
