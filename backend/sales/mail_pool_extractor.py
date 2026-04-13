@@ -27,6 +27,36 @@ from pymongo import MongoClient
 
 logger = logging.getLogger(__name__)
 
+# Canonical ingestion — the ONLY way leads should enter the system
+def _ingest_via_canonical(lead_data: Dict[str, Any]) -> Optional[str]:
+    """Route a mail-pool lead through canonical ingestion into email_automation.leads_enriched."""
+    try:
+        from leads.canonical_ingestion import ingest_lead
+    except ImportError:
+        from backend.leads.canonical_ingestion import ingest_lead
+
+    payload = {
+        "email": lead_data.get("email"),
+        "first_name": lead_data.get("first_name"),
+        "last_name": lead_data.get("last_name"),
+        "name": lead_data.get("name"),
+        "company": lead_data.get("company"),
+        "company_domain": lead_data.get("domain"),
+    }
+    result = ingest_lead(payload, source="gmail", source_detail="mail_pool_extraction")
+    if result and result.get("lead_id"):
+        return result["lead_id"]
+    return None
+
+
+def _is_duplicate_in_enriched(email: str) -> bool:
+    """Check if a lead with this email already exists in leads_enriched (the canonical collection)."""
+    try:
+        from leads.canonical_ingestion import leads_enriched
+    except ImportError:
+        from backend.leads.canonical_ingestion import leads_enriched
+    return leads_enriched.count_documents({"email": email}, limit=1) > 0
+
 # ─────────────────────────────────────────────────────
 #  REGEX PATTERNS
 # ─────────────────────────────────────────────────────
@@ -230,8 +260,8 @@ def extract_lead_from_email_record(email_record: Dict[str, Any]) -> Optional[Dic
 # ─────────────────────────────────────────────────────
 
 def _is_duplicate(leads_col, email: str) -> bool:
-    """Check if a lead with this email already exists in the leads collection."""
-    return leads_col.count_documents({"email": email}, limit=1) > 0
+    """Check if a lead with this email already exists in leads_enriched (canonical collection)."""
+    return _is_duplicate_in_enriched(email)
 
 
 def _mark_email_processed(mail_col, email_id) -> None:
@@ -262,7 +292,7 @@ def extract_leads_from_mail_pool_batch(
 ) -> Dict[str, Any]:
     """
     Scan the email_metadata collection for emails received in the last `since_hours` hours,
-    extract structured leads using regex/code only, and insert new ones into the leads collection.
+    extract structured leads using regex/code only, and insert new ones via canonical ingestion.
 
     Args:
         since_hours: How far back to look in the mail pool.
@@ -272,7 +302,6 @@ def extract_leads_from_mail_pool_batch(
         Summary dict with counts and errors.
     """
     mail_col = _get_mail_db()["email_metadata"]
-    leads_col = get_background_db()["leads"]
 
     since = datetime.utcnow() - timedelta(hours=since_hours)
 
@@ -304,19 +333,24 @@ def extract_leads_from_mail_pool_batch(
                 skipped_excluded += 1
                 continue
 
-            if _is_duplicate(leads_col, lead["email"]):
+            if _is_duplicate_in_enriched(lead["email"]):
                 skipped_duplicate += 1
                 _mark_email_processed(mail_col, record.get("_id"))
                 continue
 
-            leads_col.insert_one(lead)
-            _mark_email_processed(mail_col, record.get("_id"))
-            inserted += 1
+            lead_id = _ingest_via_canonical(lead)
+            if lead_id:
+                _mark_email_processed(mail_col, record.get("_id"))
+                inserted += 1
 
-            logger.info(
-                f"[MailPool] Extracted lead: {lead['name']} <{lead['email']}> "
-                f"@ {lead['company']}"
-            )
+                logger.info(
+                    f"[MailPool] Extracted lead via canonical ingestion: {lead['name']} <{lead['email']}> "
+                    f"@ {lead['company']} (lead_id={lead_id})"
+                )
+            else:
+                errors += 1
+                error_details.append(f"Canonical ingestion returned no ID for {lead['email']}")
+                _mark_email_processed(mail_col, record.get("_id"))
 
         except Exception as e:
             errors += 1
@@ -344,7 +378,6 @@ def extract_leads_from_existing_pool(limit: int = 2000) -> Dict[str, Any]:
     Same logic as the batch extraction but without a time filter.
     """
     mail_col = _get_mail_db()["email_metadata"]
-    leads_col = get_background_db()["leads"]
 
     cursor = mail_col.find(
         {"lead_extracted": {"$ne": True}},
@@ -365,14 +398,18 @@ def extract_leads_from_existing_pool(limit: int = 2000) -> Dict[str, Any]:
                 skipped_excluded += 1
                 continue
 
-            if _is_duplicate(leads_col, lead["email"]):
+            if _is_duplicate_in_enriched(lead["email"]):
                 skipped_duplicate += 1
                 _mark_email_processed(mail_col, record.get("_id"))
                 continue
 
-            leads_col.insert_one(lead)
-            _mark_email_processed(mail_col, record.get("_id"))
-            inserted += 1
+            lead_id = _ingest_via_canonical(lead)
+            if lead_id:
+                _mark_email_processed(mail_col, record.get("_id"))
+                inserted += 1
+            else:
+                errors += 1
+                error_details.append(f"Canonical ingestion returned no ID for {lead['email']}")
 
         except Exception as e:
             errors += 1

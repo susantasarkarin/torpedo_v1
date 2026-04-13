@@ -20,14 +20,18 @@ Collections used:
   leads_enriched               — source of truth for leads to enroll
 """
 
+import base64 as _b64_module
 import logging
 import os
+import re as _re
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote as _url_quote, unquote as _url_unquote
 
 from bson import ObjectId
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, EmailStr
 from pymongo import MongoClient
 
@@ -88,6 +92,7 @@ class StepTemplate(BaseModel):
     subject: str
     body_html: str
     body_text: str = ""
+    attachments: List[Dict[str, Any]] = []  # [{filename, content_b64, mime_type}]
 
 
 class CreateCampaignRequest(BaseModel):
@@ -683,6 +688,67 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
     return {"ok": True, "sent_to": req.recipient_email, "from": sender_email}
 
 
+# ── CSV / File attachment upload for campaign steps ────────────────────────────
+
+@router.post("/campaigns/{campaign_id}/steps/{step_number}/attachments")
+async def upload_step_attachment(campaign_id: str, step_number: int, file: UploadFile = File(...)):
+    """
+    Upload a file attachment (CSV, PDF, etc.) for a specific campaign step.
+    The file is stored as base64 in the step's attachments array in MongoDB.
+    """
+    import base64 as _b64
+
+    db = get_db()
+    campaign = db["outreach_campaigns_v2"].find_one({"campaign_id": campaign_id})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+
+    # Read file content
+    content_bytes = await file.read()
+    max_size = 10 * 1024 * 1024  # 10 MB limit
+    if len(content_bytes) > max_size:
+        raise HTTPException(400, f"File too large. Maximum size is {max_size // (1024*1024)} MB.")
+
+    content_b64 = _b64.b64encode(content_bytes).decode("utf-8")
+    mime_type = file.content_type or "application/octet-stream"
+    filename = file.filename or "attachment"
+
+    attachment_doc = {
+        "filename": filename,
+        "content_b64": content_b64,
+        "mime_type": mime_type,
+        "size_bytes": len(content_bytes),
+        "uploaded_at": datetime.utcnow().isoformat(),
+    }
+
+    # Upsert into the step's attachments array
+    # steps is an array — find the matching step and push attachment
+    result = db["outreach_campaigns_v2"].update_one(
+        {"campaign_id": campaign_id, "steps.step_number": step_number},
+        {"$push": {
+            "steps.$.attachments": attachment_doc,
+        }},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, f"Step {step_number} not found in campaign")
+
+    logger.info(f"Attachment '{filename}' ({mime_type}, {len(content_bytes)} bytes) uploaded to campaign {campaign_id} step {step_number}")
+    return {"ok": True, "filename": filename, "size_bytes": len(content_bytes)}
+
+
+@router.delete("/campaigns/{campaign_id}/steps/{step_number}/attachments/{filename}")
+def remove_step_attachment(campaign_id: str, step_number: int, filename: str):
+    """Remove a specific attachment from a campaign step by filename."""
+    db = get_db()
+    result = db["outreach_campaigns_v2"].update_one(
+        {"campaign_id": campaign_id, "steps.step_number": step_number},
+        {"$pull": {"steps.$.attachments": {"filename": filename}}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Campaign or step not found")
+    return {"ok": True}
+
+
 @router.post("/campaigns/{campaign_id}/launch")
 def launch_campaign(campaign_id: str, background_tasks: BackgroundTasks):
     db = get_db()
@@ -1076,104 +1142,99 @@ def enroll_dual_fit(background_tasks: BackgroundTasks):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  AWS SES — SNS BOUNCE / COMPLAINT WEBHOOK
+#  OPEN / CLICK TRACKING  (self-hosted — works with Gmail API sends)
 # ══════════════════════════════════════════════════════════════════════════════
 
-@router.post("/ses/sns-webhook")
-async def ses_sns_webhook(request: Request):
+# Env var: public-facing backend URL, e.g. https://api.mydomain.com
+# If unset, tracking pixel + link rewriting are silently skipped (dev safety).
+TRACKING_BASE_URL: str = os.getenv("TRACKING_BASE_URL", "").rstrip("/")
+
+# 1×1 transparent PNG (68 bytes)
+_TRANSPARENT_PIXEL = _b64_module.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQAB"
+    "Nl7BcQAAAABJRU5ErkJggg=="
+)
+
+
+@router.get("/track/open/{send_id}")
+async def track_open(send_id: str):
     """
-    Receives bounce and complaint notifications from AWS SNS.
-
-    Setup in AWS:
-      1. SES → Configuration Set → Event Destinations → SNS topic
-      2. SNS → Subscriptions → HTTP(S) endpoint:
-         https://yourdomain.com/api/cold-outreach/ses/sns-webhook
-      3. Confirm the subscription (AWS sends a SubscribeURL — we auto-confirm below)
-
-    Events handled:
-      - Bounce (Permanent)  → add to global suppression list
-      - Bounce (Transient)  → log only (don't suppress)
-      - Complaint           → add to global suppression list
+    Records an email-open event and returns a 1×1 transparent PNG.
+    The tracking pixel is injected into outgoing emails by _inject_open_tracking().
     """
-    import json as _json
-    import urllib.request
-
-    body = await request.body()
     try:
-        payload = _json.loads(body)
-    except Exception:
-        logger.warning("SNS webhook: could not parse body")
-        return {"ok": False}
-
-    msg_type = payload.get("Type") or request.headers.get("x-amz-sns-message-type", "")
-
-    # ── SNS subscription confirmation ─────────────────────────────────────────
-    if msg_type == "SubscriptionConfirmation":
-        confirm_url = payload.get("SubscribeURL")
-        if confirm_url:
-            try:
-                urllib.request.urlopen(confirm_url, timeout=5)
-                logger.info(f"SNS subscription confirmed: {confirm_url[:80]}")
-            except Exception as e:
-                logger.error(f"SNS subscription confirm failed: {e}")
-        return {"ok": True, "confirmed": True}
-
-    # ── Notification ──────────────────────────────────────────────────────────
-    if msg_type == "Notification":
-        try:
-            message = _json.loads(payload.get("Message", "{}"))
-        except Exception:
-            return {"ok": False}
-
-        notification_type = message.get("notificationType")
         db = get_db()
-        suppression = db["outreach_bounce_suppression"]
-        leads_enriched = get_leads_db()["leads_enriched"]
+        db["outreach_sends_v2"].update_one(
+            {"send_id": send_id},
+            {"$inc": {"open_count": 1}, "$set": {"last_opened_at": datetime.utcnow()}},
+        )
+    except Exception as exc:
+        logger.error(f"Open-track write failed for send_id={send_id}: {exc}")
+
+    return Response(
+        content=_TRANSPARENT_PIXEL,
+        media_type="image/png",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
+@router.get("/track/click/{send_id}")
+async def track_click(send_id: str, url: str = Query(...)):
+    """
+    Records a click event and 302-redirects to the original URL.
+    Links in outgoing emails are rewritten by _rewrite_links_for_click_tracking().
+    """
+    decoded_url = _url_unquote(url)
+
+    # Basic URL validation — only allow http(s) redirects
+    if not decoded_url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="Invalid redirect URL")
+
+    try:
+        db = get_db()
         now = datetime.utcnow()
+        db["outreach_sends_v2"].update_one(
+            {"send_id": send_id},
+            {
+                "$inc": {"click_count": 1},
+                "$set": {"last_clicked_at": now},
+                "$push": {"clicks": {"url": decoded_url, "at": now}},
+            },
+        )
+    except Exception as exc:
+        logger.error(f"Click-track write failed for send_id={send_id}: {exc}")
 
-        def _suppress(email: str, reason: str):
-            email = email.lower().strip()
-            try:
-                suppression.update_one(
-                    {"email": email},
-                    {"$setOnInsert": {
-                        "email": email,
-                        "bounced_at": now,
-                        "reason": reason,
-                        "source": "ses_sns",
-                        "created_at": now,
-                    }},
-                    upsert=True,
-                )
-                leads_enriched.update_many(
-                    {"email": email},
-                    {"$set": {"email_status": reason, "bounce_suppressed": True, "bounced_at": now}},
-                )
-                logger.info(f"SNS suppressed: {email} ({reason})")
-            except Exception as e:
-                logger.warning(f"SNS suppression write failed for {email}: {e}")
+    return RedirectResponse(url=decoded_url, status_code=302)
 
-        if notification_type == "Bounce":
-            bounce = message.get("bounce", {})
-            bounce_type = bounce.get("bounceType", "")
-            if bounce_type == "Permanent":
-                for r in bounce.get("bouncedRecipients", []):
-                    _suppress(r.get("emailAddress", ""), "bounced")
-            else:
-                # Transient bounce — log but don't suppress
-                for r in bounce.get("bouncedRecipients", []):
-                    logger.warning(f"Transient bounce (not suppressed): {r.get('emailAddress')}")
 
-        elif notification_type == "Complaint":
-            complaint = message.get("complaint", {})
-            for r in complaint.get("complainedRecipients", []):
-                _suppress(r.get("emailAddress", ""), "complaint")
+# ── Helpers: inject pixel & rewrite links in outgoing HTML ────────────────────
 
-        elif notification_type == "Delivery":
-            # Optional: mark as delivered in outreach_sends_v2 if needed
-            pass
+def _inject_open_tracking(html_body: str, send_id: str, base_url: str) -> str:
+    """Insert a 1×1 open-tracking pixel before </body> (or append)."""
+    pixel = (
+        f'<img src="{base_url}/api/cold-outreach/track/open/{send_id}" '
+        f'width="1" height="1" style="display:none" alt="">'
+    )
+    if "</body>" in html_body.lower():
+        return _re.sub(r"(</body>)", f"{pixel}\\1", html_body, flags=_re.IGNORECASE)
+    return html_body + pixel
 
-    return {"ok": True}
+
+def _rewrite_links_for_click_tracking(html_body: str, send_id: str, base_url: str) -> str:
+    """Rewrite href links to route through the click-tracking redirect. Skip mailto: and unsubscribe links."""
+    def _replace(match):
+        original = match.group(1)
+        if original.lower().startswith("mailto:"):
+            return match.group(0)
+        if "unsubscribe" in original.lower():
+            return match.group(0)
+        # Don't rewrite our own tracking URLs
+        if "/track/" in original:
+            return match.group(0)
+        encoded = _url_quote(original, safe="")
+        return f'href="{base_url}/api/cold-outreach/track/click/{send_id}?url={encoded}"'
+
+    return _re.sub(r'href="([^"]+)"', _replace, html_body)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1403,6 +1464,7 @@ def _send_via_gmail_api(
     subject: str,
     body_html: str,
     display_name: str,
+    attachments: Optional[List[Dict]] = None,
 ) -> dict:
     """
     Send one email via GmailWorkspaceService (service account / domain-wide delegation).
@@ -1417,12 +1479,29 @@ def _send_via_gmail_api(
 
     svc = _get_gmail_workspace_service()
     signature_html = _get_gmail_signature(from_email)
+
+    # Convert stored attachment docs to the format send_email expects
+    gmail_attachments = None
+    if attachments:
+        import base64 as _b64
+        gmail_attachments = []
+        for att in attachments:
+            content_b64 = att.get("content_b64")
+            if not content_b64:
+                continue
+            gmail_attachments.append({
+                "filename": att.get("filename", "attachment"),
+                "content": content_b64,  # already base64
+                "mime_type": att.get("mime_type", "application/octet-stream"),
+            })
+
     result = svc.send_email(
         from_email=from_email,
         to=[actual_to],
         subject=subject,
         body_html=body_html,
         signature_html=signature_html,
+        attachments=gmail_attachments if gmail_attachments else None,
     )
     if not result.get("success"):
         raise RuntimeError(result.get("error") or "Gmail API send failed")
@@ -1533,8 +1612,22 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         subject = _replace_tokens(step_template.get("subject", "(no subject)"))
         body_html = _replace_tokens(step_template.get("body_html", ""))
 
+        # Collect step attachments (CSV files, etc.) if any
+        step_attachments = step_template.get("attachments") or []
+
+        # Generate send_id BEFORE sending so the tracking pixel can embed it
+        send_id = str(uuid.uuid4())
+
+        # Inject open-tracking pixel + rewrite links for click tracking
+        if TRACKING_BASE_URL:
+            body_html = _inject_open_tracking(body_html, send_id, TRACKING_BASE_URL)
+            body_html = _rewrite_links_for_click_tracking(body_html, send_id, TRACKING_BASE_URL)
+
         # Send via Gmail API
-        send_result = _send_via_gmail_api(from_email, email, subject, body_html, display_name)
+        send_result = _send_via_gmail_api(
+            from_email, email, subject, body_html, display_name,
+            attachments=step_attachments if step_attachments else None,
+        )
         gmail_message_id = send_result["message_id"]
         gmail_thread_id = send_result["thread_id"]
 
@@ -1542,7 +1635,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
 
         # Record send
         db["outreach_sends_v2"].insert_one({
-            "send_id": str(uuid.uuid4()),
+            "send_id": send_id,
             "lead_id": lead_record.get("lead_id"),
             "campaign_id": lead_record["campaign_id"],
             "outreach_lead_id": str(lead_record["_id"]),
@@ -1555,6 +1648,8 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             "status": "sent",
             "reply_received": False,
             "open_count": 0,
+            "click_count": 0,
+            "clicks": [],
             "unsubscribed": False,
             "sent_at": now,
             "created_at": now,

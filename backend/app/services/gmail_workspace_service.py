@@ -993,7 +993,8 @@ class GmailWorkspaceService:
         bcc: Optional[List[str]] = None,
         reply_to_message_id: Optional[str] = None,
         thread_id: Optional[str] = None,
-        signature_html: Optional[str] = None
+        signature_html: Optional[str] = None,
+        attachments: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
         Send email via Gmail API using domain-wide delegation.
@@ -1009,6 +1010,7 @@ class GmailWorkspaceService:
             reply_to_message_id: For threading replies
             thread_id: Gmail thread ID for replies
             signature_html: Email signature HTML to append
+            attachments: List of dicts with keys: filename, content (base64 or bytes), mime_type
         
         Returns:
             Dict with success status and message_id or error
@@ -1016,6 +1018,8 @@ class GmailWorkspaceService:
         import base64
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
+        from email.mime.base import MIMEBase
+        from email import encoders
         
         try:
             # Find the mailbox for this sender
@@ -1048,8 +1052,15 @@ class GmailWorkspaceService:
                 sig_plain = re.sub(r'<[^>]+>', '', signature_html)
                 final_body_plain = (body_plain or "") + "\n\n" + sig_plain
             
-            # Create message
-            msg = MIMEMultipart("alternative")
+            # Create message — use 'mixed' when there are attachments, otherwise 'alternative'
+            has_attachments = bool(attachments)
+            if has_attachments:
+                msg = MIMEMultipart("mixed")
+                body_part = MIMEMultipart("alternative")
+            else:
+                msg = MIMEMultipart("alternative")
+                body_part = msg
+            
             msg["To"] = ", ".join(to)
             msg["From"] = from_email
             msg["Subject"] = subject
@@ -1064,8 +1075,33 @@ class GmailWorkspaceService:
             
             # Add body parts (plain first, then HTML for proper rendering)
             if final_body_plain:
-                msg.attach(MIMEText(final_body_plain, "plain"))
-            msg.attach(MIMEText(final_body_html, "html"))
+                body_part.attach(MIMEText(final_body_plain, "plain"))
+            body_part.attach(MIMEText(final_body_html, "html"))
+            
+            # If mixed mode, attach the body_part as a sub-part
+            if has_attachments:
+                msg.attach(body_part)
+                
+                # Attach files
+                for att in attachments:
+                    filename = att.get("filename", "attachment")
+                    mime_type = att.get("mime_type", "application/octet-stream")
+                    content = att.get("content")  # base64 string or bytes
+                    
+                    maintype, subtype = mime_type.split("/", 1) if "/" in mime_type else ("application", "octet-stream")
+                    part = MIMEBase(maintype, subtype)
+                    
+                    if isinstance(content, str):
+                        # base64-encoded string
+                        part.set_payload(base64.b64decode(content))
+                    elif isinstance(content, bytes):
+                        part.set_payload(content)
+                    else:
+                        continue
+                    
+                    encoders.encode_base64(part)
+                    part.add_header("Content-Disposition", "attachment", filename=filename)
+                    msg.attach(part)
             
             # Encode for Gmail API
             raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
@@ -1099,8 +1135,8 @@ class GmailWorkspaceService:
                 "snippet": (body_plain or body_html[:200])[:200],
                 "timestamp": datetime.utcnow(),
                 "labels": ["SENT"],
-                "has_attachments": False,
-                "attachment_count": 0,
+                "has_attachments": has_attachments,
+                "attachment_count": len(attachments) if attachments else 0,
                 "synced_at": datetime.utcnow(),
                 "processed": True,
                 "is_read": True

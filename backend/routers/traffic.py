@@ -78,6 +78,39 @@ def invalidate_traffic_cache():
     """Clear traffic list cache after mutations (inserts, updates, deletes)"""
     _traffic_list_cache.clear()
 
+# ── CINT per-survey metrics cache (for completion-weighted allocation) ────────
+_cint_metrics_cache: Dict[str, dict] = {}  # survey_id → {allocations, completions, terminations, ...}
+_cint_metrics_cache_ts: float = 0.0
+_CINT_METRICS_CACHE_TTL = 120  # refresh every 2 minutes
+
+
+def _refresh_cint_metrics_cache():
+    """Bulk-read cint_metrics into memory. Called lazily by the scoring function."""
+    global _cint_metrics_cache, _cint_metrics_cache_ts
+    from pymongo import MongoClient as _MC
+    try:
+        uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+        client = _MC(uri, serverSelectionTimeoutMS=3000)
+        col = client["cint_research"]["cint_metrics"]
+        docs = col.find({}, {"survey_id": 1, "allocations": 1, "completions": 1,
+                             "terminations": 1, "last_allocation": 1, "last_completion": 1})
+        new_cache = {}
+        for doc in docs:
+            sid = str(doc.get("survey_id", ""))
+            if sid:
+                new_cache[sid] = doc
+        _cint_metrics_cache = new_cache
+        _cint_metrics_cache_ts = time.time()
+    except Exception as exc:
+        print(f"⚠️ cint_metrics cache refresh failed: {exc}")
+
+
+def _get_cint_metrics(survey_id: str) -> Optional[dict]:
+    """Get cached cint_metrics for a survey. Refreshes cache if stale."""
+    if time.time() - _cint_metrics_cache_ts > _CINT_METRICS_CACHE_TTL:
+        _refresh_cint_metrics_cache()
+    return _cint_metrics_cache.get(str(survey_id))
+
 # Configuration for traffic flow redirects - always from environment file
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://torpedo.cogentixresearch.com")
 
@@ -460,9 +493,9 @@ def _apply_cint_quality_filter(surveys: list, respondent_age: Optional[int] = No
 
     Falls back gracefully: strict(quality+age) → age-only → quality-only → unfiltered.
     """
-    min_ir = int(os.getenv("MIN_CINT_IR", "20"))
-    min_conv = float(os.getenv("MIN_CINT_CONVERSION", "0.15"))
-    min_cpi = float(os.getenv("MIN_CINT_CPI", "1.0"))
+    min_ir = int(os.getenv("MIN_CINT_IR", "15"))
+    min_conv = float(os.getenv("MIN_CINT_CONVERSION", "0.10"))
+    min_cpi = float(os.getenv("MIN_CINT_CPI", "0.75"))
 
     def _passes_quality(s: dict) -> bool:
         ir = float(s.get("IR") or s.get("BidIncidence") or 0)
@@ -482,31 +515,42 @@ def _apply_cint_quality_filter(surveys: list, respondent_age: Optional[int] = No
                     return False
         return True
 
+    total = len(surveys)
+    print(f"   📊 CINT quality filter: {total} input surveys, thresholds IR≥{min_ir}% conv≥{min_conv} CPI≥${min_cpi}, age={respondent_age}")
+
     # Pass 1 — strict: quality + age
     strict = [s for s in surveys if _passes_quality(s) and _passes_age(s)]
     if strict:
+        print(f"   ✅ CINT filter pass 1 (strict): {len(strict)}/{total} candidates")
         return strict
 
     # Pass 2 — relax quality floor, keep age constraint
     if respondent_age is not None:
         age_only = [s for s in surveys if _passes_age(s)]
         if age_only:
-            print(f"   ⚠️ CINT quality filter: relaxed IR/conv floors — {len(age_only)} candidates (age constraint kept)")
+            print(f"   ⚠️ CINT filter pass 2 (age-only): {len(age_only)}/{total} candidates (quality floors relaxed)")
             return age_only
 
     # Pass 3 — keep quality floor, drop age constraint
     quality_only = [s for s in surveys if _passes_quality(s)]
     if quality_only:
-        print(f"   ⚠️ CINT quality filter: no age-qualified surveys, quality-only — {len(quality_only)} candidates")
+        print(f"   ⚠️ CINT filter pass 3 (quality-only): {len(quality_only)}/{total} candidates (age constraint dropped)")
         return quality_only
 
     # Pass 4 — unfiltered fallback
-    print(f"   ⚠️ CINT quality filter: all {len(surveys)} candidates below floors — using unfiltered pool")
+    print(f"   ⚠️ CINT filter pass 4 (unfiltered): all {total} candidates below all floors — using full pool")
     return surveys
 
 
 def _score_cint_survey(survey: dict, respondent_age: Optional[int] = None) -> float:
-    """Score a CINT survey for smart ordering (higher = better completion chance)."""
+    """Score a CINT survey for smart ordering (higher = better completion chance).
+
+    Factors:
+      - Conversion / IR / RPC / TotalRemaining (from CINT offerwall API)
+      - LOI penalty
+      - Age-match bonus
+      - **Actual completion rate** from our own cint_metrics (if enough data)
+    """
     conv = float(survey.get("Conversion") or 0)
     ir = float(survey.get("IR") or survey.get("BidIncidence") or 0)
     rpc = float(survey.get("RevenuePerClick") or survey.get("RPC") or 0)
@@ -516,7 +560,7 @@ def _score_cint_survey(survey: dict, respondent_age: Optional[int] = None) -> fl
     w_conv = float(os.getenv("CINT_SCORE_W_CONV", "40"))
     w_ir = float(os.getenv("CINT_SCORE_W_IR", "25"))
     w_rpc = float(os.getenv("CINT_SCORE_W_RPC", "15"))
-    w_remaining = float(os.getenv("CINT_SCORE_W_REMAINING", "10"))
+    w_remaining = float(os.getenv("CINT_SCORE_W_REMAINING", "20"))
     w_loi = float(os.getenv("CINT_SCORE_W_LOI", "10"))
 
     conv_score = min(conv, 1.0)
@@ -541,6 +585,31 @@ def _score_cint_survey(survey: dict, respondent_age: Optional[int] = None) -> fl
                 if precodes and str(respondent_age) in [str(p) for p in precodes]:
                     score += 5.0
                 break
+
+    # ── Actual completion-rate feedback from cint_metrics ─────────────────────
+    survey_num = str(survey.get("SurveyNumber") or "")
+    min_alloc_for_rate = int(os.getenv("MIN_CINT_ALLOC_FOR_ACTUAL_RATE", "10"))
+    w_actual_cr = float(os.getenv("CINT_SCORE_W_ACTUAL_CR", "30"))
+
+    metrics = _get_cint_metrics(survey_num) if survey_num else None
+    if metrics:
+        allocs = metrics.get("allocations", 0)
+        completes = metrics.get("completions", 0)
+        if allocs >= min_alloc_for_rate:
+            actual_cr = completes / allocs
+            # Normalize: 50%+ completion rate = full bonus
+            score += w_actual_cr * min(actual_cr / 0.5, 1.0)
+
+            # Stale bad survey penalty: if proven bad (< 5% CR) and not recently
+            # allocated (> 1hr), halve the total score to deprioritize it.
+            last_alloc = metrics.get("last_allocation")
+            if actual_cr < 0.05 and last_alloc:
+                try:
+                    age_secs = (datetime.utcnow() - last_alloc).total_seconds()
+                    if age_secs > 3600:
+                        score *= 0.5
+                except Exception:
+                    pass
 
     return score
 
@@ -1457,6 +1526,27 @@ async def cint_callback(
             {"_id": traffic_record["_id"]},
             {"$set": update_fields}
         )
+
+        # Record completion / termination in cint_metrics for weighted allocation
+        _cint_sid = survey_id or traffic_record.get("currentCintSurveyId")
+        if _cint_sid:
+            try:
+                _metrics_col = get_async_collection("cint_research", "cint_metrics")
+                if new_status == "COMPLETE":
+                    await _metrics_col.update_one(
+                        {"survey_id": str(_cint_sid)},
+                        {"$inc": {"completions": 1}, "$set": {"last_completion": datetime.utcnow()}},
+                        upsert=True,
+                    )
+                else:
+                    # TERMINATED / OVERQUOTA / QUALITY_TERM
+                    await _metrics_col.update_one(
+                        {"survey_id": str(_cint_sid)},
+                        {"$inc": {"terminations": 1}},
+                        upsert=True,
+                    )
+            except Exception:
+                pass  # non-critical
         
         # Helper: resolve vendor from vendor_id (try int and string variants)
         async def _get_vendor(vid):
@@ -2541,6 +2631,19 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                                 "updatedAt": datetime.utcnow().isoformat(),
                             }}
                         )
+
+                        # Record allocation in cint_metrics for completion-weighted scoring
+                        try:
+                            metrics_col = get_async_collection("cint_research", "cint_metrics")
+                            await metrics_col.update_one(
+                                {"survey_id": survey_id},
+                                {"$inc": {"allocations": 1},
+                                 "$set": {"last_allocation": datetime.utcnow()}},
+                                upsert=True,
+                            )
+                        except Exception:
+                            pass  # non-critical — don't block allocation
+
                         return True
                 return False
                     

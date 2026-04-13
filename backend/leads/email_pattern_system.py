@@ -110,6 +110,12 @@ class EmailPatternSystem:
         if pattern:
             return pattern
         
+        # Tier 1.5: Analyze known emails from CSV-uploaded leads in leads_enriched
+        pattern = self._analyze_patterns_from_known_emails(domain)
+        if pattern:
+            self._store_pattern(pattern)
+            return pattern
+        
         # Tier 2: Website scraping
         pattern = self._scrape_website(domain)
         if pattern:
@@ -155,6 +161,91 @@ class EmailPatternSystem:
             return pattern
         
         return None
+    
+    def _analyze_patterns_from_known_emails(self, domain: str) -> Optional[Dict]:
+        """
+        Tier 1.5: Discover email pattern from CSV-uploaded leads that already have
+        verified emails for this domain in leads_enriched.
+        
+        E.g. if leads_enriched has john.doe@company.com and jane.smith@company.com,
+        we can infer the pattern is {first}.{last}@{domain}.
+        """
+        try:
+            enriched_col = self.db["leads_enriched"]
+            # Find leads with emails at this domain that have both first_name and last_name
+            domain_leads = list(enriched_col.find(
+                {
+                    "email": {"$regex": f"@{re.escape(domain)}$", "$options": "i"},
+                    "first_name": {"$exists": True, "$ne": None, "$ne": ""},
+                    "last_name": {"$exists": True, "$ne": None, "$ne": ""},
+                },
+                {"email": 1, "first_name": 1, "last_name": 1},
+            ).limit(20))
+
+            if len(domain_leads) < 1:
+                return None
+
+            # Try to reverse-engineer the pattern from known emails
+            pattern_votes = {}
+            examples = []
+
+            for lead in domain_leads:
+                email = (lead.get("email") or "").lower().strip()
+                first = (lead.get("first_name") or "").lower().strip()
+                last = (lead.get("last_name") or "").lower().strip()
+                if not email or not first or not last or "@" not in email:
+                    continue
+
+                local_part = email.split("@")[0]
+                examples.append(email)
+
+                # Check which pattern this email matches
+                if local_part == f"{first}.{last}":
+                    pattern_votes.setdefault("{first}.{last}@{domain}", 0)
+                    pattern_votes["{first}.{last}@{domain}"] += 1
+                elif local_part == f"{first}{last}":
+                    pattern_votes.setdefault("{first}{last}@{domain}", 0)
+                    pattern_votes["{first}{last}@{domain}"] += 1
+                elif local_part == f"{first[0]}{last}":
+                    pattern_votes.setdefault("{f}{last}@{domain}", 0)
+                    pattern_votes["{f}{last}@{domain}"] += 1
+                elif local_part == f"{first}_{last}":
+                    pattern_votes.setdefault("{first}_{last}@{domain}", 0)
+                    pattern_votes["{first}_{last}@{domain}"] += 1
+                elif local_part == f"{last}.{first}":
+                    pattern_votes.setdefault("{last}.{first}@{domain}", 0)
+                    pattern_votes["{last}.{first}@{domain}"] += 1
+                elif local_part == first:
+                    pattern_votes.setdefault("{first}@{domain}", 0)
+                    pattern_votes["{first}@{domain}"] += 1
+                elif local_part == f"{first}{last[0]}":
+                    pattern_votes.setdefault("{first}{l}@{domain}", 0)
+                    pattern_votes["{first}{l}@{domain}"] += 1
+
+            if not pattern_votes:
+                return None
+
+            best_pattern = max(pattern_votes.items(), key=lambda x: x[1])
+            total_matched = sum(pattern_votes.values())
+            confidence = min(0.95, 0.6 + (best_pattern[1] / max(total_matched, 1)) * 0.3)
+
+            print(f"[EmailPattern] CSV-derived pattern for {domain}: {best_pattern[0]} "
+                  f"(confidence={confidence:.2f}, {best_pattern[1]}/{len(domain_leads)} matched)")
+
+            return {
+                "domain": domain,
+                "pattern": best_pattern[0],
+                "confidence": confidence,
+                "source": "csv_leads_analysis",
+                "examples": examples[:5],
+                "discovered_at": datetime.now(),
+                "last_verified": datetime.now(),
+                "samples_analyzed": len(domain_leads),
+            }
+
+        except Exception as e:
+            print(f"[EmailPattern] CSV analysis error for {domain}: {e}")
+            return None
     
     def _scrape_website(self, domain: str) -> Optional[Dict]:
         """Tier 2: Scrape website for email patterns"""
