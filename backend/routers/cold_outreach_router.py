@@ -1552,6 +1552,22 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             )
             return False
 
+        # Reject emails with non-ASCII chars (accented, apostrophes in domain, etc.)
+        try:
+            email.encode("ascii")
+        except UnicodeEncodeError:
+            logger.warning(f"[Outreach] Skipping non-ASCII email: {email}")
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {
+                    "workflow_status": "error",
+                    "last_send_error": "Non-ASCII characters in email address",
+                    "last_send_error_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                }}
+            )
+            return False
+
         business = campaign.get("business", "sfw")
         from_email = _BUSINESS_SENDER.get(business, "indira@surveyfieldwork.com")
         display_name = _BUSINESS_DISPLAY_NAME.get(business, "Indira Das")
