@@ -186,18 +186,33 @@ class MailSegregationAgent:
             
         Returns:
             Response text from OpenAI
+            
+        Raises:
+            openai.RateLimitError: Re-raised immediately for insufficient_quota (non-retryable)
         """
         # Get available key from rotator
         key_index, api_key = self.rotator.get_available_key()
         
-        # Use OpenAI client with the API key
-        client = openai.OpenAI(api_key=api_key)
+        # Use OpenAI client with no automatic retries to prevent retry storms
+        # when quota is exhausted (429 insufficient_quota is not retryable)
+        client = openai.OpenAI(api_key=api_key, max_retries=0)
         
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1000
-        )
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1000
+            )
+        except openai.RateLimitError as e:
+            # Check if this is a quota exhaustion (non-retryable) vs transient rate limit
+            err_body = getattr(e, 'body', {}) or {}
+            err_obj = err_body.get('error', {}) if isinstance(err_body, dict) else {}
+            if err_obj.get('code') == 'insufficient_quota' or 'exceeded your current quota' in str(e):
+                logger.warning(f"OpenAI quota exhausted on key {key_index} — aborting (not retrying)")
+                raise  # Let caller handle batch abort
+            # For transient rate limits, log and re-raise
+            logger.warning(f"OpenAI rate limit on key {key_index}: {e}")
+            raise
         
         text = response.choices[0].message.content
         
@@ -280,6 +295,19 @@ class MailSegregationAgent:
                             upsert=True
                         )
                         processed += 1
+                    except openai.RateLimitError as e:
+                        # Quota exhausted — abort entire batch immediately
+                        logger.error(f"OpenAI quota exhausted, aborting batch: {e}")
+                        failed += 1
+                        return {
+                            "success": False,
+                            "error": "OpenAI quota exhausted — batch aborted",
+                            "total_emails": total_emails,
+                            "processed": processed,
+                            "failed": failed,
+                            "strategy": strategy.value,
+                            "timestamp": datetime.utcnow().isoformat()
+                        }
                     except Exception as e:
                         logger.error(f"Error segregating email {email.get('_id')}: {e}")
                         failed += 1
