@@ -19,7 +19,7 @@ from collections import Counter
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
-from pymongo import MongoClient
+from pymongo import MongoClient, UpdateOne
 from bson import ObjectId
 
 logging.basicConfig(level=logging.INFO)
@@ -480,6 +480,12 @@ class MailSegregationAgent:
                     {"ai_classification_status": {"$exists": False}} if not force_rescan else {}
                 ).limit(batch_size))
 
+                if not batch:
+                    break
+
+                pool_ops = []
+                classified_ops = []
+
                 for email in batch:
                     try:
                         segment_result = self._classify_email(email)
@@ -495,12 +501,12 @@ class MailSegregationAgent:
                             "classification_method": "rule_based"
                         }
 
-                        mail_pool_emails.update_one(
+                        pool_ops.append(UpdateOne(
                             {"_id": email["_id"]},
                             {"$set": {"ai_classification_status": classification_data}}
-                        )
+                        ))
 
-                        classified_emails.update_one(
+                        classified_ops.append(UpdateOne(
                             {"email_id": str(email["_id"])},
                             {"$set": {
                                 "email_id": str(email["_id"]),
@@ -510,16 +516,18 @@ class MailSegregationAgent:
                                 "updated_at": datetime.utcnow()
                             }},
                             upsert=True
-                        )
+                        ))
                         processed += 1
                     except Exception as e:
-                        logger.error(f"Error segregating email {email.get('_id')}: {e}")
+                        logger.error(f"Error classifying email {email.get('_id')}: {e}")
                         failed += 1
 
-                logger.info(f"Processed {processed} emails, {failed} failed")
+                if pool_ops:
+                    mail_pool_emails.bulk_write(pool_ops, ordered=False)
+                if classified_ops:
+                    classified_emails.bulk_write(classified_ops, ordered=False)
 
-                if not batch or len(batch) == 0:
-                    break
+                logger.info(f"Processed {processed} emails, {failed} failed")
 
             summaries = self._generate_segment_summaries()
 
