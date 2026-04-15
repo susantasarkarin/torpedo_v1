@@ -1,73 +1,72 @@
-"""
-Mail Segregation Agent - Uses Gemini AI to intelligently categorize and segregate emails
+﻿"""
+Mail Segregation Agent - Rule-based email categorization and segregation
 
 Purpose:
-- Categorizes emails into custom categories using Gemini
-- Segregates mail_pool based on business logic
-- Supports multiple segregation strategies
-- Provides mail summary generation
-- Extracts contact information from email bodies
+- Categorizes emails into business categories using keyword/domain/pattern rules
+- Segregates mail_pool based on deterministic business logic (zero AI dependency)
+- Extracts contact information via regex patterns
+- Generates programmatic mail summaries via MongoDB aggregation
+
+Categories: internal, client, vendor, promotion, transactional, bank, gst_it_govt, others
 """
 
 import os
-import json
+import re
 import logging
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
+from collections import Counter
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
-import openai
 from pymongo import MongoClient
 from bson import ObjectId
-from backend.leads.openai_rotator import get_rotator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Get OpenAI rotator instance (manages API keys with automatic rotation)
-rotator = get_rotator()
 
 # MongoDB connection
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 mongo_client = MongoClient(MONGO_URI)
 
-# ✅ EXISTING STORAGE (Do NOT create new collections)
 # Email source collection - stores all incoming emails from Gmail
 torpedo_gmail_db = mongo_client["torpedo_gmail"]
 mail_pool_emails = torpedo_gmail_db["email_metadata"]  # Uses existing field: ai_classification_status
 
 # Email automation database - where classification results are stored
 email_automation_db = mongo_client["email_automation"]
-email_leads = email_automation_db["email_leads"]  # Extract leads from emails
-email_conversations = email_automation_db["email_conversations"]  # Email threads
-classified_emails = email_automation_db["classified_emails"]  # Classification results
+email_leads = email_automation_db["email_leads"]
+email_conversations = email_automation_db["email_conversations"]
+classified_emails = email_automation_db["classified_emails"]
 
-# Leads database - where extracted leads go
-# Try to get "leads" database, fallback to "ai_enrichment" if it doesn't exist
+# Leads database
 try:
     leads_db = mongo_client.get_database("leads")
-    # Check if database exists by trying to list collections
     leads_db.list_collection_names()
 except Exception:
     leads_db = mongo_client.get_database("ai_enrichment")
-leads_collection = leads_db["leads"]  # Main leads collection
-lead_extraction_logs = leads_db["lead_extraction_logs"]  # Track extraction activity
+leads_collection = leads_db["leads"]
+lead_extraction_logs = leads_db["lead_extraction_logs"]
 
+# Settings database (for internal domains lookup)
+settings_db = mongo_client["torpedo_settings"]
+
+
+# ============================================================
+# Enums & Data Classes (kept for backward compatibility)
+# ============================================================
 
 class SegmentationStrategy(str, Enum):
-    """Available email segmentation strategies"""
-    CATEGORY = "category"  # By email category (sales, support, etc.)
-    SENDER_DOMAIN = "sender_domain"  # By sender's company domain
-    PRIORITY = "priority"  # By priority level
-    INTENT = "intent"  # By business intent
-    ENGAGEMENT = "engagement"  # By engagement level
-    CUSTOM = "custom"  # Custom Gemini-based segmentation
+    CATEGORY = "category"
+    SENDER_DOMAIN = "sender_domain"
+    PRIORITY = "priority"
+    INTENT = "intent"
+    ENGAGEMENT = "engagement"
+    CUSTOM = "custom"
 
 
 @dataclass
 class EmailCategory:
-    """Represents an email category"""
     name: str
     description: str
     keywords: List[str] = field(default_factory=list)
@@ -76,7 +75,6 @@ class EmailCategory:
 
 @dataclass
 class ExtractedContact:
-    """Represents extracted contact information"""
     name: str = ""
     email: str = ""
     phone: str = ""
@@ -92,7 +90,6 @@ class ExtractedContact:
 
 @dataclass
 class ExtractedLead:
-    """Extracted lead from email - creates lead document in leads database"""
     name: str
     email: str
     company: str = ""
@@ -110,7 +107,6 @@ class ExtractedLead:
 
 @dataclass
 class MailSegmentSummary:
-    """Summary of a mail segment"""
     segment_id: str
     segment_name: str
     total_emails: int
@@ -123,148 +119,371 @@ class MailSegmentSummary:
     created_at: str = ""
 
 
+# ============================================================
+# Classification Rules — priority-ordered category definitions
+# ============================================================
+
+# Free email providers — excluded from company extraction
+FREE_EMAIL_PROVIDERS = {
+    "gmail.com", "yahoo.com", "yahoo.co.in", "hotmail.com", "outlook.com",
+    "live.com", "aol.com", "icloud.com", "mail.com", "protonmail.com",
+    "zoho.com", "yandex.com", "gmx.com", "rediffmail.com",
+}
+
+# Internal domains — loaded once from app_settings or env, cached
+_internal_domains_cache: Optional[List[str]] = None
+
+
+def _get_internal_domains() -> List[str]:
+    """Load internal/company domains from app_settings or env."""
+    global _internal_domains_cache
+    if _internal_domains_cache is not None:
+        return _internal_domains_cache
+
+    domains: List[str] = []
+    try:
+        settings = settings_db["app_settings"].find_one()
+        if settings:
+            raw = settings.get("internal_domains", [])
+            if isinstance(raw, list):
+                domains = [d.lower().strip() for d in raw if d]
+            elif isinstance(raw, str):
+                domains = [d.lower().strip() for d in raw.split(",") if d.strip()]
+    except Exception:
+        pass
+
+    # Also check env
+    env_domains = os.getenv("INTERNAL_DOMAINS", "")
+    if env_domains:
+        domains.extend([d.lower().strip() for d in env_domains.split(",") if d.strip()])
+
+    # Dedupe
+    _internal_domains_cache = list(set(domains)) if domains else ["cogentixresearch.com"]
+    return _internal_domains_cache
+
+
+# ---------- Bank ----------
+BANK_SENDER_DOMAINS = [
+    "sbi", "hdfc", "icici", "axis", "kotak", "yesbank", "indusind",
+    "bankofbaroda", "pnb", "canara", "unionbank", "idbi", "rbl",
+    "federalbank", "bandhan", "citi", "hsbc", "standardchartered",
+    "dbs", "barclays", "jpmorgan", "chase", "wellsfargo", "bankofamerica",
+    "capitalone", "amex", "americanexpress", "mastercard", "visa",
+    "razorpay", "paytm", "phonepe", "gpay", "bharatpe",
+]
+
+BANK_SUBJECT_PATTERNS = [
+    r"\b(?:bank|banking)\b",
+    r"\b(?:statement|account\s+summary)\b",
+    r"\b(?:transaction\s+alert|txn\s+alert)\b",
+    r"\b(?:debit|credit)\s+(?:alert|notification|of)\b",
+    r"\b(?:NEFT|RTGS|IMPS|UPI|wire\s+transfer)\b",
+    r"\b(?:EMI|loan|mortgage)\s+(?:due|payment|reminder)\b",
+    r"\b(?:credit\s+card|debit\s+card)\b",
+    r"\b(?:SWIFT|IBAN)\b",
+    r"\b(?:balance|withdrawal|deposit)\b",
+    r"\bKYC\b",
+]
+
+# ---------- GST / IT / Govt ----------
+GOVT_SENDER_DOMAINS = [
+    "incometax.gov.in", "gst.gov.in", "incometaxindia.gov.in",
+    "nic.in", "gov.in", "eci.gov.in", "epfindia.gov.in",
+    "mca.gov.in", "rbi.org.in", "sebi.gov.in",
+]
+
+GOVT_SUBJECT_PATTERNS = [
+    r"\bGST(?:IN|R|-)?\b",
+    r"\b(?:income\s+tax|ITR|I\.T\.)\b",
+    r"\b(?:Form\s+(?:16|26AS|10E))\b",
+    r"\b(?:TDS|TCS)\b",
+    r"\bPAN\b",
+    r"\b(?:assessment|scrutiny|notice\s+u/s)\b",
+    r"\b(?:challan|e-?filing|e-?verify)\b",
+    r"\b(?:provident\s+fund|EPF|EPFO)\b",
+    r"\b(?:ROC|MCA|annual\s+return)\b",
+    r"\b(?:DGFT|customs|excise)\b",
+]
+
+# ---------- Transactional ----------
+TRANSACTIONAL_SENDER_PATTERNS = [
+    r"^noreply@", r"^no-reply@", r"^donotreply@", r"^do-not-reply@",
+    r"^notification@", r"^alerts?@", r"^confirm", r"^verify",
+    r"^support@", r"^billing@", r"^orders?@", r"^receipts?@",
+    r"^shipping@", r"^tracking@",
+]
+
+TRANSACTIONAL_SUBJECT_PATTERNS = [
+    r"\b(?:invoice|receipt|bill)\b",
+    r"\b(?:order\s+confirm|shipment|shipping|tracking)\b",
+    r"\b(?:payment\s+(?:received|confirmed|successful|failed))\b",
+    r"\bOTP\b",
+    r"\b(?:verification\s+code|verify\s+your|confirm\s+your)\b",
+    r"\b(?:password\s+reset|reset\s+your\s+password)\b",
+    r"\b(?:subscription\s+(?:confirm|renew|cancel))\b",
+    r"\b(?:welcome\s+to|account\s+created|sign[- ]?up)\b",
+    r"\b(?:two[- ]?factor|2FA|MFA)\b",
+]
+
+# ---------- Promotion ----------
+PROMOTION_SUBJECT_PATTERNS = [
+    r"\b(?:offer|discount|deal|sale|coupon|promo(?:tion|code)?)\b",
+    r"\b(?:newsletter|digest|weekly\s+update)\b",
+    r"\b(?:webinar|event|workshop|conference|summit)\b",
+    r"\b(?:limited\s+time|exclusive|special|flash\s+sale)\b",
+    r"\b(?:free\s+trial|get\s+started|sign\s+up\s+now)\b",
+    r"\bunsubscribe\b",
+    r"\b(?:black\s+friday|cyber\s+monday|festive|diwali|christmas)\b",
+    r"\b(?:earn\s+rewards|loyalty|cashback)\b",
+]
+
+PROMOTION_BODY_PATTERNS = [
+    r"unsubscribe",
+    r"view\s+in\s+browser",
+    r"email\s+preferences",
+    r"opt[- ]?out",
+    r"manage\s+subscriptions?",
+    r"you\s+are\s+receiving\s+this\s+(?:email|because)",
+]
+
+# ---------- Client ----------
+CLIENT_SUBJECT_PATTERNS = [
+    r"\b(?:inquiry|enquiry|RFP|RFQ|request\s+for)\b",
+    r"\b(?:proposal|quotation|quote)\b",
+    r"\b(?:meeting\s+request|schedule\s+(?:a\s+)?call|set\s+up\s+a\s+meeting)\b",
+    r"\b(?:interested\s+in|looking\s+for|need\s+help\s+with)\b",
+    r"\b(?:collaboration|project\s+(?:brief|requirement))\b",
+    r"\b(?:demo\s+request|product\s+inquiry)\b",
+]
+
+CLIENT_BODY_PATTERNS = [
+    r"(?:we\s+are\s+(?:interested|looking)|I(?:'m|\s+am)\s+(?:interested|looking))",
+    r"(?:could\s+you\s+(?:send|share|provide)|please\s+(?:send|share|provide))",
+    r"(?:can\s+we\s+(?:schedule|set\s+up|arrange))",
+    r"(?:would\s+like\s+(?:to\s+discuss|a\s+(?:demo|quote|proposal)))",
+]
+
+# ---------- Vendor ----------
+VENDOR_SUBJECT_PATTERNS = [
+    r"\b(?:we\s+offer|our\s+(?:product|service|solution))\b",
+    r"\b(?:partnership\s+(?:proposal|opportunity))\b",
+    r"\b(?:reseller|distributor|supplier)\b",
+    r"\b(?:introducing|announcement|launch(?:ing)?)\b",
+]
+
+VENDOR_BODY_PATTERNS = [
+    r"(?:we\s+(?:offer|provide|specialize|are\s+a))",
+    r"(?:our\s+(?:company|team|platform|solution))",
+    r"(?:I(?:'d|\s+would)\s+like\s+to\s+(?:introduce|present|offer))",
+    r"(?:exclusive\s+(?:partner|dealer|distributor))",
+    r"(?:competitive\s+(?:pricing|rates))",
+    r"(?:free\s+(?:consultation|assessment|audit))",
+]
+
+# ---------- Contact extraction patterns ----------
+PHONE_PATTERNS = [
+    r'(?:phone|tel|mobile|cell|direct|office|fax)\s*[:\-]?\s*(\+?[\d\s\-\(\)\.]{7,20})',
+    r'(\+\d{1,3}[\s\-]?\(?\d{1,4}\)?[\s\-]?\d{3,4}[\s\-]?\d{3,4})',
+    r'[\+]?[(]?[0-9]{1,3}[)]?[-\s\.]?[0-9]{3}[-\s\.]?[0-9]{4,6}',
+    r'\(\d{3}\)\s?\d{3}[-\s]?\d{4}',
+]
+
+LINKEDIN_PATTERN = r'(?:https?://)?(?:www\.)?linkedin\.com/in/([a-zA-Z0-9\-]+)'
+WEBSITE_PATTERN = r'(?:https?://)?(?:www\.)?([a-zA-Z0-9\-]+\.[a-zA-Z]{2,})(?:/[^\s]*)?'
+EMAIL_PATTERN = r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
+
+TITLE_KEYWORDS = [
+    'CEO', 'CTO', 'CFO', 'COO', 'CMO', 'CRO', 'CIO', 'CHRO',
+    'VP', 'Vice President', 'Director', 'Manager', 'Head of',
+    'Founder', 'Co-Founder', 'President', 'Partner',
+    'Engineer', 'Developer', 'Designer', 'Analyst',
+    'Consultant', 'Associate', 'Specialist', 'Coordinator',
+    'Lead', 'Senior', 'Principal', 'Architect',
+]
+
+SIGN_OFF_PATTERNS = [
+    r'(?:best|kind|warm)\s+regards',
+    r'regards',
+    r'sincerely',
+    r'thanks?\s*(?:&|and)?\s*regards',
+    r'thank(?:s|\s+you)',
+    r'cheers',
+    r'respectfully',
+    r'yours\s+(?:truly|faithfully)',
+]
+
+STOP_WORDS = {
+    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+    'should', 'may', 'might', 'shall', 'can', 'need', 'dare', 'ought',
+    'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from', 'as',
+    'into', 'through', 'during', 'before', 'after', 'above', 'below',
+    'between', 'out', 'off', 'over', 'under', 'again', 'further', 'then',
+    'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'each',
+    'every', 'both', 'few', 'more', 'most', 'other', 'some', 'such', 'no',
+    'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very',
+    'just', 'because', 'but', 'and', 'or', 'if', 'while', 'about', 'up',
+    'this', 'that', 'these', 'those', 'it', 'its', 'i', 'me', 'my', 'we',
+    'our', 'you', 'your', 'he', 'she', 'they', 'them', 'his', 'her',
+    'what', 'which', 'who', 'whom', 're', 'fwd', 'fw',
+}
+
+
+# ============================================================
+# Main Agent Class
+# ============================================================
+
 class MailSegregationAgent:
-    """Main agent for mail segregation using Gemini"""
-    
+    """Rule-based mail segregation agent — zero AI dependency."""
+
     def __init__(self):
-        # Use existing Gemini rotator instead of single API key
-        self.rotator = rotator
-        self.default_categories = self._initialize_default_categories()
-    
-    def _initialize_default_categories(self) -> List[EmailCategory]:
-        """Initialize default email categories"""
-        return [
-            EmailCategory(
-                name="Sales",
-                description="Sales inquiries, pricing questions, demo requests",
-                keywords=["sales", "pricing", "demo", "quote", "purchase"]
-            ),
-            EmailCategory(
-                name="Support",
-                description="Customer support, bug reports, technical issues",
-                keywords=["support", "help", "issue", "bug", "error", "problem"]
-            ),
-            EmailCategory(
-                name="Business Development",
-                description="Partnership opportunities, collaborations, strategic initiatives",
-                keywords=["partnership", "collaboration", "bd", "joint venture", "strategic"]
-            ),
-            EmailCategory(
-                name="Recruitment",
-                description="Job inquiries, hiring, candidate-related",
-                keywords=["recruitment", "hiring", "job", "candidate", "interview", "hr"]
-            ),
-            EmailCategory(
-                name="Marketing",
-                description="Marketing campaigns, newsletters, promotions",
-                keywords=["marketing", "campaign", "newsletter", "promotion", "webinar"]
-            ),
-            EmailCategory(
-                name="Administrative",
-                description="Internal admin, compliance, legal matters",
-                keywords=["admin", "compliance", "legal", "contract", "policy"]
-            ),
-            EmailCategory(
-                name="Follow-up",
-                description="Follow-up messages and reminders",
-                keywords=["follow up", "reminder", "check-in", "touching base"]
-            ),
-            EmailCategory(
-                name="Other",
-                description="Uncategorized or miscellaneous emails",
-                keywords=[]
-            ),
-        ]
-    
-    def _call_gemini(self, prompt: str, task_type: str = "segregate") -> str:
+        self.internal_domains = _get_internal_domains()
+
+    # ----------------------------------------------------------
+    # Core: Rule-based email classification
+    # ----------------------------------------------------------
+
+    def _classify_email(self, email: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Call OpenAI API with automatic key rotation
-        
-        Args:
-            prompt: The prompt to send to OpenAI
-            task_type: Type of task for quota tracking (segregate, contact_extract, mail_summary)
-            
-        Returns:
-            Response text from OpenAI
-            
-        Raises:
-            openai.RateLimitError: Re-raised immediately for insufficient_quota (non-retryable)
+        Classify a single email using deterministic keyword/domain/pattern rules.
+
+        Priority order: internal -> bank -> gst_it_govt -> transactional -> promotion -> client -> vendor -> others
+
+        Returns dict with: segment, category, confidence, reasoning, metadata
         """
-        # Get available key from rotator
-        key_index, api_key = self.rotator.get_available_key()
-        
-        # Use OpenAI client with no automatic retries to prevent retry storms
-        # when quota is exhausted (429 insufficient_quota is not retryable)
-        client = openai.OpenAI(api_key=api_key, max_retries=0)
-        
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=1000
-            )
-        except openai.RateLimitError as e:
-            # Check if this is a quota exhaustion (non-retryable) vs transient rate limit
-            err_body = getattr(e, 'body', {}) or {}
-            err_obj = err_body.get('error', {}) if isinstance(err_body, dict) else {}
-            if err_obj.get('code') == 'insufficient_quota' or 'exceeded your current quota' in str(e):
-                logger.warning(f"OpenAI quota exhausted on key {key_index} — aborting (not retrying)")
-                raise  # Let caller handle batch abort
-            # For transient rate limits, log and re-raise
-            logger.warning(f"OpenAI rate limit on key {key_index}: {e}")
-            raise
-        
-        text = response.choices[0].message.content
-        
-        # Log the request for quota tracking
-        estimated_tokens = response.usage.total_tokens if response.usage else (len(prompt) + len(text)) // 4
-        self.rotator.log_request(key_index, estimated_tokens, task_type)
-        
-        return text
-    
-    async def segregate_all_emails(
-        self, 
+        from_email = (email.get("from_email") or email.get("from_address", {}).get("email", "") or "").lower()
+        from_name = (email.get("from_name") or email.get("from_address", {}).get("name", "") or "").lower()
+        subject = (email.get("subject") or "").lower()
+        body_raw = email.get("body_plain") or email.get("body") or email.get("snippet") or ""
+        body = body_raw[:2000].lower()
+        direction = (email.get("direction") or "").lower()
+        labels = [lbl.lower() for lbl in (email.get("labels") or [])]
+
+        domain = from_email.split("@")[-1] if "@" in from_email else ""
+        text = f"{subject} {body}"
+
+        def _count_pattern_hits(patterns: List[str], target: str) -> int:
+            return sum(1 for p in patterns if re.search(p, target, re.IGNORECASE))
+
+        # ---- 1. Internal ----
+        if domain and any(domain.endswith(d) for d in self.internal_domains):
+            return self._result("internal", "Internal", 0.95,
+                                f"Sender domain '{domain}' is an internal domain",
+                                is_promotional=False, requires_response=True, priority="medium")
+
+        # ---- 2. Bank ----
+        bank_domain_hit = any(bd in domain for bd in BANK_SENDER_DOMAINS)
+        bank_subj_hits = _count_pattern_hits(BANK_SUBJECT_PATTERNS, subject)
+        bank_score = (0.5 if bank_domain_hit else 0) + min(bank_subj_hits * 0.2, 0.5)
+        if bank_score >= 0.5:
+            return self._result("bank", "Bank", min(bank_score, 1.0),
+                                f"Bank domain={bank_domain_hit}, subject hits={bank_subj_hits}",
+                                is_promotional=False, requires_response=False, priority="low")
+
+        # ---- 3. GST / IT / Govt ----
+        govt_domain_hit = any(domain.endswith(gd) for gd in GOVT_SENDER_DOMAINS)
+        govt_subj_hits = _count_pattern_hits(GOVT_SUBJECT_PATTERNS, text)
+        govt_score = (0.5 if govt_domain_hit else 0) + min(govt_subj_hits * 0.15, 0.5)
+        if govt_score >= 0.5:
+            return self._result("gst_it_govt", "GST/IT/Govt", min(govt_score, 1.0),
+                                f"Govt domain={govt_domain_hit}, keyword hits={govt_subj_hits}",
+                                is_promotional=False, requires_response=True, priority="high")
+
+        # ---- 4. Transactional ----
+        txn_sender_hit = any(re.search(p, from_email, re.I) for p in TRANSACTIONAL_SENDER_PATTERNS)
+        txn_subj_hits = _count_pattern_hits(TRANSACTIONAL_SUBJECT_PATTERNS, subject)
+        txn_score = (0.3 if txn_sender_hit else 0) + min(txn_subj_hits * 0.25, 0.7)
+        if txn_score >= 0.5:
+            return self._result("transactional", "Transactional", min(txn_score, 1.0),
+                                f"Transactional sender={txn_sender_hit}, subject hits={txn_subj_hits}",
+                                is_promotional=False, requires_response=False, priority="low")
+
+        # ---- 5. Promotion ----
+        promo_subj_hits = _count_pattern_hits(PROMOTION_SUBJECT_PATTERNS, subject)
+        promo_body_hits = _count_pattern_hits(PROMOTION_BODY_PATTERNS, body)
+        promo_score = min(promo_subj_hits * 0.2, 0.5) + min(promo_body_hits * 0.15, 0.5)
+        if promo_score >= 0.4:
+            return self._result("promotion", "Promotion", min(promo_score, 1.0),
+                                f"Promo subject hits={promo_subj_hits}, body hits={promo_body_hits}",
+                                is_promotional=True, requires_response=False, priority="low")
+
+        # ---- 6. Client (inbound) ----
+        is_inbound = direction == "inbound" or "inbox" in labels
+        client_subj_hits = _count_pattern_hits(CLIENT_SUBJECT_PATTERNS, subject)
+        client_body_hits = _count_pattern_hits(CLIENT_BODY_PATTERNS, body)
+        client_score = min(client_subj_hits * 0.25, 0.5) + min(client_body_hits * 0.2, 0.5)
+        if is_inbound:
+            client_score += 0.1
+        if client_score >= 0.4:
+            return self._result("client", "Client", min(client_score, 1.0),
+                                f"Client subject hits={client_subj_hits}, body hits={client_body_hits}, inbound={is_inbound}",
+                                is_promotional=False, requires_response=True, priority="high")
+
+        # ---- 7. Vendor ----
+        vendor_subj_hits = _count_pattern_hits(VENDOR_SUBJECT_PATTERNS, subject)
+        vendor_body_hits = _count_pattern_hits(VENDOR_BODY_PATTERNS, body)
+        vendor_score = min(vendor_subj_hits * 0.25, 0.5) + min(vendor_body_hits * 0.15, 0.5)
+        if vendor_score >= 0.4:
+            return self._result("vendor", "Vendor", min(vendor_score, 1.0),
+                                f"Vendor subject hits={vendor_subj_hits}, body hits={vendor_body_hits}",
+                                is_promotional=False, requires_response=False, priority="medium")
+
+        # ---- 8. Others (fallback) ----
+        return self._result("others", "Others", 0.3,
+                            "No category rules matched",
+                            is_promotional=False, requires_response=False, priority="low")
+
+    @staticmethod
+    def _result(segment: str, category: str, confidence: float, reasoning: str,
+                is_promotional: bool, requires_response: bool, priority: str) -> Dict[str, Any]:
+        return {
+            "segment": segment,
+            "category": category,
+            "confidence": round(confidence, 2),
+            "reasoning": reasoning,
+            "metadata": {
+                "is_promotional": is_promotional,
+                "requires_response": requires_response,
+                "priority": priority,
+            }
+        }
+
+    # ----------------------------------------------------------
+    # Segregate all emails
+    # ----------------------------------------------------------
+
+    def segregate_all_emails(
+        self,
         strategy: SegmentationStrategy = SegmentationStrategy.CATEGORY,
         batch_size: int = 100,
         force_rescan: bool = False
     ) -> Dict[str, Any]:
         """
-        Segregate all emails in mail_pool using specified strategy
-        
-        Args:
-            strategy: Segregation strategy to use
-            batch_size: Number of emails to process per batch
-            force_rescan: Whether to rescan already processed emails
-            
-        Returns:
-            Dictionary with segregation results
+        Segregate all unclassified emails using rule-based classification.
         """
         try:
-            logger.info(f"Starting mail segregation with strategy: {strategy}")
-            
-            # Get total email count
+            logger.info(f"Starting rule-based mail segregation (strategy={strategy})")
+
             if force_rescan:
                 total_emails = mail_pool_emails.count_documents({})
                 mail_pool_emails.update_many({}, {"$unset": {"ai_classification_status": ""}})
             else:
                 total_emails = mail_pool_emails.count_documents({"ai_classification_status": {"$exists": False}})
-            
+
             logger.info(f"Found {total_emails} emails to segregate")
-            
-            # Process in batches
+
             processed = 0
             failed = 0
-            
+
             for skip in range(0, total_emails, batch_size):
                 batch = list(mail_pool_emails.find(
                     {"ai_classification_status": {"$exists": False}} if not force_rescan else {}
                 ).limit(batch_size).skip(skip))
-                
+
                 for email in batch:
                     try:
-                        segment_result = await self._segment_email(email, strategy)
-                        
-                        # Store in existing ai_classification_status field
+                        segment_result = self._classify_email(email)
+
                         classification_data = {
                             "status": "classified",
                             "category": segment_result["category"],
@@ -273,16 +492,14 @@ class MailSegregationAgent:
                             "reasoning": segment_result.get("reasoning", ""),
                             "metadata": segment_result.get("metadata", {}),
                             "classified_at": datetime.utcnow(),
-                            "classification_method": "gemini_segregation"
+                            "classification_method": "rule_based"
                         }
-                        
-                        # Update email_metadata with classification status
+
                         mail_pool_emails.update_one(
                             {"_id": email["_id"]},
                             {"$set": {"ai_classification_status": classification_data}}
                         )
-                        
-                        # Also store in classified_emails collection for tracking
+
                         classified_emails.update_one(
                             {"email_id": str(email["_id"])},
                             {"$set": {
@@ -295,28 +512,14 @@ class MailSegregationAgent:
                             upsert=True
                         )
                         processed += 1
-                    except openai.RateLimitError as e:
-                        # Quota exhausted — abort entire batch immediately
-                        logger.error(f"OpenAI quota exhausted, aborting batch: {e}")
-                        failed += 1
-                        return {
-                            "success": False,
-                            "error": "OpenAI quota exhausted — batch aborted",
-                            "total_emails": total_emails,
-                            "processed": processed,
-                            "failed": failed,
-                            "strategy": strategy.value,
-                            "timestamp": datetime.utcnow().isoformat()
-                        }
                     except Exception as e:
                         logger.error(f"Error segregating email {email.get('_id')}: {e}")
                         failed += 1
-                
+
                 logger.info(f"Processed {processed} emails, {failed} failed")
-            
-            # Generate segment summaries
-            summaries = await self._generate_segment_summaries()
-            
+
+            summaries = self._generate_segment_summaries()
+
             return {
                 "success": True,
                 "total_emails": total_emails,
@@ -326,7 +529,7 @@ class MailSegregationAgent:
                 "segment_summaries": summaries,
                 "timestamp": datetime.utcnow().isoformat()
             }
-        
+
         except Exception as e:
             logger.error(f"Error in segregate_all_emails: {e}")
             return {
@@ -334,152 +537,89 @@ class MailSegregationAgent:
                 "error": str(e),
                 "timestamp": datetime.utcnow().isoformat()
             }
-    
-    async def _segment_email(
-        self, 
-        email: Dict[str, Any], 
-        strategy: SegmentationStrategy
-    ) -> Dict[str, Any]:
-        """
-        Segment a single email using Gemini
-        
-        Args:
-            email: Email document from database
-            strategy: Segmentation strategy
-            
-        Returns:
-            Dictionary with segment information
-        """
-        subject = email.get("subject", "")
-        body = email.get("body", "")[:2000]  # Limit body size
-        
-        prompt = f"""
-Analyze this email and categorize it. Return JSON only.
 
-Subject: {subject}
-Body (first 2000 chars): {body}
+    # ----------------------------------------------------------
+    # Contact extraction (regex-based)
+    # ----------------------------------------------------------
 
-Categories to consider:
-{json.dumps([asdict(cat) for cat in self.default_categories], indent=2)}
-
-Return JSON with exactly this format:
-{{
-    "segment": "category_name",
-    "category": "primary_category",
-    "confidence": 0.95,
-    "reasoning": "brief explanation",
-    "metadata": {{
-        "is_promotional": false,
-        "requires_response": true,
-        "priority": "medium"
-    }}
-}}
-
-Only return valid JSON, no other text.
-"""
-        
-        try:
-            response_text = self._call_gemini(prompt, task_type="segregate")
-            result = json.loads(response_text)
-            return result
-        except json.JSONDecodeError:
-            # Fallback categorization
-            return {
-                "segment": "Other",
-                "category": "uncategorized",
-                "confidence": 0.5,
-                "reasoning": "Could not parse Gemini response",
-                "metadata": {}
-            }
-    
-    async def extract_contact_information(self, email_id: str) -> Optional[ExtractedContact]:
-        """
-        Extract contact information from an email using Gemini
-        
-        Args:
-            email_id: ID of the email to extract contacts from
-            
-        Returns:
-            ExtractedContact object or None if not found
-        """
+    def extract_contact_information(self, email_id: str) -> Optional[ExtractedContact]:
+        """Extract contact information from an email using regex patterns."""
         email = mail_pool_emails.find_one({"_id": ObjectId(email_id) if isinstance(email_id, str) else email_id})
         if not email:
             return None
-        
-        body = email.get("body", "")
+
+        body = email.get("body_plain") or email.get("body") or ""
         sender = email.get("from_email", "")
         sender_name = email.get("from_name", "")
-        
-        prompt = f"""
-Extract contact information from this email. Return JSON only.
+        domain = sender.split("@")[-1] if "@" in sender else ""
 
-From: {sender_name} <{sender}>
-Body:
-{body}
+        sig_info = self._parse_signature(body)
 
-Extract contact information and return as JSON:
-{{
-    "name": "Full name if found",
-    "email": "Email address",
-    "phone": "Phone number if found",
-    "company": "Company name if found",
-    "title": "Job title if found",
-    "linkedin": "LinkedIn URL if found",
-    "website": "Website URL if found",
-    "address": "Physical address if found",
-    "social_handles": {{
-        "twitter": "handle if found",
-        "instagram": "handle if found"
-    }}
-}}
+        # Phone
+        phone = sig_info.get("phone", "")
+        if not phone:
+            for pattern in PHONE_PATTERNS:
+                match = re.search(pattern, body)
+                if match:
+                    phone = match.group(1) if match.lastindex else match.group(0)
+                    phone = phone.strip()
+                    if sum(c.isdigit() for c in phone) >= 7:
+                        break
+                    phone = ""
 
-Return only valid JSON, no other text. Use empty strings for not found fields.
-"""
-        
-        try:
-            response_text = self._call_gemini(prompt, task_type="contact_extract")
-            data = json.loads(response_text)
-            
-            contact = ExtractedContact(
-                name=data.get("name", ""),
-                email=data.get("email", sender),
-                phone=data.get("phone", ""),
-                company=data.get("company", ""),
-                title=data.get("title", ""),
-                linkedin=data.get("linkedin", ""),
-                website=data.get("website", ""),
-                address=data.get("address", ""),
-                social_handles=data.get("social_handles", {}),
-                source_email_id=str(email_id),
-                extracted_at=datetime.utcnow().isoformat()
-            )
-            
-            # Save to email_leads collection
-            email_leads.insert_one(asdict(contact))
-            
-            return contact
-        
-        except Exception as e:
-            logger.error(f"Error extracting contact info: {e}")
-            return None
-    
-    async def extract_all_contacts(self, batch_size: int = 50) -> Dict[str, Any]:
-        """Extract contacts from all emails in pool"""
+        # LinkedIn
+        linkedin = sig_info.get("linkedin", "")
+        if not linkedin:
+            lk_match = re.search(LINKEDIN_PATTERN, body, re.I)
+            if lk_match:
+                linkedin = f"https://linkedin.com/in/{lk_match.group(1)}"
+
+        # Company
+        company = sig_info.get("company", "")
+        if not company and domain and domain not in FREE_EMAIL_PROVIDERS:
+            company = domain.split(".")[0].title()
+
+        # Title
+        title = sig_info.get("title", "")
+
+        # Website
+        website = ""
+        if domain and domain not in FREE_EMAIL_PROVIDERS:
+            website = f"https://{domain}"
+
+        contact = ExtractedContact(
+            name=sig_info.get("name", "") or sender_name,
+            email=sender,
+            phone=phone,
+            company=company,
+            title=title,
+            linkedin=linkedin,
+            website=website,
+            address="",
+            social_handles={},
+            source_email_id=str(email_id),
+            extracted_at=datetime.utcnow().isoformat()
+        )
+
+        email_leads.insert_one(asdict(contact))
+        return contact
+
+    def extract_all_contacts(self, batch_size: int = 50) -> Dict[str, Any]:
+        """Extract contacts from all emails in pool."""
         try:
             emails = list(mail_pool_emails.find({"from_email": {"$exists": True}}).limit(1000))
-            
             extracted = 0
             failed = 0
-            
+
             for email in emails:
                 try:
-                    contact = await self.extract_contact_information(email["_id"])
+                    contact = self.extract_contact_information(email["_id"])
                     if contact:
                         extracted += 1
                 except Exception as e:
                     logger.error(f"Failed to extract contact: {e}")
                     failed += 1
-            
+
             return {
                 "success": True,
                 "total_processed": len(emails),
@@ -487,156 +627,132 @@ Return only valid JSON, no other text. Use empty strings for not found fields.
                 "failed": failed,
                 "timestamp": datetime.utcnow().isoformat()
             }
-        
         except Exception as e:
             logger.error(f"Error in extract_all_contacts: {e}")
             return {"success": False, "error": str(e)}
-    
-    async def generate_mail_summary(
-        self, 
+
+    # ----------------------------------------------------------
+    # Mail summary (programmatic, no AI)
+    # ----------------------------------------------------------
+
+    def generate_mail_summary(
+        self,
         segment_name: Optional[str] = None,
         date_from: Optional[str] = None,
         date_to: Optional[str] = None
     ) -> Optional[MailSegmentSummary]:
-        """
-        Generate summary for email segment using Gemini
-        
-        Args:
-            segment_name: Name of segment to summarize (if None, summarize all)
-            date_from: Start date for email range
-            date_to: End date for email range
-            
-        Returns:
-            MailSegmentSummary object
-        """
+        """Generate summary for email segment using aggregation — no AI."""
         try:
-            # Build query
-            query = {}
+            query: Dict[str, Any] = {}
             if segment_name:
-                query["segment_name"] = segment_name
-            
+                query["ai_classification_status.segment"] = segment_name
+
             if date_from or date_to:
-                date_query = {}
+                date_query: Dict[str, Any] = {}
                 if date_from:
                     date_query["$gte"] = datetime.fromisoformat(date_from)
                 if date_to:
                     date_query["$lte"] = datetime.fromisoformat(date_to)
-                query["date"] = date_query
-            
-            # Get emails for segment
-            emails = list(mail_pool_emails.find(query).limit(100))
-            
+                query["timestamp"] = date_query
+
+            emails = list(mail_pool_emails.find(query).sort("timestamp", -1).limit(200))
             if not emails:
                 return None
-            
-            # Extract key data
-            subjects = [e.get("subject", "") for e in emails]
-            senders = [e.get("from_email", "") for e in emails]
-            
-            # Generate summary using Gemini
-            prompt = f"""
-Generate a professional email segment summary. Return JSON only.
 
-Total Emails: {len(emails)}
-Subject Lines: {json.dumps(subjects[:10])}  # First 10
-Top Senders: {json.dumps(list(set(senders))[:5])}  # Top 5 unique
+            # Key topics — most frequent words from subjects (stop-word filtered)
+            word_counter: Counter = Counter()
+            for e in emails:
+                subj = e.get("subject", "")
+                words = re.findall(r'[a-zA-Z]{3,}', subj.lower())
+                word_counter.update(w for w in words if w not in STOP_WORDS)
+            key_topics = [w for w, _ in word_counter.most_common(10)]
 
-Return JSON:
-{{
-    "key_topics": ["topic1", "topic2", "topic3"],
-    "action_items": ["action1", "action2"],
-    "sentiment_distribution": {{"positive": 10, "neutral": 50, "negative": 40}},
-    "summary_text": "2-3 sentence professional summary"
-}}
+            # Top senders
+            sender_counter: Counter = Counter(e.get("from_email", "") for e in emails)
+            top_senders = sender_counter.most_common(5)
 
-Return only valid JSON, no other text.
-"""
-            
-            response_text = self._call_gemini(prompt, task_type="mail_summary")
-            summary_data = json.loads(response_text)
-            
+            # Date range
+            dates = [e.get("timestamp") for e in emails if e.get("timestamp")]
+            date_start = min(dates).isoformat() if dates else ""
+            date_end = max(dates).isoformat() if dates else ""
+
+            # Template summary
+            sender_names = ", ".join(s[0] for s in top_senders[:3])
+            topic_str = ", ".join(key_topics[:5]) if key_topics else "various"
+            summary_text = (
+                f"Segment '{segment_name or 'All'}' contains {len(emails)} emails. "
+                f"Top senders: {sender_names}. "
+                f"Most discussed topics: {topic_str}."
+            )
+
             segment_id = str(ObjectId())
             summary = MailSegmentSummary(
                 segment_id=segment_id,
                 segment_name=segment_name or "All Emails",
                 total_emails=len(emails),
-                date_range=(
-                    emails[0].get("date", "").isoformat() if emails else "",
-                    emails[-1].get("date", "").isoformat() if emails else ""
-                ),
-                key_topics=summary_data.get("key_topics", []),
-                sentiment_distribution=summary_data.get("sentiment_distribution", {}),
-                top_senders=[(s, senders.count(s)) for s in set(senders)][:5],
-                action_items=summary_data.get("action_items", []),
-                summary_text=summary_data.get("summary_text", ""),
+                date_range=(date_start, date_end),
+                key_topics=key_topics,
+                sentiment_distribution={},
+                top_senders=top_senders,
+                action_items=[],
+                summary_text=summary_text,
                 created_at=datetime.utcnow().isoformat()
             )
-            
-            # Save to database (mail summaries stored in email_automation)
+
             email_automation_db["mail_summaries"].insert_one(asdict(summary))
-            
             return summary
-        
+
         except Exception as e:
             logger.error(f"Error generating mail summary: {e}")
             return None
-    
-    async def _generate_segment_summaries(self) -> List[Dict[str, Any]]:
-        """Generate summaries for all segments"""
+
+    def _generate_segment_summaries(self) -> List[Dict[str, Any]]:
+        """Generate summaries for all classified segments."""
         try:
             segments = mail_pool_emails.aggregate([
-                {"$group": {"_id": "$segment_name", "count": {"$sum": 1}}},
+                {"$match": {"ai_classification_status": {"$exists": True}}},
+                {"$group": {"_id": "$ai_classification_status.segment", "count": {"$sum": 1}}},
                 {"$sort": {"count": -1}}
             ])
-            
+
             summaries = []
             for segment in segments:
-                segment_name = segment["_id"]
-                if segment_name:
-                    summary = await self.generate_mail_summary(segment_name)
+                seg_name = segment["_id"]
+                if seg_name:
+                    summary = self.generate_mail_summary(seg_name)
                     if summary:
                         summaries.append(asdict(summary))
-            
             return summaries
-        
+
         except Exception as e:
             logger.error(f"Error generating summaries: {e}")
             return []
-    
-    async def extract_leads_from_emails(self, batch_size: int = 50) -> Dict[str, Any]:
-        """
-        Extract leads from all emails and create lead documents in leads database
-        
-        Args:
-            batch_size: Number of emails to process per batch
-            
-        Returns:
-            Dictionary with extraction results
-        """
+
+    # ----------------------------------------------------------
+    # Lead extraction (regex-based)
+    # ----------------------------------------------------------
+
+    def extract_leads_from_emails(self, batch_size: int = 50) -> Dict[str, Any]:
+        """Extract leads from all emails and create lead documents."""
         try:
             logger.info("Starting lead extraction from emails")
-            
-            # Get all emails that haven't had leads extracted
             total_emails = mail_pool_emails.count_documents({"lead_extracted": {"$ne": True}})
             logger.info(f"Found {total_emails} emails to process for lead extraction")
-            
+
             extracted = 0
             failed = 0
-            
-            # Process in batches
+
             for skip in range(0, total_emails, batch_size):
                 batch = list(mail_pool_emails.find(
                     {"lead_extracted": {"$ne": True}}
                 ).limit(batch_size).skip(skip))
-                
+
                 for email in batch:
                     try:
-                        lead_data = await self._extract_lead_from_email(email)
+                        lead_data = self._extract_lead_from_email(email)
                         if lead_data:
-                            # Create or update lead in leads database
-                            lead_id = await self._create_or_update_lead(lead_data)
-                            
-                            # Update email metadata
+                            lead_id = self._create_or_update_lead(lead_data)
+
                             mail_pool_emails.update_one(
                                 {"_id": email["_id"]},
                                 {"$set": {
@@ -645,22 +761,19 @@ Return only valid JSON, no other text.
                                     "lead_extraction_date": datetime.utcnow()
                                 }}
                             )
-                            
-                            # Log extraction
                             lead_extraction_logs.insert_one({
                                 "email_id": str(email["_id"]),
                                 "lead_id": lead_id,
                                 "extraction_date": datetime.utcnow(),
                                 "status": "success"
                             })
-                            
                             extracted += 1
                     except Exception as e:
                         logger.error(f"Error extracting lead from email {email.get('_id')}: {e}")
                         failed += 1
-                
+
                 logger.info(f"Batch complete: {extracted} extracted, {failed} failed")
-            
+
             return {
                 "success": True,
                 "total_emails": total_emails,
@@ -668,109 +781,83 @@ Return only valid JSON, no other text.
                 "failed": failed,
                 "timestamp": datetime.utcnow().isoformat()
             }
-        
         except Exception as e:
             logger.error(f"Error in extract_leads_from_emails: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
-            }
-    
-    async def _extract_lead_from_email(self, email: Dict[str, Any]) -> Optional[ExtractedLead]:
-        """
-        Extract lead information from email using Gemini
-        
-        Args:
-            email: Email document from database
-            
-        Returns:
-            ExtractedLead object or None if no lead data found
-        """
+            return {"success": False, "error": str(e), "timestamp": datetime.utcnow().isoformat()}
+
+    def _extract_lead_from_email(self, email: Dict[str, Any]) -> Optional[ExtractedLead]:
+        """Extract lead information from email using regex patterns."""
         try:
-            email_body = email.get("body", "")
-            email_subject = email.get("subject", "")
+            body = email.get("body_plain") or email.get("body") or ""
             from_email = email.get("from_email", "")
             from_name = email.get("from_name", "")
-            
-            if not email_body:
+            subject = email.get("subject", "")
+
+            if not from_email:
                 return None
-            
-            # Use Gemini to extract lead information
-            prompt = f"""
-Extract lead information from this email. Return JSON only.
 
-FROM: {from_email} ({from_name})
-SUBJECT: {email_subject}
-BODY: {email_body[:2000]}  # First 2000 chars
+            domain = from_email.split("@")[-1] if "@" in from_email else ""
 
-Extract if present: name, email, company, title, phone, linkedin profile, website, location.
-If a field is not found or unclear, omit it from the JSON.
+            # Company from domain (skip free providers)
+            company = ""
+            if domain and domain not in FREE_EMAIL_PROVIDERS:
+                company = domain.split(".")[0].title()
 
-Return JSON format:
-{{
-    "name": "Full Name",
-    "email": "email@example.com",
-    "company": "Company Name",
-    "title": "Job Title",
-    "phone": "+1-234-567-8900",
-    "linkedin": "https://linkedin.com/in/profile",
-    "website": "https://company.com",
-    "location": "City, State, Country",
-    "confidence": 0.85
-}}
+            # Name from from_name or parse from email prefix
+            name = from_name.strip()
+            if not name:
+                prefix = from_email.split("@")[0]
+                name = re.sub(r'[._]', ' ', prefix).title()
 
-Return ONLY valid JSON, no explanation or other text.
-"""
-            
-            response_text = self._call_gemini(prompt, task_type="lead_extract")
-            
-            try:
-                lead_data = json.loads(response_text)
-            except json.JSONDecodeError:
-                logger.warning(f"Failed to parse lead extraction response: {response_text}")
+            # Parse signature for additional info
+            sig_info = self._parse_signature(body)
+
+            # Prefer signature-extracted name over header if it looks like a real name
+            sig_name = sig_info.get("name", "")
+            if sig_name and " " in sig_name and len(sig_name) < 50:
+                name = sig_name
+
+            phone = sig_info.get("phone", "")
+            linkedin = sig_info.get("linkedin", "")
+            title = sig_info.get("title", "")
+            location = sig_info.get("location", "")
+
+            # Website
+            website = ""
+            if domain and domain not in FREE_EMAIL_PROVIDERS:
+                website = f"https://{domain}"
+
+            if not name:
                 return None
-            
-            # Only create lead if we have at least name and email
-            if not (lead_data.get("name") and lead_data.get("email")):
-                return None
-            
-            extracted_lead = ExtractedLead(
-                name=lead_data.get("name", ""),
-                email=lead_data.get("email", ""),
-                company=lead_data.get("company", ""),
-                title=lead_data.get("title", ""),
-                phone=lead_data.get("phone", ""),
-                linkedin=lead_data.get("linkedin", ""),
-                website=lead_data.get("website", ""),
-                location=lead_data.get("location", ""),
+
+            # Confidence: higher if we got more fields
+            filled = sum(1 for v in [name, from_email, company, title, phone, linkedin] if v)
+            confidence = min(0.5 + filled * 0.1, 1.0)
+
+            return ExtractedLead(
+                name=name,
+                email=from_email,
+                company=company,
+                title=title,
+                phone=phone,
+                linkedin=linkedin,
+                website=website,
+                location=location,
                 source_email_id=str(email["_id"]),
                 source_email_from=from_email,
-                source_email_subject=email_subject,
+                source_email_subject=subject,
                 extracted_at=datetime.utcnow().isoformat(),
-                confidence=float(lead_data.get("confidence", 0.8))
+                confidence=round(confidence, 2)
             )
-            
-            return extracted_lead
-        
         except Exception as e:
             logger.error(f"Error extracting lead from email: {e}")
             return None
-    
-    async def _create_or_update_lead(self, lead_data: ExtractedLead) -> str:
-        """
-        Create or update lead in leads database
-        
-        Args:
-            lead_data: ExtractedLead object
-            
-        Returns:
-            Lead ID (string)
-        """
+
+    def _create_or_update_lead(self, lead_data: ExtractedLead) -> str:
+        """Create or update lead in leads database."""
         try:
-            # Check if lead already exists by email
             existing_lead = leads_collection.find_one({"email": lead_data.email})
-            
+
             lead_doc = {
                 "name": lead_data.name,
                 "email": lead_data.email,
@@ -785,28 +872,21 @@ Return ONLY valid JSON, no explanation or other text.
                 "confidence": lead_data.confidence,
                 "last_updated": datetime.utcnow()
             }
-            
+
             if existing_lead:
-                # Update existing lead - add to source_emails if not already there
                 source_emails = existing_lead.get("source_emails", [])
                 if lead_data.source_email_id not in source_emails:
                     source_emails.append(lead_data.source_email_id)
-                
+
                 leads_collection.update_one(
                     {"_id": existing_lead["_id"]},
-                    {"$set": {
-                        **lead_doc,
-                        "source_emails": source_emails,
-                        "last_updated": datetime.utcnow()
-                    }}
+                    {"$set": {**lead_doc, "source_emails": source_emails, "last_updated": datetime.utcnow()}}
                 )
                 lead_id = str(existing_lead["_id"])
             else:
-                # Create new lead
                 result = leads_collection.insert_one(lead_doc)
                 lead_id = str(result.inserted_id)
-            
-            # Also store in email_leads collection for email automation
+
             email_leads.insert_one({
                 "lead_id": lead_id,
                 "email_id": lead_data.source_email_id,
@@ -818,25 +898,18 @@ Return ONLY valid JSON, no explanation or other text.
                 "source_email": lead_data.source_email_from,
                 "source_subject": lead_data.source_email_subject
             })
-            
+
             logger.info(f"Lead {lead_id} created/updated for {lead_data.email}")
             return lead_id
-        
         except Exception as e:
             logger.error(f"Error creating/updating lead: {e}")
             raise
-    
-    async def mark_email_as_lead_extracted(self, email_id: str, lead_id: str) -> bool:
-        """
-        Mark email as having lead extracted
-        
-        Args:
-            email_id: Email document ID
-            lead_id: Lead document ID
-            
-        Returns:
-            True if successful
-        """
+
+    # ----------------------------------------------------------
+    # Utility: mark email
+    # ----------------------------------------------------------
+
+    def mark_email_as_lead_extracted(self, email_id: str, lead_id: str) -> bool:
         try:
             mail_pool_emails.update_one(
                 {"_id": ObjectId(email_id)},
@@ -850,14 +923,16 @@ Return ONLY valid JSON, no explanation or other text.
         except Exception as e:
             logger.error(f"Error marking email as lead extracted: {e}")
             return False
-    
+
+    # ----------------------------------------------------------
+    # Stats
+    # ----------------------------------------------------------
+
     def get_lead_extraction_stats(self) -> Dict[str, Any]:
-        """Get statistics about lead extraction"""
         try:
             total_emails = mail_pool_emails.count_documents({})
             extracted_emails = mail_pool_emails.count_documents({"lead_extracted": True})
             total_leads = leads_collection.count_documents({})
-            
             return {
                 "total_emails": total_emails,
                 "emails_with_leads": extracted_emails,
@@ -869,19 +944,18 @@ Return ONLY valid JSON, no explanation or other text.
         except Exception as e:
             logger.error(f"Error getting lead extraction stats: {e}")
             return {}
-    
+
     def get_segregation_stats(self) -> Dict[str, Any]:
-        """Get statistics about segregated emails"""
         try:
             total = mail_pool_emails.count_documents({})
             classified = mail_pool_emails.count_documents({"ai_classification_status": {"$exists": True}})
-            
+
             segment_breakdown = list(mail_pool_emails.aggregate([
                 {"$match": {"ai_classification_status": {"$exists": True}}},
                 {"$group": {"_id": "$ai_classification_status.segment", "count": {"$sum": 1}}},
                 {"$sort": {"count": -1}}
             ]))
-            
+
             return {
                 "total_emails": total,
                 "classified_emails": classified,
@@ -890,10 +964,84 @@ Return ONLY valid JSON, no explanation or other text.
                 "segment_breakdown": segment_breakdown,
                 "timestamp": datetime.utcnow().isoformat()
             }
-        
         except Exception as e:
             logger.error(f"Error getting stats: {e}")
             return {}
+
+    # ----------------------------------------------------------
+    # Signature parsing helper
+    # ----------------------------------------------------------
+
+    def _parse_signature(self, body: str) -> Dict[str, str]:
+        """
+        Parse email signature from last ~25 lines of the body.
+        Returns dict with: name, title, company, phone, linkedin, location
+        """
+        info: Dict[str, str] = {"name": "", "title": "", "company": "", "phone": "", "linkedin": "", "location": ""}
+
+        if not body:
+            return info
+
+        lines = body.strip().split("\n")
+        sig_lines = lines[-25:] if len(lines) > 25 else lines
+        sig_text = "\n".join(sig_lines)
+
+        # Find sign-off line to narrow signature
+        sign_off_idx = -1
+        for i, line in enumerate(sig_lines):
+            for pattern in SIGN_OFF_PATTERNS:
+                if re.search(pattern, line, re.I):
+                    sign_off_idx = i
+                    break
+            if sign_off_idx >= 0:
+                break
+
+        if sign_off_idx >= 0:
+            sig_lines = sig_lines[sign_off_idx:]
+
+        # Name — usually first non-empty line after sign-off
+        for line in sig_lines:
+            clean = line.strip().rstrip(",")
+            if not clean or len(clean) > 60 or "@" in clean or "http" in clean.lower():
+                continue
+            if any(re.search(p, clean, re.I) for p in SIGN_OFF_PATTERNS):
+                continue
+            words = clean.split()
+            if 1 <= len(words) <= 4 and all(re.match(r'^[A-Za-z\.\-\']+$', w) for w in words):
+                info["name"] = clean.title()
+                break
+
+        # Title
+        for line in sig_lines:
+            clean = line.strip()
+            for kw in TITLE_KEYWORDS:
+                if re.search(r'\b' + re.escape(kw) + r'\b', clean, re.I):
+                    info["title"] = clean[:100]
+                    break
+            if info["title"]:
+                break
+
+        # Phone
+        for pattern in PHONE_PATTERNS:
+            match = re.search(pattern, sig_text)
+            if match:
+                phone_val = match.group(1) if match.lastindex else match.group(0)
+                phone_val = phone_val.strip()
+                if sum(c.isdigit() for c in phone_val) >= 7:
+                    info["phone"] = phone_val
+                    break
+
+        # LinkedIn
+        lk_match = re.search(LINKEDIN_PATTERN, sig_text, re.I)
+        if lk_match:
+            info["linkedin"] = f"https://linkedin.com/in/{lk_match.group(1)}"
+
+        # Location — look for common patterns
+        loc_match = re.search(r'(?:location|based\s+in|from)\s*[:\-]?\s*([A-Z][a-zA-Z\s,]+)', sig_text)
+        if loc_match:
+            info["location"] = loc_match.group(1).strip()[:100]
+
+        return info
 
 
 # Singleton instance
@@ -906,3 +1054,4 @@ def get_mail_segregation_agent() -> MailSegregationAgent:
     if _agent_instance is None:
         _agent_instance = MailSegregationAgent()
     return _agent_instance
+

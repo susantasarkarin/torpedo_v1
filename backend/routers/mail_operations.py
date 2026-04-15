@@ -8,7 +8,6 @@ Provides API endpoints for:
 - Segregation statistics
 """
 
-import asyncio
 import logging
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Request, Query, Body
@@ -130,8 +129,8 @@ async def segregate_emails(
                 detail=f"Invalid strategy. Must be one of: {[s.value for s in SegmentationStrategy]}"
             )
         
-        # Run segregation
-        result = await agent.segregate_all_emails(
+        # Run segregation (sync, rule-based)
+        result = agent.segregate_all_emails(
             strategy=strategy,
             batch_size=payload.batch_size,
             force_rescan=payload.force_rescan
@@ -202,7 +201,7 @@ async def extract_contacts(
         
         if payload.email_id:
             # Extract from single email
-            contact = await agent.extract_contact_information(payload.email_id)
+            contact = agent.extract_contact_information(payload.email_id)
             
             if contact:
                 return {
@@ -224,7 +223,7 @@ async def extract_contacts(
                 return {"success": False, "error": "Email not found"}
         else:
             # Extract from all emails
-            result = await agent.extract_all_contacts(payload.batch_size)
+            result = agent.extract_all_contacts(payload.batch_size)
             return result
     
     except HTTPException:
@@ -258,7 +257,7 @@ async def generate_mail_summary(
         
         agent = get_mail_segregation_agent()
         
-        summary = await agent.generate_mail_summary(
+        summary = agent.generate_mail_summary(
             segment_name=payload.segment_name,
             date_from=payload.date_from,
             date_to=payload.date_to
@@ -306,7 +305,7 @@ async def get_extracted_contacts(
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
         
-        from backend.agents.mail_segregation_agent import contact_extracted
+        from backend.agents.mail_segregation_agent import email_leads
         
         # Build query
         query = {}
@@ -314,8 +313,8 @@ async def get_extracted_contacts(
             query["company"] = {"$regex": company, "$options": "i"}
         
         # Get contacts
-        contacts = list(contact_extracted.find(query).skip(skip).limit(limit))
-        total = contact_extracted.count_documents(query)
+        contacts = list(email_leads.find(query).skip(skip).limit(limit))
+        total = email_leads.count_documents(query)
         
         return {
             "success": True,

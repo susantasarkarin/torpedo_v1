@@ -1896,32 +1896,19 @@ async def startup_event():
     try:
         if scheduler.running:
             def background_mail_segregation_wrapper():
-                """Wrapper to run async segregation in sync scheduler"""
-                import asyncio
+                """Run rule-based mail segregation (sync, no AI)"""
                 from backend.agents.mail_segregation_agent import get_mail_segregation_agent, SegmentationStrategy
-                
-                async def _run():
-                    try:
-                        agent = get_mail_segregation_agent()
-                        # Run category strategy by default
-                        result = await agent.segregate_all_emails(
-                            strategy=SegmentationStrategy.CATEGORY,
-                            batch_size=50,
-                            force_rescan=False
-                        )
-                        if result.get("processed", 0) > 0:
-                            print(f"[MailSegregation] Processed {result.get('processed')} emails")
-                    except Exception as e:
-                        print(f"[MailSegregation] Error: {e}")
-
                 try:
-                    # Create new loop for this thread
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(_run())
-                    loop.close()
+                    agent = get_mail_segregation_agent()
+                    result = agent.segregate_all_emails(
+                        strategy=SegmentationStrategy.CATEGORY,
+                        batch_size=50,
+                        force_rescan=False
+                    )
+                    if result.get("processed", 0) > 0:
+                        print(f"[MailSegregation] Processed {result.get('processed')} emails")
                 except Exception as e:
-                    print(f"[MailSegregation] Wrapper Error: {e}")
+                    print(f"[MailSegregation] Error: {e}")
 
             scheduler.add_job(
                 background_mail_segregation_wrapper,
