@@ -475,10 +475,10 @@ class MailSegregationAgent:
             processed = 0
             failed = 0
 
-            for skip in range(0, total_emails, batch_size):
+            while True:
                 batch = list(mail_pool_emails.find(
                     {"ai_classification_status": {"$exists": False}} if not force_rescan else {}
-                ).limit(batch_size).skip(skip))
+                ).limit(batch_size))
 
                 for email in batch:
                     try:
@@ -517,6 +517,9 @@ class MailSegregationAgent:
                         failed += 1
 
                 logger.info(f"Processed {processed} emails, {failed} failed")
+
+                if not batch or len(batch) == 0:
+                    break
 
             summaries = self._generate_segment_summaries()
 
@@ -742,10 +745,10 @@ class MailSegregationAgent:
             extracted = 0
             failed = 0
 
-            for skip in range(0, total_emails, batch_size):
+            while True:
                 batch = list(mail_pool_emails.find(
                     {"lead_extracted": {"$ne": True}}
-                ).limit(batch_size).skip(skip))
+                ).limit(batch_size))
 
                 for email in batch:
                     try:
@@ -773,6 +776,9 @@ class MailSegregationAgent:
                         failed += 1
 
                 logger.info(f"Batch complete: {extracted} extracted, {failed} failed")
+
+                if not batch or len(batch) == 0:
+                    break
 
             return {
                 "success": True,
