@@ -24,6 +24,7 @@ Rate Limiting:
 """
 
 import logging
+import os
 import uuid
 import time
 import random
@@ -33,9 +34,9 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pymongo.database import Database
 
-# ── TESTING MODE ─────────────────────────────────────────────────────────────
-# Set to None (or remove) when going live.
-TEST_OVERRIDE_EMAIL = "susantasarkar7447@gmail.com"
+# ── TESTING MODE (env-var controlled, defaults to OFF) ───────────────────────
+TEST_MODE = os.getenv("OUTREACH_TEST_MODE", "false").lower() == "true"
+TEST_OVERRIDE_EMAIL = os.getenv("OUTREACH_TEST_EMAIL", "") if TEST_MODE else None
 # ─────────────────────────────────────────────────────────────────────────────
 
 from .models import (
@@ -200,6 +201,18 @@ class SendingEngine:
             if to_email and self.is_suppressed(to_email):
                 logger.info(f"Suppressed send to {to_email}: address is on bounce suppression list")
                 return False, f"Suppressed: {to_email} is on the global bounce list", None
+            # ─────────────────────────────────────────────────────────────────
+
+            # ── Pre-send email validation (syntax + MX + role-based) ────────
+            try:
+                from app.services.outreach.email_validator import EmailValidator
+                validator = EmailValidator(self.db)
+                is_valid, reason = validator.validate_before_send(to_email)
+                if not is_valid:
+                    logger.info(f"Pre-send validation failed for {to_email}: {reason}")
+                    return False, f"Validation failed: {reason}", None
+            except ImportError:
+                logger.debug("email_validator not available, skipping pre-send validation")
             # ─────────────────────────────────────────────────────────────────
 
             # Get campaign

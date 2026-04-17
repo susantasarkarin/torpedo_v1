@@ -357,6 +357,14 @@ app.add_middleware(
 # GZip compression for responses > 500 bytes (speeds up large JSON payloads)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
+# Request Source middleware (CPK/SYNC source identification)
+try:
+    from middleware.request_source import RequestSourceMiddleware
+    app.add_middleware(RequestSourceMiddleware)
+    print("✅ Request Source middleware added")
+except Exception as e:
+    print(f"⚠️ Request Source middleware not added: {e}")
+
 # ----------------------------
 # Global Exception Handler - Ensures all errors return JSON
 # ----------------------------
@@ -1208,6 +1216,22 @@ try:
     print("✅ Support router included")
 except Exception as e:
     print(f"⚠️ Support router not included: {e}")
+
+# Audit Dashboard router (outreach metrics, send logs, error logs)
+try:
+    from routers import audit_router as audit_dashboard_router
+    app.include_router(audit_dashboard_router.router)
+    print("✅ Audit Dashboard router included")
+except Exception as e:
+    print(f"⚠️ Audit Dashboard router not included: {e}")
+
+# Health Dashboard v2 router (deliverability, alerts)
+try:
+    from routers import health_router_v2
+    app.include_router(health_router_v2.router)
+    print("✅ Health Dashboard v2 router included")
+except Exception as e:
+    print(f"⚠️ Health Dashboard v2 router not included: {e}")
 
 # ----------------------------
 # APScheduler for CPX refresh job

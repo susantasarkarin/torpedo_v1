@@ -284,11 +284,14 @@ VENDOR_BODY_PATTERNS = [
 PHONE_PATTERNS = [
     r'(?:phone|tel|mobile|cell|direct|office|fax)\s*[:\-]?\s*(\+?[\d\s\-\(\)\.]{7,20})',
     r'(\+\d{1,3}[\s\-]?\(?\d{1,4}\)?[\s\-]?\d{3,4}[\s\-]?\d{3,4})',
+    r'(\+91[\s\-]?\d{5}[\s\-]?\d{5})',           # India +91
+    r'(\+91[\s\-]?\d{10})',                        # India +91 no spaces
+    r'(\b0\d{2,4}[\s\-]?\d{6,8}\b)',              # India STD codes (0xx-xxxxxxxx)
     r'[\+]?[(]?[0-9]{1,3}[)]?[-\s\.]?[0-9]{3}[-\s\.]?[0-9]{4,6}',
     r'\(\d{3}\)\s?\d{3}[-\s]?\d{4}',
 ]
 
-LINKEDIN_PATTERN = r'(?:https?://)?(?:www\.)?linkedin\.com/in/([a-zA-Z0-9\-]+)'
+LINKEDIN_PATTERN = r'(?:https?://)?(?:www\.)?linkedin\.com/(?:in|company)/([a-zA-Z0-9\-]+)'
 WEBSITE_PATTERN = r'(?:https?://)?(?:www\.)?([a-zA-Z0-9\-]+\.[a-zA-Z]{2,})(?:/[^\s]*)?'
 EMAIL_PATTERN = r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
 
@@ -554,7 +557,7 @@ class MailSegregationAgent:
     # ----------------------------------------------------------
 
     def extract_contact_information(self, email_id: str) -> Optional[ExtractedContact]:
-        """Extract contact information from an email using regex patterns."""
+        """Extract contact information from an email using regex patterns (with upsert dedup)."""
         email = mail_pool_emails.find_one({"_id": ObjectId(email_id) if isinstance(email_id, str) else email_id})
         if not email:
             return None
@@ -583,7 +586,8 @@ class MailSegregationAgent:
         if not linkedin:
             lk_match = re.search(LINKEDIN_PATTERN, body, re.I)
             if lk_match:
-                linkedin = f"https://linkedin.com/in/{lk_match.group(1)}"
+                prefix = "company" if "/company/" in (lk_match.group(0) or "") else "in"
+                linkedin = f"https://linkedin.com/{prefix}/{lk_match.group(1)}"
 
         # Company
         company = sig_info.get("company", "")
@@ -598,8 +602,15 @@ class MailSegregationAgent:
         if domain and domain not in FREE_EMAIL_PROVIDERS:
             website = f"https://{domain}"
 
+        name = sig_info.get("name", "") or sender_name
+
+        # Weighted confidence scoring
+        weights = {"email": 0.3, "name": 0.25, "company": 0.2, "title": 0.1, "phone": 0.1, "linkedin": 0.05}
+        confidence = sum(w for field, w in weights.items() if locals().get(field) or (field == "email" and sender))
+        confidence = round(min(confidence, 1.0), 2)
+
         contact = ExtractedContact(
-            name=sig_info.get("name", "") or sender_name,
+            name=name,
             email=sender,
             phone=phone,
             company=company,
@@ -612,28 +623,41 @@ class MailSegregationAgent:
             extracted_at=datetime.utcnow().isoformat()
         )
 
-        email_leads.insert_one(asdict(contact))
+        # Upsert to deduplicate by email
+        email_leads.update_one(
+            {"email": sender},
+            {"$set": asdict(contact), "$setOnInsert": {"created_at": datetime.utcnow()}},
+            upsert=True,
+        )
         return contact
 
     def extract_all_contacts(self, batch_size: int = 50) -> Dict[str, Any]:
-        """Extract contacts from all emails in pool."""
+        """Extract contacts from all emails in pool using cursor-based pagination."""
         try:
-            emails = list(mail_pool_emails.find({"from_email": {"$exists": True}}).limit(1000))
             extracted = 0
             failed = 0
-
-            for email in emails:
-                try:
-                    contact = self.extract_contact_information(email["_id"])
-                    if contact:
-                        extracted += 1
-                except Exception as e:
-                    logger.error(f"Failed to extract contact: {e}")
-                    failed += 1
+            total = 0
+            cursor = mail_pool_emails.find(
+                {"from_email": {"$exists": True}},
+                no_cursor_timeout=True,
+                batch_size=batch_size,
+            )
+            try:
+                for email in cursor:
+                    total += 1
+                    try:
+                        contact = self.extract_contact_information(email["_id"])
+                        if contact:
+                            extracted += 1
+                    except Exception as e:
+                        logger.error(f"Failed to extract contact: {e}")
+                        failed += 1
+            finally:
+                cursor.close()
 
             return {
                 "success": True,
-                "total_processed": len(emails),
+                "total_processed": total,
                 "extracted": extracted,
                 "failed": failed,
                 "timestamp": datetime.utcnow().isoformat()
@@ -844,9 +868,11 @@ class MailSegregationAgent:
             if not name:
                 return None
 
-            # Confidence: higher if we got more fields
-            filled = sum(1 for v in [name, from_email, company, title, phone, linkedin] if v)
-            confidence = min(0.5 + filled * 0.1, 1.0)
+            # Confidence: weighted scoring per field
+            weights = {"name": 0.25, "email": 0.3, "company": 0.2, "title": 0.1, "phone": 0.1, "linkedin": 0.05}
+            fields = {"name": name, "email": from_email, "company": company, "title": title, "phone": phone, "linkedin": linkedin}
+            confidence = sum(w for f, w in weights.items() if fields.get(f))
+            confidence = round(min(confidence, 1.0), 2)
 
             return ExtractedLead(
                 name=name,
@@ -988,7 +1014,8 @@ class MailSegregationAgent:
 
     def _parse_signature(self, body: str) -> Dict[str, str]:
         """
-        Parse email signature from last ~25 lines of the body.
+        Parse email signature from last ~40 lines of the body.
+        Handles quoted replies and common signature separators.
         Returns dict with: name, title, company, phone, linkedin, location
         """
         info: Dict[str, str] = {"name": "", "title": "", "company": "", "phone": "", "linkedin": "", "location": ""}
@@ -997,7 +1024,29 @@ class MailSegregationAgent:
             return info
 
         lines = body.strip().split("\n")
-        sig_lines = lines[-25:] if len(lines) > 25 else lines
+
+        # Strip quoted replies (lines starting with > or "On ... wrote:")
+        clean_lines = []
+        for line in lines:
+            if re.match(r'^>', line):
+                continue
+            if re.match(r'^On .+ wrote:', line, re.I):
+                break
+            clean_lines.append(line)
+
+        # Look for signature separators: "-- ", "___", "---"
+        sig_start = -1
+        for i, line in enumerate(clean_lines):
+            stripped = line.strip()
+            if stripped in ("--", "-- ") or re.match(r'^[_\-]{3,}$', stripped):
+                sig_start = i
+                break
+
+        if sig_start >= 0:
+            sig_lines = clean_lines[sig_start:]
+        else:
+            sig_lines = clean_lines[-40:] if len(clean_lines) > 40 else clean_lines
+
         sig_text = "\n".join(sig_lines)
 
         # Find sign-off line to narrow signature
@@ -1025,12 +1074,18 @@ class MailSegregationAgent:
                 info["name"] = clean.title()
                 break
 
-        # Title
+        # Title + company extraction (title line often has " at Company" or " | Company")
         for line in sig_lines:
             clean = line.strip()
             for kw in TITLE_KEYWORDS:
                 if re.search(r'\b' + re.escape(kw) + r'\b', clean, re.I):
-                    info["title"] = clean[:100]
+                    # Check for "Title at Company" or "Title | Company"
+                    split_match = re.search(r'(.+?)(?:\s+at\s+|\s*[\|,]\s*)(.+)', clean, re.I)
+                    if split_match:
+                        info["title"] = split_match.group(1).strip()[:100]
+                        info["company"] = split_match.group(2).strip()[:100]
+                    else:
+                        info["title"] = clean[:100]
                     break
             if info["title"]:
                 break
@@ -1048,7 +1103,8 @@ class MailSegregationAgent:
         # LinkedIn
         lk_match = re.search(LINKEDIN_PATTERN, sig_text, re.I)
         if lk_match:
-            info["linkedin"] = f"https://linkedin.com/in/{lk_match.group(1)}"
+            prefix = "company" if "/company/" in (lk_match.group(0) or "") else "in"
+            info["linkedin"] = f"https://linkedin.com/{prefix}/{lk_match.group(1)}"
 
         # Location — look for common patterns
         loc_match = re.search(r'(?:location|based\s+in|from)\s*[:\-]?\s*([A-Z][a-zA-Z\s,]+)', sig_text)

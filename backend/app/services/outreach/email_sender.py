@@ -7,6 +7,8 @@ Provides SMTP delivery and lightweight helpers used by the outreach pipeline.
 from __future__ import annotations
 
 import logging
+import os
+import asyncio
 import smtplib
 import ssl
 import uuid
@@ -31,6 +33,10 @@ class SendEmailResult(BaseModel):
 class EmailSenderService:
 	"""Send outreach emails through configured sender SMTP credentials."""
 
+	# Transient SMTP codes that warrant retry
+	TRANSIENT_SMTP_CODES = {421, 450, 451, 452}
+	RETRY_DELAYS = [30, 120, 300]  # seconds between retries
+
 	def __init__(self, tracking_domain: Optional[str] = None):
 		self.tracking_domain = tracking_domain
 
@@ -46,7 +52,7 @@ class EmailSenderService:
 		tracking_id: Optional[str] = None,
 		**legacy_kwargs,
 	) -> SendEmailResult:
-		"""Send an email using sender-level SMTP credentials."""
+		"""Send an email using sender-level SMTP credentials with retry on transient failures."""
 		try:
 			if sender is None:
 				sender = legacy_kwargs.get("sender_account")
@@ -60,13 +66,14 @@ class EmailSenderService:
 			if not to_email:
 				return SendEmailResult(success=False, provider="smtp", error="Missing recipient email")
 
-			# ── Testing override: redirect all sends to test inbox ────────────
-			_TEST_OVERRIDE_EMAIL = "susantasarkar7447@gmail.com"
-			if _TEST_OVERRIDE_EMAIL:
+			# ── Testing override (env-var controlled, defaults to OFF) ───────
+			_test_mode = os.getenv("OUTREACH_TEST_MODE", "false").lower() == "true"
+			_test_email = os.getenv("OUTREACH_TEST_EMAIL", "")
+			if _test_mode and _test_email:
 				logger.warning(
-					"[TEST MODE] Redirecting email from %s to %s", to_email, _TEST_OVERRIDE_EMAIL
+					"[TEST MODE] Redirecting email from %s to %s", to_email, _test_email
 				)
-				to_email = _TEST_OVERRIDE_EMAIL
+				to_email = _test_email
 			# ────────────────────────────────────────────────────────────────
 
 			message = self._build_message(
@@ -87,15 +94,45 @@ class EmailSenderService:
 			if not smtp_password:
 				return SendEmailResult(success=False, error="Missing SMTP password")
 
-			with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as smtp:
-				if sender.use_tls:
-					smtp.starttls(context=ssl.create_default_context())
-				smtp.login(smtp_username, smtp_password)
-				smtp.send_message(message)
+			last_error = None
+			for attempt, delay in enumerate(self.RETRY_DELAYS + [0], 1):
+				try:
+					with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as smtp:
+						if sender.use_tls:
+							smtp.starttls(context=ssl.create_default_context())
+						smtp.login(smtp_username, smtp_password)
+						smtp.send_message(message)
 
-			message_id = message.get("Message-ID") or f"<{uuid.uuid4()}@{sender.email.split('@')[-1]}>"
-			logger.info("Outreach email sent to %s using %s", to_email, sender.email)
-			return SendEmailResult(success=True, provider="smtp", message_id=message_id)
+					message_id = message.get("Message-ID") or f"<{uuid.uuid4()}@{sender.email.split('@')[-1]}>"
+					logger.info("Outreach email sent to %s using %s (attempt %d)", to_email, sender.email, attempt)
+					return SendEmailResult(success=True, provider="smtp", message_id=message_id)
+
+				except smtplib.SMTPResponseException as exc:
+					last_error = exc
+					if exc.smtp_code in self.TRANSIENT_SMTP_CODES and delay:
+						logger.warning(
+							"Transient SMTP %d for %s (attempt %d/%d) — retrying in %ds",
+							exc.smtp_code, to_email, attempt, len(self.RETRY_DELAYS), delay,
+						)
+						await asyncio.sleep(delay)
+						continue
+					# Permanent error — stop retrying
+					break
+
+				except (smtplib.SMTPException, ConnectionError, OSError) as exc:
+					last_error = exc
+					if delay:
+						logger.warning(
+							"SMTP connection error for %s (attempt %d/%d) — retrying in %ds: %s",
+							to_email, attempt, len(self.RETRY_DELAYS), delay, exc,
+						)
+						await asyncio.sleep(delay)
+						continue
+					break
+
+			error_msg = str(last_error) if last_error else "Unknown SMTP error"
+			logger.error("Failed to send outreach email to %s after %d attempts: %s", to_email, attempt, error_msg)
+			return SendEmailResult(success=False, provider="smtp", error=error_msg)
 		except Exception as exc:
 			logger.error("Failed to send outreach email to %s: %s", to_email, exc)
 			return SendEmailResult(success=False, provider="smtp", error=str(exc))
