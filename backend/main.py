@@ -1143,7 +1143,17 @@ except Exception as e:
 
 # Gemini router removed - using OpenAI for all AI tasks
 
-# Audit Trail router
+# Audit Dashboard router (outreach metrics, send logs, error logs)
+# NOTE: Must be registered BEFORE the generic Audit Trail router whose
+# catch-all /{entity_type}/{entity_id} would otherwise shadow these routes.
+try:
+    from routers import audit_router as audit_dashboard_router
+    app.include_router(audit_dashboard_router.router)
+    print("✅ Audit Dashboard router included")
+except Exception as e:
+    print(f"⚠️ Audit Dashboard router not included: {e}")
+
+# Audit Trail router (generic entity history — catch-all, must come after specific audit routes)
 try:
     try:
         from .routers import audit as audit_router
@@ -1216,14 +1226,6 @@ try:
     print("✅ Support router included")
 except Exception as e:
     print(f"⚠️ Support router not included: {e}")
-
-# Audit Dashboard router (outreach metrics, send logs, error logs)
-try:
-    from routers import audit_router as audit_dashboard_router
-    app.include_router(audit_dashboard_router.router)
-    print("✅ Audit Dashboard router included")
-except Exception as e:
-    print(f"⚠️ Audit Dashboard router not included: {e}")
 
 # Health Dashboard v2 router (deliverability, alerts)
 try:
