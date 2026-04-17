@@ -1341,10 +1341,11 @@ async def get_leads_endpoint(
 async def bulk_classify_leads_endpoint(background_tasks: BackgroundTasks):
     """
     POST /leads/bulk-classify
-    Apply rule-based ICP basket classification to ALL leads in leads_enriched.
+    1. Auto-sync any leads_raw docs missing from leads_enriched.
+    2. Apply rule-based ICP basket classification to ALL leads in leads_enriched.
     Runs in background so the HTTP response returns immediately.
     """
-    from .canonical_ingestion import compute_icp_basket
+    from .canonical_ingestion import compute_icp_basket, sync_to_enriched
 
     GMAIL_SOURCES = [
         "gmail", "gmail_workspace", "email_sync", "email_import",
@@ -1360,11 +1361,55 @@ async def bulk_classify_leads_endpoint(background_tasks: BackgroundTasks):
         "company": 1, "company_name": 1, "source": 1,
     }
 
-    total = leads_enriched_collection.count_documents({})
+    raw_col = _jobs_db["leads_raw"]
+    raw_total = raw_col.count_documents({})
+    enriched_total = leads_enriched_collection.count_documents({})
 
     def _run_classification():
-        skip = 0
+        import logging
+        _log = logging.getLogger("leads.bulk_classify")
+
+        # ── Phase 0: sync leads_raw → leads_enriched for any missing docs ──
+        synced = 0
+        existing_emails = set()
+        existing_linkedin = set()
+
+        # Gather existing dedup keys from leads_enriched
+        for doc in leads_enriched_collection.find({}, {"email": 1, "linkedin_url": 1}):
+            if doc.get("email"):
+                existing_emails.add(doc["email"].lower().strip())
+            if doc.get("linkedin_url"):
+                existing_linkedin.add(doc["linkedin_url"].strip())
+
+        # Iterate leads_raw and sync any not already in leads_enriched
+        skip_raw = 0
         batch_size = 500
+        while True:
+            raw_batch = list(raw_col.find({}).skip(skip_raw).limit(batch_size))
+            if not raw_batch:
+                break
+            for raw_doc in raw_batch:
+                raw_email = (raw_doc.get("email") or "").lower().strip()
+                raw_linkedin = (raw_doc.get("linkedin_url") or "").strip()
+                if raw_email and raw_email in existing_emails:
+                    continue
+                if not raw_email and raw_linkedin and raw_linkedin in existing_linkedin:
+                    continue
+                # Sync this lead
+                result = sync_to_enriched(raw_doc, str(raw_doc["_id"]))
+                if result:
+                    synced += 1
+                    if raw_email:
+                        existing_emails.add(raw_email)
+                    if raw_linkedin:
+                        existing_linkedin.add(raw_linkedin)
+            skip_raw += batch_size
+
+        _log.info(f"Bulk-classify: synced {synced} new leads from leads_raw → leads_enriched")
+
+        # ── Phase 1: classify all leads_enriched ───────────────────────────
+        skip = 0
+        classified = 0
         while True:
             batch = list(leads_enriched_collection.find({}, FIELDS).skip(skip).limit(batch_size))
             if not batch:
@@ -1375,20 +1420,22 @@ async def bulk_classify_leads_endpoint(background_tasks: BackgroundTasks):
                 if doc.get("source") in GMAIL_SOURCES:
                     update_data["stage"] = "already_contacted"
                 leads_enriched_collection.update_one({"_id": doc["_id"]}, {"$set": update_data})
+                classified += 1
             skip += batch_size
+
         # Stamp stage on gmail leads missing stage field
         leads_enriched_collection.update_many(
             {"source": {"$in": GMAIL_SOURCES}, "stage": {"$exists": False}},
             {"$set": {"stage": "already_contacted"}}
         )
+        _log.info(f"Bulk-classify: classified {classified} leads, synced {synced} new from raw")
 
     background_tasks.add_task(_run_classification)
 
     return {
-        "queued": total,
-        "classified": 0,
-        "stage_stamped": 0,
-        "message": f"ICP classification started in background for {total} leads",
+        "queued": raw_total + enriched_total,
+        "synced_from_raw": max(0, raw_total - enriched_total),
+        "message": f"ICP classification started in background — syncing {raw_total} raw + classifying all enriched leads",
     }
 
 

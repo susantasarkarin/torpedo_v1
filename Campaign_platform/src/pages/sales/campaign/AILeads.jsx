@@ -1340,13 +1340,6 @@ function AILeads() {
           <button className="btn btn-primary" onClick={() => setShowImportModal(true)}>
             📥 Import Leads
           </button>
-          <button 
-            className="btn btn-success"
-            onClick={() => handleClassify()}
-            disabled={classifying}
-          >
-            {classifying ? "⏳ Classifying..." : "🤖 Classify All"}
-          </button>
           <button
             className="btn btn-outline"
             onClick={() => handleBulkICP()}
@@ -1554,9 +1547,6 @@ function AILeads() {
             style={{ backgroundColor: "#9333ea", color: "#fff", borderColor: "#9333ea" }}
           >
             🔄 Create Workflow
-          </button>
-          <button className="btn btn-sm btn-primary" onClick={() => handleClassify(Array.from(selectedIds))}>
-            🤖 Classify Selected
           </button>
           <button className="btn btn-sm btn-success" onClick={handleBulkTransferToVendorLeads} style={{ backgroundColor: "#22c55e", borderColor: "#22c55e" }}>
             🎯 Transfer to Vendor Leads
