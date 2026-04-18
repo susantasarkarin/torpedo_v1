@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { API_BASE_URL } from "../../config";
-import "./TrafficFlowParser.css";
 import { buildApiUrl } from "../../config"
+import "./TrafficFlowParser.css";
 
 // Generate a unique transaction ID (UUID v4)
 function generateTransId() {
@@ -151,13 +150,10 @@ export default function TrafficFlowParser() {
   const [fullUrl, setFullUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [email, setEmail] = useState("");
-  const [emailError, setEmailError] = useState("");
   const [birthdayDay, setBirthdayDay] = useState("");
   const [birthdayMonth, setBirthdayMonth] = useState("");
   const [birthdayYear, setBirthdayYear] = useState("");
   const [gender, setGender] = useState("");
-  const [zipCode, setZipCode] = useState("");
   const [profileError, setProfileError] = useState("");
   // NOTE: retryCount removed - CPX forbids retries (each API call binds identity)
   const currentTransIdRef = useRef(null);
@@ -266,20 +262,6 @@ export default function TrafficFlowParser() {
       return;
     }
 
-    // Validate email is provided and has valid format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!email || !email.trim()) {
-      isClickProcessingRef.current = false;
-      setEmailError("Email address is required");
-      return;
-    }
-    if (!emailRegex.test(email.trim())) {
-      isClickProcessingRef.current = false;
-      setEmailError("Please enter a valid email address");
-      return;
-    }
-    setEmailError("");
-
     // Validate profiling data (CRITICAL for CPX survey matching)
     if (!birthdayDay || !birthdayMonth || !birthdayYear) {
       isClickProcessingRef.current = false;
@@ -289,11 +271,6 @@ export default function TrafficFlowParser() {
     if (!gender) {
       isClickProcessingRef.current = false;
       setProfileError("Please select your gender");
-      return;
-    }
-    if (!zipCode || !zipCode.trim()) {
-      isClickProcessingRef.current = false;
-      setProfileError("Please enter your postal/zip code");
       return;
     }
     setProfileError("");
@@ -372,14 +349,12 @@ export default function TrafficFlowParser() {
           deviceFingerprint: fingerprint?.hash || "",
           fingerprintComponents: fingerprint?.components || {},
           fingerprintSource: "client",
-          trans_id: transId, // Include trans_id in traffic record
-          email: email.trim(), // User's email address (mandatory)
+          trans_id: transId,
           // CPX User Profiling Parameters (CRITICAL for demographic survey matching)
           birthday_day: parseInt(birthdayDay, 10),
           birthday_month: parseInt(birthdayMonth, 10),
           birthday_year: parseInt(birthdayYear, 10),
-          gender: gender, // "m" or "f"
-          zip_code: zipCode.trim(),
+          gender: gender,
         }),
       });
 
@@ -396,23 +371,17 @@ export default function TrafficFlowParser() {
 
         console.log(`✅ Traffic record created: ${objectId} (type: ${recordType})`);
 
-        // Fire retargeting pixel events on successful survey allocation
+        // Push survey allocation event to dataLayer for analytics
         try {
-          // Google Ads conversion
-          if (typeof gtag === 'function') {
-            gtag('event', 'conversion', { send_to: 'AW-XXXXXXXXXX/CONVERSION_LABEL' }); // TODO: replace with actual label
-            gtag('event', 'survey_start', { country: urlParams.cc, vendor: urlParams.vid });
+          if (window.dataLayer) {
+            window.dataLayer.push({
+              event: 'survey_allocated',
+              country: urlParams.cc,
+              vendor: urlParams.vid
+            });
           }
-          // Meta Pixel
-          if (typeof fbq === 'function') {
-            fbq('track', 'Lead', { content_name: 'survey_start', content_category: urlParams.cc });
-          }
-          // TikTok Pixel
-          if (typeof ttq !== 'undefined' && ttq.track) {
-            ttq.track('SubmitForm', { content_name: 'survey_start' });
-          }
-        } catch (pixelErr) {
-          console.warn('⚠️ Pixel event fire failed (non-blocking):', pixelErr.message);
+        } catch (e) {
+          // non-blocking
         }
 
         // Check if survey was allocated successfully
@@ -472,7 +441,7 @@ export default function TrafficFlowParser() {
       setLoading(false);
       isClickProcessingRef.current = false;  // TASK 8: Reset click guard on error
     }
-  }, [urlParams, fullUrl, email, birthdayDay, birthdayMonth, birthdayYear, gender, zipCode]);
+  }, [urlParams, fullUrl, birthdayDay, birthdayMonth, birthdayYear, gender]);
 
   // Auto-trigger removed - user must click the "Next" button manually
   // This was causing the system to automatically click the button
@@ -497,40 +466,6 @@ export default function TrafficFlowParser() {
         <p className="survey-text highlight">
           Your responses will be kept confidential and will be used in aggregate only.
         </p>
-
-        {/* Email input field - mandatory */}
-        <div style={{ margin: "20px 0", textAlign: "left" }}>
-          <label htmlFor="email" style={{ display: "block", marginBottom: "8px", fontWeight: "500", color: "#333" }}>
-            Email Address <span style={{ color: "#c00" }}>*</span>
-          </label>
-          <input
-            type="email"
-            id="email"
-            value={email}
-            onChange={(e) => {
-              setEmail(e.target.value);
-              if (emailError) setEmailError("");
-            }}
-            placeholder="Enter your email address"
-            style={{
-              width: "100%",
-              padding: "12px 16px",
-              fontSize: "16px",
-              border: emailError ? "2px solid #c00" : "1px solid #ccc",
-              borderRadius: "8px",
-              boxSizing: "border-box",
-              outline: "none",
-              transition: "border-color 0.2s",
-            }}
-            onFocus={(e) => e.target.style.borderColor = "#1976d2"}
-            onBlur={(e) => e.target.style.borderColor = emailError ? "#c00" : "#ccc"}
-          />
-          {emailError && (
-            <p style={{ color: "#c00", fontSize: "14px", marginTop: "6px", marginBottom: "0" }}>
-              {emailError}
-            </p>
-          )}
-        </div>
 
         {/* Date of Birth - mandatory for CPX demographic targeting */}
         <div style={{ margin: "20px 0", textAlign: "left" }}>
@@ -647,35 +582,6 @@ export default function TrafficFlowParser() {
           </div>
         </div>
 
-        {/* Zip/Postal Code - mandatory for CPX location targeting */}
-        <div style={{ margin: "20px 0", textAlign: "left" }}>
-          <label htmlFor="zipCode" style={{ display: "block", marginBottom: "8px", fontWeight: "500", color: "#333" }}>
-            Zip/Postal Code <span style={{ color: "#c00" }}>*</span>
-          </label>
-          <input
-            type="text"
-            id="zipCode"
-            value={zipCode}
-            onChange={(e) => {
-              setZipCode(e.target.value);
-              if (profileError) setProfileError("");
-            }}
-            placeholder="Enter your zip or postal code"
-            style={{
-              width: "100%",
-              padding: "12px 16px",
-              fontSize: "16px",
-              border: profileError && !zipCode ? "2px solid #c00" : "1px solid #ccc",
-              borderRadius: "8px",
-              boxSizing: "border-box",
-              outline: "none",
-              transition: "border-color 0.2s",
-            }}
-            onFocus={(e) => e.target.style.borderColor = "#1976d2"}
-            onBlur={(e) => e.target.style.borderColor = profileError && !zipCode ? "#c00" : "#ccc"}
-          />
-        </div>
-
         {/* Show profile validation error */}
         {profileError && (
           <div style={{ margin: "10px 0", padding: "15px", backgroundColor: "#fee", color: "#c00", borderRadius: "4px" }}>
@@ -712,7 +618,7 @@ export default function TrafficFlowParser() {
           className="survey-button"
           disabled={loading}
         >
-          {loading ? "Processing..." : "Next"}
+          {loading ? "Processing..." : "Proceed"}
         </button>
         
         {/* DEBUG DIAGNOSTIC PANEL - Only shows when ?debug=true in URL */}

@@ -1,4 +1,5 @@
-// v2 - force cache bust
+// v3 - force cache bust
+const _b = 3;
 import React from "react"
 import ReactDOM from "react-dom/client"
 import { BrowserRouter } from "react-router-dom"
