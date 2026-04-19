@@ -42,6 +42,7 @@ const LinkedInAutomationPage = lazy(() => import("./pages/marketing/LinkedInAuto
 const Finance = lazy(() => import("./pages/Finance"))
 const Operations = lazy(() => import("./pages/Operations"))
 const HR = lazy(() => import("./pages/HR"))
+const PanelAdmin = lazy(() => import("./pages/PanelAdmin"))
 
 // Sales Pages
 const Campaign = lazy(() => import("./pages/sales/Campaign"))
@@ -286,6 +287,9 @@ function App() {
 
         {/* HR */}
         <Route path="hr" element={<LazyPage><HR /></LazyPage>} />
+
+        {/* Panel Admin */}
+        <Route path="panel-admin" element={<LazyPage><PanelAdmin /></LazyPage>} />
 
         {/* Projects - Project Management */}
         <Route path="projects" element={<LazyPage><Projects /></LazyPage>} />

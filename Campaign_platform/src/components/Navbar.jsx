@@ -111,6 +111,15 @@ function Navbar({
               <span className="dropdown-icon">👥</span>
               HR
             </Link>
+
+            <Link
+              to="/admin/panel-admin"
+              className="logo-dropdown-item"
+              onClick={handleNonSidebarSection}
+            >
+              <span className="dropdown-icon">📋</span>
+              Panel
+            </Link>
           </div>
         </div>
       </div>
