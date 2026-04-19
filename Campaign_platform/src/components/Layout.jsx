@@ -7,6 +7,7 @@ import OperationsSidebar from "./OperationsSidebar"
 import FinanceSidebar from "./FinanceSidebar"
 import VendorSidebar from "./VendorSidebar"
 import MarketingSidebar from "./MarketingSidebar"
+import PanelSidebar from "./PanelSidebar"
 import Footer from "./Footer"
 import { useState, useEffect } from "react"
 
@@ -17,6 +18,7 @@ function getSectionFromPath(pathname) {
   if (pathname.startsWith("/admin/operations") || pathname === "/admin/logs") return "operations"
   if (pathname.startsWith("/admin/vendor")) return "vendor"
   if (pathname.startsWith("/admin/marketing")) return "marketing"
+  if (pathname.startsWith("/admin/panel-admin")) return "panel-admin"
   return null
 }
 
@@ -60,6 +62,9 @@ function Layout() {
         {/* ✅ Marketing sidebar (left) */}
         {selectedSection === "marketing" && <MarketingSidebar />}
 
+        {/* ✅ Panel sidebar (left) */}
+        {selectedSection === "panel-admin" && <PanelSidebar />}
+
         {/* ✅ Sales sidebar (right) */}
         {selectedSection === "sales" && <RightSidebar />}
 
@@ -75,6 +80,8 @@ function Layout() {
               : selectedSection === "vendor"
               ? "with-left-sidebar"
               : selectedSection === "marketing"
+              ? "with-left-sidebar"
+              : selectedSection === "panel-admin"
               ? "with-left-sidebar"
               : ""
           }`}

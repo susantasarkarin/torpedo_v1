@@ -1,0 +1,15 @@
+/* Panel Sidebar - follows OperationsSidebar pattern */
+.panel-sidebar {
+  position: fixed;
+  top: 70px;
+  left: 0;
+  width: 250px;
+  height: calc(100vh - 70px);
+  background: #1f2937;
+  color: white;
+  padding: 20px 15px;
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+  overflow-y: auto;
+  transition: all 0.3s ease;
+}

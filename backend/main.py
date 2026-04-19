@@ -357,14 +357,6 @@ app.add_middleware(
 # GZip compression for responses > 500 bytes (speeds up large JSON payloads)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
-# Request Source middleware (CPK/SYNC source identification)
-try:
-    from middleware.request_source import RequestSourceMiddleware
-    app.add_middleware(RequestSourceMiddleware)
-    print("✅ Request Source middleware added")
-except Exception as e:
-    print(f"⚠️ Request Source middleware not added: {e}")
-
 # ----------------------------
 # Global Exception Handler - Ensures all errors return JSON
 # ----------------------------
@@ -1143,17 +1135,7 @@ except Exception as e:
 
 # Gemini router removed - using OpenAI for all AI tasks
 
-# Audit Dashboard router (outreach metrics, send logs, error logs)
-# NOTE: Must be registered BEFORE the generic Audit Trail router whose
-# catch-all /{entity_type}/{entity_id} would otherwise shadow these routes.
-try:
-    from routers import audit_router as audit_dashboard_router
-    app.include_router(audit_dashboard_router.router)
-    print("✅ Audit Dashboard router included")
-except Exception as e:
-    print(f"⚠️ Audit Dashboard router not included: {e}")
-
-# Audit Trail router (generic entity history — catch-all, must come after specific audit routes)
+# Audit Trail router
 try:
     try:
         from .routers import audit as audit_router
@@ -1227,13 +1209,16 @@ try:
 except Exception as e:
     print(f"⚠️ Support router not included: {e}")
 
-# Health Dashboard v2 router (deliverability, alerts)
+# Panel Admin router (admin controls for survey panel module)
 try:
-    from routers import health_router_v2
-    app.include_router(health_router_v2.router)
-    print("✅ Health Dashboard v2 router included")
+    try:
+        from .routers import panel_admin as panel_admin_router
+    except ImportError:
+        from routers import panel_admin as panel_admin_router
+    app.include_router(panel_admin_router.router)
+    print("✅ Panel Admin router included")
 except Exception as e:
-    print(f"⚠️ Health Dashboard v2 router not included: {e}")
+    print(f"⚠️ Panel Admin router not included: {e}")
 
 # ----------------------------
 # APScheduler for CPX refresh job

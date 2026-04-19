@@ -112,14 +112,13 @@ function Navbar({
               HR
             </Link>
 
-            <Link
-              to="/admin/panel-admin"
+            <button
               className="logo-dropdown-item"
-              onClick={handleNonSidebarSection}
+              onClick={() => handleSectionSelect("panel-admin")}
             >
               <span className="dropdown-icon">📋</span>
               Panel
-            </Link>
+            </button>
           </div>
         </div>
       </div>
