@@ -3,11 +3,16 @@ Basic tests for AI Cold Outreach & Re-Engagement Module
 """
 
 import pytest
+import sys
+import os
 from datetime import datetime
 from bson import ObjectId
 
+# Ensure backend/ directory is on sys.path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 # Import models
-from backend.outreach.models import (
+from outreach.models import (
     OutreachLead,
     PersonalizationLevel,
     EngagementStatus,
@@ -18,8 +23,8 @@ from backend.outreach.models import (
 )
 
 # Import engines
-from backend.outreach.personalization import PersonalizationEngine
-from backend.outreach.templates import COLD_OUTREACH_TEMPLATES, BEHAVIOR_VARIANTS
+from outreach.personalization import PersonalizationEngine
+from outreach.templates import COLD_OUTREACH_TEMPLATES, BEHAVIOR_VARIANTS
 
 
 class TestModels:

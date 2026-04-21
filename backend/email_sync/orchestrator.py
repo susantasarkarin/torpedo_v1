@@ -15,7 +15,7 @@ Coordinates:
 import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from pymongo import ASCENDING, DESCENDING
+from pymongo import ASCENDING, DESCENDING, MongoClient
 from pymongo.errors import DuplicateKeyError
 from bson import ObjectId
 

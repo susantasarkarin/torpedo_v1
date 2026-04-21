@@ -33,6 +33,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple
 from bson import ObjectId
+from pymongo import MongoClient
 
 try:
     from ..database import get_client
