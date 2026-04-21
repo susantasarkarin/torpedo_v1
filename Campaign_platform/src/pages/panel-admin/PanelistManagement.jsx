@@ -20,6 +20,7 @@ function PanelistManagement() {
   const [panelistSearch, setPanelistSearch] = useState("")
   const [countryFilter, setCountryFilter] = useState("")
   const [availableCountries, setAvailableCountries] = useState([])
+  const [leadCountries, setLeadCountries] = useState([])
 
   // CSV upload state
   const [showUpload, setShowUpload] = useState(false)
@@ -48,6 +49,7 @@ function PanelistManagement() {
   // Fetch distinct countries on mount
   useEffect(() => {
     fetchCountries()
+    fetchLeadCountries()
   }, [])
 
   const fetchCountries = async () => {
@@ -62,6 +64,21 @@ function PanelistManagement() {
       }
     } catch (err) {
       console.error("Failed to fetch countries:", err)
+    }
+  }
+
+  const fetchLeadCountries = async () => {
+    const sessionId = localStorage.getItem("session_id")
+    try {
+      const res = await fetch(buildApiUrl("/panel-admin/panelist-leads/countries"), {
+        headers: { Authorization: sessionId },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setLeadCountries(data.countries || [])
+      }
+    } catch (err) {
+      console.error("Failed to fetch lead countries:", err)
     }
   }
 
@@ -391,7 +408,7 @@ function PanelistManagement() {
                 }}
               >
                 <option value="">All Countries</option>
-                {availableCountries.map((c) => (
+                {leadCountries.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>

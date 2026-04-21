@@ -64,6 +64,64 @@ def serialize_doc(doc):
     return doc
 
 
+def _panel_lead_base_stages(search: Optional[str] = None, country: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Build aggregation stages for parsing-page leads with normalized emails."""
+    match_query: Dict[str, Any] = {
+        "email": {"$exists": True, "$type": "string", "$ne": ""},
+    }
+
+    if country:
+        match_query["countryCode"] = {"$regex": f"^{country}$", "$options": "i"}
+
+    if search:
+        match_query["$or"] = [
+            {"email": {"$regex": search, "$options": "i"}},
+            {"respondentId": {"$regex": search, "$options": "i"}},
+            {"vendorId": {"$regex": search, "$options": "i"}},
+            {"countryCode": {"$regex": search, "$options": "i"}},
+        ]
+
+    return [
+        {"$match": match_query},
+        {
+            "$addFields": {
+                "normalizedEmail": {
+                    "$toLower": {
+                        "$trim": {"input": "$email"}
+                    }
+                },
+                "normalizedCountryCode": {
+                    "$toUpper": {
+                        "$trim": {"input": {"$ifNull": ["$countryCode", ""]}}
+                    }
+                },
+            }
+        },
+        {"$match": {"normalizedEmail": {"$ne": ""}}},
+    ]
+
+
+def _panel_lead_group_stages() -> List[Dict[str, Any]]:
+    """Deduplicate parsing-page leads by normalized email, keeping the newest record."""
+    return [
+        {"$sort": {"createdAt": -1, "_id": -1}},
+        {
+            "$group": {
+                "_id": "$normalizedEmail",
+                "doc": {"$first": "$$ROOT"},
+            }
+        },
+        {"$replaceRoot": {"newRoot": "$doc"}},
+        {"$set": {"email": "$normalizedEmail", "countryCode": "$normalizedCountryCode"}},
+        {
+            "$project": {
+                "normalizedEmail": 0,
+                "normalizedCountryCode": 0,
+            }
+        },
+    ]
+
+
 # ============== STATS ==============
 
 @router.get("/stats/")
@@ -190,30 +248,9 @@ async def list_panelist_leads(
     verify_admin_session(request)
 
     try:
-        match_query: Dict[str, Any] = {
-            "email": {"$exists": True, "$nin": [None, ""]},
-        }
-
-        if country:
-            match_query["countryCode"] = {"$regex": f"^{country}$", "$options": "i"}
-
-        if search:
-            match_query["$or"] = [
-                {"email": {"$regex": search, "$options": "i"}},
-                {"respondentId": {"$regex": search, "$options": "i"}},
-                {"vendorId": {"$regex": search, "$options": "i"}},
-                {"countryCode": {"$regex": search, "$options": "i"}},
-            ]
-
         total_pipeline = [
-            {"$match": match_query},
-            {"$sort": {"createdAt": -1}},
-            {
-                "$group": {
-                    "_id": {"$toLower": "$email"},
-                    "doc": {"$first": "$$ROOT"},
-                }
-            },
+            *_panel_lead_base_stages(search=search, country=country),
+            *_panel_lead_group_stages(),
             {"$count": "total"},
         ]
         total_result = list(traffic_collection.aggregate(total_pipeline))
@@ -221,15 +258,8 @@ async def list_panelist_leads(
 
         skip = (page - 1) * page_size
         results_pipeline = [
-            {"$match": match_query},
-            {"$sort": {"createdAt": -1}},
-            {
-                "$group": {
-                    "_id": {"$toLower": "$email"},
-                    "doc": {"$first": "$$ROOT"},
-                }
-            },
-            {"$replaceRoot": {"newRoot": "$doc"}},
+            *_panel_lead_base_stages(search=search, country=country),
+            *_panel_lead_group_stages(),
             {"$sort": {"createdAt": -1}},
             {"$skip": skip},
             {"$limit": page_size},
@@ -245,6 +275,29 @@ async def list_panelist_leads(
         }
     except Exception as e:
         logger.error(f"Error listing panelist leads: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/panelist-leads/countries")
+async def list_panelist_lead_countries(request: Request):
+    """Get distinct country codes from parsing-page leads that have an email."""
+    verify_admin_session(request)
+
+    try:
+        pipeline = [
+            *_panel_lead_base_stages(),
+            {
+                "$group": {
+                    "_id": "$normalizedCountryCode",
+                }
+            },
+            {"$match": {"_id": {"$ne": ""}}},
+            {"$sort": {"_id": 1}},
+        ]
+        countries = [doc["_id"] for doc in traffic_collection.aggregate(pipeline) if doc.get("_id")]
+        return {"countries": countries}
+    except Exception as e:
+        logger.error(f"Error fetching panel lead countries: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
