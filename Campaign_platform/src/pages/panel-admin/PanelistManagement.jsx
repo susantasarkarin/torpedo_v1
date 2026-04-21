@@ -3,21 +3,23 @@ import { buildApiUrl } from "../../config"
 import Papa from "papaparse"
 
 function PanelistManagement() {
-  const [activeTab, setActiveTab] = useState("parsing-leads")
+  const [activeTab, setActiveTab] = useState("panelist-leads")
 
-  // Parsing leads state
-  const [trafficRecords, setTrafficRecords] = useState([])
-  const [trafficPage, setTrafficPage] = useState(1)
-  const [trafficTotal, setTrafficTotal] = useState(0)
-  const [trafficLoading, setTrafficLoading] = useState(false)
-  const [trafficSearch, setTrafficSearch] = useState("")
+  // Panelist leads state
+  const [panelLeads, setPanelLeads] = useState([])
+  const [leadPage, setLeadPage] = useState(1)
+  const [leadTotal, setLeadTotal] = useState(0)
+  const [leadLoading, setLeadLoading] = useState(false)
+  const [leadSearch, setLeadSearch] = useState("")
 
-  // Panelist signups state
+  // Approved panelists state
   const [panelists, setPanelists] = useState([])
   const [panelistPage, setPanelistPage] = useState(1)
   const [panelistTotal, setPanelistTotal] = useState(0)
   const [panelistLoading, setPanelistLoading] = useState(false)
   const [panelistSearch, setPanelistSearch] = useState("")
+  const [countryFilter, setCountryFilter] = useState("")
+  const [availableCountries, setAvailableCountries] = useState([])
 
   // CSV upload state
   const [showUpload, setShowUpload] = useState(false)
@@ -27,38 +29,65 @@ function PanelistManagement() {
   const [uploadResult, setUploadResult] = useState(null)
   const fileInputRef = useRef(null)
 
+  // Invitation state
+  const [showInviteModal, setShowInviteModal] = useState(false)
+  const [inviteLoading, setInviteLoading] = useState(false)
+  const [inviteResult, setInviteResult] = useState(null)
+  const [inviteCount, setInviteCount] = useState(0)
+
   const PAGE_SIZE = 20
 
   useEffect(() => {
-    if (activeTab === "parsing-leads") {
-      fetchTrafficRecords()
-    } else if (activeTab === "panelist-signups") {
+    if (activeTab === "panelist-leads") {
+      fetchPanelLeads()
+    } else if (activeTab === "panelist-approved") {
       fetchPanelists()
     }
-  }, [activeTab, trafficPage, panelistPage])
+  }, [activeTab, leadPage, panelistPage, countryFilter])
 
-  const fetchTrafficRecords = async () => {
-    setTrafficLoading(true)
+  // Fetch distinct countries on mount
+  useEffect(() => {
+    fetchCountries()
+  }, [])
+
+  const fetchCountries = async () => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      const params = new URLSearchParams({
-        page: trafficPage,
-        page_size: PAGE_SIZE,
-      })
-      if (trafficSearch) params.append("search", trafficSearch)
-
-      const res = await fetch(buildApiUrl(`/api/traffic/list?${params}`), {
+      const res = await fetch(buildApiUrl("/panel-admin/panelists/countries"), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) {
         const data = await res.json()
-        setTrafficRecords(data.records || data.results || [])
-        setTrafficTotal(data.total || 0)
+        setAvailableCountries(data.countries || [])
       }
     } catch (err) {
-      console.error("Failed to fetch traffic records:", err)
+      console.error("Failed to fetch countries:", err)
+    }
+  }
+
+  const fetchPanelLeads = async () => {
+    setLeadLoading(true)
+    const sessionId = localStorage.getItem("session_id")
+    try {
+      const params = new URLSearchParams({
+        page: leadPage,
+        page_size: PAGE_SIZE,
+      })
+      if (leadSearch) params.append("search", leadSearch)
+      if (countryFilter) params.append("country", countryFilter)
+
+      const res = await fetch(buildApiUrl(`/panel-admin/panelist-leads/?${params}`), {
+        headers: { Authorization: sessionId },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setPanelLeads(data.results || [])
+        setLeadTotal(data.total || 0)
+      }
+    } catch (err) {
+      console.error("Failed to fetch panelist leads:", err)
     } finally {
-      setTrafficLoading(false)
+      setLeadLoading(false)
     }
   }
 
@@ -71,6 +100,8 @@ function PanelistManagement() {
         page_size: PAGE_SIZE,
       })
       if (panelistSearch) params.append("search", panelistSearch)
+      if (countryFilter) params.append("country", countryFilter)
+      params.append("status", "active")
 
       const res = await fetch(buildApiUrl(`/panel-admin/panelists/?${params}`), {
         headers: { Authorization: sessionId },
@@ -87,10 +118,10 @@ function PanelistManagement() {
     }
   }
 
-  const handleSearchTraffic = (e) => {
+  const handleSearchLeads = (e) => {
     e.preventDefault()
-    setTrafficPage(1)
-    fetchTrafficRecords()
+    setLeadPage(1)
+    fetchPanelLeads()
   }
 
   const handleSearchPanelists = (e) => {
@@ -143,7 +174,6 @@ function PanelistManagement() {
         setCsvData(null)
         setCsvFileName("")
         if (fileInputRef.current) fileInputRef.current.value = ""
-        // Refresh panelists list
         fetchPanelists()
       } else {
         setUploadResult({ success: false, message: data.detail || "Upload failed" })
@@ -155,7 +185,61 @@ function PanelistManagement() {
     }
   }
 
-  const totalTrafficPages = Math.ceil(trafficTotal / PAGE_SIZE)
+  // Invitation handlers
+  const handleSendInvitationsClick = async () => {
+    const sessionId = localStorage.getItem("session_id")
+    try {
+      const params = new URLSearchParams()
+      if (countryFilter) params.append("country", countryFilter)
+      const res = await fetch(buildApiUrl(`/panel-admin/invitations/preview?${params}`), {
+        headers: { Authorization: sessionId },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setInviteCount(data.eligible_count || 0)
+        setInviteResult(null)
+        setShowInviteModal(true)
+      }
+    } catch (err) {
+      console.error("Failed to get invitation preview:", err)
+    }
+  }
+
+  const handleConfirmSendInvitations = async () => {
+    setInviteLoading(true)
+    setInviteResult(null)
+    const sessionId = localStorage.getItem("session_id")
+
+    try {
+      const body = {}
+      if (countryFilter) body.country = countryFilter
+
+      const res = await fetch(buildApiUrl("/panel-admin/invitations/send"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+        body: JSON.stringify(body),
+      })
+
+      const data = await res.json()
+      if (res.ok) {
+        setInviteResult({
+          success: true,
+          message: `Sent: ${data.sent || 0} | Skipped: ${data.skipped || 0} (suppressed/already invited) | Failed: ${data.failed || 0}`,
+        })
+      } else {
+        setInviteResult({ success: false, message: data.detail || "Failed to send invitations" })
+      }
+    } catch (err) {
+      setInviteResult({ success: false, message: "Network error: " + err.message })
+    } finally {
+      setInviteLoading(false)
+    }
+  }
+
+  const totalLeadPages = Math.ceil(leadTotal / PAGE_SIZE)
   const totalPanelistPages = Math.ceil(panelistTotal / PAGE_SIZE)
 
   const tabStyle = (tab) => ({
@@ -172,17 +256,26 @@ function PanelistManagement() {
   return (
     <div>
       <div className="card">
-        <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
           <div>
             <h2 className="card-title">Panelist Management</h2>
-            <p className="card-description">Manage parsing leads, panelist signups, and bulk uploads.</p>
+            <p className="card-description">Manage parsing-page leads, approved panelists, and bulk uploads.</p>
           </div>
-          <button
-            className="btn btn-primary"
-            onClick={() => setShowUpload(!showUpload)}
-          >
-            {showUpload ? "Close Upload" : "Upload CSV"}
-          </button>
+          <div style={{ display: "flex", gap: "0.75rem" }}>
+            <button
+              className="btn btn-primary"
+              onClick={handleSendInvitationsClick}
+              style={{ background: "#059669", borderColor: "#059669" }}
+            >
+              Send Invitations
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowUpload(!showUpload)}
+            >
+              {showUpload ? "Close Upload" : "Upload CSV"}
+            </button>
+          </div>
         </div>
 
         {/* CSV Upload Section */}
@@ -263,73 +356,93 @@ function PanelistManagement() {
 
         {/* Tabs */}
         <div style={{ borderBottom: "1px solid #e5e7eb", marginBottom: "1.5rem" }}>
-          <button style={tabStyle("parsing-leads")} onClick={() => setActiveTab("parsing-leads")}>
-            Parsing Leads
+          <button style={tabStyle("panelist-leads")} onClick={() => setActiveTab("panelist-leads")}>
+            Panelist Lead
           </button>
-          <button style={tabStyle("panelist-signups")} onClick={() => setActiveTab("panelist-signups")}>
-            Panelist Signups
+          <button style={tabStyle("panelist-approved")} onClick={() => setActiveTab("panelist-approved")}>
+            Panelist Approved
           </button>
         </div>
 
-        {/* Parsing Leads Tab */}
-        {activeTab === "parsing-leads" && (
+        {/* Panelist Lead Tab */}
+        {activeTab === "panelist-leads" && (
           <div>
-            <form onSubmit={handleSearchTraffic} style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem" }}>
-              <input
-                type="text"
-                placeholder="Search by respondent ID, country, vendor..."
-                value={trafficSearch}
-                onChange={(e) => setTrafficSearch(e.target.value)}
+            <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem", flexWrap: "wrap" }}>
+              <form onSubmit={handleSearchLeads} style={{ display: "flex", gap: "0.75rem", flex: 1, minWidth: "250px" }}>
+                <input
+                  type="text"
+                  placeholder="Search by mail ID, respondent ID, vendor, country..."
+                  value={leadSearch}
+                  onChange={(e) => setLeadSearch(e.target.value)}
+                  style={{
+                    flex: 1, padding: "0.625rem 1rem", border: "1px solid #d1d5db",
+                    borderRadius: "6px", fontSize: "0.875rem",
+                  }}
+                />
+                <button type="submit" className="btn btn-primary">Search</button>
+              </form>
+              <select
+                value={countryFilter}
+                onChange={(e) => { setCountryFilter(e.target.value); setLeadPage(1) }}
                 style={{
-                  flex: 1, padding: "0.625rem 1rem", border: "1px solid #d1d5db",
-                  borderRadius: "6px", fontSize: "0.875rem",
+                  padding: "0.625rem 1rem", border: "1px solid #d1d5db",
+                  borderRadius: "6px", fontSize: "0.875rem", minWidth: "180px",
+                  backgroundColor: "#fff",
                 }}
-              />
-              <button type="submit" className="btn btn-primary">Search</button>
-            </form>
+              >
+                <option value="">All Countries</option>
+                {availableCountries.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
 
-            {trafficLoading ? (
-              <p style={{ color: "#6b7280", padding: "1rem 0" }}>Loading traffic records...</p>
-            ) : trafficRecords.length === 0 ? (
-              <p style={{ color: "#6b7280", padding: "1rem 0" }}>No traffic records found.</p>
+            {leadLoading ? (
+              <p style={{ color: "#6b7280", padding: "1rem 0" }}>Loading panelist leads...</p>
+            ) : panelLeads.length === 0 ? (
+              <p style={{ color: "#6b7280", padding: "1rem 0" }}>No parsing-page mail IDs found.</p>
             ) : (
               <>
                 <div style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ borderBottom: "2px solid #e5e7eb" }}>
+                        <th style={{ ...thStyle, fontWeight: "700", color: "#111827", minWidth: "220px" }}>Email</th>
+                        <th style={{ ...thStyle, fontWeight: "700", color: "#111827", minWidth: "120px" }}>Country</th>
                         <th style={thStyle}>Respondent ID</th>
-                        <th style={thStyle}>Country</th>
                         <th style={thStyle}>Vendor ID</th>
-                        <th style={thStyle}>IP Address</th>
                         <th style={thStyle}>Status</th>
-                        <th style={thStyle}>Survey ID</th>
-                        <th style={thStyle}>Created</th>
+                        <th style={thStyle}>Collected</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {trafficRecords.map((record, index) => (
-                        <tr key={record._id || record.id || index} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                          <td style={tdStyle}>{record.rid || record.respondent_id || "-"}</td>
-                          <td style={tdStyle}>{record.cc || record.country_code || "-"}</td>
-                          <td style={tdStyle}>{record.vid || record.vendor_id || "-"}</td>
-                          <td style={tdStyle}>{record.client_ip || record.ip || "-"}</td>
+                      {panelLeads.map((lead, index) => (
+                        <tr key={lead._id || lead.id || index} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                          <td style={{ ...tdStyle, fontWeight: "600", color: "#1f2937" }}>{lead.email || "-"}</td>
+                          <td style={{ ...tdStyle, fontWeight: "600", color: "#1f2937" }}>
+                            {lead.countryCode ? (
+                              <span style={{
+                                display: "inline-flex", alignItems: "center", gap: "0.25rem",
+                                background: "#eff6ff", color: "#1e40af", padding: "0.2rem 0.6rem",
+                                borderRadius: "9999px", fontSize: "0.8rem", fontWeight: "600",
+                              }}>
+                                {lead.countryCode}
+                              </span>
+                            ) : "-"}
+                          </td>
+                          <td style={tdStyle}>{lead.respondentId || "-"}</td>
+                          <td style={tdStyle}>{lead.vendorId || "-"}</td>
                           <td style={tdStyle}>
                             <span style={{
                               fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
-                              backgroundColor: record.status === "complete" ? "#d1fae5" :
-                                record.status === "terminated" ? "#fee2e2" :
-                                record.status === "allocated" ? "#dbeafe" : "#f3f4f6",
-                              color: record.status === "complete" ? "#065f46" :
-                                record.status === "terminated" ? "#991b1b" :
-                                record.status === "allocated" ? "#1e40af" : "#374151",
+                              backgroundColor: lead.status === "COMPLETE" ? "#d1fae5" : lead.status === "INCOMPLETE" ? "#fef3c7" : "#e5e7eb",
+                              color: lead.status === "COMPLETE" ? "#065f46" : lead.status === "INCOMPLETE" ? "#92400e" : "#374151",
                             }}>
-                              {record.status || "pending"}
+                              {lead.status || "-"}
                             </span>
                           </td>
-                          <td style={tdStyle}>{record.survey_id || "-"}</td>
                           <td style={tdStyle}>
-                            {record.created_at ? new Date(record.created_at).toLocaleString() : "-"}
+                            {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : "-"}
                           </td>
                         </tr>
                       ))}
@@ -337,23 +450,22 @@ function PanelistManagement() {
                   </table>
                 </div>
 
-                {/* Pagination */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem" }}>
                   <span style={{ fontSize: "0.875rem", color: "#6b7280" }}>
-                    Total: {trafficTotal} records | Page {trafficPage} of {totalTrafficPages}
+                    Total: {leadTotal} unique mail IDs | Page {leadPage} of {totalLeadPages}
                   </span>
                   <div style={{ display: "flex", gap: "0.5rem" }}>
                     <button
                       className="btn btn-outline"
-                      disabled={trafficPage <= 1}
-                      onClick={() => setTrafficPage(trafficPage - 1)}
+                      disabled={leadPage <= 1}
+                      onClick={() => setLeadPage(leadPage - 1)}
                     >
                       Previous
                     </button>
                     <button
                       className="btn btn-outline"
-                      disabled={trafficPage >= totalTrafficPages}
-                      onClick={() => setTrafficPage(trafficPage + 1)}
+                      disabled={leadPage >= totalLeadPages}
+                      onClick={() => setLeadPage(leadPage + 1)}
                     >
                       Next
                     </button>
@@ -364,59 +476,93 @@ function PanelistManagement() {
           </div>
         )}
 
-        {/* Panelist Signups Tab */}
-        {activeTab === "panelist-signups" && (
+        {/* Panelist Approved Tab */}
+        {activeTab === "panelist-approved" && (
           <div>
-            <form onSubmit={handleSearchPanelists} style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem" }}>
-              <input
-                type="text"
-                placeholder="Search by name, email, country..."
-                value={panelistSearch}
-                onChange={(e) => setPanelistSearch(e.target.value)}
+            <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem", flexWrap: "wrap" }}>
+              <form onSubmit={handleSearchPanelists} style={{ display: "flex", gap: "0.75rem", flex: 1, minWidth: "250px" }}>
+                <input
+                  type="text"
+                  placeholder="Search approved panelists by email, name, country..."
+                  value={panelistSearch}
+                  onChange={(e) => setPanelistSearch(e.target.value)}
+                  style={{
+                    flex: 1, padding: "0.625rem 1rem", border: "1px solid #d1d5db",
+                    borderRadius: "6px", fontSize: "0.875rem",
+                  }}
+                />
+                <button type="submit" className="btn btn-primary">Search</button>
+              </form>
+              <select
+                value={countryFilter}
+                onChange={(e) => { setCountryFilter(e.target.value); setPanelistPage(1) }}
                 style={{
-                  flex: 1, padding: "0.625rem 1rem", border: "1px solid #d1d5db",
-                  borderRadius: "6px", fontSize: "0.875rem",
+                  padding: "0.625rem 1rem", border: "1px solid #d1d5db",
+                  borderRadius: "6px", fontSize: "0.875rem", minWidth: "180px",
+                  backgroundColor: "#fff",
                 }}
-              />
-              <button type="submit" className="btn btn-primary">Search</button>
-            </form>
+              >
+                <option value="">All Countries</option>
+                {availableCountries.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
 
             {panelistLoading ? (
-              <p style={{ color: "#6b7280", padding: "1rem 0" }}>Loading panelists...</p>
+              <p style={{ color: "#6b7280", padding: "1rem 0" }}>Loading approved panelists...</p>
             ) : panelists.length === 0 ? (
-              <p style={{ color: "#6b7280", padding: "1rem 0" }}>No panelists found.</p>
+              <p style={{ color: "#6b7280", padding: "1rem 0" }}>No approved panelists found.</p>
             ) : (
               <>
                 <div style={{ overflowX: "auto" }}>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ borderBottom: "2px solid #e5e7eb" }}>
+                        <th style={{ ...thStyle, fontWeight: "700", color: "#111827", minWidth: "220px" }}>Email</th>
+                        <th style={{ ...thStyle, fontWeight: "700", color: "#111827", minWidth: "120px" }}>Country</th>
                         <th style={thStyle}>Name</th>
-                        <th style={thStyle}>Email</th>
-                        <th style={thStyle}>Country</th>
                         <th style={thStyle}>Status</th>
-                        <th style={thStyle}>Points</th>
+                        <th style={thStyle}>Verified</th>
                         <th style={thStyle}>Joined</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {panelists.map((p, index) => (
-                        <tr key={p._id || p.id || index} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                          <td style={tdStyle}>{p.first_name} {p.last_name}</td>
-                          <td style={tdStyle}>{p.email}</td>
-                          <td style={tdStyle}>{p.country || "-"}</td>
+                      {panelists.map((panelist, index) => (
+                        <tr key={panelist._id || panelist.id || index} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                          <td style={{ ...tdStyle, fontWeight: "600", color: "#1f2937" }}>{panelist.email || "-"}</td>
+                          <td style={{ ...tdStyle, fontWeight: "600", color: "#1f2937" }}>
+                            {panelist.country ? (
+                              <span style={{
+                                display: "inline-flex", alignItems: "center", gap: "0.25rem",
+                                background: "#eff6ff", color: "#1e40af", padding: "0.2rem 0.6rem",
+                                borderRadius: "9999px", fontSize: "0.8rem", fontWeight: "600",
+                              }}>
+                                {panelist.country}
+                              </span>
+                            ) : "-"}
+                          </td>
+                          <td style={tdStyle}>{[panelist.first_name, panelist.last_name].filter(Boolean).join(" ") || "-"}</td>
                           <td style={tdStyle}>
                             <span style={{
                               fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
-                              backgroundColor: p.status === "active" ? "#d1fae5" : "#fee2e2",
-                              color: p.status === "active" ? "#065f46" : "#991b1b",
+                              backgroundColor: panelist.status === "active" ? "#d1fae5" : panelist.status === "pending" ? "#fef3c7" : "#fee2e2",
+                              color: panelist.status === "active" ? "#065f46" : panelist.status === "pending" ? "#92400e" : "#991b1b",
                             }}>
-                              {p.status || "active"}
+                              {panelist.status || "active"}
                             </span>
                           </td>
-                          <td style={tdStyle}>{p.rewards_balance ?? 0}</td>
                           <td style={tdStyle}>
-                            {p.created_at ? new Date(p.created_at).toLocaleDateString() : "-"}
+                            <span style={{
+                              fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
+                              backgroundColor: panelist.email_verified ? "#d1fae5" : "#f3f4f6",
+                              color: panelist.email_verified ? "#065f46" : "#6b7280",
+                            }}>
+                              {panelist.email_verified ? "Verified" : "Unverified"}
+                            </span>
+                          </td>
+                          <td style={tdStyle}>
+                            {panelist.created_at ? new Date(panelist.created_at).toLocaleDateString() : "-"}
                           </td>
                         </tr>
                       ))}
@@ -424,9 +570,10 @@ function PanelistManagement() {
                   </table>
                 </div>
 
+                {/* Pagination */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem" }}>
                   <span style={{ fontSize: "0.875rem", color: "#6b7280" }}>
-                    Total: {panelistTotal} panelists | Page {panelistPage} of {totalPanelistPages}
+                    Total: {panelistTotal} approved panelists | Page {panelistPage} of {totalPanelistPages}
                   </span>
                   <div style={{ display: "flex", gap: "0.5rem" }}>
                     <button
@@ -450,6 +597,79 @@ function PanelistManagement() {
           </div>
         )}
       </div>
+
+      {/* Send Invitations Modal */}
+      {showInviteModal && (
+        <div
+          style={{
+            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: "rgba(0,0,0,0.5)", display: "flex",
+            alignItems: "center", justifyContent: "center", zIndex: 1000,
+          }}
+          onClick={() => !inviteLoading && setShowInviteModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: "#fff", borderRadius: "12px", padding: "2rem",
+              maxWidth: "480px", width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ fontSize: "1.25rem", fontWeight: "700", marginBottom: "0.75rem", color: "#111827" }}>
+              Send Invitation Emails
+            </h3>
+
+            {!inviteResult ? (
+              <>
+                <p style={{ color: "#6b7280", fontSize: "0.9rem", marginBottom: "1rem", lineHeight: "1.5" }}>
+                  {countryFilter
+                    ? `Send invitation emails to ${inviteCount} eligible panelists in ${countryFilter}.`
+                    : `Send invitation emails to ${inviteCount} eligible panelists across all countries.`}
+                </p>
+                <p style={{ color: "#9ca3af", fontSize: "0.8rem", marginBottom: "1.5rem" }}>
+                  Suppressed (bounced/complained) and already-invited panelists will be skipped automatically.
+                </p>
+                <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
+                  <button
+                    className="btn btn-outline"
+                    onClick={() => setShowInviteModal(false)}
+                    disabled={inviteLoading}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleConfirmSendInvitations}
+                    disabled={inviteLoading || inviteCount === 0}
+                    style={{ background: "#059669", borderColor: "#059669", opacity: inviteLoading || inviteCount === 0 ? 0.5 : 1 }}
+                  >
+                    {inviteLoading ? "Sending..." : `Send to ${inviteCount} Panelists`}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{
+                  padding: "1rem",
+                  borderRadius: "8px",
+                  backgroundColor: inviteResult.success ? "#d1fae5" : "#fee2e2",
+                  color: inviteResult.success ? "#065f46" : "#991b1b",
+                  fontSize: "0.9rem",
+                  marginBottom: "1.5rem",
+                  lineHeight: "1.5",
+                }}>
+                  {inviteResult.message}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button className="btn btn-primary" onClick={() => setShowInviteModal(false)}>
+                    Close
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -108,27 +108,55 @@ async def get_panel_stats(request: Request):
 
 # ============== PANELISTS ==============
 
+@router.get("/panelists/countries")
+async def list_panelist_countries(request: Request):
+    """Get distinct country values from panelists collection"""
+    verify_admin_session(request)
+
+    try:
+        countries = panelists_collection.distinct("country")
+        # Filter out empty/None values and sort
+        countries = sorted([c for c in countries if c])
+        return {"countries": countries}
+    except Exception as e:
+        logger.error(f"Error fetching countries: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/panelists/")
 async def list_panelists(
     request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None),
+    country: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
 ):
-    """List all panelists with pagination and search"""
+    """List all panelists with pagination, search, and country filter"""
     verify_admin_session(request)
 
     try:
         query = {}
+        conditions = []
+
         if search:
-            query = {
+            conditions.append({
                 "$or": [
                     {"first_name": {"$regex": search, "$options": "i"}},
                     {"last_name": {"$regex": search, "$options": "i"}},
                     {"email": {"$regex": search, "$options": "i"}},
                     {"country": {"$regex": search, "$options": "i"}},
                 ]
-            }
+            })
+
+        if country:
+            conditions.append({"country": {"$regex": f"^{country}$", "$options": "i"}})
+
+        if status:
+            conditions.append({"status": {"$regex": f"^{status}$", "$options": "i"}})
+
+        if conditions:
+            query = {"$and": conditions} if len(conditions) > 1 else conditions[0]
 
         total = panelists_collection.count_documents(query)
         skip = (page - 1) * page_size
@@ -147,6 +175,76 @@ async def list_panelists(
         }
     except Exception as e:
         logger.error(f"Error listing panelists: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/panelist-leads/")
+async def list_panelist_leads(
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    search: Optional[str] = Query(None),
+    country: Optional[str] = Query(None),
+):
+    """List unique parsing-page leads that have an email address."""
+    verify_admin_session(request)
+
+    try:
+        match_query: Dict[str, Any] = {
+            "email": {"$exists": True, "$nin": [None, ""]},
+        }
+
+        if country:
+            match_query["countryCode"] = {"$regex": f"^{country}$", "$options": "i"}
+
+        if search:
+            match_query["$or"] = [
+                {"email": {"$regex": search, "$options": "i"}},
+                {"respondentId": {"$regex": search, "$options": "i"}},
+                {"vendorId": {"$regex": search, "$options": "i"}},
+                {"countryCode": {"$regex": search, "$options": "i"}},
+            ]
+
+        total_pipeline = [
+            {"$match": match_query},
+            {"$sort": {"createdAt": -1}},
+            {
+                "$group": {
+                    "_id": {"$toLower": "$email"},
+                    "doc": {"$first": "$$ROOT"},
+                }
+            },
+            {"$count": "total"},
+        ]
+        total_result = list(traffic_collection.aggregate(total_pipeline))
+        total = total_result[0]["total"] if total_result else 0
+
+        skip = (page - 1) * page_size
+        results_pipeline = [
+            {"$match": match_query},
+            {"$sort": {"createdAt": -1}},
+            {
+                "$group": {
+                    "_id": {"$toLower": "$email"},
+                    "doc": {"$first": "$$ROOT"},
+                }
+            },
+            {"$replaceRoot": {"newRoot": "$doc"}},
+            {"$sort": {"createdAt": -1}},
+            {"$skip": skip},
+            {"$limit": page_size},
+        ]
+
+        leads = [serialize_doc(doc) for doc in traffic_collection.aggregate(results_pipeline)]
+
+        return {
+            "results": leads,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+    except Exception as e:
+        logger.error(f"Error listing panelist leads: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
