@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react"
 import { buildApiUrl } from "../../config"
 import Papa from "papaparse"
 
+const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
+
 function PanelistManagement() {
   const [activeTab, setActiveTab] = useState("panelist-leads")
 
@@ -55,7 +57,7 @@ function PanelistManagement() {
   const fetchCountries = async () => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl("/panel-admin/panelists/countries"), {
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/countries`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) {
@@ -70,7 +72,7 @@ function PanelistManagement() {
   const fetchLeadCountries = async () => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl("/panel-admin/panelist-leads/countries"), {
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelist-leads/countries`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) {
@@ -93,7 +95,7 @@ function PanelistManagement() {
       if (leadSearch) params.append("search", leadSearch)
       if (countryFilter) params.append("country", countryFilter)
 
-      const res = await fetch(buildApiUrl(`/panel-admin/panelist-leads/?${params}`), {
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelist-leads/?${params}`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) {
@@ -120,7 +122,7 @@ function PanelistManagement() {
       if (countryFilter) params.append("country", countryFilter)
       params.append("status", "active")
 
-      const res = await fetch(buildApiUrl(`/panel-admin/panelists/?${params}`), {
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/?${params}`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) {
@@ -176,7 +178,7 @@ function PanelistManagement() {
     const sessionId = localStorage.getItem("session_id")
 
     try {
-      const res = await fetch(buildApiUrl("/panel-admin/panelists/upload-csv"), {
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/upload-csv`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -208,7 +210,7 @@ function PanelistManagement() {
     try {
       const params = new URLSearchParams()
       if (countryFilter) params.append("country", countryFilter)
-      const res = await fetch(buildApiUrl(`/panel-admin/invitations/preview?${params}`), {
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/invitations/preview?${params}`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) {
@@ -231,7 +233,7 @@ function PanelistManagement() {
       const body = {}
       if (countryFilter) body.country = countryFilter
 
-      const res = await fetch(buildApiUrl("/panel-admin/invitations/send"), {
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/invitations/send`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

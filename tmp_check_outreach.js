@@ -1,0 +1,11 @@
+db = db.getSiblingDB('torpedo');
+print('=== LEAD STATUS BREAKDOWN ===');
+printjson(db.outreach_leads_v2.aggregate([{$group:{_id:'$workflow_status', count:{$sum:1}}}]).toArray());
+print('=== TOTAL SENDS ===');
+print(db.outreach_sends_v2.countDocuments({}));
+print('=== SENDS BY STATUS ===');
+printjson(db.outreach_sends_v2.aggregate([{$group:{_id:'$status', count:{$sum:1}}}]).toArray());
+print('=== SAMPLE SENDS (last 5) ===');
+printjson(db.outreach_sends_v2.find({},{to_email:1,actual_to:1,status:1,sent_at:1}).sort({sent_at:-1}).limit(5).toArray());
+print('=== LEADS WITH ERRORS ===');
+print(db.outreach_leads_v2.countDocuments({last_send_error:{$exists:true}}));

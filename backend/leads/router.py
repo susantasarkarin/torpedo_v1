@@ -191,8 +191,80 @@ _settings_db = _settings_client['torpedo_settings']
 _app_settings_collection = _settings_db['app_settings']
 
 def get_rate_limit_settings() -> dict:
-    """Get rate limiting settings (legacy - returns defaults only)"""
-    return {"daily_limit": 400, "hourly_limit": 50, "query_delay": 3, "monthly_budget": 50.0, "enabled": True}
+    """Get rate limiting settings from app_settings with safe fallbacks."""
+    defaults = {
+        "daily_limit": 400,
+        "hourly_limit": 50,
+        "query_delay": 3,
+        "monthly_budget": 50.0,
+        "enabled": True,
+    }
+
+    def _as_int(value, fallback):
+        try:
+            return int(value)
+        except Exception:
+            return fallback
+
+    def _as_float(value, fallback):
+        try:
+            return float(value)
+        except Exception:
+            return fallback
+
+    def _as_bool(value, fallback):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        if value is None:
+            return fallback
+        return bool(value)
+
+    # Priority:
+    # 1) app_settings/_id=web_search_rate_limits (if present)
+    # 2) app_settings/_id=app_config Google CSE keys
+    # 3) env vars
+    # 4) defaults
+    try:
+        doc = _app_settings_collection.find_one({"_id": "web_search_rate_limits"}) or {}
+        app_cfg = _app_settings_collection.find_one({"_id": "app_config"}) or {}
+
+        daily = (
+            doc.get("daily_limit")
+            if doc.get("daily_limit") is not None
+            else app_cfg.get("google_cse_daily_limit", os.getenv("GOOGLE_CSE_DAILY_LIMIT", defaults["daily_limit"]))
+        )
+        hourly = (
+            doc.get("hourly_limit")
+            if doc.get("hourly_limit") is not None
+            else app_cfg.get("google_cse_hourly_limit", os.getenv("GOOGLE_CSE_HOURLY_LIMIT", defaults["hourly_limit"]))
+        )
+        query_delay = (
+            doc.get("query_delay")
+            if doc.get("query_delay") is not None
+            else app_cfg.get("google_cse_query_delay", os.getenv("GOOGLE_CSE_QUERY_DELAY", defaults["query_delay"]))
+        )
+        monthly_budget = (
+            doc.get("monthly_budget")
+            if doc.get("monthly_budget") is not None
+            else app_cfg.get("google_cse_monthly_budget", os.getenv("GOOGLE_CSE_MONTHLY_BUDGET", defaults["monthly_budget"]))
+        )
+        enabled = (
+            doc.get("enabled")
+            if doc.get("enabled") is not None
+            else app_cfg.get("google_cse_rate_limit_enabled", os.getenv("GOOGLE_CSE_RATE_LIMIT_ENABLED", defaults["enabled"]))
+        )
+
+        return {
+            "daily_limit": max(1, _as_int(daily, defaults["daily_limit"])),
+            "hourly_limit": max(1, _as_int(hourly, defaults["hourly_limit"])),
+            "query_delay": max(1, _as_int(query_delay, defaults["query_delay"])),
+            "monthly_budget": max(0.0, _as_float(monthly_budget, defaults["monthly_budget"])),
+            "enabled": _as_bool(enabled, defaults["enabled"]),
+        }
+    except Exception:
+        return defaults
 
 # Legacy constants (used as fallback only)
 DAILY_LIMIT = 400  # Conservative default for $50/month
@@ -359,7 +431,29 @@ def generate_query_combinations(designations: List[str], countries: List[str],
     
     # If user specified industries, use those (with empty string for flexibility)
     industry_modifiers = [""] + industries if industries else default_industry_modifiers
-    
+
+    # Country-specific LinkedIn subdomains to surface profiles not indexed on www
+    # These reach regional LinkedIn caches that Google may surface differently
+    COUNTRY_SITE_PREFIXES = {
+        "India": "in.linkedin.com/in/",
+        "United Kingdom": "uk.linkedin.com/in/",
+        "Australia": "au.linkedin.com/in/",
+        "Canada": "ca.linkedin.com/in/",
+        "Germany": "de.linkedin.com/in/",
+        "France": "fr.linkedin.com/in/",
+        "Singapore": "sg.linkedin.com/in/",
+        "UAE": "ae.linkedin.com/in/",
+        "South Africa": "za.linkedin.com/in/",
+    }
+
+    # SFW / consumer-insights anchor terms that produce domain-specific results
+    SFW_ANCHOR_TERMS = [
+        "market research", "consumer insights", "survey research",
+        "quantitative research", "qualitative research", "panel research",
+        "insights manager", "research manager", "data collection",
+        "fieldwork", "CAPI CATI", "online surveys",
+    ]
+
     query_combinations = []
     
     for designation in (designations if designations else [""]):
@@ -384,7 +478,17 @@ def generate_query_combinations(designations: List[str], countries: List[str],
                         
                         if query_parts:
                             query_combinations.append(" ".join(query_parts))
-    
+
+                    # Extra pass: use country-specific LinkedIn subdomain site: operator
+                    site_prefix = COUNTRY_SITE_PREFIXES.get(country)
+                    if site_prefix and designation:
+                        for anchor in SFW_ANCHOR_TERMS[:4]:  # top 4 anchors to avoid explosion
+                            q_parts = [f'"{designation}"', anchor]
+                            if sen_var:
+                                q_parts.append(f'"{sen_var}"')
+                            q_parts.append(f"site:{site_prefix}")
+                            query_combinations.append(" ".join(q_parts))
+
     query_combinations = list(set(query_combinations)) if query_combinations else [custom_query]
     random.shuffle(query_combinations)
     
@@ -443,7 +547,11 @@ async def run_web_search_job(job_id: str):
     seen_urls = set(job.get("seen_urls", []))
     batch_size = 10
     query_index = 0
-    
+    # Track queries that consistently return 0 new leads (all duplicates)
+    # key=query, value=consecutive all-dupe count; reset when new leads found
+    exhausted_queries: dict = {}
+    EXHAUSTED_THRESHOLD = 3  # skip a query after this many all-dupe runs
+
     print(f"[WebSearch:{job_id}] Starting job - Target: {target_count}, Queries: {len(query_combinations)}")
     
     while True:
@@ -505,13 +613,21 @@ async def run_web_search_job(job_id: str):
             })
             continue
         
-        # Get next query
+        # Get next query — skip exhausted ones
         if query_index >= len(query_combinations):
             query_index = 0
             random.shuffle(query_combinations)
+            # Reset exhausted state at the start of each full cycle
+            exhausted_queries.clear()
         
         query = query_combinations[query_index]
         query_index += 1
+
+        # Skip queries that consistently return only duplicates this cycle
+        if exhausted_queries.get(query, 0) >= EXHAUSTED_THRESHOLD:
+            print(f"[WebSearch:{job_id}] Skipping exhausted query: '{query[:60]}'")
+            await asyncio.sleep(0.2)
+            continue
         
         update_job(job_id, {"current_query": query[:100]})
         
@@ -529,7 +645,9 @@ async def run_web_search_job(job_id: str):
                 results = await search_linkedin_leads(
                     query=query,
                     num_results=batch_size,
-                    start=start_index
+                    start=start_index,
+                    skip_cache=True,   # Always fetch fresh results; cached ones are already imported
+                    deduplicate=False  # Dedup handled by ingest_lead; skip_cache makes cache useless here
                 )
                 
                 if not results:
@@ -612,12 +730,23 @@ async def run_web_search_job(job_id: str):
                 
                 print(f"[WebSearch:{job_id}] Query: '{query[:40]}...' - Found: {len(batch_leads)}, Imported: {result.imported}")
                 
+                # Track queries that yield no new leads
+                if result.imported == 0:
+                    exhausted_queries[query] = exhausted_queries.get(query, 0) + 1
+                    if exhausted_queries[query] >= EXHAUSTED_THRESHOLD:
+                        print(f"[WebSearch:{job_id}] Query marked exhausted (all dupes): '{query[:60]}'")
+                else:
+                    exhausted_queries.pop(query, None)  # Reset on any new import
+
                 # Save seen URLs periodically (every 100 new ones)
                 if len(seen_urls) % 100 < batch_size:
                     update_job(job_id, {"seen_urls": list(seen_urls)})
                 
             except Exception as e:
                 add_job_error(job_id, f"Import error: {str(e)}")
+        else:
+            # batch_leads empty → CSE returned nothing new → mark query as exhausted faster
+            exhausted_queries[query] = exhausted_queries.get(query, 0) + 1
         
         # Auto-classify after each batch
         try:
@@ -672,6 +801,21 @@ async def import_from_web_search(
     Use POST /leads/import/web-search/stop/{job_id} to stop.
     """
     try:
+        # Starting a fresh job should clear stale global pause/circuit flags.
+        control = get_global_search_control()
+        if (
+            control.get("paused")
+            or control.get("circuit_breaker_open")
+            or control.get("consecutive_errors", 0) > 0
+        ):
+            set_global_search_control({
+                "paused": False,
+                "paused_at": None,
+                "paused_reason": "",
+                "circuit_breaker_open": False,
+                "consecutive_errors": 0,
+            })
+
         # Check for already running job
         running_jobs = list(web_search_jobs_collection.find({
             "status": {"$in": [JobStatus.RUNNING, JobStatus.PENDING]}
@@ -3503,6 +3647,105 @@ async def bulk_tag_icp_segment(request: BulkIcpTagRequest):
         "enriched_updated": enriched_result.modified_count,
         "raw_updated": raw_result.modified_count,
         "message": f"Tagged {enriched_result.modified_count} lead(s) as ICP '{request.icp_segment}'",
+    }
+
+
+# ============== BULK BASKET RECLASSIFICATION ==============
+
+@router.post("/reclassify-baskets")
+async def reclassify_baskets_all(background_tasks: BackgroundTasks):
+    """
+    POST /leads/reclassify-baskets
+    Runs compute_icp_basket() on ALL leads_enriched docs that are missing
+    classification_basket (or have basket=null). No AI calls — pure rule-based.
+    After updating, also triggers cold-outreach enrollment catch-up.
+    """
+    background_tasks.add_task(_run_reclassify_baskets_job)
+    total = leads_enriched_collection.count_documents(
+        {"classification_basket": {"$in": [None, ""]}}
+    )
+    return {
+        "success": True,
+        "message": f"Basket reclassification started for ~{total} leads without a basket.",
+        "leads_to_process": total,
+    }
+
+
+async def _run_reclassify_baskets_job():
+    """
+    Background: assign classification_basket to every leads_enriched doc missing it.
+    Processes in bulk batches; after completion triggers enrollment sync.
+    """
+    from .canonical_ingestion import compute_icp_basket
+    from pymongo import UpdateOne
+
+    batch_size = 500
+    updated = 0
+    processed = 0
+    last_id = None
+
+    print("[ReclassifyBaskets] Starting basket reclassification...")
+    try:
+        while True:
+            query = {"classification_basket": {"$in": [None, ""]}}
+            if last_id is not None:
+                query["_id"] = {"$gt": last_id}
+
+            batch = list(leads_enriched_collection.find(query).sort("_id", 1).limit(batch_size))
+            if not batch:
+                break
+
+            bulk_ops = []
+            for lead in batch:
+                basket_data = compute_icp_basket(lead)
+                bulk_ops.append(UpdateOne(
+                    {"_id": lead["_id"]},
+                    {"$set": {**basket_data, "updated_at": datetime.utcnow()}},
+                ))
+
+            if bulk_ops:
+                result = leads_enriched_collection.bulk_write(bulk_ops, ordered=False)
+                updated += result.modified_count
+
+            last_id = batch[-1]["_id"]
+            processed += len(batch)
+            print(f"[ReclassifyBaskets] Processed {processed}, updated {updated}")
+
+        print(f"[ReclassifyBaskets] Done — {updated}/{processed} leads updated with basket")
+
+        # Trigger cold outreach enrollment catch-up
+        try:
+            from ..routers.cold_outreach_router import _sync_active_campaign_enrollment, get_db
+            _sync_active_campaign_enrollment(get_db())
+            print("[ReclassifyBaskets] Triggered cold outreach enrollment sync")
+        except Exception as enroll_err:
+            print(f"[ReclassifyBaskets] Enrollment sync skipped: {enroll_err}")
+
+    except Exception as e:
+        import traceback
+        print(f"[ReclassifyBaskets] Error: {e}")
+        traceback.print_exc()
+
+
+@router.get("/reclassify-baskets/stats")
+async def reclassify_baskets_stats():
+    """
+    GET /leads/reclassify-baskets/stats
+    Returns count of leads missing classification_basket (to check if re-run is needed).
+    """
+    missing = leads_enriched_collection.count_documents(
+        {"classification_basket": {"$in": [None, ""]}}
+    )
+    total = leads_enriched_collection.count_documents({})
+    pipeline = [
+        {"$group": {"_id": "$classification_basket", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+    ]
+    dist = list(leads_enriched_collection.aggregate(pipeline))
+    return {
+        "total_leads": total,
+        "missing_basket": missing,
+        "basket_distribution": [{"basket": d["_id"], "count": d["count"]} for d in dist],
     }
 
 

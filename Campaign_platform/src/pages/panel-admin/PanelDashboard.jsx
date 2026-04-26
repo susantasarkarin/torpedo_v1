@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react"
 import { buildApiUrl } from "../../config"
 
+const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
+
 function PanelDashboard() {
   const [stats, setStats] = useState({
     totalPanelists: 0,
@@ -17,7 +19,7 @@ function PanelDashboard() {
   const fetchStats = async () => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl("/panel-admin/stats/"), {
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/stats/`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) {

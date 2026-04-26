@@ -1,6 +1,7 @@
 """
 LinkedIn Automation Models
-Defines Pydantic schemas for LinkedIn accounts, schedules, and automation jobs.
+Defines Pydantic schemas for LinkedIn accounts, schedules, automation jobs,
+and LinkedIn-sourced opportunities.
 """
 
 from typing import Optional, List
@@ -35,6 +36,25 @@ class FrequencyType(str, Enum):
     HOURLY = "hourly"
     WEEKLY = "weekly"
     CUSTOM = "custom"
+
+
+class OpportunityStatus(str, Enum):
+    """Lifecycle state for LinkedIn-discovered opportunities"""
+    DISCOVERED = "discovered"
+    QUALIFIED = "qualified"
+    CONTACTED = "contacted"
+    REPLIED = "replied"
+    CONVERTED = "converted"
+    DISMISSED = "dismissed"
+
+
+class OpportunityChannel(str, Enum):
+    """Origin channel for the LinkedIn signal"""
+    MESSAGE = "message"
+    COMMENT = "comment"
+    INMAIL = "inmail"
+    POST_REPLY = "post_reply"
+    OTHER = "other"
 
 
 class LinkedInScheduleConfig(BaseModel):
@@ -208,3 +228,58 @@ class LinkedInBotConfig(BaseModel):
                 "chromedriver_path": None
             }
         }
+
+
+class LinkedInOpportunityIngestRequest(BaseModel):
+    """Payload for recording and scoring a LinkedIn opportunity candidate"""
+    account_id: Optional[str] = None
+    message_id: Optional[str] = None
+    channel: OpportunityChannel = OpportunityChannel.MESSAGE
+    sender_name: str = Field(..., min_length=1)
+    sender_profile_url: Optional[str] = None
+    sender_company: Optional[str] = None
+    sender_title: Optional[str] = None
+    message_text: str = Field(..., min_length=1)
+    division_hint: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class LinkedInOpportunityUpdate(BaseModel):
+    """Fields that can be updated as the opportunity progresses"""
+    status: Optional[OpportunityStatus] = None
+    division_owner: Optional[str] = None
+    notes: Optional[str] = None
+    response_draft: Optional[str] = None
+    converted_value: Optional[float] = None
+
+
+class LinkedInOpportunityResponse(BaseModel):
+    """Stored LinkedIn opportunity record"""
+    id: str = Field(..., alias="_id")
+    account_id: Optional[str] = None
+    message_id: Optional[str] = None
+    channel: OpportunityChannel
+    sender_name: str
+    sender_profile_url: Optional[str] = None
+    sender_company: Optional[str] = None
+    sender_title: Optional[str] = None
+    message_text: str
+    message_excerpt: str
+    detected_need: Optional[str] = None
+    detected_keywords: List[str] = Field(default_factory=list)
+    intent_score: int = 0
+    confidence: float = 0.0
+    status: OpportunityStatus = OpportunityStatus.DISCOVERED
+    division_owner: Optional[str] = None
+    response_draft: Optional[str] = None
+    notes: Optional[str] = None
+    converted_value: Optional[float] = None
+    created_at: datetime
+    updated_at: datetime
+    contacted_at: Optional[datetime] = None
+    replied_at: Optional[datetime] = None
+    converted_at: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
+

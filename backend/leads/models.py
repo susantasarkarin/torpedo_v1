@@ -188,6 +188,7 @@ class EmailStatus(str, Enum):
     UNKNOWN = "Unknown"
     NOT_FOUND = "Not Found"
     PREDICTED = "Predicted"  # AI-predicted email based on name pattern
+    DELIVERED = "Delivered"  # Sent successfully; no bounce within 7 days
 
 
 class CompanySize(str, Enum):

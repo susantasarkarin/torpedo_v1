@@ -65,6 +65,8 @@ class EmailPatternSystem:
         self.patterns_collection.create_index([("confidence", -1)])
         self.patterns_collection.create_index([("last_verified", -1)])
         self.patterns_collection.create_index([("source", 1)])
+        self.patterns_collection.create_index([("high_bounce_risk", 1)])
+        self.patterns_collection.create_index([("pattern_blacklisted", 1)])
     
     def _extract_domain(self, email_or_website: str) -> str:
         """Extract domain from email or website URL"""
@@ -108,6 +110,9 @@ class EmailPatternSystem:
         # Tier 1: Database lookup
         pattern = self._lookup_database(domain)
         if pattern:
+            # Never return a blacklisted domain pattern — it causes too many bounces
+            if pattern.get("pattern_blacklisted"):
+                return None
             return pattern
         
         # Tier 1.5: Analyze known emails from CSV-uploaded leads in leads_enriched
@@ -137,7 +142,10 @@ class EmailPatternSystem:
                 self._store_pattern(pattern)
                 return pattern
         
-        # Tier 4: Pattern guessing
+        # Tier 4: Pattern guessing — skip for domains with known bounce history
+        risk = self.get_domain_risk(domain)
+        if risk.get("pattern_blacklisted") or risk.get("high_bounce_risk"):
+            return None
         pattern = self._guess_pattern(domain)
         if pattern:
             self._store_pattern(pattern)
@@ -769,6 +777,178 @@ class EmailPatternSystem:
             })
         return stats
 
+    # ──────────────────────────────────────────────────────────────────────
+    # SEND / BOUNCE FEEDBACK LOOP
+    # These methods are called by the cold outreach engine after every send
+    # and every bounce detection so the pattern DB learns over time.
+    # ──────────────────────────────────────────────────────────────────────
+
+    def record_send_success(
+        self,
+        domain: str,
+        email: str,
+        first_name: str = "",
+        last_name: str = "",
+    ) -> None:
+        """
+        Called after a cold-outreach email is delivered without an immediate
+        bounce.  Reinforces the confidence of the pattern for this domain.
+
+        Side-effects on email_patterns document:
+          - send_count++
+          - confidence  ← min(0.98, old + 0.05)
+          - delivery_verified = True
+          - high_bounce_risk = False  (cleared if previously set)
+          - email added to examples[] (up to 10 kept)
+          - last_verified = now
+        """
+        domain = self._extract_domain(domain or email)
+        if not domain:
+            return
+        try:
+            now = datetime.now()
+            existing = self.patterns_collection.find_one({"domain": domain}, {"confidence": 1, "examples": 1, "send_count": 1})
+            old_conf = (existing or {}).get("confidence", 0.5)
+            new_conf = min(0.98, old_conf + 0.05)
+
+            self.patterns_collection.update_one(
+                {"domain": domain},
+                {
+                    "$set": {
+                        "confidence": new_conf,
+                        "delivery_verified": True,
+                        "high_bounce_risk": False,
+                        "last_verified": now,
+                        "updated_at": now,
+                    },
+                    "$inc": {"send_count": 1},
+                    "$addToSet": {"examples": email},
+                },
+                upsert=True,
+            )
+            # Trim examples to last 10 without using $where (safer on managed Mongo)
+            updated_doc = self.patterns_collection.find_one({"domain": domain}, {"examples": 1}) or {}
+            examples = updated_doc.get("examples", [])
+            if isinstance(examples, list) and len(examples) > 10:
+                self.patterns_collection.update_one(
+                    {"domain": domain},
+                    {"$set": {"examples": examples[-10:]}},
+                )
+            import logging as _log
+            _log.getLogger(__name__).debug(
+                f"[PatternFeedback] ✓ {domain} confidence {old_conf:.2f}→{new_conf:.2f} "
+                f"(send_count={((existing or {}).get('send_count', 0)) + 1})"
+            )
+        except Exception as e:
+            import logging as _log
+            _log.getLogger(__name__).warning(f"[PatternFeedback] record_send_success failed for {domain}: {e}")
+
+    def record_bounce(self, domain: str, email: str) -> None:
+        """
+        Called when a bounce is detected for an email sent to this domain.
+        Penalises the pattern confidence; above thresholds marks the domain
+        as high-risk or fully blacklisted to stop future guesses.
+
+        Thresholds:
+          bounce_rate > 0.35 → high_bounce_risk=True, confidence -= 0.25
+          bounce_rate > 0.60 → pattern_blacklisted=True (no more derivations)
+        """
+        domain = self._extract_domain(domain or email)
+        if not domain:
+            return
+        try:
+            now = datetime.now()
+            existing = self.patterns_collection.find_one(
+                {"domain": domain},
+                {"confidence": 1, "send_count": 1, "bounce_count": 1},
+            )
+            old_conf = (existing or {}).get("confidence", 0.5)
+            send_count = (existing or {}).get("send_count", 0)
+            bounce_count = (existing or {}).get("bounce_count", 0) + 1
+            total = send_count + bounce_count
+            bounce_rate = bounce_count / max(1, total)
+
+            high_risk = bounce_rate > 0.35
+            blacklisted = bounce_rate > 0.60
+            new_conf = max(0.1, old_conf - 0.25) if high_risk else old_conf
+
+            self.patterns_collection.update_one(
+                {"domain": domain},
+                {
+                    "$set": {
+                        "confidence": new_conf,
+                        "bounce_rate": round(bounce_rate, 4),
+                        "high_bounce_risk": high_risk,
+                        "pattern_blacklisted": blacklisted,
+                        "last_bounced_at": now,
+                        "updated_at": now,
+                    },
+                    "$inc": {"bounce_count": 1},
+                },
+                upsert=True,
+            )
+            import logging as _log
+            _log.getLogger(__name__).warning(
+                f"[PatternFeedback] ✗ {domain} bounce recorded — "
+                f"rate={bounce_rate:.0%} conf={old_conf:.2f}→{new_conf:.2f} "
+                f"high_risk={high_risk} blacklisted={blacklisted}"
+            )
+        except Exception as e:
+            import logging as _log
+            _log.getLogger(__name__).warning(f"[PatternFeedback] record_bounce failed for {domain}: {e}")
+
+    def get_domain_risk(self, domain: str) -> Dict:
+        """
+        Returns the current delivery-risk profile for a domain.
+        Used by the pre-send guard in cold_outreach_router.
+
+        Returns:
+            {
+                "domain": str,
+                "confidence": float,
+                "bounce_rate": float,
+                "send_count": int,
+                "bounce_count": int,
+                "high_bounce_risk": bool,
+                "pattern_blacklisted": bool,
+                "delivery_verified": bool,
+            }
+        """
+        domain = self._extract_domain(domain)
+        default = {
+            "domain": domain,
+            "confidence": 0.0,
+            "bounce_rate": 0.0,
+            "send_count": 0,
+            "bounce_count": 0,
+            "high_bounce_risk": False,
+            "pattern_blacklisted": False,
+            "delivery_verified": False,
+        }
+        if not domain:
+            return default
+        try:
+            doc = self.patterns_collection.find_one(
+                {"domain": domain},
+                {"confidence": 1, "bounce_rate": 1, "send_count": 1,
+                 "bounce_count": 1, "high_bounce_risk": 1,
+                 "pattern_blacklisted": 1, "delivery_verified": 1},
+            )
+            if not doc:
+                return default
+            return {
+                "domain": domain,
+                "confidence": doc.get("confidence", 0.0),
+                "bounce_rate": doc.get("bounce_rate", 0.0),
+                "send_count": doc.get("send_count", 0),
+                "bounce_count": doc.get("bounce_count", 0),
+                "high_bounce_risk": bool(doc.get("high_bounce_risk", False)),
+                "pattern_blacklisted": bool(doc.get("pattern_blacklisted", False)),
+                "delivery_verified": bool(doc.get("delivery_verified", False)),
+            }
+        except Exception:
+            return default
+
     def get_stats(self) -> Dict:
         total_patterns = self.patterns_collection.count_documents({})
         
@@ -782,7 +962,9 @@ class EmailPatternSystem:
             "total_patterns": total_patterns,
             "high_confidence_patterns": high_confidence,
             "by_source": {item["_id"]: item["count"] for item in by_source},
-            "hunter_api_configured": bool(self.hunter_api_key)
+            "hunter_api_configured": bool(self.hunter_api_key),
+            "high_bounce_risk_domains": self.patterns_collection.count_documents({"high_bounce_risk": True}),
+            "blacklisted_domains": self.patterns_collection.count_documents({"pattern_blacklisted": True}),
         }
 
 

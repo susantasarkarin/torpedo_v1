@@ -13,6 +13,10 @@ from backend.linkedin_automation.models import (
     LinkedInAccountCreate,
     LinkedInAccountUpdate,
     LinkedInAccountResponse,
+    LinkedInOpportunityIngestRequest,
+    LinkedInOpportunityResponse,
+    LinkedInOpportunityUpdate,
+    OpportunityStatus,
     TaskType,
     LinkedInBotConfig
 )
@@ -252,6 +256,73 @@ async def update_schedule(account_id: str, schedule: dict):
     except Exception as e:
         logger.error(f"Error updating schedule: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to update schedule")
+
+
+@router.post("/opportunities/ingest", response_model=LinkedInOpportunityResponse)
+async def ingest_opportunity(payload: LinkedInOpportunityIngestRequest):
+    """Record an inbound LinkedIn message/comment as an opportunity candidate."""
+    try:
+        return service.ingest_opportunity(payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error ingesting LinkedIn opportunity: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to ingest opportunity")
+
+
+@router.get("/opportunities", response_model=List[LinkedInOpportunityResponse])
+async def list_opportunities(
+    status: Optional[OpportunityStatus] = Query(None),
+    division_owner: Optional[str] = Query(None),
+    days: int = Query(30, ge=1, le=365),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """List recent LinkedIn opportunities with filters for status and owner."""
+    try:
+        status_value = status.value if status is not None else None
+        return service.list_opportunities(
+            status=status_value,
+            division_owner=division_owner,
+            days=days,
+            limit=limit,
+        )
+    except Exception as e:
+        logger.error(f"Error listing LinkedIn opportunities: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to list opportunities")
+
+
+@router.get("/opportunities/dashboard")
+async def get_opportunities_dashboard(days: int = Query(30, ge=1, le=365)):
+    """Return a funnel-style dashboard summary for LinkedIn-sourced opportunities."""
+    try:
+        return service.get_opportunity_dashboard(days=days)
+    except Exception as e:
+        logger.error(f"Error getting LinkedIn opportunities dashboard: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get opportunities dashboard")
+
+
+@router.get("/opportunities/{opportunity_id}", response_model=LinkedInOpportunityResponse)
+async def get_opportunity(opportunity_id: str):
+    """Get a specific LinkedIn opportunity."""
+    try:
+        return service.get_opportunity(opportunity_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting LinkedIn opportunity: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get opportunity")
+
+
+@router.patch("/opportunities/{opportunity_id}", response_model=LinkedInOpportunityResponse)
+async def update_opportunity(opportunity_id: str, update_data: LinkedInOpportunityUpdate):
+    """Update status, owner, notes, and draft for a LinkedIn opportunity."""
+    try:
+        return service.update_opportunity(opportunity_id, update_data)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error updating LinkedIn opportunity: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update opportunity")
 
 
 async def _execute_automation_task(account_id: str, task_type: TaskType):

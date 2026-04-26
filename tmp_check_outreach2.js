@@ -1,0 +1,12 @@
+db = db.getSiblingDB('torpedo');
+print('=== SAMPLE SEND FULL RECORD ===');
+printjson(db.outreach_sends_v2.findOne({status:'sent'}, {_id:0}));
+print('=== LAST SEND TIME ===');
+var last = db.outreach_sends_v2.find().sort({sent_at:-1}).limit(1).toArray()[0];
+print('Last sent at: ' + last.sent_at);
+print('=== 5 LEADS WITH ERRORS ===');
+printjson(db.outreach_leads_v2.find({last_send_error:{$exists:true}},{email:1,last_send_error:1,workflow_status:1,_id:0}).limit(5).toArray());
+print('=== STILL PENDING (not_started count) ===');
+print(db.outreach_leads_v2.countDocuments({workflow_status:'not_started'}));
+print('=== STILL PENDING_SCHEDULED ===');
+print(db.outreach_leads_v2.countDocuments({workflow_status:'pending_scheduled'}));

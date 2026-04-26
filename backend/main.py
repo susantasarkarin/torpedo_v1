@@ -1216,6 +1216,7 @@ try:
     except ImportError:
         from routers import panel_admin as panel_admin_router
     app.include_router(panel_admin_router.router)
+    app.include_router(panel_admin_router.router, prefix="/api")
     print("✅ Panel Admin router included")
 except Exception as e:
     print(f"⚠️ Panel Admin router not included: {e}")

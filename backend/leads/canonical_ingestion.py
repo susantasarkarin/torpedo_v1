@@ -612,11 +612,15 @@ def _strip_guessed_email_if_unverified(normalized: Dict[str, Any]) -> None:
         from .email_pattern_system import get_pattern_system
         ps = get_pattern_system()
         existing = ps.patterns_collection.find_one(
-            {"domain": domain, "source": {"$in": ["csv_leads_analysis", "skrapp"]}},
-            {"confidence": 1},
+            {"domain": domain},
+            {"confidence": 1, "high_bounce_risk": 1},
         )
-        if existing and existing.get("confidence", 0) >= 0.6:
-            return  # Verified pattern exists — keep the email
+        if existing:
+            # Strip if domain has known bounce problems regardless of confidence
+            if existing.get("high_bounce_risk"):
+                pass  # Fall through to strip
+            elif existing.get("confidence", 0) >= 0.65:
+                return  # Good pattern — keep the email
     except Exception:
         pass  # If pattern system unavailable, strip to be safe
 
@@ -763,6 +767,8 @@ def _auto_enroll_in_outreach(lead_data: Dict[str, Any], enriched_id: str) -> Non
                     'enrolled_at': now,
                     'created_at': now,
                     'updated_at': now,
+                    # Carry forward for pre-send bounce-risk guard
+                    'email_source': lead_data.get('email_source'),
                 })
             return
 
@@ -800,6 +806,8 @@ def _auto_enroll_in_outreach(lead_data: Dict[str, Any], enriched_id: str) -> Non
             'enrolled_at': now,
             'created_at': now,
             'updated_at': now,
+            # Carry forward for pre-send bounce-risk guard
+            'email_source': lead_data.get('email_source'),
         })
         logger.info(f"Auto-enrolled {email_lower} into campaign {cid} (basket {basket})")
 
@@ -861,9 +869,10 @@ def ingest_lead(
         normalized = normalize_payload(payload, source, source_detail, icp_segment=icp_segment)
         result['email'] = normalized['email']
 
-        # Strict rule: skip records with unknown company placeholders.
+        # Strict rule: skip records where company was explicitly provided as a garbage placeholder.
+        # Do NOT skip leads with no company info (e.g. LinkedIn CSE results).
         input_company = payload.get('company') or payload.get('company_name')
-        if is_unknown_company(input_company):
+        if input_company and is_unknown_company(input_company):
             result['success'] = True
             result['action'] = 'skipped'
             result['error'] = 'unknown_company'

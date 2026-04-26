@@ -70,6 +70,8 @@ def normalize_linkedin_url(url: str) -> str:
         https://www.linkedin.com/in/johndoe/ -> linkedin.com/in/johndoe
         http://linkedin.com/in/JohnDoe -> linkedin.com/in/johndoe
         linkedin.com/in/john-doe?trk=... -> linkedin.com/in/john-doe
+        https://in.linkedin.com/in/johndoe -> linkedin.com/in/johndoe
+        https://uk.linkedin.com/in/johndoe -> linkedin.com/in/johndoe
     """
     if not url:
         return ""
@@ -80,8 +82,9 @@ def normalize_linkedin_url(url: str) -> str:
     # Remove protocol
     url = re.sub(r'^https?://', '', url)
     
-    # Remove www.
+    # Remove www. and country subdomains (in., uk., au., ca., de., fr., etc.)
     url = re.sub(r'^www\.', '', url)
+    url = re.sub(r'^[a-z]{2}\.(?=linkedin\.com)', '', url)
     
     # Remove trailing slash
     url = url.rstrip('/')

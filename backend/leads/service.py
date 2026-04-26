@@ -324,9 +324,29 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
         
         # Upsert enriched lead — prefer email as dedup key; fall back to linkedin_url
         _dedup_key = {"linkedin_url": lead.linkedin_url} if lead.linkedin_url else {"email": final_email}
+        enriched_dict = enriched.model_dump()
+
+        # Merge ICP basket classification (rule-based, must be in every enriched doc)
+        try:
+            from .canonical_ingestion import compute_icp_basket
+            basket_input = {
+                "title": lead.title,
+                "department": result.department.value if result.department else "",
+                "seniority_level": result.seniority_level.value if result.seniority_level else "",
+                "buying_role": result.buying_role.value if result.buying_role else "",
+                "persona": result.persona.value if result.persona else "",
+                "company_industry": result.company_industry or raw_lead.get("company_industry", ""),
+                "company_revenue_range": result.company_revenue_range or raw_lead.get("company_revenue_range", ""),
+                "company": result.company_name or raw_lead.get("company_name", ""),
+                "icp_segment": raw_lead.get("icp_segment"),
+            }
+            enriched_dict.update(compute_icp_basket(basket_input))
+        except Exception as _basket_err:
+            logger.warning(f"compute_icp_basket failed for lead {raw_lead_id}: {_basket_err}")
+
         leads_enriched_collection.update_one(
             _dedup_key,
-            {"$set": enriched.model_dump()},
+            {"$set": enriched_dict},
             upsert=True
         )
 

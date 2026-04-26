@@ -42,6 +42,7 @@ settings_db = get_database("torpedo_settings")
 
 web_search_jobs_collection = db["web_search_jobs"]
 scheduler_config_collection = settings_db["scheduler_config"]
+app_settings_collection = settings_db["app_settings"]
 error_tracking_collection = db["error_tracking"]
 
 # ============== JOB STATUS CONSTANTS ==============
@@ -122,6 +123,35 @@ async def attempt_job_resume(job_id: str, current_status: str):
     - No recent API errors
     """
     logger.info(f"[{job_id}] Attempting to resume (status: {current_status})")
+
+    async def _restart_job_execution(resume_reason: str):
+        """Set status to pending and start the async job loop again."""
+        web_search_jobs_collection.update_one(
+            {"job_id": job_id},
+            {"$set": {
+                "status": JobStatus.PENDING,
+                "last_update": datetime.utcnow(),
+                "resume_reason": resume_reason,
+            }}
+        )
+        try:
+            try:
+                from .leads.router import run_web_search_job
+            except Exception:
+                from leads.router import run_web_search_job
+
+            asyncio.create_task(run_web_search_job(job_id))
+            logger.info(f"[{job_id}] ▶️ Relaunch task queued ({resume_reason})")
+        except Exception as relaunch_err:
+            logger.error(f"[{job_id}] Failed to relaunch job task: {relaunch_err}")
+            web_search_jobs_collection.update_one(
+                {"job_id": job_id},
+                {"$set": {
+                    "status": JobStatus.FAILED,
+                    "last_update": datetime.utcnow(),
+                    "last_error": f"Scheduler relaunch failed: {str(relaunch_err)[:200]}",
+                }}
+            )
     
     if current_status == JobStatus.QUOTA_EXCEEDED:
         # Check if it's a new day
@@ -138,16 +168,19 @@ async def attempt_job_resume(job_id: str, current_status: str):
             web_search_jobs_collection.update_one(
                 {"job_id": job_id},
                 {"$set": {
-                    "status": JobStatus.RUNNING,
                     "leads_today": 0,
                     "day_started": current_day
                 }}
             )
+            await _restart_job_execution("quota_reset")
             logger.info(f"[{job_id}] ✅ Resumed after daily quota reset")
     
     elif current_status == JobStatus.PAUSED:
-        # Check global search control
-        global_config = scheduler_config_collection.find_one({"_id": "global_search_control"})
+        # Check global search control (primary source: app_settings.search_control)
+        global_config = app_settings_collection.find_one({"_id": "search_control"})
+        if not global_config:
+            # Backward compatibility with older scheduler config document
+            global_config = scheduler_config_collection.find_one({"_id": "global_search_control"})
         
         if global_config and global_config.get("paused"):
             logger.debug(f"[{job_id}] Global search still paused: {global_config.get('paused_reason')}")
@@ -165,10 +198,7 @@ async def attempt_job_resume(job_id: str, current_status: str):
         
         # Resume paused job
         logger.info(f"[{job_id}] Resuming paused job")
-        web_search_jobs_collection.update_one(
-            {"job_id": job_id},
-            {"$set": {"status": JobStatus.RUNNING}}
-        )
+        await _restart_job_execution("scheduler_resume")
         logger.info(f"[{job_id}] ✅ Resumed successfully")
 
 
