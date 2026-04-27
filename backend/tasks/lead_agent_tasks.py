@@ -282,7 +282,14 @@ def run_lead_generation_pipeline(
                     
                     if result.success and result.data:
                         batch_contacts = result.data.get("contacts", [])
-                        
+
+                        # Parse first_name / last_name if only a combined name is present
+                        for c in batch_contacts:
+                            if not c.get("first_name") and c.get("name"):
+                                parts = c["name"].strip().split(" ", 1)
+                                c["first_name"] = parts[0]
+                                c["last_name"] = parts[1] if len(parts) > 1 else ""
+
                         # Deduplicate
                         new_contacts, dupes = deduplicator.check_duplicates(batch_contacts)
                         duplicates_skipped += len(dupes)

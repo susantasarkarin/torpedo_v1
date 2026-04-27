@@ -316,7 +316,7 @@ async def background_enrich_leads():
                     {"last_enrichment_attempt": {"$lt": datetime.utcnow() - timedelta(hours=6)}}
                 ]
             }
-        ).sort("created_at", 1).limit(10))  # Small batch, oldest first
+        ).sort("created_at", 1).limit(50))  # Increased from 10 → 50 for faster catch-up
         
         if not pending_leads:
             logger.debug("[Enrichment] No leads pending enrichment")
@@ -335,11 +335,16 @@ async def background_enrich_leads():
                 # Try to enrich using web search
                 try:
                     from leads.web_search_enrichment import enrich_company_with_websearch
-                    
+
                     # Build context from available lead data
-                    company = lead.get('company') or lead.get('company_name') or lead.get('company_domain', '')
+                    # Use company_domain as a fallback when company name is absent —
+                    # this allows enrichment of AI-discovered leads that only have a domain.
+                    company = (
+                        lead.get('company') or lead.get('company_name')
+                        or lead.get('company_domain', '')
+                    )
                     if not company:
-                        # Can't enrich without company info - mark as skipped
+                        # Still nothing — skip this lead
                         leads_raw.update_one(
                             {'_id': lead['_id']},
                             {'$set': {
@@ -503,27 +508,35 @@ def initialize_scheduler(loop=None):
         )
         logger.info("[Scheduler] Added low-priority lead enrichment (every 30 min)")
 
-        # Mail pool extraction — extract leads from recent Gmail emails every hour (code-only, no AI)
+        # Email metadata classification — classify inbound Gmail Workspace emails
+        # via AI and auto-move CLIENT/VENDOR leads to sales leads every 2 hours.
+        # Supersedes the old mail_pool_extraction (regex-only) job.
         try:
-            from sales.mail_pool_extractor import extract_leads_from_mail_pool_batch
+            from leads.email_processor import EmailProcessor
 
-            async def _run_mail_pool_extraction():
+            async def _run_email_metadata_classification():
                 try:
-                    result = extract_leads_from_mail_pool_batch(since_hours=1, limit=200)
-                    logger.info(f"[Scheduler/MailPool] {result}")
+                    processor = EmailProcessor()
+                    result = processor.process_batch_from_metadata(limit=100, since_hours=2)
+                    logger.info(
+                        f"[Scheduler/EmailClassifier] processed={result.get('total_processed', 0)} "
+                        f"auto_moved={result.get('auto_moved_to_leads', 0)} "
+                        f"errors={len(result.get('errors', []))}"
+                    )
                 except Exception as _e:
-                    logger.error(f"[Scheduler/MailPool] Error: {_e}")
+                    logger.error(f"[Scheduler/EmailClassifier] Error: {_e}")
 
             scheduler.add_job(
-                _run_mail_pool_extraction,
-                CronTrigger(minute="0"),  # top of every hour
-                id="mail_pool_extraction",
-                name="Mail Pool Lead Extraction (code-only)",
+                _run_email_metadata_classification,
+                "interval",
+                hours=2,
+                id="email_metadata_classification",
+                name="Gmail Email Classification & Lead Extraction",
                 max_instances=1,
             )
-            logger.info("[Scheduler] Added mail pool lead extraction (every hour)")
+            logger.info("[Scheduler] Added Gmail email classification job (every 2h)")
         except Exception as e:
-            logger.warning(f"[Scheduler] Could not add mail pool extraction job: {e}")
+            logger.warning(f"[Scheduler] Could not add email classification job: {e}")
 
         # Mail pool stats cache — pre-compute stats every 15 minutes (lightweight background job)
         try:

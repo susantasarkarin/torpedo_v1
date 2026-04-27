@@ -1,12 +1,16 @@
 """
 Email Processor Pipeline
-Processes emails from mail_pool → classified_gmail → leads_raw
-Implements intelligent classification and enrichment using Gemini
+Processes emails from torpedo_gmail.email_metadata (and legacy mail_pool)
+→ classified_gmail → leads_enriched via canonical ingestion.
+
+Unified pipeline: all Gmail Workspace emails are classified by AI and
+high-confidence CLIENT/VENDOR emails are automatically ingested as sales leads.
 """
 
 import os
-from typing import Dict, List, Optional
-from datetime import datetime
+import logging
+from typing import Dict, List, Optional, Tuple
+from datetime import datetime, timedelta
 from pymongo import MongoClient
 from bson import ObjectId
 from .openai_rotator import get_rotator
@@ -18,24 +22,25 @@ from .gemini_enrichment import (
     segment_email
 )
 
+logger = logging.getLogger(__name__)
+
 
 class EmailProcessor:
-    """Process emails through the classification and enrichment pipeline"""
-    
+    """Process emails through the classification and enrichment pipeline."""
+
     def __init__(self, mongo_uri: str = None):
-        """Initialize processor with MongoDB connection"""
+        """Initialize processor with MongoDB connection."""
         if mongo_uri is None:
             mongo_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
-        
-        self.client = MongoClient(mongo_uri)
+
+        self.client = MongoClient(mongo_uri, serverSelectionTimeoutMS=10000)
         self.email_db = self.client["email_automation"]
-        self.leads_db = self.client["email_automation"]
-        
+
         # Collections
-        self.mail_pool = self.email_db["mail_pool"]
+        self.mail_pool = self.email_db["mail_pool"]          # legacy IMAP collection
         self.classified_gmail = self.email_db["classified_gmail"]
-        self.leads_raw = self.leads_db["leads_raw"]
-        self.vendor_leads = self.leads_db["vendor_leads"]
+        self.leads_raw = self.email_db["leads_raw"]
+        self.vendor_leads = self.email_db["vendor_leads"]
         
         # Get Gemini rotator
         self.rotator = get_rotator()
@@ -372,8 +377,200 @@ class EmailProcessor:
         
         return summary
 
+    # ── Unified schema normalizer ──────────────────────────────────────────────
 
-if __name__ == "__main__":
+    @staticmethod
+    def _normalize_email_doc(doc: dict, source: str = "mail_pool") -> dict:
+        """
+        Convert an email document from either the legacy mail_pool schema
+        (sender = {"email": "...", "name": "..."}) or the current
+        torpedo_gmail.email_metadata schema (from_email / from_name / body_plain)
+        into the unified shape expected by process_email().
+        """
+        if source == "email_metadata":
+            return {
+                "_id": doc.get("_id"),
+                "sender": {
+                    "email": (doc.get("from_email") or "").strip().lower(),
+                    "name": (doc.get("from_name") or "").strip(),
+                },
+                "subject": doc.get("subject", ""),
+                "body": (doc.get("body_plain") or doc.get("snippet", ""))[:8000],
+                "date": doc.get("timestamp") or doc.get("synced_at"),
+                "attachments": [] if not doc.get("has_attachments") else ["_placeholder_"],
+                "_source_collection": "email_metadata",
+            }
+        # mail_pool: already has nested sender dict — pass through
+        return {**doc, "_source_collection": "mail_pool"}
+
+    # ── Workspace email_metadata processing ───────────────────────────────────
+
+    def process_batch_from_metadata(self, limit: int = 100, since_hours: int = 2) -> dict:
+        """
+        Classify a batch of inbound emails from torpedo_gmail.email_metadata
+        (Gmail Workspace sync) and auto-move high-confidence CLIENT/VENDOR
+        emails to leads_enriched via canonical ingestion.
+
+        Replaces the legacy process_batch() which read from the dead
+        email_automation.mail_pool collection.
+        """
+        mongo_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
+        gmail_db = MongoClient(mongo_uri, serverSelectionTimeoutMS=10000)["torpedo_gmail"]
+        mail_col = gmail_db["email_metadata"]
+
+        cutoff = datetime.now() - timedelta(hours=since_hours)
+
+        # IDs already classified (avoid re-classifying)
+        processed_ids: set = set(self.classified_gmail.distinct("email_id"))
+
+        query = {
+            "direction": "inbound",  # only process inbound emails
+            "lead_extracted": {"$ne": True},
+            "$or": [
+                {"timestamp": {"$gte": cutoff}},
+                {"synced_at": {"$gte": cutoff}},
+            ],
+        }
+
+        emails = list(mail_col.find(query).limit(limit))
+
+        stats: dict = {
+            "total_processed": 0,
+            "auto_moved_to_leads": 0,
+            "by_segment": {},
+            "errors": [],
+            "started_at": datetime.now(),
+        }
+
+        for doc in emails:
+            try:
+                email_id = str(doc["_id"])
+                if email_id in processed_ids:
+                    continue
+
+                normalized = self._normalize_email_doc(doc, source="email_metadata")
+                classified_doc = self.process_email(normalized)
+
+                # Persist to classified_gmail
+                try:
+                    result = self.classified_gmail.insert_one(classified_doc)
+                    classified_doc["_id"] = result.inserted_id
+                except Exception:
+                    pass  # duplicate key — already classified
+
+                segment = classified_doc.get("segment", "")
+                confidence = classified_doc.get("confidence", 0)
+
+                # Auto-move high-confidence CLIENT / VENDOR to sales leads
+                if segment in ("CLIENT", "VENDOR") and confidence >= 0.65:
+                    try:
+                        lead_id = self._auto_ingest_as_lead(classified_doc, doc)
+                        if lead_id:
+                            stats["auto_moved_to_leads"] += 1
+                    except Exception as e:
+                        stats["errors"].append(f"auto_ingest failed for {doc.get('from_email')}: {e}")
+
+                # Mark source doc as processed so the regex extractor skips it too
+                mail_col.update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": {"lead_extracted": True, "classified_at": datetime.now()}},
+                )
+
+                stats["total_processed"] += 1
+                stats["by_segment"][segment] = stats["by_segment"].get(segment, 0) + 1
+
+            except Exception as e:
+                stats["errors"].append({"email_id": str(doc.get("_id")), "error": str(e)})
+                logger.error(f"[EmailProcessor] Error processing metadata doc {doc.get('_id')}: {e}")
+
+        stats["completed_at"] = datetime.now()
+        stats["duration_seconds"] = (
+            stats["completed_at"] - stats["started_at"]
+        ).total_seconds()
+        logger.info(
+            f"[EmailProcessor] metadata batch done: processed={stats['total_processed']} "
+            f"auto_moved={stats['auto_moved_to_leads']} errors={len(stats['errors'])}"
+        )
+        return stats
+
+    def _auto_ingest_as_lead(self, classified_doc: dict, original_doc: dict) -> Optional[str]:
+        """
+        Ingest a high-confidence classified email as a sales lead via canonical
+        ingestion (dedup, enrichment, outreach enrollment all handled there).
+        Returns lead_id or None.
+        """
+        try:
+            from leads.canonical_ingestion import ingest_lead
+        except ImportError:
+            from backend.leads.canonical_ingestion import ingest_lead
+
+        try:
+            from leads.gmail_leads_service import extract_name_from_email
+        except ImportError:
+            from backend.leads.gmail_leads_service import extract_name_from_email
+
+        sender_email = (
+            classified_doc.get("metadata", {}).get("sender_email")
+            or original_doc.get("from_email", "")
+        ).strip().lower()
+        if not sender_email or "@" not in sender_email:
+            return None
+
+        sender_name = original_doc.get("from_name", "")
+        full_name, first_name, last_name = extract_name_from_email(sender_email, sender_name)
+
+        # Best-effort company from AI-extracted contacts, else derive from domain
+        contacts = classified_doc.get("contacts") or []
+        company = next((c.get("company") for c in contacts if c.get("company")), "")
+        domain = sender_email.split("@")[1]
+        if not company:
+            # Derive company name from domain (e.g. "research-now.com" → "Research Now")
+            try:
+                from sales.mail_pool_extractor import _derive_company
+            except ImportError:
+                from backend.sales.mail_pool_extractor import _derive_company
+            company = _derive_company(domain)
+
+        title = next((c.get("title") for c in contacts if c.get("title")), "")
+
+        payload = {
+            "email": sender_email,
+            "first_name": first_name,
+            "last_name": last_name,
+            "name": full_name,
+            "company": company,
+            "company_domain": domain,
+            "title": title,
+        }
+
+        result = ingest_lead(
+            payload,
+            source="classified_gmail",
+            source_detail=f"auto_moved:{classified_doc.get('segment', 'CLIENT').lower()}",
+        )
+
+        if result and result.get("lead_id"):
+            lead_id = result["lead_id"]
+            # Back-link classified_gmail doc to the created lead
+            if classified_doc.get("_id"):
+                self.classified_gmail.update_one(
+                    {"_id": classified_doc["_id"]},
+                    {"$set": {
+                        "moved_to_leads": True,
+                        "moved_at": datetime.now(),
+                        "moved_by": "auto",
+                        "lead_id": lead_id,
+                        "auto_moved": True,
+                    }},
+                )
+            logger.info(
+                f"[EmailProcessor] Auto-ingested lead: {sender_email} → lead_id={lead_id}"
+            )
+            return lead_id
+        return None
+
+
+
     # Test the email processor
     print("=== Email Processor Test ===\n")
     

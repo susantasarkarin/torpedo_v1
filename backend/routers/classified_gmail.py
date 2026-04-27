@@ -497,150 +497,46 @@ async def delete_classified(email_id: str) -> Dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/batch/process", summary="Process batch of emails from mail_pool")
+@router.post("/batch/process", summary="Process batch of emails from torpedo_gmail.email_metadata")
 async def process_batch(
     limit: int = Query(50, ge=1, le=500),
-    priority_only: bool = Query(False, description="Only process high-priority emails")
+    priority_only: bool = Query(False, description="Unused — kept for API compatibility"),
+    auto_move: bool = Query(True, description="Auto-move high-confidence CLIENT/VENDOR emails to leads"),
 ) -> Dict:
     """
-    Process a batch of unclassified emails from mail_pool
-    Uses email_processor.EmailProcessor for classification
+    Classify a batch of inbound emails from torpedo_gmail.email_metadata
+    using AI and auto-move high-confidence CLIENT/VENDOR emails to sales leads.
+
+    Supersedes the legacy mail_pool-based batch processor.
     """
     try:
-        from backend.leads.email_processor import EmailProcessor
-        
+        try:
+            from leads.email_processor import EmailProcessor
+        except ImportError:
+            from backend.leads.email_processor import EmailProcessor
+
         processor = EmailProcessor()
-        
-        # Get unprocessed emails from mail_pool
-        query = {"classified": {"$ne": True}}
-        if priority_only:
-            query["priority"] = {"$gt": 5}
-        
-        emails = list(mail_pool_collection.find(query).limit(limit))
-        
-        if not emails:
-            return {"processed": 0, "message": "No emails to process"}
-        
-        processed_count = 0
-        errors = []
-        
-        for email in emails:
-            try:
-                # Process email
-                classified_doc = processor.process_email(email)
-                
-                # Check if already exists
-                existing = classified_gmail_collection.find_one(
-                    {"email_id": email.get("_id")}
-                )
-                
-                if existing:
-                    # Update existing
-                    classified_gmail_collection.update_one(
-                        {"_id": existing["_id"]},
-                        {"$set": classified_doc}
-                    )
-                    classified_id = existing["_id"]
-                else:
-                    # Insert new
-                    result = classified_gmail_collection.insert_one(classified_doc)
-                    classified_id = result.inserted_id
-                
-                # Mark as classified in mail_pool
-                mail_pool_collection.update_one(
-                    {"_id": email["_id"]},
-                    {"$set": {"classified": True, "classified_at": datetime.utcnow()}}
-                )
-                
-                # ========== AUTO-MOVE CLIENT EMAILS FROM REPLIED-TO CONTACTS ==========
-                # If email is classified as CLIENT and we've previously sent emails to this sender,
-                # auto-move to leads since they are higher quality (existing relationship)
-                sender_email = classified_doc.get("sender_email", "")
-                segment = classified_doc.get("segment", "")
-                already_moved = classified_doc.get("moved_to_leads", False)
-                
-                if segment == "CLIENT" and sender_email and not already_moved:
-                    if has_sent_email_to(sender_email):
-                        try:
-                            # Auto-move to leads
-                            full_name, first_name, last_name = extract_name_from_email(
-                                sender_email, 
-                                classified_doc.get("sender_name", "")
-                            )
-                            
-                            auto_lead_doc = {
-                                "source": "classified_gmail",
-                                "email": sender_email,
-                                "full_name": full_name,
-                                "first_name": first_name,
-                                "last_name": last_name,
-                                "title": next(
-                                    (c.get("title") for c in classified_doc.get("contacts", []) if c.get("title")),
-                                    ""
-                                ),
-                                "company_name": next(
-                                    (c.get("company") for c in classified_doc.get("contacts", []) if c.get("company")),
-                                    ""
-                                ),
-                                "segment": "CLIENT",
-                                "category": classified_doc.get("category"),
-                                "confidence_score": classified_doc.get("confidence_score", 0),
-                                "email_summary": classified_doc.get("summary"),
-                                "email_sentiment": classified_doc.get("sentiment"),
-                                "classification_segment": segment,
-                                "classified_email_id": classified_doc.get("email_id"),
-                                "contacts": classified_doc.get("contacts", []),
-                                "stage": "new",
-                                "created_at": datetime.utcnow(),
-                                "created_from": "classified_gmail",
-                                "auto_moved": True,  # Flag to indicate auto-move
-                                "notes": "Auto-moved: Existing email relationship detected"
-                            }
-                            
-                            lead_result = leads_raw_collection.insert_one(auto_lead_doc)
-                            lead_id = str(lead_result.inserted_id)
-                            
-                            # Update classified email with move info
-                            classified_gmail_collection.update_one(
-                                {"_id": classified_id},
-                                {
-                                    "$set": {
-                                        "moved_to_leads": True,
-                                        "moved_at": datetime.utcnow(),
-                                        "moved_by": "auto",
-                                        "lead_id": lead_id,
-                                        "auto_moved": True
-                                    }
-                                }
-                            )
-                            
-                            logger.info(f"Auto-moved CLIENT email from {sender_email} to leads (existing relationship)")
-                        except Exception as auto_move_error:
-                            logger.warning(f"Auto-move failed for {sender_email}: {auto_move_error}")
-                # ========== END AUTO-MOVE ==========
-                
-                processed_count += 1
-            except Exception as e:
-                logger.error(f"Error processing email {email.get('_id')}: {e}")
-                errors.append({
-                    "email_id": str(email.get("_id")),
-                    "error": str(e)
-                })
-        
+
+        # since_hours=2 keeps the classifier focused on recent mail;
+        # a separate backfill job handles older emails.
+        stats = processor.process_batch_from_metadata(limit=limit, since_hours=2)
+
         return {
-            "processed": processed_count,
-            "total_attempted": len(emails),
-            "errors": errors,
-            "message": f"Successfully processed {processed_count}/{len(emails)} emails"
+            "processed": stats.get("total_processed", 0),
+            "auto_moved_to_leads": stats.get("auto_moved_to_leads", 0) if auto_move else 0,
+            "by_segment": stats.get("by_segment", {}),
+            "duration_seconds": stats.get("duration_seconds", 0),
+            "errors": stats.get("errors", [])[:5],
+            "message": (
+                f"Classified {stats.get('total_processed', 0)} emails, "
+                f"added {stats.get('auto_moved_to_leads', 0)} to Sales Leads"
+            ),
         }
-    except ImportError:
-        raise HTTPException(
-            status_code=503,
-            detail="email_processor module not available"
-        )
     except Exception as e:
-        logger.error(f"Error in batch processing: {e}")
+        logger.error(f"[ClassifiedGmail] batch/process error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
 
 
 @router.get("/analytics/segment-flow", summary="Get segment flow analytics")

@@ -792,6 +792,27 @@ function MailPool() {
   const [classifying, setClassifying] = useState(false)
   const [classifyStatus, setClassifyStatus] = useState(null)
 
+  // Process & Import to Leads state
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState(null)
+
+  const handleProcessAndImport = async () => {
+    const sessionId = localStorage.getItem("session_id")
+    if (!sessionId) { navigate("/admin/login"); return }
+    setImporting(true); setImportResult(null)
+    try {
+      const res = await fetch(buildApiUrl("/classified-gmail/batch/process?auto_move=true&limit=100"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: sessionId },
+      })
+      const data = await res.json()
+      setImportResult(data)
+    } catch (e) {
+      setImportResult({ message: `Error: ${e.message}` })
+    }
+    setImporting(false)
+  }
+
   // Start AI classification (Tiered)
   const handleAIClassify = async (runTier2 = true) => {
     const sessionId = localStorage.getItem("session_id")
@@ -1475,6 +1496,19 @@ function MailPool() {
                 >
                   {classifying ? "⏳ Classifying..." : "✨ AI Classify"}
                 </button>
+                <button
+                  style={{...styles.toolbarBtn, backgroundColor: "#dcfce7", color: "#166534", fontWeight: "500", padding: "4px 12px", borderRadius: "16px", opacity: importing ? 0.6 : 1}}
+                  title="Process & Import recent emails to Sales Leads"
+                  onClick={handleProcessAndImport}
+                  disabled={importing}
+                >
+                  {importing ? "⏳ Importing..." : "📥 Process & Import to Leads"}
+                </button>
+                {importResult && (
+                  <span style={{fontSize: "0.75rem", color: "#166534", marginLeft: "8px"}}>
+                    ✅ {importResult.message}
+                  </span>
+                )}
                 {classifyStatus && classifyStatus.status === "running" && (
                   <span style={{fontSize: "0.75rem", color: "#6b7280", marginLeft: "8px"}}>
                     Processing {classifyStatus.processed}/{classifyStatus.total}...

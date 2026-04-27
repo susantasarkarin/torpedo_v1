@@ -56,6 +56,14 @@ export default function EmailPatterns() {
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeResult, setAnalyzeResult] = useState(null);
 
+  // Scan AI Database
+  const [scanningAI, setScanningAI] = useState(false);
+  const [scanAIResult, setScanAIResult] = useState(null);
+
+  // Apply to Bounced & Missing
+  const [applying, setApplying] = useState(false);
+  const [applyResult, setApplyResult] = useState(null);
+
   // Pattern list filters
   const [minConf, setMinConf] = useState(0);
   const [sortBy, setSortBy] = useState("confidence");
@@ -124,6 +132,32 @@ export default function EmailPatterns() {
     setAnalyzing(false);
   };
 
+  const handleScanAI = async () => {
+    setScanningAI(true); setScanAIResult(null); setError(null);
+    try {
+      const res = await fetch(buildApiUrl("/email-patterns/scan-ai-database?limit=2000"), { method: "POST", headers });
+      if (res.ok) {
+        const data = await res.json();
+        setScanAIResult(data);
+        fetchStats();
+        fetchPatterns();
+      } else setError("AI scan failed");
+    } catch (e) { setError(e.message); }
+    setScanningAI(false);
+  };
+
+  const handleApplyToLeads = async () => {
+    setApplying(true); setApplyResult(null); setError(null);
+    try {
+      const res = await fetch(buildApiUrl("/email-patterns/apply-to-bounced-and-missing?limit=500"), { method: "POST", headers });
+      if (res.ok) {
+        const data = await res.json();
+        setApplyResult(data);
+      } else setError("Apply failed");
+    } catch (e) { setError(e.message); }
+    setApplying(false);
+  };
+
   if (loading) return <div style={styles.container}><p>Loading...</p></div>;
 
   return (
@@ -161,6 +195,52 @@ export default function EmailPatterns() {
           <div style={styles.result}>
             ✅ Analyzed <b>{analyzeResult.analyzed}</b> emails across <b>{analyzeResult.unique_domains}</b> domains.
             Found <b>{analyzeResult.new_patterns}</b> new patterns, updated <b>{analyzeResult.updated_patterns || 0}</b>.
+          </div>
+        )}
+      </div>
+
+      {/* Scan AI Database */}
+      <div style={styles.section}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={styles.sectionTitle}>🤖 Scan AI Database</div>
+            <p style={{ fontSize: 13, color: "#777", margin: 0 }}>Mine the AI-sourced leads database for confirmed emails to discover additional domain patterns.</p>
+          </div>
+          <button
+            style={{ ...styles.btn, ...styles.btnWarning, opacity: scanningAI ? 0.6 : 1 }}
+            onClick={handleScanAI}
+            disabled={scanningAI}
+          >
+            {scanningAI ? "Scanning..." : "Scan AI Database"}
+          </button>
+        </div>
+        {scanAIResult && (
+          <div style={styles.result}>
+            ✅ Scanned <b>{scanAIResult.domains_scanned}</b> domains — upserted <b>{scanAIResult.patterns_upserted}</b> patterns, skipped <b>{scanAIResult.patterns_skipped}</b>.
+          </div>
+        )}
+      </div>
+
+      {/* Apply to Bounced & Missing */}
+      <div style={styles.section}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={styles.sectionTitle}>🔄 Apply to Bounced & Missing</div>
+            <p style={{ fontSize: 13, color: "#777", margin: 0 }}>Retry alternate email formats for bounced leads and generate emails for leads with missing addresses.</p>
+          </div>
+          <button
+            style={{ ...styles.btn, ...styles.btnWarning, opacity: applying ? 0.6 : 1 }}
+            onClick={handleApplyToLeads}
+            disabled={applying}
+          >
+            {applying ? "Applying..." : "Apply Patterns"}
+          </button>
+        </div>
+        {applyResult && (
+          <div style={styles.result}>
+            ✅ Bounced: <b>{applyResult.bounced_updated}</b> fixed ({applyResult.bounced_skipped} skipped).
+            Missing: <b>{applyResult.missing_updated}</b> filled ({applyResult.missing_skipped} skipped).
+            Total changes: <b>{applyResult.total_changes}</b>.
           </div>
         )}
       </div>

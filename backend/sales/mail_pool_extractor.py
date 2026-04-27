@@ -85,12 +85,13 @@ _EXCLUDED_DOMAINS = frozenset({
     "mailgun.org", "mg.com", "constantcontact.com", "hubspotemail.net",
 })
 
-# Prefixes that indicate system/transactional senders
+# Prefixes that indicate system/transactional senders (NOT real people).
+# NOTE: keep this list narrow — for a B2B platform, "sales", "info", "contact",
+# "hello" etc. are real humans we want as leads.
 _EXCLUDED_EMAIL_PREFIXES = frozenset({
     "noreply", "no-reply", "donotreply", "do-not-reply", "mailer-daemon",
-    "postmaster", "bounce", "notifications", "alerts", "support", "info",
-    "hello", "team", "contact", "admin", "billing", "sales", "help",
-    "newsletter", "digest", "unsubscribe", "autoresponder",
+    "postmaster", "bounce", "notifications", "newsletter",
+    "digest", "unsubscribe", "autoresponder", "alerts",
 })
 
 # Common TLD + SLD suffixes to strip when deriving company name from domain
@@ -296,9 +297,18 @@ def _mark_email_processed(mail_col, email_id) -> None:
 # ─────────────────────────────────────────────────────
 
 def _get_mail_db():
-    """Return the torpedo_gmail database where email_metadata lives."""
-    uri = __import__("os").getenv("MONGODB_URI", "mongodb://localhost:27017")
-    return MongoClient(uri, serverSelectionTimeoutMS=10000)["torpedo_gmail"]
+    """Return the torpedo_gmail database where email_metadata lives.
+    Uses the shared background DB pool instead of creating a raw MongoClient.
+    """
+    try:
+        # Reuse the shared pool managed by db_pools to avoid connection proliferation
+        client = get_background_db().client
+        return client["torpedo_gmail"]
+    except Exception:
+        # Fallback to direct connection if pool is unavailable
+        import os
+        uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+        return MongoClient(uri, serverSelectionTimeoutMS=10000)["torpedo_gmail"]
 
 
 def extract_leads_from_mail_pool_batch(
@@ -320,11 +330,13 @@ def extract_leads_from_mail_pool_batch(
 
     since = datetime.utcnow() - timedelta(hours=since_hours)
 
-    # Fetch unprocessed emails received since the cutoff
-    # torpedo_gmail schema uses: timestamp, synced_at
+    # Fetch unprocessed INBOUND emails received since the cutoff.
+    # Only process inbound emails — outbound (sent) emails are OUR emails,
+    # not leads.
     cursor = mail_col.find(
         {
             "lead_extracted": {"$ne": True},
+            "direction": "inbound",
             "$or": [
                 {"timestamp": {"$gte": since}},
                 {"synced_at": {"$gte": since}},

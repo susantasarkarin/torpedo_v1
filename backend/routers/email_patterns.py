@@ -35,6 +35,7 @@ email_db = mongo_client["email_automation"]
 email_patterns_collection = email_db["email_patterns"]
 mail_pool_collection = email_db["mail_pool"]
 company_cache_collection = email_db["company_cache"]
+leads_enriched_collection = email_db["leads_enriched"]
 
 
 # ============== MODELS ==============
@@ -414,6 +415,221 @@ async def list_patterns(
         }
     except Exception as e:
         logger.error(f"Error listing patterns: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Scan AI database for email patterns ────────────────────────────────────
+
+@router.post("/scan-ai-database", summary="Discover email patterns from AI-sourced leads")
+async def scan_ai_database(limit: int = Query(2000, ge=1, le=10000)) -> Dict:
+    """
+    Scan leads_enriched for AI-sourced leads that already have emails.
+    Group them by domain and run discover_pattern_format() to infer patterns.
+    Only upserts a pattern if the new confidence is higher than the stored one.
+    """
+    try:
+        ai_sources = {"ai_agent", "web_search", "google_search", "websearch", "ai_database"}
+        cursor = leads_enriched_collection.find(
+            {
+                "source": {"$in": list(ai_sources)},
+                "email": {"$exists": True, "$ne": None, "$ne": ""},
+            },
+            {"email": 1, "company_domain": 1},
+        ).limit(limit)
+
+        # Group emails by domain
+        domain_emails: Dict[str, List[str]] = {}
+        for doc in cursor:
+            email = doc.get("email", "").strip().lower()
+            if "@" not in email:
+                continue
+            domain = email.split("@")[1]
+            domain_emails.setdefault(domain, []).append(email)
+
+        patterns_upserted = 0
+        patterns_skipped = 0
+        processed_domains = []
+
+        for domain, emails in domain_emails.items():
+            if len(emails) < 2:
+                # Need at least 2 samples for a reliable pattern
+                patterns_skipped += 1
+                continue
+
+            new_pattern = discover_pattern_format(emails)
+            if new_pattern in ("unknown", "multiple.parts"):
+                patterns_skipped += 1
+                continue
+
+            # Confidence proportional to sample count, capped at 0.9
+            new_confidence = min(0.9, 0.4 + len(emails) * 0.05)
+
+            existing = email_patterns_collection.find_one({"domain": domain}, {"confidence": 1})
+            if existing and existing.get("confidence", 0) >= new_confidence:
+                patterns_skipped += 1
+                continue
+
+            email_patterns_collection.update_one(
+                {"domain": domain},
+                {
+                    "$set": {
+                        "pattern": new_pattern,
+                        "confidence": new_confidence,
+                        "sample_count": len(emails),
+                        "source": "ai_database_scan",
+                        "last_updated": datetime.utcnow(),
+                    }
+                },
+                upsert=True,
+            )
+            patterns_upserted += 1
+            processed_domains.append({"domain": domain, "pattern": new_pattern, "samples": len(emails)})
+
+        return {
+            "domains_scanned": len(domain_emails),
+            "patterns_upserted": patterns_upserted,
+            "patterns_skipped": patterns_skipped,
+            "top_domains": processed_domains[:20],
+            "message": f"Scanned {len(domain_emails)} domains, upserted {patterns_upserted} patterns",
+        }
+    except Exception as e:
+        logger.error(f"Error scanning AI database: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Apply patterns to bounced + missing-email leads ────────────────────────
+
+@router.post("/apply-to-bounced-and-missing", summary="Retry email patterns for bounced/missing leads")
+async def apply_to_bounced_and_missing(limit: int = Query(500, ge=1, le=5000)) -> Dict:
+    """
+    Two-pass pipeline:
+
+    Pass 1 — Bounced leads:
+        Find leads where email_status=Bounced and company_domain is set.
+        Call try_alternate_pattern() to get a plausible alternate email.
+        Update email, set email_source='pattern_reapplied', clear bounce flags.
+
+    Pass 2 — Missing-email leads:
+        Find leads where email is null/missing and company_domain is set.
+        Call get_pattern() + build_email() to generate an email.
+        Set email_source='pattern_applied'; re-enroll in outreach if ICP A-D.
+    """
+    try:
+        try:
+            from leads.email_pattern_system import get_pattern_system
+        except ImportError:
+            from backend.leads.email_pattern_system import get_pattern_system
+
+        pattern_sys = get_pattern_system()
+
+        bounced_updated = 0
+        bounced_skipped = 0
+        missing_updated = 0
+        missing_skipped = 0
+
+        # ── Pass 1: Bounced emails ────────────────────────────────────────
+        bounced_cursor = leads_enriched_collection.find(
+            {
+                "email_status": "Bounced",
+                "company_domain": {"$exists": True, "$ne": None, "$ne": ""},
+            }
+        ).limit(limit // 2)
+
+        for lead in bounced_cursor:
+            current_email = lead.get("email", "")
+            domain = lead.get("company_domain", "").strip().lower()
+            if not current_email or not domain:
+                bounced_skipped += 1
+                continue
+
+            alternate = pattern_sys.try_alternate_pattern(domain, current_email)
+            if not alternate:
+                bounced_skipped += 1
+                continue
+
+            leads_enriched_collection.update_one(
+                {"_id": lead["_id"]},
+                {
+                    "$set": {
+                        "email": alternate["email"],
+                        "email_source": "pattern_reapplied",
+                        "email_pattern_used": alternate["pattern"],
+                        "email_pattern_confidence": alternate["confidence"],
+                        "email_status": None,
+                        "bounce_cleared_at": datetime.utcnow(),
+                        "previous_bounced_email": current_email,
+                    },
+                    "$unset": {
+                        "high_bounce_risk": "",
+                        "pattern_blacklisted": "",
+                    },
+                },
+            )
+            bounced_updated += 1
+
+        # ── Pass 2: Missing emails ────────────────────────────────────────
+        missing_cursor = leads_enriched_collection.find(
+            {
+                "$or": [
+                    {"email": {"$exists": False}},
+                    {"email": None},
+                    {"email": ""},
+                ],
+                "company_domain": {"$exists": True, "$ne": None, "$ne": ""},
+                "first_name": {"$exists": True, "$ne": ""},
+            }
+        ).limit(limit // 2)
+
+        for lead in missing_cursor:
+            domain = lead.get("company_domain", "").strip().lower()
+            first_name = lead.get("first_name", "").strip().lower()
+            last_name = lead.get("last_name", "").strip().lower()
+            if not domain or not first_name:
+                missing_skipped += 1
+                continue
+
+            pattern_doc = pattern_sys.get_pattern(domain)
+            if not pattern_doc or pattern_doc.get("confidence", 0) < 0.5:
+                missing_skipped += 1
+                continue
+
+            built = pattern_sys.build_email(domain, first_name, last_name)
+            if not built:
+                missing_skipped += 1
+                continue
+
+            update: Dict = {
+                "email": built,
+                "email_source": "pattern_applied",
+                "email_pattern_used": pattern_doc.get("pattern"),
+                "email_pattern_confidence": pattern_doc.get("confidence"),
+                "email_status": None,
+            }
+
+            # Re-enroll in outreach if ICP tier A–D
+            icp = lead.get("icp_tier") or lead.get("icp") or ""
+            if icp.upper() in ("A", "B", "C", "D"):
+                update["outreach_eligible"] = True
+
+            leads_enriched_collection.update_one(
+                {"_id": lead["_id"]},
+                {"$set": update},
+            )
+            missing_updated += 1
+
+        return {
+            "bounced_updated": bounced_updated,
+            "bounced_skipped": bounced_skipped,
+            "missing_updated": missing_updated,
+            "missing_skipped": missing_skipped,
+            "total_changes": bounced_updated + missing_updated,
+            "message": (
+                f"Bounced: {bounced_updated} fixed, {bounced_skipped} skipped. "
+                f"Missing: {missing_updated} filled, {missing_skipped} skipped."
+            ),
+        }
+    except Exception as e:
+        logger.error(f"Error in apply-to-bounced-and-missing: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

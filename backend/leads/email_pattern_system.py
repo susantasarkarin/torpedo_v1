@@ -949,9 +949,104 @@ class EmailPatternSystem:
         except Exception:
             return default
 
+    # ── Alternate-pattern helper (used by apply-to-bounced endpoint) ──────────
+
+    # All known local-part format templates, in priority order
+    _PATTERN_TEMPLATES = [
+        ("firstname.lastname",  lambda f, l: f"{f}.{l}"),
+        ("firstnamelastname",   lambda f, l: f"{f}{l}"),
+        ("f.lastname",          lambda f, l: f"{f[0]}.{l}" if f else l),
+        ("flastname",           lambda f, l: f"{f[0]}{l}" if f else l),
+        ("firstname_lastname",  lambda f, l: f"{f}_{l}"),
+        ("lastname.firstname",  lambda f, l: f"{l}.{f}"),
+        ("firstname",           lambda f, l: f),
+    ]
+
+    def _reverse_names(self, local_part: str, pattern: str) -> tuple:
+        """
+        Reverse-engineer (first_name, last_name) from an email local-part
+        given its known pattern string.  Returns ("", "") if unable.
+        """
+        s = local_part.lower()
+        if pattern == "firstname.lastname":
+            if "." in s:
+                p = s.split(".", 1)
+                return p[0], p[1]
+        if pattern == "lastname.firstname":
+            if "." in s:
+                p = s.split(".", 1)
+                return p[1], p[0]
+        if pattern == "firstname_lastname":
+            if "_" in s:
+                p = s.split("_", 1)
+                return p[0], p[1]
+        if pattern == "f.lastname":
+            if "." in s and len(s.split(".")[0]) == 1:
+                p = s.split(".", 1)
+                return p[0], p[1]
+        if pattern == "flastname" and len(s) > 1:
+            return s[0], s[1:]
+        if pattern == "firstname":
+            return s, ""
+        if pattern == "firstnamelastname" and len(s) >= 4:
+            mid = len(s) // 2
+            return s[:mid], s[mid:]
+        for sep in (".", "_", "-"):
+            if sep in s:
+                p = s.split(sep, 1)
+                return p[0], p[1]
+        return "", ""
+
+    def try_alternate_pattern(self, domain: str, bounced_email: str) -> Optional[Dict]:
+        """
+        Given a bounced email address, try alternative format templates for the
+        same domain and return the first plausible alternate address.
+
+        Returns:
+            {"email": str, "pattern": str, "confidence": float}  or  None
+        """
+        domain = self._extract_domain(domain or bounced_email)
+        if not domain:
+            return None
+
+        doc = self.patterns_collection.find_one(
+            {"domain": domain},
+            {"pattern": 1, "confidence": 1},
+        )
+        if not doc:
+            return None
+
+        current_pattern = doc.get("pattern", "")
+        bounced_local = (
+            bounced_email.split("@")[0].lower()
+            if "@" in bounced_email
+            else bounced_email.lower()
+        )
+
+        first_name, last_name = self._reverse_names(bounced_local, current_pattern)
+        if not first_name:
+            return None
+
+        base_confidence = doc.get("confidence", 0.5)
+
+        for pattern_name, formatter in self._PATTERN_TEMPLATES:
+            if pattern_name == current_pattern:
+                continue
+            try:
+                local = formatter(first_name, last_name)
+                if not local or local == bounced_local:
+                    continue
+                return {
+                    "email": f"{local}@{domain}",
+                    "pattern": pattern_name,
+                    "confidence": round(max(0.25, base_confidence * 0.65), 3),
+                }
+            except Exception:
+                continue
+        return None
+
     def get_stats(self) -> Dict:
-        total_patterns = self.patterns_collection.count_documents({})
-        
+
         by_source = list(self.patterns_collection.aggregate([
             {"$group": {"_id": "$source", "count": {"$sum": 1}}}
         ]))
