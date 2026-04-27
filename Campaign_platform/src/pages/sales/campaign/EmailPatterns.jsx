@@ -70,8 +70,8 @@ export default function EmailPatterns() {
 
   const [error, setError] = useState(null);
 
-  const token = localStorage.getItem("token");
-  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  const sessionId = localStorage.getItem("session_id");
+  const headers = { Authorization: sessionId, "Content-Type": "application/json" };
 
   const fetchStats = useCallback(async () => {
     try {

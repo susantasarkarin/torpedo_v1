@@ -285,6 +285,9 @@ def run_lead_generation_pipeline(
 
                         # Parse first_name / last_name if only a combined name is present
                         for c in batch_contacts:
+                            # Strip LinkedIn/title suffix (e.g. "Nick Graham | VP, PepsiCo | LinkedIn")
+                            if c.get("name"):
+                                c["name"] = c["name"].split(" | ")[0].strip()
                             if not c.get("first_name") and c.get("name"):
                                 parts = c["name"].strip().split(" ", 1)
                                 c["first_name"] = parts[0]

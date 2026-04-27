@@ -385,6 +385,22 @@ async def background_enrich_leads():
                         merged = {**lead, **update_fields}
                         from leads.canonical_ingestion import determine_lead_bracket
                         update_fields['lead_bracket'] = determine_lead_bracket(merged)
+
+                        # Generate email from pattern if still missing
+                        if not merged.get('email'):
+                            try:
+                                from leads.email_pattern_system import EmailPatternSystem
+                                domain = merged.get('company_domain', '')
+                                first = merged.get('first_name', '')
+                                last = merged.get('last_name', '')
+                                if domain and first:
+                                    ps = EmailPatternSystem()
+                                    built = ps.build_email(domain, first, last)
+                                    if built:
+                                        update_fields['email'] = built
+                                        update_fields['email_source'] = 'pattern_applied'
+                            except Exception as _ep:
+                                logger.debug(f"[Enrichment] Email pattern generation skipped: {_ep}")
                         
                         leads_raw.update_one(
                             {'_id': lead['_id']},

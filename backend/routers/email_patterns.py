@@ -132,50 +132,6 @@ async def get_pattern_stats() -> Dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{domain}", summary="Get email pattern for domain")
-async def get_pattern(domain: str) -> Dict:
-    """
-    Get the discovered email pattern for a domain
-    Returns confidence level and sample emails
-    """
-    try:
-        domain = domain.lower().strip()
-        
-        pattern = email_patterns_collection.find_one({"domain": domain})
-        
-        if not pattern:
-            return {
-                "domain": domain,
-                "found": False,
-                "message": "No pattern discovered yet. Analyze mail pool to discover patterns."
-            }
-        
-        # Get sample emails with this domain
-        samples = list(mail_pool_collection.find(
-            {"sender": {"$regex": f"@{domain}$", "$options": "i"}},
-            {"sender": 1, "sender_name": 1}
-        ).limit(5))
-        
-        return {
-            "domain": domain,
-            "found": True,
-            "pattern": pattern.get("pattern"),
-            "confidence": pattern.get("confidence", 0),
-            "sample_count": pattern.get("sample_count", 0),
-            "last_updated": pattern.get("last_updated", datetime.utcnow()).isoformat(),
-            "sample_emails": [
-                {
-                    "email": s.get("sender"),
-                    "name": s.get("sender_name")
-                }
-                for s in samples
-            ]
-        }
-    except Exception as e:
-        logger.error(f"Error fetching pattern: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.post("/analyze-mail-pool", summary="Discover patterns from mail pool")
 async def analyze_mail_pool(
     limit: int = Query(1000, ge=100, le=10000),
@@ -415,6 +371,50 @@ async def list_patterns(
         }
     except Exception as e:
         logger.error(f"Error listing patterns: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{domain}", summary="Get email pattern for domain")
+async def get_pattern(domain: str) -> Dict:
+    """
+    Get the discovered email pattern for a domain
+    Returns confidence level and sample emails
+    """
+    try:
+        domain = domain.lower().strip()
+        
+        pattern = email_patterns_collection.find_one({"domain": domain})
+        
+        if not pattern:
+            return {
+                "domain": domain,
+                "found": False,
+                "message": "No pattern discovered yet. Analyze mail pool to discover patterns."
+            }
+        
+        # Get sample emails with this domain
+        samples = list(mail_pool_collection.find(
+            {"sender": {"$regex": f"@{domain}$", "$options": "i"}},
+            {"sender": 1, "sender_name": 1}
+        ).limit(5))
+        
+        return {
+            "domain": domain,
+            "found": True,
+            "pattern": pattern.get("pattern"),
+            "confidence": pattern.get("confidence", 0),
+            "sample_count": pattern.get("sample_count", 0),
+            "last_updated": pattern.get("last_updated", datetime.utcnow()).isoformat(),
+            "sample_emails": [
+                {
+                    "email": s.get("sender"),
+                    "name": s.get("sender_name")
+                }
+                for s in samples
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error fetching pattern: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
