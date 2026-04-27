@@ -56,10 +56,6 @@ const ContactsImport = lazy(() => import("./pages/sales/ContactsImport"))
 const CompanyDetail = lazy(() => import("./pages/sales/CompanyDetail"))
 const RFQ = lazy(() => import("./pages/sales/RFQ"))
 const List = lazy(() => import("./pages/sales/campaign/List"))
-const Templates = lazy(() => import("./pages/sales/campaign/Templates"))
-const Workflow = lazy(() => import("./pages/sales/campaign/Workflow"))
-const Reports = lazy(() => import("./pages/sales/campaign/Reports"))
-const OutreachMonitor = lazy(() => import("./pages/sales/campaign/OutreachMonitor"))
 const EmailPatterns = lazy(() => import("./pages/sales/campaign/EmailPatterns"))
 const ColdOutreach = lazy(() => import("./pages/sales/Outreach"))
 const AILeads = lazy(() => import("./pages/sales/campaign/AILeads"))
@@ -211,10 +207,6 @@ function App() {
         <Route path="sales/campaign/list" element={<LazyPage><List /></LazyPage>} />
         <Route path="sales/campaign/ai-leads" element={<LazyPage><AILeads /></LazyPage>} />
         <Route path="sales/campaign/ai-leads/:leadId" element={<LazyPage><AILeadDetail /></LazyPage>} />
-        <Route path="sales/campaign/templates" element={<LazyPage><Templates /></LazyPage>} />
-        <Route path="sales/campaign/workflow" element={<LazyPage><Workflow /></LazyPage>} />
-        <Route path="sales/campaign/reports" element={<LazyPage><Reports /></LazyPage>} />
-        <Route path="sales/campaign/outreach-monitor" element={<LazyPage><OutreachMonitor /></LazyPage>} />
         <Route path="sales/campaign/email-patterns" element={<LazyPage><EmailPatterns /></LazyPage>} />
         <Route path="sales/outreach" element={<LazyPage><ColdOutreach /></LazyPage>} />
 

@@ -160,8 +160,6 @@ function AILeads() {
   const [importing, setImporting] = useState(false);
   const [classifying, setClassifying] = useState(false);
   const [importError, setImportError] = useState("");
-  const [retrying, setRetrying] = useState(false);
-  const [cleaning, setCleaning] = useState(false);
 
   // View Mode State - compact vs full table
   const [viewMode, setViewMode] = useState("compact"); // "compact" or "full"
@@ -1237,43 +1235,6 @@ function AILeads() {
     }
   };
 
-  const handleRetryFailed = async () => {
-    if (!window.confirm(`Reset all 9600 failed leads back to Pending so they get retried?`)) return;
-    setRetrying(true);
-    try {
-      const res = await fetch(buildApiUrl(`/leads/retry-failed`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: sessionId },
-      });
-      if (!res.ok) throw new Error("Retry failed");
-      const result = await res.json();
-      alert(`✅ ${result.message}`);
-      setTimeout(() => fetchStatistics(), 1500);
-    } catch (err) {
-      alert("Retry error: " + err.message);
-    } finally {
-      setRetrying(false);
-    }
-  };
-
-  const handleCleanNames = async () => {
-    if (!window.confirm(`Strip ' | LinkedIn' suffixes from all lead names and titles?`)) return;
-    setCleaning(true);
-    try {
-      const res = await fetch(buildApiUrl(`/leads/clean-enriched-names`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: sessionId },
-      });
-      if (!res.ok) throw new Error("Clean failed");
-      const result = await res.json();
-      alert(`✅ ${result.message}`);
-      setTimeout(() => fetchLeads(), 1500);
-    } catch (err) {
-      alert("Clean error: " + err.message);
-    } finally {
-      setCleaning(false);
-    }
-  };
 
   // ============== SELECTION ==============
 
@@ -1387,25 +1348,6 @@ function AILeads() {
             title="Apply rule-based ICP basket scoring to all unclassified leads"
           >
             {classifying ? "⏳ Working..." : "📊 Apply ICP Rules"}
-          </button>
-          {(statistics?.raw?.failed || 0) > 0 && (
-            <button
-              className="btn btn-outline"
-              style={{ color: "#e63946", borderColor: "#e63946" }}
-              onClick={handleRetryFailed}
-              disabled={retrying}
-              title={`Retry ${statistics?.raw?.failed} failed leads`}
-            >
-              {retrying ? "⏳ Resetting..." : `🔄 Retry ${statistics?.raw?.failed} Failed`}
-            </button>
-          )}
-          <button
-            className="btn btn-outline"
-            onClick={handleCleanNames}
-            disabled={cleaning}
-            title="Strip | LinkedIn suffix from names and titles"
-          >
-            {cleaning ? "⏳ Cleaning..." : "🧹 Clean Names"}
           </button>
         </div>
       </div>

@@ -612,6 +612,15 @@ def initialize_scheduler(loop=None):
                         f"[Scheduler/LeadClassifier] classified={classified} failed={failed} "
                         f"(of {total} pending)"
                     )
+
+                    # After classifying, immediately sync new leads into active cold outreach campaigns
+                    if classified > 0:
+                        try:
+                            from routers.cold_outreach_router import _sync_active_campaign_enrollment, get_db as _co_get_db
+                            _sync_active_campaign_enrollment(_co_get_db())
+                            logger.info(f"[Scheduler/LeadClassifier] Triggered cold outreach enrollment sync after {classified} new classifications")
+                        except Exception as _enroll_err:
+                            logger.warning(f"[Scheduler/LeadClassifier] Enrollment sync skipped: {_enroll_err}")
                 except Exception as _e:
                     logger.error(f"[Scheduler/LeadClassifier] Error: {_e}")
 

@@ -1494,7 +1494,7 @@ _COOLDOWN_SECONDS = 900  # 15 minutes after a 429 error
 # Periodic catch-up enrollment interval for active campaigns.
 _LAST_ENROLL_SYNC_AT: Optional[datetime] = None
 _ENROLL_SYNC_INTERVAL_SECONDS = int(
-    os.getenv("OUTREACH_ENROLL_SYNC_INTERVAL_SECONDS", "900")
+    os.getenv("OUTREACH_ENROLL_SYNC_INTERVAL_SECONDS", "300")
 )
 
 
