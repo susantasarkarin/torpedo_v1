@@ -139,7 +139,9 @@ def classify_lead(lead_doc: dict, worker_id: int = 1) -> dict:
     source = f"worker_{worker_id}"  # Use per-worker rate limit (20/min each)
     
     try:
-        # Convert dict to LeadRaw model
+        # Convert dict to LeadRaw model — ensure it's a proper dict first
+        if not isinstance(lead_doc, dict):
+            lead_doc = dict(lead_doc)
         lead = dict_to_lead_raw(lead_doc)
         
         # Call the AI classifier with worker-specific source

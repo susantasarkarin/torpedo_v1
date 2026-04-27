@@ -4072,3 +4072,111 @@ async def import_leads_from_rfqs(payload: Dict[str, Any] = Body(default={})):
         "errors": errors,
     }
 
+
+# ── Retry failed leads ──────────────────────────────────────────────────────
+
+@router.post("/retry-failed", summary="Reset failed leads back to pending for retry")
+async def retry_failed_leads(limit: int = Query(10000, ge=1, le=50000)):
+    """
+    Reset all leads with classification_status='Failed' back to Pending
+    and clear classification_attempts so they get picked up by the next
+    background classification run.
+    """
+    try:
+        result = leads_raw_collection.update_many(
+            {"classification_status": "Failed"},
+            {
+                "$set": {
+                    "classification_status": "Pending",
+                    "classification_attempts": 0,
+                    "last_error": None,
+                    "retry_queued_at": datetime.utcnow(),
+                },
+                "$unset": {"last_attempt_at": ""}
+            }
+        )
+        return {
+            "success": True,
+            "reset_count": result.modified_count,
+            "message": f"Reset {result.modified_count} failed leads to Pending. They will be classified in the next background run.",
+        }
+    except Exception as e:
+        logger.error(f"[retry-failed] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Clean names/titles in leads_enriched ────────────────────────────────────
+
+@router.post("/clean-enriched-names", summary="Strip LinkedIn suffix from names and titles in leads_enriched")
+async def clean_enriched_names():
+    """
+    Strip ' | ...' LinkedIn/title suffixes from name and title fields in leads_enriched.
+    Also strips them from first_name/last_name where applicable.
+    """
+    try:
+        import re
+        updated = 0
+        skipped = 0
+
+        for doc in leads_enriched_collection.find(
+            {"$or": [
+                {"name": {"$regex": r"\s*\|", "$options": "i"}},
+                {"title": {"$regex": r"\s*\|", "$options": "i"}},
+                {"first_name": {"$regex": r"\s*\|", "$options": "i"}},
+            ]},
+            {"_id": 1, "name": 1, "title": 1, "first_name": 1, "last_name": 1}
+        ):
+            updates = {}
+
+            name = doc.get("name", "") or ""
+            if " | " in name:
+                clean_name = name.split(" | ")[0].strip()
+                updates["name"] = clean_name
+                # Re-split first/last if first_name not set
+                if not doc.get("first_name") and clean_name:
+                    parts = clean_name.strip().split(" ", 1)
+                    updates["first_name"] = parts[0]
+                    updates["last_name"] = parts[1] if len(parts) > 1 else ""
+
+            title = doc.get("title", "") or ""
+            if " | " in title:
+                updates["title"] = title.split(" | ")[0].strip()
+
+            first_name = doc.get("first_name", "") or ""
+            if " | " in first_name:
+                updates["first_name"] = first_name.split(" | ")[0].strip()
+
+            if updates:
+                leads_enriched_collection.update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": updates}
+                )
+                updated += 1
+            else:
+                skipped += 1
+
+        # Also clean leads_raw names
+        raw_updated = 0
+        for doc in leads_raw_collection.find(
+            {"name": {"$regex": r"\s*\|", "$options": "i"}},
+            {"_id": 1, "name": 1}
+        ):
+            name = doc.get("name", "") or ""
+            if " | " in name:
+                leads_raw_collection.update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": {"name": name.split(" | ")[0].strip()}}
+                )
+                raw_updated += 1
+
+        return {
+            "success": True,
+            "enriched_updated": updated,
+            "raw_updated": raw_updated,
+            "message": f"Cleaned {updated} enriched leads and {raw_updated} raw leads",
+        }
+    except Exception as e:
+        logger.error(f"[clean-enriched-names] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
