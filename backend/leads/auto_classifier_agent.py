@@ -44,9 +44,9 @@ load_dotenv()
 
 # Worker settings
 NUM_WORKERS = 5  # Number of parallel classification workers
-BATCH_SIZE = 50  # Fetch 50 leads at a time (10 per worker)
+BATCH_SIZE = 200  # Fetch 200 leads at a time (rule-based is fast)
 POLL_INTERVAL = 3  # Check for new leads every 3 seconds
-RATE_LIMIT_DELAY = 0.5  # Delay between API calls per worker (seconds)
+RATE_LIMIT_DELAY = 0.01  # Minimal delay — no API calls needed
 MAX_RETRIES = 3  # Max classification attempts per lead
 RETRY_BACKOFF = 60  # Seconds to wait before retrying failed leads
 
@@ -93,7 +93,7 @@ signal.signal(signal.SIGTERM, signal_handler)
 # ============== IMPORTS (after path setup) ==============
 
 from leads.models import LeadRaw, ClassificationStatus
-from leads.ai_classifier import classify_lead as ai_classify_lead
+from leads.canonical_ingestion import sync_to_enriched
 
 # ============== CLASSIFICATION LOGIC ==============
 
@@ -128,110 +128,55 @@ def dict_to_lead_raw(doc: dict) -> LeadRaw:
 
 def classify_lead(lead_doc: dict, worker_id: int = 1) -> dict:
     """
-    Classify a single lead using AI.
-    Returns enriched lead data with classification.
-    
-    Args:
-        lead_doc: MongoDB document for the lead
-        worker_id: Worker number (1-5) for per-worker rate limiting
+    Classify a single lead using rule-based ICP basket scoring.
+    No AI calls — uses keyword/industry scoring via sync_to_enriched.
     """
     lead_id = str(lead_doc['_id'])
-    source = f"worker_{worker_id}"  # Use per-worker rate limit (20/min each)
-    
+
     try:
-        # Convert dict to LeadRaw model — ensure it's a proper dict first
+        # Ensure we have a plain dict
         if not isinstance(lead_doc, dict):
             lead_doc = dict(lead_doc)
-        lead = dict_to_lead_raw(lead_doc)
-        
-        # Call the AI classifier with worker-specific source
-        classification_result, classification_log = ai_classify_lead(lead, source=source)
-        
-        if classification_result and classification_log.success:
-            # Update raw lead status
-            leads_raw_collection.update_one(
-                {'_id': lead_doc['_id']},
-                {
-                    '$set': {
-                        'classification_status': ClassificationStatus.CLASSIFIED.value,
-                        'classified_at': datetime.utcnow(),
-                        'classification_attempts': lead_doc.get('classification_attempts', 0) + 1
-                    }
-                }
-            )
-            
-            # Create enriched lead document
-            enriched_data = {
-                'raw_lead_id': lead_id,
-                'linkedin_url': lead.linkedin_url,
-                'name': lead.name,
-                'first_name': classification_result.first_name,
-                'last_name': classification_result.last_name,
-                'email': lead.email,
-                'title': lead.title,
-                'company_name': classification_result.company_name or lead.company_name,
-                'company_domain': classification_result.company_domain or lead.company_domain,
-                'company_industry': classification_result.company_industry,
-                'location': classification_result.inferred_location or lead.location,
-                'seniority_level': classification_result.seniority_level.value if hasattr(classification_result.seniority_level, 'value') else str(classification_result.seniority_level),
-                'department': classification_result.department.value if hasattr(classification_result.department, 'value') else str(classification_result.department),
-                'persona': classification_result.persona.value if hasattr(classification_result.persona, 'value') else str(classification_result.persona),
-                'company_size': classification_result.company_size.value if hasattr(classification_result.company_size, 'value') else str(classification_result.company_size),
-                'region': classification_result.region.value if hasattr(classification_result.region, 'value') else str(classification_result.region),
-                'buying_role': classification_result.buying_role.value if hasattr(classification_result.buying_role, 'value') else str(classification_result.buying_role),
-                'confidence_score': classification_result.confidence_score,
-                'classified_at': datetime.utcnow(),
-                'source': lead_doc.get('source'),
-                'stage': 'new'
-            }
-            
-            leads_enriched_collection.update_one(
-                {'raw_lead_id': lead_id},
-                {'$set': enriched_data},
-                upsert=True
-            )
-            
-            # Log classification
-            log_doc = classification_log.model_dump()
-            log_doc['raw_lead_id'] = lead_id
-            classification_logs_collection.insert_one(log_doc)
-            
-            return {'success': True, 'lead_id': lead_id}
-        else:
-            # Classification failed
-            attempts = lead_doc.get('classification_attempts', 0) + 1
-            new_status = ClassificationStatus.FAILED.value if attempts >= MAX_RETRIES else ClassificationStatus.PENDING.value
-            
-            leads_raw_collection.update_one(
-                {'_id': lead_doc['_id']},
-                {
-                    '$set': {
-                        'classification_status': new_status,
-                        'classification_attempts': attempts,
-                        'last_error': classification_log.error_message if classification_log else 'Unknown error',
-                        'last_attempt_at': datetime.utcnow()
-                    }
-                }
-            )
-            
-            return {'success': False, 'lead_id': lead_id, 'error': classification_log.error_message if classification_log else 'Unknown'}
-            
-    except Exception as e:
-        logger.error(f"Error classifying lead {lead_id}: {e}")
-        
-        attempts = lead_doc.get('classification_attempts', 0) + 1
+
+        # sync_to_enriched upserts the lead into leads_enriched and runs
+        # compute_icp_basket (rule-based) internally.
+        enriched_id = sync_to_enriched(lead_doc, lead_id)
+
+        # Mark raw lead as Classified
         leads_raw_collection.update_one(
             {'_id': lead_doc['_id']},
             {
                 '$set': {
-                    'classification_status': 'failed' if attempts >= MAX_RETRIES else 'pending',
-                    'classification_attempts': attempts,
-                    'last_error': str(e),
-                    'last_attempt_at': datetime.utcnow()
+                    'classification_status': ClassificationStatus.CLASSIFIED.value,
+                    'classified_at': datetime.utcnow(),
+                    'classification_attempts': lead_doc.get('classification_attempts', 0) + 1,
+                    'last_error': None,
                 }
             }
         )
-        
+
+        return {'success': True, 'lead_id': lead_id, 'enriched_id': enriched_id}
+
+    except Exception as e:
+        logger.error(f"Error classifying lead {lead_id}: {e}")
+
+        attempts = lead_doc.get('classification_attempts', 0) + 1
+        new_status = (
+            ClassificationStatus.FAILED.value
+            if attempts >= MAX_RETRIES
+            else ClassificationStatus.PENDING.value
+        )
+        leads_raw_collection.update_one(
+            {'_id': lead_doc['_id']},
+            {
+                '$set': {
+                    'classification_status': new_status,
+                    'classification_attempts': attempts,
+                    'last_error': str(e),
+                    'last_attempt_at': datetime.utcnow(),
+                }
+            }
+        )
         return {'success': False, 'lead_id': lead_id, 'error': str(e)}
 
 
@@ -242,7 +187,7 @@ def get_pending_leads(batch_size: int = BATCH_SIZE) -> list:
     """
     # First, get leads that have never been attempted
     query = {
-        'classification_status': 'pending',
+        'classification_status': {'$in': [ClassificationStatus.PENDING.value, 'pending']},
         '$or': [
             {'classification_attempts': {'$exists': False}},
             {'classification_attempts': 0},
@@ -297,7 +242,7 @@ def get_pending_leads(batch_size: int = BATCH_SIZE) -> list:
     with processing_lock:
         # Build query excluding leads already being processed
         query = {
-            'classification_status': 'pending',
+            'classification_status': {'$in': [ClassificationStatus.PENDING.value, 'pending']},
             '_id': {'$nin': list(processing_ids)},
             '$or': [
                 {'classification_attempts': {'$exists': False}},
@@ -407,10 +352,10 @@ def update_stats(stats: dict):
 
 def get_queue_status() -> dict:
     """Get current classification queue status"""
-    pending = leads_raw_collection.count_documents({'classification_status': 'pending'})
+    pending = leads_raw_collection.count_documents({'classification_status': {'$in': [ClassificationStatus.PENDING.value, 'pending']}})
     processing = len(processing_ids)
-    classified = leads_raw_collection.count_documents({'classification_status': 'classified'})
-    failed = leads_raw_collection.count_documents({'classification_status': 'failed'})
+    classified = leads_raw_collection.count_documents({'classification_status': {'$in': [ClassificationStatus.CLASSIFIED.value, 'classified']}})
+    failed = leads_raw_collection.count_documents({'classification_status': {'$in': [ClassificationStatus.FAILED.value, 'failed']}})
     
     return {
         'pending': pending,
