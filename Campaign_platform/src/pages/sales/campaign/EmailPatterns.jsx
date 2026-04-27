@@ -149,7 +149,7 @@ export default function EmailPatterns() {
   const handleApplyToLeads = async () => {
     setApplying(true); setApplyResult(null); setError(null);
     try {
-      const res = await fetch(buildApiUrl("/email-patterns/apply-to-bounced-and-missing?limit=500"), { method: "POST", headers });
+      const res = await fetch(buildApiUrl("/email-patterns/apply-to-bounced-and-missing?limit=2000"), { method: "POST", headers });
       if (res.ok) {
         const data = await res.json();
         setApplyResult(data);

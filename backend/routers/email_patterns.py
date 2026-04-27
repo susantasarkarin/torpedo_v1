@@ -498,7 +498,7 @@ async def scan_ai_database(limit: int = Query(10000, ge=1, le=50000)) -> Dict:
 # ── Apply patterns to bounced + missing-email leads ────────────────────────
 
 @router.post("/apply-to-bounced-and-missing", summary="Retry email patterns for bounced/missing leads")
-async def apply_to_bounced_and_missing(limit: int = Query(500, ge=1, le=5000)) -> Dict:
+async def apply_to_bounced_and_missing(limit: int = Query(2000, ge=1, le=10000)) -> Dict:
     """
     Two-pass pipeline:
 
