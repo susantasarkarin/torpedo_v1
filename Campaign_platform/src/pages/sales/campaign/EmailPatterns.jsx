@@ -135,7 +135,7 @@ export default function EmailPatterns() {
   const handleScanAI = async () => {
     setScanningAI(true); setScanAIResult(null); setError(null);
     try {
-      const res = await fetch(buildApiUrl("/email-patterns/scan-ai-database?limit=2000"), { method: "POST", headers });
+      const res = await fetch(buildApiUrl("/email-patterns/scan-ai-database?limit=10000"), { method: "POST", headers });
       if (res.ok) {
         const data = await res.json();
         setScanAIResult(data);

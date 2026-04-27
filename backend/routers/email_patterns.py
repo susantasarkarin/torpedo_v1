@@ -421,18 +421,16 @@ async def get_pattern(domain: str) -> Dict:
 # ── Scan AI database for email patterns ────────────────────────────────────
 
 @router.post("/scan-ai-database", summary="Discover email patterns from AI-sourced leads")
-async def scan_ai_database(limit: int = Query(2000, ge=1, le=10000)) -> Dict:
+async def scan_ai_database(limit: int = Query(10000, ge=1, le=50000)) -> Dict:
     """
     Scan leads_enriched for AI-sourced leads that already have emails.
     Group them by domain and run discover_pattern_format() to infer patterns.
     Only upserts a pattern if the new confidence is higher than the stored one.
     """
     try:
-        ai_sources = {"ai_agent", "web_search", "google_search", "websearch", "ai_database"}
         cursor = leads_enriched_collection.find(
             {
-                "source": {"$in": list(ai_sources)},
-                "email": {"$exists": True, "$ne": None, "$ne": ""},
+                "email": {"$exists": True, "$nin": [None, ""]},
             },
             {"email": 1, "company_domain": 1},
         ).limit(limit)
