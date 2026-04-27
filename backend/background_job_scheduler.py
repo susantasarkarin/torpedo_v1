@@ -554,6 +554,79 @@ def initialize_scheduler(loop=None):
         except Exception as e:
             logger.warning(f"[Scheduler] Could not add email classification job: {e}")
 
+        # Rule-based ICP lead classification — process Pending leads_raw every 5 minutes
+        try:
+            from leads.canonical_ingestion import sync_to_enriched, compute_icp_basket
+            from database import get_async_collection
+
+            async def _run_lead_classification():
+                try:
+                    import pymongo as _pymongo
+                    import datetime as _dt
+                    _client = _pymongo.MongoClient("mongodb://localhost:27017/")
+                    _col_raw = _client["email_automation"]["leads_raw"]
+                    _col_enriched = _client["email_automation"]["leads_enriched"]
+
+                    query = {"classification_status": {"$in": ["Pending", "pending"]}}
+                    total = _col_raw.count_documents(query)
+                    if total == 0:
+                        return
+
+                    classified = 0
+                    failed = 0
+                    BATCH = 500
+                    skip = 0
+                    while True:
+                        batch = list(_col_raw.find(query).skip(skip).limit(BATCH))
+                        if not batch:
+                            break
+                        for doc in batch:
+                            lead_id = str(doc["_id"])
+                            try:
+                                sync_to_enriched(doc, lead_id)
+                                _col_raw.update_one(
+                                    {"_id": doc["_id"]},
+                                    {"$set": {
+                                        "classification_status": "Classified",
+                                        "classified_at": _dt.datetime.utcnow(),
+                                        "classification_attempts": doc.get("classification_attempts", 0) + 1,
+                                        "last_error": None,
+                                    }}
+                                )
+                                classified += 1
+                            except Exception as _le:
+                                attempts = doc.get("classification_attempts", 0) + 1
+                                _col_raw.update_one(
+                                    {"_id": doc["_id"]},
+                                    {"$set": {
+                                        "classification_status": "Failed" if attempts >= 3 else "Pending",
+                                        "classification_attempts": attempts,
+                                        "last_error": str(_le),
+                                        "last_attempt_at": _dt.datetime.utcnow(),
+                                    }}
+                                )
+                                failed += 1
+                        skip += BATCH
+
+                    logger.info(
+                        f"[Scheduler/LeadClassifier] classified={classified} failed={failed} "
+                        f"(of {total} pending)"
+                    )
+                except Exception as _e:
+                    logger.error(f"[Scheduler/LeadClassifier] Error: {_e}")
+
+            scheduler.add_job(
+                _run_lead_classification,
+                "interval",
+                minutes=5,
+                id="rule_based_lead_classification",
+                name="Rule-Based ICP Lead Classification",
+                max_instances=1,
+            )
+            logger.info("[Scheduler] Added rule-based lead classification job (every 5 min)")
+        except Exception as e:
+            logger.warning(f"[Scheduler] Could not add lead classification job: {e}")
+
         # Mail pool stats cache — pre-compute stats every 15 minutes (lightweight background job)
         try:
             from routers.gmail import _compute_and_persist_mail_pool_stats
