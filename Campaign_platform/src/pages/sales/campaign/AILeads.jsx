@@ -149,7 +149,6 @@ function AILeads() {
     industry: "",
     fit_tier: "",
     bounce_recovery: "",
-    source: "",
   });
 
   // Import Modal State
@@ -281,16 +280,12 @@ function AILeads() {
       if (filters.fit_tier) params.append("fit_tier", filters.fit_tier);
       if (filters.basket) params.append("basket", filters.basket);
       if (filters.bounce_recovery) params.append("bounce_recovery_status", "needs_human_intervention");
-      if (filters.source) {
-        params.append("source", filters.source);
-      } else {
-        // Add source filter based on active tab
-        const sourceFilter = getSourceFilterForTab();
-        if (sourceFilter) params.append("source", sourceFilter);
-      }
+      
+      // Add source filter based on active tab
+      const sourceFilter = getSourceFilterForTab();
+      if (sourceFilter) params.append("source", sourceFilter);
 
-      // For "Leads" tab, fetch already-contacted (gmail) leads
-      if (activeTab === "leads") params.append("lead_stage", "already_contacted");
+      // For "mailpool ID's" tab, fetch all gmail/mailpool leads (no stage restriction)
 
       params.append("page", currentPage);
       params.append("limit", 50);
@@ -868,6 +863,36 @@ function AILeads() {
     }
   };
 
+  // Bulk transfer selected leads to Contacts
+  const handleBulkTransferToContacts = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) {
+      alert("Please select leads to transfer");
+      return;
+    }
+    if (!window.confirm(`Transfer ${ids.length} lead(s) to Contacts (discovery_call stage)?`)) {
+      return;
+    }
+    let successCount = 0;
+    let failCount = 0;
+    for (const id of ids) {
+      try {
+        const res = await fetch(buildApiUrl(`/leads/${id}/move-to-contacts`), {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: sessionId },
+          body: JSON.stringify({ stage: "discovery_call" }),
+        });
+        if (res.ok) successCount++;
+        else failCount++;
+      } catch {
+        failCount++;
+      }
+    }
+    alert(`✅ ${successCount} lead(s) moved to Contacts${failCount > 0 ? `, ${failCount} failed` : ""}.`);
+    setSelectedIds(new Set());
+    fetchLeads();
+  };
+
   // Bulk transfer selected leads to Vendor Leads
   const handleBulkTransferToVendorLeads = async () => {
     const ids = Array.from(selectedIds);
@@ -1387,7 +1412,7 @@ function AILeads() {
           className={`tab-btn ${activeTab === "leads" ? "active" : ""}`}
           onClick={() => { setActiveTab("leads"); }}
         >
-          Leads
+          mailpool ID's
         </button>
       </div>
 
@@ -1462,19 +1487,6 @@ function AILeads() {
           onChange={(e) => handleFilterChange("industry", e.target.value)}
           style={{ minWidth: "120px" }}
         />
-        {/* Source */}
-        <select
-          className="filter-select"
-          value={filters.source}
-          onChange={(e) => handleFilterChange("source", e.target.value)}
-        >
-          <option value="">All Sources</option>
-          <option value="web_search">🌐 Web Search</option>
-          <option value="google_search">🔍 Google Search</option>
-          <option value="linkedin">💼 LinkedIn</option>
-          <option value="csv">📄 CSV Import</option>
-          <option value="gmail">📧 Gmail</option>
-        </select>
         {/* Persona */}
         <select
           className="filter-select"
@@ -1577,6 +1589,9 @@ function AILeads() {
             style={{ backgroundColor: "#9333ea", color: "#fff", borderColor: "#9333ea" }}
           >
             🔄 Create Workflow
+          </button>
+          <button className="btn btn-sm" onClick={handleBulkTransferToContacts} style={{ backgroundColor: "#3b82f6", color: "#fff", borderColor: "#2563eb" }}>
+            👤 Transfer to Contacts
           </button>
           <button className="btn btn-sm btn-success" onClick={handleBulkTransferToVendorLeads} style={{ backgroundColor: "#22c55e", borderColor: "#22c55e" }}>
             🎯 Transfer to Vendor Leads
