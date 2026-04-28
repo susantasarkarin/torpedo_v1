@@ -3985,19 +3985,19 @@ async def backfill_company_domain_gemini(background_tasks: BackgroundTasks):
 
 async def _run_gemini_domain_backfill():
     """
-    Background: use Gemini to infer company_domain from company_name, then generate email.
+    Background: infer company_domain from company_name using _infer_company_domain(),
+    then generate a guessed email from first_name + last_name + domain.
+    Falls back to Gemini only if string inference fails.
     """
     import re as _re
-    import google.generativeai as genai
-    from .gemini_rotator import get_rotator as _get_gemini_rotator
     from .canonical_ingestion import _discover_and_apply_email_pattern
+    from .ingestion import _infer_company_domain
     from bson import ObjectId as _ObjId
 
     EMAIL_RE = _re.compile(r'^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$')
-    DOMAIN_RE = _re.compile(r'^[a-z0-9][a-z0-9\-\.]+\.[a-z]{2,6}$')
     PERSONAL_DOMAINS = {"gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com"}
+    SKIP_NAMES = {"not specified", "unknown", "n/a", "", None}
 
-    rotator = _get_gemini_rotator()
     _raw_col = leads_enriched_collection.database["leads_raw"]
 
     query = {
@@ -4018,27 +4018,15 @@ async def _run_gemini_domain_backfill():
 
     for doc in leads:
         company_name = (doc.get("company_name") or "").strip()
-        if not company_name:
+        if not company_name or company_name.lower() in SKIP_NAMES:
+            processed += 1
             continue
 
-        # Ask Gemini for the domain
-        prompt = (
-            f'What is the official website domain of the company "{company_name}"?\n'
-            f'Reply with ONLY the bare domain (e.g. "kantar.com"). '
-            f'No http, no www, no explanation. If unknown, reply "unknown".'
-        )
-        domain = None
-        try:
-            key_idx, _key = rotator.get_available_key()
-            rotator.configure_genai(key_idx)
-            model = genai.GenerativeModel("gemini-2.0-flash")
-            response = model.generate_content(prompt)
-            raw = (response.text or "").strip().lower().replace("www.", "").strip(".")
-            # Validate it looks like a domain
-            if raw and raw != "unknown" and DOMAIN_RE.match(raw) and raw not in PERSONAL_DOMAINS:
-                domain = raw
-        except Exception as e:
-            print(f"[GeminiDomainBackfill] Gemini error for '{company_name}': {e}")
+        # Try string-based inference first (free, no API call)
+        snippet = doc.get("snippet") or doc.get("source_detail") or ""
+        domain = _infer_company_domain(company_name, snippet if isinstance(snippet, str) else "")
+        if domain in PERSONAL_DOMAINS:
+            domain = None
 
         if not domain:
             processed += 1
@@ -4064,7 +4052,7 @@ async def _run_gemini_domain_backfill():
         if guessed_email and "@" in guessed_email and EMAIL_RE.match(guessed_email):
             update_fields["email"] = guessed_email
             update_fields["email_status"] = stub.get("email_status", "predicted")
-            update_fields["email_source"] = "gemini_domain_guess"
+            update_fields["email_source"] = "name_domain_inferred"
             email_found += 1
 
         try:
@@ -4084,8 +4072,6 @@ async def _run_gemini_domain_backfill():
                 pass
 
         processed += 1
-        if processed % 20 == 0:
-            print(f"[GeminiDomainBackfill] Processed {processed}, domains found: {domain_found}, emails: {email_found}")
 
     print(f"[GeminiDomainBackfill] Done — {processed} processed, {domain_found} domains inferred, {email_found} emails generated")
 
