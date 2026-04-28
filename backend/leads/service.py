@@ -134,8 +134,12 @@ def import_leads(leads: List[LeadInput], skip_dedup_check: bool = False, auto_cl
                     source = 'csv'
                 elif 'gmail' in str(lead_input.source).lower():
                     source = 'gmail'
-            
-            source_detail = lead_input.source or 'openai_search'
+                elif lead_input.source in ('google_search', 'websearch', 'openai_search'):
+                    source = 'websearch'
+
+            # Use the actual Google snippet as source_detail so it gets stored on the lead
+            # (source_detail is mapped to the 'snippet' field in canonical ingestion)
+            source_detail = lead_input.snippet or lead_input.source or 'google_search'
             
             # Use CANONICAL ingestion
             result = ingest_lead(

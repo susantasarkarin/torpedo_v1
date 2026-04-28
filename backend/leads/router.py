@@ -3965,6 +3965,129 @@ async def _run_backfill_name_domain_job():
         traceback.print_exc()
 
 
+# ============== GEMINI DOMAIN BACKFILL ==============
+
+@router.post("/backfill-company-domain-gemini")
+async def backfill_company_domain_gemini(background_tasks: BackgroundTasks):
+    """
+    POST /leads/backfill-company-domain-gemini
+    For leads_enriched records that have company_name but no company_domain,
+    use Gemini to infer the company domain, then generate a guessed email.
+    """
+    count = leads_enriched_collection.count_documents({
+        "$or": [{"email": None}, {"email": {"$exists": False}}],
+        "company_name": {"$nin": [None, ""]},
+        "$or": [{"company_domain": None}, {"company_domain": ""}, {"company_domain": {"$exists": False}}],
+    })
+    background_tasks.add_task(_run_gemini_domain_backfill)
+    return {"message": "Gemini domain backfill started", "leads_to_process": count}
+
+
+async def _run_gemini_domain_backfill():
+    """
+    Background: use Gemini to infer company_domain from company_name, then generate email.
+    """
+    import re as _re
+    import google.generativeai as genai
+    from .gemini_rotator import get_rotator as _get_gemini_rotator
+    from .canonical_ingestion import _discover_and_apply_email_pattern
+    from bson import ObjectId as _ObjId
+
+    EMAIL_RE = _re.compile(r'^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$')
+    DOMAIN_RE = _re.compile(r'^[a-z0-9][a-z0-9\-\.]+\.[a-z]{2,6}$')
+    PERSONAL_DOMAINS = {"gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com"}
+
+    rotator = _get_gemini_rotator()
+    _raw_col = leads_enriched_collection.database["leads_raw"]
+
+    query = {
+        "$and": [
+            {"$or": [{"email": None}, {"email": {"$exists": False}}]},
+            {"company_name": {"$nin": [None, ""]}},
+            {"$or": [{"company_domain": None}, {"company_domain": ""}, {"company_domain": {"$exists": False}}]},
+            {"first_name": {"$nin": [None, ""]}},
+        ]
+    }
+
+    leads = list(leads_enriched_collection.find(query).limit(500))
+    print(f"[GeminiDomainBackfill] Found {len(leads)} leads to process")
+
+    processed = 0
+    domain_found = 0
+    email_found = 0
+
+    for doc in leads:
+        company_name = (doc.get("company_name") or "").strip()
+        if not company_name:
+            continue
+
+        # Ask Gemini for the domain
+        prompt = (
+            f'What is the official website domain of the company "{company_name}"?\n'
+            f'Reply with ONLY the bare domain (e.g. "kantar.com"). '
+            f'No http, no www, no explanation. If unknown, reply "unknown".'
+        )
+        domain = None
+        try:
+            key_idx = rotator.get_next_key_index()
+            rotator.configure_genai(key_idx)
+            model = genai.GenerativeModel("gemini-2.0-flash")
+            response = model.generate_content(prompt)
+            raw = (response.text or "").strip().lower().replace("www.", "").strip(".")
+            # Validate it looks like a domain
+            if raw and raw != "unknown" and DOMAIN_RE.match(raw) and raw not in PERSONAL_DOMAINS:
+                domain = raw
+        except Exception as e:
+            print(f"[GeminiDomainBackfill] Gemini error for '{company_name}': {e}")
+
+        if not domain:
+            processed += 1
+            continue
+
+        domain_found += 1
+
+        # Now try to build email from first_name + last_name + domain
+        stub = {
+            "email": None,
+            "first_name": doc.get("first_name", ""),
+            "last_name": doc.get("last_name", ""),
+            "company_domain": domain,
+            "email_status": "Unknown",
+        }
+        try:
+            _discover_and_apply_email_pattern(stub)
+        except Exception:
+            pass
+
+        update_fields: dict = {"company_domain": domain, "updated_at": datetime.utcnow()}
+        guessed_email = (stub.get("email") or "").strip()
+        if guessed_email and "@" in guessed_email and EMAIL_RE.match(guessed_email):
+            update_fields["email"] = guessed_email
+            update_fields["email_status"] = stub.get("email_status", "predicted")
+            update_fields["email_source"] = "gemini_domain_guess"
+            email_found += 1
+
+        try:
+            leads_enriched_collection.update_one({"_id": doc["_id"]}, {"$set": update_fields})
+        except Exception as _dup:
+            print(f"[GeminiDomainBackfill] Dup skip {guessed_email}: {_dup}")
+
+        # Mirror domain to leads_raw
+        raw_id = doc.get("raw_lead_id")
+        if raw_id:
+            try:
+                _raw_col.update_one(
+                    {"_id": _ObjId(str(raw_id))},
+                    {"$set": {"company_domain": domain}},
+                )
+            except Exception:
+                pass
+
+        processed += 1
+        if processed % 20 == 0:
+            print(f"[GeminiDomainBackfill] Processed {processed}, domains found: {domain_found}, emails: {email_found}")
+
+    print(f"[GeminiDomainBackfill] Done — {processed} processed, {domain_found} domains inferred, {email_found} emails generated")
 
 
 # ============== BULK ICP RECLASSIFICATION ==============
