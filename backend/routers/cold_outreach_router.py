@@ -1063,24 +1063,6 @@ def _build_basket_enrollment_query(basket: str) -> Dict[str, Any]:
     }
 
 
-@router.post("/sync-enrollment")
-def trigger_sync_enrollment(background_tasks: BackgroundTasks):
-    """
-    POST /outreach/sync-enrollment
-    Manually trigger catch-up enrollment for all active campaigns.
-    Enrolls any leads_enriched records not yet in outreach_leads_v2.
-    """
-    db = get_db()
-    campaigns = list(db["outreach_campaigns_v2"].find({"is_active": True}, {"campaign_id": 1, "basket": 1}))
-    active_count = len(campaigns)
-    for camp in campaigns:
-        cid = camp.get("campaign_id")
-        basket = camp.get("basket")
-        if cid and basket:
-            background_tasks.add_task(_enroll_basket_leads, cid, basket)
-    return {"ok": True, "message": f"Enrollment sync triggered for {active_count} active campaigns."}
-
-
 def _sync_active_campaign_enrollment(db):
     """
     Catch-up enrollment for all active campaigns.
@@ -1957,16 +1939,21 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             )
             return False
 
-        # Reject emails with non-ASCII chars (accented, apostrophes in domain, etc.)
+        # Reject emails that are not RFC-valid (non-ASCII, apostrophes in domain, etc.)
+        import re as _re
+        _EMAIL_RE = _re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
+        _is_ascii = True
         try:
             email.encode("ascii")
         except UnicodeEncodeError:
-            logger.warning(f"[Outreach] Skipping non-ASCII email: {email}")
+            _is_ascii = False
+        if not _is_ascii or not _EMAIL_RE.match(email):
+            logger.warning(f"[Outreach] Skipping invalid email address: {email}")
             db["outreach_leads_v2"].update_one(
                 {"_id": lead_record["_id"]},
                 {"$set": {
-                    "workflow_status": "error",
-                    "last_send_error": "Non-ASCII characters in email address",
+                    "workflow_status": "bounced",
+                    "last_send_error": "Invalid email address format",
                     "last_send_error_at": datetime.utcnow(),
                     "updated_at": datetime.utcnow(),
                 }}
