@@ -353,7 +353,56 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
         # Get enriched lead ID
         enriched_doc = leads_enriched_collection.find_one(_dedup_key)
         enriched_id = str(enriched_doc["_id"]) if enriched_doc else None
-        
+
+        # ── S3 GATE (post-Gemini) ────────────────────────────────────────────
+        # Gemini may have filled in company_domain that was blank at ingest time.
+        # Apply the email pattern NOW so the lead gets an email before cold
+        # outreach enrollment (S5).  This implements the desired pipeline order:
+        #   S1 ingest → S4 Gemini enrichment → S3 email pattern → S2 basket → S5 enroll
+        try:
+            fresh = leads_enriched_collection.find_one(_dedup_key) or {}
+            _has_email = bool(fresh.get("email"))
+            _domain = (enriched_dict.get("company_domain") or
+                       fresh.get("company_domain") or "")
+            _first = fresh.get("first_name") or ""
+            _last = fresh.get("last_name") or ""
+            if not _has_email and _domain and _first:
+                from .canonical_ingestion import (
+                    _discover_and_apply_email_pattern,
+                    _auto_enroll_in_outreach,
+                )
+                _lead_stub = {
+                    "email": None,
+                    "first_name": _first,
+                    "last_name": _last,
+                    "company_domain": _domain,
+                    "email_status": "Unknown",
+                }
+                _discover_and_apply_email_pattern(_lead_stub)
+                if _lead_stub.get("email"):
+                    # Write the derived email back to leads_enriched
+                    leads_enriched_collection.update_one(
+                        _dedup_key,
+                        {"$set": {
+                            "email": _lead_stub["email"],
+                            "email_status": _lead_stub.get("email_status", "pattern_derived"),
+                            "email_source": _lead_stub.get("email_source", "pattern_derived"),
+                        }},
+                    )
+                    # Also update raw lead
+                    leads_raw_collection.update_one(
+                        {"_id": ObjectId(raw_lead_id)},
+                        {"$set": {"email": _lead_stub["email"]}},
+                    )
+                    # Re-fetch the doc for enrollment
+                    fresh = leads_enriched_collection.find_one(_dedup_key) or {}
+                    enriched_id = enriched_id or str(fresh.get("_id", ""))
+                    if enriched_id:
+                        _auto_enroll_in_outreach(fresh, enriched_id)
+        except Exception as _pat_err:
+            logger.debug(f"Post-Gemini email pattern step failed (non-fatal): {_pat_err}")
+        # ── END S3 GATE ─────────────────────────────────────────────────────
+
         # Update raw lead status
         leads_raw_collection.update_one(
             {"_id": ObjectId(raw_lead_id)},
@@ -935,33 +984,23 @@ def get_enriched_lead_by_id(lead_id: str, include_emails: bool = True) -> Option
         
         lead = None
         source_collection = None
-
-        # Build queries: try ObjectId first, then string _id as fallback
-        # (some leads imported via CSV/Gmail may have string _id)
-        id_queries = [{"_id": obj_id}, {"_id": lead_id}]
-
+        
         # 1. Try leads_enriched first (primary collection for AI Database)
-        for q in id_queries:
-            lead = leads_enriched_collection.find_one(q)
-            if lead:
-                source_collection = "leads_enriched"
-                break
+        lead = leads_enriched_collection.find_one({"_id": obj_id})
+        if lead:
+            source_collection = "leads_enriched"
         
         # 2. Fallback to legacy leads collection (used by main.py)
         if not lead:
-            for q in id_queries:
-                lead = leads_collection.find_one(q)
-                if lead:
-                    source_collection = "leads"
-                    break
+            lead = leads_collection.find_one({"_id": obj_id})
+            if lead:
+                source_collection = "leads"
         
         # 3. Fallback to leads_raw collection
         if not lead:
-            for q in id_queries:
-                lead = leads_raw_collection.find_one(q)
-                if lead:
-                    source_collection = "leads_raw"
-                    break
+            lead = leads_raw_collection.find_one({"_id": obj_id})
+            if lead:
+                source_collection = "leads_raw"
         
         if not lead:
             print(f"Lead not found in any collection: {lead_id}")

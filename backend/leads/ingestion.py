@@ -1226,32 +1226,86 @@ def parse_google_search_result_discovery(item: dict) -> Optional[dict]:
     }
 
 
+def _infer_company_domain(company_name: str, snippet: str) -> str:
+    """
+    Try to infer company_domain from snippet text or company name.
+    Looks for explicit website mentions first, then generates a best-guess
+    domain from the company name (e.g. "Bandhan Bank" → "bandhanbank.com").
+    Returns empty string if nothing usable is found.
+    """
+    # 1. Explicit domain in snippet (e.g. "www.company.com" or "company.com")
+    domain_match = re.search(
+        r'\b(?:www\.)?([a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?'
+        r'(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)+'
+        r'\.[a-zA-Z]{2,6})\b',
+        snippet,
+    )
+    if domain_match:
+        candidate = domain_match.group(1).lower()
+        # Skip obviously irrelevant domains
+        if "linkedin" not in candidate and "google" not in candidate:
+            return candidate
+
+    # 2. Derive from company name: strip common suffixes, lowercase, join words
+    if company_name:
+        clean = re.sub(
+            r'\b(pvt|ltd|llc|inc|corp|limited|private|co|group|holdings|'
+            r'technologies|technology|solutions|services|consulting|global|'
+            r'india|international|enterprises|ventures)\b',
+            '',
+            company_name,
+            flags=re.IGNORECASE,
+        )
+        clean = re.sub(r'[^a-zA-Z0-9\s]', '', clean).strip()
+        words = clean.split()
+        if words:
+            guess = "".join(w.lower() for w in words if w)
+            if len(guess) >= 3:
+                return f"{guess}.com"
+
+    return ""
+
+
 def parse_google_search_result(item: dict) -> Optional[dict]:
     """
     Parse a Google Custom Search result into lead format.
+    Extracts name, title, company info and attempts to infer company_domain
+    so that the email-pattern step can fire during Gemini enrichment.
     """
     link = item.get("link", "")
-    
+
     # Only process LinkedIn profile URLs
     if "linkedin.com/in/" not in link:
         return None
-    
+
     title = item.get("title", "")
     snippet = item.get("snippet", "")
-    
+
     # Extract name and job title from the Google search title
-    # Format is usually: "Name - Title - LinkedIn"
+    # Format is usually: "Name - Title at Company - LinkedIn"
     name, job_title = extract_name_and_title(title)
-    
+
     if not name:
         return None
-    
+
+    # Try to extract company name from the title / snippet
+    company_name = ""
+    at_match = re.search(r'\bat\s+([A-Z][^|\-\n·•]+?)(?:\s*[-–|·•]|$)', title)
+    if not at_match:
+        at_match = re.search(r'\bat\s+([A-Z][^|\-\n·•]+?)(?:\s*[-–|·•]|$)', snippet)
+    if at_match:
+        company_name = at_match.group(1).strip()
+
+    company_domain = _infer_company_domain(company_name, snippet)
+
     return {
         "name": name,
         "title": job_title or "",
         "linkedin_url": link,
         "snippet": snippet,
-        "source": "google_search"
+        "company_name": company_name,
+        "company_domain": company_domain,
+        "source": "google_search",
     }
 
 
