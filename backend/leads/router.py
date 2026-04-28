@@ -3996,14 +3996,14 @@ async def _run_gemini_domain_backfill():
 
     EMAIL_RE = _re.compile(r'^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$')
     PERSONAL_DOMAINS = {"gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com"}
-    SKIP_NAMES = {"not specified", "unknown", "n/a", "", None}
+    SKIP_NAMES = {"not specified", "unknown", "n/a", ""}
 
     _raw_col = leads_enriched_collection.database["leads_raw"]
 
     query = {
         "$and": [
             {"$or": [{"email": None}, {"email": {"$exists": False}}]},
-            {"company_name": {"$nin": [None, ""]}},
+            {"company_name": {"$nin": [None, "", "Not specified", "not specified", "Unknown", "N/A"]}},
             {"$or": [{"company_domain": None}, {"company_domain": ""}, {"company_domain": {"$exists": False}}]},
             {"first_name": {"$nin": [None, ""]}},
         ]
@@ -4025,7 +4025,8 @@ async def _run_gemini_domain_backfill():
         # Try string-based inference first (free, no API call)
         snippet = doc.get("snippet") or doc.get("source_detail") or ""
         domain = _infer_company_domain(company_name, snippet if isinstance(snippet, str) else "")
-        if domain in PERSONAL_DOMAINS:
+        # Guard against junk domains derived from placeholder company names
+        if not domain or domain in PERSONAL_DOMAINS or domain == "notspecified.com":
             domain = None
 
         if not domain:
