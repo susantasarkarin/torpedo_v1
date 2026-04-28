@@ -3925,18 +3925,23 @@ async def _run_backfill_name_domain_job():
                     pass
 
                 guessed = (stub.get("email") or "").strip()
-                if not guessed:
+                if not guessed or "@" not in guessed:
                     continue
 
-                leads_enriched_collection.update_one(
-                    {"_id": doc["_id"]},
-                    {"$set": {
-                        "email": guessed,
-                        "email_status": stub.get("email_status", "predicted"),
-                        "email_source": stub.get("email_source", "name_domain_guess"),
-                        "updated_at": datetime.utcnow(),
-                    }},
-                )
+                try:
+                    leads_enriched_collection.update_one(
+                        {"_id": doc["_id"]},
+                        {"$set": {
+                            "email": guessed,
+                            "email_status": stub.get("email_status", "predicted"),
+                            "email_source": stub.get("email_source", "name_domain_guess"),
+                            "updated_at": datetime.utcnow(),
+                        }},
+                    )
+                except Exception as _dup_err:
+                    # E11000 duplicate key — another lead already has this email, skip
+                    print(f"[BackfillNameDomain] Skip dup email {guessed}: {_dup_err}")
+                    continue
                 # Mirror to leads_raw if linked
                 raw_id = doc.get("raw_lead_id")
                 if raw_id:

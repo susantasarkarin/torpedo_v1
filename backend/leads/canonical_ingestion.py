@@ -700,9 +700,12 @@ def _discover_and_apply_email_pattern(normalized: Dict[str, Any]) -> None:
                         l=last[0] if last else '',
                         domain=domain,
                     )
-                    normalized['email'] = derived
-                    normalized['email_status'] = 'pattern_derived'
-                    normalized['email_source'] = 'pattern_derived'
+                    # Only store if the result is a valid-looking email
+                    import re as _re
+                    if '@' in derived and _re.match(r'^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$', derived):
+                        normalized['email'] = derived
+                        normalized['email_status'] = 'pattern_derived'
+                        normalized['email_source'] = 'pattern_derived'
                 except (KeyError, IndexError):
                     pass
             # Also fill in other leads of the same domain that lack emails
