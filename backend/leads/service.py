@@ -935,23 +935,33 @@ def get_enriched_lead_by_id(lead_id: str, include_emails: bool = True) -> Option
         
         lead = None
         source_collection = None
-        
+
+        # Build queries: try ObjectId first, then string _id as fallback
+        # (some leads imported via CSV/Gmail may have string _id)
+        id_queries = [{"_id": obj_id}, {"_id": lead_id}]
+
         # 1. Try leads_enriched first (primary collection for AI Database)
-        lead = leads_enriched_collection.find_one({"_id": obj_id})
-        if lead:
-            source_collection = "leads_enriched"
+        for q in id_queries:
+            lead = leads_enriched_collection.find_one(q)
+            if lead:
+                source_collection = "leads_enriched"
+                break
         
         # 2. Fallback to legacy leads collection (used by main.py)
         if not lead:
-            lead = leads_collection.find_one({"_id": obj_id})
-            if lead:
-                source_collection = "leads"
+            for q in id_queries:
+                lead = leads_collection.find_one(q)
+                if lead:
+                    source_collection = "leads"
+                    break
         
         # 3. Fallback to leads_raw collection
         if not lead:
-            lead = leads_raw_collection.find_one({"_id": obj_id})
-            if lead:
-                source_collection = "leads_raw"
+            for q in id_queries:
+                lead = leads_raw_collection.find_one(q)
+                if lead:
+                    source_collection = "leads_raw"
+                    break
         
         if not lead:
             print(f"Lead not found in any collection: {lead_id}")

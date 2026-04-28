@@ -2497,14 +2497,22 @@ async def update_enriched_lead_endpoint(lead_id: str, data: dict = Body(...)):
     """
     from bson import ObjectId
     
-    # Validate lead_id
+    # Validate lead_id and build query (support both ObjectId and string _id)
     try:
         obj_id = ObjectId(lead_id)
+        id_query = {"_id": obj_id}
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid lead ID format")
+        # Treat as string _id
+        obj_id = None
+        id_query = {"_id": lead_id}
     
-    # Check if lead exists
-    existing_lead = leads_enriched_collection.find_one({"_id": obj_id})
+    # Check if lead exists (try ObjectId first, then string fallback)
+    existing_lead = leads_enriched_collection.find_one(id_query)
+    if not existing_lead and obj_id is not None:
+        # Also try string _id as fallback
+        existing_lead = leads_enriched_collection.find_one({"_id": lead_id})
+        if existing_lead:
+            id_query = {"_id": lead_id}
     if not existing_lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     
@@ -2517,10 +2525,30 @@ async def update_enriched_lead_endpoint(lead_id: str, data: dict = Body(...)):
     
     # Update the lead
     result = leads_enriched_collection.update_one(
-        {"_id": obj_id},
+        id_query,
         {"$set": data}
     )
     
+    # If ICP-related fields were updated, recompute basket and sync enrollment
+    icp_fields = {"icp_segment", "icp_tags", "classification_basket"}
+    if result.modified_count > 0 and icp_fields.intersection(data.keys()):
+        try:
+            from .canonical_ingestion import compute_icp_basket
+            updated_doc = leads_enriched_collection.find_one(id_query)
+            if updated_doc:
+                basket_data = compute_icp_basket(updated_doc)
+                leads_enriched_collection.update_one(
+                    id_query,
+                    {"$set": {**basket_data, "updated_at": datetime.utcnow()}}
+                )
+        except Exception as _basket_err:
+            print(f"[update-enriched-lead] Basket recompute skipped: {_basket_err}")
+        try:
+            from routers.cold_outreach_router import _sync_active_campaign_enrollment, get_db as _co_get_db
+            _sync_active_campaign_enrollment(_co_get_db())
+        except Exception as _enroll_err:
+            print(f"[update-enriched-lead] Enrollment sync skipped: {_enroll_err}")
+
     if result.modified_count > 0:
         # Fetch and return updated lead
         updated_lead = get_enriched_lead_by_id(lead_id)
@@ -3635,20 +3663,39 @@ async def bulk_tag_icp_segment(request: BulkIcpTagRequest):
     if not object_ids:
         raise HTTPException(status_code=400, detail="No valid lead IDs provided")
 
-    enriched_result = leads_enriched_collection.update_many(
-        {"_id": {"$in": object_ids}},
-        {"$set": {"icp_segment": request.icp_segment, "updated_at": datetime.utcnow()}}
-    )
+    from .canonical_ingestion import compute_icp_basket
+
+    # Update icp_segment and recompute classification_basket for each lead
+    enriched_updated = 0
+    for oid in object_ids:
+        lead_doc = leads_enriched_collection.find_one({"_id": oid})
+        if not lead_doc:
+            continue
+        lead_doc["icp_segment"] = request.icp_segment
+        basket_data = compute_icp_basket(lead_doc)
+        leads_enriched_collection.update_one(
+            {"_id": oid},
+            {"$set": {"icp_segment": request.icp_segment, **basket_data, "updated_at": datetime.utcnow()}}
+        )
+        enriched_updated += 1
+
     raw_result = _jobs_db["leads_raw"].update_many(
         {"enriched_lead_id": {"$in": [str(oid) for oid in object_ids]}},
         {"$set": {"icp_segment": request.icp_segment, "updated_at": datetime.utcnow()}}
     )
 
+    # Trigger cold outreach enrollment sync
+    try:
+        from routers.cold_outreach_router import _sync_active_campaign_enrollment, get_db as _co_get_db
+        _sync_active_campaign_enrollment(_co_get_db())
+    except Exception as _enroll_err:
+        print(f"[bulk-icp-tag] Enrollment sync skipped: {_enroll_err}")
+
     return {
         "success": True,
-        "enriched_updated": enriched_result.modified_count,
+        "enriched_updated": enriched_updated,
         "raw_updated": raw_result.modified_count,
-        "message": f"Tagged {enriched_result.modified_count} lead(s) as ICP '{request.icp_segment}'",
+        "message": f"Tagged {enriched_updated} lead(s) as ICP '{request.icp_segment}' and synced cold outreach enrollment",
     }
 
 

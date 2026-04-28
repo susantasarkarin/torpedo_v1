@@ -148,6 +148,8 @@ function AILeads() {
     location: "",
     industry: "",
     fit_tier: "",
+    bounce_recovery: "",
+    source: "",
   });
 
   // Import Modal State
@@ -278,10 +280,14 @@ function AILeads() {
       if (filters.industry) params.append("industry", filters.industry);
       if (filters.fit_tier) params.append("fit_tier", filters.fit_tier);
       if (filters.basket) params.append("basket", filters.basket);
-      
-      // Add source filter based on active tab
-      const sourceFilter = getSourceFilterForTab();
-      if (sourceFilter) params.append("source", sourceFilter);
+      if (filters.bounce_recovery) params.append("bounce_recovery_status", "needs_human_intervention");
+      if (filters.source) {
+        params.append("source", filters.source);
+      } else {
+        // Add source filter based on active tab
+        const sourceFilter = getSourceFilterForTab();
+        if (sourceFilter) params.append("source", sourceFilter);
+      }
 
       // For "Leads" tab, fetch already-contacted (gmail) leads
       if (activeTab === "leads") params.append("lead_stage", "already_contacted");
@@ -1272,6 +1278,7 @@ function AILeads() {
       location: "",
       industry: "",
       fit_tier: "",
+      bounce_recovery: "",
     });
     setSearchQuery("");
     setCurrentPage(1);
@@ -1455,6 +1462,19 @@ function AILeads() {
           onChange={(e) => handleFilterChange("industry", e.target.value)}
           style={{ minWidth: "120px" }}
         />
+        {/* Source */}
+        <select
+          className="filter-select"
+          value={filters.source}
+          onChange={(e) => handleFilterChange("source", e.target.value)}
+        >
+          <option value="">All Sources</option>
+          <option value="web_search">🌐 Web Search</option>
+          <option value="google_search">🔍 Google Search</option>
+          <option value="linkedin">💼 LinkedIn</option>
+          <option value="csv">📄 CSV Import</option>
+          <option value="gmail">📧 Gmail</option>
+        </select>
         {/* Persona */}
         <select
           className="filter-select"
@@ -1488,6 +1508,15 @@ function AILeads() {
             <option key={icp.slug} value={icp.slug}>{icp.name}</option>
           ))}
           <option value="unknown">Unknown</option>
+        </select>
+        {/* Human Review Filter */}
+        <select
+          className="filter-select"
+          value={filters.bounce_recovery}
+          onChange={(e) => handleFilterChange("bounce_recovery", e.target.value)}
+        >
+          <option value="">All Statuses</option>
+          <option value="1">⚠️ Needs Human Review</option>
         </select>
         <button className="btn btn-outline btn-sm" onClick={() => { clearFilters(); setIcpFilter(""); }}>
           Clear

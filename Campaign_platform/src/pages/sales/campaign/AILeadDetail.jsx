@@ -450,6 +450,34 @@ function AILeadDetail() {
           {/* Overview Content */}
           {activeTab === "overview" && (
             <div className="overview-content">
+
+              {/* Human Intervention Banner — shown when all bounce recovery attempts are exhausted */}
+              {lead.bounce_recovery_status === "needs_human_intervention" && (
+                <div className="human-intervention-banner">
+                  <span className="intervention-icon">⚠️</span>
+                  <div className="intervention-body">
+                    <strong>Email Bounce — Human Review Required</strong>
+                    <p>All automated recovery attempts were exhausted for this lead. Please manually verify or update the email address.</p>
+                    {lead.bounce_recovery_emails_tried?.length > 0 && (
+                      <details className="tried-emails">
+                        <summary>Emails attempted ({lead.bounce_recovery_emails_tried.length})</summary>
+                        <ul>
+                          {lead.bounce_recovery_emails_tried.map((e, i) => (
+                            <li key={i}><code>{e}</code></li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                  </div>
+                  <button
+                    className="section-edit-btn intervention-edit-btn"
+                    onClick={() => { setEditingSection('lead'); setEditFormData({...lead}); }}
+                  >
+                    ✏️ Update Email
+                  </button>
+                </div>
+              )}
+
               {/* Lead Information Section */}
               <div className="info-section">
                 <div className="section-title-row">
@@ -474,7 +502,7 @@ function AILeadDetail() {
                   </div>
                   <div className="info-row">
                     <span className="label">Lead Name</span>
-                    <span className="value">{lead.last_name || lead.name || "—"}</span>
+                    <span className="value">{[lead.first_name, lead.last_name].filter(Boolean).join(" ") || lead.name || "—"}</span>
                   </div>
                   <div className="info-row">
                     <span className="label">LinkedIn</span>
@@ -528,46 +556,20 @@ function AILeadDetail() {
                   </button>
                 </div>
                 <div className="info-grid">
-                  <div className="info-row">
-                    <span className="label">Company Founded</span>
-                    <span className="value">{lead.company_founded || "—"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Company Headquarters</span>
-                    <span className="value">{lead.company_headquarters || "—"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Company LinkedIn Url</span>
-                    <span className="value">{lead.company_linkedin_url ? <a href={lead.company_linkedin_url} target="_blank" rel="noopener noreferrer" className="url-link">{lead.company_linkedin_url} ↗</a> : "—"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Company Employee Count Range</span>
-                    <span className="value">{lead.company_employee_count_range || lead.company_employee_count || "—"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Company Industry</span>
-                    <span className="value">{lead.company_industry || lead.industry || "—"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Company Size</span>
-                    <span className="value">{lead.company_size || "—"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Company Type</span>
-                    <span className="value">{lead.company_type || "—"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Company Revenue Range</span>
-                    <span className="value">{lead.company_revenue_range || "—"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Company Domain</span>
-                    <span className="value">{lead.company_domain || "—"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Company Website</span>
-                    <span className="value">{lead.company_website ? <a href={lead.company_website.startsWith("http") ? lead.company_website : `https://${lead.company_website}`} target="_blank" rel="noopener noreferrer">{lead.company_website} ↗</a> : "—"}</span>
-                  </div>
+                  {lead.company_founded && <div className="info-row"><span className="label">Company Founded</span><span className="value">{lead.company_founded}</span></div>}
+                  {lead.company_headquarters && <div className="info-row"><span className="label">Company Headquarters</span><span className="value">{lead.company_headquarters}</span></div>}
+                  {lead.company_linkedin_url && <div className="info-row"><span className="label">Company LinkedIn</span><span className="value"><a href={lead.company_linkedin_url} target="_blank" rel="noopener noreferrer" className="url-link">{lead.company_linkedin_url} ↗</a></span></div>}
+                  {(lead.company_employee_count_range || lead.company_employee_count) && <div className="info-row"><span className="label">Employee Count</span><span className="value">{lead.company_employee_count_range || lead.company_employee_count}</span></div>}
+                  {(lead.company_industry || lead.industry) && <div className="info-row"><span className="label">Industry</span><span className="value">{lead.company_industry || lead.industry}</span></div>}
+                  {lead.company_size && <div className="info-row"><span className="label">Company Size</span><span className="value">{lead.company_size}</span></div>}
+                  {lead.company_type && <div className="info-row"><span className="label">Company Type</span><span className="value">{lead.company_type}</span></div>}
+                  {lead.company_revenue_range && <div className="info-row"><span className="label">Revenue Range</span><span className="value">{lead.company_revenue_range}</span></div>}
+                  {lead.company_domain && <div className="info-row"><span className="label">Company Domain</span><span className="value">{lead.company_domain}</span></div>}
+                  {lead.company_website && <div className="info-row"><span className="label">Company Website</span><span className="value"><a href={lead.company_website.startsWith("http") ? lead.company_website : `https://${lead.company_website}`} target="_blank" rel="noopener noreferrer">{lead.company_website} ↗</a></span></div>}
+                  {lead.company_name && !lead.company_domain && !lead.company_website && <div className="info-row"><span className="label">Company</span><span className="value">{lead.company_name}</span></div>}
+                  {!lead.company_founded && !lead.company_headquarters && !lead.company_linkedin_url && !lead.company_employee_count_range && !lead.company_employee_count && !lead.company_industry && !lead.industry && !lead.company_size && !lead.company_type && !lead.company_revenue_range && !lead.company_domain && !lead.company_website && (
+                    <div className="info-row empty-notice"><span className="value" style={{color:"#aaa",fontStyle:"italic"}}>No company details available</span></div>
+                  )}
                 </div>
               </div>
 
@@ -580,22 +582,16 @@ function AILeadDetail() {
                   </button>
                 </div>
                 <div className="info-grid">
-                  <div className="info-row">
-                    <span className="label">Confidence Score</span>
-                    <span className="value highlight">{lead.confidence_score ? `${Math.round(lead.confidence_score * 100)}%` : "—"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Region</span>
-                    <span className="value">{lead.region || "—"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Created At</span>
-                    <span className="value">{formatDate(lead.created_at)}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Last Updated</span>
-                    <span className="value">{formatDate(lead.updated_at)}</span>
-                  </div>
+                  {lead.icp_segment && lead.icp_segment !== 'unknown' && <div className="info-row"><span className="label">ICP Segment</span><span className="value highlight">{lead.icp_segment}</span></div>}
+                  {lead.classification_basket && <div className="info-row"><span className="label">ICP Basket</span><span className="value highlight">{lead.classification_basket} — {lead.classification_basket_name || ''}</span></div>}
+                  {lead.fit_tier_label && <div className="info-row"><span className="label">Fit Tier</span><span className="value">{lead.fit_tier_label}</span></div>}
+                  {lead.persona_label && <div className="info-row"><span className="label">Persona</span><span className="value">{lead.persona_label}</span></div>}
+                  {lead.confidence_score > 0 && <div className="info-row"><span className="label">Confidence Score</span><span className="value highlight">{Math.round(lead.confidence_score * 100)}%</span></div>}
+                  {lead.region && <div className="info-row"><span className="label">Region</span><span className="value">{lead.region}</span></div>}
+                  {lead.icp_tags?.length > 0 && <div className="info-row"><span className="label">ICP Tags</span><span className="value">{lead.icp_tags.join(", ")}</span></div>}
+                  {lead.created_at && <div className="info-row"><span className="label">Created At</span><span className="value">{formatDate(lead.created_at)}</span></div>}
+                  {lead.updated_at && <div className="info-row"><span className="label">Last Updated</span><span className="value">{formatDate(lead.updated_at)}</span></div>}
+                  {lead.classified_at && <div className="info-row"><span className="label">Classified At</span><span className="value">{formatDate(lead.classified_at)}</span></div>}
                 </div>
               </div>
 

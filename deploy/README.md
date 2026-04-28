@@ -9,6 +9,7 @@ Deployment automation scripts for different environments and workflows.
 
 #### PowerShell Scripts
 - `deploy.ps1` - Main deployment script
+- `safe_release.ps1` - Commit only an explicit allowlist of files (prevents accidental `git add -A` releases)
 - `deploy_localhost.ps1` - Deploy to localhost
 - `deploy_ssh.ps1` - Deploy via SSH
 - `deploy_to_vm.ps1` - Deploy to VM
@@ -43,6 +44,16 @@ Configuration templates and examples for web servers and services.
 ```powershell
 .\deploy\scripts\deploy_to_vm.ps1
 ```
+
+### Safe Git Release (Recommended)
+```powershell
+.\deploy\scripts\safe_release.ps1 `
+	-Message "Add LinkedIn opportunity dashboard updates" `
+	-Include @("backend/linkedin_automation","backend/routers/linkedin.py","backend/routers/cold_outreach_router.py","Campaign_platform/src/pages/sales/campaign/Reports.jsx") `
+	-Push
+```
+
+This script aborts if files are already staged and stages only the specified include paths, so broad dirty-workspace commits are avoided.
 
 ### Local Development
 ```powershell
