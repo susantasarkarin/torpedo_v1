@@ -670,16 +670,21 @@ def _discover_and_apply_email_pattern(normalized: Dict[str, Any]) -> None:
     """
     For leads without an email: try to discover the org email pattern via
     Skrapp.io (Tier 2.5) and apply it to this lead + other leads of the
-    same domain.
+    same domain.  Falls back to firstname.lastname@domain guess if Skrapp
+    has no result or is unavailable.
     """
+    import re as _re
+    EMAIL_RE = _re.compile(r'^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$')
+
     domain = normalized.get('company_domain')
     if not domain or domain in PERSONAL_EMAIL_PROVIDERS:
         return
+
+    # ── Tier 1: Skrapp pattern lookup / discovery ────────────────────────────
     try:
         from .email_pattern_system import get_pattern_system
         ps = get_pattern_system()
 
-        # Check if we already have a pattern (any source)
         existing = ps._lookup_database(domain)
         if existing:
             pattern_str = existing.get("pattern")
@@ -688,49 +693,43 @@ def _discover_and_apply_email_pattern(normalized: Dict[str, Any]) -> None:
             last = normalized.get('last_name') or 'user'
             pattern_str = ps.discover_company_email_pattern(domain, first, last)
 
-        if pattern_str:
-            # Apply the pattern to this lead if it still lacks an email
-            if not normalized.get('email') and normalized.get('first_name'):
-                first = (normalized.get('first_name') or '').lower().strip()
-                last = (normalized.get('last_name') or '').lower().strip()
-                try:
-                    derived = pattern_str.format(
-                        first=first, last=last,
-                        f=first[0] if first else '',
-                        l=last[0] if last else '',
-                        domain=domain,
-                    )
-                    # Only store if the result is a valid-looking email
-                    import re as _re
-                    if '@' in derived and _re.match(r'^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$', derived):
-                        normalized['email'] = derived
-                        normalized['email_status'] = 'pattern_derived'
-                        normalized['email_source'] = 'pattern_derived'
-                except (KeyError, IndexError):
-                    pass
-            # Also fill in other leads of the same domain that lack emails
-            ps.apply_pattern_to_domain_leads(domain, pattern_str)
-
-        # Fallback: if still no email and we have name + domain, construct a
-        # best-guess email using the most common corporate pattern (firstname.lastname@domain).
-        # Mark as 'predicted' so it can be verified later.
-        if not normalized.get('email') and normalized.get('first_name') and domain:
+        if pattern_str and not normalized.get('email') and normalized.get('first_name'):
             first = (normalized.get('first_name') or '').lower().strip()
             last = (normalized.get('last_name') or '').lower().strip()
-            if first:
-                if last:
-                    guessed = f"{first}.{last}@{domain}"
-                else:
-                    guessed = f"{first}@{domain}"
-                # Sanitise: only allow valid email characters
-                import re as _re
-                if _re.match(r'^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$', guessed):
-                    normalized['email'] = guessed
-                    normalized['email_status'] = 'predicted'
-                    normalized['email_source'] = 'name_domain_guess'
+            try:
+                derived = pattern_str.format(
+                    first=first, last=last,
+                    f=first[0] if first else '',
+                    l=last[0] if last else '',
+                    domain=domain,
+                )
+                if '@' in derived and EMAIL_RE.match(derived):
+                    normalized['email'] = derived
+                    normalized['email_status'] = 'pattern_derived'
+                    normalized['email_source'] = 'pattern_derived'
+            except (KeyError, IndexError):
+                pass
+
+        if pattern_str:
+            ps.apply_pattern_to_domain_leads(domain, pattern_str)
 
     except Exception as e:
-        logger.debug(f"Pattern discovery skipped for {domain}: {e}")
+        logger.debug(f"Skrapp pattern lookup skipped for {domain}: {e}")
+
+    # ── Tier 2 fallback: construct firstname.lastname@domain ─────────────────
+    # Runs regardless of whether Skrapp succeeded or threw an exception.
+    if not normalized.get('email') and normalized.get('first_name') and domain:
+        first = (normalized.get('first_name') or '').lower().strip()
+        last = (normalized.get('last_name') or '').lower().strip()
+        # Strip non-email chars (e.g. unicode marks, spaces) from name parts
+        first = _re.sub(r'[^a-z0-9]', '', first)
+        last = _re.sub(r'[^a-z0-9]', '', last)
+        if first:
+            guessed = f"{first}.{last}@{domain}" if last else f"{first}@{domain}"
+            if EMAIL_RE.match(guessed):
+                normalized['email'] = guessed
+                normalized['email_status'] = 'predicted'
+                normalized['email_source'] = 'name_domain_guess'
 
 
 def _auto_enroll_in_outreach(lead_data: Dict[str, Any], enriched_id: str) -> None:
