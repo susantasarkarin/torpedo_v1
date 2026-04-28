@@ -355,22 +355,56 @@ async def background_enrich_leads():
                         or lead.get('company_domain', '')
                     )
                     if not company:
-                        # Still nothing — skip this lead
-                        leads_raw.update_one(
-                            {'_id': lead['_id']},
-                            {'$set': {
-                                'enrichment_status': 'skipped',
-                                'last_enrichment_attempt': datetime.utcnow()
-                            }}
+                        # No company at all — try to extract from title before giving up
+                        title_str = lead.get('title', '') or ''
+                        import re as _re
+                        # Try "at Company" or "@ Company" patterns in title
+                        _co_match = _re.search(
+                            r'(?:\bat\s+|@\s*)([A-Za-z][^|\-\n·•,]{2,40}?)(?:\s*[-–|·•,]|$)',
+                            title_str
                         )
-                        continue
-                    
+                        if _co_match:
+                            company = _co_match.group(1).strip()
+                            leads_raw.update_one(
+                                {'_id': lead['_id']},
+                                {'$set': {'company': company}}
+                            )
+                        if not company:
+                            leads_raw.update_one(
+                                {'_id': lead['_id']},
+                                {'$set': {
+                                    'enrichment_status': 'skipped',
+                                    'last_enrichment_attempt': datetime.utcnow()
+                                }}
+                            )
+                            continue
+
+                    # If company is known but company_domain is missing, infer it directly
+                    # so we can attempt email pattern lookup even if OpenAI enrichment fails.
+                    if company and not lead.get('company_domain'):
+                        try:
+                            from leads.ingestion import _infer_company_domain
+                            inferred_domain = _infer_company_domain(company, lead.get('title', '') or '')
+                            if inferred_domain:
+                                leads_raw.update_one(
+                                    {'_id': lead['_id']},
+                                    {'$set': {'company_domain': inferred_domain}}
+                                )
+                                lead['company_domain'] = inferred_domain
+                        except Exception:
+                            pass
+
                     context = f"Contact: {lead.get('name', '')} | Title: {lead.get('title', '')} | Email: {email}"
-                    result = await asyncio.to_thread(
-                        enrich_company_with_websearch,
-                        company,
-                        additional_context=context
-                    )
+                    result = None
+                    try:
+                        result = await asyncio.to_thread(
+                            enrich_company_with_websearch,
+                            company,
+                            additional_context=context
+                        )
+                    except Exception as _oai_err:
+                        # OpenAI may be disabled/unavailable — fall through to pattern lookup below
+                        logger.debug(f"[Enrichment] OpenAI enrichment unavailable: {_oai_err}")
                     
                     if result:
                         # Merge enrichment results back to the lead
@@ -472,20 +506,73 @@ async def background_enrich_leads():
 
                         enriched_count += 1
                     else:
-                        # Mark as attempted so we don't retry too soon
-                        # Still promote to Pending after no_data so lead isn't stuck
-                        leads_raw.update_one(
-                            {'_id': lead['_id']},
-                            {'$set': {
-                                'last_enrichment_attempt': datetime.utcnow(),
-                                'enrichment_status': 'no_data',
-                                'classification_status': 'Pending',  # Release to classifier even without enrichment data
-                                'enriched': False,
-                            }}
-                        )
+                        # OpenAI unavailable or returned nothing.
+                        # Still try email pattern discovery if we have company_domain.
+                        fallback_update = {
+                            'last_enrichment_attempt': datetime.utcnow(),
+                            'enrichment_status': 'no_data',
+                            'classification_status': 'Pending',
+                            'enriched': False,
+                        }
+                        domain_for_pattern = lead.get('company_domain', '')
+                        first_for_pattern = lead.get('first_name', '')
+                        last_for_pattern = lead.get('last_name', '')
+                        if domain_for_pattern and first_for_pattern and not lead.get('email'):
+                            try:
+                                from leads.email_pattern_system import EmailPatternSystem
+                                ps = EmailPatternSystem()
+                                pattern_data = ps.get_pattern(domain_for_pattern)
+                                if pattern_data and pattern_data.get('confidence', 0) >= 0.5:
+                                    built, conf = ps.build_email(first_for_pattern, last_for_pattern, domain_for_pattern)
+                                    if built:
+                                        fallback_update['email'] = built
+                                        fallback_update['email_source'] = 'pattern_applied'
+                                        fallback_update['email_status'] = 'Predicted'
+                                        fallback_update['email_pattern_confidence'] = conf
+                                else:
+                                    new_pattern = ps.discover_company_email_pattern(domain_for_pattern)
+                                    if new_pattern:
+                                        built, conf = ps.build_email(first_for_pattern, last_for_pattern, domain_for_pattern)
+                                        if built:
+                                            fallback_update['email'] = built
+                                            fallback_update['email_source'] = 'pattern_discovered'
+                                            fallback_update['email_status'] = 'Predicted'
+                                            fallback_update['email_pattern_confidence'] = conf
+                            except Exception as _fp_err:
+                                logger.debug(f"[Enrichment] Fallback email pattern failed: {_fp_err}")
+
+                        leads_raw.update_one({'_id': lead['_id']}, {'$set': fallback_update})
+
+                        # Propagate any derived email to leads_enriched
+                        if fallback_update.get('email'):
+                            enriched_lead_id = lead.get('enriched_lead_id')
+                            if enriched_lead_id:
+                                try:
+                                    from bson import ObjectId as _ObjId
+                                    ep = {k: fallback_update[k] for k in
+                                          ('email', 'email_source', 'email_status',
+                                           'email_pattern_confidence', 'company_domain')
+                                          if k in fallback_update}
+                                    if ep:
+                                        ep['updated_at'] = datetime.utcnow()
+                                        db["leads_enriched"].update_one(
+                                            {"_id": _ObjId(str(enriched_lead_id))},
+                                            {"$set": ep}
+                                        )
+                                except Exception as _pp:
+                                    logger.debug(f"[Enrichment] Fallback propagation failed: {_pp}")
+
                 except ImportError:
                     logger.warning("[Enrichment] web_search_enrichment module not available")
-                    return
+                    # Don't return — fall through to release leads to classifier
+                    leads_raw.update_one(
+                        {'_id': lead['_id']},
+                        {'$set': {
+                            'last_enrichment_attempt': datetime.utcnow(),
+                            'enrichment_status': 'no_data',
+                            'classification_status': 'Pending',
+                        }}
+                    )
                     
             except Exception as e:
                 error_count += 1
