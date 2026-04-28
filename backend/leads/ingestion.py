@@ -149,66 +149,115 @@ async def perform_openai_web_search(query: str, num_results: int = 10) -> str:
     )
 
 
+# ── Google CSE 429 cooldown helpers ──────────────────────────────────────────
+_CSE_STATE_KEY = "google_cse_state"
+
+
+def _is_cse_paused() -> bool:
+    """Return True if Google CSE is in a 24-hour 429 cooldown."""
+    try:
+        state = db["scheduler_state"].find_one({"_id": _CSE_STATE_KEY})
+        if state:
+            paused_until = state.get("paused_until")
+            if paused_until and paused_until > datetime.utcnow():
+                return True
+            # Cooldown expired — clear it
+            if paused_until:
+                db["scheduler_state"].update_one(
+                    {"_id": _CSE_STATE_KEY},
+                    {"$unset": {"paused_until": ""}}
+                )
+    except Exception:
+        pass
+    return False
+
+
+def _pause_cse_for_24h():
+    """Record a 24-hour Google CSE pause after hitting consecutive 429s."""
+    from datetime import timedelta
+    paused_until = datetime.utcnow() + timedelta(hours=24)
+    try:
+        db["scheduler_state"].update_one(
+            {"_id": _CSE_STATE_KEY},
+            {"$set": {"paused_until": paused_until, "paused_at": datetime.utcnow()}},
+            upsert=True
+        )
+        logger.warning(f"[Google CSE] Paused for 24 hours until {paused_until} due to 429 quota exceeded")
+    except Exception as e:
+        logger.error(f"[Google CSE] Could not save pause state: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 async def perform_google_search(query: str, num_results: int = 10) -> List[dict]:
     """
-    LEGACY: Perform a Google Custom Search to find LinkedIn profiles.
-    Kept for backward compatibility but OpenAI web search is now preferred.
-    
+    Perform a Google Custom Search.
+    Automatically pauses for 24 hours on consecutive 429 errors.
+
     Args:
         query: Search query
         num_results: Number of results to fetch
-        
+
     Returns:
         List of Google Search result items
     """
-    api_key, cse_id = get_google_api_credentials()
-    
-    if not api_key or not cse_id:
-        logger.warning("Google API credentials missing. Using OpenAI web search instead.")
+    # Respect 24-hour cooldown after quota exhaustion
+    if _is_cse_paused():
+        logger.warning("[Google CSE] Skipping search — in 24-hour 429 cooldown")
         return []
-        
+
+    api_key, cse_id = get_google_api_credentials()
+
+    if not api_key or not cse_id:
+        logger.warning("Google API credentials missing.")
+        return []
+
     results = []
-    
-    # Google API allows max 10 per request
+    consecutive_429 = 0
     pages = (num_results + 9) // 10
-    
+
     async with httpx.AsyncClient() as http_client:
         for i in range(pages):
             start = i * 10 + 1
-            if start > 100: break
-            
+            if start > 100:
+                break
+
             try:
                 url = "https://www.googleapis.com/customsearch/v1"
                 params = {
-                    'q': query,
-                    'key': api_key,
-                    'cx': cse_id,
-                    'num': min(10, num_results - len(results)),
-                    'start': start
+                    "q": query,
+                    "key": api_key,
+                    "cx": cse_id,
+                    "num": min(10, num_results - len(results)),
+                    "start": start,
                 }
-                
+
                 response = await http_client.get(url, params=params, timeout=15.0)
-                
+
                 if response.status_code == 200:
+                    consecutive_429 = 0
                     data = response.json()
-                    items = data.get('items', [])
+                    items = data.get("items", [])
                     results.extend(items)
                     if not items:
                         break
                 elif response.status_code == 429:
-                    logger.warning("Google Search quota exceeded")
+                    consecutive_429 += 1
+                    logger.warning(f"[Google CSE] 429 received (#{consecutive_429})")
+                    if consecutive_429 >= 2:
+                        _pause_cse_for_24h()
                     break
                 else:
                     logger.error(f"Google Search error: {response.status_code}")
                     break
-                    
+
                 if len(results) >= num_results:
                     break
-                    
+
             except Exception as e:
                 logger.error(f"Google Search exception: {e}")
                 break
-                
+
     return results
 
 
@@ -250,7 +299,8 @@ async def search_linkedin_leads(
             return cached
     
     # ===== GOOGLE CSE (PRIMARY) =====
-    search_query = f"{clean_query} site:linkedin.com/in/"
+    # Search broadly — no site: restriction so all countries are covered
+    search_query = clean_query
     logger.info(f"[Google CSE] Searching: {search_query[:80]}...")
     search_results = await perform_google_search(search_query, num_results)
     
