@@ -168,9 +168,9 @@ def normalize_payload(payload: Dict[str, Any], source: str, source_detail: str, 
         'source_detail': source_detail,
         'classification': 'pending',
         'classification_confidence': 0.0,
-        'classification_status': 'Pending',  # Capital-P matches ClassificationStatus enum
+        'classification_status': 'AwaitingEnrichment',  # Gate: classifier only runs after enrichment
         'classification_attempts': 0,
-        'enrichment_status': 'pending',
+        'enrichment_status': 'needed',  # Triggers the enrichment job immediately
         'lead_bracket': 'lead',  # Will be recalculated after enrichment
         'icp_segment': icp_segment or None,
         'stage': 'already_contacted' if source == 'gmail' else None,
@@ -299,8 +299,18 @@ def sync_to_enriched(lead_data: Dict[str, Any], raw_lead_id: str) -> Optional[st
         # Merge ICP basket classification (rule-based, no AI needed)
         enriched_doc.update(compute_icp_basket(lead_data))
 
-        # Upsert key: email (primary) or linkedin_url (fallback for no-email leads)
-        if _email:
+        # Upsert key: email (primary) or linkedin_url (fallback for no-email leads).
+        # IMPORTANT: When a lead was originally stored by linkedin_url (no email) and
+        # now has an email after enrichment, we must find the existing record first to
+        # avoid creating duplicates. Try linkedin_url first when both are present.
+        existing_by_linkedin = None
+        if _email and _linkedin:
+            existing_by_linkedin = leads_enriched.find_one({'linkedin_url': _linkedin}, {'_id': 1})
+
+        if existing_by_linkedin:
+            # Update the existing linkedin-keyed record with the new email
+            dedup_filter = {'_id': existing_by_linkedin['_id']}
+        elif _email:
             dedup_filter = {'email': _email}
         else:
             dedup_filter = {'linkedin_url': _linkedin}

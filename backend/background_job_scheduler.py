@@ -440,6 +440,36 @@ async def background_enrich_leads():
                             {'_id': lead['_id']},
                             {'$set': update_fields}
                         )
+
+                        # Immediately propagate email + company_domain to leads_enriched.
+                        # Without this, the email stays stuck in leads_raw and never reaches
+                        # cold outreach (which reads from leads_enriched only).
+                        enriched_lead_id = lead.get('enriched_lead_id')
+                        if enriched_lead_id:
+                            try:
+                                from bson import ObjectId as _ObjId
+                                enriched_propagate = {}
+                                for _f in ('email', 'email_status', 'email_source',
+                                           'email_pattern_confidence', 'company_domain',
+                                           'company_name', 'company_website',
+                                           'company_employee_count', 'company_industry',
+                                           'company_type', 'company_headquarters',
+                                           'company_revenue_range'):
+                                    if update_fields.get(_f):
+                                        enriched_propagate[_f] = update_fields[_f]
+                                if enriched_propagate:
+                                    enriched_propagate['updated_at'] = datetime.utcnow()
+                                    db["leads_enriched"].update_one(
+                                        {"_id": _ObjId(str(enriched_lead_id))},
+                                        {"$set": enriched_propagate},
+                                    )
+                                    logger.debug(
+                                        f"[Enrichment] Propagated email+domain to "
+                                        f"leads_enriched/{enriched_lead_id}"
+                                    )
+                            except Exception as _prop_err:
+                                logger.debug(f"[Enrichment] leads_enriched propagation failed: {_prop_err}")
+
                         enriched_count += 1
                     else:
                         # Mark as attempted so we don't retry too soon
