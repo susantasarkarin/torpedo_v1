@@ -707,6 +707,25 @@ def _discover_and_apply_email_pattern(normalized: Dict[str, Any]) -> None:
                     pass
             # Also fill in other leads of the same domain that lack emails
             ps.apply_pattern_to_domain_leads(domain, pattern_str)
+
+        # Fallback: if still no email and we have name + domain, construct a
+        # best-guess email using the most common corporate pattern (firstname.lastname@domain).
+        # Mark as 'predicted' so it can be verified later.
+        if not normalized.get('email') and normalized.get('first_name') and domain:
+            first = (normalized.get('first_name') or '').lower().strip()
+            last = (normalized.get('last_name') or '').lower().strip()
+            if first:
+                if last:
+                    guessed = f"{first}.{last}@{domain}"
+                else:
+                    guessed = f"{first}@{domain}"
+                # Sanitise: only allow valid email characters
+                import re as _re
+                if _re.match(r'^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$', guessed):
+                    normalized['email'] = guessed
+                    normalized['email_status'] = 'predicted'
+                    normalized['email_source'] = 'name_domain_guess'
+
     except Exception as e:
         logger.debug(f"Pattern discovery skipped for {domain}: {e}")
 

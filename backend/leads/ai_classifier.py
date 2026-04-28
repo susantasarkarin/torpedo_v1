@@ -35,30 +35,30 @@ from .models import (
 #     DEFAULT_MODEL, BACKGROUND_MAX_OUTPUT_TOKENS,
 #     build_system_prompt, JSON_ONLY_INSTRUCTION
 # )
-# NOTE: Now uses OpenAI via openai_rotator
-from .openai_rotator import OpenAIRotator, get_pipeline_rotator
-import openai
+# NOTE: Uses Gemini via gemini_rotator (OpenAI disabled)
+from .gemini_rotator import GeminiRotator, get_pipeline_rotator, get_rotator as _get_gemini_rotator
+import google.generativeai as genai
 
 load_dotenv()
 
 
 # ============== CONFIGURATION ==============
 
-MODEL = "gpt-4o-mini"  # OpenAI default
+MODEL = "gemini-2.0-flash"  # Gemini model
 TEMPERATURE = 0.1  # Low temperature for deterministic output
 
-# OpenAI rotator singleton (used when no pipeline specified)
-_openai_rotator: Optional["OpenAIRotator"] = None
+# Gemini rotator singleton (used when no pipeline specified)
+_gemini_rotator: Optional[GeminiRotator] = None
 
 
 def _get_rotator(pipeline: Optional[str] = None):
     """Return the appropriate rotator — pipeline-scoped or global."""
     if pipeline:
         return get_pipeline_rotator(pipeline)
-    global _openai_rotator
-    if _openai_rotator is None:
-        _openai_rotator = OpenAIRotator()
-    return _openai_rotator
+    global _gemini_rotator
+    if _gemini_rotator is None:
+        _gemini_rotator = _get_gemini_rotator()
+    return _gemini_rotator
 
 # MongoDB connection for loading prompts from DB
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
@@ -208,21 +208,22 @@ def classify_lead(lead: LeadRaw, source: str = "api",
     )
     
     try:
-        # Use OpenAI for lead classification
+        # Use Gemini for lead classification
         rotator = _get_rotator(pipeline)
         key_index, api_key = rotator.get_available_key()
-        client = openai.OpenAI(api_key=api_key)
-        full_prompt = f"{system_prompt}\n\n{user_prompt}"
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": full_prompt}],
-            max_tokens=300,
-            temperature=TEMPERATURE,
-            response_format={"type": "json_object"},
+        rotator.configure_genai(key_index)
+        full_prompt = f"{system_prompt}\n\nRespond with valid JSON only, no markdown fences.\n\n{user_prompt}"
+        gemini_model = genai.GenerativeModel(MODEL)
+        response = gemini_model.generate_content(
+            full_prompt,
+            generation_config=genai.types.GenerationConfig(
+                temperature=TEMPERATURE,
+                max_output_tokens=400,
+            )
         )
 
-        raw_content = response.choices[0].message.content
-        tokens_used = response.usage.total_tokens if response.usage else 0
+        raw_content = response.text
+        tokens_used = 0  # Gemini doesn't return token counts the same way
         rotator.log_request(key_index, tokens_used, "classify", success=True)
 
         latency_ms = int((time.time() - start_time) * 1000)
@@ -231,8 +232,12 @@ def classify_lead(lead: LeadRaw, source: str = "api",
         log.latency_ms = latency_ms
         log.cost_usd = 0.0
         
-        # Parse and validate JSON
-        parsed = json.loads(raw_content)
+        # Parse and validate JSON (strip markdown fences if Gemini wraps in ```json)
+        clean_content = raw_content.strip()
+        if clean_content.startswith("```"):
+            clean_content = re.sub(r"^```(?:json)?\s*", "", clean_content)
+            clean_content = re.sub(r"\s*```$", "", clean_content)
+        parsed = json.loads(clean_content)
         
         # Validate and create output with all company fields
         result = AIClassificationOutput(

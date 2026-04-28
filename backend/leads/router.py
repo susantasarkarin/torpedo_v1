@@ -3850,6 +3850,118 @@ async def _run_backfill_emails_job():
         traceback.print_exc()
 
 
+@router.post("/backfill-emails-from-name-domain")
+async def backfill_emails_from_name_domain(background_tasks: BackgroundTasks):
+    """
+    POST /leads/backfill-emails-from-name-domain
+    For every leads_enriched record that has first_name + company_domain but
+    no email, construct a guessed email (firstname.lastname@domain) and store
+    it with email_status='predicted'.  Runs in background.
+    """
+    no_email_count = leads_enriched_collection.count_documents({
+        "$or": [{"email": None}, {"email": ""}, {"email": {"$exists": False}}],
+        "first_name": {"$nin": [None, ""]},
+        "company_domain": {"$nin": [None, ""]},
+    })
+    background_tasks.add_task(_run_backfill_name_domain_job)
+    return {
+        "success": True,
+        "message": f"Name+domain email backfill started for ~{no_email_count} leads.",
+        "leads_to_process": no_email_count,
+    }
+
+
+async def _run_backfill_name_domain_job():
+    """
+    Background: for leads_enriched records missing email but with first_name +
+    company_domain, call _discover_and_apply_email_pattern (which now includes a
+    name+domain guess fallback).  Write the derived email back to both collections.
+    """
+    import re as _re
+    from .canonical_ingestion import _discover_and_apply_email_pattern
+    from bson import ObjectId as _ObjId
+
+    _raw_col = leads_enriched_collection.database["leads_raw"]
+    PERSONAL_DOMAINS = {
+        "gmail.com", "yahoo.com", "hotmail.com", "outlook.com",
+        "aol.com", "icloud.com", "live.com", "protonmail.com",
+    }
+
+    batch_size = 200
+    processed = 0
+    updated = 0
+    last_id = None
+
+    print("[BackfillNameDomain] Starting guessed-email backfill...")
+    try:
+        while True:
+            query: dict = {
+                "$or": [{"email": None}, {"email": ""}, {"email": {"$exists": False}}],
+                "first_name": {"$nin": [None, ""]},
+                "company_domain": {"$nin": [None, ""]},
+            }
+            if last_id is not None:
+                query["_id"] = {"$gt": last_id}
+
+            batch = list(leads_enriched_collection.find(query).sort("_id", 1).limit(batch_size))
+            if not batch:
+                break
+
+            for doc in batch:
+                domain = (doc.get("company_domain") or "").lower().strip()
+                if not domain or domain in PERSONAL_DOMAINS:
+                    continue
+
+                stub = {
+                    "email": None,
+                    "first_name": doc.get("first_name", ""),
+                    "last_name": doc.get("last_name", ""),
+                    "company_domain": domain,
+                    "email_status": "Unknown",
+                }
+                try:
+                    _discover_and_apply_email_pattern(stub)
+                except Exception:
+                    pass
+
+                guessed = (stub.get("email") or "").strip()
+                if not guessed:
+                    continue
+
+                leads_enriched_collection.update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": {
+                        "email": guessed,
+                        "email_status": stub.get("email_status", "predicted"),
+                        "email_source": stub.get("email_source", "name_domain_guess"),
+                        "updated_at": datetime.utcnow(),
+                    }},
+                )
+                # Mirror to leads_raw if linked
+                raw_id = doc.get("raw_lead_id")
+                if raw_id:
+                    try:
+                        _raw_col.update_one(
+                            {"_id": _ObjId(str(raw_id))},
+                            {"$set": {"email": guessed}},
+                        )
+                    except Exception:
+                        pass
+                updated += 1
+
+            last_id = batch[-1]["_id"]
+            processed += len(batch)
+            print(f"[BackfillNameDomain] Processed {processed}, updated {updated}")
+
+        print(f"[BackfillNameDomain] Done — {updated}/{processed} leads now have guessed email")
+    except Exception as e:
+        import traceback
+        print(f"[BackfillNameDomain] Error: {e}")
+        traceback.print_exc()
+
+
+
+
 # ============== BULK ICP RECLASSIFICATION ==============
 
 @router.post("/reclassify-icp")
