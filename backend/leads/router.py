@@ -4029,7 +4029,7 @@ async def _run_gemini_domain_backfill():
         )
         domain = None
         try:
-            key_idx = rotator.get_next_key_index()
+            key_idx, _key = rotator.get_available_key()
             rotator.configure_genai(key_idx)
             model = genai.GenerativeModel("gemini-2.0-flash")
             response = model.generate_content(prompt)
