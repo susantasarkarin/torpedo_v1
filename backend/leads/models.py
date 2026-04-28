@@ -577,6 +577,7 @@ class LeadFilterParams(BaseModel):
     search: Optional[str] = None
     fit_tier: Optional[int] = None
     basket: Optional[str] = None
+    bounce_recovery_status: Optional[str] = None  # Filter by bounce recovery status e.g. 'needs_human_intervention'
     qualified_only: bool = False  # If True, show only Gmail contacts + outreach-replied leads
     page: int = 1
     limit: int = 50

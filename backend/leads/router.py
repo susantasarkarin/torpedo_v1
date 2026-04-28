@@ -1438,6 +1438,7 @@ async def get_leads_endpoint(
     search: Optional[str] = None,
     fit_tier: Optional[int] = None,
     basket: Optional[str] = None,
+    bounce_recovery_status: Optional[str] = None,
     qualified_only: bool = Query(False, description="If true, show only Gmail contacts + outreach-replied leads"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200)
@@ -1465,6 +1466,7 @@ async def get_leads_endpoint(
         search=search,
         fit_tier=fit_tier,
         basket=basket,
+        bounce_recovery_status=bounce_recovery_status,
         qualified_only=qualified_only,
         page=page,
         limit=limit

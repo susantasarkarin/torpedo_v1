@@ -481,6 +481,9 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
     if filters.fit_tier:
         query["fit_tier"] = filters.fit_tier
 
+    if getattr(filters, 'bounce_recovery_status', None):
+        query["bounce_recovery_status"] = filters.bounce_recovery_status
+
     if filters.basket:
         query["classification_basket"] = filters.basket
 

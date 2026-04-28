@@ -300,20 +300,31 @@ async def reset_error_tracking():
 async def background_enrich_leads():
     """
     Low-priority background job to enrich leads that need enrichment.
-    Runs every 30 minutes, processes a small batch (10 leads) to avoid
+    Runs every 30 minutes, processes a small batch to avoid
     competing with higher-priority real-time operations.
+
+    Pipeline gate (S1→S4→S3→S2):
+    - Leads enter with classification_status='AwaitingEnrichment'
+    - This job enriches them, resolves email, then promotes to 'Pending'
+    - Classifier only processes leads with status='Pending'
     """
     try:
         leads_raw = db["leads_raw"]
         
-        # Find leads that need enrichment, oldest first
+        # Find leads that need enrichment (AwaitingEnrichment OR legacy 'needed'/'pending')
+        # AwaitingEnrichment = the new gate status assigned at ingestion
         pending_leads = list(leads_raw.find(
             {
-                "enrichment_status": {"$in": ["needed", "pending"]},
-                # Don't re-process recently failed ones
                 "$or": [
-                    {"last_enrichment_attempt": {"$exists": False}},
-                    {"last_enrichment_attempt": {"$lt": datetime.utcnow() - timedelta(hours=6)}}
+                    {"enrichment_status": {"$in": ["needed", "pending"]}},
+                    {"classification_status": "AwaitingEnrichment"},
+                ],
+                # Don't re-process recently failed ones
+                "$and": [
+                    {"$or": [
+                        {"last_enrichment_attempt": {"$exists": False}},
+                        {"last_enrichment_attempt": {"$lt": datetime.utcnow() - timedelta(hours=6)}}
+                    ]}
                 ]
             }
         ).sort("created_at", 1).limit(50))  # Increased from 10 → 50 for faster catch-up
@@ -386,7 +397,7 @@ async def background_enrich_leads():
                         from leads.canonical_ingestion import determine_lead_bracket
                         update_fields['lead_bracket'] = determine_lead_bracket(merged)
 
-                        # Generate email from pattern if still missing
+                        # Generate email from pattern if still missing (Phase 2: S3 after S4)
                         if not merged.get('email'):
                             try:
                                 from leads.email_pattern_system import EmailPatternSystem
@@ -395,12 +406,35 @@ async def background_enrich_leads():
                                 last = merged.get('last_name', '')
                                 if domain and first:
                                     ps = EmailPatternSystem()
-                                    built = ps.build_email(domain, first, last)
-                                    if built:
-                                        update_fields['email'] = built
-                                        update_fields['email_source'] = 'pattern_applied'
+                                    # Step 1: try DB pattern first
+                                    pattern_data = ps.get_pattern(domain)
+                                    if pattern_data and pattern_data.get('confidence', 0) >= 0.5:
+                                        built, conf = ps.build_email(first, last, domain)
+                                        if built:
+                                            update_fields['email'] = built
+                                            update_fields['email_source'] = 'pattern_applied'
+                                            update_fields['email_status'] = 'Predicted'
+                                            update_fields['email_pattern_confidence'] = conf
+                                    else:
+                                        # Step 2: discover via 5-tier hierarchy (Skrapp etc.)
+                                        new_pattern = ps.discover_company_email_pattern(domain)
+                                        if new_pattern:
+                                            built, conf = ps.build_email(first, last, domain)
+                                            if built:
+                                                update_fields['email'] = built
+                                                update_fields['email_source'] = 'pattern_discovered'
+                                                update_fields['email_status'] = 'Predicted'
+                                                update_fields['email_pattern_confidence'] = conf
+                                                # Apply pattern to all leads with same domain
+                                                try:
+                                                    ps.apply_pattern_to_domain_leads(domain, new_pattern)
+                                                except Exception:
+                                                    pass
                             except Exception as _ep:
                                 logger.debug(f"[Enrichment] Email pattern generation skipped: {_ep}")
+
+                        # Phase 1 gate: promote to Pending so classifier can run
+                        update_fields['classification_status'] = 'Pending'
                         
                         leads_raw.update_one(
                             {'_id': lead['_id']},
@@ -409,11 +443,14 @@ async def background_enrich_leads():
                         enriched_count += 1
                     else:
                         # Mark as attempted so we don't retry too soon
+                        # Still promote to Pending after no_data so lead isn't stuck
                         leads_raw.update_one(
                             {'_id': lead['_id']},
                             {'$set': {
                                 'last_enrichment_attempt': datetime.utcnow(),
-                                'enrichment_status': 'no_data'
+                                'enrichment_status': 'no_data',
+                                'classification_status': 'Pending',  # Release to classifier even without enrichment data
+                                'enriched': False,
                             }}
                         )
                 except ImportError:
@@ -423,12 +460,19 @@ async def background_enrich_leads():
             except Exception as e:
                 error_count += 1
                 logger.error(f"[Enrichment] Error enriching lead {lead.get('email', '?')}: {e}")
-                # Mark the attempt
+                # Mark the attempt and release to classifier after 3 failures
+                attempts_so_far = lead.get('enrichment_attempts', 0) + 1
+                release_to_classifier = attempts_so_far >= 3
                 leads_raw.update_one(
                     {'_id': lead['_id']},
                     {'$set': {
                         'last_enrichment_attempt': datetime.utcnow(),
-                        'enrichment_status': 'error'
+                        'enrichment_status': 'error',
+                        'enrichment_attempts': attempts_so_far,
+                        **({
+                            'classification_status': 'Pending',  # Release after 3 failures
+                            'enriched': False,
+                        } if release_to_classifier else {})
                     }}
                 )
             
@@ -439,6 +483,116 @@ async def background_enrich_leads():
         
     except Exception as e:
         logger.error(f"[Enrichment] Error in background_enrich_leads: {e}")
+
+
+async def proactive_pattern_discovery():
+    """
+    Nightly job (02:30 UTC, Option A — conservative Skrapp usage).
+
+    Finds company domains in leads_enriched that have:
+      - 2+ leads with no email address
+      - No known email pattern, or existing pattern confidence < 0.5
+
+    Calls EmailPatternSystem.discover_company_email_pattern() for each
+    (5-tier: DB → CSV scan → web scrape → Skrapp.io → Hunter.io → guess).
+
+    Caps at 50 domains per run to protect the 450/month Skrapp credit budget.
+    Prioritises domains with the most no-email leads.
+
+    Pipeline gate (Option A):
+      - Skrapp credits used only here (overnight proactive) + in bounce recovery Attempt 3.
+      - NOT used per-lead during live enrichment (that relies on DB lookup + web scrape only).
+    """
+    try:
+        leads_enriched = db["leads_enriched"]
+
+        # Aggregate: count no-email leads per domain
+        pipeline = [
+            {
+                "$match": {
+                    "company_domain": {"$exists": True, "$ne": None, "$ne": ""},
+                    "$or": [
+                        {"email": None},
+                        {"email": ""},
+                        {"email": {"$exists": False}},
+                    ]
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$company_domain",
+                    "count": {"$sum": 1}
+                }
+            },
+            {"$match": {"count": {"$gte": 2}}},
+            {"$sort": {"count": -1}},
+            {"$limit": 100},  # over-fetch so we can filter by pattern state
+        ]
+        domain_counts = list(leads_enriched.aggregate(pipeline))
+
+        if not domain_counts:
+            logger.debug("[ProactivePattern] No domains with 2+ no-email leads")
+            return
+
+        # Load existing patterns so we can skip already-known confident ones
+        try:
+            email_patterns_col = get_database("torpedo")["email_patterns"]
+        except Exception:
+            email_patterns_col = None
+
+        known_confident = set()
+        if email_patterns_col is not None:
+            for p in email_patterns_col.find(
+                {"confidence": {"$gte": 0.5}},
+                {"domain": 1}
+            ):
+                known_confident.add(p.get("domain", "").lower())
+
+        # Filter to only domains without a confident pattern
+        domains_to_probe = [
+            d["_id"] for d in domain_counts
+            if d["_id"].lower() not in known_confident
+        ][:50]  # hard cap at 50 per run
+
+        if not domains_to_probe:
+            logger.info("[ProactivePattern] All qualifying domains already have patterns")
+            return
+
+        logger.info(
+            f"[ProactivePattern] Probing {len(domains_to_probe)} domains "
+            f"(from {len(domain_counts)} candidates)"
+        )
+
+        from leads.email_pattern_system import get_pattern_system
+        ps = get_pattern_system()
+
+        patterns_found = 0
+        leads_filled = 0
+
+        for domain in domains_to_probe:
+            try:
+                pattern_str = ps.discover_company_email_pattern(domain)
+                if pattern_str:
+                    filled = ps.apply_pattern_to_domain_leads(domain, pattern_str)
+                    patterns_found += 1
+                    leads_filled += filled
+                    logger.debug(
+                        f"[ProactivePattern] {domain} → pattern={pattern_str}, "
+                        f"leads_filled={filled}"
+                    )
+            except Exception as _e:
+                logger.debug(f"[ProactivePattern] Error probing {domain}: {_e}")
+
+            # Small delay to avoid hammering Skrapp / Hunter rate limits
+            await asyncio.sleep(1)
+
+        logger.info(
+            f"[ProactivePattern] Done: patterns_found={patterns_found}, "
+            f"leads_filled={leads_filled}"
+        )
+
+    except Exception as e:
+        logger.error(f"[ProactivePattern] Error in proactive_pattern_discovery: {e}")
 
 
 # ============== SCHEDULER INITIALIZATION ==============
@@ -523,6 +677,18 @@ def initialize_scheduler(loop=None):
             max_instances=1
         )
         logger.info("[Scheduler] Added low-priority lead enrichment (every 30 min)")
+
+        # Proactive email pattern discovery — nightly at 02:30 UTC (Option A: conservative)
+        # Finds domains with 2+ no-email leads and discovers patterns via Skrapp / Hunter.
+        # Capped at 50 domains/run to protect 450/month Skrapp credit budget.
+        scheduler.add_job(
+            proactive_pattern_discovery,
+            CronTrigger(hour=2, minute=30, timezone=pytz.UTC),
+            id="proactive_pattern_discovery",
+            name="Proactive Email Pattern Discovery",
+            max_instances=1
+        )
+        logger.info("[Scheduler] Added proactive email pattern discovery (daily 02:30 UTC)")
 
         # Email metadata classification — classify inbound Gmail Workspace emails
         # via AI and auto-move CLIENT/VENDOR leads to sales leads every 2 hours.
