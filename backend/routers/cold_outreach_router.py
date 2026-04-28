@@ -1063,6 +1063,24 @@ def _build_basket_enrollment_query(basket: str) -> Dict[str, Any]:
     }
 
 
+@router.post("/sync-enrollment")
+def trigger_sync_enrollment(background_tasks: BackgroundTasks):
+    """
+    POST /outreach/sync-enrollment
+    Manually trigger catch-up enrollment for all active campaigns.
+    Enrolls any leads_enriched records not yet in outreach_leads_v2.
+    """
+    db = get_db()
+    campaigns = list(db["outreach_campaigns_v2"].find({"is_active": True}, {"campaign_id": 1, "basket": 1}))
+    active_count = len(campaigns)
+    for camp in campaigns:
+        cid = camp.get("campaign_id")
+        basket = camp.get("basket")
+        if cid and basket:
+            background_tasks.add_task(_enroll_basket_leads, cid, basket)
+    return {"ok": True, "message": f"Enrollment sync triggered for {active_count} active campaigns."}
+
+
 def _sync_active_campaign_enrollment(db):
     """
     Catch-up enrollment for all active campaigns.
@@ -2655,6 +2673,34 @@ def process_outreach_bounces_and_replies() -> dict:
                         )
                     except Exception:
                         pass
+
+                    # ── Bounce Recovery: attempt to find alternate email ──
+                    # Find the outreach_leads_v2 record for this bounce and
+                    # attempt recovery instead of simply suppressing forever.
+                    try:
+                        bounced_lead = db["outreach_leads_v2"].find_one(
+                            {"email": recipient,
+                             "workflow_status": "bounced"},
+                            {"_id": 1}
+                        )
+                        if bounced_lead:
+                            from leads.bounce_recovery import attempt_recovery as _bounce_recovery
+                            recovery_result = _bounce_recovery(
+                                str(bounced_lead["_id"]), recipient
+                            )
+                            if recovery_result.get("action") == "retry":
+                                logger.info(
+                                    f"[BounceRecovery] Lead {bounced_lead['_id']} → "
+                                    f"retry with {recovery_result['email']} "
+                                    f"(method={recovery_result.get('method')})"
+                                )
+                            elif recovery_result.get("action") == "human_intervention":
+                                logger.warning(
+                                    f"[BounceRecovery] Lead {bounced_lead['_id']} → "
+                                    f"needs_human_intervention after all attempts"
+                                )
+                    except Exception as _br_err:
+                        logger.debug(f"[BounceRecovery] Recovery hook failed: {_br_err}")
 
                     bounces += 1
 
