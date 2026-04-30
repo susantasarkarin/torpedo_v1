@@ -1,4 +1,4 @@
-"""
+﻿"""
 Company Cache System
 Intelligent caching for company details to avoid redundant enrichment calls
 90-day TTL with smart invalidation
@@ -19,7 +19,7 @@ class CompanyCache:
     def __init__(self, mongo_uri: str = None, database_name: str = "email_automation"):
         """Initialize cache with MongoDB connection"""
         if mongo_uri is None:
-            mongo_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
+            mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
         
         self.client = MongoClient(mongo_uri)
         self.db = self.client[database_name]
@@ -334,25 +334,25 @@ if __name__ == "__main__":
         
         print("1. Testing set():")
         cache_id = cache.set(test_company, ttl_days=90)
-        print(f"   ✓ Cached company with ID: {cache_id}\n")
+        print(f"   âœ“ Cached company with ID: {cache_id}\n")
         
         print("2. Testing get() by domain:")
         cached_by_domain = cache.get("techcorp.com", identifier_type="domain")
         if cached_by_domain:
-            print(f"   ✓ Found: {cached_by_domain['company_name']}")
+            print(f"   âœ“ Found: {cached_by_domain['company_name']}")
             print(f"   Industry: {cached_by_domain['industry']}")
             print(f"   Hit count: {cached_by_domain['hit_count']}\n")
         
         print("3. Testing get() by company name:")
         cached_by_name = cache.get("TechCorp", identifier_type="name")
         if cached_by_name:
-            print(f"   ✓ Found: {cached_by_name['company_name']}")
+            print(f"   âœ“ Found: {cached_by_name['company_name']}")
             print(f"   Domain: {cached_by_name['company_domain']}\n")
         
         print("4. Testing get() by email (auto-detect):")
         cached_by_email = cache.get("john@techcorp.com", identifier_type="auto")
         if cached_by_email:
-            print(f"   ✓ Found: {cached_by_email['company_name']}")
+            print(f"   âœ“ Found: {cached_by_email['company_name']}")
             print(f"   Hit count: {cached_by_email['hit_count']}\n")
         
         print("5. Testing get_stats():")
@@ -363,7 +363,7 @@ if __name__ == "__main__":
         
         print("6. Testing extend_ttl():")
         extended = cache.extend_ttl("techcorp.com", additional_days=30)
-        print(f"   ✓ Extended TTL: {extended}\n")
+        print(f"   âœ“ Extended TTL: {extended}\n")
         
         print("7. Testing cleanup_expired():")
         cleaned = cache.cleanup_expired()
@@ -371,11 +371,12 @@ if __name__ == "__main__":
         
         print("8. Testing invalidate():")
         invalidated = cache.invalidate("techcorp.com")
-        print(f"   ✓ Invalidated: {invalidated}\n")
+        print(f"   âœ“ Invalidated: {invalidated}\n")
         
-        print("✅ All tests passed!")
+        print("âœ… All tests passed!")
         
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"âŒ Error: {e}")
         import traceback
         traceback.print_exc()
+

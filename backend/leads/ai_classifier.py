@@ -35,30 +35,19 @@ from .models import (
 #     DEFAULT_MODEL, BACKGROUND_MAX_OUTPUT_TOKENS,
 #     build_system_prompt, JSON_ONLY_INSTRUCTION
 # )
-# NOTE: Uses Gemini via gemini_rotator (OpenAI disabled)
-from .gemini_rotator import GeminiRotator, get_pipeline_rotator, get_rotator as _get_gemini_rotator
-import google.generativeai as genai
+# Uses OpenAI via AI governance gateway
+try:
+    from ai_governance.ai_gateway import get_ai_gateway
+except ImportError:
+    from backend.ai_governance.ai_gateway import get_ai_gateway
 
 load_dotenv()
 
 
 # ============== CONFIGURATION ==============
 
-MODEL = "gemini-2.0-flash"  # Gemini model
+MODEL = "ai_governance_gateway"  # OpenAI via governance gateway
 TEMPERATURE = 0.1  # Low temperature for deterministic output
-
-# Gemini rotator singleton (used when no pipeline specified)
-_gemini_rotator: Optional[GeminiRotator] = None
-
-
-def _get_rotator(pipeline: Optional[str] = None):
-    """Return the appropriate rotator — pipeline-scoped or global."""
-    if pipeline:
-        return get_pipeline_rotator(pipeline)
-    global _gemini_rotator
-    if _gemini_rotator is None:
-        _gemini_rotator = _get_gemini_rotator()
-    return _gemini_rotator
 
 # MongoDB connection for loading prompts from DB
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
@@ -69,10 +58,9 @@ _ai_prompts_collection = _settings_db['ai_prompts']
 
 def _legacy_get_openai_api_key() -> Optional[str]:
     """
-    DEPRECATED: Use openai_wrapper.get_openai_api_key() instead.
-    Kept for backward compatibility.
+    DEPRECATED: Kept for backward compatibility.
     """
-    return get_openai_api_key()
+    return None
 
 
 # ============== OPTIMIZED PROMPT TEMPLATES ==============
@@ -208,23 +196,11 @@ def classify_lead(lead: LeadRaw, source: str = "api",
     )
     
     try:
-        # Use Gemini for lead classification
-        rotator = _get_rotator(pipeline)
-        key_index, api_key = rotator.get_available_key()
-        rotator.configure_genai(key_index)
+        # Use OpenAI via AI governance gateway
+        gateway = get_ai_gateway()
         full_prompt = f"{system_prompt}\n\nRespond with valid JSON only, no markdown fences.\n\n{user_prompt}"
-        gemini_model = genai.GenerativeModel(MODEL)
-        response = gemini_model.generate_content(
-            full_prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=TEMPERATURE,
-                max_output_tokens=400,
-            )
-        )
-
-        raw_content = response.text
-        tokens_used = 0  # Gemini doesn't return token counts the same way
-        rotator.log_request(key_index, tokens_used, "classify", success=True)
+        raw_content = gateway._call_llm(full_prompt, max_tokens=500, temperature=TEMPERATURE)
+        tokens_used = 0
 
         latency_ms = int((time.time() - start_time) * 1000)
         log.raw_response = raw_content
@@ -354,23 +330,17 @@ def enrich_company_via_websearch(domain: str, source: str = "background") -> Dic
             return cached.get("data", {})
     
     try:
-        # Use OpenAI for company enrichment
-        rotator = _get_rotator()
-        key_index, api_key = rotator.get_available_key()
-        client = openai.OpenAI(api_key=api_key)
+        # Use OpenAI via AI governance gateway
+        gateway = get_ai_gateway()
         full_prompt = f"Business research assistant. JSON only.\n\n{COMPANY_ENRICHMENT_PROMPT.format(domain=domain)}"
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": full_prompt}],
-            temperature=0.1,
-            max_tokens=300,
-            response_format={"type": "json_object"}
-        )
-        tokens_used = response.usage.total_tokens if response.usage else 0
-        rotator.log_request(key_index, tokens_used, "web_enrichment", success=True)
-        
+        raw_content = gateway._call_llm(full_prompt, max_tokens=300, temperature=0.1)
+
         # Parse response
-        data = json.loads(response.choices[0].message.content)
+        clean_content = raw_content.strip()
+        if clean_content.startswith("```"):
+            clean_content = re.sub(r"^```(?:json)?\s*", "", clean_content)
+            clean_content = re.sub(r"\s*```$", "", clean_content)
+        data = json.loads(clean_content)
         
         # Cache the result
         _company_cache.update_one(
@@ -429,22 +399,16 @@ def extract_contact_from_signature(email_body: str, source: str = "background") 
         # Only send last 500 chars (signature is at end) - COST CONTROL: Reduce input tokens
         signature_text = email_body[-500:] if len(email_body) > 500 else email_body
         
-        # Use OpenAI for signature extraction
-        rotator = _get_rotator()
-        key_index, api_key = rotator.get_available_key()
-        client = openai.OpenAI(api_key=api_key)
+        # Use OpenAI via AI governance gateway
+        gateway = get_ai_gateway()
         full_prompt = f"Extract contact from signature. JSON only.\n\n{SIGNATURE_EXTRACTION_PROMPT.format(email_body=signature_text)}"
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": full_prompt}],
-            temperature=0.1,
-            max_tokens=150,
-            response_format={"type": "json_object"}
-        )
-        tokens_used = response.usage.total_tokens if response.usage else 0
-        rotator.log_request(key_index, tokens_used, "contact_extraction", success=True)
+        raw_content = gateway._call_llm(full_prompt, max_tokens=150, temperature=0.1)
         
-        data = json.loads(response.choices[0].message.content)
+        clean_content = raw_content.strip()
+        if clean_content.startswith("```"):
+            clean_content = re.sub(r"^```(?:json)?\s*", "", clean_content)
+            clean_content = re.sub(r"\s*```$", "", clean_content)
+        data = json.loads(clean_content)
         
         # Merge with regex results (prefer AI but keep regex fallbacks)
         merged = {**regex_result, **{k: v for k, v in data.items() if v}}

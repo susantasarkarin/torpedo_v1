@@ -1,4 +1,4 @@
-"""
+﻿"""
 GMAIL API ROUTER
 ================
 
@@ -44,7 +44,7 @@ def get_gmail_service() -> GmailService:
     global _gmail_service
     
     if _gmail_service is None:
-        mongo_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
         _gmail_service = GmailService(mongo_uri=mongo_uri)
     
     return _gmail_service
@@ -653,10 +653,8 @@ async def classify_email(
         email_id=email_id,
         category=result.category,
         confidence=result.confidence,
-        priority=result.priority,
-        department=result.department,
         summary=result.summary,
-        entities=result.key_entities
+        ai_status=result.ai_status,
     )
     
     return {
@@ -697,10 +695,8 @@ async def classify_batch(
                     email_id=email["_id"],
                     category=result.category,
                     confidence=result.confidence,
-                    priority=result.priority,
-                    department=result.department,
                     summary=result.summary,
-                    entities=result.key_entities
+                    ai_status=result.ai_status,
                 )
             except Exception as e:
                 logger.error(f"Classification error for {email['_id']}: {e}")
@@ -767,3 +763,4 @@ async def summarize_thread(
     summary = ai.summarize_thread(messages)
     
     return {"success": True, "summary": summary}
+

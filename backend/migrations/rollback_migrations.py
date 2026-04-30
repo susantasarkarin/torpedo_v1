@@ -1,4 +1,4 @@
-"""
+﻿"""
 Rollback Migration Helper
 
 Provides utilities for rolling back migrations:
@@ -27,17 +27,17 @@ logger = logging.getLogger(__name__)
 class MigrationRollback:
     """Handles rollback of database migrations"""
     
-    def __init__(self, mongodb_uri=None, database_name=None):
+    def __init__(self, MONGO_URI=None, database_name=None):
         """Initialize rollback handler"""
-        self.mongodb_uri = mongodb_uri or os.getenv(
-            "MONGODB_URI",
+        self.MONGO_URI = MONGO_URI or os.getenv(
+            "MONGO_URI",
             "mongodb://localhost:27017"
         )
         self.database_name = database_name or os.getenv(
             "MONGODB_DB",
             "email_automation"
         )
-        self.client = MongoClient(self.mongodb_uri)
+        self.client = MongoClient(self.MONGO_URI)
         self.db = self.client[self.database_name]
         self.migrations_dir = Path(__file__).parent
     
@@ -79,14 +79,14 @@ class MigrationRollback:
             if result:
                 # Remove from migrations_log
                 self.db.migrations_log.delete_one({"migration": migration_name})
-                logger.info(f"✓ Rollback of {migration_name} completed")
+                logger.info(f"âœ“ Rollback of {migration_name} completed")
                 return True
             else:
-                logger.error(f"✗ Rollback of {migration_name} failed: down() returned False")
+                logger.error(f"âœ— Rollback of {migration_name} failed: down() returned False")
                 return False
                 
         except Exception as e:
-            logger.error(f"✗ Rollback of {migration_name} failed: {str(e)}")
+            logger.error(f"âœ— Rollback of {migration_name} failed: {str(e)}")
             raise
     
     def rollback_last(self):
@@ -179,7 +179,7 @@ class MigrationRollback:
         count = 0
         for m in applied:
             timestamp = m.get("completed_at", "Unknown")
-            logger.info(f"✓ {m['migration']} ({timestamp})")
+            logger.info(f"âœ“ {m['migration']} ({timestamp})")
             count += 1
         
         if count == 0:
@@ -236,3 +236,4 @@ def main():
 if __name__ == "__main__":
     success = main()
     sys.exit(0 if success else 1)
+

@@ -98,7 +98,7 @@ def process_email_with_agent1(
             }]
         
         # Process with Agent 1
-        result = agent1_process_email_thread(emails, account_email=lead.get('account_email'))
+        result = agent1_process_email_thread(emails, contact_email=lead.get('account_email'))
         
         if result.get('success'):
             # Store the summary

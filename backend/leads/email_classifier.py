@@ -27,7 +27,12 @@ from pymongo import MongoClient
 from bson import ObjectId
 from dotenv import load_dotenv
 
-from .openai_wrapper import chat_completion, DEFAULT_MODEL
+try:
+    from ai_governance.ai_gateway import get_ai_gateway
+    from ai_governance.governance_checks import AIDailyLimitExceeded
+except ImportError:
+    from backend.ai_governance.ai_gateway import get_ai_gateway
+    from backend.ai_governance.governance_checks import AIDailyLimitExceeded
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -35,8 +40,9 @@ logger = logging.getLogger(__name__)
 # MongoDB connection
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-torpedo_gmail_db = mongo_client['torpedo_gmail']
-email_metadata = torpedo_gmail_db['email_metadata']
+# Stage 2 standardization: classification state is stored in campaign_platform.
+campaign_platform_db = mongo_client['campaign_platform']
+email_metadata = campaign_platform_db['email_metadata']
 
 
 # Internal company domains
@@ -172,126 +178,61 @@ def classify_and_summarize(
     first_name, last_name, full_name = extract_sender_name(from_name or from_email)
     from_domain = from_email.split("@")[-1].lower() if "@" in from_email else ""
     
-    # Build user prompt
-    user_prompt = f"""From: {from_name} <{from_email}>
-To: {to_email}
-Subject: {subject}
-
-Body:
-{body_preview}
-
----
-Internal company domains: {', '.join(INTERNAL_DOMAINS)}
-
-Analyze this email. Return valid JSON only, no markdown formatting."""
-
     try:
-        response = chat_completion(
-            messages=[
-                {"role": "system", "content": UNIFIED_SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt}
-            ],
-            model="gpt-4o-mini",  # OpenAI for email classification
-            provider="openai",    # Use OpenAI provider
-            temperature=0.1,
-            max_output_tokens=1200,
-            response_format={"type": "json_object"},
+        gateway = get_ai_gateway()
+        result = gateway.classify_email(
+            email_id=email_id,
+            subject=subject,
+            body=body_preview,
+            from_email=from_email,
             source=source,
-            endpoint="email_classification"  # Task tracking
         )
-        
-        if not response or not response.get("success"):
-            logger.warning(f"No response from AI for email {email_id}: {response.get('error') if response else 'None'}")
-            return _default_result(email_id, from_email, first_name, last_name, full_name, from_domain)
-        
-        # Extract content from response dict
-        content = response.get("content", "")
-        if not content:
-            logger.warning(f"Empty content from AI for email {email_id}")
-            return _default_result(email_id, from_email, first_name, last_name, full_name, from_domain)
-        
-        # Parse response
-        try:
-            # Clean response if it has markdown
-            clean_response = content.strip()
-            if clean_response.startswith("```"):
-                clean_response = re.sub(r'^```json?\s*', '', clean_response)
-                clean_response = re.sub(r'\s*```$', '', clean_response)
-            result = json.loads(clean_response)
-        except json.JSONDecodeError as e:
-            logger.warning(f"Invalid JSON from AI for email {email_id}: {e}")
-            return _default_result(email_id, from_email, first_name, last_name, full_name, from_domain)
-        
-        # Normalize category
-        category = result.get("category", "others").lower().strip()
+
+        category = (result.category or "others").lower().strip()
         if category not in CATEGORIES:
             category = "others"
-        
-        # Extract sender info with fallbacks
-        sender_info = result.get("sender_info", {})
-        
-        # Extract RFQ details if available
-        is_rfq = result.get("is_rfq", False)
-        rfq_details = result.get("rfq_details", {})
-        
-        # Auto-detect RFQ if category is client and has project details
-        if category == "client" and not is_rfq:
-            # Check if there are meaningful RFQ details
-            if rfq_details.get("loi") or rfq_details.get("sample_size") or rfq_details.get("methodology"):
-                is_rfq = True
+
+        if not result.success or category == "error":
+            return _default_result(
+                email_id,
+                from_email,
+                first_name,
+                last_name,
+                full_name,
+                from_domain,
+                status="failed_disabled_provider",
+            )
         
         return {
             "email_id": email_id,
             "success": True,
-            "summary": result.get("summary", ""),
+            "summary": result.summary or "",
             "category": category,
-            "confidence": float(result.get("confidence", 0.8)),
-            "urgency": result.get("urgency", "none"),
-            "action_required": result.get("action_required", False),
-            "action_items": result.get("action_items", []),
-            "is_rfq": is_rfq,
-            "rfq_details": {
-                "title": rfq_details.get("title", ""),
-                "methodology": rfq_details.get("methodology"),
-                "loi": rfq_details.get("loi"),
-                "ir": rfq_details.get("ir"),
-                "sample_size": rfq_details.get("sample_size"),
-                "country": rfq_details.get("country"),
-                "target_audience": rfq_details.get("target_audience"),
-                "timeline": rfq_details.get("timeline"),
-                "budget": rfq_details.get("budget"),
-                "currency": rfq_details.get("currency"),
-                "study_type": rfq_details.get("study_type"),
-                "additional_requirements": rfq_details.get("additional_requirements")
-            },
-            "sender_info": {
-                "name": sender_info.get("name") or full_name,
-                "first_name": sender_info.get("first_name") or first_name,
-                "last_name": sender_info.get("last_name") or last_name,
-                "email": sender_info.get("email") or from_email,
-                "email_status": sender_info.get("email_status", "valid"),
-                "title": sender_info.get("title", ""),
-                "linkedin": sender_info.get("linkedin", ""),
-                "location": sender_info.get("location", ""),
-                "company_name": sender_info.get("company_name", ""),
-                "company_domain": sender_info.get("company_domain") or from_domain,
-                "company_linkedin": sender_info.get("company_linkedin", ""),
-                "company_industry": sender_info.get("company_industry", ""),
-                "company_size": sender_info.get("company_size", ""),
-                "company_type": sender_info.get("company_type", ""),
-                "phone": sender_info.get("phone", "")
-            },
+            "confidence": float(result.confidence or 0.0),
+            "ai_status": "success",
             "classified_at": datetime.utcnow(),
-            "model": DEFAULT_MODEL,
-            "method": "unified_gpt4o_mini"
+            "model": "ai_governance_gateway",
+            "method": "ai_governance"
         }
-        
+
+    except AIDailyLimitExceeded:
+        return _default_result(email_id, from_email, first_name, last_name, full_name, from_domain, status="failed_rate_limited")
+    except TimeoutError:
+        return _default_result(email_id, from_email, first_name, last_name, full_name, from_domain, status="failed_timeout")
     except Exception as e:
         logger.error(f"Classification error for {email_id}: {e}")
-        return _default_result(email_id, from_email, first_name, last_name, full_name, from_domain)
+        return _default_result(email_id, from_email, first_name, last_name, full_name, from_domain, status="failed_disabled_provider")
 
 
-def _default_result(email_id: str, from_email: str, first_name: str, last_name: str, full_name: str, from_domain: str = "") -> Dict:
+def _default_result(
+    email_id: str,
+    from_email: str,
+    first_name: str,
+    last_name: str,
+    full_name: str,
+    from_domain: str = "",
+    status: str = "failed_disabled_provider",
+) -> Dict:
     """Return default result when AI fails"""
     return {
         "email_id": email_id,
@@ -299,43 +240,9 @@ def _default_result(email_id: str, from_email: str, first_name: str, last_name: 
         "summary": "",
         "category": "others",
         "confidence": 0.0,
-        "urgency": "none",
-        "action_required": False,
-        "action_items": [],
-        "is_rfq": False,
-        "rfq_details": {
-            "title": "",
-            "methodology": None,
-            "loi": None,
-            "ir": None,
-            "sample_size": None,
-            "country": None,
-            "target_audience": None,
-            "timeline": None,
-            "budget": None,
-            "currency": None,
-            "study_type": None,
-            "additional_requirements": None
-        },
-        "sender_info": {
-            "name": full_name,
-            "first_name": first_name,
-            "last_name": last_name,
-            "email": from_email,
-            "email_status": "unknown",
-            "title": "",
-            "linkedin": "",
-            "location": "",
-            "company_name": "",
-            "company_domain": from_domain,
-            "company_linkedin": "",
-            "company_industry": "",
-            "company_size": "",
-            "company_type": "",
-            "phone": ""
-        },
+        "ai_status": status,
         "classified_at": datetime.utcnow(),
-        "model": DEFAULT_MODEL,
+        "model": "ai_governance_gateway",
         "method": "fallback"
     }
 
@@ -422,12 +329,7 @@ def classify_batch(
                         "ai_category": result["category"],
                         "ai_confidence": result["confidence"],
                         "ai_summary": result["summary"],
-                        "ai_urgency": result["urgency"],
-                        "ai_action_required": result["action_required"],
-                        "ai_action_items": result["action_items"],
-                        "ai_classified_at": result["classified_at"],
-                        "ai_method": result["method"],
-                        "sender_info": result["sender_info"]
+                        "ai_status": result["ai_status"]
                     }
                 }
             )

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Bounce Recovery Module
 ======================
 
@@ -18,15 +18,15 @@ Bounce Recovery Module
 
 New fields on outreach_leads_v2 (backward-compatible, added only when
 bounce recovery is triggered):
-  bounce_recovery_attempt       int   — how many recovery cycles have run
-  bounce_recovery_status        str   — 'recovering' | 'recovered' | 'needs_human_intervention'
-  bounce_recovery_emails_tried  list  — all emails attempted (original + each recovery)
-  bounce_recovery_method        str   — last method used ('alt_format' | 'skrapp')
+  bounce_recovery_attempt       int   â€” how many recovery cycles have run
+  bounce_recovery_status        str   â€” 'recovering' | 'recovered' | 'needs_human_intervention'
+  bounce_recovery_emails_tried  list  â€” all emails attempted (original + each recovery)
+  bounce_recovery_method        str   â€” last method used ('alt_format' | 'skrapp')
 
 New fields on leads_enriched (updated in parallel):
-  email_status                  str   — 'Predicted' when a recovery email is set
-  email_source                  str   — 'bounce_recovery_alt' | 'bounce_recovery_skrapp'
-  bounce_recovery_status        str   — mirrors outreach_leads_v2
+  email_status                  str   â€” 'Predicted' when a recovery email is set
+  email_source                  str   â€” 'bounce_recovery_alt' | 'bounce_recovery_skrapp'
+  bounce_recovery_status        str   â€” mirrors outreach_leads_v2
 
 Usage (called from cold_outreach_router.py bounce scanner):
     from leads.bounce_recovery import attempt_recovery
@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 # Placeholders: {first}, {last}, {f} (first initial), {l} (last initial)
 # ---------------------------------------------------------------------------
 ALT_FORMAT_TEMPLATES = [
-    "{first}.{last}@{domain}",       # john.doe   — most common
+    "{first}.{last}@{domain}",       # john.doe   â€” most common
     "{first}{last}@{domain}",        # johndoe
     "{f}{last}@{domain}",            # jdoe
     "{first}@{domain}",              # john
@@ -67,14 +67,14 @@ ALT_FORMAT_TEMPLATES = [
 # ---------------------------------------------------------------------------
 
 def _get_outreach_db():
-    uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+    uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
     db_name = os.getenv("MONGO_DB_NAME") or "torpedo"
     client = MongoClient(uri, serverSelectionTimeoutMS=5000)
     return client[db_name]
 
 
 def _get_leads_db():
-    uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+    uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
     client = MongoClient(uri, serverSelectionTimeoutMS=5000)
     return client["email_automation"]
 
@@ -183,7 +183,7 @@ def attempt_recovery(outreach_lead_id: str, bounced_email: str) -> Dict[str, Any
         recovery_attempt = lead_doc.get("bounce_recovery_attempt", 0)
 
         # ----------------------------------------------------------------
-        # Resolve name and domain from outreach_leads_v2 → leads_enriched
+        # Resolve name and domain from outreach_leads_v2 â†’ leads_enriched
         # ----------------------------------------------------------------
         lead_id = lead_doc.get("lead_id") or lead_doc.get("enriched_lead_id")
         enriched_lead = None
@@ -230,14 +230,14 @@ def attempt_recovery(outreach_lead_id: str, bounced_email: str) -> Dict[str, Any
             return {"action": "insufficient_name_data"}
 
         # ----------------------------------------------------------------
-        # Attempt 2 — rules-based format guessing
+        # Attempt 2 â€” rules-based format guessing
         # ----------------------------------------------------------------
         if recovery_attempt < 1:
             new_email = _attempt_alt_format(first, last, domain, emails_tried)
             if new_email:
                 logger.info(
                     f"[BounceRecovery] Attempt 2 (alt_format): {outreach_lead_id} "
-                    f"→ {new_email}"
+                    f"â†’ {new_email}"
                 )
                 _schedule_resend(db, lead_doc, new_email, "alt_format")
                 db["outreach_leads_v2"].update_one(
@@ -247,21 +247,21 @@ def attempt_recovery(outreach_lead_id: str, bounced_email: str) -> Dict[str, Any
                 _update_enriched_email(leads_db, lead_id, new_email, "bounce_recovery_alt")
                 return {"action": "retry", "email": new_email, "method": "alt_format"}
             else:
-                # All 6 formats already tried — skip straight to attempt 3
+                # All 6 formats already tried â€” skip straight to attempt 3
                 logger.info(
                     f"[BounceRecovery] All alt formats exhausted for {outreach_lead_id}, "
                     f"escalating to Skrapp"
                 )
 
         # ----------------------------------------------------------------
-        # Attempt 3 — Skrapp.io / EmailPatternSystem discovery
+        # Attempt 3 â€” Skrapp.io / EmailPatternSystem discovery
         # ----------------------------------------------------------------
         if recovery_attempt < 2:
             new_email = _attempt_skrapp_discovery(first, last, domain, emails_tried, leads_db)
             if new_email:
                 logger.info(
                     f"[BounceRecovery] Attempt 3 (skrapp): {outreach_lead_id} "
-                    f"→ {new_email}"
+                    f"â†’ {new_email}"
                 )
                 _schedule_resend(db, lead_doc, new_email, "skrapp")
                 db["outreach_leads_v2"].update_one(
@@ -272,7 +272,7 @@ def attempt_recovery(outreach_lead_id: str, bounced_email: str) -> Dict[str, Any
                 return {"action": "retry", "email": new_email, "method": "skrapp"}
 
         # ----------------------------------------------------------------
-        # All attempts exhausted → human intervention
+        # All attempts exhausted â†’ human intervention
         # ----------------------------------------------------------------
         logger.warning(
             f"[BounceRecovery] All recovery attempts exhausted for {outreach_lead_id}. "
@@ -390,3 +390,4 @@ def _flag_human_intervention(
         )
     except Exception as e:
         logger.debug(f"[BounceRecovery] Could not update leads_enriched for human flag: {e}")
+

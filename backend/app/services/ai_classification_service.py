@@ -23,7 +23,12 @@ from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-import openai
+try:
+    from ai_governance.ai_gateway import get_ai_gateway
+    from ai_governance.governance_checks import AIDailyLimitExceeded
+except ImportError:
+    from backend.ai_governance.ai_gateway import get_ai_gateway
+    from backend.ai_governance.governance_checks import AIDailyLimitExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +164,7 @@ class ClassificationResult:
     key_entities: Dict[str, Any]
     suggested_action: Optional[str]
     summary: str
+    ai_status: str
 
 
 @dataclass
@@ -192,17 +198,10 @@ class AIClassificationService:
         anthropic_api_key: Optional[str] = None
     ):
         """Initialize AI service with API keys"""
-        # OpenAI setup (backward compat: accepts gemini_api_key param name)
-        api_key = gemini_api_key or os.getenv("OPENAI_API_KEY")
-        if api_key:
-            self.openai_client = openai.OpenAI(api_key=api_key)
-            self.model_name = "gpt-4o-mini"
-        else:
-            self.openai_client = None
-            logger.warning("OpenAI API key not configured")
-        
+        self.gateway = get_ai_gateway()
+
         # Keep backward compat attributes
-        self.gemini_model = self.openai_client  # truthy check compat
+        self.gemini_model = True
         self.anthropic_client = None
     
     # =========================================================================
@@ -223,43 +222,66 @@ class AIClassificationService:
         Returns:
             ClassificationResult with category, department, priority, etc.
         """
-        if not self.openai_client:
-            raise RuntimeError("OpenAI API not configured")
-        
-        prompt = self._build_classification_prompt(from_email, to_email, subject, body)
-        
         try:
-            response = self.openai_client.chat.completions.create(
-                model=self.model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=500,
-                response_format={"type": "json_object"}
+            synthetic_id = f"svc-{abs(hash((from_email, to_email, subject, (body or '')[:200])))}"
+            result = self.gateway.classify_email(
+                email_id=synthetic_id,
+                subject=subject,
+                body=body,
+                from_email=from_email,
+                source="api",
             )
-            
-            result = json.loads(response.choices[0].message.content)
-            
-            # Map category to department
-            category = result.get("category", "uncategorized")
+
+            category = result.category if result.success else "uncategorized"
             try:
                 category_enum = EmailCategory(category)
                 department = CATEGORY_TO_DEPARTMENT.get(category_enum, Department.NONE).value
             except ValueError:
                 department = "none"
-            
+
+            ai_status = "success" if result.success and category != "error" else "failed_disabled_provider"
             return ClassificationResult(
                 category=category,
-                confidence=result.get("confidence", 0.5),
+                confidence=result.confidence if result.success else 0.0,
                 department=department,
-                priority=result.get("priority", "medium"),
-                intent=result.get("intent", "informational"),
-                is_reply=result.get("is_reply", False),
-                reply_sentiment=result.get("reply_sentiment"),
-                key_entities=result.get("key_entities", {}),
-                suggested_action=result.get("suggested_action"),
-                summary=result.get("summary", "")
+                priority=result.priority if result.success else "medium",
+                intent=result.intent if result.success else "informational",
+                is_reply=False,
+                reply_sentiment=None,
+                key_entities={},
+                suggested_action=None,
+                summary=result.summary if result.success else "",
+                ai_status=ai_status,
             )
-            
+
+        except AIDailyLimitExceeded:
+            return ClassificationResult(
+                category="uncategorized",
+                confidence=0.0,
+                department="none",
+                priority="medium",
+                intent="informational",
+                is_reply=False,
+                reply_sentiment=None,
+                key_entities={},
+                suggested_action=None,
+                summary="",
+                ai_status="failed_rate_limited",
+            )
+        except TimeoutError:
+            return ClassificationResult(
+                category="uncategorized",
+                confidence=0.0,
+                department="none",
+                priority="medium",
+                intent="informational",
+                is_reply=False,
+                reply_sentiment=None,
+                key_entities={},
+                suggested_action=None,
+                summary="",
+                ai_status="failed_timeout",
+            )
         except Exception as e:
             logger.error(f"Classification error: {e}")
             return ClassificationResult(
@@ -272,7 +294,8 @@ class AIClassificationService:
                 reply_sentiment=None,
                 key_entities={},
                 suggested_action=None,
-                summary=""
+                summary="",
+                ai_status="failed_disabled_provider",
             )
     
     def _build_classification_prompt(
@@ -387,34 +410,28 @@ OUTPUT FORMAT (JSON only, no explanation):
         Returns:
             LeadExtractionResult with contact details and intent
         """
-        if not self.openai_client:
-            raise RuntimeError("OpenAI API not configured")
-        
-        prompt = self._build_lead_extraction_prompt(from_email, from_name, subject, body)
-        
         try:
-            response = self.openai_client.chat.completions.create(
-                model=self.model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=500,
-                response_format={"type": "json_object"}
+            synthetic_id = f"lead-{abs(hash((from_email, subject, (body or '')[:200])))}"
+            result = self.gateway.extract_leads_from_email(
+                email_id=synthetic_id,
+                subject=subject,
+                body=body,
+                from_email=from_email,
             )
-            
-            result = json.loads(response.choices[0].message.content)
+            first = result.leads[0] if result.success and result.leads else {}
             
             return LeadExtractionResult(
-                has_lead=result.get("has_lead", False),
-                first_name=result.get("first_name"),
-                last_name=result.get("last_name"),
-                email=result.get("email") or from_email,
-                company=result.get("company"),
-                title=result.get("title"),
-                phone=result.get("phone"),
-                pain_points=result.get("pain_points", []),
-                services_interested=result.get("services_interested", []),
-                urgency=result.get("urgency", "medium"),
-                confidence=result.get("confidence", 0.5)
+                has_lead=bool(first),
+                first_name=(first.get("name") or "").split(" ")[0] if first.get("name") else None,
+                last_name=" ".join((first.get("name") or "").split(" ")[1:]) if first.get("name") and len(first.get("name").split(" ")) > 1 else None,
+                email=first.get("email") or from_email,
+                company=first.get("company"),
+                title=first.get("title"),
+                phone=first.get("phone"),
+                pain_points=[],
+                services_interested=[],
+                urgency="medium",
+                confidence=0.8 if first else 0.0,
             )
             
         except Exception as e:
@@ -683,48 +700,31 @@ Subject: <subject>
         Returns:
             Thread summary with key points, actions, sentiment
         """
-        if not self.openai_client:
-            raise RuntimeError("OpenAI API not configured")
-        
         # Build thread content
         thread_content = "\n\n---\n\n".join([
             f"From: {m.get('from', '')}\nTo: {m.get('to', '')}\nDate: {m.get('timestamp', '')}\nSubject: {m.get('subject', '')}\n\n{m.get('body', '')[:1000]}"
             for m in thread_messages[:10]  # Limit to 10 messages
         ])
         
-        prompt = f'''You are an email analyst for Torpedo, a survey panel company.
-
-TASK: Summarize this email thread for quick review.
-
-EMAIL THREAD:
-{thread_content}
-
-OUTPUT FORMAT (JSON only):
-{{
-  "thread_subject": "<subject>",
-  "participants": ["<email1>", "<email2>"],
-  "message_count": <number>,
-  "summary": "<4-6 sentence summary>",
-  "current_status": "<where things stand>",
-  "pending_actions": [
-    {{"owner": "<who>", "action": "<what>", "deadline": "<when or null>"}}
-  ],
-  "key_decisions": ["<decision1>"],
-  "sentiment": "<positive|neutral|negative|mixed>",
-  "urgency": "<critical|high|medium|low>",
-  "next_step": "<recommended action>"
-}}'''
-        
         try:
-            response = self.openai_client.chat.completions.create(
-                model=self.model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-                max_tokens=800,
-                response_format={"type": "json_object"}
+            result = self.gateway.summarize_email(
+                email_id=f"thread-{abs(hash(thread_content[:500]))}",
+                subject=thread_messages[0].get("subject", "") if thread_messages else "",
+                body=thread_content,
+                max_length=300,
             )
-            
-            return json.loads(response.choices[0].message.content)
+            if result.get("success"):
+                return {
+                    "summary": result.get("summary", ""),
+                    "sentiment": result.get("sentiment", "neutral"),
+                    "urgency": "medium",
+                    "key_points": result.get("key_points", []),
+                }
+            return {
+                "summary": "Unable to summarize thread",
+                "sentiment": "neutral",
+                "urgency": "medium"
+            }
             
         except Exception as e:
             logger.error(f"Thread summarization error: {e}")

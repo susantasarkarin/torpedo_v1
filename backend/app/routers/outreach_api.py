@@ -1,4 +1,4 @@
-"""
+﻿"""
 Torpedo Outreach API Routes.
 
 Main REST API for the AI-powered cold outreach system.
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/outreach", tags=["Outreach"])
 
 
 def get_outreach_db() -> Any:
-    mongo_uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+    mongo_uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
     mongo_db = os.getenv("OUTREACH_DB_NAME") or "email_automation"
     client = MongoClient(mongo_uri)
     return client[mongo_db]
@@ -657,3 +657,4 @@ async def webhook_reply_event(event: WebhookReplyEvent, background_tasks: Backgr
     except Exception as e:
         logger.error(f"Error processing reply webhook: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+

@@ -816,6 +816,26 @@ async def import_from_web_search(
                 "consecutive_errors": 0,
             })
 
+        # Auto-heal zombie jobs: if a RUNNING/PENDING job hasn't updated recently,
+        # mark it stopped so it doesn't block new search starts forever.
+        stale_cutoff = datetime.utcnow() - timedelta(minutes=15)
+        web_search_jobs_collection.update_many(
+            {
+                "status": {"$in": [JobStatus.RUNNING, JobStatus.PENDING]},
+                "$or": [
+                    {"last_update": {"$lt": stale_cutoff}},
+                    {"last_update": None, "created_at": {"$lt": stale_cutoff}},
+                ],
+            },
+            {
+                "$set": {
+                    "status": JobStatus.STOPPED,
+                    "last_update": datetime.utcnow(),
+                    "stopped_reason": "auto-stopped stale job on new start request",
+                }
+            },
+        )
+
         # Check for already running job
         running_jobs = list(web_search_jobs_collection.find({
             "status": {"$in": [JobStatus.RUNNING, JobStatus.PENDING]}

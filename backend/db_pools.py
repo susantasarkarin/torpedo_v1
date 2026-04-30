@@ -1,4 +1,4 @@
-"""
+﻿"""
 MongoDB Connection Pool Manager
 Separate pools for different workloads to prevent blocking
 """
@@ -10,6 +10,8 @@ from threading import Lock
 import logging
 
 logger = logging.getLogger(__name__)
+
+assert os.getenv("MONGO_URI"), "MONGO_URI not set — refusing to start"
 
 class MongoDBPoolManager:
     """
@@ -61,7 +63,7 @@ class MongoDBPoolManager:
             return
             
         self._pools = {}
-        self._mongo_uri = os.getenv('MONGODB_URI', 'mongodb://localhost:27017')
+        self._mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017')
         self._db_name = os.getenv('MONGODB_DATABASE', 'campaign_platform')
         self._initialized = True
         
@@ -169,3 +171,4 @@ def get_background_collection(name: str):
 def get_ai_collection(name: str):
     """Get collection for AI processing."""
     return pool_manager.get_collection(name, 'ai')
+

@@ -66,6 +66,8 @@ def _get_governance_collection():
     global _governance_collection
     if _governance_collection is None:
         client = _get_mongo_client()
+        # Intentionally separate from campaign_platform: governance collections store
+        # cross-pipeline limits/locks and should remain isolated from business data.
         db = client['ai_governance']
         _governance_collection = db['gemini_daily_usage']
         # Create index for fast daily lookups
@@ -78,6 +80,7 @@ def _get_classification_guard_collection():
     global _classification_guard_collection
     if _classification_guard_collection is None:
         client = _get_mongo_client()
+        # Intentionally separate from campaign_platform business collections.
         db = client['ai_governance']
         _classification_guard_collection = db['email_classification_guard']
         # CRITICAL: Unique constraint on email_id - prevents duplicate classification

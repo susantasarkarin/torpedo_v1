@@ -1014,10 +1014,8 @@ class GmailService:
         email_id: str,
         category: str,
         confidence: float,
-        priority: Optional[str] = None,
-        department: Optional[str] = None,
         summary: Optional[str] = None,
-        entities: Optional[Dict] = None
+        ai_status: str = "success",
     ):
         """Update email with AI classification results"""
         self.emails.update_one(
@@ -1026,11 +1024,8 @@ class GmailService:
                 "$set": {
                     "ai_category": category,
                     "ai_confidence": confidence,
-                    "ai_priority": priority,
-                    "ai_department": department,
                     "ai_summary": summary,
-                    "ai_entities": entities,
-                    "ai_processed_at": datetime.utcnow()
+                    "ai_status": ai_status,
                 }
             }
         )

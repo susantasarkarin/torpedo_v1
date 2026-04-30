@@ -1,4 +1,4 @@
-"""
+﻿"""
 Migration: Add multi-channel and A/B testing fields to campaigns
 
 Fields added to campaigns:
@@ -131,7 +131,8 @@ if __name__ == "__main__":
     
     logging.basicConfig(level=logging.INFO)
     
-    client = MongoClient(os.getenv("MONGODB_URI", "mongodb://localhost:27017"))
+    client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017"))
     db = client[os.getenv("MONGODB_DB", "email_automation")]
     
     up(db)
+

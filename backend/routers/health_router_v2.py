@@ -1,5 +1,5 @@
-"""
-Health Router v2 — System health overview, email deliverability, and alerts.
+﻿"""
+Health Router v2 â€” System health overview, email deliverability, and alerts.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pymongo import MongoClient, DESCENDING
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/health", tags=["health"])
 
-MONGO_URI = os.getenv("MONGO_URI", os.getenv("MONGODB_URI", "mongodb://localhost:27017"))
+MONGO_URI = os.getenv("MONGO_URI", os.getenv("MONGO_URI", "mongodb://localhost:27017"))
 
 
 def _get_db():
@@ -112,3 +112,4 @@ async def acknowledge_alert(alert_id: str):
     if result.modified_count:
         return {"success": True, "alert_id": alert_id}
     return {"success": False, "reason": "alert_not_found"}
+

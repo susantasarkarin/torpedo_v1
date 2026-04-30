@@ -337,7 +337,7 @@ class OpenAIEmailClassifier:
         self,
         db: MongoClient = None,
         emails_collection: str = "email_metadata",
-        emails_db: str = "torpedo_gmail",
+        emails_db: str = "campaign_platform",
         review_queue_collection: str = "ai_review_queue"
     ):
         """
@@ -352,7 +352,7 @@ class OpenAIEmailClassifier:
         if db is None:
             client = get_client()
             self.emails = client[emails_db][emails_collection]
-            self.review_queue = client["email_automation"][review_queue_collection]
+            self.review_queue = client["campaign_platform"][review_queue_collection]
         else:
             self.emails = db[emails_collection]
             self.review_queue = db[review_queue_collection]
@@ -370,10 +370,10 @@ class OpenAIEmailClassifier:
         
         # Sales leads collection
         if db is None:
-            self.leads_collection = get_client()["torpedo_settings"]["leads"]
+            self.leads_collection = get_client()["campaign_platform"]["leads"]
         else:
             # When db is provided, use db.client to access other databases
-            self.leads_collection = db.client["torpedo_settings"]["leads"]
+            self.leads_collection = db.client["campaign_platform"]["leads"]
         
         self._setup_indexes()
     
@@ -529,8 +529,7 @@ class OpenAIEmailClassifier:
             max_output_tokens=300,
             response_format={"type": "json_object"},
             confidence_key="confidence_score",
-            confidence_threshold=0.7,
-            fallback_to_gemini=False  # No Gemini fallback
+            confidence_threshold=0.7
         )
         
         if not result["success"]:

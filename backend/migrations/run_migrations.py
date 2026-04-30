@@ -1,4 +1,4 @@
-"""
+﻿"""
 Migration Runner
 
 Orchestrates execution of all database migrations in order.
@@ -28,17 +28,17 @@ logger = logging.getLogger(__name__)
 class MigrationRunner:
     """Orchestrates database migrations"""
     
-    def __init__(self, mongodb_uri=None, database_name=None):
+    def __init__(self, MONGO_URI=None, database_name=None):
         """Initialize migration runner"""
-        self.mongodb_uri = mongodb_uri or os.getenv(
-            "MONGODB_URI",
+        self.MONGO_URI = MONGO_URI or os.getenv(
+            "MONGO_URI",
             "mongodb://localhost:27017"
         )
         self.database_name = database_name or os.getenv(
             "MONGODB_DB",
             "email_automation"
         )
-        self.client = MongoClient(self.mongodb_uri)
+        self.client = MongoClient(self.MONGO_URI)
         self.db = self.client[self.database_name]
         self.migrations_dir = Path(__file__).parent
         
@@ -109,17 +109,17 @@ class MigrationRunner:
             
             if result:
                 self.mark_migration_complete(migration_name, "success")
-                logger.info(f"✓ Migration {migration_name} completed successfully")
+                logger.info(f"âœ“ Migration {migration_name} completed successfully")
                 return True
             else:
                 self.mark_migration_complete(migration_name, "failed", "up() returned False")
-                logger.error(f"✗ Migration {migration_name} failed: up() returned False")
+                logger.error(f"âœ— Migration {migration_name} failed: up() returned False")
                 return False
                 
         except Exception as e:
             error_msg = str(e)
             self.mark_migration_complete(migration_name, "failed", error_msg)
-            logger.error(f"✗ Migration {migration_name} failed: {error_msg}")
+            logger.error(f"âœ— Migration {migration_name} failed: {error_msg}")
             raise
     
     def run_all(self):
@@ -184,7 +184,7 @@ class MigrationRunner:
                         self.db.migrations_log.delete_one({
                             "migration": migration_name
                         })
-                        logger.info(f"✓ Rollback of {migration_name} completed")
+                        logger.info(f"âœ“ Rollback of {migration_name} completed")
                         return True
                     else:
                         logger.error(f"Migration {migration_name} does not have down() function")
@@ -207,7 +207,7 @@ class MigrationRunner:
         applied_names = {m["migration"] for m in applied}
         
         for migration_name in migration_files:
-            status = "✓ APPLIED" if migration_name in applied_names else "⊘ PENDING"
+            status = "âœ“ APPLIED" if migration_name in applied_names else "âŠ˜ PENDING"
             logger.info(f"{status}  {migration_name}")
         
         logger.info("=" * 60)
@@ -251,3 +251,4 @@ def main():
 if __name__ == "__main__":
     success = main()
     sys.exit(0 if success else 1)
+

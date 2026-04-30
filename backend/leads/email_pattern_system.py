@@ -1,4 +1,4 @@
-"""
+﻿"""
 Email Pattern Discovery System
 Tiered fallback system for discovering email patterns:
 1. Database lookup (existing patterns)
@@ -33,7 +33,7 @@ class EmailPatternSystem:
     def __init__(self, mongo_uri: str = None, database_name: str = "email_automation", hunter_api_key: str = None):
         """Initialize pattern system with MongoDB and Hunter.io"""
         if mongo_uri is None:
-            mongo_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
+            mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
         
         self.client = MongoClient(mongo_uri)
         self.db = self.client[database_name]
@@ -110,7 +110,7 @@ class EmailPatternSystem:
         # Tier 1: Database lookup
         pattern = self._lookup_database(domain)
         if pattern:
-            # Never return a blacklisted domain pattern — it causes too many bounces
+            # Never return a blacklisted domain pattern â€” it causes too many bounces
             if pattern.get("pattern_blacklisted"):
                 return None
             return pattern
@@ -142,7 +142,7 @@ class EmailPatternSystem:
                 self._store_pattern(pattern)
                 return pattern
         
-        # Tier 4: Pattern guessing — skip for domains with known bounce history
+        # Tier 4: Pattern guessing â€” skip for domains with known bounce history
         risk = self.get_domain_risk(domain)
         if risk.get("pattern_blacklisted") or risk.get("high_bounce_risk"):
             return None
@@ -616,7 +616,7 @@ class EmailPatternSystem:
     def _extract_pattern_from_email(self, email: str, domain: str) -> Optional[str]:
         """
         Extract a pattern string from a discovered email address.
-        e.g. "alice.jones@acme.com" → "{first}.{last}@{domain}"
+        e.g. "alice.jones@acme.com" â†’ "{first}.{last}@{domain}"
         """
         if not email or "@" not in email:
             return None
@@ -678,7 +678,7 @@ class EmailPatternSystem:
                     # Use Skrapp-returned pattern if available, otherwise extract from email
                     skrapp_pattern = data.get("pattern", "")
                     if skrapp_pattern:
-                        # Skrapp returns patterns like "{first}.{last}" — append domain
+                        # Skrapp returns patterns like "{first}.{last}" â€” append domain
                         if "@" not in skrapp_pattern:
                             pattern_str = f"{skrapp_pattern}@{{domain}}"
                         else:
@@ -777,11 +777,11 @@ class EmailPatternSystem:
             })
         return stats
 
-    # ──────────────────────────────────────────────────────────────────────
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # SEND / BOUNCE FEEDBACK LOOP
     # These methods are called by the cold outreach engine after every send
     # and every bounce detection so the pattern DB learns over time.
-    # ──────────────────────────────────────────────────────────────────────
+    # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def record_send_success(
         self,
@@ -796,7 +796,7 @@ class EmailPatternSystem:
 
         Side-effects on email_patterns document:
           - send_count++
-          - confidence  ← min(0.98, old + 0.05)
+          - confidence  â† min(0.98, old + 0.05)
           - delivery_verified = True
           - high_bounce_risk = False  (cleared if previously set)
           - email added to examples[] (up to 10 kept)
@@ -836,7 +836,7 @@ class EmailPatternSystem:
                 )
             import logging as _log
             _log.getLogger(__name__).debug(
-                f"[PatternFeedback] ✓ {domain} confidence {old_conf:.2f}→{new_conf:.2f} "
+                f"[PatternFeedback] âœ“ {domain} confidence {old_conf:.2f}â†’{new_conf:.2f} "
                 f"(send_count={((existing or {}).get('send_count', 0)) + 1})"
             )
         except Exception as e:
@@ -850,8 +850,8 @@ class EmailPatternSystem:
         as high-risk or fully blacklisted to stop future guesses.
 
         Thresholds:
-          bounce_rate > 0.35 → high_bounce_risk=True, confidence -= 0.25
-          bounce_rate > 0.60 → pattern_blacklisted=True (no more derivations)
+          bounce_rate > 0.35 â†’ high_bounce_risk=True, confidence -= 0.25
+          bounce_rate > 0.60 â†’ pattern_blacklisted=True (no more derivations)
         """
         domain = self._extract_domain(domain or email)
         if not domain:
@@ -889,8 +889,8 @@ class EmailPatternSystem:
             )
             import logging as _log
             _log.getLogger(__name__).warning(
-                f"[PatternFeedback] ✗ {domain} bounce recorded — "
-                f"rate={bounce_rate:.0%} conf={old_conf:.2f}→{new_conf:.2f} "
+                f"[PatternFeedback] âœ— {domain} bounce recorded â€” "
+                f"rate={bounce_rate:.0%} conf={old_conf:.2f}â†’{new_conf:.2f} "
                 f"high_risk={high_risk} blacklisted={blacklisted}"
             )
         except Exception as e:
@@ -949,7 +949,7 @@ class EmailPatternSystem:
         except Exception:
             return default
 
-    # ── Alternate-pattern helper (used by apply-to-bounced endpoint) ──────────
+    # â”€â”€ Alternate-pattern helper (used by apply-to-bounced endpoint) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     # All known local-part format templates, in priority order
     _PATTERN_TEMPLATES = [
@@ -1111,9 +1111,10 @@ if __name__ == "__main__":
         print(f"   By source: {stats['by_source']}")
         print(f"   Hunter.io configured: {stats['hunter_api_configured']}\n")
         
-        print("✅ All tests completed!")
+        print("âœ… All tests completed!")
         
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"âŒ Error: {e}")
         import traceback
         traceback.print_exc()
+

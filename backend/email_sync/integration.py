@@ -1,4 +1,4 @@
-"""
+﻿"""
 EMAIL SYNC INTEGRATION
 ======================
 
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 def setup_email_sync(
     app: FastAPI,
     mongo_uri: Optional[str] = None,
-    db_name: str = "email_automation",
+    db_name: str = "campaign_platform",
     auto_start: bool = True,
     route_prefix: str = "/api/v1"
 ):
@@ -36,7 +36,7 @@ def setup_email_sync(
     
     Args:
         app: FastAPI application instance
-        mongo_uri: MongoDB connection URI (defaults to MONGODB_URI env var)
+        mongo_uri: MongoDB connection URI (defaults to MONGO_URI env var)
         db_name: Database name
         auto_start: Whether to start workers on app startup
         route_prefix: API route prefix
@@ -47,7 +47,7 @@ def setup_email_sync(
     """
     global _orchestrator
     
-    mongo_uri = mongo_uri or os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+    mongo_uri = mongo_uri or os.getenv("MONGO_URI", "mongodb://localhost:27017")
     
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -128,7 +128,7 @@ if __name__ == "__main__":
 
 ENV_VARS = """
 # Email Sync Configuration
-MONGODB_URI=mongodb://localhost:27017
+MONGO_URI=mongodb://localhost:27017
 MONGODB_DB=email_automation
 
 # Gmail OAuth (for Gmail provider)
@@ -239,3 +239,4 @@ POST /api/v1/email-sync/stop
 ### List Categories
 GET /api/v1/email-sync/categories
 """
+

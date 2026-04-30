@@ -1,7 +1,7 @@
-"""
+﻿"""
 Email Processor Pipeline
 Processes emails from torpedo_gmail.email_metadata (and legacy mail_pool)
-→ classified_gmail → leads_enriched via canonical ingestion.
+â†’ classified_gmail â†’ leads_enriched via canonical ingestion.
 
 Unified pipeline: all Gmail Workspace emails are classified by AI and
 high-confidence CLIENT/VENDOR emails are automatically ingested as sales leads.
@@ -31,7 +31,7 @@ class EmailProcessor:
     def __init__(self, mongo_uri: str = None):
         """Initialize processor with MongoDB connection."""
         if mongo_uri is None:
-            mongo_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
+            mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 
         self.client = MongoClient(mongo_uri, serverSelectionTimeoutMS=10000)
         self.email_db = self.client["email_automation"]
@@ -377,7 +377,7 @@ class EmailProcessor:
         
         return summary
 
-    # ── Unified schema normalizer ──────────────────────────────────────────────
+    # â”€â”€ Unified schema normalizer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     @staticmethod
     def _normalize_email_doc(doc: dict, source: str = "mail_pool") -> dict:
@@ -400,10 +400,10 @@ class EmailProcessor:
                 "attachments": [] if not doc.get("has_attachments") else ["_placeholder_"],
                 "_source_collection": "email_metadata",
             }
-        # mail_pool: already has nested sender dict — pass through
+        # mail_pool: already has nested sender dict â€” pass through
         return {**doc, "_source_collection": "mail_pool"}
 
-    # ── Workspace email_metadata processing ───────────────────────────────────
+    # â”€â”€ Workspace email_metadata processing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     def process_batch_from_metadata(self, limit: int = 100, since_hours: int = 2) -> dict:
         """
@@ -414,7 +414,7 @@ class EmailProcessor:
         Replaces the legacy process_batch() which read from the dead
         email_automation.mail_pool collection.
         """
-        mongo_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
+        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
         gmail_db = MongoClient(mongo_uri, serverSelectionTimeoutMS=10000)["torpedo_gmail"]
         mail_col = gmail_db["email_metadata"]
 
@@ -456,7 +456,7 @@ class EmailProcessor:
                     result = self.classified_gmail.insert_one(classified_doc)
                     classified_doc["_id"] = result.inserted_id
                 except Exception:
-                    pass  # duplicate key — already classified
+                    pass  # duplicate key â€” already classified
 
                 segment = classified_doc.get("segment", "")
                 confidence = classified_doc.get("confidence", 0)
@@ -524,7 +524,7 @@ class EmailProcessor:
         company = next((c.get("company") for c in contacts if c.get("company")), "")
         domain = sender_email.split("@")[1]
         if not company:
-            # Derive company name from domain (e.g. "research-now.com" → "Research Now")
+            # Derive company name from domain (e.g. "research-now.com" â†’ "Research Now")
             try:
                 from sales.mail_pool_extractor import _derive_company
             except ImportError:
@@ -564,7 +564,7 @@ class EmailProcessor:
                     }},
                 )
             logger.info(
-                f"[EmailProcessor] Auto-ingested lead: {sender_email} → lead_id={lead_id}"
+                f"[EmailProcessor] Auto-ingested lead: {sender_email} â†’ lead_id={lead_id}"
             )
             return lead_id
         return None
@@ -595,9 +595,10 @@ class EmailProcessor:
             print(f"   Errors: {len(stats['errors'])}")
         print()
         
-        print("✅ Email processor test completed!")
+        print("âœ… Email processor test completed!")
         
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"âŒ Error: {e}")
         import traceback
         traceback.print_exc()
+

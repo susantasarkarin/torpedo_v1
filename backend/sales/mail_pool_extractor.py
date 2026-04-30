@@ -1,5 +1,5 @@
-"""
-MODULE 2 — EMAIL EXTRACTION FROM MAIL POOL (CODE/REGEX ONLY — NO AI)
+﻿"""
+MODULE 2 â€” EMAIL EXTRACTION FROM MAIL POOL (CODE/REGEX ONLY â€” NO AI)
 ======================================================================
 Scans the Gmail mail pool (email_metadata collection) and extracts structured
 lead records using regex and code-based parsing ONLY. No LLMs used here.
@@ -27,7 +27,7 @@ from pymongo import MongoClient
 
 logger = logging.getLogger(__name__)
 
-# Canonical ingestion — the ONLY way leads should enter the system
+# Canonical ingestion â€” the ONLY way leads should enter the system
 def _ingest_via_canonical(lead_data: Dict[str, Any]) -> Optional[str]:
     """Route a mail-pool lead through canonical ingestion into email_automation.leads_enriched."""
     try:
@@ -57,9 +57,9 @@ def _is_duplicate_in_enriched(email: str) -> bool:
         from backend.leads.canonical_ingestion import leads_enriched
     return leads_enriched.count_documents({"email": email}, limit=1) > 0
 
-# ─────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  REGEX PATTERNS
-# ─────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 # Matches: "John Smith <john@example.com>" or "john@example.com"
 _FROM_WITH_NAME = re.compile(
@@ -86,7 +86,7 @@ _EXCLUDED_DOMAINS = frozenset({
 })
 
 # Prefixes that indicate system/transactional senders (NOT real people).
-# NOTE: keep this list narrow — for a B2B platform, "sales", "info", "contact",
+# NOTE: keep this list narrow â€” for a B2B platform, "sales", "info", "contact",
 # "hello" etc. are real humans we want as leads.
 _EXCLUDED_EMAIL_PREFIXES = frozenset({
     "noreply", "no-reply", "donotreply", "do-not-reply", "mailer-daemon",
@@ -103,9 +103,9 @@ _DOMAIN_STRIP_SUFFIXES = re.compile(
 _SUBDOMAIN_STRIP = re.compile(r'^(mail|smtp|email|send|auto|mx|reply)\.')
 
 
-# ─────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  PARSING HELPERS
-# ─────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _parse_from_header(from_header: str) -> Tuple[str, str]:
     """
@@ -143,8 +143,8 @@ def _derive_domain(email: str) -> str:
 def _derive_company(domain: str) -> str:
     """
     Derive a human-readable company name from a domain using string ops only.
-    e.g. "research-now.com" → "Research Now"
-         "ipsos.co.uk"      → "Ipsos"
+    e.g. "research-now.com" â†’ "Research Now"
+         "ipsos.co.uk"      â†’ "Ipsos"
     """
     if not domain:
         return ""
@@ -162,12 +162,12 @@ def _derive_company(domain: str) -> str:
 def _infer_name_from_email(email: str) -> str:
     """
     Fallback: infer a plausible name from the email local-part.
-    e.g. "john.smith@..."  → "John Smith"
-         "jsmith@..."      → "J Smith"  (attempt first-initial + last split)
-         "john_doe123@..." → "John Doe"
+    e.g. "john.smith@..."  â†’ "John Smith"
+         "jsmith@..."      â†’ "J Smith"  (attempt first-initial + last split)
+         "john_doe123@..." â†’ "John Doe"
     """
     local = email.split("@")[0] if "@" in email else email
-    # Strip trailing digits (john.smith2 → john.smith)
+    # Strip trailing digits (john.smith2 â†’ john.smith)
     local = re.sub(r'\d+$', '', local)
     # Replace separators
     parts = re.split(r'[\.\-_\+]', local)
@@ -177,12 +177,12 @@ def _infer_name_from_email(email: str) -> str:
         return ""
     if len(parts) >= 2:
         return " ".join(p.capitalize() for p in parts[:2])
-    # Single token: try to split camelCase (e.g. "johnSmith" → ["john","Smith"])
+    # Single token: try to split camelCase (e.g. "johnSmith" â†’ ["john","Smith"])
     token = parts[0]
     camel = re.split(r'(?<=[a-z])(?=[A-Z])', token)
     if len(camel) >= 2:
         return " ".join(p.capitalize() for p in camel[:2])
-    # Single lowercase token: if len>3, try first-initial + rest (e.g. "jsmith" → "J Smith")
+    # Single lowercase token: if len>3, try first-initial + rest (e.g. "jsmith" â†’ "J Smith")
     if len(token) > 3 and token[0].isalpha() and token[1:].isalpha():
         return f"{token[0].upper()} {token[1:].capitalize()}"
     return token.capitalize()
@@ -199,9 +199,9 @@ def _is_excluded(email: str, domain: str) -> bool:
     return False
 
 
-# ─────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  EXTRACTION CORE
-# ─────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def extract_lead_from_email_record(email_record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
@@ -271,9 +271,9 @@ def extract_lead_from_email_record(email_record: Dict[str, Any]) -> Optional[Dic
     }
 
 
-# ─────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  DEDUPLICATION HELPERS
-# ─────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _is_duplicate(leads_col, email: str) -> bool:
     """Check if a lead with this email already exists in leads_enriched (canonical collection)."""
@@ -292,9 +292,9 @@ def _mark_email_processed(mail_col, email_id) -> None:
         logger.warning(f"Could not mark email {email_id} as processed: {e}")
 
 
-# ─────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  BATCH EXTRACTION
-# ─────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _get_mail_db():
     """Return the torpedo_gmail database where email_metadata lives.
@@ -307,7 +307,7 @@ def _get_mail_db():
     except Exception:
         # Fallback to direct connection if pool is unavailable
         import os
-        uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+        uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
         return MongoClient(uri, serverSelectionTimeoutMS=10000)["torpedo_gmail"]
 
 
@@ -331,7 +331,7 @@ def extract_leads_from_mail_pool_batch(
     since = datetime.utcnow() - timedelta(hours=since_hours)
 
     # Fetch unprocessed INBOUND emails received since the cutoff.
-    # Only process inbound emails — outbound (sent) emails are OUR emails,
+    # Only process inbound emails â€” outbound (sent) emails are OUR emails,
     # not leads.
     cursor = mail_col.find(
         {
@@ -455,9 +455,9 @@ def extract_leads_from_existing_pool(limit: int = 2000) -> Dict[str, Any]:
     return summary
 
 
-# ─────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #  CELERY TASKS
-# ─────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @celery_app.task(
     name="backend.sales.mail_pool_extractor.extract_leads_from_mail_pool",
@@ -484,3 +484,4 @@ def backfill_leads_from_mail_pool(limit: int = 2000) -> Dict[str, Any]:
     Trigger manually from the API when needed.
     """
     return extract_leads_from_existing_pool(limit=limit)
+

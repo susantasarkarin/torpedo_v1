@@ -93,9 +93,7 @@ class ExternalLeadDiscoveryRequest(BaseModel):
 
 class GovernanceStatusResponse(BaseModel):
     date: str
-    gemini: Dict[str, Any]
-    deepseek: Dict[str, str]
-    openai: Dict[str, Any]
+    ai: Dict[str, Any]
     enforcement: Dict[str, bool]
 
 
@@ -107,10 +105,8 @@ async def get_ai_governance_status():
     Get current AI governance status.
     
     Returns:
-        - Gemini usage (current/remaining/limit)
-        - DeepSeek status (REMOVED)
-        - OpenAI allowed uses
-        - Enforcement rules
+        - ai usage state (provider/current/remaining/limit)
+        - enforcement rules
     """
     return get_governance_status()
 

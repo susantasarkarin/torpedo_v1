@@ -1,23 +1,23 @@
-"""
+﻿"""
 Cold Outreach Router
 ====================
 
 Campaign management API for 3-business cold outreach system.
 
 Baskets:
-  A → Survey Fieldwork   (indira@surveyfieldwork.com)
-  B → Cogentix Research  (meera@cogentixresearch.com)
-  C → BIMwave            (susanta@bimwaveconsultants.com)
-  D → Dual Fit           (all 3 businesses, score-ordered, 21-day gap between each)
-  E → Nurture            (excluded — no outreach)
+  A â†’ Survey Fieldwork   (indira@surveyfieldwork.com)
+  B â†’ Cogentix Research  (meera@cogentixresearch.com)
+  C â†’ BIMwave            (susanta@bimwaveconsultants.com)
+  D â†’ Dual Fit           (all 3 businesses, score-ordered, 21-day gap between each)
+  E â†’ Nurture            (excluded â€” no outreach)
 
 Collections used:
-  outreach_campaigns_v2        — campaign definitions + step templates
-  outreach_mailboxes           — SMTP mailbox records
-  outreach_leads_v2            — enrolled leads + workflow state
-  outreach_sends_v2            — per-send records (stats)
-  outreach_bounce_suppression  — global bounce suppression list
-  leads_enriched               — source of truth for leads to enroll
+  outreach_campaigns_v2        â€” campaign definitions + step templates
+  outreach_mailboxes           â€” SMTP mailbox records
+  outreach_leads_v2            â€” enrolled leads + workflow state
+  outreach_sends_v2            â€” per-send records (stats)
+  outreach_bounce_suppression  â€” global bounce suppression list
+  leads_enriched               â€” source of truth for leads to enroll
 """
 
 import base64 as _b64_module
@@ -41,7 +41,7 @@ router = APIRouter(prefix="/api/cold-outreach", tags=["Cold Outreach"])
 
 SEQUENCE_STEPS = [0, 3, 6, 11]   # Day offsets: Day 1, 4, 7, 12 (0-indexed)
 DUAL_FIT_GAP_DAYS = 21           # Gap between sequences for Dual Fit leads
-SEQUENCE_DURATION_DAYS = 12      # Last step offset → total sequence window
+SEQUENCE_DURATION_DAYS = 12      # Last step offset â†’ total sequence window
 
 BASKET_BUSINESS = {
     "A": "sfw",
@@ -58,10 +58,10 @@ BUSINESS_LABEL = {
 BUSINESS_BASKET = {v: k for k, v in BASKET_BUSINESS.items()}
 
 
-# ── DB connection ─────────────────────────────────────────────────────────────
+# â”€â”€ DB connection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def get_db():
-    uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+    uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
     db_name = os.getenv("MONGO_DB_NAME") or "torpedo"
     client = MongoClient(uri, serverSelectionTimeoutMS=5000)
     return client[db_name]
@@ -69,7 +69,7 @@ def get_db():
 
 def get_leads_db():
     """Return the email_automation database that holds leads_enriched."""
-    uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+    uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
     client = MongoClient(uri, serverSelectionTimeoutMS=5000)
     return client["email_automation"]
 
@@ -77,17 +77,17 @@ def get_leads_db():
 def _get_gmail_db():
     """Return the torpedo_gmail database that holds workspace_mailboxes."""
     try:
-        uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+        uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
         client = MongoClient(uri, serverSelectionTimeoutMS=5000)
         return client["torpedo_gmail"]
     except Exception:
         return None
 
 
-# ── Request/response models ────────────────────────────────────────────────────
+# â”€â”€ Request/response models â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class StepTemplate(BaseModel):
-    step_number: int          # 1–4
+    step_number: int          # 1â€“4
     day_offset: int           # 0, 3, 6, 11
     subject: str
     body_html: str
@@ -146,21 +146,21 @@ class SendTestEmailRequest(BaseModel):
     step_number: int = 1
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _oid(doc) -> str:
     return str(doc.get("_id", ""))
 
 
 def _clean(doc: dict) -> dict:
-    """Convert ObjectId → str for JSON serialisation."""
+    """Convert ObjectId â†’ str for JSON serialisation."""
     doc["id"] = str(doc.pop("_id", ""))
     return doc
 
 
 def _score_basket_for_lead(lead: dict, basket: str) -> float:
     """
-    Return a rough affinity score (0–1) for a given basket using the lead's
+    Return a rough affinity score (0â€“1) for a given basket using the lead's
     icp_tags and classification data already stored in leads_enriched.
     Used to order Dual Fit sequences.
     """
@@ -175,9 +175,9 @@ def _score_basket_for_lead(lead: dict, basket: str) -> float:
     return hits / max(len(kws), 1)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 #  MAILBOX ENDPOINTS
-# ══════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 @router.get("/mailboxes")
 def list_mailboxes():
@@ -249,9 +249,9 @@ def remove_mailbox(mailbox_id: str):
     return {"ok": True}
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 #  CAMPAIGN ENDPOINTS
-# ══════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 @router.get("/campaigns")
 def list_campaigns():
@@ -427,10 +427,10 @@ def generate_step_email(campaign_id: str, step_number: int):
     if not ctx.get("description") and not ctx.get("value_proposition"):
         raise HTTPException(
             400,
-            "No business context saved yet — fill in the AI Context tab first so the AI knows what to write."
+            "No business context saved yet â€” fill in the AI Context tab first so the AI knows what to write."
         )
 
-    # Use pipeline 1 (outreach) for email drafting — keys 1, 2, 3
+    # Use pipeline 1 (outreach) for email drafting â€” keys 1, 2, 3
     try:
         _rotator = _get_pipeline_rotator("outreach")
         key_index, api_key = _rotator.get_available_key()
@@ -466,7 +466,7 @@ def generate_step_email(campaign_id: str, step_number: int):
     tone_map = {
         "professional": "formal and professional",
         "friendly":     "warm, friendly, and approachable",
-        "direct":       "direct and concise — no fluff",
+        "direct":       "direct and concise â€” no fluff",
         "conversational": "conversational, as if from one human to another",
     }
 
@@ -496,14 +496,14 @@ BODY:
 
 --- PLACEHOLDER TOKENS ---
 You MUST use these tokens exactly (they are replaced per recipient at send time):
-  {{{{first_name}}}}   — recipient's first name
-  {{{{company}}}}      — recipient's company name
-  {{{{title}}}}        — recipient's job title
-  {{{{industry}}}}     — recipient's industry
+  {{{{first_name}}}}   â€” recipient's first name
+  {{{{company}}}}      â€” recipient's company name
+  {{{{title}}}}        â€” recipient's job title
+  {{{{industry}}}}     â€” recipient's industry
 
 Use at least {{{{first_name}}}} and {{{{company}}}} in the body.
-Do not invent specific company facts — keep it general enough to apply to any recipient.
-Do not write a signature block — the system appends one automatically.
+Do not invent specific company facts â€” keep it general enough to apply to any recipient.
+Do not write a signature block â€” the system appends one automatically.
 """
 
     try:
@@ -575,9 +575,9 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
         raise HTTPException(404, f"Step {step_number} not found")
 
     if not step.get("subject") and not step.get("body_html"):
-        raise HTTPException(400, "Step has no content yet — save the template first")
+        raise HTTPException(400, "Step has no content yet â€” save the template first")
 
-    # ── Find a mailbox to send from ──────────────────────────────────────────
+    # â”€â”€ Find a mailbox to send from â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # Priority 1: Gmail API via workspace_mailboxes (torpedo_gmail DB)
     gmail_db = _get_gmail_db()
     gmail_mailbox = None
@@ -595,7 +595,7 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
     if not gmail_mailbox and not smtp_mailbox:
         raise HTTPException(
             400,
-            "No mailbox found — connect a Gmail account via the Mailboxes tab "
+            "No mailbox found â€” connect a Gmail account via the Mailboxes tab "
             "or add SMTP credentials"
         )
 
@@ -619,14 +619,14 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
 
     subject = _replace(step.get("subject", "(no subject)"))
     body_html = _replace(step.get("body_html", ""))
-    # ── Fetch sender signature via Gmail API ────────────────────────────
+    # â”€â”€ Fetch sender signature via Gmail API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     signature_html = ""
     if gmail_mailbox:
         try:
             from app.services.gmail_workspace_service import GmailWorkspaceService as _GWS
         except ImportError:
             from backend.app.services.gmail_workspace_service import GmailWorkspaceService as _GWS
-        _mongo = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+        _mongo = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
         _ws = _GWS(mongo_uri=_mongo)
         _ws.load_service_account()
         if _ws.is_configured():
@@ -648,7 +648,7 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
     msg.attach(MIMEText(body_text, "plain"))
     msg.attach(MIMEText(full_body_html, "html"))
 
-    # ── Send via Gmail API or SMTP ───────────────────────────────────────────
+    # â”€â”€ Send via Gmail API or SMTP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if gmail_mailbox:
         # Reuse the workspace service created for signature fetch, or create one
         if not signature_html:
@@ -656,7 +656,7 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
                 from app.services.gmail_workspace_service import GmailWorkspaceService as _GWS2
             except ImportError:
                 from backend.app.services.gmail_workspace_service import GmailWorkspaceService as _GWS2
-            _mongo = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+            _mongo = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
             _ws = _GWS2(mongo_uri=_mongo)
             _ws.load_service_account()
 
@@ -688,7 +688,7 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
     return {"ok": True, "sent_to": req.recipient_email, "from": sender_email}
 
 
-# ── CSV / File attachment upload for campaign steps ────────────────────────────
+# â”€â”€ CSV / File attachment upload for campaign steps â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/campaigns/{campaign_id}/steps/{step_number}/attachments")
 async def upload_step_attachment(campaign_id: str, step_number: int, file: UploadFile = File(...)):
@@ -722,7 +722,7 @@ async def upload_step_attachment(campaign_id: str, step_number: int, file: Uploa
     }
 
     # Upsert into the step's attachments array
-    # steps is an array — find the matching step and push attachment
+    # steps is an array â€” find the matching step and push attachment
     result = db["outreach_campaigns_v2"].update_one(
         {"campaign_id": campaign_id, "steps.step_number": step_number},
         {"$push": {
@@ -1019,9 +1019,9 @@ def reports_divisions_over_time(
     }
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 #  ENROLLMENT LOGIC
-# ══════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 _BASKET_SEGMENT_FALLBACK: Dict[str, List[str]] = {
     "A": ["survey_fieldwork", "sfw"],
@@ -1199,7 +1199,7 @@ def _enroll_dual_fit_leads(db, leads_db, suppressed_emails: set):
                 business_campaigns[biz] = c
 
         if not business_campaigns:
-            logger.warning("No active campaigns found for any business — skipping Dual Fit enrollment")
+            logger.warning("No active campaigns found for any business â€” skipping Dual Fit enrollment")
             return
 
         cursor = leads_enriched.find(_build_basket_enrollment_query("D"))
@@ -1274,9 +1274,9 @@ def _enroll_dual_fit_leads(db, leads_db, suppressed_emails: set):
         logger.error(f"Dual Fit enrollment failed: {e}", exc_info=True)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 #  SUPPRESSION LIST ENDPOINTS
-# ══════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 @router.get("/suppression")
 def list_suppression(page: int = 1, limit: int = 100, search: str = ""):
@@ -1350,9 +1350,9 @@ def remove_suppression(email: str):
     return {"ok": True, "email": email}
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  DUAL FIT — manual trigger for enrollment
-# ══════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#  DUAL FIT â€” manual trigger for enrollment
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 @router.post("/dual-fit/enroll")
 def enroll_dual_fit(background_tasks: BackgroundTasks):
@@ -1366,15 +1366,15 @@ def enroll_dual_fit(background_tasks: BackgroundTasks):
     return {"ok": True, "message": "Dual Fit enrollment started in background"}
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  OPEN / CLICK TRACKING  (self-hosted — works with Gmail API sends)
-# ══════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#  OPEN / CLICK TRACKING  (self-hosted â€” works with Gmail API sends)
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 # Env var: public-facing backend URL, e.g. https://api.mydomain.com
 # If unset, tracking pixel + link rewriting are silently skipped (dev safety).
 TRACKING_BASE_URL: str = os.getenv("TRACKING_BASE_URL", "").rstrip("/")
 
-# 1×1 transparent PNG (68 bytes)
+# 1Ã—1 transparent PNG (68 bytes)
 _TRANSPARENT_PIXEL = _b64_module.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQAB"
     "Nl7BcQAAAABJRU5ErkJggg=="
@@ -1384,7 +1384,7 @@ _TRANSPARENT_PIXEL = _b64_module.b64decode(
 @router.get("/track/open/{send_id}")
 async def track_open(send_id: str):
     """
-    Records an email-open event and returns a 1×1 transparent PNG.
+    Records an email-open event and returns a 1Ã—1 transparent PNG.
     The tracking pixel is injected into outgoing emails by _inject_open_tracking().
     """
     try:
@@ -1411,7 +1411,7 @@ async def track_click(send_id: str, url: str = Query(...)):
     """
     decoded_url = _url_unquote(url)
 
-    # Basic URL validation — only allow http(s) redirects
+    # Basic URL validation â€” only allow http(s) redirects
     if not decoded_url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="Invalid redirect URL")
 
@@ -1432,10 +1432,10 @@ async def track_click(send_id: str, url: str = Query(...)):
     return RedirectResponse(url=decoded_url, status_code=302)
 
 
-# ── Helpers: inject pixel & rewrite links in outgoing HTML ────────────────────
+# â”€â”€ Helpers: inject pixel & rewrite links in outgoing HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _inject_open_tracking(html_body: str, send_id: str, base_url: str) -> str:
-    """Insert a 1×1 open-tracking pixel before </body> (or append)."""
+    """Insert a 1Ã—1 open-tracking pixel before </body> (or append)."""
     pixel = (
         f'<img src="{base_url}/api/cold-outreach/track/open/{send_id}" '
         f'width="1" height="1" style="display:none" alt="">'
@@ -1462,9 +1462,9 @@ def _rewrite_links_for_click_tracking(html_body: str, send_id: str, base_url: st
     return _re.sub(r'href="([^"]+)"', _replace, html_body)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  OUTREACH SEND PROCESSOR — background job + manual trigger endpoint
-# ══════════════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#  OUTREACH SEND PROCESSOR â€” background job + manual trigger endpoint
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 # Set to an email address to redirect ALL outgoing outreach mail (test mode).
 # Set to None to send to actual recipient.
@@ -1486,8 +1486,8 @@ _BUSINESS_DISPLAY_NAME: Dict[str, str] = {
 # Daily send cap per sender email (AWS SES mailboxes are exempt)
 _DAILY_SEND_LIMIT_PER_MAILBOX = 2000
 
-# ── Per-mailbox 429 cooldown tracking ──────────────────────────────────────────
-# {sender_email: datetime_when_cooldown_expires}  — in-memory, resets on restart
+# â”€â”€ Per-mailbox 429 cooldown tracking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# {sender_email: datetime_when_cooldown_expires}  â€” in-memory, resets on restart
 _MAILBOX_COOLDOWN: Dict[str, datetime] = {}
 _COOLDOWN_SECONDS = 900  # 15 minutes after a 429 error
 
@@ -1651,13 +1651,13 @@ def _get_gmail_workspace_service():
     except ImportError:
         from backend.app.services.gmail_workspace_service import GmailWorkspaceService
 
-    mongo_uri = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017/"
+    mongo_uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
     svc = GmailWorkspaceService(mongo_uri=mongo_uri, db_name="torpedo_gmail")
     svc.load_service_account()
     return svc
 
 
-# ── Gmail signature cache (keyed by from_email, refreshed every 6 hours) ──
+# â”€â”€ Gmail signature cache (keyed by from_email, refreshed every 6 hours) â”€â”€
 _signature_cache: dict[str, tuple[str | None, float]] = {}
 _SIGNATURE_TTL = 6 * 3600  # 6 hours in seconds
 
@@ -1698,7 +1698,7 @@ def _generate_personalized_email(
     tone_map = {
         "professional": "formal and professional",
         "friendly": "warm, friendly, and approachable",
-        "direct": "direct and concise — no fluff",
+        "direct": "direct and concise â€” no fluff",
         "conversational": "conversational, as if from one human to another",
     }
     tone = tone_map.get(campaign_ctx.get("tone", "professional"), "professional and warm")
@@ -1736,12 +1736,12 @@ Location: {lead.get("location") or ""}
 SUBJECT: <the subject line>
 
 BODY:
-<the email body — plain paragraphs, no HTML tags, no signature block>
+<the email body â€” plain paragraphs, no HTML tags, no signature block>
 
 Rules:
 - Address the recipient by their first name: {first_name}
 - Reference their company or industry naturally (do NOT invent facts)
-- Do NOT include a signature — the system appends one
+- Do NOT include a signature â€” the system appends one
 - Do NOT use markdown, bullet points, or HTML tags
 - Keep the tone {tone}
 """
@@ -1786,7 +1786,7 @@ def _send_via_gmail_api(
     actual_to = to_email
     if _OUTREACH_TEST_OVERRIDE_EMAIL:
         logger.info(
-            f"[OUTREACH TEST MODE] Redirecting {to_email} → {_OUTREACH_TEST_OVERRIDE_EMAIL}"
+            f"[OUTREACH TEST MODE] Redirecting {to_email} â†’ {_OUTREACH_TEST_OVERRIDE_EMAIL}"
         )
         actual_to = _OUTREACH_TEST_OVERRIDE_EMAIL
 
@@ -1843,7 +1843,7 @@ def _send_via_smtp(
     actual_to = to_email
     if _OUTREACH_TEST_OVERRIDE_EMAIL:
         logger.info(
-            f"[OUTREACH TEST MODE] Redirecting {to_email} → {_OUTREACH_TEST_OVERRIDE_EMAIL}"
+            f"[OUTREACH TEST MODE] Redirecting {to_email} â†’ {_OUTREACH_TEST_OVERRIDE_EMAIL}"
         )
         actual_to = _OUTREACH_TEST_OVERRIDE_EMAIL
 
@@ -1922,7 +1922,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         steps_sent = lead_record.get("current_step", 0)
         next_step_number = steps_sent + 1  # 1-indexed
 
-        # Check that this step exists in the sequence (we have 4 steps: 1–4)
+        # Check that this step exists in the sequence (we have 4 steps: 1â€“4)
         if next_step_number > len(SEQUENCE_STEPS):
             db["outreach_leads_v2"].update_one(
                 {"_id": lead_record["_id"]},
@@ -1988,10 +1988,10 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
                 {"_id": lead_record["_id"]},
                 {"$set": {"next_send_at": tomorrow, "updated_at": datetime.utcnow()}}
             )
-            logger.info(f"[Outreach] Daily limit reached for {from_email} — rescheduling {email} to tomorrow")
+            logger.info(f"[Outreach] Daily limit reached for {from_email} â€” rescheduling {email} to tomorrow")
             return False
 
-        # ── Pre-send bounce-risk guard ────────────────────────────────────────
+        # â”€â”€ Pre-send bounce-risk guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         # For pattern-derived / guessed emails, check the domain's bounce history.
         # Blacklisted domains are skipped entirely; high-risk domains require a
         # minimum confidence of 0.55 before we proceed.
@@ -2058,7 +2058,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         if not step_template or (not step_template.get("subject") and not step_template.get("body_html")):
             logger.warning(
                 f"[Outreach] No template content for step {next_step_number} "
-                f"in campaign {campaign['campaign_id']} — skipping {email}"
+                f"in campaign {campaign['campaign_id']} â€” skipping {email}"
             )
             db["outreach_leads_v2"].update_one(
                 {"_id": lead_record["_id"]},
@@ -2432,9 +2432,9 @@ def get_sender_status():
             "due_leads": due_count,
             "error_leads": error_count,
             "diagnosis": (
-                "OK — sender resolved" if sender_cfg
+                "OK â€” sender resolved" if sender_cfg
                 else (
-                    f"FAIL — no active outreach_mailboxes for business='{business}' "
+                    f"FAIL â€” no active outreach_mailboxes for business='{business}' "
                     f"and workspace_mailbox '{fallback_email}' "
                     f"{'exists but is_active=False' if ws_mailboxes else 'NOT FOUND in workspace_mailboxes'}. "
                     "Fix: add an active mailbox in Settings > Mailboxes, or "
@@ -2601,7 +2601,7 @@ def process_outreach_bounces_and_replies() -> dict:
                 # Extract the original recipient from the bounce body
                 recipient = _extract_bounced_recipient(body_text)
                 if not recipient:
-                    # Try to find the recipient via gmail_thread_id → outreach_sends_v2
+                    # Try to find the recipient via gmail_thread_id â†’ outreach_sends_v2
                     if thread_id:
                         send = db["outreach_sends_v2"].find_one(
                             {"gmail_thread_id": thread_id},
@@ -2661,7 +2661,7 @@ def process_outreach_bounces_and_replies() -> dict:
                     except Exception:
                         pass
 
-                    # ── Bounce Recovery: attempt to find alternate email ──
+                    # â”€â”€ Bounce Recovery: attempt to find alternate email â”€â”€
                     # Find the outreach_leads_v2 record for this bounce and
                     # attempt recovery instead of simply suppressing forever.
                     try:
@@ -2677,13 +2677,13 @@ def process_outreach_bounces_and_replies() -> dict:
                             )
                             if recovery_result.get("action") == "retry":
                                 logger.info(
-                                    f"[BounceRecovery] Lead {bounced_lead['_id']} → "
+                                    f"[BounceRecovery] Lead {bounced_lead['_id']} â†’ "
                                     f"retry with {recovery_result['email']} "
                                     f"(method={recovery_result.get('method')})"
                                 )
                             elif recovery_result.get("action") == "human_intervention":
                                 logger.warning(
-                                    f"[BounceRecovery] Lead {bounced_lead['_id']} → "
+                                    f"[BounceRecovery] Lead {bounced_lead['_id']} â†’ "
                                     f"needs_human_intervention after all attempts"
                                 )
                     except Exception as _br_err:
@@ -2706,7 +2706,7 @@ def process_outreach_bounces_and_replies() -> dict:
                         ooo_count += 1
 
             else:
-                # Potential reply — match by gmail_thread_id
+                # Potential reply â€” match by gmail_thread_id
                 if thread_id:
                     send = db["outreach_sends_v2"].find_one(
                         {"gmail_thread_id": thread_id},
@@ -2776,9 +2776,9 @@ def process_outreach_bounces_and_replies() -> dict:
                 f"bounces={bounces}, replies={replies}, ooo={ooo_count}"
             )
 
-        # ── 7-day delivery confirmation ───────────────────────────────────────
-        # Emails that were sent ≥7 days ago with no bounce are promoted to
-        # "Delivered" status in leads_enriched — the strongest trust signal for
+        # â”€â”€ 7-day delivery confirmation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # Emails that were sent â‰¥7 days ago with no bounce are promoted to
+        # "Delivered" status in leads_enriched â€” the strongest trust signal for
         # a pattern-derived address.
         try:
             cutoff_7d = datetime.utcnow() - timedelta(days=7)
@@ -2859,7 +2859,7 @@ def get_leads_by_status(
         query["reply_received"] = True
     elif status == "sent":
         query["status"] = {"$ne": "bounced"}
-    # else "all" — no extra filter
+    # else "all" â€” no extra filter
 
     total = sends_col.count_documents(query)
     skip = (page - 1) * limit
@@ -2896,3 +2896,4 @@ def get_leads_by_status(
         "pages": (total + limit - 1) // limit,
         "summary": summary,
     }
+

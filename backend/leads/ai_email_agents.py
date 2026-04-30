@@ -44,14 +44,14 @@ logger = logging.getLogger(__name__)
 
 MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
 client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-email_db = client['email_automation']
-gmail_db = client['torpedo_gmail']
+# Stage 2 standardization: AI pipeline data lives in campaign_platform.
+ai_db = client['campaign_platform']
 
 # Collections
-email_leads_collection = email_db['email_leads']
-ai_summaries_collection = gmail_db['ai_summaries']
-ai_categories_collection = gmail_db['ai_categories']
-categorization_runs_collection = gmail_db['categorization_runs']
+email_leads_collection = ai_db['email_leads']
+ai_summaries_collection = ai_db['ai_summaries']
+ai_categories_collection = ai_db['ai_categories']
+categorization_runs_collection = ai_db['categorization_runs']
 
 
 # ============================================================================

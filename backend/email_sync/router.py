@@ -1,4 +1,4 @@
-"""
+﻿"""
 EMAIL SYNC API ROUTER
 =====================
 
@@ -46,8 +46,8 @@ def get_orchestrator() -> EmailSyncOrchestrator:
     global _orchestrator
     
     if _orchestrator is None:
-        mongo_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
-        db_name = os.getenv("MONGODB_DB", "email_automation")
+        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+        db_name = os.getenv("MONGO_DB_NAME", "campaign_platform")
         _orchestrator = EmailSyncOrchestrator(mongo_uri=mongo_uri, db_name=db_name)
     
     return _orchestrator
@@ -889,7 +889,7 @@ async def recategorize_all_emails(
     
     # Get emails collection
     mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-    db_name = os.getenv("MONGO_DB_NAME", "email_automation")
+    db_name = os.getenv("MONGO_DB_NAME", "campaign_platform")
     client = MongoClient(mongo_uri)
     db = client[db_name]
     emails_collection = db.emails
@@ -1222,3 +1222,4 @@ async def send_email(
     except Exception as e:
         logger.error(f"Error sending email: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
+

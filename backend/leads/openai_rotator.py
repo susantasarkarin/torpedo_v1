@@ -1,4 +1,4 @@
-"""
+﻿"""
 OpenAI API Key Rotation System
 Manages multiple OpenAI API keys with quota tracking and automatic rotation.
 Pay-as-you-go: RPM / daily caps are configurable safeguards, not hard provider limits.
@@ -13,12 +13,12 @@ from pymongo import MongoClient
 import openai
 
 # ---------------------------------------------------------------------------
-# Pipeline key mapping — 4 isolated pools, each with 3 dedicated keys.
+# Pipeline key mapping â€” 4 isolated pools, each with 3 dedicated keys.
 #
-#   outreach  → keys 1,2,3   (AI email drafting — real-time)
-#   sfw_bim   → keys 4,5,6   (SFW + BIM enrichment + mail)
-#   cogentix  → keys 7,8,9   (Cogentix enrichment + mail)
-#   mail      → keys 10,11,12 (general mail capacity)
+#   outreach  â†’ keys 1,2,3   (AI email drafting â€” real-time)
+#   sfw_bim   â†’ keys 4,5,6   (SFW + BIM enrichment + mail)
+#   cogentix  â†’ keys 7,8,9   (Cogentix enrichment + mail)
+#   mail      â†’ keys 10,11,12 (general mail capacity)
 # ---------------------------------------------------------------------------
 
 DEFAULT_PIPELINE_KEY_MAP: Dict[str, List[int]] = {
@@ -28,7 +28,7 @@ DEFAULT_PIPELINE_KEY_MAP: Dict[str, List[int]] = {
     "mail":     [10, 11, 12],
 }
 
-# ICP segment → pipeline routing
+# ICP segment â†’ pipeline routing
 SEGMENT_PIPELINE_MAP: Dict[str, str] = {
     "survey_fieldwork": "sfw_bim",
     "bimwave":          "sfw_bim",
@@ -45,9 +45,9 @@ class OpenAIRotator:
     MAX_DAILY_REQUESTS = 50_000 # Per-key daily safeguard
     TOTAL_KEYS = 10
 
-    def __init__(self, mongo_uri: str = None, database_name: str = "email_automation"):
+    def __init__(self, mongo_uri: str = None, database_name: str = "campaign_platform"):
         if mongo_uri is None:
-            mongo_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
+            mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 
         self.client = MongoClient(mongo_uri)
         self.db = self.client[database_name]
@@ -87,7 +87,7 @@ class OpenAIRotator:
             if not keys:
                 raise ValueError("No OpenAI API keys found in database or environment")
 
-            print(f"✓ Loaded {len(keys)} OpenAI API keys from database")
+            print(f"âœ“ Loaded {len(keys)} OpenAI API keys from database")
             return keys
 
         except Exception as e:
@@ -406,3 +406,4 @@ def get_pipeline_rotator(pipeline_name: str) -> OpenAIPipelineRotator:
                 pipeline_name, key_indices, base,
             )
     return _pipeline_rotators[pipeline_name]
+

@@ -67,7 +67,7 @@ class EmailSyncOrchestrator:
         self,
         mongo_uri: str = None,
         db: MongoClient = None,
-        db_name: str = "email_automation"
+        db_name: str = "campaign_platform"
     ):
         """
         Initialize orchestrator.

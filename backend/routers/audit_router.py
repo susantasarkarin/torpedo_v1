@@ -1,5 +1,5 @@
-"""
-Audit Router — Query logs and outreach event data for monitoring.
+﻿"""
+Audit Router â€” Query logs and outreach event data for monitoring.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import os
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
-MONGO_URI = os.getenv("MONGO_URI", os.getenv("MONGODB_URI", "mongodb://localhost:27017"))
+MONGO_URI = os.getenv("MONGO_URI", os.getenv("MONGO_URI", "mongodb://localhost:27017"))
 
 
 def _get_db():
@@ -110,3 +110,4 @@ async def get_outreach_metrics(hours: int = Query(24, ge=1, le=720)):
         "by_status": metrics,
         "bounce_rate": round(metrics.get("bounced", 0) / total * 100, 2) if total else 0,
     }
+

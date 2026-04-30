@@ -20,6 +20,8 @@ import threading
 
 load_dotenv()
 
+assert os.getenv("MONGO_URI"), "MONGO_URI not set — refusing to start"
+
 
 class DatabaseManager:
     """
