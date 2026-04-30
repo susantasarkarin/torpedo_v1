@@ -79,22 +79,39 @@ _EMAIL_ANYWHERE = re.compile(
     re.IGNORECASE,
 )
 
-# Domains to exclude (transactional, system, no-reply addresses)
+# Own domains — emails FROM these addresses are internal/operational, never leads.
+_OWN_DOMAINS = frozenset({
+    "cogentixresearch.com",
+    "surveyfieldwork.com",
+})
+
+# Domains to exclude (transactional, system, no-reply addresses, infra/SaaS notifications).
 _EXCLUDED_DOMAINS = frozenset({
+    # Personal freemail
     "gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com",
     "live.com", "icloud.com", "me.com", "aol.com", "protonmail.com", "zoho.com",
+    # Transactional / bounce infrastructure
     "noreply.com", "mailer.com", "bounce.com", "amazonses.com", "sendgrid.net",
     "mailchimp.com", "mandrillapp.com", "postmarkapp.com", "sparkpostmail.com",
     "mailgun.org", "mg.com", "constantcontact.com", "hubspotemail.net",
+    # Cloud/infra vendors — not B2B prospects
+    "digitalocean.com", "linode.com", "vultr.com",
+    # SaaS platforms sending automated notifications
+    "salesforce.com", "force.com",
+    "google.com", "googlegroups.com",
+    "quora.com",
+    # Zoho sub-service senders (not human contacts)
+    "zohocrm.in", "zohocorp.com", "zoho-books.in",
 })
 
 # Prefixes that indicate system/transactional senders (NOT real people).
-# NOTE: keep this list narrow â€” for a B2B platform, "sales", "info", "contact",
+# NOTE: keep this list narrow — for a B2B platform, "sales", "info", "contact",
 # "hello" etc. are real humans we want as leads.
 _EXCLUDED_EMAIL_PREFIXES = frozenset({
     "noreply", "no-reply", "donotreply", "do-not-reply", "mailer-daemon",
     "postmaster", "bounce", "notifications", "newsletter",
-    "digest", "unsubscribe", "autoresponder", "alerts",
+    "digest", "unsubscribe", "autoresponder",
+    # "alerts" removed — too broad; some B2B tools use alerts@company.com for real contacts
 })
 
 # Common TLD + SLD suffixes to strip when deriving company name from domain
@@ -192,11 +209,14 @@ def _infer_name_from_email(email: str) -> str:
 
 
 def _is_excluded(email: str, domain: str) -> bool:
-    """Return True if this sender should be skipped (transactional, system, generic)."""
+    """Return True if this sender should be skipped (transactional, system, generic, own-domain)."""
+    # Own-domain emails are internal/operational — not B2B leads
+    if domain in _OWN_DOMAINS:
+        return True
     if domain in _EXCLUDED_DOMAINS:
         return True
     local = email.split("@")[0].lower() if "@" in email else email.lower()
-    # Check prefix
+    # Check prefix — only exact match or starts-with against known transactional prefixes
     if any(local == prefix or local.startswith(prefix) for prefix in _EXCLUDED_EMAIL_PREFIXES):
         return True
     return False
