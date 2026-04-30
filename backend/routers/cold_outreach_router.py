@@ -1156,7 +1156,7 @@ def _enroll_basket_leads(campaign_id: str, basket: str):
                 "campaign_id": campaign_id,
                 "email": email,
                 "name": lead.get("name", ""),
-                "first_name": lead.get("first_name") or (lead.get("name") or "").split()[0],
+                "first_name": lead.get("first_name") or (((lead.get("name") or "").split() or [""])[0]),
                 "company_name": lead.get("company_name", ""),
                 "title": lead.get("title", ""),
                 "company_industry": lead.get("company_industry", ""),
@@ -1254,7 +1254,7 @@ def _enroll_dual_fit_leads(db, leads_db, suppressed_emails: set):
                     "campaign_id": cid,
                     "email": email,
                     "name": lead.get("name", ""),
-                    "first_name": lead.get("first_name") or (lead.get("name") or "").split()[0],
+                    "first_name": lead.get("first_name") or (((lead.get("name") or "").split() or [""])[0]),
                     "company_name": lead.get("company_name", ""),
                     "title": lead.get("title", ""),
                     "company_industry": lead.get("company_industry", ""),
@@ -1719,7 +1719,7 @@ def _generate_personalized_email(
 
     first_name = (
         lead.get("first_name")
-        or (lead.get("name") or "").split()[0]
+        or (((lead.get("name") or "").split() or [""])[0])
         or "there"
     )
 
@@ -2087,7 +2087,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
 
         first_name = (
             lead_record.get("first_name")
-            or (lead_record.get("name") or "").split()[0]
+            or (((lead_record.get("name") or "").split() or [""])[0])
             or "there"
         )
         placeholders = {
