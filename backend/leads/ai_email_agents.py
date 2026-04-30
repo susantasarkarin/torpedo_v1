@@ -31,12 +31,52 @@ from concurrent.futures import ThreadPoolExecutor
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
-# Import OpenAI wrapper for API calls (replaced Gemini)
-from .openai_wrapper import (
-    chat_completion,
-    DEFAULT_MODEL,
-    token_logger
-)
+# Import AI governance gateway for API calls
+try:
+    from ai_governance.ai_gateway import get_ai_gateway
+except ImportError:
+    from backend.ai_governance.ai_gateway import get_ai_gateway
+
+DEFAULT_MODEL = "ai_governance_gateway"
+
+
+def chat_completion(
+    messages: List[Dict[str, Any]],
+    source: str = "background",
+    endpoint: str = "generic",
+    model: str = "gpt-4o-mini",
+    provider: str = "openai",
+    max_output_tokens: int = 800,
+    temperature: float = 0.2,
+    response_format: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Compatibility shim: route legacy chat_completion calls through AI gateway."""
+    try:
+        gateway = get_ai_gateway()
+        prompt_parts: List[str] = []
+        for msg in messages or []:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            prompt_parts.append(f"{role.upper()}: {content}")
+        prompt = "\n\n".join(prompt_parts)
+        content = gateway._call_llm(
+            prompt,
+            model=model,
+            max_tokens=max_output_tokens,
+            temperature=temperature,
+        )
+        return {
+            "success": True,
+            "content": content,
+            "model": DEFAULT_MODEL,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "content": "",
+            "model": DEFAULT_MODEL,
+        }
 
 load_dotenv()
 
