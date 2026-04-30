@@ -28,7 +28,7 @@ from pymongo import MongoClient
 logger = logging.getLogger(__name__)
 
 # Canonical ingestion â€” the ONLY way leads should enter the system
-def _ingest_via_canonical(lead_data: Dict[str, Any]) -> Optional[str]:
+def _ingest_via_canonical(lead_data: Dict[str, Any]) -> Dict[str, Any]:
     """Route a mail-pool lead through canonical ingestion into email_automation.leads_enriched."""
     try:
         from leads.canonical_ingestion import ingest_lead
@@ -43,10 +43,13 @@ def _ingest_via_canonical(lead_data: Dict[str, Any]) -> Optional[str]:
         "company": lead_data.get("company"),
         "company_domain": lead_data.get("domain"),
     }
-    result = ingest_lead(payload, source="gmail", source_detail="mail_pool_extraction")
-    if result and result.get("lead_id"):
-        return result["lead_id"]
-    return None
+    result = ingest_lead(payload, source="gmail", source_detail="mail_pool_extraction") or {}
+    return {
+        "success": bool(result.get("success")),
+        "action": result.get("action"),
+        "lead_id": result.get("lead_id"),
+        "error": result.get("error"),
+    }
 
 
 def _is_duplicate_in_enriched(email: str) -> bool:
@@ -365,7 +368,9 @@ def extract_leads_from_mail_pool_batch(
                 _mark_email_processed(mail_col, record.get("_id"))
                 continue
 
-            lead_id = _ingest_via_canonical(lead)
+            ingest_result = _ingest_via_canonical(lead)
+            lead_id = ingest_result.get("lead_id")
+            action = ingest_result.get("action")
             if lead_id:
                 _mark_email_processed(mail_col, record.get("_id"))
                 inserted += 1
@@ -374,9 +379,15 @@ def extract_leads_from_mail_pool_batch(
                     f"[MailPool] Extracted lead via canonical ingestion: {lead['name']} <{lead['email']}> "
                     f"@ {lead['company']} (lead_id={lead_id})"
                 )
+            elif ingest_result.get("success") and action == "skipped":
+                skipped_duplicate += 1
+                _mark_email_processed(mail_col, record.get("_id"))
             else:
                 errors += 1
-                error_details.append(f"Canonical ingestion returned no ID for {lead['email']}")
+                error_details.append(
+                    f"Canonical ingestion failed for {lead['email']} "
+                    f"(action={action}, error={ingest_result.get('error')})"
+                )
                 _mark_email_processed(mail_col, record.get("_id"))
 
         except Exception as e:
@@ -430,13 +441,22 @@ def extract_leads_from_existing_pool(limit: int = 2000) -> Dict[str, Any]:
                 _mark_email_processed(mail_col, record.get("_id"))
                 continue
 
-            lead_id = _ingest_via_canonical(lead)
+            ingest_result = _ingest_via_canonical(lead)
+            lead_id = ingest_result.get("lead_id")
+            action = ingest_result.get("action")
             if lead_id:
                 _mark_email_processed(mail_col, record.get("_id"))
                 inserted += 1
+            elif ingest_result.get("success") and action == "skipped":
+                skipped_duplicate += 1
+                _mark_email_processed(mail_col, record.get("_id"))
             else:
                 errors += 1
-                error_details.append(f"Canonical ingestion returned no ID for {lead['email']}")
+                error_details.append(
+                    f"Canonical ingestion failed for {lead['email']} "
+                    f"(action={action}, error={ingest_result.get('error')})"
+                )
+                _mark_email_processed(mail_col, record.get("_id"))
 
         except Exception as e:
             errors += 1

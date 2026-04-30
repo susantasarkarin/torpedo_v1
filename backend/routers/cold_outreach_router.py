@@ -1071,14 +1071,28 @@ def _sync_active_campaign_enrollment(db):
     campaigns = list(
         db["outreach_campaigns_v2"].find(
             {"is_active": True},
-            {"campaign_id": 1, "basket": 1},
+            {"campaign_id": 1, "basket": 1, "business": 1},
         )
     )
+    synced_baskets = set()
+    has_active_business_campaign = False
     for camp in campaigns:
         cid = camp.get("campaign_id")
         basket = camp.get("basket")
+        if not basket:
+            basket = BUSINESS_BASKET.get((camp.get("business") or "").lower())
         if cid and basket:
             _enroll_basket_leads(cid, basket)
+            synced_baskets.add(basket)
+        if camp.get("business") in {"sfw", "cogentix", "bimwave"}:
+            has_active_business_campaign = True
+
+    # Dual-fit leads are basket D and should still be enrolled whenever any
+    # business campaign is active, even if no explicit basket-D campaign exists.
+    if has_active_business_campaign and "D" not in synced_baskets and campaigns:
+        first_cid = campaigns[0].get("campaign_id")
+        if first_cid:
+            _enroll_basket_leads(first_cid, "D")
 
 def _enroll_basket_leads(campaign_id: str, basket: str):
     """
