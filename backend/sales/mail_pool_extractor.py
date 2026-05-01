@@ -234,6 +234,12 @@ def extract_lead_from_email_record(email_record: Dict[str, Any]) -> Optional[Dic
     Args:
         email_record: A document from the email_metadata MongoDB collection.
     """
+    # Use pre-existing classifier verdict — no new AI call needed.
+    # ai_is_sales_lead=False means the email classifier already determined this
+    # is not a B2B lead (e.g. automated alert, vendor invoice, bounce).
+    if email_record.get("ai_is_sales_lead") is False:
+        return None
+
     # Use direct fields (torpedo_gmail schema: from_email, from_name)
     email_address = (email_record.get("from_email") or "").strip().lower()
     full_name = (email_record.get("from_name") or "").strip()
@@ -438,7 +444,13 @@ def extract_leads_from_existing_pool(limit: int = 2000) -> Dict[str, Any]:
     mail_col = _get_mail_db()["email_metadata"]
 
     cursor = mail_col.find(
-        {"lead_extracted": {"$ne": True}},
+        {
+            "lead_extracted": {"$ne": True},
+            # Skip emails that the classifier has already determined are not B2B leads.
+            # This avoids processing bounces, invoices, automated alerts etc.
+            # ai_is_sales_lead=False is set by the email classifier agent (no new AI call here).
+            "ai_is_sales_lead": {"$ne": False},
+        },
         limit=limit,
         sort=[("timestamp", -1)],
     )

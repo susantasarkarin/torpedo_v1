@@ -24,23 +24,30 @@ def _get_db():
     return client["email_automation"]
 
 
+def _get_torpedo_db():
+    """Return the torpedo DB where outreach collections (campaigns, mailboxes, sends) live."""
+    client = MongoClient(MONGO_URI)
+    return client["torpedo"]
+
+
 @router.get("/overview")
 async def health_overview(hours: int = Query(24, ge=1, le=720)):
     """High-level system health overview."""
     db = _get_db()
+    torpedo_db = _get_torpedo_db()
     cutoff = datetime.utcnow() - timedelta(hours=hours)
 
-    sends = db["outreach_sends_v2"]
+    sends = torpedo_db["outreach_sends_v2"]
     total = sends.count_documents({"sent_at": {"$gte": cutoff}})
     failed = sends.count_documents({"status": "failed", "sent_at": {"$gte": cutoff}})
     bounced = sends.count_documents({"status": "bounced", "sent_at": {"$gte": cutoff}})
 
-    # Active mailboxes
-    active_mailboxes = db["outreach_mailboxes"].count_documents({"status": "active"})
+    # Active mailboxes — schema uses is_active (bool), not status string
+    active_mailboxes = torpedo_db["outreach_mailboxes"].count_documents({"is_active": True})
 
-    # Active campaigns
-    active_campaigns = db["outreach_campaigns_v2"].count_documents(
-        {"status": {"$in": ["active", "running"]}}
+    # Active campaigns — schema uses is_active (bool), not status string
+    active_campaigns = torpedo_db["outreach_campaigns_v2"].count_documents(
+        {"is_active": True}
     )
 
     return {

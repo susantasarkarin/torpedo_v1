@@ -205,13 +205,37 @@ async def attempt_job_resume(job_id: str, current_status: str):
 async def cleanup_stale_jobs():
     """
     Clean up jobs that:
+    - Are RUNNING but have not sent a heartbeat in the last 1 hour (zombie jobs)
     - Completed more than 7 days ago
     - Failed with no recovery attempts
     - Have been paused for more than 30 days
     """
     try:
         logger.info("[Scheduler] Cleaning up stale jobs...")
-        
+
+        # ── Zombie detection: RUNNING jobs with no heartbeat for >1 hour ──
+        one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+        zombie_result = web_search_jobs_collection.update_many(
+            {
+                "status": JobStatus.RUNNING,
+                "$or": [
+                    {"last_update": {"$lt": one_hour_ago}},
+                    {"last_update": {"$exists": False}},
+                ],
+            },
+            {
+                "$set": {
+                    "status": "stopped",
+                    "stopped_reason": "zombie_cleanup_no_heartbeat",
+                    "last_update": datetime.utcnow(),
+                }
+            },
+        )
+        if zombie_result.modified_count:
+            logger.warning(
+                f"[Scheduler] Marked {zombie_result.modified_count} zombie RUNNING job(s) as stopped"
+            )
+
         one_week_ago = datetime.utcnow() - timedelta(days=7)
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
         
@@ -748,10 +772,10 @@ def initialize_scheduler(loop=None):
             max_instances=1
         )
         
-        # Cleanup stale jobs daily at 2 AM UTC
+        # Cleanup stale/zombie jobs every 30 minutes
         scheduler.add_job(
             cleanup_stale_jobs,
-            CronTrigger(hour=2, minute=0, timezone=pytz.UTC),
+            CronTrigger(minute="*/30"),
             id="cleanup_jobs",
             name="Cleanup Stale Jobs",
             max_instances=1
@@ -836,6 +860,39 @@ def initialize_scheduler(loop=None):
             logger.info("[Scheduler] Added Gmail email classification job (every 2h)")
         except Exception as e:
             logger.warning(f"[Scheduler] Could not add email classification job: {e}")
+
+        # Mail pool backfill — drain unprocessed inbound emails via rule-based extraction.
+        # Runs every 15 minutes, processes 1000 records per run.
+        # Uses ai_is_sales_lead pre-filter (no new AI calls) to skip non-leads cheaply.
+        try:
+            import threading as _threading
+
+            def _run_mailpool_backfill_sync():
+                try:
+                    from sales.mail_pool_extractor import extract_leads_from_existing_pool
+                    result = extract_leads_from_existing_pool(limit=1000)
+                    logger.info(
+                        f"[Scheduler/MailPool] inserted={result.get('inserted', 0)} "
+                        f"skipped_excluded={result.get('skipped_excluded', 0)} "
+                        f"skipped_duplicate={result.get('skipped_duplicate', 0)} "
+                        f"errors={result.get('errors', 0)}"
+                    )
+                except Exception as _e:
+                    logger.error(f"[Scheduler/MailPool] Error: {_e}")
+
+            async def _run_mailpool_backfill():
+                _threading.Thread(target=_run_mailpool_backfill_sync, daemon=True).start()
+
+            scheduler.add_job(
+                _run_mailpool_backfill,
+                CronTrigger(minute="*/15"),
+                id="mailpool_backfill",
+                name="Mail Pool Lead Backfill (rule-based)",
+                max_instances=1,
+            )
+            logger.info("[Scheduler] Added mail pool backfill job (every 15 min)")
+        except Exception as e:
+            logger.warning(f"[Scheduler] Could not add mail pool backfill job: {e}")
 
         # Rule-based ICP lead classification — process Pending leads_raw every 5 minutes
         try:
