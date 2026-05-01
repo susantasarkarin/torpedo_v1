@@ -88,6 +88,10 @@ temp/
 *.bak
 *.backup
 tmpclaude-*/
+tmp_*.py
+tmp_*.js
+backend.pid
+backend/MONGO_URI_AUDIT_STAGE*.txt
 
 # Database dumps
 *.sql
