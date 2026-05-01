@@ -1062,12 +1062,25 @@ class GmailWorkspaceService:
                 body_part = msg
             
             msg["To"] = ", ".join(to)
-            msg["From"] = from_email
+            # Use formatted From with display name for better deliverability
+            _display_name = mailbox.get("display_name", "")
+            if _display_name:
+                from email.utils import formataddr as _formataddr
+                msg["From"] = _formataddr((_display_name, from_email))
+            else:
+                msg["From"] = from_email
             msg["Subject"] = subject
             
             if cc:
                 msg["Cc"] = ", ".join(cc)
             
+            # Reply-To (same as From; helps with deliverability)
+            msg["Reply-To"] = from_email
+
+            # List-Unsubscribe (required by Gmail/Yahoo bulk-sender guidelines)
+            msg["List-Unsubscribe"] = f"<mailto:{from_email}?subject=unsubscribe>"
+            msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+
             # Add reply headers for threading
             if reply_to_message_id:
                 msg["In-Reply-To"] = reply_to_message_id

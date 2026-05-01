@@ -387,6 +387,7 @@ def extract_leads_from_mail_pool_batch(
             lead = extract_lead_from_email_record(record)
             if lead is None:
                 skipped_excluded += 1
+                _mark_email_processed(mail_col, record.get("_id"))  # prevent churn
                 continue
 
             if _is_duplicate_in_enriched(lead["email"]):
@@ -466,6 +467,7 @@ def extract_leads_from_existing_pool(limit: int = 2000) -> Dict[str, Any]:
             lead = extract_lead_from_email_record(record)
             if lead is None:
                 skipped_excluded += 1
+                _mark_email_processed(mail_col, record.get("_id"))  # prevent churn
                 continue
 
             if _is_duplicate_in_enriched(lead["email"]):

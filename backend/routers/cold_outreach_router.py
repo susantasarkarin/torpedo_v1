@@ -578,29 +578,15 @@ def send_test_email(campaign_id: str, step_number: int, req: SendTestEmailReques
         raise HTTPException(400, "Step has no content yet â€” save the template first")
 
     # â”€â”€ Find a mailbox to send from â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    # Priority 1: Gmail API via workspace_mailboxes (torpedo_gmail DB)
-    gmail_db = _get_gmail_db()
-    gmail_mailbox = None
-    if gmail_db is not None:
-        gmail_mailbox = gmail_db["workspace_mailboxes"].find_one(
-            {"is_active": True},
-            sort=[("email", 1)],
-        )
-
-    # Priority 2: SMTP mailbox from outreach_mailboxes (torpedo DB)
-    smtp_mailbox = db["outreach_mailboxes"].find_one(
-        {"business": campaign["business"], "is_active": True}
-    )
-
-    if not gmail_mailbox and not smtp_mailbox:
+    sender_cfg = _resolve_sender_for_campaign(db, campaign)
+    if not sender_cfg:
         raise HTTPException(
             400,
-            "No mailbox found â€” connect a Gmail account via the Mailboxes tab "
-            "or add SMTP credentials"
+            "No mailbox found for this campaign’s business â€” connect a Gmail account "
+            "via the Mailboxes tab or add SMTP credentials"
         )
-
-    sender_email = (gmail_mailbox or smtp_mailbox).get("email") or (smtp_mailbox or {}).get("email_address", "")
-    sender_name = (gmail_mailbox or smtp_mailbox).get("display_name", "Team")
+    sender_email = sender_cfg["from_email"]
+    sender_name = sender_cfg["display_name"]
 
     # Replace tokens with sample data
     sample = {
