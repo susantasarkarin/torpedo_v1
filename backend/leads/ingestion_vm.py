@@ -143,7 +143,7 @@ async def perform_google_search(query: str, num_results: int = 10) -> List[dict]
                 
                 if response.status_code == 200:
                     # Record successful API call for rate limiting
-                    record_query(query)
+                    record_query(1)
                     
                     data = response.json()
                     items = data.get('items', [])
