@@ -614,6 +614,14 @@ function AILeads() {
         return res.json();
       }
       const text = await res.text();
+      // If the response is HTML (e.g. a Cloudflare 524/502 error page), show a friendly message
+      if (text.trimStart().startsWith("<")) {
+        const status = res.status;
+        if (status === 524 || status === 522) {
+          return { detail: `Server timeout (${status}) — the backend took too long to respond. Please try again in a moment.` };
+        }
+        return { detail: `Unexpected server response (HTTP ${status}). The server may be temporarily unavailable.` };
+      }
       return { detail: text || res.statusText };
     };
     
@@ -1012,8 +1020,16 @@ function AILeads() {
       });
       
       if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.detail || "Lead extraction failed");
+        const ct = res.headers.get("content-type") || "";
+        if (ct.includes("application/json")) {
+          const error = await res.json();
+          throw new Error(error.detail || "Lead extraction failed");
+        }
+        const text = await res.text();
+        if (text.trimStart().startsWith("<")) {
+          throw new Error(`Server timeout (HTTP ${res.status}) — please try again in a moment.`);
+        }
+        throw new Error(text || "Lead extraction failed");
       }
       
       const result = await res.json();
