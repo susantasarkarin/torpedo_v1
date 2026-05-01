@@ -812,6 +812,14 @@ try:
 except Exception as e:
     print(f"⚠️ Health router not included: {e}")
 
+# Health router v2 — overview, deliverability, alerts
+try:
+    from routers.health_router_v2 import router as health_router_v2
+    app.include_router(health_router_v2)
+    print("✅ Health router v2 included")
+except Exception as e:
+    print(f"⚠️ Health router v2 not included: {e}")
+
 # Performance monitoring router
 try:
     from routers import performance as performance_router
