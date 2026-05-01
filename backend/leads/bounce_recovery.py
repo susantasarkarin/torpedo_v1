@@ -230,7 +230,26 @@ def attempt_recovery(outreach_lead_id: str, bounced_email: str) -> Dict[str, Any
             return {"action": "insufficient_name_data"}
 
         # ----------------------------------------------------------------
-        # Attempt 2 â€” rules-based format guessing
+        # Pre-recovery domain blacklist check — don't burn 6+ bounces on a
+        # domain already known to have a >60% bounce rate.
+        # ----------------------------------------------------------------
+        try:
+            from leads.email_pattern_system import get_pattern_system as _get_ps_rc
+            if domain:
+                _domain_risk = _get_ps_rc().get_domain_risk(domain)
+                if _domain_risk.get("pattern_blacklisted"):
+                    logger.warning(
+                        f"[BounceRecovery] Domain '{domain}' is blacklisted "
+                        f"(bounce_rate={_domain_risk.get('bounce_rate', 0):.0%}). "
+                        f"Skipping recovery for {outreach_lead_id}."
+                    )
+                    _flag_human_intervention(db, leads_db, oid, lead_id, emails_tried, "domain_blacklisted")
+                    return {"action": "human_intervention"}
+        except Exception as _bl_err:
+            logger.debug(f"[BounceRecovery] Domain blacklist check skipped: {_bl_err}")
+
+        # ----------------------------------------------------------------
+        # Attempt 2 — rules-based format guessing
         # ----------------------------------------------------------------
         if recovery_attempt < 1:
             new_email = _attempt_alt_format(first, last, domain, emails_tried)

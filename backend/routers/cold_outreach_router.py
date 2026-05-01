@@ -1059,6 +1059,8 @@ def _build_basket_enrollment_query(basket: str) -> Dict[str, Any]:
 
     return {
         "email": {"$exists": True, "$ne": ""},
+        # Exclude leads whose email is already known to be bad — stops re-enrollment of bounced leads
+        "email_status": {"$nin": ["bounced", "Bounced", "invalid", "Invalid", "hard_bounce"]},
         "$or": clauses,
     }
 
@@ -1145,6 +1147,9 @@ def _enroll_basket_leads(campaign_id: str, basket: str):
             if email in suppressed_emails:
                 skipped_suppressed += 1
                 continue
+            if (lead.get("email_status") or "").lower() in ("bounced", "invalid", "hard_bounce"):
+                skipped_suppressed += 1
+                continue
             if email in enrolled_emails:
                 skipped_duplicate += 1
                 continue
@@ -1225,6 +1230,8 @@ def _enroll_dual_fit_leads(db, leads_db, suppressed_emails: set):
         for lead in cursor:
             email = (lead.get("email") or "").lower().strip()
             if not email or email in suppressed_emails:
+                continue
+            if (lead.get("email_status") or "").lower() in ("bounced", "invalid", "hard_bounce"):
                 continue
 
             lead_id = str(lead.get("_id"))
