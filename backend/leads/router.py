@@ -1969,11 +1969,14 @@ async def extract_leads_from_stored_emails(request: EmailExtractRequest):
                     continue
                 
                 # Use canonical ingestion
+                # skip_classification=True: avoid synchronous OpenAI calls per-lead which
+                # would cause Cloudflare 524 timeout for large batches (100 leads × ~2s = 200s+).
+                # Background classifier picks up queued leads automatically.
                 result = ingest_lead(
                     payload=payload,
                     source='gmail',
                     source_detail='backfill_extraction',
-                    skip_classification=False
+                    skip_classification=True
                 )
                 
                 if result['success']:
