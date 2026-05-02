@@ -41,7 +41,7 @@ DEFAULT_ICPS = [
         "designations": [
             "BIM Manager", "BIM Coordinator", "Head of BIM", "Project Architect",
             "CAD Manager", "BIM Lead", "BIM Engineer", "Digital Delivery Manager",
-            "Design Manager", "Associate Director", "Technical Director"
+            "Design Manager", "Technical Director"
         ],
         "industries": [
             "Architecture", "Engineering", "Construction", "BIM", "AEC",
@@ -300,9 +300,14 @@ def classify_lead_by_icp(lead: Dict[str, Any], active_icps: Optional[List[Dict[s
             continue
 
         # Guardrail for Bimwave: do not classify as BIMwave unless AEC intent is explicit.
+        # A title match alone is insufficient unless the title explicitly contains a
+        # BIM/CAD keyword — generic seniority titles like "Associate Director" must not
+        # qualify without an AEC industry signal.
         if icp.get("slug") == "bimwave":
             matches = _collect_feature_matches(lead, icp)
-            if not (matches["title"] or matches["industry"]):
+            title_raw = (lead.get("title") or "").lower()
+            has_bim_title = any(kw in title_raw for kw in ["bim", "cad manager", "building information", "digital delivery"])
+            if not (matches["industry"] or has_bim_title):
                 continue
 
         if s > best_score:
