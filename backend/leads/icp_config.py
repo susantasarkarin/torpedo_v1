@@ -8,6 +8,7 @@ Stores and manages ICP definitions used for:
 """
 
 import os
+import re
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pymongo import MongoClient
@@ -112,12 +113,15 @@ def seed_default_icps() -> int:
     count = 0
     now = datetime.utcnow()
     for icp in DEFAULT_ICPS:
-        icp_data = {**icp, "updated_at": now}
+        # Do not overwrite user-customized ICP criteria on startup.
         result = icp_configs_collection.update_one(
             {"slug": icp["slug"]},
             {
-                "$set": icp_data,
-                "$setOnInsert": {"created_at": now},
+                "$setOnInsert": {
+                    **icp,
+                    "created_at": now,
+                    "updated_at": now,
+                },
             },
             upsert=True,
         )
@@ -204,15 +208,48 @@ def soft_delete_icp(slug: str) -> bool:
 # ============================================================
 
 def _match_list(value: Optional[str], candidates: List[str]) -> bool:
-    """Case-insensitive substring match: True if value contains any candidate or candidate contains value."""
+    """Case-insensitive matching with safer boundaries for short tokens."""
     if not value:
         return False
-    val_lower = value.lower()
+
+    val_lower = value.lower().strip()
     for c in candidates:
-        c_lower = c.lower()
-        if c_lower in val_lower or val_lower in c_lower:
+        c_lower = (c or "").lower().strip()
+        if not c_lower:
+            continue
+
+        # For short terms like "BIM" or "VP", require word-boundary matches.
+        if len(c_lower) <= 3:
+            if re.search(rf"\b{re.escape(c_lower)}\b", val_lower):
+                return True
+            continue
+
+        # For longer phrases, phrase-in-text is sufficient.
+        if c_lower in val_lower:
             return True
+
     return False
+
+
+def _collect_feature_matches(lead: Dict[str, Any], icp: Dict[str, Any]) -> Dict[str, bool]:
+    """Return granular feature matches used for scoring/gating."""
+    title = lead.get("title") or lead.get("job_title") or ""
+    industry = lead.get("company_industry") or lead.get("industry") or ""
+    location = (
+        lead.get("location")
+        or lead.get("country")
+        or lead.get("inferred_location")
+        or lead.get("company_headquarters")
+        or ""
+    )
+    seniority = lead.get("seniority_level") or ""
+
+    return {
+        "title": _match_list(title, icp.get("designations", [])),
+        "industry": _match_list(industry, icp.get("industries", [])),
+        "location": _match_list(location, icp.get("countries", [])),
+        "seniority": _match_list(seniority, icp.get("seniority_levels", [])),
+    }
 
 
 def score_lead_against_icp(lead: Dict[str, Any], icp: Dict[str, Any]) -> int:
@@ -229,35 +266,15 @@ def score_lead_against_icp(lead: Dict[str, Any], icp: Dict[str, Any]) -> int:
     Returns total score (0–8). Minimum threshold for assignment = 2.
     """
     score = 0
+    matches = _collect_feature_matches(lead, icp)
 
-    # Title / designation
-    title = lead.get("title") or lead.get("job_title") or ""
-    if _match_list(title, icp.get("designations", [])):
+    if matches["title"]:
         score += 3
-
-    # Industry
-    industry = (
-        lead.get("company_industry")
-        or lead.get("industry")
-        or ""
-    )
-    if _match_list(industry, icp.get("industries", [])):
+    if matches["industry"]:
         score += 2
-
-    # Country / region / location
-    location = (
-        lead.get("location")
-        or lead.get("country")
-        or lead.get("inferred_location")
-        or lead.get("company_headquarters")
-        or ""
-    )
-    if _match_list(location, icp.get("countries", [])):
+    if matches["location"]:
         score += 2
-
-    # Seniority
-    seniority = lead.get("seniority_level") or ""
-    if _match_list(seniority, icp.get("seniority_levels", [])):
+    if matches["seniority"]:
         score += 1
 
     return score
@@ -275,10 +292,19 @@ def classify_lead_by_icp(lead: Dict[str, Any], active_icps: Optional[List[Dict[s
         return "unknown"
 
     best_slug = "unknown"
-    best_score = 1  # minimum threshold = 2; start at 1 so we need at least 2 to win
+    best_score = 3  # minimum threshold = 4
 
     for icp in active_icps:
         s = score_lead_against_icp(lead, icp)
+        if s <= best_score:
+            continue
+
+        # Guardrail for Bimwave: do not classify as BIMwave unless AEC intent is explicit.
+        if icp.get("slug") == "bimwave":
+            matches = _collect_feature_matches(lead, icp)
+            if not (matches["title"] or matches["industry"]):
+                continue
+
         if s > best_score:
             best_score = s
             best_slug = icp["slug"]
