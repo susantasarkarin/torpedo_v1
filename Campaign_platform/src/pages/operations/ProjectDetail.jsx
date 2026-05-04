@@ -49,10 +49,11 @@ function ProjectDetail() {
       const matched = vendors.find((v) => v.vendorName === project.vendorName);
       if (matched) vid = matched.vid || "";
     }
-    const cc = project?.countryCode || "";
+    const cc = "[%CC%]";
+    const panel = "[%PANEL%]";
     // pid must be surveyNo (what /takesurvey resolves by), not the MongoDB _id
     const pid = project?.surveyNo || "";
-    return `${base}/takesurvey?api=false&vid=${vid || "{VID}"}&cc=${cc || "{CC}"}&pid=${pid || "{PID}"}&rid={RID}`;
+    return `${base}/takesurvey?api=false&vid=${vid || "{VID}"}&cc=${cc}&panel=${panel}&pid=${pid || "{PID}"}&rid=[%RID%]`;
   };
 
   const copyToClipboard = useCallback((text, fieldName) => {

@@ -2208,11 +2208,32 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
     try:
         if url_parameters_collection is None:
             raise HTTPException(status_code=500, detail="Database not connected")
+
+        def normalize_country_code(raw_value: Any) -> str:
+            """Return a normalized ISO2-like country code or empty string for placeholders."""
+            placeholder_tokens = {
+                "{CC}", "[CC]", "[%CC%]", "%CC%", "[CC%]", "{COUNTRY}", "[COUNTRY]"
+            }
+            value = str(raw_value or "").strip().upper()
+            if not value or value in placeholder_tokens:
+                return ""
+            if value == "GB":
+                return "UK"
+            return value
+
+        def normalize_panel_id(raw_value: Any) -> str:
+            placeholder_tokens = {
+                "{PANEL}", "[PANEL]", "[%PANEL%]", "%PANEL%", "[PANEL%]", "{PANELIST}", "[PANELIST]"
+            }
+            value = str(raw_value or "").strip()
+            if not value or value.upper() in placeholder_tokens:
+                return ""
+            return value[:50]
         
         # Extract traffic parameters
         params = data.get('params', {})
         vendor_id = params.get('vid', '')
-        country_code = params.get('cc', '')
+        country_code = normalize_country_code(params.get('cc', ''))
         _raw_rid = params.get('rid', '')
         # Detect unsubstituted CINT/Lucid variable placeholders (e.g. old entry links
         # that still use {RID} instead of [%RID%]).  Fall back to fedResponseID which
@@ -2223,7 +2244,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             respondent_id = params.get('fedResponseID') or params.get('fedresponseid') or _raw_rid or ''
         else:
             respondent_id = _raw_rid
-        panel_id = str(params.get('panel', '') or '').strip()[:50]
+        panel_id = normalize_panel_id(params.get('panel', ''))
         project_number = str(params.get('pid', '') or '').strip()
         api_flag = str(params.get('api', '') or '').strip().lower()
         is_project_adhoc_flow = api_flag == "false" and bool(project_number)
@@ -2254,7 +2275,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # Check if client provided IP (from browser-based collection)
         client_provided_ip = data.get('clientIp')
         client_ip_source = data.get('ipSource', 'unknown')
-        geo_ip_country = (data.get('ipCountry') or data.get('geoCountry') or "").lower().strip()
+        geo_ip_country = normalize_country_code(data.get('ipCountry') or data.get('geoCountry') or "")
 
         # Validate client-provided IP (accept both IPv4 and IPv6)
         def is_valid_ip(ip_str):
@@ -2315,13 +2336,17 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         ip_postal = (data.get('ipPostal') or '').strip()   # postal/zip from ipinfo.io
 
         # Build geo-based profile variables (US state/zip â†’ Lucid variable IDs 45/47)
-        effective_country = (geo_ip_country or country_code or "").upper()
+        effective_country = geo_ip_country or country_code
         geo_profiling_params = _build_geo_profiling_params(
             country_code=effective_country,
             ip_region=ip_region,
             ip_postal=ip_postal or zip_code,
             ip_city=ip_city,
         )
+
+        # If URL cc is missing/placeholder, use trusted geolocation country for routing.
+        if not country_code and effective_country:
+            country_code = effective_country
 
         cint_profiling_params = _derive_cint_profiling_params(
             birthday_day=birthday_day,
@@ -4003,6 +4028,8 @@ async def vendor_takesurvey(
     try:
         print(f"ðŸ“¥ /takesurvey hit: api={api}, pid={pid}, vid={vid}, cc={cc}, rid={rid}")
 
+        placeholder_tokens = {"{CC}", "[CC]", "[%CC%]", "%CC%", "[CC%]", "{COUNTRY}", "[COUNTRY]"}
+
         api_flag = str(api or "").strip().lower()
         # All traffic (both CPX/CINT api=true and project-based api=false&pid)
         # must go through the frontend parsing page first. The /api/store endpoint
@@ -4016,11 +4043,15 @@ async def vendor_takesurvey(
             if normalized_cc == "GB":
                 normalized_cc = "UK"
 
+            if normalized_cc in placeholder_tokens:
+                normalized_cc = ""
+
             if normalized_cc:
                 cc = normalized_cc
 
-            if not vid or not cc or not rid:
-                print("âŒ /takesurvey: Missing required params (vid, cc, rid)")
+            # cc can be inferred later from geo IP on /api/store when omitted by vendor.
+            if not vid or not rid:
+                print("âŒ /takesurvey: Missing required params (vid, rid)")
                 return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=missing_params")
 
             import os as _os
@@ -4239,11 +4270,20 @@ async def vendor_response_callback(
                 sep = "&" if "?" in redirect_url else "?"
                 redirect_url = f"{redirect_url}{sep}rid={respondent_id}"
 
-        panel_id = str(
+        def sanitize_panel_id(raw_value: Any) -> str:
+            placeholder_tokens = {
+                "{PANEL}", "[PANEL]", "[%PANEL%]", "%PANEL%", "[PANEL%]", "{PANELIST}", "[PANELIST]"
+            }
+            value = str(raw_value or "").strip()
+            if not value or value.upper() in placeholder_tokens:
+                return ""
+            return value[:50]
+
+        panel_id = sanitize_panel_id(
             traffic_record.get("panelId")
             or (traffic_record.get("params") or {}).get("panel")
             or ""
-        ).strip()
+        )
         if panel_id:
             sep = "&" if "?" in redirect_url else "?"
             redirect_url = f"{redirect_url}{sep}panel={panel_id}"

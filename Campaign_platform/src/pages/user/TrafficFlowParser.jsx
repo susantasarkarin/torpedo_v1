@@ -145,6 +145,27 @@ async function generateDeviceFingerprint() {
   return { hash: fallbackHash(), components };
 }
 
+const UNSUBSTITUTED_CC_TOKENS = new Set([
+  "{CC}",
+  "[CC]",
+  "[%CC%]",
+  "%CC%",
+  "[CC%]",
+  "{COUNTRY}",
+  "[COUNTRY]",
+]);
+
+function normalizeCountryCode(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (!normalized || UNSUBSTITUTED_CC_TOKENS.has(normalized)) {
+    return "";
+  }
+  if (normalized === "GB") {
+    return "UK";
+  }
+  return normalized;
+}
+
 export default function TrafficFlowParser() {
   const [urlParams, setUrlParams] = useState({});
   const [fullUrl, setFullUrl] = useState("");
@@ -253,12 +274,12 @@ export default function TrafficFlowParser() {
     
     // Check for required traffic parameters
     const vid = urlParams.vid;
-    const cc = urlParams.cc;
+    const ccFromUrl = normalizeCountryCode(urlParams.cc);
     const rid = urlParams.rid;
 
-    if (!vid || !cc || !rid) {
+    if (!vid || !rid) {
       isClickProcessingRef.current = false;  // Reset on validation failure
-      alert("Missing required parameters: vid (vendor ID), cc (country code), rid (respondent ID)\nExample: ?vid=123&cc=US&rid=456789");
+      alert("Missing required parameters: vid (vendor ID), rid (respondent ID)\nExample: ?vid=[%VID%]&cc=[%CC%]&panel=[%PANEL%]&rid=[%RID%]");
       return;
     }
 
@@ -316,6 +337,16 @@ export default function TrafficFlowParser() {
         }
       }
 
+      const effectiveCountryCode = normalizeCountryCode(
+        ccFromUrl || ipResult?.ipCountry || prefetchedIpRef.current?.ipCountry
+      );
+      if (!effectiveCountryCode) {
+        isClickProcessingRef.current = false;
+        setLoading(false);
+        setError("Unable to determine country code. Please reload and try again.");
+        return;
+      }
+
       console.log(`🔐 Device fingerprint: ${fingerprint?.hash?.substring(0, 20)}...`);
 
       // Generate unique transaction ID for this survey attempt
@@ -337,7 +368,10 @@ export default function TrafficFlowParser() {
         signal: controller.signal,
         body: JSON.stringify({
           url: fullUrl,
-          params: urlParams,
+          params: {
+            ...urlParams,
+            cc: effectiveCountryCode,
+          },
           userAgent: navigator.userAgent,
           // IP data from server-side prefetch (fast) or fallback
           clientIp: ipResult.ip || null,
@@ -376,7 +410,7 @@ export default function TrafficFlowParser() {
           if (window.dataLayer) {
             window.dataLayer.push({
               event: 'survey_allocated',
-              country: urlParams.cc,
+              country: effectiveCountryCode,
               vendor: urlParams.vid
             });
           }

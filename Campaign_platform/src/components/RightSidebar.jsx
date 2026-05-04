@@ -58,6 +58,30 @@ function RightSidebar() {
                     AI Database
                   </Link>
                 </li>
+                <li className={`sidebar-item ${isActive("/admin/sales/campaign/templates") ? "active" : ""}`}>
+                  <Link to="/admin/sales/campaign/templates" className="sidebar-link submenu-link">
+                    <span className="sidebar-icon">📝</span>
+                    Templates
+                  </Link>
+                </li>
+                <li className={`sidebar-item ${isActive("/admin/sales/campaign/workflow") ? "active" : ""}`}>
+                  <Link to="/admin/sales/campaign/workflow" className="sidebar-link submenu-link">
+                    <span className="sidebar-icon">🔄</span>
+                    Workflow
+                  </Link>
+                </li>
+                <li className={`sidebar-item ${isActive("/admin/sales/campaign/reports") ? "active" : ""}`}>
+                  <Link to="/admin/sales/campaign/reports" className="sidebar-link submenu-link">
+                    <span className="sidebar-icon">📊</span>
+                    Reports
+                  </Link>
+                </li>
+                <li className={`sidebar-item ${isActive("/admin/sales/campaign/outreach-monitor") ? "active" : ""}`}>
+                  <Link to="/admin/sales/campaign/outreach-monitor" className="sidebar-link submenu-link">
+                    <span className="sidebar-icon">📬</span>
+                    Outreach Monitor
+                  </Link>
+                </li>
                 <li className={`sidebar-item ${isActive("/admin/sales/campaign/email-patterns") ? "active" : ""}`}>
                   <Link to="/admin/sales/campaign/email-patterns" className="sidebar-link submenu-link">
                     <span className="sidebar-icon">📧</span>
