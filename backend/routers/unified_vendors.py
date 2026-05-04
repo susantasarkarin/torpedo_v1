@@ -4,7 +4,7 @@ Provides a combined view of panel vendors (Operations) and billing vendors (Fina
 """
 
 from fastapi import APIRouter, HTTPException, Query
-from typing import Optional
+from typing import Optional, List
 from bson import ObjectId
 from datetime import datetime
 from pymongo import MongoClient
