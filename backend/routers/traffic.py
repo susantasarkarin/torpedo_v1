@@ -4009,6 +4009,13 @@ async def vendor_takesurvey(
         # Serve the frontend parser page for all /takesurvey requests.
         # We serve index.html directly so the URL stays at /takesurvey (no redirect).
         if not is_project_flow:
+            normalized_cc = str(cc or "").strip().upper()
+            if normalized_cc == "GB":
+                normalized_cc = "UK"
+
+            if normalized_cc:
+                cc = normalized_cc
+
             if not vid or not cc or not rid:
                 print("âŒ /takesurvey: Missing required params (vid, cc, rid)")
                 return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=missing_params")
