@@ -2223,6 +2223,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
             respondent_id = params.get('fedResponseID') or params.get('fedresponseid') or _raw_rid or ''
         else:
             respondent_id = _raw_rid
+        panel_id = str(params.get('panel', '') or '').strip()[:50]
         project_number = str(params.get('pid', '') or '').strip()
         api_flag = str(params.get('api', '') or '').strip().lower()
         is_project_adhoc_flow = api_flag == "false" and bool(project_number)
@@ -2383,6 +2384,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         fingerprint_components=fingerprint_components,
                         email=user_email,
                         profiling_data=profiling_data,
+                        panel_id=panel_id,
                     )
                 else:
                     # Fallback to direct async insertion if service not updated yet
@@ -2418,6 +2420,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                     'userAgent': client_user_agent,
                     'deviceFingerprint': device_fingerprint,
                     'params': params or {},
+                    'panelId': panel_id,
                     'email': user_email,
                     'profilingData': profiling_data,
                 }
@@ -4235,6 +4238,15 @@ async def vendor_response_callback(
             if respondent_id:
                 sep = "&" if "?" in redirect_url else "?"
                 redirect_url = f"{redirect_url}{sep}rid={respondent_id}"
+
+        panel_id = str(
+            traffic_record.get("panelId")
+            or (traffic_record.get("params") or {}).get("panel")
+            or ""
+        ).strip()
+        if panel_id:
+            sep = "&" if "?" in redirect_url else "?"
+            redirect_url = f"{redirect_url}{sep}panel={panel_id}"
 
         print(f"âœ… /vendor-response: {new_status} â†’ {redirect_url}")
         return RedirectResponse(url=redirect_url)

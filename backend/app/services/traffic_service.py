@@ -47,7 +47,8 @@ class TrafficService:
         fingerprint_components: Dict[str, Any] = None,
         email: str = None,
         profiling_data: Dict[str, Any] = None,
-        source_origin: str = None
+        source_origin: str = None,
+        panel_id: str = None,
     ) -> str:
         """Create a new traffic record (Asynchronous)"""
         try:
@@ -69,6 +70,7 @@ class TrafficService:
                 "email": email,
                 "profilingData": profiling_data or {},
                 "sourceOrigin": source_origin,
+                "panelId": panel_id or "",
                 "assignedSurveyId": None,
                 "redirectUrl": None,
                 "outUrl": None,
@@ -104,7 +106,8 @@ class TrafficService:
         fingerprint_components: Dict[str, Any] = None,
         email: str = None,
         profiling_data: Dict[str, Any] = None,
-        source_origin: str = None
+        source_origin: str = None,
+        panel_id: str = None,
     ) -> str:
         """
         Create a new traffic record
@@ -146,6 +149,7 @@ class TrafficService:
                 "email": email,
                 "profilingData": profiling_data or {},
                 "sourceOrigin": source_origin,
+                "panelId": panel_id or "",
                 "assignedSurveyId": None,
                 "redirectUrl": None,
                 "outUrl": None,
