@@ -4,10 +4,11 @@ Provides a combined view of panel vendors (Operations) and billing vendors (Fina
 """
 
 from fastapi import APIRouter, HTTPException, Query
-from typing import List, Optional
+from typing import Optional
 from bson import ObjectId
 from datetime import datetime
 from pymongo import MongoClient
+from random import randint
 import os
 
 router = APIRouter(prefix="/api/vendors", tags=["Unified Vendors"])
@@ -31,6 +32,59 @@ def serialize_doc(doc):
     doc["_id"] = str(doc["_id"])
     return doc
 
+
+def _normalize_string(value) -> str:
+    return str(value or "").strip()
+
+
+def _generate_unique_vid() -> str:
+    """Generate a unique 4-digit VID for legacy vendors missing one."""
+    for _ in range(200):
+        candidate = str(randint(1000, 9999))
+        if not panel_vendors_collection.find_one({"vid": candidate}):
+            return candidate
+
+    # Deterministic fallback if random attempts collide repeatedly
+    seed = int(datetime.utcnow().timestamp() * 1000)
+    candidate = str((seed % 9000) + 1000)
+    while panel_vendors_collection.find_one({"vid": candidate}):
+        candidate = str(((int(candidate) - 1000 + 1) % 9000) + 1000)
+    return candidate
+
+
+def _ensure_vendor_identifiers(vendor: dict) -> dict:
+    """
+    Ensure vendors always have both vid and vendorNo/vendorNumber.
+    This heals old records that were created before these fields were enforced.
+    """
+    if not vendor:
+        return vendor
+
+    updates = {}
+
+    vid = _normalize_string(vendor.get("vid"))
+    if not vid:
+        vid = _generate_unique_vid()
+        updates["vid"] = vid
+
+    vendor_no = _normalize_string(vendor.get("vendorNo") or vendor.get("vendorNumber"))
+    if not vendor_no:
+        vendor_no = vid
+        updates["vendorNo"] = vendor_no
+        updates["vendorNumber"] = vendor_no
+    else:
+        if not _normalize_string(vendor.get("vendorNo")):
+            updates["vendorNo"] = vendor_no
+        if not _normalize_string(vendor.get("vendorNumber")):
+            updates["vendorNumber"] = vendor_no
+
+    if updates:
+        updates["updatedAt"] = datetime.utcnow().isoformat()
+        panel_vendors_collection.update_one({"_id": vendor["_id"]}, {"$set": updates})
+        vendor.update(updates)
+
+    return vendor
+
 # ========================
 # Panel Vendor CRUD (used by VendorsPage)
 # ========================
@@ -46,10 +100,23 @@ def list_panel_vendors(
     if search:
         import re
         pattern = re.compile(re.escape(search), re.IGNORECASE)
-        query = {"$or": [{"vendorName": pattern}, {"vendorEmail": pattern}]}
+        query = {
+            "$or": [
+                {"vendorName": pattern},
+                {"vendorEmail": pattern},
+                {"vendorVariable": pattern},
+                {"vendorType": pattern},
+                {"vid": pattern},
+                {"vendorNo": pattern},
+                {"vendorNumber": pattern},
+            ]
+        }
     total = panel_vendors_collection.count_documents(query)
     skip = (page - 1) * page_size
-    vendors = [serialize_doc(v) for v in panel_vendors_collection.find(query).skip(skip).limit(page_size)]
+    vendors = [
+        serialize_doc(_ensure_vendor_identifiers(v))
+        for v in panel_vendors_collection.find(query).skip(skip).limit(page_size)
+    ]
     import math
     pages = math.ceil(total / page_size) if total > 0 else 1
     return {"vendors": vendors, "total": total, "page": page, "page_size": page_size, "pages": pages}
@@ -58,6 +125,15 @@ def list_panel_vendors(
 @router.post("/")
 def create_panel_vendor(vendor_data: dict):
     """Create a new panel vendor"""
+    if not _normalize_string(vendor_data.get("vid")):
+        vendor_data["vid"] = _generate_unique_vid()
+
+    vendor_no = _normalize_string(vendor_data.get("vendorNo") or vendor_data.get("vendorNumber"))
+    if not vendor_no:
+        vendor_no = vendor_data["vid"]
+    vendor_data["vendorNo"] = vendor_no
+    vendor_data["vendorNumber"] = vendor_no
+
     vendor_data["createdAt"] = datetime.utcnow().isoformat()
     result = panel_vendors_collection.insert_one(vendor_data)
     created = panel_vendors_collection.find_one({"_id": result.inserted_id})
@@ -71,12 +147,26 @@ def update_panel_vendor(vendor_id: str, vendor_data: dict):
         oid = ObjectId(vendor_id)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid vendor ID")
+
+    existing = panel_vendors_collection.find_one({"_id": oid})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Vendor not found")
+
     vendor_data.pop("_id", None)
+    # Preserve existing identifiers unless explicitly changed to a non-empty value.
+    if "vid" in vendor_data and not _normalize_string(vendor_data.get("vid")):
+        vendor_data.pop("vid", None)
+    if "vendorNo" in vendor_data and not _normalize_string(vendor_data.get("vendorNo")):
+        vendor_data.pop("vendorNo", None)
+    if "vendorNumber" in vendor_data and not _normalize_string(vendor_data.get("vendorNumber")):
+        vendor_data.pop("vendorNumber", None)
+
     vendor_data["updatedAt"] = datetime.utcnow().isoformat()
     result = panel_vendors_collection.update_one({"_id": oid}, {"$set": vendor_data})
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Vendor not found")
+
+    # Safety for legacy records: fill any missing identifiers after update.
     updated = panel_vendors_collection.find_one({"_id": oid})
+    updated = _ensure_vendor_identifiers(updated)
     return serialize_doc(updated)
 
 
