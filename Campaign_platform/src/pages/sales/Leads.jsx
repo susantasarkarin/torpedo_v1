@@ -31,69 +31,42 @@ const LEAD_STATUS_STYLE = {
 const STATUS_OPTIONS = ["Positive", "Neutral", "Negative"]
 
 function LeadStatusBadge({ lead, sessionId, onUpdated }) {
-  const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const current = lead.lead_status || "Neutral"
   const s = LEAD_STATUS_STYLE[current] || LEAD_STATUS_STYLE.Neutral
 
-  const handleSelect = async (e, newStatus) => {
+  const handleChange = async (e) => {
     e.stopPropagation()
-    if (newStatus === current) { setOpen(false); return }
+    const newStatus = e.target.value
+    if (newStatus === current) return
     setSaving(true)
-    setOpen(false)
     try {
-      await fetch(buildApiUrl(`/leads/${lead._id}/status`), {
+      const res = await fetch(buildApiUrl(`/leads/${lead._id}/status`), {
         method: "PATCH",
         headers: { Authorization: sessionId, "Content-Type": "application/json" },
         body: JSON.stringify({ lead_status: newStatus }),
       })
-      onUpdated(lead._id, newStatus)
+      if (res.ok) onUpdated(lead._id, newStatus)
     } catch (_) {}
     finally { setSaving(false) }
   }
 
   return (
-    <div style={{ position: "relative", display: "inline-block" }} onClick={e => e.stopPropagation()}>
-      <button
-        onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+    <div style={{ display: "inline-block" }} onClick={e => e.stopPropagation()}>
+      <select
+        value={current}
+        onChange={handleChange}
         disabled={saving}
         style={{
-          display: "inline-flex", alignItems: "center", gap: 4,
-          padding: "2px 8px", borderRadius: 9999, fontSize: "0.72rem", fontWeight: 600,
+          padding: "2px 6px", borderRadius: 9999, fontSize: "0.72rem", fontWeight: 600,
           background: s.bg, color: s.color, border: `1px solid ${s.border}`,
-          cursor: "pointer", whiteSpace: "nowrap",
+          cursor: "pointer", appearance: "auto",
         }}
       >
-        {saving ? "…" : `${s.icon} ${current}`}
-        <span style={{ fontSize: "0.6rem", opacity: 0.7 }}>▾</span>
-      </button>
-      {open && (
-        <div style={{
-          position: "absolute", top: "100%", left: 0, zIndex: 100,
-          background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8,
-          boxShadow: "0 4px 12px rgba(0,0,0,0.12)", minWidth: 130, marginTop: 2,
-        }}>
-          {STATUS_OPTIONS.map(opt => {
-            const os = LEAD_STATUS_STYLE[opt]
-            return (
-              <button
-                key={opt}
-                onClick={e => handleSelect(e, opt)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  width: "100%", padding: "7px 12px", border: "none",
-                  background: opt === current ? "#f9fafb" : "#fff",
-                  cursor: "pointer", fontSize: "0.82rem", color: os.color,
-                  fontWeight: opt === current ? 700 : 400,
-                  borderBottom: "1px solid #f3f4f6",
-                }}
-              >
-                {os.icon} {opt}
-              </button>
-            )
-          })}
-        </div>
-      )}
+        {STATUS_OPTIONS.map(opt => (
+          <option key={opt} value={opt}>{LEAD_STATUS_STYLE[opt].icon} {opt}</option>
+        ))}
+      </select>
     </div>
   )
 }
@@ -172,7 +145,7 @@ function Leads() {
     if (!sessionId) return
     setSyncingReplies(true)
     try {
-      const res = await fetch(buildApiUrl("/cold-outreach/sync-replies-to-leads"), {
+      const res = await fetch(buildApiUrl("/api/cold-outreach/sync-replies-to-leads"), {
         method: "POST",
         headers: { Authorization: sessionId },
       })
@@ -336,7 +309,6 @@ function Leads() {
                 <th>Email Status</th>
                 <th>ICP Segment</th>
                 <th>Fit Tier</th>
-                <th>Persona</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -391,12 +363,6 @@ function Leads() {
                         </span>
                       )
                     })() : <span style={{ color: "#9ca3af", fontSize: "0.75rem" }}>—</span>}
-                  </td>
-                  {/* Persona */}
-                  <td>
-                    <span style={{ fontSize: "0.75rem", color: "#374151" }}>
-                      {lead.persona_label || lead.persona || "—"}
-                    </span>
                   </td>
                   {/* Lead Status */}
                   <td onClick={e => e.stopPropagation()}>
