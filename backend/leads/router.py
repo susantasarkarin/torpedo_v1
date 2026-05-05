@@ -1460,6 +1460,7 @@ async def get_leads_endpoint(
     basket: Optional[str] = None,
     bounce_recovery_status: Optional[str] = None,
     qualified_only: bool = Query(False, description="If true, show only Gmail contacts + outreach-replied leads"),
+    lead_status: Optional[str] = Query(None, description="Filter by lead status: Positive, Negative, Neutral"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200)
 ):
@@ -1472,6 +1473,7 @@ async def get_leads_endpoint(
                 Supports comma-separated values for multiple sources.
         qualified_only: When true, restrict results to Gmail contacts and
                         outreach-replied leads (used by the Sales Leads page).
+        lead_status: Filter by lead status (Positive, Negative, Neutral).
     """
     filters = LeadFilterParams(
         seniority_level=seniority_level,
@@ -1488,6 +1490,7 @@ async def get_leads_endpoint(
         basket=basket,
         bounce_recovery_status=bounce_recovery_status,
         qualified_only=qualified_only,
+        lead_status=lead_status,
         page=page,
         limit=limit
     )
@@ -2510,6 +2513,35 @@ async def get_enriched_lead_endpoint(lead_id: str):
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     return {"lead": lead}
+
+
+@router.patch("/{lead_id}/status")
+async def update_lead_status_endpoint(lead_id: str, data: dict = Body(...)):
+    """
+    PATCH /leads/{lead_id}/status
+    Update the lead_status field (Positive / Negative / Neutral).
+    Negative leads are excluded from all outreach communications.
+    """
+    from bson import ObjectId
+
+    VALID_STATUSES = {"Positive", "Negative", "Neutral"}
+    new_status = data.get("lead_status")
+    if new_status not in VALID_STATUSES:
+        raise HTTPException(status_code=400, detail=f"lead_status must be one of: {', '.join(sorted(VALID_STATUSES))}")
+
+    try:
+        obj_id = ObjectId(lead_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid lead ID format")
+
+    result = leads_enriched_collection.update_one(
+        {"_id": obj_id},
+        {"$set": {"lead_status": new_status, "updated_at": datetime.utcnow().isoformat()}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    return {"success": True, "lead_id": lead_id, "lead_status": new_status}
 
 
 @router.put("/enriched/{lead_id}")

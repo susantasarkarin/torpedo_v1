@@ -1047,6 +1047,8 @@ def _build_basket_enrollment_query(basket: str) -> Dict[str, Any]:
         "email": {"$exists": True, "$ne": ""},
         # Exclude leads whose email is already known to be bad — stops re-enrollment of bounced leads
         "email_status": {"$nin": ["bounced", "Bounced", "invalid", "Invalid", "hard_bounce"]},
+        # Exclude leads explicitly marked as Do Not Contact
+        "lead_status": {"$ne": "Negative"},
         "$or": clauses,
     }
 
@@ -1136,6 +1138,9 @@ def _enroll_basket_leads(campaign_id: str, basket: str):
             if (lead.get("email_status") or "").lower() in ("bounced", "invalid", "hard_bounce"):
                 skipped_suppressed += 1
                 continue
+            if (lead.get("lead_status") or "") == "Negative":
+                skipped_suppressed += 1
+                continue
             if email in enrolled_emails:
                 skipped_duplicate += 1
                 continue
@@ -1218,6 +1223,8 @@ def _enroll_dual_fit_leads(db, leads_db, suppressed_emails: set):
             if not email or email in suppressed_emails:
                 continue
             if (lead.get("email_status") or "").lower() in ("bounced", "invalid", "hard_bounce"):
+                continue
+            if (lead.get("lead_status") or "") == "Negative":
                 continue
 
             lead_id = str(lead.get("_id"))
@@ -1940,6 +1947,18 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         # Check suppression
         email = (lead_record.get("email") or "").lower().strip()
         if not email or db["outreach_bounce_suppression"].find_one({"email": email}):
+            db["outreach_leads_v2"].update_one(
+                {"_id": lead_record["_id"]},
+                {"$set": {"workflow_status": "suppressed", "updated_at": datetime.utcnow()}}
+            )
+            return False
+
+        # Check if the lead has been marked Negative (DNC) in leads_enriched
+        leads_db = get_leads_db()
+        enriched_lead = leads_db["leads_enriched"].find_one(
+            {"email": email}, {"lead_status": 1}
+        )
+        if enriched_lead and enriched_lead.get("lead_status") == "Negative":
             db["outreach_leads_v2"].update_one(
                 {"_id": lead_record["_id"]},
                 {"$set": {"workflow_status": "suppressed", "updated_at": datetime.utcnow()}}
@@ -2751,15 +2770,29 @@ def process_outreach_bounces_and_replies() -> dict:
                                 if reply_email:
                                     leads_db["leads_enriched"].update_one(
                                         {"email": reply_email},
-                                        {"$set": {
-                                            "source": "outreach_reply",
-                                            "stage": "new",
-                                            "outreach_replied_at": now,
-                                            "outreach_campaign_id": send.get("campaign_id"),
-                                            "reply_subject": subject[:200],
-                                            "reply_snippet": (body_text or "")[:300],
-                                            "updated_at": now,
-                                        }},
+                                        {
+                                            "$set": {
+                                                "source": "outreach_reply",
+                                                "stage": "new",
+                                                "outreach_replied_at": now,
+                                                "outreach_campaign_id": send.get("campaign_id"),
+                                                "reply_subject": subject[:200],
+                                                "reply_snippet": (body_text or "")[:300],
+                                                "updated_at": now,
+                                            },
+                                            "$setOnInsert": {
+                                                "email": reply_email,
+                                                "name": outreach_lead.get("name", ""),
+                                                "first_name": outreach_lead.get("first_name", ""),
+                                                "company_name": outreach_lead.get("company_name", ""),
+                                                "title": outreach_lead.get("title", ""),
+                                                "company_industry": outreach_lead.get("company_industry", ""),
+                                                "seniority_level": outreach_lead.get("seniority_level", ""),
+                                                "classification_basket": outreach_lead.get("classification_basket", ""),
+                                                "created_at": now,
+                                            },
+                                        },
+                                        upsert=True,
                                     )
                             except Exception:
                                 pass
@@ -2832,7 +2865,67 @@ def trigger_bounce_reply_scan():
     return {"ok": True, **result}
 
 
-@router.get("/campaigns/{campaign_id}/leads-by-status")
+@router.post("/sync-replies-to-leads")
+def sync_outreach_replies_to_leads():
+    """
+    POST /api/cold-outreach/sync-replies-to-leads
+    One-time / on-demand backfill: promote all outreach_leads_v2 records with
+    workflow_status='replied' into leads_enriched (upsert, source='outreach_reply').
+    Safe to call multiple times.
+    """
+    db = get_db()
+    leads_db = get_leads_db()
+    leads_enriched = leads_db["leads_enriched"]
+    outreach_leads = db["outreach_leads_v2"]
+
+    replied = list(outreach_leads.find({"workflow_status": "replied"}))
+    upserted = 0
+    skipped = 0
+
+    for ol in replied:
+        email = (ol.get("email") or "").lower().strip()
+        if not email:
+            skipped += 1
+            continue
+        now = datetime.utcnow()
+        result = leads_enriched.update_one(
+            {"email": email},
+            {
+                "$set": {
+                    "source": "outreach_reply",
+                    "stage": "new",
+                    "outreach_replied_at": ol.get("replied_at") or now,
+                    "outreach_campaign_id": ol.get("campaign_id"),
+                    "updated_at": now,
+                },
+                "$setOnInsert": {
+                    "email": email,
+                    "name": ol.get("name", ""),
+                    "first_name": ol.get("first_name", ""),
+                    "company_name": ol.get("company_name", ""),
+                    "title": ol.get("title", ""),
+                    "company_industry": ol.get("company_industry", ""),
+                    "seniority_level": ol.get("seniority_level", ""),
+                    "classification_basket": ol.get("classification_basket", ""),
+                    "created_at": now,
+                },
+            },
+            upsert=True,
+        )
+        if result.upserted_id or result.modified_count:
+            upserted += 1
+        else:
+            skipped += 1
+
+    return {
+        "ok": True,
+        "total_replied": len(replied),
+        "promoted": upserted,
+        "skipped": skipped,
+    }
+
+
+
 def get_leads_by_status(
     campaign_id: str,
     status: str = Query("all", description="Filter: all|opened|not_opened|bounced|replied|sent"),

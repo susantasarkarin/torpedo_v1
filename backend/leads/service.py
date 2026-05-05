@@ -564,7 +564,10 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
             {"title": {"$regex": filters.search, "$options": "i"}},
             {"industry": {"$regex": filters.search, "$options": "i"}}
         ]
-    
+
+    if getattr(filters, "lead_status", None):
+        query["lead_status"] = filters.lead_status
+
     total = leads_enriched_collection.count_documents(query)
     
     skip = (filters.page - 1) * filters.limit

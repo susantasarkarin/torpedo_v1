@@ -579,6 +579,7 @@ class LeadFilterParams(BaseModel):
     basket: Optional[str] = None
     bounce_recovery_status: Optional[str] = None  # Filter by bounce recovery status e.g. 'needs_human_intervention'
     qualified_only: bool = False  # If True, show only Gmail contacts + outreach-replied leads
+    lead_status: Optional[str] = None  # Filter by lead status: Positive, Negative, Neutral
     page: int = 1
     limit: int = 50
 
