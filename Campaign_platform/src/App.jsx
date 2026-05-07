@@ -76,6 +76,7 @@ const ProjectDetail = lazy(() => import("./pages/operations/ProjectDetail"))
 const SurveyPool = lazy(() => import("./pages/operations/surveyPool/SurveyPool"))
 const PotentialClients = lazy(() => import("./pages/operations/PotentialClients"))
 const RateCard = lazy(() => import("./pages/operations/RateCard"))
+const YieldManagement = lazy(() => import("./pages/operations/YieldManagement"))
 const TrafficManagement = lazy(() => import("./pages/operations/TrafficManagement"))
 const CPXCallbackLogs = lazy(() => import("./pages/operations/CPXCallbackLogs"))
 const AccountsPage = lazy(() => import("./pages/operations/AccountsPage"))
@@ -268,6 +269,7 @@ function App() {
         <Route path="operations/survey-pool" element={<LazyPage><SurveyPool /></LazyPage>} />
         <Route path="operations/potential-clients" element={<LazyPage><PotentialClients /></LazyPage>} />
         <Route path="operations/rate-card" element={<LazyPage><RateCard /></LazyPage>} />
+        <Route path="operations/yield-management" element={<LazyPage><YieldManagement /></LazyPage>} />
         <Route path="operations/traffic" element={<LazyPage><TrafficManagement /></LazyPage>} />
         <Route path="operations/reports" element={<LazyPage><CPXCallbackLogs /></LazyPage>} />
         <Route path="operations/qre" element={<LazyPage><QREPage /></LazyPage>} />

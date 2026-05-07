@@ -83,26 +83,79 @@ _cint_metrics_cache: Dict[str, dict] = {}  # survey_id â†’ {allocations, co
 _cint_metrics_cache_ts: float = 0.0
 _CINT_METRICS_CACHE_TTL = 120  # refresh every 2 minutes
 
+# -- CINT per-buyer stats cache -------------------------------------------
+_cint_buyer_stats_cache: Dict[str, dict] = {}  # buyer_name -> stats
+_cint_buyer_stats_cache_ts: float = 0.0
+_CINT_BUYER_STATS_CACHE_TTL = 300  # refresh every 5 minutes
+
 
 def _refresh_cint_metrics_cache():
-    """Bulk-read cint_metrics into memory. Called lazily by the scoring function."""
+    """Bulk-read cint_metrics (+ join cint_surveys for enrichment) into memory."""
     global _cint_metrics_cache, _cint_metrics_cache_ts
     from pymongo import MongoClient as _MC
     try:
-        uri = os.getenv("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
+        uri = os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
         client = _MC(uri, serverSelectionTimeoutMS=3000)
         col = client["cint_research"]["cint_metrics"]
-        docs = col.find({}, {"survey_id": 1, "allocations": 1, "completions": 1,
-                             "terminations": 1, "last_allocation": 1, "last_completion": 1})
+        docs = col.find({}, {
+            "survey_id": 1, "allocations": 1, "completions": 1,
+            "terminations": 1, "entrants_n": 1, "quality_term_n": 1,
+            "overquota_n": 1, "current_active_entrants": 1,
+            "internal_conversion": 1, "functional_conversion": 1,
+            "survey_status": 1, "deactivated_at": 1, "global_conv_at_deactivation": 1,
+            "buyer_name": 1, "tloi": 1,
+            "last_allocation": 1, "last_completion": 1,
+        })
         new_cache = {}
         for doc in docs:
             sid = str(doc.get("survey_id", ""))
             if sid:
                 new_cache[sid] = doc
+        if new_cache:
+            survey_ids_int = [int(k) for k in new_cache if k.isdigit()]
+            surveys_col = client["cint_research"]["cint_surveys"]
+            for sdoc in surveys_col.find(
+                {"survey_id": {"$in": survey_ids_int}},
+                {"survey_id": 1, "total_remaining": 1, "conversion": 1,
+                 "account_name": 1, "termination_length_of_interview": 1},
+            ):
+                sid = str(sdoc.get("survey_id", ""))
+                if sid in new_cache:
+                    new_cache[sid].setdefault("total_remaining", sdoc.get("total_remaining") or 0)
+                    new_cache[sid].setdefault("global_conv", sdoc.get("conversion") or 0)
+                    new_cache[sid].setdefault("buyer_name", sdoc.get("account_name") or "")
+                    if new_cache[sid].get("tloi") is None:
+                        new_cache[sid]["tloi"] = sdoc.get("termination_length_of_interview")
         _cint_metrics_cache = new_cache
         _cint_metrics_cache_ts = time.time()
     except Exception as exc:
-        print(f"âš ï¸ cint_metrics cache refresh failed: {exc}")
+        print(f"cint_metrics cache refresh failed: {exc}")
+
+
+def _refresh_buyer_stats_cache():
+    """Bulk-read cint_buyer_stats into memory."""
+    global _cint_buyer_stats_cache, _cint_buyer_stats_cache_ts
+    from pymongo import MongoClient as _MC
+    try:
+        uri = os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
+        client = _MC(uri, serverSelectionTimeoutMS=3000)
+        col = client["cint_research"]["cint_buyer_stats"]
+        new_cache = {}
+        for doc in col.find({}, {"buyer_name": 1, "total_sessions": 1, "total_completes": 1, "conversion_rate": 1}):
+            name = doc.get("buyer_name", "")
+            if name:
+                new_cache[name] = doc
+        _cint_buyer_stats_cache = new_cache
+        _cint_buyer_stats_cache_ts = time.time()
+    except Exception as exc:
+        print(f"cint_buyer_stats cache refresh failed: {exc}")
+
+
+def _get_buyer_stats(buyer_name: str) -> Optional[dict]:
+    """Get cached buyer stats. Refreshes cache if stale."""
+    if time.time() - _cint_buyer_stats_cache_ts > _CINT_BUYER_STATS_CACHE_TTL:
+        _refresh_buyer_stats_cache()
+    return _cint_buyer_stats_cache.get(buyer_name)
 
 
 def _get_cint_metrics(survey_id: str) -> Optional[dict]:
@@ -486,12 +539,9 @@ def _apply_cint_quality_filter(surveys: list, respondent_age: Optional[int] = No
     """
     Filter an offerwall survey list by IR/conversion quality floors and optional age qualification.
 
-    Uses env vars MIN_CINT_IR (default 20, percent) and MIN_CINT_CONVERSION (default 0.15).
-    Age pre-screening works against survey_qualifications[question_id==42].precodes â€” this data
-    is only available once a Feed Opportunities webhook subscription is active; if absent the
-    age filter is skipped (no penalty for surveys without qualification data).
-
-    Falls back gracefully: strict(quality+age) â†’ age-only â†’ quality-only â†’ unfiltered.
+    Falls back gracefully: strict(quality+age) -> age+CPI -> quality-only.
+    Pass 4 (fully unfiltered) is intentionally omitted -- sending traffic to surveys below all
+    quality floors damages panel quality and conversion metrics.
     """
     min_ir = int(os.getenv("MIN_CINT_IR", "15"))
     min_conv = float(os.getenv("MIN_CINT_CONVERSION", "0.10"))
@@ -499,9 +549,14 @@ def _apply_cint_quality_filter(surveys: list, respondent_age: Optional[int] = No
 
     def _passes_quality(s: dict) -> bool:
         ir = float(s.get("IR") or s.get("BidIncidence") or 0)
-        conv = float(s.get("Conversion") or 1.0)  # default 1.0 when absent â€” no conversion penalty
+        conv = float(s.get("Conversion") or 1.0)  # default 1.0 when absent -- no conversion penalty
         cpi = float(s.get("CPI") or s.get("payout") or 0)
         return ir >= min_ir and conv >= min_conv and cpi >= min_cpi
+
+    def _passes_cpi(s: dict) -> bool:
+        """Minimal CPI floor -- always enforced even in relaxed passes."""
+        cpi = float(s.get("CPI") or s.get("payout") or 0)
+        return cpi >= min_cpi
 
     def _passes_age(s: dict) -> bool:
         """Filter by survey_qualifications age precode (question_id 42). Skip if no qual data."""
@@ -516,67 +571,104 @@ def _apply_cint_quality_filter(surveys: list, respondent_age: Optional[int] = No
         return True
 
     total = len(surveys)
-    print(f"   ðŸ“Š CINT quality filter: {total} input surveys, thresholds IRâ‰¥{min_ir}% convâ‰¥{min_conv} CPIâ‰¥${min_cpi}, age={respondent_age}")
+    print(f"   CINT quality filter: {total} input surveys, thresholds IR>={min_ir}% conv>={min_conv} CPI>=${min_cpi}, age={respondent_age}")
 
-    # Pass 1 â€” strict: quality + age
+    # Pass 1 -- strict: quality + age
     strict = [s for s in surveys if _passes_quality(s) and _passes_age(s)]
     if strict:
-        print(f"   âœ… CINT filter pass 1 (strict): {len(strict)}/{total} candidates")
+        print(f"   CINT filter pass 1 (strict): {len(strict)}/{total} candidates")
         return strict
 
-    # Pass 2 â€” relax quality floor, keep age constraint
+    # Pass 2 -- relax IR/conv floors, keep CPI floor + age constraint
     if respondent_age is not None:
-        age_only = [s for s in surveys if _passes_age(s)]
-        if age_only:
-            print(f"   âš ï¸ CINT filter pass 2 (age-only): {len(age_only)}/{total} candidates (quality floors relaxed)")
-            return age_only
+        age_cpi = [s for s in surveys if _passes_cpi(s) and _passes_age(s)]
+        if age_cpi:
+            print(f"   CINT filter pass 2 (age+CPI): {len(age_cpi)}/{total} candidates (IR/conv floors relaxed)")
+            return age_cpi
 
-    # Pass 3 â€” keep quality floor, drop age constraint
+    # Pass 3 -- keep quality floor, drop age constraint
     quality_only = [s for s in surveys if _passes_quality(s)]
     if quality_only:
-        print(f"   âš ï¸ CINT filter pass 3 (quality-only): {len(quality_only)}/{total} candidates (age constraint dropped)")
+        print(f"   CINT filter pass 3 (quality-only): {len(quality_only)}/{total} candidates (age constraint dropped)")
         return quality_only
 
-    # Pass 4 â€” unfiltered fallback
-    print(f"   âš ï¸ CINT filter pass 4 (unfiltered): all {total} candidates below all floors â€” using full pool")
-    return surveys
-
+    # No surveys pass any floor -- return empty (do NOT fall back to unfiltered pool)
+    print(f"   CINT filter: 0/{total} surveys pass quality floors -- no candidates (refusing unfiltered fallback)")
+    return []
 
 def _score_cint_survey(survey: dict, respondent_age: Optional[int] = None) -> float:
     """Score a CINT survey for smart ordering (higher = better completion chance).
 
-    Factors:
-      - Conversion / IR / RPC / TotalRemaining (from CINT offerwall API)
-      - LOI penalty
-      - Age-match bonus
-      - **Actual completion rate** from our own cint_metrics (if enough data)
+    Weights (configurable via env vars):
+      - Functional conversion (45): global until 20 internal sessions, then internal
+      - RPCM = RPC / LOI (25): revenue per respondent-minute
+      - CPI (15): absolute payout value
+      - LOI penalty (-10): penalize long surveys
+      - TLOI penalty (-5): penalize surveys with late terminations (TLOI > 50% of LOI)
+      - Buyer score (+5): bonus for historically high-converting buyers
+      - Age-match bonus (+5): additional boost when age precodes match respondent
     """
-    conv = float(survey.get("Conversion") or 0)
-    ir = float(survey.get("IR") or survey.get("BidIncidence") or 0)
-    rpc = float(survey.get("RevenuePerClick") or survey.get("RPC") or 0)
-    remaining = int(survey.get("TotalRemaining") or 0)
     loi = float(survey.get("LengthOfInterview") or survey.get("LOI") or survey.get("BidLengthOfInterview") or 10)
+    rpc = float(survey.get("RevenuePerClick") or survey.get("RPC") or 0)
+    cpi = float(survey.get("CPI") or survey.get("payout") or 0)
+    global_conv = float(survey.get("Conversion") or 0)
 
-    w_conv = float(os.getenv("CINT_SCORE_W_CONV", "40"))
-    w_ir = float(os.getenv("CINT_SCORE_W_IR", "25"))
-    w_rpc = float(os.getenv("CINT_SCORE_W_RPC", "15"))
-    w_remaining = float(os.getenv("CINT_SCORE_W_REMAINING", "20"))
-    w_loi = float(os.getenv("CINT_SCORE_W_LOI", "10"))
+    survey_num = str(survey.get("SurveyNumber") or "")
+    metrics = _get_cint_metrics(survey_num) if survey_num else None
 
-    conv_score = min(conv, 1.0)
-    ir_score = min(ir / 100.0, 1.0)
-    rpc_score = min(rpc / 2.0, 1.0)
-    remaining_score = min(remaining / 500.0, 1.0)
-    loi_penalty = min(loi / 30.0, 1.0)
+    # Fast-path: surveys marked inactive are guaranteed excluded from routing
+    if metrics and metrics.get("survey_status") == "inactive":
+        return -999.0
+
+    # -- Functional conversion ------------------------------------------------
+    # Use internal_conversion once >=20 qualifying sessions; else use global API data
+    functional_conv = global_conv
+    if metrics:
+        internal_conv = metrics.get("internal_conversion")
+        if internal_conv is not None:
+            functional_conv = internal_conv
+
+    # -- RPCM = Revenue Per Click / LOI ---------------------------------------
+    rpcm = rpc / max(loi, 1.0)
+
+    # -- Scoring weights (configurable via env vars) --------------------------
+    w_conv  = float(os.getenv("CINT_SCORE_W_CONV",  "45"))
+    w_rpcm  = float(os.getenv("CINT_SCORE_W_RPCM",  "25"))
+    w_cpi   = float(os.getenv("CINT_SCORE_W_CPI",   "15"))
+    w_loi   = float(os.getenv("CINT_SCORE_W_LOI",   "10"))
+    w_tloi  = float(os.getenv("CINT_SCORE_W_TLOI",   "5"))
+    w_buyer = float(os.getenv("CINT_SCORE_W_BUYER",  "5"))
+
+    conv_score  = min(functional_conv, 1.0)
+    rpcm_score  = min(rpcm / 0.20, 1.0)   # normalize: $0.20/min = full score
+    cpi_score   = min(cpi / 5.0,  1.0)    # normalize: $5 CPI = full score
+    loi_penalty = min(loi / 30.0, 1.0)    # normalize: 30+ min = full penalty
+
+    # TLOI penalty: median term time > 50% of LOI signals late terminations
+    tloi_penalty = 0.0
+    if metrics:
+        tloi = metrics.get("tloi")
+        if tloi and tloi > 0 and loi > 0 and (tloi / loi) > 0.5:
+            tloi_penalty = min(tloi / loi, 1.0)
+
+    # Buyer score: rolling conversion from cint_buyer_stats cache
+    buyer_bonus = 0.0
+    buyer_name = (metrics.get("buyer_name") or "") if metrics else ""
+    if buyer_name:
+        buyer_stats = _get_buyer_stats(buyer_name)
+        if buyer_stats:
+            buyer_bonus = min(buyer_stats.get("conversion_rate", 0), 1.0)
 
     score = (
-        w_conv * conv_score
-        + w_ir * ir_score
-        + w_rpc * rpc_score
-        + w_remaining * remaining_score
-        - w_loi * loi_penalty
+        w_conv  * conv_score
+        + w_rpcm  * rpcm_score
+        + w_cpi   * cpi_score
+        - w_loi   * loi_penalty
+        - w_tloi  * tloi_penalty
+        + w_buyer * buyer_bonus
     )
 
+    # Age-match bonus
     if respondent_age is not None:
         for q in (survey.get("survey_qualifications") or []):
             qid = q.get("question_id") or q.get("QuestionID")
@@ -586,33 +678,7 @@ def _score_cint_survey(survey: dict, respondent_age: Optional[int] = None) -> fl
                     score += 5.0
                 break
 
-    # â”€â”€ Actual completion-rate feedback from cint_metrics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    survey_num = str(survey.get("SurveyNumber") or "")
-    min_alloc_for_rate = int(os.getenv("MIN_CINT_ALLOC_FOR_ACTUAL_RATE", "10"))
-    w_actual_cr = float(os.getenv("CINT_SCORE_W_ACTUAL_CR", "30"))
-
-    metrics = _get_cint_metrics(survey_num) if survey_num else None
-    if metrics:
-        allocs = metrics.get("allocations", 0)
-        completes = metrics.get("completions", 0)
-        if allocs >= min_alloc_for_rate:
-            actual_cr = completes / allocs
-            # Normalize: 50%+ completion rate = full bonus
-            score += w_actual_cr * min(actual_cr / 0.5, 1.0)
-
-            # Stale bad survey penalty: if proven bad (< 5% CR) and not recently
-            # allocated (> 1hr), halve the total score to deprioritize it.
-            last_alloc = metrics.get("last_allocation")
-            if actual_cr < 0.05 and last_alloc:
-                try:
-                    age_secs = (datetime.utcnow() - last_alloc).total_seconds()
-                    if age_secs > 3600:
-                        score *= 0.5
-                except Exception:
-                    pass
-
     return score
-
 
 async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, respondent_age: Optional[int] = None) -> list:
     """
@@ -1103,8 +1169,19 @@ async def create_cint_entry_link(
             )
             if profiling_params:
                 print(f"   CINT profiling params passed: {profiling_params}")
-            print(f"   ðŸ”— CINT entry link (signed): {entry_url}")
-            
+            print(f"   CINT entry link (signed): {entry_url}")
+
+            # Pacing: increment active entrants counter
+            try:
+                _pacing_col = get_async_collection("cint_research", "cint_metrics")
+                await _pacing_col.update_one(
+                    {"survey_id": str(survey_id)},
+                    {"$inc": {"current_active_entrants": 1}},
+                    upsert=True,
+                )
+            except Exception:
+                pass  # non-critical
+
             # CRITICAL: Store the hashed PID in the traffic record so /cint-response
             # can look up the record when CINT sends [%PID%] back in the callback URL.
             # Without this, all respondents stay INCOMPLETE forever.
@@ -1191,7 +1268,17 @@ async def get_random_cint_fallback_link(traffic_record: dict, traffic_id: str) -
         survey_id = None
         entry_link = None
         for sid in top_candidates:
-            print(f"   ðŸŽ¯ CINT fallback: Trying scored survey {sid} (top {top_candidates.index(sid)+1} of {len(top_candidates)})")
+            # Pacing check: skip if survey is at quota cap
+            _m = _get_cint_metrics(sid)
+            if _m:
+                _active = max(_m.get("current_active_entrants", 0), 0)
+                _remaining = max(_m.get("total_remaining", 9999) or 9999, 1)
+                _sys_conv = max(_m.get("functional_conversion") or _m.get("internal_conversion") or 0.10, 0.05)
+                _pacing_cap = _remaining / _sys_conv
+                if _active >= _pacing_cap:
+                    print(f"   CINT pacing: survey {sid} at cap ({_active:.0f}>={_pacing_cap:.0f}) -- skipping")
+                    continue
+            print(f"   CINT fallback: Trying survey {sid} (top {top_candidates.index(sid)+1} of {len(top_candidates)})")
             link = await create_cint_entry_link(
                 sid,
                 traffic_id,
@@ -1202,7 +1289,7 @@ async def get_random_cint_fallback_link(traffic_record: dict, traffic_id: str) -
                 survey_id = sid
                 entry_link = link
                 break
-            print(f"   âš ï¸ CINT fallback: Entry link failed for survey {sid}, trying next")
+            print(f"   CINT fallback: Entry link failed for survey {sid}, trying next")
         
         if not entry_link:
             print(f"   âŒ CINT fallback: Failed to create entry link for top-{len(top_candidates)} surveys")
@@ -1527,26 +1614,109 @@ async def cint_callback(
             {"$set": update_fields}
         )
 
-        # Record completion / termination in cint_metrics for weighted allocation
+        # Enhanced metrics tracking (yield management best practices)
         _cint_sid = survey_id or traffic_record.get("currentCintSurveyId")
         if _cint_sid:
             try:
+                _sid_str = str(_cint_sid)
+                _sid_int = int(_cint_sid) if str(_cint_sid).isdigit() else None
                 _metrics_col = get_async_collection("cint_research", "cint_metrics")
+                _surveys_col = get_async_collection("cint_research", "cint_surveys")
+                _buyer_stats_col = get_async_collection("cint_research", "cint_buyer_stats")
+                now = datetime.utcnow()
+
+                # Bucket outcomes separately so quality_terminate is excluded from conversion calc
                 if new_status == "COMPLETE":
-                    await _metrics_col.update_one(
-                        {"survey_id": str(_cint_sid)},
-                        {"$inc": {"completions": 1}, "$set": {"last_completion": datetime.utcnow()}},
-                        upsert=True,
+                    inc_fields = {"completions": 1, "entrants_n": 1}
+                    set_fields = {"last_completion": now}
+                elif new_status == "QUALITY_TERM":
+                    # Cint Survey Protection Services -- exclude from conversion calculation
+                    inc_fields = {"quality_term_n": 1}
+                    set_fields = {}
+                elif new_status == "OVERQUOTA":
+                    inc_fields = {"overquota_n": 1, "entrants_n": 1}
+                    set_fields = {}
+                else:  # TERMINATED
+                    inc_fields = {"terminations": 1, "entrants_n": 1}
+                    set_fields = {}
+
+                # Always decrement active entrants for pacing (min 0 enforced at read time)
+                inc_fields["current_active_entrants"] = -1
+
+                # Look up survey for buyer name, global conversion, and TLOI
+                survey_filter = {"survey_id": _sid_int} if _sid_int else {"survey_id": _cint_sid}
+                survey_doc = await _surveys_col.find_one(
+                    survey_filter,
+                    {"account_name": 1, "conversion": 1, "termination_length_of_interview": 1}
+                )
+                account_name = (survey_doc or {}).get("account_name", "")
+                global_conv_val = float((survey_doc or {}).get("conversion") or 0)
+                tloi_val = (survey_doc or {}).get("termination_length_of_interview")
+
+                if account_name:
+                    set_fields["buyer_name"] = account_name
+                if tloi_val is not None:
+                    set_fields["tloi"] = tloi_val
+
+                update_op: dict = {"$inc": inc_fields}
+                if set_fields:
+                    update_op["$set"] = set_fields
+                await _metrics_col.update_one({"survey_id": _sid_str}, update_op, upsert=True)
+
+                # Recompute functional_conversion and survey_status after update
+                updated = await _metrics_col.find_one({"survey_id": _sid_str})
+                if updated:
+                    entrants = max(updated.get("entrants_n", 0), 0)
+                    completes = max(updated.get("completions", 0), 0)
+                    current_survey_status = updated.get("survey_status", "testing")
+                    if entrants >= 20:
+                        internal_conv_val = (completes / entrants) if entrants > 0 else 0.0
+                        status_update: dict = {
+                            "internal_conversion": round(internal_conv_val, 4),
+                            "functional_conversion": round(internal_conv_val, 4),
+                        }
+                        if internal_conv_val < 0.05 and current_survey_status != "inactive":
+                            status_update["survey_status"] = "inactive"
+                            status_update["deactivated_at"] = now
+                            status_update["global_conv_at_deactivation"] = global_conv_val
+                            print(f"   CINT YIELD: Survey {_sid_str} auto-marked INACTIVE (conv={internal_conv_val:.1%} after {entrants} sessions)")
+                        elif internal_conv_val >= 0.05 and current_survey_status == "testing":
+                            status_update["survey_status"] = "active"
+                        await _metrics_col.update_one(
+                            {"survey_id": _sid_str},
+                            {"$set": status_update}
+                        )
+                    elif entrants > 0 and current_survey_status not in ("active", "inactive"):
+                        # Testing phase -- use global API conversion as functional placeholder
+                        await _metrics_col.update_one(
+                            {"survey_id": _sid_str},
+                            {"$set": {
+                                "survey_status": "testing",
+                                "functional_conversion": round(global_conv_val, 4),
+                            }}
+                        )
+
+                # Buyer stats tracking (exclude quality_terminate from buyer stats)
+                if account_name and new_status in ("COMPLETE", "TERMINATED", "OVERQUOTA"):
+                    buyer_inc_fields = {"total_sessions": 1}
+                    if new_status == "COMPLETE":
+                        buyer_inc_fields["total_completes"] = 1
+                    await _buyer_stats_col.update_one(
+                        {"buyer_name": account_name},
+                        {"$inc": buyer_inc_fields, "$set": {"last_updated": now}},
+                        upsert=True
                     )
-                else:
-                    # TERMINATED / OVERQUOTA / QUALITY_TERM
-                    await _metrics_col.update_one(
-                        {"survey_id": str(_cint_sid)},
-                        {"$inc": {"terminations": 1}},
-                        upsert=True,
-                    )
-            except Exception:
-                pass  # non-critical
+                    # Recompute rolling conversion rate for buyer
+                    buyer_doc = await _buyer_stats_col.find_one({"buyer_name": account_name})
+                    if buyer_doc:
+                        b_sessions = max(buyer_doc.get("total_sessions", 1), 1)
+                        b_completes = buyer_doc.get("total_completes", 0)
+                        await _buyer_stats_col.update_one(
+                            {"buyer_name": account_name},
+                            {"$set": {"conversion_rate": round(b_completes / b_sessions, 4)}}
+                        )
+            except Exception as _yield_err:
+                print(f"   cint_metrics yield update error (non-critical): {_yield_err}")
         
         # Helper: resolve vendor from vendor_id (try int and string variants)
         async def _get_vendor(vid):

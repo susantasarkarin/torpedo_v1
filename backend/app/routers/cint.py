@@ -2107,3 +2107,210 @@ async def diagnostic_check(cint_service = Depends(get_cint_service)):
         logger.error(f"Diagnostic check failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Diagnostic failed: {str(e)}")
 
+
+# =============================================================================
+# YIELD MANAGEMENT ENDPOINTS
+# =============================================================================
+
+
+@router.get('/yield-dashboard')
+async def get_yield_dashboard(
+    country_code: Optional[str] = Query(None, description='Filter by country code'),
+    status: Optional[str] = Query(None, description='Filter by survey_status: active|inactive|testing'),
+):
+    """Yield management dashboard: ranked list of surveys with conversion metrics."""
+    cint_service = _cint_service
+    if cint_service is None:
+        raise HTTPException(status_code=503, detail="Cint service not available")
+
+    try:
+        survey_query: dict = {}
+        if country_code:
+            survey_query["country_code"] = country_code.upper()
+
+        surveys_col = cint_service.cint_surveys_collection
+        from database import get_async_collection
+        metrics_col = get_async_collection("cint_research", "cint_metrics")
+
+        surveys_list = list(surveys_col.find(survey_query, {
+            "survey_id": 1, "account_name": 1, "length_of_interview": 1,
+            "termination_length_of_interview": 1, "revenue_per_click": 1,
+            "conversion": 1, "total_remaining": 1, "is_live": 1,
+            "country_code": 1, "payout": 1, "updated_at": 1,
+        }))
+
+        if not surveys_list:
+            return {"surveys": [], "total": 0}
+
+        survey_ids = [str(s["survey_id"]) for s in surveys_list]
+        metrics_docs = {}
+        async for doc in metrics_col.find({"survey_id": {"$in": survey_ids}}):
+            metrics_docs[str(doc["survey_id"])] = doc
+
+        result = []
+        for s in surveys_list:
+            sid = str(s["survey_id"])
+            m = metrics_docs.get(sid, {})
+            survey_status = m.get("survey_status", "testing")
+
+            if status and survey_status != status:
+                continue
+
+            global_conv = float(s.get("conversion") or 0)
+            internal_conv = m.get("internal_conversion")
+            functional_conv = internal_conv if (internal_conv is not None and m.get("entrants_n", 0) >= 20) else global_conv
+            loi = float(s.get("length_of_interview") or 0)
+            rpc = float(s.get("revenue_per_click") or 0)
+            cpi = float(s.get("payout") or 0)
+            rpcm = rpc / max(loi, 1)
+            tloi = s.get("termination_length_of_interview")
+            total_remaining = int(s.get("total_remaining") or 0)
+            entrants_n = int(m.get("entrants_n") or 0)
+            completes = int(m.get("completions") or 0)
+            deactivated_at_raw = m.get("deactivated_at")
+            deactivated_at = deactivated_at_raw.isoformat() if deactivated_at_raw else None
+            global_conv_at_deactivation = m.get("global_conv_at_deactivation")
+
+            eligible_for_review = False
+            if survey_status == "inactive" and global_conv_at_deactivation is not None:
+                eligible_for_review = (global_conv - global_conv_at_deactivation) > 0.10
+
+            updated_at_val = s.get("updated_at", "")
+            updated_at_str = updated_at_val.isoformat() if hasattr(updated_at_val, "isoformat") else str(updated_at_val)
+
+            result.append({
+                "survey_id": sid,
+                "account_name": s.get("account_name", ""),
+                "country_code": s.get("country_code", ""),
+                "loi": loi,
+                "tloi": tloi,
+                "cpi": cpi,
+                "rpc": rpc,
+                "rpcm": round(rpcm, 4),
+                "global_conv": round(global_conv, 4),
+                "internal_conv": round(internal_conv, 4) if internal_conv is not None else None,
+                "functional_conv": round(functional_conv, 4),
+                "total_remaining": total_remaining,
+                "entrants_n": entrants_n,
+                "completes_n": completes,
+                "quality_term_n": int(m.get("quality_term_n") or 0),
+                "overquota_n": int(m.get("overquota_n") or 0),
+                "survey_status": survey_status,
+                "deactivated_at": deactivated_at,
+                "global_conv_at_deactivation": round(global_conv_at_deactivation, 4) if global_conv_at_deactivation is not None else None,
+                "eligible_for_review": eligible_for_review,
+                "is_live": bool(s.get("is_live", False)),
+                "updated_at": updated_at_str,
+            })
+
+        result.sort(key=lambda x: (-x["functional_conv"], x["loi"]))
+        for i, row in enumerate(result):
+            row["rank"] = i + 1
+
+        return {"surveys": result, "total": len(result)}
+
+    except Exception as e:
+        logger.error(f"yield-dashboard error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get('/buyer-stats')
+async def get_buyer_stats():
+    """Return rolling conversion stats per Cint buyer (account_name)."""
+    try:
+        from database import get_async_collection
+        col = get_async_collection("cint_research", "cint_buyer_stats")
+        buyers = []
+        async for doc in col.find({}, {"_id": 0}):
+            buyers.append(doc)
+        buyers.sort(key=lambda x: x.get("conversion_rate", 0), reverse=True)
+        return {"buyers": buyers, "total": len(buyers)}
+    except Exception as e:
+        logger.error(f"buyer-stats error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get('/yield-thresholds')
+async def get_yield_thresholds():
+    """Return current yield threshold config."""
+    try:
+        from database import get_async_collection
+        col = get_async_collection("torpedo_settings", "app_settings")
+        doc = await col.find_one({"_id": "yield_thresholds"}, {"_id": 0})
+        if doc is None:
+            return {
+                "global": {"inactive_conv_threshold": 0.05, "min_ir": 15, "min_cpi": 0.75},
+                "countries": {}
+            }
+        return doc
+    except Exception as e:
+        logger.error(f"get yield-thresholds error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put('/yield-thresholds')
+async def update_yield_thresholds(body: Dict[str, Any] = Body(...)):
+    """Update yield threshold config. Merges provided fields."""
+    try:
+        from database import get_async_collection
+        col = get_async_collection("torpedo_settings", "app_settings")
+        await col.update_one(
+            {"_id": "yield_thresholds"},
+            {"$set": body},
+            upsert=True,
+        )
+        updated = await col.find_one({"_id": "yield_thresholds"}, {"_id": 0})
+        return {"ok": True, "thresholds": updated}
+    except Exception as e:
+        logger.error(f"update yield-thresholds error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch('/surveys/{survey_id}/yield-status')
+async def update_survey_yield_status(survey_id: str, body: Dict[str, Any] = Body(...)):
+    """
+    Manually activate or deactivate a survey for yield management.
+    Body: {action: "activate" | "deactivate", reason?: str}
+    """
+    action = body.get("action")
+    if action not in ("activate", "deactivate"):
+        raise HTTPException(status_code=400, detail='action must be "activate" or "deactivate"')
+
+    try:
+        from database import get_async_collection
+        metrics_col = get_async_collection("cint_research", "cint_metrics")
+        surveys_col_async = get_async_collection("cint_research", "cint_surveys")
+        now = datetime.utcnow()
+
+        if action == "deactivate":
+            sid_int = int(survey_id) if survey_id.isdigit() else survey_id
+            survey_doc = await surveys_col_async.find_one({"survey_id": sid_int}, {"conversion": 1})
+            global_conv_now = float((survey_doc or {}).get("conversion") or 0)
+            await metrics_col.update_one(
+                {"survey_id": survey_id},
+                {"$set": {
+                    "survey_status": "inactive",
+                    "deactivated_at": now,
+                    "global_conv_at_deactivation": global_conv_now,
+                    "manual_override": True,
+                    "manual_reason": body.get("reason", "manual"),
+                }},
+                upsert=True,
+            )
+        else:
+            await metrics_col.update_one(
+                {"survey_id": survey_id},
+                {"$set": {
+                    "survey_status": "active",
+                    "manual_override": True,
+                    "manually_activated_at": now,
+                }},
+                upsert=True,
+            )
+
+        updated = await metrics_col.find_one({"survey_id": survey_id}, {"_id": 0})
+        return {"ok": True, "survey_id": survey_id, "new_status": action + "d", "metrics": updated}
+
+    except Exception as e:
+        logger.error(f"update survey yield-status error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
