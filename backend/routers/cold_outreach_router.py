@@ -1038,10 +1038,7 @@ def _build_basket_enrollment_query(basket: str) -> Dict[str, Any]:
 
     tags = _BASKET_TAG_FALLBACK.get(basket, [])
     if tags:
-        if basket == "D":
-            clauses.append({"icp_tags": {"$all": tags}})
-        else:
-            clauses.append({"icp_tags": {"$in": tags}})
+        clauses.append({"icp_tags": {"$in": tags}})
 
     return {
         "email": {"$exists": True, "$ne": ""},
@@ -1248,7 +1245,8 @@ def _enroll_dual_fit_leads(db, leads_db, suppressed_emails: set):
                 if existing:
                     continue
 
-                start_date = now + timedelta(days=seq_index * sequence_window)
+                # All business campaigns start simultaneously for dual-fit leads
+                start_date = now
                 outreach_lead_doc = {
                     "lead_id": lead_id,
                     "campaign_id": cid,
@@ -1264,7 +1262,7 @@ def _enroll_dual_fit_leads(db, leads_db, suppressed_emails: set):
                     "dual_fit_sequence_index": seq_index + 1,
                     "lead_service_type": {"sfw": "data_services", "cogentix": "consumer_insights", "bimwave": "bimwave"}.get(biz),
                     "personalization_level": "medium",
-                    "workflow_status": "not_started" if seq_index == 0 else "pending_scheduled",
+                    "workflow_status": "not_started",
                     "current_step": 0,
                     "next_send_at": start_date,
                     "enrolled_at": now,
@@ -2762,13 +2760,13 @@ def process_outreach_bounces_and_replies() -> dict:
                         )
 
                         # Promote replied lead to the Leads module
-                        # (upsert into leads_enriched with source="outreach_reply")
+                        # (upsert into leads so they appear on the Leads UI page)
                         if outreach_lead:
                             try:
                                 leads_db = get_leads_db()
                                 reply_email = (outreach_lead.get("email") or "").lower().strip()
                                 if reply_email:
-                                    leads_db["leads_enriched"].update_one(
+                                    leads_db["leads"].update_one(
                                         {"email": reply_email},
                                         {
                                             "$set": {
@@ -2870,12 +2868,12 @@ def sync_outreach_replies_to_leads():
     """
     POST /api/cold-outreach/sync-replies-to-leads
     One-time / on-demand backfill: promote all outreach_leads_v2 records with
-    workflow_status='replied' into leads_enriched (upsert, source='outreach_reply').
+    workflow_status='replied' into leads (the main CRM collection, visible on the Leads UI).
     Safe to call multiple times.
     """
     db = get_db()
     leads_db = get_leads_db()
-    leads_enriched = leads_db["leads_enriched"]
+    leads_col = leads_db["leads"]
     outreach_leads = db["outreach_leads_v2"]
 
     replied = list(outreach_leads.find({"workflow_status": "replied"}))
@@ -2888,7 +2886,7 @@ def sync_outreach_replies_to_leads():
             skipped += 1
             continue
         now = datetime.utcnow()
-        result = leads_enriched.update_one(
+        result = leads_col.update_one(
             {"email": email},
             {
                 "$set": {

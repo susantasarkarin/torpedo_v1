@@ -1853,16 +1853,25 @@ async def startup_event():
 
     # ----------------------------
     # Cold Outreach Bounce & Reply Scanner (every 5 minutes)
+    # Also runs a backfill of all historical replied leads on each cycle.
     # ----------------------------
     try:
         if scheduler.running:
             def _outreach_bounce_reply_job():
                 try:
                     try:
-                        from .routers.cold_outreach_router import process_outreach_bounces_and_replies
+                        from .routers.cold_outreach_router import (
+                            process_outreach_bounces_and_replies,
+                            sync_outreach_replies_to_leads,
+                        )
                     except ImportError:
-                        from routers.cold_outreach_router import process_outreach_bounces_and_replies
+                        from routers.cold_outreach_router import (
+                            process_outreach_bounces_and_replies,
+                            sync_outreach_replies_to_leads,
+                        )
                     process_outreach_bounces_and_replies()
+                    # Backfill any replied leads not yet in the leads collection
+                    sync_outreach_replies_to_leads()
                 except Exception as e:
                     print(f"[OutreachScanner] Error: {e}")
 
@@ -1874,6 +1883,17 @@ async def startup_event():
                 replace_existing=True
             )
             print("✅ Cold outreach bounce & reply scanner scheduled (every 5 minutes)")
+
+            # Run backfill immediately at startup so existing replied leads appear right away
+            try:
+                try:
+                    from .routers.cold_outreach_router import sync_outreach_replies_to_leads as _sync_now
+                except ImportError:
+                    from routers.cold_outreach_router import sync_outreach_replies_to_leads as _sync_now
+                result = _sync_now()
+                print(f"✅ Startup reply backfill: {result.get('promoted', 0)} promoted, {result.get('skipped', 0)} already present")
+            except Exception as _e:
+                print(f"⚠️ Startup reply backfill failed: {_e}")
     except Exception as e:
         print(f"⚠️ Could not schedule outreach bounce & reply scanner: {e}")
     
