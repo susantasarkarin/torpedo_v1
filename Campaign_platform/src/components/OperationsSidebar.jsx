@@ -54,6 +54,11 @@ function OperationsSidebar() {
               <span className="sidebar-icon">💵</span> Rate Card
             </Link>
           </li>
+          <li className={`sidebar-item ${isActive("/admin/operations/yield-management") ? "active" : ""}`}>
+            <Link to="/admin/operations/yield-management" className="sidebar-link">
+              <span className="sidebar-icon">📈</span> Yield Management
+            </Link>
+          </li>
 
           <li className={`sidebar-item ${isActive("/admin/operations/qre") ? "active" : ""}`}>
             <Link to="/admin/operations/qre" className="sidebar-link">
