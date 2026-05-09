@@ -59,6 +59,7 @@ const List = lazy(() => import("./pages/sales/campaign/List"))
 const EmailPatterns = lazy(() => import("./pages/sales/campaign/EmailPatterns"))
 const ColdOutreach = lazy(() => import("./pages/sales/Outreach"))
 const AILeads = lazy(() => import("./pages/sales/campaign/AILeads"))
+const Workflow = lazy(() => import("./pages/sales/campaign/Workflow"))
 const AILeadDetail = lazy(() => import("./pages/sales/campaign/AILeadDetail"))
 const SalesDashboard = lazy(() => import("./pages/sales/SalesDashboard"))
 
@@ -209,6 +210,7 @@ function App() {
         <Route path="sales/campaign/ai-leads" element={<LazyPage><AILeads /></LazyPage>} />
         <Route path="sales/campaign/ai-leads/:leadId" element={<LazyPage><AILeadDetail /></LazyPage>} />
         <Route path="sales/campaign/email-patterns" element={<LazyPage><EmailPatterns /></LazyPage>} />
+        <Route path="sales/campaign/workflow" element={<LazyPage><Workflow /></LazyPage>} />
         <Route path="sales/outreach" element={<LazyPage><ColdOutreach /></LazyPage>} />
 
         {/* AI Agent Routes */}

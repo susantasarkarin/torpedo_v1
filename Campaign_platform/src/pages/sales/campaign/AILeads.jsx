@@ -1468,7 +1468,7 @@ function AILeads() {
           <div className="stat-label">Total Raw Leads</div>
         </div>
         <div className="stat-card success">
-          <div className="stat-value">{Math.max((statistics?.raw?.total || 0) - (statistics?.raw?.failed || 0), 0)}</div>
+          <div className="stat-value">{statistics?.raw?.classified || 0}</div>
           <div className="stat-label">Classified</div>
         </div>
         <div className="stat-card danger">

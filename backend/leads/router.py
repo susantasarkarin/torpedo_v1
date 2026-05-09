@@ -1732,6 +1732,72 @@ async def get_statistics_endpoint():
     return get_lead_statistics()
 
 
+@router.get("/pipeline")
+async def get_pipeline_stats():
+    """
+    GET /leads/pipeline
+    Returns funnel counts for the 5-stage outreach pipeline:
+      1. Imported        – total leads_raw
+      2. Email Ready     – leads_raw with a non-empty email
+      3. SFW Outreach    – unique emails sent from @surveyfieldwork.com (any status)
+      4. Cogentix Reach  – unique emails sent from @cogentixresearch.com, non-bounced
+      5. Replied         – outreach leads with workflow_status=replied
+      6. Enriched        – replied leads promoted to the main leads CRM collection
+    """
+    try:
+        from pymongo import MongoClient as _MC
+        import os as _os
+        _uri = _os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
+        _client = _MC(_uri, serverSelectionTimeoutMS=5000)
+        _email_db = _client['email_automation']
+        _torpedo_db = _client[_os.getenv('MONGO_DB_NAME', 'torpedo')]
+
+        raw_col = _email_db['leads_raw']
+        sends_col = _torpedo_db['outreach_sends_v2']
+        outreach_leads_col = _torpedo_db['outreach_leads_v2']
+        leads_crm_col = _torpedo_db['leads']
+
+        # Stage 1: Imported
+        imported = raw_col.count_documents({})
+
+        # Stage 2: Email Ready (has a usable email)
+        email_ready = raw_col.count_documents({
+            "email": {"$exists": True, "$ne": None, "$ne": ""}
+        })
+
+        # Stage 3: SFW Outreach – unique recipient emails sent via SFW mailboxes
+        sfw_emails = sends_col.distinct("email", {
+            "from_email": {"$regex": r"@surveyfieldwork\.com", "$options": "i"}
+        })
+        sfw_sent = len(sfw_emails)
+
+        # Stage 4: Cogentix Outreach – unique recipient emails sent via Cogentix, not bounced
+        cogentix_emails = sends_col.distinct("email", {
+            "from_email": {"$regex": r"@cogentixresearch\.com", "$options": "i"},
+            "status": {"$ne": "bounced"}
+        })
+        cogentix_sent = len(cogentix_emails)
+
+        # Stage 5: Replied
+        replied = outreach_leads_col.count_documents({"workflow_status": "replied"})
+
+        # Stage 6: Enriched (promoted to CRM leads after reply)
+        enriched_replied = leads_crm_col.count_documents({"source": "outreach_reply"})
+
+        return {
+            "stages": [
+                {"id": "imported",   "label": "Imported",          "count": imported,        "color": "#6366f1"},
+                {"id": "email_ready","label": "Email Ready",        "count": email_ready,     "color": "#3b82f6"},
+                {"id": "sfw",        "label": "SFW Outreach",       "count": sfw_sent,        "color": "#f59e0b"},
+                {"id": "cogentix",   "label": "Cogentix Outreach",  "count": cogentix_sent,   "color": "#10b981"},
+                {"id": "replied",    "label": "Replied",            "count": replied,         "color": "#8b5cf6"},
+                {"id": "enriched",   "label": "Enriched",           "count": enriched_replied,"color": "#ec4899"},
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============== CAMPAIGN ATTACHMENT ENDPOINT ==============
 
 @router.post("/campaigns/{campaign_id}/attach")

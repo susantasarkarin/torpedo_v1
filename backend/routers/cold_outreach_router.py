@@ -2792,6 +2792,27 @@ def process_outreach_bounces_and_replies() -> dict:
                                         },
                                         upsert=True,
                                     )
+
+                                    # Trigger re-enrichment on the raw lead record
+                                    # so Gemini pulls fresh company data after the reply
+                                    try:
+                                        raw_lead = leads_db["leads_raw"].find_one(
+                                            {"email": reply_email},
+                                            {"_id": 1}
+                                        )
+                                        if raw_lead:
+                                            from leads.service import classify_single_lead as _classify
+                                            import threading
+                                            threading.Thread(
+                                                target=_classify,
+                                                args=(str(raw_lead["_id"]),),
+                                                daemon=True,
+                                            ).start()
+                                            logger.info(
+                                                f"[Outreach Scanner] Triggered re-enrichment for replied lead {reply_email}"
+                                            )
+                                    except Exception as _enrich_err:
+                                        logger.debug(f"[Outreach Scanner] Re-enrichment trigger failed: {_enrich_err}")
                             except Exception:
                                 pass
 
