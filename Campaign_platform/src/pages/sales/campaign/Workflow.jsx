@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useState, useCallback } from "react";
-import { buildApiUrl } from "../../../utils/api";
+import { buildApiUrl } from "../../../config";
 import "./Workflow.css";
 
 const sessionId = localStorage.getItem("session_id") || "";
