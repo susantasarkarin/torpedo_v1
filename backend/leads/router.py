@@ -1300,8 +1300,72 @@ async def get_csv_mapping(columns: str = Query(..., description="Comma-separated
         raise HTTPException(status_code=500, detail=str(e))
 
 
+_CSV_SYNC_THRESHOLD = 200  # rows — below this, process inline; above, run as background job
+
+
+def _process_csv_import_bg(job_id: str, lead_dicts: list):
+    """Background worker: import CSV leads in batches, updating job progress."""
+    BATCH = 200
+    total = len(lead_dicts)
+    imported_count = 0
+    duplicates_count = 0
+
+    try:
+        update_job(job_id, {"status": JobStatus.RUNNING, "started_at": datetime.utcnow()})
+
+        for i in range(0, total, BATCH):
+            batch_dicts = lead_dicts[i:i + BATCH]
+            try:
+                lead_inputs = [LeadInput(**d) for d in batch_dicts]
+                result = import_leads(lead_inputs)
+                imported_count += result.imported
+                duplicates_count += result.duplicates
+            except Exception as e:
+                add_job_error(job_id, f"Batch {i // BATCH + 1} error: {str(e)}")
+
+            web_search_jobs_collection.update_one(
+                {"job_id": job_id},
+                {"$set": {
+                    "total_found": i + len(batch_dicts),
+                    "total_imported": imported_count,
+                    "total_duplicates": duplicates_count,
+                    "last_update": datetime.utcnow()
+                }}
+            )
+
+        update_job(job_id, {
+            "status": JobStatus.COMPLETED,
+            "total_imported": imported_count,
+            "total_duplicates": duplicates_count,
+            "completed_at": datetime.utcnow()
+        })
+    except Exception as e:
+        update_job(job_id, {"status": "failed"})
+        add_job_error(job_id, f"Fatal error: {str(e)}")
+
+
+@router.get("/import/csv/status/{job_id}")
+async def get_csv_import_status(job_id: str):
+    """GET /leads/import/csv/status/{job_id} — poll progress of a CSV import job."""
+    job = web_search_jobs_collection.find_one({"job_id": job_id, "job_type": "csv_import"})
+    if not job:
+        raise HTTPException(status_code=404, detail="CSV import job not found")
+    target = max(job.get("target_count", 1), 1)
+    processed = job.get("total_imported", 0) + job.get("total_duplicates", 0)
+    return {
+        "job_id": job_id,
+        "status": job.get("status"),
+        "total": job.get("target_count", 0),
+        "total_imported": job.get("total_imported", 0),
+        "total_duplicates": job.get("total_duplicates", 0),
+        "progress_percent": round(processed / target * 100),
+        "errors": job.get("errors", []),
+    }
+
+
 @router.post("/import/csv")
 async def import_from_csv(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     delimiter: str = Form(",")
 ):
@@ -1309,6 +1373,9 @@ async def import_from_csv(
     POST /leads/import/csv
     Upload a CSV file containing leads.
     Expected columns: name, title, linkedin_url, snippet
+    Small files (≤200 rows) are processed synchronously.
+    Larger files are processed as a background job; the response includes a job_id
+    that the client can poll via GET /leads/import/csv/status/{job_id}.
     """
     try:
         # Read file content
@@ -1320,23 +1387,58 @@ async def import_from_csv(
                 detail="CSV file is too large. Max allowed size is 500MB."
             )
         csv_content = content.decode("utf-8")
-        
+
         # Parse CSV
         leads = parse_csv_leads(csv_content, delimiter)
-        
+
         if not leads:
             return {"imported": 0, "message": "No valid leads found in CSV"}
-        
-        # Convert to LeadInput and import
-        lead_inputs = [LeadInput(**lead) for lead in leads]
-        result = import_leads(lead_inputs)
-        
+
+        # --- Small file: process synchronously ---
+        if len(leads) <= _CSV_SYNC_THRESHOLD:
+            lead_inputs = [LeadInput(**lead) for lead in leads]
+            result = import_leads(lead_inputs)
+            return {
+                "parsed": len(leads),
+                "imported": result.imported,
+                "duplicates": result.duplicates,
+                "errors": result.errors,
+                "message": f"Parsed {len(leads)} leads from CSV, imported {result.imported}"
+            }
+
+        # --- Large file: kick off background job and return immediately ---
+        job_id = str(uuid.uuid4())[:8]
+        job_doc = {
+            "job_id": job_id,
+            "job_type": "csv_import",
+            "status": JobStatus.PENDING,
+            "config": {"filename": file.filename or "upload.csv", "total": len(leads)},
+            "target_count": len(leads),
+            "total_found": len(leads),
+            "total_imported": 0,
+            "total_duplicates": 0,
+            "total_classified": 0,
+            "emails_found": 0,
+            "leads_today": 0,
+            "queries_used": 0,
+            "current_query": "",
+            "query_combinations": [],
+            "seen_urls": [],
+            "errors": [],
+            "created_at": datetime.utcnow(),
+            "started_at": None,
+            "last_update": None,
+            "completed_at": None,
+            "day_started": datetime.utcnow().date().isoformat()
+        }
+        web_search_jobs_collection.insert_one(job_doc)
+        background_tasks.add_task(_process_csv_import_bg, job_id, leads)
+
         return {
-            "parsed": len(leads),
-            "imported": result.imported,
-            "duplicates": result.duplicates,
-            "errors": result.errors,
-            "message": f"Parsed {len(leads)} leads from CSV, imported {result.imported}"
+            "success": True,
+            "job_id": job_id,
+            "total": len(leads),
+            "message": f"Processing {len(leads)} leads in background. Poll /leads/import/csv/status/{job_id} for progress."
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

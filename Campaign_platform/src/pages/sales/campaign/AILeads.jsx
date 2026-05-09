@@ -191,6 +191,9 @@ function AILeads() {
   const [csvImportStep, setCsvImportStep] = useState(1); // 1=upload, 2=map, 3=preview
   const fileInputRef = useRef(null);
 
+  // CSV background-job progress
+  const [csvImportProgress, setCsvImportProgress] = useState(null); // { status, total, imported, duplicates, percent }
+
   // Gmail Import State (Issue 7)
   const [gmailAccounts, setGmailAccounts] = useState([]);
   const [selectedGmailAccounts, setSelectedGmailAccounts] = useState([]);
@@ -679,6 +682,59 @@ function AILeads() {
           headers: { Authorization: sessionId },
           body: formData,
         });
+
+        // Handle async background-job response for large CSVs
+        const csvResult = await parseResponse(res);
+        if (!res.ok) {
+          throw new Error(csvResult.detail || `Import failed (HTTP ${res.status})`);
+        }
+
+        if (csvResult.job_id) {
+          // Large file — backend is processing in background, poll for progress
+          setCsvImportProgress({ status: "running", total: csvResult.total, imported: 0, duplicates: 0, percent: 0 });
+
+          const csvPoll = setInterval(async () => {
+            try {
+              const statusRes = await fetch(
+                buildApiUrl(`/leads/import/csv/status/${csvResult.job_id}`),
+                { headers: { Authorization: sessionId } }
+              );
+              if (statusRes.ok) {
+                const s = await statusRes.json();
+                setCsvImportProgress({
+                  status: s.status,
+                  total: s.total,
+                  imported: s.total_imported,
+                  duplicates: s.total_duplicates,
+                  percent: s.progress_percent,
+                });
+                if (["completed", "failed"].includes(s.status)) {
+                  clearInterval(csvPoll);
+                  fetchRawLeads();
+                  fetchStatistics();
+                  if (s.status === "completed") {
+                    alert(`✅ Import complete! Imported ${s.total_imported} leads (${s.total_duplicates} duplicates skipped).`);
+                  }
+                  resetImportModal();
+                }
+              }
+            } catch (e) {
+              console.error("CSV import poll error:", e);
+            }
+          }, 2000);
+
+          window.csvImportPollInterval = csvPoll;
+          return; // finally will set importing=false; polling drives the rest
+        }
+
+        // Small file — synchronous result already available
+        alert(csvResult.message || `Imported ${csvResult.imported} leads`);
+        resetImportModal();
+        fetchRawLeads();
+        fetchStatistics();
+        setImporting(false);
+        return;
+
       } else if (importMethod === "web-search") {
         // New enhanced web search with multi-select - runs as background job
         const hasDesignation = webSearchDesignation.trim();
@@ -832,6 +888,11 @@ function AILeads() {
     setWebSearchSeniorities([]);
     setWebSearchProgress(null);
     setWebSearchJobId(null);
+    setCsvImportProgress(null);
+    if (window.csvImportPollInterval) {
+      clearInterval(window.csvImportPollInterval);
+      window.csvImportPollInterval = null;
+    }
     setImportError("");
     // Reset Gmail/Email state
     setSelectedGmailAccounts([]);
@@ -2630,12 +2691,36 @@ function AILeads() {
               )}
             </div>
 
+            {/* CSV background-job progress bar */}
+            {importMethod === "csv" && csvImportProgress && (
+              <div style={{ padding: "0.75rem 1.5rem", borderTop: "1px solid #e5e7eb" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.875rem", marginBottom: "0.35rem", color: "#374151" }}>
+                  <span>
+                    {csvImportProgress.status === "running" && "⏳ Processing…"}
+                    {csvImportProgress.status === "completed" && "✅ Done"}
+                    {csvImportProgress.status === "failed" && "❌ Failed"}
+                  </span>
+                  <span>
+                    {csvImportProgress.imported} imported · {csvImportProgress.duplicates} skipped · {csvImportProgress.percent}%
+                  </span>
+                </div>
+                <div style={{ height: "6px", backgroundColor: "#e5e7eb", borderRadius: "4px", overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%",
+                    width: `${csvImportProgress.percent}%`,
+                    backgroundColor: csvImportProgress.status === "failed" ? "#ef4444" : "#22c55e",
+                    transition: "width 0.4s ease"
+                  }} />
+                </div>
+              </div>
+            )}
+
             <div className="modal-footer">
               <button className="btn btn-outline" onClick={() => resetImportModal()}>
                 Cancel
               </button>
               {importMethod !== "gmail" && (
-                <button className="btn btn-primary" onClick={handleImport} disabled={importing}>
+                <button className="btn btn-primary" onClick={handleImport} disabled={importing || (importMethod === "csv" && csvImportProgress?.status === "running")}>
                   {importing ? "⏳ Importing..." : "📥 Import Leads"}
                 </button>
               )}
