@@ -2255,8 +2255,8 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
 def process_due_outreach_sends() -> dict:
     """
     Called by APScheduler every 60 seconds.
-    Round-robins across active campaigns, picking up to 2 leads per campaign
-    per cycle (max 6 total). Respects per-mailbox 429 cooldowns.
+    Round-robins across active campaigns, picking up to 10 leads per campaign
+    per cycle. Respects per-mailbox 429 cooldowns.
     Uses the pre-written step templates (no AI generation).
     Returns a summary dict.
     """
@@ -2335,7 +2335,7 @@ def process_due_outreach_sends() -> dict:
                 "campaign_id": cid,
                 "workflow_status": {"$in": ["not_started", "pending_scheduled", "in_sequence"]},
                 "next_send_at": {"$lte": now},
-            }).limit(2))
+            }).sort("next_send_at", 1).limit(10))
             due.extend(camp_due)
 
         if cooldown_skipped:
@@ -2393,6 +2393,62 @@ def trigger_process_due():
     """
     result = process_due_outreach_sends()
     return {"ok": True, **result}
+
+
+@router.post("/reset-stuck-leads")
+def reset_stuck_leads():
+    """
+    Reset leads stuck in transient-error states back to not_started so they
+    can be retried by the send processor.
+
+    Resets:
+    - workflow_status="error" where last_send_error contains a transient failure
+      (connection error, open files limit, etc.)
+    - workflow_status="needs_human_intervention" (set by bounce recovery module
+      but not part of the send loop — leads get permanently stuck)
+    """
+    db = get_db()
+    now = datetime.utcnow()
+
+    # Transient error patterns — connection problems, OS resource limits, etc.
+    transient_patterns = [
+        "Too many open files",
+        "connection refused",
+        "Connection refused",
+        "timed out",
+        "ServerSelectionTimeoutError",
+        "NetworkTimeout",
+    ]
+
+    transient_filter = {
+        "workflow_status": "error",
+        "$or": [{"last_send_error": {"$regex": pat}} for pat in transient_patterns],
+    }
+    transient_result = db["outreach_leads_v2"].update_many(
+        transient_filter,
+        {"$set": {
+            "workflow_status": "not_started",
+            "last_send_error": None,
+            "last_send_error_at": None,
+            "updated_at": now,
+        }},
+    )
+
+    # needs_human_intervention is set by bounce recovery but not consumed by the
+    # send loop, so those leads are permanently stuck. Reset them to not_started.
+    human_result = db["outreach_leads_v2"].update_many(
+        {"workflow_status": "needs_human_intervention"},
+        {"$set": {
+            "workflow_status": "not_started",
+            "updated_at": now,
+        }},
+    )
+
+    return {
+        "ok": True,
+        "transient_errors_reset": transient_result.modified_count,
+        "needs_human_intervention_reset": human_result.modified_count,
+    }
 
 
 @router.get("/sender-status")
