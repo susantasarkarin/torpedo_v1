@@ -16,6 +16,7 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from fastapi import Request, Depends, APIRouter
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -1229,6 +1230,23 @@ try:
 except Exception as e:
     print(f"⚠️ Panel Admin router not included: {e}")
 
+# Panel invitation + SES webhook routers (mailing pipeline)
+try:
+    try:
+        from .routers import panel_invitations as panel_invitations_router
+        from .routers import panel_ses_webhook as panel_ses_webhook_router
+    except ImportError:
+        from routers import panel_invitations as panel_invitations_router
+        from routers import panel_ses_webhook as panel_ses_webhook_router
+
+    app.include_router(panel_invitations_router.router)
+    app.include_router(panel_invitations_router.router, prefix="/api")
+    app.include_router(panel_ses_webhook_router.router)
+    app.include_router(panel_ses_webhook_router.router, prefix="/api")
+    print("✅ Panel mailing routers included")
+except Exception as e:
+    print(f"⚠️ Panel mailing routers not included: {e}")
+
 # ----------------------------
 # APScheduler for CPX refresh job
 # ----------------------------
@@ -1561,6 +1579,99 @@ def background_historic_email_sync():
     # Run in a separate thread to not block the scheduler
     thread = threading.Thread(target=_run_historic_sync, daemon=True)
     thread.start()
+
+
+def weekly_panel_mail_integration_job():
+    """
+    Weekly panel mailing automation.
+
+    Flow:
+    1) Fetch panelist data from configured SFW export/API link (CSV/JSON)
+    2) Upsert new panelists into campaign_platform.panelists
+    3) Send panel invitation/weekly mail batch via existing panel email service
+    """
+    enabled = os.getenv("PANEL_WEEKLY_MAIL_ENABLED", "false").lower() == "true"
+    if not enabled:
+        print("ℹ️ [PanelWeekly] Job skipped (PANEL_WEEKLY_MAIL_ENABLED=false)")
+        return
+
+    source_url = (os.getenv("SFW_PANEL_EXPORT_URL", "") or "").strip()
+    if not source_url:
+        print("⚠️ [PanelWeekly] SFW_PANEL_EXPORT_URL is missing; cannot run weekly integration")
+        return
+
+    data_format = (os.getenv("SFW_PANEL_EXPORT_FORMAT", "auto") or "auto").strip().lower()
+    root_key = (os.getenv("SFW_PANEL_EXPORT_ROOT_KEY", "") or "").strip()
+    country = (os.getenv("PANEL_WEEKLY_MAIL_COUNTRY", "") or "").strip() or None
+    force_resend = os.getenv("PANEL_WEEKLY_FORCE_RESEND", "true").lower() == "true"
+
+    try:
+        headers = {}
+        headers_json = (os.getenv("SFW_PANEL_EXPORT_HEADERS_JSON", "") or "").strip()
+        if headers_json:
+            import json
+            parsed = json.loads(headers_json)
+            if isinstance(parsed, dict):
+                headers = {str(k): str(v) for k, v in parsed.items()}
+
+        try:
+            from .routers.panel_admin import (
+                _fetch_link_data,
+                _parse_csv_text,
+                _extract_first_list_payload,
+                _upsert_panelists,
+            )
+            from .services.panel_email_service import send_bulk_invitations
+        except ImportError:
+            from routers.panel_admin import (
+                _fetch_link_data,
+                _parse_csv_text,
+                _extract_first_list_payload,
+                _upsert_panelists,
+            )
+            from services.panel_email_service import send_bulk_invitations
+
+        fetched = _fetch_link_data(source_url, request_headers=headers)
+        text = fetched["text"]
+        content_type = fetched["content_type"]
+
+        detected_format = data_format
+        if detected_format == "auto":
+            if "json" in content_type:
+                detected_format = "json"
+            elif "csv" in content_type:
+                detected_format = "csv"
+            else:
+                stripped = text.lstrip()
+                detected_format = "json" if stripped.startswith("[") or stripped.startswith("{") else "csv"
+
+        rows = []
+        if detected_format == "csv":
+            rows = _parse_csv_text(text)
+        else:
+            import json
+            payload = json.loads(text)
+            if root_key and isinstance(payload, dict) and isinstance(payload.get(root_key), list):
+                rows = [item for item in payload[root_key] if isinstance(item, dict)]
+            else:
+                rows = _extract_first_list_payload(payload)
+
+        if not rows:
+            print("⚠️ [PanelWeekly] No rows found in SFW payload; skipping send")
+            return
+
+        upsert_result = _upsert_panelists(rows, source="weekly_link_import")
+        send_result = send_bulk_invitations(country=country, force_resend=force_resend)
+
+        print(
+            "✅ [PanelWeekly] Completed | "
+            f"fetched={len(rows)} inserted={upsert_result.get('inserted', 0)} "
+            f"skipped={upsert_result.get('skipped', 0)} sent={send_result.get('sent', 0)} "
+            f"send_skipped={send_result.get('skipped', 0)} failed={send_result.get('failed', 0)}"
+        )
+    except Exception as e:
+        print(f"❌ [PanelWeekly] Weekly integration failed: {e}")
+        traceback.print_exc()
 
 
 @app.on_event("startup")
@@ -1961,6 +2072,29 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️ Could not schedule mail segregation job: {e}")
 
+    # ----------------------------
+    # Weekly Panel Mail Integration (SFW -> Campaign)
+    # ----------------------------
+    try:
+        weekly_enabled = os.getenv("PANEL_WEEKLY_MAIL_ENABLED", "false").lower() == "true"
+        if scheduler.running and weekly_enabled:
+            weekly_day = (os.getenv("PANEL_WEEKLY_DAY", "mon") or "mon").strip().lower()
+            weekly_hour = int(os.getenv("PANEL_WEEKLY_HOUR_UTC", "9"))
+            weekly_minute = int(os.getenv("PANEL_WEEKLY_MINUTE_UTC", "0"))
+
+            scheduler.add_job(
+                weekly_panel_mail_integration_job,
+                CronTrigger(day_of_week=weekly_day, hour=weekly_hour, minute=weekly_minute, timezone="UTC"),
+                id="panel_weekly_mail_integration",
+                name="Panel Weekly Mail Integration",
+                replace_existing=True,
+            )
+            print(f"✅ Weekly panel mail integration scheduled ({weekly_day} {weekly_hour:02d}:{weekly_minute:02d} UTC)")
+        elif not weekly_enabled:
+            print("ℹ️ Weekly panel mail integration disabled (set PANEL_WEEKLY_MAIL_ENABLED=true to enable)")
+    except Exception as e:
+        print(f"⚠️ Could not schedule weekly panel mail integration: {e}")
+
     # Pre-warm mail pool stats cache after a 90s delay (lets server stabilize before heavy MongoDB I/O)
     try:
         import threading
@@ -1994,6 +2128,8 @@ async def startup_event():
         print("   • Cint Survey Refresh: Active (every 5 minutes)")
         print("   • Gmail Background Sync: Active (every 5 minutes)")
         print("   • Historic Email Backfill: Active (every 30 seconds, rate-limited)")
+        if os.getenv("PANEL_WEEKLY_MAIL_ENABLED", "false").lower() == "true":
+            print("   • Panel Weekly Mail Integration: Active (weekly, UTC cron)")
         if email_classify_enabled:
             print("   • Email Classification: Active (every 2 min, batch=10)")
         else:

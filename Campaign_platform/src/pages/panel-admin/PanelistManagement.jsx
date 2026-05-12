@@ -30,6 +30,11 @@ function PanelistManagement() {
   const [csvFileName, setCsvFileName] = useState("")
   const [uploading, setUploading] = useState(false)
   const [uploadResult, setUploadResult] = useState(null)
+  const [importUrl, setImportUrl] = useState("")
+  const [importFormat, setImportFormat] = useState("auto")
+  const [importRootKey, setImportRootKey] = useState("")
+  const [importingLink, setImportingLink] = useState(false)
+  const [importLinkResult, setImportLinkResult] = useState(null)
   const fileInputRef = useRef(null)
 
   // Invitation state
@@ -204,6 +209,47 @@ function PanelistManagement() {
     }
   }
 
+  const handleImportFromLink = async () => {
+    if (!importUrl.trim()) return
+
+    setImportingLink(true)
+    setImportLinkResult(null)
+    const sessionId = localStorage.getItem("session_id")
+
+    try {
+      const payload = {
+        url: importUrl.trim(),
+        format: importFormat,
+      }
+      if (importRootKey.trim()) payload.root_key = importRootKey.trim()
+
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/import-link`), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: sessionId,
+        },
+        body: JSON.stringify(payload),
+      })
+
+      const data = await res.json()
+      if (res.ok) {
+        setImportLinkResult({
+          success: true,
+          message: data.message || `Imported ${data.inserted || 0} panelists from link`,
+          data,
+        })
+        fetchPanelists()
+      } else {
+        setImportLinkResult({ success: false, message: data.detail || "Import from link failed" })
+      }
+    } catch (err) {
+      setImportLinkResult({ success: false, message: "Network error: " + err.message })
+    } finally {
+      setImportingLink(false)
+    }
+  }
+
   // Invitation handlers
   const handleSendInvitationsClick = async () => {
     const sessionId = localStorage.getItem("session_id")
@@ -370,6 +416,59 @@ function PanelistManagement() {
                 {uploadResult.message}
               </div>
             )}
+
+            <div style={{ marginTop: "1.5rem", paddingTop: "1rem", borderTop: "1px solid #e5e7eb" }}>
+              <h3 className="card-title" style={{ marginBottom: "0.5rem" }}>Import from Link (CSV/JSON)</h3>
+              <p style={{ fontSize: "0.875rem", color: "#6b7280", marginBottom: "0.75rem" }}>
+                Paste an API/export URL from sfw_panel or any system. Supported: CSV or JSON array payloads.
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 120px 1fr auto", gap: "0.75rem", alignItems: "center" }}>
+                <input
+                  type="text"
+                  value={importUrl}
+                  onChange={(e) => setImportUrl(e.target.value)}
+                  placeholder="https://example.com/panelists.csv"
+                  style={{ padding: "0.625rem 1rem", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "0.875rem" }}
+                />
+                <select
+                  value={importFormat}
+                  onChange={(e) => setImportFormat(e.target.value)}
+                  style={{ padding: "0.625rem 0.75rem", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "0.875rem", backgroundColor: "#fff" }}
+                >
+                  <option value="auto">Auto</option>
+                  <option value="csv">CSV</option>
+                  <option value="json">JSON</option>
+                </select>
+                <input
+                  type="text"
+                  value={importRootKey}
+                  onChange={(e) => setImportRootKey(e.target.value)}
+                  placeholder="JSON root key (optional)"
+                  style={{ padding: "0.625rem 1rem", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "0.875rem" }}
+                />
+                <button
+                  className="btn btn-primary"
+                  onClick={handleImportFromLink}
+                  disabled={!importUrl.trim() || importingLink}
+                  style={{ opacity: !importUrl.trim() || importingLink ? 0.5 : 1 }}
+                >
+                  {importingLink ? "Importing..." : "Import Link"}
+                </button>
+              </div>
+
+              {importLinkResult && (
+                <div style={{
+                  marginTop: "0.75rem",
+                  padding: "0.75rem",
+                  borderRadius: "6px",
+                  backgroundColor: importLinkResult.success ? "#d1fae5" : "#fee2e2",
+                  color: importLinkResult.success ? "#065f46" : "#991b1b",
+                  fontSize: "0.875rem",
+                }}>
+                  {importLinkResult.message}
+                </div>
+              )}
+            </div>
           </div>
         )}
 

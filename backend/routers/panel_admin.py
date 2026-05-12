@@ -12,11 +12,17 @@ Endpoints:
 
 import os
 import logging
+import csv
+import json
+import io
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Request, Query, Body
 from pymongo import MongoClient
 from bson import ObjectId
+from urllib.request import Request as UrlRequest, urlopen
+from urllib.error import URLError, HTTPError
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +68,167 @@ def serialize_doc(doc):
         elif isinstance(val, ObjectId):
             doc[key] = str(val)
     return doc
+
+
+def _extract_first_list_payload(payload: Any) -> List[Dict[str, Any]]:
+    """Extract first list of dicts from a JSON payload."""
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+
+    if isinstance(payload, dict):
+        for key in ["panelists", "users", "results", "data", "items"]:
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+
+        for value in payload.values():
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+
+    return []
+
+
+def _split_name(full_name: str) -> Dict[str, str]:
+    """Split a full name into first and last name."""
+    name = (full_name or "").strip()
+    if not name:
+        return {"first_name": "", "last_name": ""}
+
+    parts = name.split()
+    if len(parts) == 1:
+        return {"first_name": parts[0], "last_name": ""}
+
+    return {"first_name": parts[0], "last_name": " ".join(parts[1:])}
+
+
+def _normalize_panelist_row(row: Dict[str, Any], source: str) -> Optional[Dict[str, Any]]:
+    """Normalize external row to panelist schema."""
+    email = str(
+        row.get("email")
+        or row.get("Email")
+        or row.get("mail")
+        or row.get("Mail")
+        or ""
+    ).strip().lower()
+
+    if not email:
+        return None
+
+    first_name = str(
+        row.get("first_name")
+        or row.get("First Name")
+        or row.get("firstName")
+        or row.get("firstname")
+        or ""
+    ).strip()
+    last_name = str(
+        row.get("last_name")
+        or row.get("Last Name")
+        or row.get("lastName")
+        or row.get("lastname")
+        or ""
+    ).strip()
+
+    if not first_name and not last_name:
+        full_name = str(
+            row.get("name")
+            or row.get("full_name")
+            or row.get("fullName")
+            or ""
+        )
+        split = _split_name(full_name)
+        first_name = split["first_name"]
+        last_name = split["last_name"]
+
+    country = str(
+        row.get("country")
+        or row.get("Country")
+        or row.get("countryCode")
+        or row.get("country_code")
+        or ""
+    ).strip()
+    language = str(
+        row.get("language")
+        or row.get("Language")
+        or row.get("locale")
+        or "English"
+    ).strip() or "English"
+
+    return {
+        "first_name": first_name,
+        "last_name": last_name,
+        "email": email,
+        "country": country,
+        "language": language,
+        "status": "active",
+        "rewards_balance": 0.0,
+        "email_verified": False,
+        "source": source,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+    }
+
+
+def _upsert_panelists(rows: List[Dict[str, Any]], source: str) -> Dict[str, Any]:
+    """Insert normalized panelists while skipping duplicates and invalid rows."""
+    inserted = 0
+    skipped = 0
+    errors: List[str] = []
+
+    for i, row in enumerate(rows):
+        try:
+            doc = _normalize_panelist_row(row, source=source)
+            if not doc:
+                skipped += 1
+                continue
+
+            if panelists_collection.find_one({"email": doc["email"]}):
+                skipped += 1
+                continue
+
+            panelists_collection.insert_one(doc)
+            inserted += 1
+        except Exception as e:
+            errors.append(f"Row {i + 1}: {str(e)}")
+
+    return {
+        "inserted": inserted,
+        "skipped": skipped,
+        "errors": errors[:10],
+    }
+
+
+def _parse_csv_text(csv_text: str) -> List[Dict[str, Any]]:
+    """Parse CSV text into a list of dict rows."""
+    csv_io = io.StringIO(csv_text)
+    reader = csv.DictReader(csv_io)
+    return [dict(row) for row in reader if row]
+
+
+def _fetch_link_data(url: str, request_headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """Fetch remote CSV or JSON payload from URL."""
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        raise HTTPException(status_code=400, detail="Only http/https URLs are allowed")
+
+    headers = {"User-Agent": "CampaignPanelImporter/1.0"}
+    if request_headers:
+        headers.update({str(k): str(v) for k, v in request_headers.items()})
+
+    req = UrlRequest(url, headers=headers)
+    try:
+        with urlopen(req, timeout=20) as resp:
+            content_type = (resp.headers.get("Content-Type") or "").lower()
+            body = resp.read()
+    except HTTPError as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch link: HTTP {e.code}")
+    except URLError as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch link: {e.reason}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch link: {str(e)}")
+
+    text = body.decode("utf-8-sig", errors="replace")
+    return {"text": text, "content_type": content_type}
 
 
 def _panel_lead_base_stages(search: Optional[str] = None, country: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -313,53 +480,81 @@ async def upload_panelists_csv(
         panelist_rows = data.get("panelists", [])
         if not panelist_rows:
             raise HTTPException(status_code=400, detail="No panelist data provided")
-
-        inserted = 0
-        skipped = 0
-        errors = []
-
-        for i, row in enumerate(panelist_rows):
-            email = (row.get("email") or row.get("Email") or "").strip().lower()
-            if not email:
-                skipped += 1
-                continue
-
-            # Check if email already exists
-            if panelists_collection.find_one({"email": email}):
-                skipped += 1
-                continue
-
-            doc = {
-                "first_name": (row.get("first_name") or row.get("First Name") or row.get("firstName") or "").strip(),
-                "last_name": (row.get("last_name") or row.get("Last Name") or row.get("lastName") or "").strip(),
-                "email": email,
-                "country": (row.get("country") or row.get("Country") or "").strip(),
-                "language": (row.get("language") or row.get("Language") or "English").strip(),
-                "status": "active",
-                "rewards_balance": 0.0,
-                "email_verified": False,
-                "source": "csv_upload",
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow(),
-            }
-
-            try:
-                panelists_collection.insert_one(doc)
-                inserted += 1
-            except Exception as e:
-                errors.append(f"Row {i + 1}: {str(e)}")
+        result = _upsert_panelists(panelist_rows, source="csv_upload")
 
         return {
-            "message": f"Uploaded {inserted} panelists, skipped {skipped} (duplicates/empty)",
-            "inserted": inserted,
-            "skipped": skipped,
-            "errors": errors[:10],  # Limit error messages
+            "message": f"Uploaded {result['inserted']} panelists, skipped {result['skipped']} (duplicates/empty)",
+            "inserted": result["inserted"],
+            "skipped": result["skipped"],
+            "errors": result["errors"],
+            "source": "csv_upload",
         }
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error uploading panelists CSV: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/panelists/import-link")
+async def import_panelists_from_link(
+    request: Request,
+    data: Dict[str, Any] = Body(...),
+):
+    """Import panelist emails from a remote CSV/JSON URL (e.g., sfw_panel export/API)."""
+    verify_admin_session(request)
+
+    url = (data.get("url") or "").strip()
+    format_hint = (data.get("format") or "auto").strip().lower()
+    root_key = (data.get("root_key") or "").strip()
+    request_headers = data.get("headers") or {}
+
+    if not url:
+        raise HTTPException(status_code=400, detail="url is required")
+    if format_hint not in {"auto", "csv", "json"}:
+        raise HTTPException(status_code=400, detail="format must be one of: auto, csv, json")
+
+    fetched = _fetch_link_data(url, request_headers=request_headers)
+    content_type = fetched["content_type"]
+    text = fetched["text"]
+
+    rows: List[Dict[str, Any]] = []
+    detected_format = format_hint
+    if detected_format == "auto":
+        if "json" in content_type:
+            detected_format = "json"
+        elif "csv" in content_type:
+            detected_format = "csv"
+        else:
+            detected_format = "json" if text.lstrip().startswith("[") or text.lstrip().startswith("{") else "csv"
+
+    try:
+        if detected_format == "csv":
+            rows = _parse_csv_text(text)
+        else:
+            payload = json.loads(text)
+            if root_key:
+                selected = payload.get(root_key) if isinstance(payload, dict) else None
+                rows = [item for item in selected if isinstance(item, dict)] if isinstance(selected, list) else []
+            else:
+                rows = _extract_first_list_payload(payload)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Unable to parse {detected_format} data: {str(e)}")
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="No rows found in provided link")
+
+    result = _upsert_panelists(rows, source="link_import")
+    return {
+        "message": f"Imported {result['inserted']} panelists from link, skipped {result['skipped']}",
+        "inserted": result["inserted"],
+        "skipped": result["skipped"],
+        "errors": result["errors"],
+        "source": "link_import",
+        "format": detected_format,
+        "fetched_rows": len(rows),
+        "url": url,
+    }
 
 
 # ============== REWARDS ==============
