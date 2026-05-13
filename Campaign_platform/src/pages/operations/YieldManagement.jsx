@@ -6,6 +6,21 @@ const STATUS_COLORS = {
   active: "status-active",
   inactive: "status-inactive",
   testing: "status-testing",
+  excluded: "status-excluded",
+};
+
+// Derive the effective status shown in the UI (considers both pool layer and yield layer)
+const effectiveStatus = (s) => {
+  if (s.in_pool === false) return "excluded";
+  return s.survey_status || "testing";
+};
+
+const effectiveStatusLabel = (s) => {
+  const es = effectiveStatus(s);
+  if (es === "excluded") return "Excluded";
+  if (es === "inactive") return "Inactive";
+  if (es === "active") return "Active";
+  return "Testing";
 };
 
 const pct = (v) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
@@ -256,7 +271,7 @@ function YieldManagement() {
             {filteredSurveys.map((s) => (
               <tr
                 key={s.survey_id}
-                className={`row-${s.survey_status}${s.eligible_for_review ? " row-review" : ""}`}
+                className={`row-${effectiveStatus(s)}${s.eligible_for_review ? " row-review" : ""}`}
               >
                 <td className="col-rank">{s.rank}</td>
                 <td className="col-id">{s.survey_id}</td>
@@ -277,9 +292,14 @@ function YieldManagement() {
                 <td>{s.total_remaining}</td>
                 <td>{s.entrants_n}</td>
                 <td>
-                  <span className={`status-badge ${STATUS_COLORS[s.survey_status] || ""}`}>
-                    {s.survey_status}
+                  <span className={`status-badge ${STATUS_COLORS[effectiveStatus(s)] || ""}`}>
+                    {effectiveStatusLabel(s)}
                   </span>
+                  {s.in_pool === false && (
+                    <span className="pool-badge" title="Excluded by Survey Pool (CPI/country filter)">
+                      Pool
+                    </span>
+                  )}
                   {s.eligible_for_review && (
                     <span className="review-badge" title="Global conv rose >10% above deactivation snapshot">
                       ✦ Review
@@ -288,13 +308,13 @@ function YieldManagement() {
                 </td>
                 <td>
                   <button
-                    className={`action-btn ${s.survey_status === "inactive" ? "btn-activate" : "btn-deactivate"}`}
+                    className={`action-btn ${effectiveStatus(s) === "inactive" || effectiveStatus(s) === "excluded" ? "btn-activate" : "btn-deactivate"}`}
                     onClick={() => handleToggleStatus(s)}
                     disabled={actionPending === s.survey_id}
                   >
                     {actionPending === s.survey_id
                       ? "…"
-                      : s.survey_status === "inactive"
+                      : effectiveStatus(s) === "inactive" || effectiveStatus(s) === "excluded"
                       ? "Activate"
                       : "Deactivate"}
                   </button>

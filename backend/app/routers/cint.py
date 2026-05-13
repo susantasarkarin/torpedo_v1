@@ -2136,7 +2136,7 @@ async def get_yield_dashboard(
             "survey_id": 1, "account_name": 1, "length_of_interview": 1,
             "termination_length_of_interview": 1, "revenue_per_click": 1,
             "conversion": 1, "total_remaining": 1, "is_live": 1,
-            "country_code": 1, "payout": 1, "updated_at": 1,
+            "country_code": 1, "payout": 1, "updated_at": 1, "is_active_in_pool": 1,
         }))
 
         if not surveys_list:
@@ -2182,6 +2182,7 @@ async def get_yield_dashboard(
                 "survey_id": sid,
                 "account_name": s.get("account_name", ""),
                 "country_code": s.get("country_code", ""),
+                "in_pool": bool(s.get("is_active_in_pool", True)),
                 "loi": loi,
                 "tloi": tloi,
                 "cpi": cpi,
@@ -2297,7 +2298,13 @@ async def update_survey_yield_status(survey_id: str, body: Dict[str, Any] = Body
                 }},
                 upsert=True,
             )
+            # Sync pool eligibility flag (yield deactivation -> survey pool layer)
+            await surveys_col_async.update_one(
+                {"survey_id": sid_int},
+                {"$set": {"is_active_in_pool": False}}
+            )
         else:
+            sid_int = int(survey_id) if survey_id.isdigit() else survey_id
             await metrics_col.update_one(
                 {"survey_id": survey_id},
                 {"$set": {
@@ -2306,6 +2313,11 @@ async def update_survey_yield_status(survey_id: str, body: Dict[str, Any] = Body
                     "manually_activated_at": now,
                 }},
                 upsert=True,
+            )
+            # Sync pool eligibility flag (yield activation -> survey pool layer)
+            await surveys_col_async.update_one(
+                {"survey_id": sid_int},
+                {"$set": {"is_active_in_pool": True}}
             )
 
         updated = await metrics_col.find_one({"survey_id": survey_id}, {"_id": 0})
