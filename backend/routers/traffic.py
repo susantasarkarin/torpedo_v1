@@ -536,17 +536,25 @@ def _get_cint_client() -> httpx.Client:
     return _cint_http_client
 
 
-def _apply_cint_quality_filter(surveys: list, respondent_age: Optional[int] = None) -> list:
+def _apply_cint_quality_filter(surveys: list, respondent_age: Optional[int] = None, relaxed: bool = False) -> list:
     """
     Filter an offerwall survey list by IR/conversion quality floors and optional age qualification.
 
     Falls back gracefully: strict(quality+age) -> age+CPI -> quality-only.
     Pass 4 (fully unfiltered) is intentionally omitted -- sending traffic to surveys below all
     quality floors damages panel quality and conversion metrics.
+
+    relaxed=True: uses lower floors intended for the CPX-terminated fallback path where any
+    survey is better than terminating the respondent (e.g. India CPI is naturally low).
     """
-    min_ir = int(os.getenv("MIN_CINT_IR", "15"))
-    min_conv = float(os.getenv("MIN_CINT_CONVERSION", "0.10"))
-    min_cpi = float(os.getenv("MIN_CINT_CPI", "0.75"))
+    if relaxed:
+        min_ir = int(os.getenv("MIN_CINT_FALLBACK_IR", "0"))
+        min_conv = float(os.getenv("MIN_CINT_FALLBACK_CONV", "0"))
+        min_cpi = float(os.getenv("MIN_CINT_FALLBACK_CPI", "0.05"))
+    else:
+        min_ir = int(os.getenv("MIN_CINT_IR", "15"))
+        min_conv = float(os.getenv("MIN_CINT_CONVERSION", "0.10"))
+        min_cpi = float(os.getenv("MIN_CINT_CPI", "0.75"))
 
     def _passes_quality(s: dict) -> bool:
         ir = float(s.get("IR") or s.get("BidIncidence") or 0)
@@ -684,7 +692,7 @@ def _score_cint_survey(survey: dict, respondent_age: Optional[int] = None) -> fl
 
     return score
 
-async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, respondent_age: Optional[int] = None) -> list:
+async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, respondent_age: Optional[int] = None, relaxed: bool = False) -> list:
     """
     Fetch live survey candidates for a country (Asynchronous).
     
@@ -709,7 +717,7 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, re
         if cache_info.get("last_updated") and country_lang_id:
             cached = get_cached_surveys_for_country(country_lang_id)
             if cached:
-                cached = _apply_cint_quality_filter(cached, respondent_age)
+                cached = _apply_cint_quality_filter(cached, respondent_age, relaxed=relaxed)
                 cached.sort(key=lambda s: _score_cint_survey(s, respondent_age), reverse=True)
                 candidates = [str(s.get("SurveyNumber")) for s in cached[:limit] if s.get("SurveyNumber")]
                 print(f"   ðŸ“¡ CINT offerwall (CACHED): {len(candidates)} candidates for country={cc} (cache age: {(datetime.utcnow() - cache_info['last_updated']).seconds}s)")
@@ -720,7 +728,7 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, re
             # No country mapping â€” use all cached surveys
             all_surveys = cache_info.get("surveys", [])
             if all_surveys:
-                all_surveys = _apply_cint_quality_filter(all_surveys, respondent_age)
+                all_surveys = _apply_cint_quality_filter(all_surveys, respondent_age, relaxed=relaxed)
                 all_surveys.sort(key=lambda s: _score_cint_survey(s, respondent_age), reverse=True)
                 candidates = [str(s.get("SurveyNumber")) for s in all_surveys[:limit] if s.get("SurveyNumber")]
                 print(f"   ðŸ“¡ CINT offerwall (CACHED, all countries): {len(candidates)} candidates")
@@ -773,7 +781,7 @@ async def fetch_cint_offerwall_candidates(country_code: str, limit: int = 50, re
             print("   WARNING: CINT offerwall has no surveys available in response")
             return []
         
-        filtered = _apply_cint_quality_filter(filtered, respondent_age)
+        filtered = _apply_cint_quality_filter(filtered, respondent_age, relaxed=relaxed)
         filtered.sort(key=lambda s: _score_cint_survey(s, respondent_age), reverse=True)
         candidates = [str(s.get("SurveyNumber")) for s in filtered[:limit] if s.get("SurveyNumber")]
         print(f"   ðŸ“¡ CINT offerwall: Selected {len(candidates)} candidates")
@@ -1261,7 +1269,9 @@ async def get_random_cint_fallback_link(traffic_record: dict, traffic_id: str) -
 
     try:
         # Fetch live candidates from the CINT offerwall (uses cache when available)
-        candidates = await fetch_cint_offerwall_candidates(country_code, limit=50, respondent_age=respondent_age)
+        # relaxed=True: use lower quality floors (CPI>=0.05, IR>=0) so low-CPI
+        # markets like India are not blocked -- any survey beats terminating the user.
+        candidates = await fetch_cint_offerwall_candidates(country_code, limit=50, respondent_age=respondent_age, relaxed=True)
         
         if not candidates:
             print(f"   âš ï¸ CINT fallback: No candidates available for country={country_code}")
