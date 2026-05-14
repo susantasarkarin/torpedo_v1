@@ -1910,6 +1910,45 @@ async def _handle_project_survey_callback(
             else:
                 print(f"âš ï¸ Vendor not found for vid={vendor_id}")
 
+        # Encrypt rid and append panel= to the redirect URL.
+        # AES-256-GCM encryption prevents URL spoofing / fabricated completions.
+        _panel_placeholders = {
+            "{PANEL}", "[PANEL]", "[%PANEL%]", "%PANEL%", "[PANEL%]", "{PANELIST}", "[PANELIST]"
+        }
+        raw_panel = (
+            traffic_record.get("panelId")
+            or (traffic_record.get("params") or {}).get("panel")
+            or ""
+        )
+        _panel_id = str(raw_panel).strip()[:50]
+        if _panel_id and _panel_id.upper() not in _panel_placeholders:
+            import os as _os, base64 as _b64
+            from urllib.parse import (
+                urlparse as _urlparse, parse_qs as _parse_qs,
+                urlencode as _urlencode, urlunparse as _urlunparse,
+            )
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM as _AESGCM
+
+            _parsed = _urlparse(redirect_url)
+            _params = _parse_qs(_parsed.query, keep_blank_values=True)
+
+            # Encrypt the rid value if the secret is configured
+            _secret_hex = _os.environ.get("REDIRECT_TOKEN_SECRET", "")
+            _rid_val = (_params.get("rid") or [""])[0]
+            if _rid_val and _secret_hex and len(_secret_hex) == 64:
+                try:
+                    _key = bytes.fromhex(_secret_hex)
+                    _nonce = _os.urandom(12)
+                    _ct = _AESGCM(_key).encrypt(_nonce, _rid_val.encode(), None)
+                    _params["rid"] = [_b64.urlsafe_b64encode(_nonce + _ct).decode().rstrip("=")]
+                except Exception as _enc_err:
+                    print(f"WARNING: rid encryption failed: {_enc_err}")
+
+            _params["panel"] = [_panel_id]
+            redirect_url = _urlunparse(
+                _parsed._replace(query=_urlencode({k: v[0] for k, v in _params.items()}))
+            )
+
         print(f"âœ… Project [{outcome.upper()}]: Redirecting to {redirect_url}")
         return RedirectResponse(url=redirect_url)
 
