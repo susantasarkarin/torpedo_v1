@@ -2169,10 +2169,47 @@ async def cpx_callback(
             except Exception as log_error:
                 print(f"âš ï¸ Failed to update CPX log: {log_error}")
         
+        # Encrypt rid and append panel= to the redirect URL (Panel vendors only).
+        # AES-256-GCM encryption prevents URL spoofing / fabricated completions.
+        if vendor_redirect_url:
+            _panel_placeholders = {
+                "{PANEL}", "[PANEL]", "[%PANEL%]", "%PANEL%", "[PANEL%]", "{PANELIST}", "[PANELIST]"
+            }
+            _raw_panel = (
+                traffic_record.get("panelId")
+                or (traffic_record.get("params") or {}).get("panel")
+                or ""
+            )
+            _cpx_panel_id = str(_raw_panel).strip()[:50]
+            if _cpx_panel_id and _cpx_panel_id.upper() not in _panel_placeholders:
+                import os as _os2, base64 as _b642
+                from urllib.parse import (
+                    urlparse as _urlparse2, parse_qs as _parse_qs2,
+                    urlencode as _urlencode2, urlunparse as _urlunparse2,
+                )
+                from cryptography.hazmat.primitives.ciphers.aead import AESGCM as _AESGCM2
+
+                _parsed2 = _urlparse2(vendor_redirect_url)
+                _params2 = _parse_qs2(_parsed2.query, keep_blank_values=True)
+                _secret_hex2 = _os2.environ.get("REDIRECT_TOKEN_SECRET", "")
+                _rid_val2 = (_params2.get("rid") or [""])[0]
+                if _rid_val2 and _secret_hex2 and len(_secret_hex2) == 64:
+                    try:
+                        _key2 = bytes.fromhex(_secret_hex2)
+                        _nonce2 = _os2.urandom(12)
+                        _ct2 = _AESGCM2(_key2).encrypt(_nonce2, _rid_val2.encode(), None)
+                        _params2["rid"] = [_b642.urlsafe_b64encode(_nonce2 + _ct2).decode().rstrip("=")]
+                    except Exception as _enc_err2:
+                        print(f"WARNING: CPX rid encryption failed: {_enc_err2}")
+                _params2["panel"] = [_cpx_panel_id]
+                vendor_redirect_url = _urlunparse2(
+                    _parsed2._replace(query=_urlencode2({k: v[0] for k, v in _params2.items()}))
+                )
+
         # Handle final redirect
         if new_status == "COMPLETE":
             if vendor_redirect_url:
-                print(f"âž¡ï¸ CPX Complete (ASYNC): Redirecting to vendor: {vendor_redirect_url}")
+                print(f"CPX Complete (ASYNC): Redirecting to vendor: {vendor_redirect_url}")
                 return RedirectResponse(url=vendor_redirect_url)
             else:
                 return RedirectResponse(url=f"{FRONTEND_URL}/thankyou")
@@ -2181,14 +2218,14 @@ async def cpx_callback(
             try:
                 cint_result = await get_random_cint_fallback_link(traffic_record, traffic_id)
                 if cint_result:
-                    print(f"âœ… CINT fallback: Redirecting CPX-terminated user to Cint survey {cint_result['survey_id']}")
+                    print(f"CINT fallback: Redirecting CPX-terminated user to Cint survey {cint_result['survey_id']}")
                     return RedirectResponse(url=cint_result["entry_link"])
             except Exception as cint_err:
-                print(f"âš ï¸ CINT fallback failed: {cint_err}")
-            
-            # CINT fallback failed â€” redirect to vendor terminate URL
+                print(f"WARNING: CINT fallback failed: {cint_err}")
+
+            # CINT fallback failed - redirect to vendor terminate URL
             if vendor_redirect_url:
-                print(f"âž¡ï¸ CPX terminated, CINT fallback failed: Redirecting to vendor terminate: {vendor_redirect_url}")
+                print(f"CPX terminated, CINT fallback failed: Redirecting to vendor terminate: {vendor_redirect_url}")
                 return RedirectResponse(url=vendor_redirect_url)
             else:
                 return RedirectResponse(url=ZOHO_TERMINATE_URL)
