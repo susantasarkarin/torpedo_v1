@@ -2004,6 +2004,7 @@ async def cpx_callback(
     message_id: str = Query(None, description="Message ID (alternative identifier)"),
     trans_id: str = Query(None, description="Transaction ID (preferred, replaces message_id)"),
     rid: str = Query(None, description="CPX respondent ID (optional, for backwards compatibility)"),
+    subid_2: Optional[str] = Query(None, alias="subid_2", description="RID passed via subid_2 from CPX"),
     sfwid: str = Query(None, description="SFWID passed via subid_1 from CPX - PRIMARY identifier"),
     subid_1: Optional[str] = Query(None, alias="subid_1", description="Legacy subid_1 (SFWID)"),
     subid: Optional[str] = Query(None, alias="subid", description="Legacy subid (SFWID)")
@@ -2037,9 +2038,13 @@ async def cpx_callback(
             status_code = "out"
         
         resolved_sfwid = sfwid or subid_1 or subid
-        print(f"ðŸ“¥ CPX Callback received: msg={msg}, resolved_status={status_code}, sfwid={resolved_sfwid}")
+        resolved_rid = rid or subid_2
+        print(
+            f"ðŸ“¥ CPX Callback received: msg={msg}, resolved_status={status_code}, "
+            f"sfwid={resolved_sfwid}, rid={resolved_rid}"
+        )
         
-        if not resolved_sfwid:
+        if not resolved_sfwid and not resolved_rid:
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
         decoded_sfwid = resolved_sfwid
@@ -2066,7 +2071,7 @@ async def cpx_callback(
                 "status_code": status_code,
                 "new_status": new_status,
                 "decoded_sfwid": decoded_sfwid,
-                "rid_received": rid,
+                "rid_received": resolved_rid,
                 "trans_id": trans_id,
                 "processing_status": "pending",
                 "success": False
@@ -2093,16 +2098,28 @@ async def cpx_callback(
         
         # Find traffic record asynchronously
         traffic_record = None
-        try:
-            traffic_record = await async_url_collection.find_one({"_id": ObjectId(decoded_sfwid)})
-        except:
-            pass
+        if decoded_sfwid:
+            try:
+                traffic_record = await async_url_collection.find_one({"_id": ObjectId(decoded_sfwid)})
+            except:
+                pass
+            
+            if not traffic_record:
+                traffic_record = await async_url_collection.find_one({"_id": decoded_sfwid})
+
+        # Fallback path: CPX may return only RID (vendor respondent ID) in some integrations.
+        # Use most recent traffic record for that respondent.
+        if not traffic_record and resolved_rid:
+            traffic_record = await async_url_collection.find_one(
+                {"respondentId": str(resolved_rid)},
+                sort=[("createdAt", -1)]
+            )
+            if traffic_record:
+                decoded_sfwid = str(traffic_record.get("_id"))
+                print(f"â„¹ï¸ CPX callback matched by rid fallback: rid={resolved_rid}, sfwid={decoded_sfwid}")
         
         if not traffic_record:
-            traffic_record = await async_url_collection.find_one({"_id": decoded_sfwid})
-        
-        if not traffic_record:
-            print(f"âŒ No traffic record found for SFWID: {decoded_sfwid}")
+            print(f"âŒ No traffic record found for SFWID={decoded_sfwid}, rid={resolved_rid}")
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error")
         
         traffic_id = str(traffic_record["_id"])
@@ -2796,15 +2813,18 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 import uuid
                 cpx_mid = uuid.uuid4().hex[:16]
                 
-                # CPX IDENTITY CHANGE: Use SFWID (traffic_id) as vendor_user_id (ext_user_id for CPX)
-                # as requested by the user ("RID is changed to SFWID")
+                # Send BOTH identifiers to CPX:
+                # - ext_user_id (vendor_user_id) = SFWID for callback correlation
+                # - subid_2 = original RID for downstream vendor flow continuity
                 cpx_vendor_user_id = traffic_id
+                cpx_subid_2 = respondent_id
                 
                 # Select the correct method based on service capabilities
                 if hasattr(cpx_service, 'async_fetch_and_allocate_for_respondent'):
                     result = await cpx_service.async_fetch_and_allocate_for_respondent(
                         vendor_user_id=cpx_vendor_user_id,
                         internal_tracking_id=traffic_id,
+                        subid_2=cpx_subid_2,
                         user_ip=client_ip,
                         user_agent=client_user_agent,
                         country_code=country_code,
@@ -2821,6 +2841,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                         cpx_service.fetch_and_allocate_for_respondent,
                         vendor_user_id=cpx_vendor_user_id,
                         internal_tracking_id=traffic_id,
+                        subid_2=cpx_subid_2,
                         user_ip=client_ip,
                         user_agent=client_user_agent,
                         country_code=country_code,

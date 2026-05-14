@@ -506,6 +506,7 @@ class CPXService:
         internal_tracking_id: str,
         user_ip: str,
         user_agent: str,
+        subid_2: Optional[str] = None,
         country_code: str = "",
         email: Optional[str] = None,
         birthday_day: Optional[int] = None,
@@ -536,6 +537,8 @@ class CPXService:
                 "limit": self.fetch_limit,
                 "secure_hash": secure_hash,
             }
+            if subid_2:
+                params["subid_2"] = str(subid_2)
             if country_iso2: params["user_country_code"] = country_iso2
             if email: params["email"] = email
             if birthday_day is not None: params["birthday_day"] = birthday_day
@@ -606,6 +609,7 @@ class CPXService:
         internal_tracking_id: str,     # Our SFWID for internal tracking (subid_1)
         user_ip: str,                  # REQUIRED - real client IP, no fallback
         user_agent: str,               # REQUIRED - real client UA, no fallback
+        subid_2: Optional[str] = None, # Vendor RID / original respondent ID
         country_code: str = "",        # ISO2 country code (e.g., "US", "IN") - sent as-is to CPX
         # CPX User Profiling Parameters (CRITICAL for survey matching)
         email: Optional[str] = None,
@@ -769,6 +773,8 @@ class CPXService:
                 "limit": self.fetch_limit,
                 "secure_hash": secure_hash,
             }
+            if subid_2:
+                params["subid_2"] = str(subid_2)
             
             # Add country code if available (ISO2 format for CPX - e.g., "IN", "US")
             # CPX docs: parameter name is "user_country_code", NOT "country_code"
