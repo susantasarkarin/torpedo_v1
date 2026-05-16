@@ -527,5 +527,12 @@ class ReportBuilder:
             logger.error(f"Error sending scheduled report: {str(e)}")
 
 
-# Global instance
-report_builder = ReportBuilder()
+# Global instance — lazy to avoid scheduler start on import
+_report_builder: "ReportBuilder | None" = None
+
+
+def get_report_builder() -> "ReportBuilder":
+    global _report_builder
+    if _report_builder is None:
+        _report_builder = ReportBuilder()
+    return _report_builder
