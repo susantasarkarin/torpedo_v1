@@ -8,7 +8,6 @@ Extracted from main.py to keep the app entry-point lean.
 
 import asyncio
 import logging
-from datetime import datetime
 from typing import Any, Dict, Optional
 
 from bson import ObjectId
@@ -25,9 +24,9 @@ except ImportError:
     from database import get_client, get_database
 
 try:
-    from .utils import validate_redirect_url
+    from .services import vendor_service
 except ImportError:
-    from utils import validate_redirect_url
+    from services import vendor_service
 
 logger = logging.getLogger(__name__)
 
@@ -69,36 +68,6 @@ def _projects():
     return _get_db()["projects"]
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _generate_vid() -> str:
-    while True:
-        vid = str(datetime.utcnow().microsecond % 10000).zfill(4)
-        if not _vendors().find_one({"vid": vid}):
-            return vid
-
-
-def _generate_survey_no() -> str:
-    while True:
-        survey_no = str(datetime.utcnow().microsecond % 100000).zfill(5)
-        if not _projects().find_one({"surveyNo": survey_no}):
-            return survey_no
-
-
-def _validate_redirect_urls(vendor_data: Dict[str, Any]) -> None:
-    for url_field in ["completeRD", "terminateRD", "quotaRD"]:
-        urls = vendor_data.get(url_field, [])
-        if not urls:
-            continue
-        url_list = urls if isinstance(urls, list) else [urls]
-        for url in url_list:
-            if url and url.strip():
-                is_valid, error_msg = validate_redirect_url(url.strip(), require_https=False)
-                if not is_valid:
-                    raise HTTPException(status_code=400, detail=f"Invalid {url_field} URL: {error_msg}")
-
 
 # ---------------------------------------------------------------------------
 # Vendor routes
@@ -115,12 +84,8 @@ async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
             raise HTTPException(status_code=400, detail="Vendor Type is required")
         if not vendor_data.get("status") or not vendor_data["status"].strip():
             raise HTTPException(status_code=400, detail="Status is required")
-
-        _validate_redirect_urls(vendor_data)
-        vendor_data["vid"] = _generate_vid()
-        result = _vendors().insert_one(vendor_data)
-        vendor_data["_id"] = str(result.inserted_id)
-        return {"message": "Vendor created successfully", "vendor": vendor_data}
+        result = vendor_service.create_vendor(vendor_data, _vendors())
+        return {"message": "Vendor created successfully", "vendor": result}
     except HTTPException:
         raise
     except Exception as e:
@@ -142,7 +107,7 @@ async def get_vendors():
 async def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...)):
     try:
         vendor_data = {k: v for k, v in vendor_data.items() if k not in ["_id", "vid"]}
-        _validate_redirect_urls(vendor_data)
+        vendor_service.validate_vendor_redirect_urls(vendor_data)
         result = _vendors().update_one({"_id": ObjectId(vendor_id)}, {"$set": vendor_data})
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Vendor not found")
@@ -157,32 +122,7 @@ async def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...))
 async def delete_vendor(vendor_id: str):
     """Soft delete a panel vendor with safety checks."""
     try:
-        vendor = _vendors().find_one({"_id": ObjectId(vendor_id)})
-        if not vendor:
-            raise HTTPException(status_code=404, detail="Vendor not found")
-
-        url_params_col = _get_traffic_db()
-        if url_params_col is not None:
-            vid = vendor.get("vid")
-            if vid:
-                traffic_count = url_params_col.count_documents({"vendorId": vid})
-                if traffic_count > 0:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Cannot delete vendor with {traffic_count} traffic records. Archive instead.",
-                    )
-
-        linked_billing_id = vendor.get("linked_billing_vendor_id")
-        if linked_billing_id:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot delete vendor linked to billing vendor (ID: {linked_billing_id}). Unlink first.",
-            )
-
-        _vendors().update_one(
-            {"_id": ObjectId(vendor_id)},
-            {"$set": {"is_deleted": True, "deleted_at": datetime.utcnow(), "status": "deleted"}},
-        )
+        vendor_service.delete_vendor_safe(vendor_id, _vendors(), _get_traffic_db())
         return {"message": "Vendor deleted successfully (soft delete)"}
     except HTTPException:
         raise
@@ -203,12 +143,8 @@ async def create_project(project_data: Dict[str, Any] = Body(...)):
             raise HTTPException(status_code=400, detail="Sales person is required")
         if not project_data.get("client") or not project_data["client"].strip():
             raise HTTPException(status_code=400, detail="Client is required")
-
-        project_data["surveyNo"] = _generate_survey_no()
-        project_data["createdAt"] = datetime.utcnow()
-        result = _projects().insert_one(project_data)
-        project_data["_id"] = str(result.inserted_id)
-        return {"message": "Project created successfully", "project": project_data}
+        result = vendor_service.create_project(project_data, _projects())
+        return {"message": "Project created successfully", "project": result}
     except HTTPException:
         raise
     except Exception as e:
@@ -256,32 +192,7 @@ async def update_project(project_id: str, project_data: Dict[str, Any] = Body(..
 async def delete_project(project_id: str):
     """Soft delete a project with cascade validation."""
     try:
-        project = _projects().find_one({"_id": ObjectId(project_id)})
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-
-        client = get_client()
-        finance_db = client["finance_db"]
-        invoices_col = finance_db["invoices"]
-        bills_col = finance_db["bills"]
-        expenses_col = finance_db["expenses"]
-
-        linked_invoices = invoices_col.count_documents({"project_id": project_id, "is_deleted": {"$ne": True}})
-        if linked_invoices > 0:
-            raise HTTPException(status_code=400, detail=f"Cannot delete project with {linked_invoices} linked invoice(s). Delete or unlink invoices first.")
-
-        linked_bills = bills_col.count_documents({"project_id": project_id, "is_deleted": {"$ne": True}})
-        if linked_bills > 0:
-            raise HTTPException(status_code=400, detail=f"Cannot delete project with {linked_bills} linked bill(s). Delete or unlink bills first.")
-
-        linked_expenses = expenses_col.count_documents({"project_id": project_id, "is_deleted": {"$ne": True}})
-        if linked_expenses > 0:
-            raise HTTPException(status_code=400, detail=f"Cannot delete project with {linked_expenses} linked expense(s). Delete or unlink expenses first.")
-
-        _projects().update_one(
-            {"_id": ObjectId(project_id)},
-            {"$set": {"is_deleted": True, "deleted_at": datetime.utcnow(), "projectStatus": "Deleted"}},
-        )
+        vendor_service.delete_project_safe(project_id, _projects(), get_client())
         return {"message": "Project deleted successfully (soft delete)"}
     except HTTPException:
         raise

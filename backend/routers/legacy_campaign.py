@@ -7,16 +7,12 @@ Extracted from main.py to keep the app entry-point lean.
 """
 
 import logging
-import os
 import re
-import smtplib
 from datetime import datetime
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from typing import Any, Dict, List
 
 from bson import ObjectId
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from fastapi.responses import RedirectResponse, Response
 
 try:
@@ -25,22 +21,23 @@ except ImportError:
     from session_state import verify_session
 
 try:
-    from .database import get_client, get_database
+    from .database import get_database
 except ImportError:
-    from database import get_client, get_database
+    from database import get_database
+
+try:
+    from .services import campaign_service
+except ImportError:
+    from services import campaign_service
+
+try:
+    from .utils import validate_redirect_url
+except ImportError:
+    from utils import validate_redirect_url
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["legacy-campaign"])
-
-API_BASE = os.getenv("API_BASE", "http://139.59.32.72:8000")
-
-# SMTP config
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Cogentix Research")
 
 # ---------------------------------------------------------------------------
 # Lazy collection accessors
@@ -70,37 +67,6 @@ def _templates():
 def _reports():
     return _get_db()["reports"]
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def rewrite_links_with_tracking(html_body: str, campaign_id: str, email: str) -> str:
-    return re.sub(
-        r'href="(http[s]?://[^"]+)"',
-        lambda m: f'href="{API_BASE}/track/click?c={campaign_id}&e={email}&url={m.group(1)}"',
-        html_body,
-    )
-
-
-def inject_open_tracking(html_body: str, campaign_id: str, email: str) -> str:
-    pixel = f'<img src="{API_BASE}/track/open?c={campaign_id}&e={email}" width="1" height="1" style="display:none;" />'
-    return html_body + pixel
-
-
-def _send_email_html(to_email: str, subject: str, html_content: str) -> bool:
-    if not SMTP_USER or not SMTP_PASSWORD:
-        raise Exception("SMTP credentials not configured. Set SMTP_USER and SMTP_PASSWORD environment variables.")
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_USER}>"
-    msg["To"] = to_email
-    msg.attach(MIMEText(html_content, "html"))
-    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-        server.starttls()
-        server.login(SMTP_USER, SMTP_PASSWORD)
-        server.sendmail(SMTP_USER, [to_email], msg.as_string())
-    return True
 
 
 # ---------------------------------------------------------------------------
@@ -136,10 +102,7 @@ async def get_lists(
 @router.delete("/delete-list/{list_id}")
 async def delete_list(list_id: str):
     try:
-        result = _lists().delete_one({"_id": ObjectId(list_id)})
-        if result.deleted_count == 0:
-            raise HTTPException(status_code=404, detail="List not found")
-        _contacts().delete_many({"listId": list_id})
+        campaign_service.delete_list_cascade(list_id, _lists(), _contacts())
         return {"message": "List deleted successfully"}
     except HTTPException:
         raise
@@ -154,51 +117,11 @@ async def delete_list(list_id: str):
 @router.post("/upload-csv/")
 async def upload_csv(data: Dict[str, List[Dict[str, Any]]] = Body(...)):
     contacts = data.get("contacts", [])
-    inserted_contacts = []
-
-    for contact in contacts:
-        email = (contact.get("email") or "").strip()
-        list_name = contact.get("listName")
-        incoming_list_id = contact.get("listId")
-        if not email:
-            continue
-
-        resolved_list_id = None
-        try:
-            if incoming_list_id and ObjectId.is_valid(str(incoming_list_id)):
-                resolved_list_id = str(incoming_list_id)
-            elif incoming_list_id:
-                found = _lists().find_one({"name": incoming_list_id})
-                resolved_list_id = str(found["_id"]) if found else incoming_list_id
-            elif list_name:
-                found = _lists().find_one({"name": list_name})
-                resolved_list_id = str(found["_id"]) if found else None
-        except Exception as e:
-            logger.warning("upload-csv: error resolving list id/name: %s", e)
-
-        query: Dict[str, Any] = {"email": email}
-        if resolved_list_id:
-            query["listId"] = resolved_list_id
-        elif list_name:
-            query["listName"] = list_name
-
-        if _contacts().find_one(query):
-            continue
-
-        if list_name:
-            contact["listName"] = list_name
-        if resolved_list_id:
-            contact["listId"] = resolved_list_id
-
-        try:
-            result = _contacts().insert_one(contact)
-            contact["_id"] = str(result.inserted_id)
-            inserted_contacts.append(contact)
-        except Exception as e:
-            logger.error("MongoDB insert failed for %s: %s", email, e)
-            continue
-
-    return {"message": f"Uploaded {len(inserted_contacts)} contacts!", "contacts": inserted_contacts}
+    try:
+        inserted_contacts = campaign_service.upload_contacts_batch(contacts, _lists(), _contacts())
+        return {"message": f"Uploaded {len(inserted_contacts)} contacts!", "contacts": inserted_contacts}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 # ---------------------------------------------------------------------------
@@ -320,42 +243,11 @@ async def send_emails(data: Dict[str, Any] = Body(...)):
     template = data.get("template")
     if not contacts or not template:
         raise HTTPException(status_code=400, detail="Missing contacts or template")
-
-    subject = template.get("subject", "No Subject")
-    html_content = template.get("htmlContent", "")
-    campaign_id = str(ObjectId())
-
-    _reports().insert_one({
-        "campaignId": campaign_id,
-        "subject": subject,
-        "sent": [],
-        "opens": [],
-        "clicks": [],
-        "createdAt": datetime.utcnow(),
-    })
-
-    sent_emails: List[str] = []
-    failed_emails: List[Dict[str, str]] = []
-
-    for contact in contacts:
-        email = (contact.get("email") or "").strip()
-        if not email:
-            continue
-        try:
-            personalized_html = re.sub(r"{{\s*contact.name\s*}}", contact.get("name") or "there", html_content)
-            personalized_html = re.sub(r"{{\s*sender.companyName\s*}}", "Cogentix Research", personalized_html)
-            personalized_html = rewrite_links_with_tracking(personalized_html, campaign_id, email)
-            personalized_html = inject_open_tracking(personalized_html, campaign_id, email)
-            _send_email_html(email, subject, personalized_html)
-            sent_emails.append(email)
-            _reports().update_one(
-                {"campaignId": campaign_id},
-                {"$push": {"sent": {"email": email, "time": datetime.utcnow()}}},
-            )
-        except Exception as e:
-            failed_emails.append({"email": email, "error": str(e)})
-
-    return {"message": f"Sent {len(sent_emails)} emails!", "sent": sent_emails, "failed": failed_emails}
+    try:
+        result = await campaign_service.send_campaign(contacts, template, _reports())
+        return {"message": f"Sent {len(result['sent'])} emails!", "sent": result["sent"], "failed": result["failed"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Send error: {str(e)}")
 
 
 # ---------------------------------------------------------------------------
@@ -380,6 +272,10 @@ async def track_open(c: str, e: str):
 
 @router.get("/track/click")
 async def track_click(c: str, e: str, url: str):
+    # Security: validate destination before redirecting (open redirect prevention)
+    is_valid, error_msg = validate_redirect_url(url, require_https=False)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid redirect URL: {error_msg}")
     _reports().update_one(
         {"campaignId": c},
         {"$push": {"clicks": {"email": e, "url": url, "time": datetime.utcnow()}}},

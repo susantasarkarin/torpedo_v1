@@ -28,6 +28,11 @@ try:
 except ImportError:
     from database import get_database
 
+try:
+    from .services import lead_service
+except ImportError:
+    from services import lead_service
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["legacy-leads"])
@@ -137,18 +142,15 @@ async def bulk_delete_leads(data: Dict[str, Any] = Body(...)):
 @router.post("/leads/{lead_id}/move-to-contacts")
 async def move_lead_to_contacts(lead_id: str, stage_data: Dict[str, Any] = Body(...)):
     try:
-        lead = _leads().find_one({"_id": ObjectId(lead_id)})
-        if not lead:
+        contact = lead_service.move_lead_to_contacts(
+            lead_id,
+            stage_data.get("stage", "RFQ"),
+            _leads(),
+            _contacts(),
+        )
+        if contact is None:
             raise HTTPException(status_code=404, detail="Lead not found")
-        contact_data = {k: v for k, v in lead.items() if k != "_id"}
-        contact_data["stage"] = stage_data.get("stage", "RFQ")
-        contact_data["movedFromLeadAt"] = datetime.utcnow()
-        contact_data["createdAt"] = lead.get("createdAt", datetime.utcnow())
-        contact_data["updatedAt"] = datetime.utcnow()
-        result = _contacts().insert_one(contact_data)
-        contact_data["_id"] = str(result.inserted_id)
-        _leads().delete_one({"_id": ObjectId(lead_id)})
-        return {"message": "Lead moved to contacts successfully", "contact": contact_data}
+        return {"message": "Lead moved to contacts successfully", "contact": contact}
     except HTTPException:
         raise
     except Exception as e:
