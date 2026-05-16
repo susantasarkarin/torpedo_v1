@@ -339,3 +339,47 @@ def register_simple_routers(app: FastAPI) -> None:
         print("✅ Support router included")
     except Exception as e:
         print(f"⚠️ Support router not included: {e}")
+
+    # --- Auth / Admin (extracted Phase 8) ---
+    try:
+        from routers.auth_handler import router as auth_handler_router
+        app.include_router(auth_handler_router)
+        print("✅ Auth handler router included")
+    except Exception as e:
+        print(f"⚠️ Auth handler router not included: {e}")
+
+    try:
+        from routers.admin_handler import router as admin_handler_router
+        app.include_router(admin_handler_router)
+        print("✅ Admin handler router included")
+    except Exception as e:
+        print(f"⚠️ Admin handler router not included: {e}")
+
+    # --- Legacy routes (extracted Phase 8) ---
+    try:
+        from routers.legacy_campaign import router as legacy_campaign_router
+        app.include_router(legacy_campaign_router)
+        print("✅ Legacy campaign router included")
+    except Exception as e:
+        print(f"⚠️ Legacy campaign router not included: {e}")
+
+    try:
+        from routers.legacy_leads import router as legacy_leads_router
+        app.include_router(legacy_leads_router)
+        print("✅ Legacy leads router included")
+    except Exception as e:
+        print(f"⚠️ Legacy leads router not included: {e}")
+
+    try:
+        from routers.legacy_contacts import router as legacy_contacts_router
+        app.include_router(legacy_contacts_router)
+        print("✅ Legacy contacts router included")
+    except Exception as e:
+        print(f"⚠️ Legacy contacts router not included: {e}")
+
+    try:
+        from routers.legacy_vendors_projects import router as legacy_vp_router
+        app.include_router(legacy_vp_router)
+        print("✅ Legacy vendors/projects router included")
+    except Exception as e:
+        print(f"⚠️ Legacy vendors/projects router not included: {e}")

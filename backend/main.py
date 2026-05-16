@@ -1,4 +1,4 @@
-import os
+﻿import os
 import traceback
 import re
 import logging
@@ -132,7 +132,7 @@ else:
     CORS_ORIGINS = CORS_ORIGINS.split(",")
 
 # ----------------------------
-# MongoDB connection (pooled singleton — shared across all modules)
+# MongoDB connection (pooled singleton â€” shared across all modules)
 # ----------------------------
 try:
     from .database import get_client, get_database
@@ -148,10 +148,10 @@ try:
     url_parameters_collection = traffic_db["url_parameters"]
     # Test connection
     client.admin.command('ping')
-    print("✅ MongoDB connected successfully (including traffic_flow_db)!")
+    print("âœ… MongoDB connected successfully (including traffic_flow_db)!")
 except Exception as e:
     url_parameters_collection = None
-    print(f"⚠️ MongoDB traffic_flow_db connection issue: {e}")
+    print(f"âš ï¸ MongoDB traffic_flow_db connection issue: {e}")
     print("   Traffic flow endpoints will have limited functionality")
 
 contacts_collection = db["contacts"]
@@ -166,11 +166,11 @@ try:
     cpx_db = client["cpx_research"]
     cpx_surveys_collection = cpx_db["cpx_surveys"]
     cpx_filters_collection = cpx_db["cpx_filters"]
-    print("✅ CPX Research database collections initialized")
+    print("âœ… CPX Research database collections initialized")
 except Exception as e:
     cpx_surveys_collection = None
     cpx_filters_collection = None
-    print(f"⚠️ CPX Research database initialization issue: {e}")
+    print(f"âš ï¸ CPX Research database initialization issue: {e}")
 
 # Settings database for app configuration (profile > settings)
 try:
@@ -178,7 +178,7 @@ try:
     app_settings_collection = settings_db["app_settings"]
 except Exception as e:
     app_settings_collection = None
-    print(f"⚠️ Settings database initialization issue: {e}")
+    print(f"âš ï¸ Settings database initialization issue: {e}")
 
 
 def get_cpx_config() -> Dict[str, Any]:
@@ -209,7 +209,7 @@ def get_cpx_config() -> Dict[str, Any]:
                 if stored.get("cpx_api_timeout"):
                     config["cpx_api_timeout"] = int(stored["cpx_api_timeout"])
         except Exception as e:
-            print(f"⚠️ Could not read CPX config from settings: {e}")
+            print(f"âš ï¸ Could not read CPX config from settings: {e}")
     
     return config
 
@@ -300,7 +300,7 @@ async def http_exception_handler(request, exc):
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):
     """Convert all unhandled exceptions to JSON responses"""
-    print(f"❌ Unhandled exception: {type(exc).__name__}: {str(exc)}")
+    print(f"âŒ Unhandled exception: {type(exc).__name__}: {str(exc)}")
     traceback.print_exc()
     return JSONResponse(
         status_code=500,
@@ -329,7 +329,7 @@ class TimingMiddleware(BaseHTTPMiddleware):
         
         # Log slow requests (>1 second)
         if process_time > 1000:
-            print(f"⚠️ SLOW REQUEST: {request.method} {request.url.path} - {process_time:.0f}ms")
+            print(f"âš ï¸ SLOW REQUEST: {request.method} {request.url.path} - {process_time:.0f}ms")
         
         return response
 
@@ -489,7 +489,7 @@ async def system_health():
     except Exception as e:
         health["checks"]["email_unique_index"] = {"status": "error", "error": str(e)}
     
-    # Check 8: Gmail → Lead Pipeline Health (CRITICAL)
+    # Check 8: Gmail â†’ Lead Pipeline Health (CRITICAL)
     try:
         # Get inbound emails in last 24h
         inbound_emails_24h = email_metadata.count_documents({
@@ -508,7 +508,7 @@ async def system_health():
             health["errors"].append(f"CRITICAL: {inbound_emails_24h} inbound emails but 0 leads created - pipeline broken")
         elif inbound_emails_24h > 10 and gmail_leads_24h < (inbound_emails_24h * 0.1):
             pipeline_status = "warning"
-            health["warnings"].append(f"Low conversion: {inbound_emails_24h} emails → {gmail_leads_24h} leads")
+            health["warnings"].append(f"Low conversion: {inbound_emails_24h} emails â†’ {gmail_leads_24h} leads")
         
         health["checks"]["gmail_to_lead_pipeline"] = {
             "inbound_emails_24h": inbound_emails_24h,
@@ -558,18 +558,18 @@ if url_parameters_collection is not None:
                 surveys_collection=cpx_surveys_collection
             )
             traffic_router.set_traffic_service(traffic_service_instance)
-            print("✅ Traffic service initialized")
+            print("âœ… Traffic service initialized")
         except Exception as e:
-            print(f"⚠️ Traffic service initialization issue: {e}")
+            print(f"âš ï¸ Traffic service initialization issue: {e}")
     
     # Inject Survey Allocation Service into traffic router
     try:
         from app.services.survey_allocation_service import get_survey_allocation_service
         survey_allocation_service_instance = get_survey_allocation_service()
         traffic_router.set_survey_allocation_service(survey_allocation_service_instance)
-        print("✅ Survey allocation service injected into traffic router")
+        print("âœ… Survey allocation service injected into traffic router")
     except Exception as e:
-        print(f"⚠️ Survey allocation service injection issue: {e}")
+        print(f"âš ï¸ Survey allocation service injection issue: {e}")
 
 # ============================================
 # CPX Callback/Postback Collections (MUST be before router inclusion)
@@ -577,25 +577,25 @@ if url_parameters_collection is not None:
 # Inject vendors collection into traffic router for CPX callback handling
 try:
     traffic_router.set_vendors_collection(vendors_collection)
-    print("✅ Vendors collection injected into traffic router")
+    print("âœ… Vendors collection injected into traffic router")
 except Exception as e:
-    print(f"⚠️ Vendors collection injection issue: {e}")
+    print(f"âš ï¸ Vendors collection injection issue: {e}")
 
 # Initialize CPX callback logs collection and inject into traffic router
 try:
     cpx_callback_logs_collection = traffic_db["cpx_callback_logs"]
     traffic_router.set_cpx_callback_logs_collection(cpx_callback_logs_collection)
-    print("✅ CPX callback logs collection initialized")
+    print("âœ… CPX callback logs collection initialized")
 except Exception as e:
-    print(f"⚠️ CPX callback logs collection issue: {e}")
+    print(f"âš ï¸ CPX callback logs collection issue: {e}")
 
 # Initialize CPX S2S postback logs collection for redirect verification
 try:
     cpx_postback_logs_for_traffic = traffic_db["cpx_postback_logs"]
     traffic_router.set_cpx_postback_logs_collection(cpx_postback_logs_for_traffic)
-    print("✅ CPX postback logs injected into traffic router for S2S verification")
+    print("âœ… CPX postback logs injected into traffic router for S2S verification")
 except Exception as e:
-    print(f"⚠️ CPX postback logs injection issue: {e}")
+    print(f"âš ï¸ CPX postback logs injection issue: {e}")
 
 app.include_router(traffic_router.router)
 
@@ -622,17 +622,17 @@ if cpx_surveys_collection is not None and cpx_filters_collection is not None:
     cpx_router.set_cpx_service(cpx_service)
     traffic_router.set_cpx_service(cpx_service)  # Inject CPX service into traffic router for survey allocation
     app.include_router(cpx_router.router)
-    print("✅ CPX Research router initialized")
-    print("✅ CPX service injected into traffic router")
+    print("âœ… CPX Research router initialized")
+    print("âœ… CPX service injected into traffic router")
 else:
-    print("⚠️ CPX Research router not initialized due to database connection issue")
+    print("âš ï¸ CPX Research router not initialized due to database connection issue")
 
 # Cint Integration Setup
 try:
     from database_setup_cint import setup_cint_database
     # Initialize Cint database collections
     setup_cint_database(mongo_uri=MONGO_URI)
-    print("✅ Cint database collections initialized")
+    print("âœ… Cint database collections initialized")
     
     # Initialize CintIntegration with environment variables or defaults
     cint_integration = CintIntegration.load_from_env()
@@ -645,10 +645,10 @@ try:
     
     # Register Cint router
     app.include_router(cint_router.router, prefix="/api/cint", tags=["Cint Research"])
-    print("✅ Cint Research router initialized")
-    print(f"✅ Cint integration active (Supplier Code: {cint_integration.supplier_code})")
+    print("âœ… Cint Research router initialized")
+    print(f"âœ… Cint integration active (Supplier Code: {cint_integration.supplier_code})")
 except Exception as e:
-    print(f"⚠️ Cint Research setup failed: {e}")
+    print(f"âš ï¸ Cint Research setup failed: {e}")
     import traceback
     traceback.print_exc()
 
@@ -676,9 +676,9 @@ try:
         cpx_entry_guards_collection.create_index("created_at", background=True)
         # TTL index to auto-expire old entries after 7 days
         cpx_entry_guards_collection.create_index("created_at", expireAfterSeconds=604800, background=True)
-        print("✅ CPX entry guards collection initialized with unique ext_user_id index")
+        print("âœ… CPX entry guards collection initialized with unique ext_user_id index")
     except Exception as idx_err:
-        print(f"⚠️ CPX entry guards index may already exist: {idx_err}")
+        print(f"âš ï¸ CPX entry guards index may already exist: {idx_err}")
     
     # Inject into traffic router
     traffic_router.set_cpx_entry_guards_collection(cpx_entry_guards_collection)
@@ -687,18 +687,18 @@ try:
     # This is CRITICAL for idempotency and fraud prevention
     try:
         survey_transactions_collection.create_index("trans_id", unique=True, background=True)
-        print("✅ Unique index on trans_id created/verified")
+        print("âœ… Unique index on trans_id created/verified")
     except Exception as idx_err:
-        print(f"⚠️ trans_id index may already exist or error: {idx_err}")
+        print(f"âš ï¸ trans_id index may already exist or error: {idx_err}")
     
     # Create index on subid for faster lookups by SFWID
     try:
         survey_transactions_collection.create_index("subid", background=True)
         survey_transactions_collection.create_index("status", background=True)
         survey_transactions_collection.create_index("created_at", background=True)
-        print("✅ Additional indexes on survey_transactions created/verified")
+        print("âœ… Additional indexes on survey_transactions created/verified")
     except Exception as idx_err:
-        print(f"⚠️ Additional indexes warning: {idx_err}")
+        print(f"âš ï¸ Additional indexes warning: {idx_err}")
     
     # Inject collections into cpx_api_router
     cpx_api_router.set_survey_transactions_collection(survey_transactions_collection)
@@ -708,11 +708,11 @@ try:
     
     # Include the CPX API router (trans_id based flow)
     app.include_router(cpx_api_router.router)
-    print("✅ CPX API router initialized (trans_id flow)")
-    print("✅ Survey transactions collection initialized")
-    print("✅ CPX vendor postback forwarding enabled")
+    print("âœ… CPX API router initialized (trans_id flow)")
+    print("âœ… Survey transactions collection initialized")
+    print("âœ… CPX vendor postback forwarding enabled")
 except Exception as e:
-    print(f"⚠️ CPX API router not initialized: {e}")
+    print(f"âš ï¸ CPX API router not initialized: {e}")
     import traceback
     traceback.print_exc()
 
@@ -722,9 +722,9 @@ except Exception as e:
 # Survey Allocation & Quality Control Engine router
 try:
     app.include_router(survey_allocation_router.router)
-    print("✅ Survey Allocation router included")
+    print("âœ… Survey Allocation router included")
 except Exception as e:
-    print(f"⚠️ Survey Allocation router not included: {e}")
+    print(f"âš ï¸ Survey Allocation router not included: {e}")
 
 # Survey Pool, Leads, and all remaining routers
 try:
@@ -732,15 +732,15 @@ try:
     # Include leads router first (has its own import at top level)
     try:
         app.include_router(leads_router.router)
-        print("✅ Leads AI Classification router included")
+        print("âœ… Leads AI Classification router included")
     except Exception as _leads_err:
-        print(f"⚠️ Leads router not included: {_leads_err}")
+        print(f"âš ï¸ Leads router not included: {_leads_err}")
     register_simple_routers(app)
     from routers.auth_handler import router as _auth_router
     app.include_router(_auth_router)
-    print("✅ auth_handler router included")
+    print("âœ… auth_handler router included")
 except Exception as e:
-    print(f"⚠️ router_registry failed: {e}")
+    print(f"âš ï¸ router_registry failed: {e}")
     import traceback; traceback.print_exc()
 
 # ----------------------------
@@ -751,7 +751,7 @@ cpx_refresh_job: Optional[Any] = None
 
 def refresh_cpx_inventory():
     """
-    ⛔ DISABLED - CPX CANNOT BE REFRESHED IN BACKGROUND JOBS
+    â›” DISABLED - CPX CANNOT BE REFRESHED IN BACKGROUND JOBS
     
     CPX Research binds survey hrefs to:
       - ext_user_id (stable vendor ID)
@@ -772,11 +772,11 @@ def refresh_cpx_inventory():
     This job now only performs cleanup of old survey metadata.
     """
     if cpx_service is None:
-        print("⚠️ CPX service not initialized, skipping cleanup")
+        print("âš ï¸ CPX service not initialized, skipping cleanup")
         return
     
     try:
-        print(f"🔄 [CPX] Starting scheduled cleanup at {datetime.utcnow().isoformat()}")
+        print(f"ðŸ”„ [CPX] Starting scheduled cleanup at {datetime.utcnow().isoformat()}")
         
         # Get filter settings from database
         filter_settings = get_survey_filter_settings()
@@ -785,12 +785,12 @@ def refresh_cpx_inventory():
         # Cleanup surveys older than configured days (metadata only)
         cpx_service.cleanup_old_surveys(days=deletion_days)
         
-        # ⛔ DO NOT fetch new surveys - CPX requires real client IP/UA
+        # â›” DO NOT fetch new surveys - CPX requires real client IP/UA
         # surveys = cpx_service.fetch_cpx_surveys()  # DISABLED
         
-        print(f"✅ [CPX] Cleanup complete. Note: Survey fetch disabled - use HTTP context.")
+        print(f"âœ… [CPX] Cleanup complete. Note: Survey fetch disabled - use HTTP context.")
     except Exception as e:
-        print(f"❌ [CPX] Cleanup failed: {str(e)}")
+        print(f"âŒ [CPX] Cleanup failed: {str(e)}")
         traceback.print_exc()
 
 
@@ -801,7 +801,7 @@ def background_gmail_sync():
     Also auto-classifies new emails using OpenAI and extracts leads.
     """
     try:
-        print(f"🔄 [Gmail] Starting background sync at {datetime.utcnow().isoformat()}")
+        print(f"ðŸ”„ [Gmail] Starting background sync at {datetime.utcnow().isoformat()}")
         
         # Try Gmail Workspace Service first (Service Account with Domain-Wide Delegation)
         try:
@@ -820,36 +820,36 @@ def background_gmail_sync():
                     new_count = result.get("new_emails", 0)
                     total_synced += new_count
                     if new_count > 0:
-                        print(f"   📧 {mb['email']}: +{new_count} new emails")
+                        print(f"   ðŸ“§ {mb['email']}: +{new_count} new emails")
                 except Exception as e:
-                    print(f"   ⚠️ {mb['email']}: sync error - {e}")
+                    print(f"   âš ï¸ {mb['email']}: sync error - {e}")
             
-            print(f"✅ [Gmail] Background sync complete: {total_synced} new emails across {len(mailboxes)} mailboxes")
+            print(f"âœ… [Gmail] Background sync complete: {total_synced} new emails across {len(mailboxes)} mailboxes")
             
             # Auto-classification using Gemini (via ai_governance module)
             if total_synced > 0:
                 try:
                     from leads.email_classifier import classify_all_pending_emails
-                    print(f"🤖 [AI] Starting AI auto-classification of {min(total_synced, 100)} emails...")
+                    print(f"ðŸ¤– [AI] Starting AI auto-classification of {min(total_synced, 100)} emails...")
                     # Use 'background' source for higher rate limits
                     classify_result = classify_all_pending_emails(batch_size=20, max_batches=5, source="background")
                     success_count = classify_result.get('total_success', 0)
-                    print(f"✅ [AI] Classified {success_count} emails using AI")
+                    print(f"âœ… [AI] Classified {success_count} emails using AI")
                 except ImportError as ie:
-                    print(f"⚠️ Could not import classifier: {ie}")
+                    print(f"âš ï¸ Could not import classifier: {ie}")
                 except Exception as e:
-                    print(f"⚠️ Auto-classification failed: {e}")
-            #         print(f"⚠️ [AI] Email classifier not available: {ie}")
+                    print(f"âš ï¸ Auto-classification failed: {e}")
+            #         print(f"âš ï¸ [AI] Email classifier not available: {ie}")
             #     except Exception as classify_err:
-            #         print(f"⚠️ [AI] Classification error: {classify_err}")
+            #         print(f"âš ï¸ [AI] Classification error: {classify_err}")
                     
         except ImportError:
-            print("⚠️ [Gmail] Gmail Workspace Service not available")
+            print("âš ï¸ [Gmail] Gmail Workspace Service not available")
         except Exception as e:
-            print(f"⚠️ [Gmail] Workspace sync error: {e}")
+            print(f"âš ï¸ [Gmail] Workspace sync error: {e}")
         
     except Exception as e:
-        print(f"❌ [Gmail] Background sync failed: {str(e)}")
+        print(f"âŒ [Gmail] Background sync failed: {str(e)}")
         traceback.print_exc()
 
 
@@ -863,28 +863,28 @@ def cint_health_check():
     
     async def _check_and_resubscribe():
         try:
-            print(f"🔄 [Cint] Health check at {datetime.utcnow().isoformat()}")
+            print(f"ðŸ”„ [Cint] Health check at {datetime.utcnow().isoformat()}")
             
             if not cint_integration or not cint_integration.cint_service:
-                print("⚠️ [Cint] Integration not initialized")
+                print("âš ï¸ [Cint] Integration not initialized")
                 return
             
             # Run click-based cleanup for unclicked surveys (older than 3 days with 0 clicks)
             try:
                 deleted_count = cint_integration.cint_service.cleanup_unclicked_surveys(days=3)
                 if deleted_count > 0:
-                    print(f"🗑️ [Cint] Cleaned up {deleted_count} unclicked surveys")
+                    print(f"ðŸ—‘ï¸ [Cint] Cleaned up {deleted_count} unclicked surveys")
             except Exception as cleanup_error:
-                print(f"⚠️ [Cint] Cleanup error: {cleanup_error}")
+                print(f"âš ï¸ [Cint] Cleanup error: {cleanup_error}")
             
             # Check current subscription status
             status_result = await cint_integration.cint_service.get_opportunities_subscription()
             
             if status_result.get("success"):
-                print("✅ [Cint] Webhook subscription is active")
+                print("âœ… [Cint] Webhook subscription is active")
             else:
                 # Subscription not found or expired, re-subscribe
-                print("⚠️ [Cint] Subscription inactive, attempting to resubscribe...")
+                print("âš ï¸ [Cint] Subscription inactive, attempting to resubscribe...")
                 
                 from app.models.cint import OpportunitiesSubscriptionConfig
                 
@@ -900,12 +900,12 @@ def cint_health_check():
                 result = await cint_integration.cint_service.create_opportunities_subscription(config)
                 
                 if result.get("success"):
-                    print(f"✅ [Cint] Resubscribed successfully: {CINT_WEBHOOK_CALLBACK_URL}")
+                    print(f"âœ… [Cint] Resubscribed successfully: {CINT_WEBHOOK_CALLBACK_URL}")
                 else:
-                    print(f"❌ [Cint] Resubscribe failed: {result.get('error')}")
+                    print(f"âŒ [Cint] Resubscribe failed: {result.get('error')}")
                     
         except Exception as e:
-            print(f"❌ [Cint] Health check failed: {str(e)}")
+            print(f"âŒ [Cint] Health check failed: {str(e)}")
             traceback.print_exc()
     
     # Run the async function
@@ -933,10 +933,10 @@ def refresh_cint_inventory():
     
     async def _fetch_and_sync():
         try:
-            print(f"🔄 [Cint] Starting survey inventory refresh at {datetime.utcnow().isoformat()}")
+            print(f"ðŸ”„ [Cint] Starting survey inventory refresh at {datetime.utcnow().isoformat()}")
             
             if not cint_integration or not cint_integration.cint_service:
-                print("⚠️ [Cint] Integration not initialized, skipping refresh")
+                print("âš ï¸ [Cint] Integration not initialized, skipping refresh")
                 return
             
             # Fetch and sync surveys from offerwall API
@@ -945,12 +945,12 @@ def refresh_cint_inventory():
             if result.get("success"):
                 fetched = result.get("stats", {}).get("fetched", 0)
                 stored = result.get("stats", {}).get("stored", 0)
-                print(f"✅ [Cint] Refresh complete: {fetched} fetched, {stored} stored/updated")
+                print(f"âœ… [Cint] Refresh complete: {fetched} fetched, {stored} stored/updated")
             else:
-                print(f"⚠️ [Cint] Refresh returned no success: {result}")
+                print(f"âš ï¸ [Cint] Refresh returned no success: {result}")
                 
         except Exception as e:
-            print(f"❌ [Cint] Inventory refresh failed: {str(e)}")
+            print(f"âŒ [Cint] Inventory refresh failed: {str(e)}")
             traceback.print_exc()
     
     # Run the async function
@@ -975,7 +975,7 @@ def background_survey_sync():
     Runs every 10 minutes to ensure surveys are properly activated.
     """
     try:
-        print(f"🔄 [Survey Pool] Starting sync at {datetime.utcnow().isoformat()}")
+        print(f"ðŸ”„ [Survey Pool] Starting sync at {datetime.utcnow().isoformat()}")
         
         from app.services.activation_service import get_activation_service
         
@@ -987,12 +987,12 @@ def background_survey_sync():
         total_activated = cpx_activated + cint_activated
         
         if total_activated > 0:
-            print(f"✅ [Survey Pool] Sync complete: {total_activated} surveys activated (CPX: {cpx_activated}, CINT: {cint_activated})")
+            print(f"âœ… [Survey Pool] Sync complete: {total_activated} surveys activated (CPX: {cpx_activated}, CINT: {cint_activated})")
         else:
-            print(f"ℹ️ [Survey Pool] Sync complete: No new surveys to activate")
+            print(f"â„¹ï¸ [Survey Pool] Sync complete: No new surveys to activate")
             
     except Exception as e:
-        print(f"❌ [Survey Pool] Sync failed: {str(e)}")
+        print(f"âŒ [Survey Pool] Sync failed: {str(e)}")
         traceback.print_exc()
 
 
@@ -1003,7 +1003,7 @@ def background_historic_email_sync():
     
     Features:
     - Configurable rate limiting (default: 500 emails/minute)
-    - Exponential backoff on rate limit errors (30s → 60s → 120s → 300s)
+    - Exponential backoff on rate limit errors (30s â†’ 60s â†’ 120s â†’ 300s)
     - Resumable with cursor persistence for crash recovery
     - Skip AI classification for historic emails (configurable)
     - Auto-starts on service boot
@@ -1032,7 +1032,7 @@ def background_historic_email_sync():
                 try:
                     from app.services.gmail_workspace_service import GmailWorkspaceService
                 except ImportError:
-                    print("⚠️ [Backfill] Gmail Workspace Service not available")
+                    print("âš ï¸ [Backfill] Gmail Workspace Service not available")
                     return
             
             # Initialize service
@@ -1061,15 +1061,15 @@ def background_historic_email_sync():
             duration = result.get("duration_seconds", 0)
             
             if total_fetched > 0:
-                print(f"📥 [Backfill] Cycle complete: +{total_fetched} emails from {processed} mailbox(es) in {duration:.1f}s")
+                print(f"ðŸ“¥ [Backfill] Cycle complete: +{total_fetched} emails from {processed} mailbox(es) in {duration:.1f}s")
             
             # Log individual results if there were errors
             for r in result.get("results", []):
                 if r.get("error"):
-                    print(f"   ⚠️ [Backfill] {r.get('email')}: {r.get('error')}")
+                    print(f"   âš ï¸ [Backfill] {r.get('email')}: {r.get('error')}")
             
         except Exception as e:
-            print(f"❌ [Backfill] Historic email sync failed: {str(e)}")
+            print(f"âŒ [Backfill] Historic email sync failed: {str(e)}")
             traceback.print_exc()
     
     # Run in a separate thread to not block the scheduler
@@ -1088,12 +1088,12 @@ def weekly_panel_mail_integration_job():
     """
     enabled = os.getenv("PANEL_WEEKLY_MAIL_ENABLED", "false").lower() == "true"
     if not enabled:
-        print("ℹ️ [PanelWeekly] Job skipped (PANEL_WEEKLY_MAIL_ENABLED=false)")
+        print("â„¹ï¸ [PanelWeekly] Job skipped (PANEL_WEEKLY_MAIL_ENABLED=false)")
         return
 
     source_url = (os.getenv("SFW_PANEL_EXPORT_URL", "") or "").strip()
     if not source_url:
-        print("⚠️ [PanelWeekly] SFW_PANEL_EXPORT_URL is missing; cannot run weekly integration")
+        print("âš ï¸ [PanelWeekly] SFW_PANEL_EXPORT_URL is missing; cannot run weekly integration")
         return
 
     data_format = (os.getenv("SFW_PANEL_EXPORT_FORMAT", "auto") or "auto").strip().lower()
@@ -1153,20 +1153,20 @@ def weekly_panel_mail_integration_job():
                 rows = _extract_first_list_payload(payload)
 
         if not rows:
-            print("⚠️ [PanelWeekly] No rows found in SFW payload; skipping send")
+            print("âš ï¸ [PanelWeekly] No rows found in SFW payload; skipping send")
             return
 
         upsert_result = _upsert_panelists(rows, source="weekly_link_import")
         send_result = send_bulk_invitations(country=country, force_resend=force_resend)
 
         print(
-            "✅ [PanelWeekly] Completed | "
+            "âœ… [PanelWeekly] Completed | "
             f"fetched={len(rows)} inserted={upsert_result.get('inserted', 0)} "
             f"skipped={upsert_result.get('skipped', 0)} sent={send_result.get('sent', 0)} "
             f"send_skipped={send_result.get('skipped', 0)} failed={send_result.get('failed', 0)}"
         )
     except Exception as e:
-        print(f"❌ [PanelWeekly] Weekly integration failed: {e}")
+        print(f"âŒ [PanelWeekly] Weekly integration failed: {e}")
         traceback.print_exc()
 
 
@@ -1189,7 +1189,7 @@ async def startup_event():
         
         await initialize_clay_features()
     except Exception as e:
-        print(f"⚠️ Clay initialization error: {e}")
+        print(f"âš ï¸ Clay initialization error: {e}")
         import traceback
         traceback.print_exc()
     
@@ -1203,10 +1203,10 @@ async def startup_event():
             status_result = await cint_integration.cint_service.get_opportunities_subscription()
             
             if status_result.get("success"):
-                print("✅ Cint webhook already subscribed")
+                print("âœ… Cint webhook already subscribed")
             else:
                 # Create subscription if not already subscribed (404 means no subscription exists)
-                print("📡 Subscribing to Cint opportunities webhook...")
+                print("ðŸ“¡ Subscribing to Cint opportunities webhook...")
                 
                 # Use public callback URL (CINT servers must be able to reach this)
                 callback_url = CINT_WEBHOOK_CALLBACK_URL
@@ -1224,13 +1224,13 @@ async def startup_event():
                 result = await cint_integration.cint_service.create_opportunities_subscription(config)
                 
                 if result.get("success"):
-                    print(f"✅ Cint webhook subscription created: {callback_url}")
+                    print(f"âœ… Cint webhook subscription created: {callback_url}")
                 else:
-                    print(f"⚠️ Cint webhook subscription failed: {result.get('error')}")
+                    print(f"âš ï¸ Cint webhook subscription failed: {result.get('error')}")
     except ImportError:
-        print("⚠️ Cint models not available for auto-subscription")
+        print("âš ï¸ Cint models not available for auto-subscription")
     except Exception as e:
-        print(f"⚠️ Cint webhook subscription error: {e}")
+        print(f"âš ï¸ Cint webhook subscription error: {e}")
         import traceback
         traceback.print_exc()
     
@@ -1244,9 +1244,9 @@ async def startup_event():
         orchestrator = get_orchestrator()
         if orchestrator and not orchestrator._started:
             orchestrator.start()
-            print("✅ Email Sync workers started (background sync enabled)")
+            print("âœ… Email Sync workers started (background sync enabled)")
     except Exception as e:
-        print(f"⚠️ Could not start Email Sync workers: {e}")
+        print(f"âš ï¸ Could not start Email Sync workers: {e}")
     
     # Initialize background job scheduler for continuous lead generation
     # This handles automatic resumption of paused web search jobs, daily limit resets, etc.
@@ -1257,9 +1257,9 @@ async def startup_event():
             from background_job_scheduler import initialize_scheduler
         
         initialize_scheduler()
-        print("✅ Background job scheduler initialized (auto-resume web search jobs every 5 min)")
+        print("âœ… Background job scheduler initialized (auto-resume web search jobs every 5 min)")
     except Exception as e:
-        print(f"⚠️ Could not initialize background job scheduler: {e}")
+        print(f"âš ï¸ Could not initialize background job scheduler: {e}")
         import traceback
         traceback.print_exc()
     
@@ -1280,27 +1280,27 @@ async def startup_event():
         incomplete_jobs = get_incomplete_jobs()
         
         if auto_resume_disabled:
-            print(f"⏸️ Web search auto-resume is DISABLED. {len(incomplete_jobs)} jobs not resumed.")
+            print(f"â¸ï¸ Web search auto-resume is DISABLED. {len(incomplete_jobs)} jobs not resumed.")
             print("   Enable with: POST /leads/import/web-search/control/enable-auto-resume")
         elif global_paused:
-            print(f"⏸️ Global web search is PAUSED. {len(incomplete_jobs)} jobs not resumed.")
+            print(f"â¸ï¸ Global web search is PAUSED. {len(incomplete_jobs)} jobs not resumed.")
             print(f"   Reason: {search_control.get('paused_reason', 'Unknown')}")
             print("   Resume with: POST /leads/import/web-search/control/resume")
         elif circuit_open:
-            print(f"🔴 Circuit breaker OPEN (too many API errors). {len(incomplete_jobs)} jobs not resumed.")
+            print(f"ðŸ”´ Circuit breaker OPEN (too many API errors). {len(incomplete_jobs)} jobs not resumed.")
             print("   Reset with: POST /leads/import/web-search/control/resume")
         elif incomplete_jobs:
-            print(f"🔄 Found {len(incomplete_jobs)} incomplete web search jobs to resume...")
+            print(f"ðŸ”„ Found {len(incomplete_jobs)} incomplete web search jobs to resume...")
             for job in incomplete_jobs:
                 job_id = job["job_id"]
                 print(f"   Resuming job {job_id} (status: {job['status']}, imported: {job['total_imported']}/{job['target_count']})")
                 # Schedule the job to run
                 asyncio.create_task(run_web_search_job(job_id))
-            print(f"✅ Resumed {len(incomplete_jobs)} web search jobs")
+            print(f"âœ… Resumed {len(incomplete_jobs)} web search jobs")
         else:
-            print("ℹ️ No incomplete web search jobs to resume")
+            print("â„¹ï¸ No incomplete web search jobs to resume")
     except Exception as e:
-        print(f"⚠️ Could not check/resume web search jobs: {e}")
+        print(f"âš ï¸ Could not check/resume web search jobs: {e}")
     
     if cpx_service is not None:
         try:
@@ -1319,15 +1319,15 @@ async def startup_event():
                     name="CPX Survey Inventory Refresh",
                     replace_existing=True
                 )
-                print(f"✅ CPX refresh job scheduled (every {refresh_interval} seconds)")
+                print(f"âœ… CPX refresh job scheduled (every {refresh_interval} seconds)")
                 # Schedule initial fetch as background task (non-blocking)
                 import asyncio
                 asyncio.create_task(asyncio.to_thread(refresh_cpx_inventory))
-                print("🚀 Initial CPX survey fetch scheduled (running in background)")
+                print("ðŸš€ Initial CPX survey fetch scheduled (running in background)")
             else:
-                print("⚠️ CPX auto-refresh is disabled in settings")
+                print("âš ï¸ CPX auto-refresh is disabled in settings")
         except Exception as e:
-            print(f"❌ Failed to schedule CPX refresh job: {str(e)}")
+            print(f"âŒ Failed to schedule CPX refresh job: {str(e)}")
             traceback.print_exc()
 
     # Ensure the APScheduler is running even when CPX auto-refresh is disabled,
@@ -1335,9 +1335,9 @@ async def startup_event():
     try:
         if not scheduler.running:
             scheduler.start()
-            print("✅ APScheduler started (CPX auto-refresh disabled, starting for other jobs)")
+            print("âœ… APScheduler started (CPX auto-refresh disabled, starting for other jobs)")
     except Exception as e:
-        print(f"⚠️ Could not start APScheduler: {e}")
+        print(f"âš ï¸ Could not start APScheduler: {e}")
 
     # ----------------------------
     # Background Gmail Sync Job (every 5 minutes)
@@ -1352,11 +1352,11 @@ async def startup_event():
                 name="Gmail Background Sync",
                 replace_existing=True
             )
-            print("✅ Gmail background sync job scheduled (every 5 minutes)")
+            print("âœ… Gmail background sync job scheduled (every 5 minutes)")
         else:
-            print("⚠️ Scheduler not running, Gmail sync job not scheduled")
+            print("âš ï¸ Scheduler not running, Gmail sync job not scheduled")
     except Exception as e:
-        print(f"⚠️ Could not schedule Gmail sync job: {e}")
+        print(f"âš ï¸ Could not schedule Gmail sync job: {e}")
     
     # ----------------------------
     # Cint Health Check & Auto-Resubscribe (every 30 minutes)
@@ -1370,9 +1370,9 @@ async def startup_event():
                 name="Cint Health Check & Auto-Resubscribe",
                 replace_existing=True
             )
-            print("✅ Cint health check job scheduled (every 30 minutes)")
+            print("âœ… Cint health check job scheduled (every 30 minutes)")
     except Exception as e:
-        print(f"⚠️ Could not schedule Cint health check job: {e}")
+        print(f"âš ï¸ Could not schedule Cint health check job: {e}")
     
     # ----------------------------
     # Cint Survey Inventory Refresh (every 5 minutes - fallback for webhooks)
@@ -1386,14 +1386,14 @@ async def startup_event():
                 name="Cint Survey Inventory Refresh",
                 replace_existing=True
             )
-            print("✅ Cint inventory refresh job scheduled (every 5 minutes)")
+            print("âœ… Cint inventory refresh job scheduled (every 5 minutes)")
             
             # Schedule initial fetch as background task (non-blocking)
             import asyncio
             asyncio.create_task(asyncio.to_thread(refresh_cint_inventory))
-            print("🚀 Initial Cint survey fetch scheduled (running in background)")
+            print("ðŸš€ Initial Cint survey fetch scheduled (running in background)")
     except Exception as e:
-        print(f"⚠️ Could not schedule Cint inventory refresh job: {e}")
+        print(f"âš ï¸ Could not schedule Cint inventory refresh job: {e}")
     
     # ----------------------------
     # Survey Pool Sync & Activation (every 10 minutes)
@@ -1407,14 +1407,14 @@ async def startup_event():
                 name="Survey Pool Sync & Activation",
                 replace_existing=True
             )
-            print("✅ Survey pool sync job scheduled (every 10 minutes)")
+            print("âœ… Survey pool sync job scheduled (every 10 minutes)")
             
             # Run initial sync on startup (non-blocking)
             import threading
             threading.Thread(target=background_survey_sync, daemon=True).start()
-            print("🚀 Initial survey pool sync scheduled (running in background)")
+            print("ðŸš€ Initial survey pool sync scheduled (running in background)")
     except Exception as e:
-        print(f"⚠️ Could not schedule survey pool sync job: {e}")
+        print(f"âš ï¸ Could not schedule survey pool sync job: {e}")
     
     # ----------------------------
     # Historic Email Backfill (every 30 seconds, rate-limited)
@@ -1428,9 +1428,9 @@ async def startup_event():
                 name="Historic Email Backfill (Rate-Limited)",
                 replace_existing=True
             )
-            print("✅ Historic email backfill job scheduled (every 30 seconds, rate-limited)")
+            print("âœ… Historic email backfill job scheduled (every 30 seconds, rate-limited)")
     except Exception as e:
-        print(f"⚠️ Could not schedule historic email sync job: {e}")
+        print(f"âš ï¸ Could not schedule historic email sync job: {e}")
 
     # ----------------------------
     # Cold Outreach Send Processor (every 60 seconds)
@@ -1454,9 +1454,9 @@ async def startup_event():
                 name="Cold Outreach Send Processor",
                 replace_existing=True
             )
-            print("✅ Cold outreach send processor scheduled (every 60 seconds)")
+            print("âœ… Cold outreach send processor scheduled (every 60 seconds)")
     except Exception as e:
-        print(f"⚠️ Could not schedule outreach send processor: {e}")
+        print(f"âš ï¸ Could not schedule outreach send processor: {e}")
 
     # ----------------------------
     # Cold Outreach Bounce & Reply Scanner (every 5 minutes)
@@ -1489,7 +1489,7 @@ async def startup_event():
                 name="Cold Outreach Bounce & Reply Scanner",
                 replace_existing=True
             )
-            print("✅ Cold outreach bounce & reply scanner scheduled (every 5 minutes)")
+            print("âœ… Cold outreach bounce & reply scanner scheduled (every 5 minutes)")
 
             # Run backfill immediately at startup so existing replied leads appear right away
             try:
@@ -1498,11 +1498,11 @@ async def startup_event():
                 except ImportError:
                     from routers.cold_outreach_router import sync_outreach_replies_to_leads as _sync_now
                 result = _sync_now()
-                print(f"✅ Startup reply backfill: {result.get('promoted', 0)} promoted, {result.get('skipped', 0)} already present")
+                print(f"âœ… Startup reply backfill: {result.get('promoted', 0)} promoted, {result.get('skipped', 0)} already present")
             except Exception as _e:
-                print(f"⚠️ Startup reply backfill failed: {_e}")
+                print(f"âš ï¸ Startup reply backfill failed: {_e}")
     except Exception as e:
-        print(f"⚠️ Could not schedule outreach bounce & reply scanner: {e}")
+        print(f"âš ï¸ Could not schedule outreach bounce & reply scanner: {e}")
     
     # ----------------------------
     # Email Classification Job (every 2 minutes, batch of 10)
@@ -1531,11 +1531,11 @@ async def startup_event():
                 name="Email Classification (Rate-Limited)",
                 replace_existing=True
             )
-            print("✅ Email classification job scheduled (every 2 min, batch=50, ~1500/hour)")
+            print("âœ… Email classification job scheduled (every 2 min, batch=50, ~1500/hour)")
         elif not email_classify_enabled:
-            print("ℹ️ Email classification disabled (set EMAIL_CLASSIFICATION_ENABLED=true to enable)")
+            print("â„¹ï¸ Email classification disabled (set EMAIL_CLASSIFICATION_ENABLED=true to enable)")
     except Exception as e:
-        print(f"⚠️ Could not schedule email classification job: {e}")
+        print(f"âš ï¸ Could not schedule email classification job: {e}")
 
     # ----------------------------
     # Mail Segregation Job (every 10 minutes)
@@ -1564,9 +1564,9 @@ async def startup_event():
                 name="Mail Segregation (Auto)",
                 replace_existing=True
             )
-            print("✅ Mail segregation job scheduled (every 10 minutes)")
+            print("âœ… Mail segregation job scheduled (every 10 minutes)")
     except Exception as e:
-        print(f"⚠️ Could not schedule mail segregation job: {e}")
+        print(f"âš ï¸ Could not schedule mail segregation job: {e}")
 
     # ----------------------------
     # Weekly Panel Mail Integration (SFW -> Campaign)
@@ -1585,11 +1585,11 @@ async def startup_event():
                 name="Panel Weekly Mail Integration",
                 replace_existing=True,
             )
-            print(f"✅ Weekly panel mail integration scheduled ({weekly_day} {weekly_hour:02d}:{weekly_minute:02d} UTC)")
+            print(f"âœ… Weekly panel mail integration scheduled ({weekly_day} {weekly_hour:02d}:{weekly_minute:02d} UTC)")
         elif not weekly_enabled:
-            print("ℹ️ Weekly panel mail integration disabled (set PANEL_WEEKLY_MAIL_ENABLED=true to enable)")
+            print("â„¹ï¸ Weekly panel mail integration disabled (set PANEL_WEEKLY_MAIL_ENABLED=true to enable)")
     except Exception as e:
-        print(f"⚠️ Could not schedule weekly panel mail integration: {e}")
+        print(f"âš ï¸ Could not schedule weekly panel mail integration: {e}")
 
     # Pre-warm mail pool stats cache after a 90s delay (lets server stabilize before heavy MongoDB I/O)
     try:
@@ -1600,39 +1600,39 @@ async def startup_event():
             _t.sleep(90)
             _compute_and_persist_mail_pool_stats()
         threading.Thread(target=_delayed_prewarm, daemon=True).start()
-        print("🔄 Mail pool stats pre-warm scheduled (90s delay)")
+        print("ðŸ”„ Mail pool stats pre-warm scheduled (90s delay)")
     except Exception as e:
-        print(f"⚠️ Could not pre-warm mail pool stats: {e}")
+        print(f"âš ï¸ Could not pre-warm mail pool stats: {e}")
 
     # ============== STARTUP SUMMARY BANNER ==============
     print("\n" + "=" * 60)
-    print(f"🚀 {APP_NAME} v{APP_VERSION} STARTED SUCCESSFULLY")
+    print(f"ðŸš€ {APP_NAME} v{APP_VERSION} STARTED SUCCESSFULLY")
     print("=" * 60)
-    print("📋 REGISTERED ROUTERS:")
-    print("   • /leads         - Lead management & AI classification")
-    print("   • /finance       - Finance module (invoices, vendors)")
-    print("   • /settings      - Application settings")
-    print("   • /gmail         - Gmail API integration")
-    print("   • /cpx           - CPX Research surveys")
-    print("   • /survey-allocation - Survey allocation engine")
-    print("   • /              - Traffic flow (root level)")
-    print("   • /api/v1/email-sync - Email sync (background workers)")
+    print("ðŸ“‹ REGISTERED ROUTERS:")
+    print("   â€¢ /leads         - Lead management & AI classification")
+    print("   â€¢ /finance       - Finance module (invoices, vendors)")
+    print("   â€¢ /settings      - Application settings")
+    print("   â€¢ /gmail         - Gmail API integration")
+    print("   â€¢ /cpx           - CPX Research surveys")
+    print("   â€¢ /survey-allocation - Survey allocation engine")
+    print("   â€¢ /              - Traffic flow (root level)")
+    print("   â€¢ /api/v1/email-sync - Email sync (background workers)")
     print("")
-    print("🔄 BACKGROUND JOBS:")
+    print("ðŸ”„ BACKGROUND JOBS:")
     if scheduler.running:
-        print(f"   • CPX Survey Refresh: Active (every {filter_settings.get('refresh_interval_seconds', 60)}s)")
-        print("   • Cint Survey Refresh: Active (every 5 minutes)")
-        print("   • Gmail Background Sync: Active (every 5 minutes)")
-        print("   • Historic Email Backfill: Active (every 30 seconds, rate-limited)")
+        print(f"   â€¢ CPX Survey Refresh: Active (every {filter_settings.get('refresh_interval_seconds', 60)}s)")
+        print("   â€¢ Cint Survey Refresh: Active (every 5 minutes)")
+        print("   â€¢ Gmail Background Sync: Active (every 5 minutes)")
+        print("   â€¢ Historic Email Backfill: Active (every 30 seconds, rate-limited)")
         if os.getenv("PANEL_WEEKLY_MAIL_ENABLED", "false").lower() == "true":
-            print("   • Panel Weekly Mail Integration: Active (weekly, UTC cron)")
+            print("   â€¢ Panel Weekly Mail Integration: Active (weekly, UTC cron)")
         if email_classify_enabled:
-            print("   • Email Classification: Active (every 2 min, batch=10)")
+            print("   â€¢ Email Classification: Active (every 2 min, batch=10)")
         else:
-            print("   • Email Classification: Disabled (EMAIL_CLASSIFICATION_ENABLED=false)")
+            print("   â€¢ Email Classification: Disabled (EMAIL_CLASSIFICATION_ENABLED=false)")
     else:
-        print("   • CPX Survey Refresh: Inactive")
-        print("   • Cint Survey Refresh: Inactive")
+        print("   â€¢ CPX Survey Refresh: Inactive")
+        print("   â€¢ Cint Survey Refresh: Inactive")
     # Check email sync workers status
     try:
         try:
@@ -1641,16 +1641,16 @@ async def startup_event():
             from email_sync.router import get_orchestrator
         orchestrator = get_orchestrator()
         if orchestrator and orchestrator._started:
-            print("   • Email Sync Workers: Active (runs in background)")
+            print("   â€¢ Email Sync Workers: Active (runs in background)")
         else:
-            print("   • Email Sync Workers: Inactive")
+            print("   â€¢ Email Sync Workers: Inactive")
     except:
-        print("   • Email Sync Workers: Not available")
+        print("   â€¢ Email Sync Workers: Not available")
     print("")
-    print("🌐 ENDPOINTS:")
-    print("   • Health: GET /health")
-    print("   • API Docs: GET /docs")
-    print("   • OpenAPI: GET /openapi.json")
+    print("ðŸŒ ENDPOINTS:")
+    print("   â€¢ Health: GET /health")
+    print("   â€¢ API Docs: GET /docs")
+    print("   â€¢ OpenAPI: GET /openapi.json")
     print("=" * 60 + "\n")
 
 @app.on_event("shutdown")
@@ -1664,9 +1664,9 @@ async def shutdown_event():
             from background_job_scheduler import shutdown_scheduler
         
         shutdown_scheduler()
-        print("✅ Background job scheduler shutdown complete")
+        print("âœ… Background job scheduler shutdown complete")
     except Exception as e:
-        print(f"⚠️ Could not shutdown background job scheduler: {e}")
+        print(f"âš ï¸ Could not shutdown background job scheduler: {e}")
     
     # Shutdown Clay features
     try:
@@ -1677,11 +1677,11 @@ async def shutdown_event():
         
         await shutdown_clay_features()
     except Exception as e:
-        print(f"⚠️ Clay shutdown error: {e}")
+        print(f"âš ï¸ Clay shutdown error: {e}")
     
     if scheduler.running:
         scheduler.shutdown()
-        print("✅ Scheduler shutdown complete")
+        print("âœ… Scheduler shutdown complete")
     
     # Stop Email Sync workers
     try:
@@ -1693,9 +1693,9 @@ async def shutdown_event():
         orchestrator = get_orchestrator()
         if orchestrator and orchestrator._started:
             orchestrator.stop()
-            print("✅ Email Sync workers shutdown complete")
+            print("âœ… Email Sync workers shutdown complete")
     except Exception as e:
-        print(f"⚠️ Could not stop Email Sync workers: {e}")
+        print(f"âš ï¸ Could not stop Email Sync workers: {e}")
 
 
 
@@ -1718,10 +1718,10 @@ DEFAULT_ADMIN_PASSWORD = os.getenv("DEFAULT_ADMIN_PASSWORD", "password123")
 if not users_collection.find_one({"username": DEFAULT_ADMIN_USERNAME}):
     users_collection.insert_one({
         "username": DEFAULT_ADMIN_USERNAME,
-        "password": hash_password(DEFAULT_ADMIN_PASSWORD),  # ✅ Securely hashed
+        "password": hash_password(DEFAULT_ADMIN_PASSWORD),  # âœ… Securely hashed
         "createdAt": datetime.utcnow()
     })
-    print(f"✅ Default admin user '{DEFAULT_ADMIN_USERNAME}' created with hashed password")
+    print(f"âœ… Default admin user '{DEFAULT_ADMIN_USERNAME}' created with hashed password")
     
     # Use ERROR level for security-critical warnings to ensure visibility
     logger.error(
@@ -1738,1468 +1738,11 @@ if not users_collection.find_one({"username": DEFAULT_ADMIN_USERNAME}):
 
 
 
-
 # ----------------------------
-# User Management Endpoints (Admin Only)
+# Routes extracted to dedicated routers (Phase 8)
 # ----------------------------
-
-# Available roles with their permissions
-AVAILABLE_ROLES = {
-    "admin": {
-        "name": "Administrator",
-        "description": "Full system access",
-        "permissions": ["*"]  # All permissions
-    },
-    "manager": {
-        "name": "Manager",
-        "description": "Can manage campaigns, leads, and view reports",
-        "permissions": ["campaigns.*", "leads.*", "reports.view", "analytics.view"]
-    },
-    "user": {
-        "name": "Standard User",
-        "description": "Can view and edit campaigns and leads",
-        "permissions": ["campaigns.view", "campaigns.edit", "leads.view", "leads.edit"]
-    },
-    "viewer": {
-        "name": "Viewer",
-        "description": "Read-only access to campaigns and leads",
-        "permissions": ["campaigns.view", "leads.view", "reports.view"]
-    }
-}
-
-
-def check_admin_role(request: Request) -> str:
-    """Verify user has admin role. Returns username if authorized."""
-    session_id = request.headers.get("Authorization")
-    if not session_id:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    try:
-        username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
-        user = users_collection.find_one({"username": username})
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-        
-        user_role = user.get("role", "user")
-        if user_role != "admin":
-            raise HTTPException(status_code=403, detail="Admin access required")
-        
-        return username
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=401, detail="Invalid session")
-
-
-@app.get("/admin/users/", dependencies=[Depends(verify_session)])
-async def list_all_users(request: Request):
-    """List all users (admin only)"""
-    check_admin_role(request)
-    
-    try:
-        all_users = list(users_collection.find({}, {"password": 0}))  # Exclude password
-        users_list = []
-        
-        for user in all_users:
-            users_list.append({
-                "id": str(user.get("_id", "")),
-                "username": user.get("username", ""),
-                "email": user.get("email", ""),
-                "name": user.get("displayName", user.get("username", "")),
-                "role": user.get("role", "user"),
-                "roles": [user.get("role", "user")],  # For compatibility with frontend
-                "status": user.get("status", "active"),
-                "createdAt": user.get("createdAt", "").isoformat() if user.get("createdAt") else "",
-                "lastLogin": user.get("lastLogin", "").isoformat() if user.get("lastLogin") else "",
-            })
-        
-        return {"users": users_list, "total": len(users_list)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch users: {str(e)}")
-
-
-@app.get("/admin/users/{user_id}", dependencies=[Depends(verify_session)])
-async def get_user_by_id(request: Request, user_id: str):
-    """Get a specific user by ID (admin only)"""
-    check_admin_role(request)
-    
-    try:
-        user = users_collection.find_one({"_id": ObjectId(user_id)}, {"password": 0})
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        return {
-            "id": str(user.get("_id", "")),
-            "username": user.get("username", ""),
-            "email": user.get("email", ""),
-            "name": user.get("displayName", user.get("username", "")),
-            "role": user.get("role", "user"),
-            "roles": [user.get("role", "user")],
-            "status": user.get("status", "active"),
-            "createdAt": user.get("createdAt", "").isoformat() if user.get("createdAt") else "",
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch user: {str(e)}")
-
-
-@app.post("/admin/users/", dependencies=[Depends(verify_session)])
-async def create_new_user(request: Request, user_data: Dict[str, Any] = Body(...)):
-    """Create a new user (admin only)"""
-    admin_username = check_admin_role(request)
-    
-    try:
-        username = user_data.get("username") or user_data.get("email")
-        email = user_data.get("email", "")
-        password = user_data.get("password")
-        name = user_data.get("name", username)
-        role = user_data.get("role", "user")
-        
-        # Validation
-        if not username:
-            raise HTTPException(status_code=400, detail="Username or email is required")
-        if not password:
-            raise HTTPException(status_code=400, detail="Password is required")
-        if len(password) < 6:
-            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
-        if role not in AVAILABLE_ROLES:
-            raise HTTPException(status_code=400, detail=f"Invalid role. Available roles: {list(AVAILABLE_ROLES.keys())}")
-        
-        # Check if user already exists
-        existing = users_collection.find_one({"username": username})
-        if existing:
-            raise HTTPException(status_code=400, detail="Username already exists")
-        
-        # Create user
-        new_user = {
-            "username": username,
-            "email": email,
-            "displayName": name,
-            "password": hash_password(password),
-            "role": role,
-            "status": "active",
-            "createdAt": datetime.utcnow(),
-            "createdBy": admin_username,
-        }
-        
-        result = users_collection.insert_one(new_user)
-        
-        logger.info(f"User '{username}' created by admin '{admin_username}' with role '{role}'")
-        
-        return {
-            "success": True,
-            "message": f"User '{username}' created successfully",
-            "user": {
-                "id": str(result.inserted_id),
-                "username": username,
-                "email": email,
-                "name": name,
-                "role": role,
-                "roles": [role],
-            }
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create user: {str(e)}")
-
-
-@app.put("/admin/users/{user_id}", dependencies=[Depends(verify_session)])
-async def update_user_by_id(request: Request, user_id: str, user_data: Dict[str, Any] = Body(...)):
-    """Update an existing user (admin only)"""
-    admin_username = check_admin_role(request)
-    
-    try:
-        # Find user
-        user = users_collection.find_one({"_id": ObjectId(user_id)})
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        # Build update document
-        update_doc = {"updatedAt": datetime.utcnow(), "updatedBy": admin_username}
-        
-        if "name" in user_data:
-            update_doc["displayName"] = user_data["name"]
-        if "email" in user_data:
-            update_doc["email"] = user_data["email"]
-        if "role" in user_data:
-            role = user_data["role"]
-            if role not in AVAILABLE_ROLES:
-                raise HTTPException(status_code=400, detail=f"Invalid role. Available roles: {list(AVAILABLE_ROLES.keys())}")
-            update_doc["role"] = role
-        if "roles" in user_data and isinstance(user_data["roles"], list) and len(user_data["roles"]) > 0:
-            # Take first role from the list
-            role = user_data["roles"][0]
-            if role in AVAILABLE_ROLES:
-                update_doc["role"] = role
-        if "status" in user_data:
-            if user_data["status"] not in ["active", "inactive", "pending", "locked"]:
-                raise HTTPException(status_code=400, detail="Invalid status")
-            update_doc["status"] = user_data["status"]
-        if "password" in user_data and user_data["password"]:
-            if len(user_data["password"]) < 6:
-                raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
-            update_doc["password"] = hash_password(user_data["password"])
-        
-        result = users_collection.update_one(
-            {"_id": ObjectId(user_id)},
-            {"$set": update_doc}
-        )
-        
-        if result.matched_count == 0:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        logger.info(f"User '{user.get('username')}' updated by admin '{admin_username}'")
-        
-        return {
-            "success": True,
-            "message": "User updated successfully",
-            "user": {
-                "id": user_id,
-                "username": user.get("username"),
-                "role": update_doc.get("role", user.get("role")),
-            }
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update user: {str(e)}")
-
-
-@app.delete("/admin/users/{user_id}", dependencies=[Depends(verify_session)])
-async def delete_user_by_id(request: Request, user_id: str):
-    """Delete a user (admin only)"""
-    admin_username = check_admin_role(request)
-    
-    try:
-        # Find user first
-        user = users_collection.find_one({"_id": ObjectId(user_id)})
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        # Prevent self-deletion
-        if user.get("username") == admin_username:
-            raise HTTPException(status_code=400, detail="Cannot delete your own account")
-        
-        # Soft delete: set status to inactive
-        result = users_collection.update_one(
-            {"_id": ObjectId(user_id)},
-            {"$set": {
-                "status": "inactive",
-                "deletedAt": datetime.utcnow(),
-                "deletedBy": admin_username
-            }}
-        )
-        
-        logger.info(f"User '{user.get('username')}' deactivated by admin '{admin_username}'")
-        
-        return {"success": True, "message": "User deactivated successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete user: {str(e)}")
-
-
-@app.get("/admin/roles/", dependencies=[Depends(verify_session)])
-async def list_available_roles(request: Request):
-    """List all available roles and their permissions"""
-    check_admin_role(request)
-    
-    roles_list = []
-    for code, role_info in AVAILABLE_ROLES.items():
-        roles_list.append({
-            "code": code,
-            "name": role_info["name"],
-            "description": role_info["description"],
-            "permissions": role_info["permissions"]
-        })
-    
-    return {"roles": roles_list}
-
-
-@app.put("/admin/users/{user_id}/role", dependencies=[Depends(verify_session)])
-async def change_user_role(request: Request, user_id: str, role_data: Dict[str, str] = Body(...)):
-    """Change a user's role (admin only)"""
-    admin_username = check_admin_role(request)
-    
-    try:
-        role = role_data.get("role")
-        if not role or role not in AVAILABLE_ROLES:
-            raise HTTPException(status_code=400, detail=f"Invalid role. Available roles: {list(AVAILABLE_ROLES.keys())}")
-        
-        user = users_collection.find_one({"_id": ObjectId(user_id)})
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        result = users_collection.update_one(
-            {"_id": ObjectId(user_id)},
-            {"$set": {
-                "role": role,
-                "updatedAt": datetime.utcnow(),
-                "roleChangedBy": admin_username
-            }}
-        )
-        
-        logger.info(f"User '{user.get('username')}' role changed to '{role}' by admin '{admin_username}'")
-        
-        return {
-            "success": True,
-            "message": f"User role changed to '{role}'",
-            "role": role
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to change role: {str(e)}")
-
-
-@app.put("/admin/users/{user_id}/reset-password", dependencies=[Depends(verify_session)])
-async def admin_reset_password(request: Request, user_id: str, password_data: Dict[str, str] = Body(...)):
-    """Admin reset user password (no current password required)"""
-    admin_username = check_admin_role(request)
-    
-    try:
-        new_password = password_data.get("new_password")
-        if not new_password:
-            raise HTTPException(status_code=400, detail="New password is required")
-        if len(new_password) < 6:
-            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
-        
-        user = users_collection.find_one({"_id": ObjectId(user_id)})
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        result = users_collection.update_one(
-            {"_id": ObjectId(user_id)},
-            {"$set": {
-                "password": hash_password(new_password),
-                "password_updated_at": datetime.utcnow(),
-                "passwordResetBy": admin_username
-            }}
-        )
-        
-        logger.info(f"Password reset for user '{user.get('username')}' by admin '{admin_username}'")
-        
-        return {"success": True, "message": "Password reset successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to reset password: {str(e)}")
-
-
-# ----------------------------
-# Helper: rewrite links with tracking
-# ----------------------------
-def rewrite_links_with_tracking(html_body: str, campaign_id: str, email: str):
-    return re.sub(
-        r'href="(http[s]?://[^"]+)"',
-        lambda m: f'href=\"{API_BASE}/track/click?c={campaign_id}&e={email}&url={m.group(1)}\"',
-        html_body
-    )
-#changes 5
-# def rewrite_links_with_tracking(html_body: str, campaign_id: str, email: str):
-#     return re.sub(
-#         r'href="(http[s]?://[^"]+)"',
-#         lambda m: f'href=\"http://localhost:8000/track/click?c={campaign_id}&e={email}&url={m.group(1)}\"',
-#         html_body
-#     )
-
-# ----------------------------
-# Helper: inject open tracking pixel
-# ----------------------------
-def inject_open_tracking(html_body: str, campaign_id: str, email: str):
-    pixel = f'<img src="{API_BASE}/track/open?c={campaign_id}&e={email}" width="1" height="1" style="display:none;" />'
-    return html_body + pixel
-#changes 6
-# def inject_open_tracking(html_body: str, campaign_id: str, email: str):
-#     pixel = f'<img src="http://localhost:8000/track/open?c={campaign_id}&e={email}" width="1" height="1" style="display:none;" />'
-#     return html_body + pixel
-
-# ----------------------------
-# List Endpoints
-# ----------------------------
-@app.post("/create-list/",)
-async def create_list(list_data: Dict[str, Any] = Body(...)):
-    try:
-        result = lists_collection.insert_one(list_data)
-        list_data["_id"] = str(result.inserted_id)
-        return {"message": "List created successfully", "list": list_data}
-    except Exception as e:
-        print(f"❌ List creation failed: {e}")
-        raise HTTPException(status_code=500, detail=f"List creation error: {str(e)}")
-
-@app.get("/lists/",dependencies=[Depends(verify_session)])
-async def get_lists(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(50, ge=1, le=1000, description="Maximum records to return")
-):
-    try:
-        # Get total count
-        total = lists_collection.count_documents({})
-        
-        # Get paginated lists
-        lists = list(lists_collection.find().skip(skip).limit(limit))
-        for list_item in lists:
-            list_item["_id"] = str(list_item["_id"])
-        
-        return {
-            "lists": lists,
-            "total": total,
-            "skip": skip,
-            "limit": limit,
-            "has_more": (skip + len(lists)) < total
-        }
-    except Exception as e:
-        print(f"❌ Failed to fetch lists: {e}")
-        raise HTTPException(status_code=500, detail=f"Fetch lists error: {str(e)}")
-
-@app.delete("/delete-list/{list_id}")
-async def delete_list(list_id: str):
-    try:
-        result = lists_collection.delete_one({"_id": ObjectId(list_id)})
-        if result.deleted_count == 0:
-            raise HTTPException(status_code=404, detail="List not found")
-        contacts_collection.delete_many({"listId": list_id})
-        return {"message": "List deleted successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
-
-# ----------------------------
-# Upload Contacts
-# ----------------------------
-@app.post("/upload-csv/")
-async def upload_csv(data: Dict[str, List[Dict[str, Any]]] = Body(...)):
-    contacts = data.get("contacts", [])
-    inserted_contacts = []
-
-    for contact in contacts:
-        email = (contact.get("email") or "").strip()
-        list_name = contact.get("listName")
-        incoming_list_id = contact.get("listId")
-        if not email:
-            continue
-
-        resolved_list_id = None
-        try:
-            if incoming_list_id and ObjectId.is_valid(str(incoming_list_id)):
-                resolved_list_id = str(incoming_list_id)
-            elif incoming_list_id:
-                found = lists_collection.find_one({"name": incoming_list_id})
-                resolved_list_id = str(found["_id"]) if found else incoming_list_id
-            elif list_name:
-                found = lists_collection.find_one({"name": list_name})
-                resolved_list_id = str(found["_id"]) if found else None
-        except Exception as e:
-            print(f"[upload-csv] Error resolving list id/name: {e}")
-
-        query = {"email": email}
-        if resolved_list_id:
-            query["listId"] = resolved_list_id
-        elif list_name:
-            query["listName"] = list_name
-
-        if contacts_collection.find_one(query):
-            continue
-
-        if list_name:
-            contact["listName"] = list_name
-        if resolved_list_id:
-            contact["listId"] = resolved_list_id
-
-        try:
-            result = contacts_collection.insert_one(contact)
-            contact["_id"] = str(result.inserted_id)
-            inserted_contacts.append(contact)
-        except Exception as e:
-            print(f"❌ MongoDB insert failed for {email}: {e}")
-            continue
-
-    return {"message": f"Uploaded {len(inserted_contacts)} contacts!", "contacts": inserted_contacts}
-
-# ----------------------------
-# Fetch Contacts
-# ----------------------------
-@app.get("/contacts/{list_identifier}")
-async def get_contacts(
-    list_identifier: str = Path(...),
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(50, ge=1, le=1000, description="Maximum records to return")
-):
-    try:
-        or_clauses = [
-            {"listId": list_identifier},
-            {"listName": list_identifier},
-            {"listName": {"$regex": f"^{re.escape(list_identifier)}$", "$options": "i"}}
-        ]
-        query = {"$or": or_clauses}
-        
-        # Get total count
-        total = contacts_collection.count_documents(query)
-        
-        # Get paginated contacts
-        contacts = list(contacts_collection.find(query, {"_id": 0}).skip(skip).limit(limit))
-        
-        return {
-            "contacts": contacts,
-            "total": total,
-            "skip": skip,
-            "limit": limit,
-            "has_more": (skip + len(contacts)) < total
-        }
-    except Exception as e:
-        print(f"❌ Failed to fetch contacts: {e}")
-        raise HTTPException(status_code=500, detail=f"Fetch contacts error: {str(e)}")
-
-# ----------------------------
-# Templates
-# ----------------------------
-@app.post("/templates/")
-async def save_template(template: Dict[str, Any] = Body(...)):
-    try:
-        # strip client-sent _id to avoid string _id pollution
-        data = dict(template)
-        data.pop("_id", None)
-
-        result = templates_collection.insert_one(data)
-        saved = templates_collection.find_one({"_id": result.inserted_id})
-        saved["_id"] = str(saved["_id"])
-        return {"message": "Template saved successfully", "template": saved}
-    except Exception as e:
-        print(f"❌ Template save failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Template save error: {str(e)}")
-
-
-@app.get("/templates/",dependencies=[Depends(verify_session)])
-async def get_templates(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(50, ge=1, le=1000, description="Maximum records to return")
-):
-    try:
-        # Get total count
-        total = templates_collection.count_documents({})
-        
-        # Get paginated templates
-        templates = list(templates_collection.find().skip(skip).limit(limit))
-        for t in templates:
-            t["_id"] = str(t["_id"])
-        
-        return {
-            "templates": templates,
-            "total": total,
-            "skip": skip,
-            "limit": limit,
-            "has_more": (skip + len(templates)) < total
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Template fetch error: {str(e)}")
-
-# Alias endpoints without trailing slashes for frontend compatibility
-@app.get("/templates", dependencies=[Depends(verify_session)])
-async def get_templates_no_slash(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(50, ge=1, le=1000, description="Maximum records to return")
-):
-    """Alias for /templates/ - GET templates without auth redirect"""
-    return await get_templates(skip=skip, limit=limit)
-
-@app.post("/templates")
-async def save_template_no_slash(template: Dict[str, Any] = Body(...)):
-    """Alias for /templates/ - POST template save"""
-    return await save_template(template=template)
-
-# ----------------------------
-# Send Emails
-# ----------------------------
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-
-# SMTP Configuration (can be overridden via environment variables)
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Cogentix Research")
-
-
-def send_email_html(to_email: str, subject: str, html_content: str) -> bool:
-    """
-    Send an HTML email via SMTP.
-    
-    Args:
-        to_email: Recipient email address
-        subject: Email subject
-        html_content: HTML body of the email
-        
-    Returns:
-        True if email was sent successfully, False otherwise
-        
-    Raises:
-        Exception if SMTP is not configured or sending fails
-    """
-    if not SMTP_USER or not SMTP_PASSWORD:
-        raise Exception("SMTP credentials not configured. Set SMTP_USER and SMTP_PASSWORD environment variables.")
-    
-    # Create the email message
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = f"{SMTP_FROM_NAME} <{SMTP_USER}>"
-    msg["To"] = to_email
-    
-    # Attach HTML content
-    msg.attach(MIMEText(html_content, "html"))
-    
-    # Send the email
-    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-        server.starttls()
-        server.login(SMTP_USER, SMTP_PASSWORD)
-        server.sendmail(SMTP_USER, [to_email], msg.as_string())
-    
-    return True
-
-
-@app.post("/send-emails/")
-async def send_emails(data: Dict[str, Any] = Body(...)):
-    contacts = data.get("contacts", [])
-    template = data.get("template")
-    if not contacts or not template:
-        raise HTTPException(status_code=400, detail="Missing contacts or template")
-
-    subject = template.get("subject", "No Subject")
-    html_content = template.get("htmlContent", "")
-    campaign_id = str(ObjectId())
-
-    reports_collection.insert_one({
-        "campaignId": campaign_id,
-        "subject": subject,
-        "sent": [],
-        "opens": [],
-        "clicks": [],
-        "createdAt": datetime.utcnow()
-    })
-
-    sent_emails, failed_emails = [], []
-
-    for contact in contacts:
-        email = (contact.get("email") or "").strip()
-        if not email:
-            continue
-        try:
-            personalized_html = re.sub(r"{{\s*contact.name\s*}}", contact.get("name") or "there", html_content)
-            personalized_html = re.sub(r"{{\s*sender.companyName\s*}}", "Cogentix Research", personalized_html)
-
-            personalized_html = rewrite_links_with_tracking(personalized_html, campaign_id, email)
-            personalized_html = inject_open_tracking(personalized_html, campaign_id, email)
-
-            send_email_html(email, subject, personalized_html)
-            sent_emails.append(email)
-
-            reports_collection.update_one(
-                {"campaignId": campaign_id},
-                {"$push": {"sent": {"email": email, "time": datetime.utcnow()}}}
-            )
-        except Exception as e:
-            failed_emails.append({"email": email, "error": str(e)})
-
-    return {"message": f"Sent {len(sent_emails)} emails!", "sent": sent_emails, "failed": failed_emails}
-
-# ----------------------------
-# Tracking Endpoints
-# ----------------------------
-@app.get("/track/open")
-async def track_open(c: str, e: str):
-    reports_collection.update_one(
-        {"campaignId": c},
-        {"$push": {"opens": {"email": e, "time": datetime.utcnow()}}},
-        upsert=True
-    )
-    transparent_pixel = (
-        b"\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80"
-        b"\xff\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04"
-        b"\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01"
-        b"\x00\x01\x00\x00\x02\x02\x4c\x01\x00\x3b"
-    )
-    return Response(content=transparent_pixel, media_type="image/gif")
-
-@app.get("/track/click")
-async def track_click(c: str, e: str, url: str):
-    reports_collection.update_one(
-        {"campaignId": c},
-        {"$push": {"clicks": {"email": e, "url": url, "time": datetime.utcnow()}}},
-        upsert=True
-    )
-    return RedirectResponse(url)
-
-# ----------------------------
-# Reports
-# ----------------------------
-@app.get("/reports/",dependencies=[Depends(verify_session)])
-async def get_reports():
-    try:
-        campaigns = list(reports_collection.find({}, {"_id": 0}))
-        return {"campaigns": campaigns}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Reports fetch error: {str(e)}")
-# ----------------------------
-# Update Template
-# ----------------------------
-@app.put("/templates/{template_id}")
-async def update_template(template_id: str, template_data: Dict[str, Any] = Body(...)):
-    try:
-        # Never allow _id to be updated
-        template_data = {k: v for k, v in template_data.items() if k != "_id"}
-
-        matched = 0
-        if ObjectId.is_valid(template_id):
-            result = templates_collection.update_one(
-                {"_id": ObjectId(template_id)}, {"$set": template_data}
-            )
-            matched = result.matched_count
-
-        if matched == 0:
-            result = templates_collection.update_one(
-                {"_id": template_id}, {"$set": template_data}
-            )
-            matched = result.matched_count
-
-        if matched == 0:
-            raise HTTPException(status_code=404, detail="Template not found")
-
-        return {"message": "Template updated successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Template update error: {str(e)}")
-
-
-
-# ----------------------------
-# Delete Template
-# ----------------------------
-@app.delete("/templates/{template_id}")
-async def delete_template(template_id: str = Path(...)):
-    try:
-        # Try ObjectId FIRST if the string looks like one
-        if ObjectId.is_valid(template_id):
-            result = templates_collection.delete_one({"_id": ObjectId(template_id)})
-            if result.deleted_count == 0:
-                # Then try as plain string
-                result = templates_collection.delete_one({"_id": template_id})
-        else:
-            result = templates_collection.delete_one({"_id": template_id})
-
-        if result.deleted_count == 0:
-            raise HTTPException(status_code=404, detail=f"Template not found")
-
-        return {"message": "Template deleted successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Template delete error: {str(e)}")
-
-
-# ----------------------------
-# Leads Collection
-# ----------------------------
-leads_collection = db["leads"]
-
-# Create indexes for faster queries
-try:
-    leads_collection.create_index("createdAt", background=True)
-    leads_collection.create_index("email", unique=True, sparse=True, background=True)
-except Exception as e:
-    print(f"Warning: Could not create leads indexes: {e}")
-
-# Create a lead
-@app.post("/leads/")
-async def create_lead(lead_data: Dict[str, Any] = Body(...)):
-    try:
-        # Validate required fields
-        if not lead_data.get("email") or not lead_data["email"].strip():
-            raise HTTPException(status_code=400, detail="Email is required")
-
-        lead_data["addedOn"] = datetime.utcnow()
-        lead_data["createdAt"] = datetime.utcnow()
-        lead_data["updatedAt"] = datetime.utcnow()
-        result = leads_collection.insert_one(lead_data)
-        lead_data["_id"] = str(result.inserted_id)
-        return {"message": "Lead created successfully", "lead": lead_data}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lead creation error: {str(e)}")
-
-# NOTE: /leads GET endpoint is handled by leads/router.py with full filtering support including source filter
-# Do not add competing /leads/ routes here as it will conflict with the router's implementation
-
-# Get a single lead by ID
-@app.get("/leads/{lead_id}", dependencies=[Depends(verify_session)])
-async def get_lead(lead_id: str):
-    try:
-        lead = leads_collection.find_one({"_id": ObjectId(lead_id)})
-        if not lead:
-            raise HTTPException(status_code=404, detail="Lead not found")
-        
-        lead["_id"] = str(lead["_id"])
-        # Convert datetime to string for JSON serialization
-        for date_field in ["createdAt", "updatedAt", "addedOn"]:
-            if date_field in lead:
-                lead[date_field] = lead[date_field].isoformat() if isinstance(lead[date_field], datetime) else str(lead[date_field])
-        return {"lead": lead}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Fetch lead error: {str(e)}")
-
-# Update a lead
-@app.put("/leads/{lead_id}")
-async def update_lead(lead_id: str, lead_data: Dict[str, Any] = Body(...)):
-    try:
-        # Exclude _id from updates
-        lead_data = {k: v for k, v in lead_data.items() if k not in ["_id", "createdAt", "addedOn"]}
-
-        # Validate required fields if they are being updated
-        if "email" in lead_data and (not lead_data["email"] or not lead_data["email"].strip()):
-            raise HTTPException(status_code=400, detail="Email cannot be empty")
-
-        lead_data["updatedAt"] = datetime.utcnow()
-        result = leads_collection.update_one(
-            {"_id": ObjectId(lead_id)}, {"$set": lead_data}
-        )
-        if result.matched_count == 0:
-            raise HTTPException(status_code=404, detail="Lead not found")
-        return {"message": "Lead updated successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lead update error: {str(e)}")
-
-# Delete a lead
-@app.delete("/leads/{lead_id}")
-async def delete_lead(lead_id: str):
-    try:
-        result = leads_collection.delete_one({"_id": ObjectId(lead_id)})
-        if result.deleted_count == 0:
-            raise HTTPException(status_code=404, detail="Lead not found")
-        return {"message": "Lead deleted successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lead delete error: {str(e)}")
-
-# Bulk delete leads
-@app.post("/leads/bulk-delete")
-async def bulk_delete_leads(data: Dict[str, Any] = Body(...)):
-    """Delete multiple leads by their IDs"""
-    try:
-        ids = data.get("ids", [])
-        if not ids:
-            raise HTTPException(status_code=400, detail="No IDs provided")
-        
-        object_ids = [ObjectId(id) for id in ids]
-        result = leads_collection.delete_many({"_id": {"$in": object_ids}})
-        
-        return {
-            "message": f"Successfully deleted {result.deleted_count} leads",
-            "deleted_count": result.deleted_count
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Bulk delete error: {str(e)}")
-
-# Move lead to contacts (RFQ stage)
-@app.post("/leads/{lead_id}/move-to-contacts")
-async def move_lead_to_contacts(lead_id: str, stage_data: Dict[str, Any] = Body(...)):
-    try:
-        # Find the lead
-        lead = leads_collection.find_one({"_id": ObjectId(lead_id)})
-        if not lead:
-            raise HTTPException(status_code=404, detail="Lead not found")
-        
-        # Create contact from lead data
-        contact_data = {k: v for k, v in lead.items() if k != "_id"}
-        contact_data["stage"] = stage_data.get("stage", "RFQ")
-        contact_data["movedFromLeadAt"] = datetime.utcnow()
-        contact_data["createdAt"] = lead.get("createdAt", datetime.utcnow())
-        contact_data["updatedAt"] = datetime.utcnow()
-        
-        # Insert into contacts
-        result = contacts_collection.insert_one(contact_data)
-        contact_data["_id"] = str(result.inserted_id)
-        
-        # Delete from leads
-        leads_collection.delete_one({"_id": ObjectId(lead_id)})
-        
-        return {"message": "Lead moved to contacts successfully", "contact": contact_data}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Move lead error: {str(e)}")
-
-
-# Import leads from CSV - USES CANONICAL INGESTION PIPELINE
-@app.post("/leads/import/csv")
-async def import_leads_csv(file: UploadFile = File(...)):
-    """
-    Import leads from a CSV file using CANONICAL INGESTION PIPELINE.
-    All leads go through the same pipeline as Gmail and Web Search.
-    
-    Expected columns: name, firstName, lastName, email, title, linkedin, location,
-    companyName, companyDomain, companyWebsite, companyIndustry, companyType, etc.
-    """
-    import csv
-    import io
-    from leads.canonical_ingestion import ingest_lead
-    
-    try:
-        content = await file.read()
-        decoded = content.decode("utf-8-sig")  # Handle BOM
-        reader = csv.DictReader(io.StringIO(decoded))
-        
-        results = {
-            'inserted': 0,
-            'updated': 0,
-            'skipped': 0,
-            'errors': []
-        }
-        
-        for row_num, row in enumerate(reader, start=2):  # Start at 2 (header is row 1)
-            try:
-                # Skip empty rows
-                if not any(row.values()):
-                    results['skipped'] += 1
-                    continue
-                
-                # Build canonical payload from CSV row
-                payload = {
-                    'email': row.get('email', '').strip(),
-                    'name': row.get('name', '').strip() or f"{row.get('firstName', '')} {row.get('lastName', '')}".strip(),
-                    'first_name': row.get('firstName', '').strip(),
-                    'last_name': row.get('lastName', '').strip(),
-                    'title': row.get('title', '').strip(),
-                    'linkedin_url': row.get('linkedin', '').strip(),
-                    'location': row.get('location', '').strip(),
-                    'company': row.get('companyName', '').strip(),
-                    'company_domain': row.get('companyDomain', '').strip(),
-                    'phone': row.get('phone', '').strip(),
-                }
-                
-                # Use CANONICAL ingestion (same as Gmail and Web Search)
-                result = ingest_lead(
-                    payload=payload,
-                    source='csv',
-                    source_detail=f'csv_import:{file.filename}',
-                    skip_classification=True  # Batch classify after import
-                )
-                
-                if result['success']:
-                    if result['action'] == 'inserted':
-                        results['inserted'] += 1
-                    elif result['action'] == 'updated':
-                        results['updated'] += 1
-                    else:
-                        results['skipped'] += 1
-                else:
-                    results['skipped'] += 1
-                    if result['error']:
-                        results['errors'].append(f"Row {row_num}: {result['error']}")
-                
-            except Exception as e:
-                results['skipped'] += 1
-                results['errors'].append(f"Row {row_num}: {str(e)}")
-        
-        return {
-            "message": f"Import completed: {results['inserted']} inserted, {results['updated']} updated, {results['skipped']} skipped",
-            "inserted": results['inserted'],
-            "updated": results['updated'],
-            "skipped": results['skipped'],
-            "errors": results['errors'][:20],  # Limit error list
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"CSV import error: {str(e)}")
-
-
-# ----------------------------
-# Contacts Collection (Qualified Leads with Stages)
-# ----------------------------
-
-# Finance DB for customers (canonical entity for accounts/clients/customers)
-finance_db = client["finance_db"]
-finance_customers_collection = finance_db["customers"]
-
-# Create a contact
-@app.post("/contacts/")
-async def create_contact(contact_data: Dict[str, Any] = Body(...)):
-    try:
-        # Validate required fields
-        if not contact_data.get("email") or not contact_data["email"].strip():
-            raise HTTPException(status_code=400, detail="Email is required")
-        
-        contact_data["stage"] = contact_data.get("stage", "RFQ")
-        contact_data["createdAt"] = datetime.utcnow()
-        contact_data["updatedAt"] = datetime.utcnow()
-        
-        # Auto-sync to Customers (finance_db): create/update customer with company info
-        linked_customer_id = None
-        if contact_data.get("companyName"):
-            # Check if customer already exists for this company
-            existing_customer = finance_customers_collection.find_one({"company_name": contact_data["companyName"]})
-            
-            if existing_customer:
-                # Update existing customer with latest company info
-                linked_customer_id = str(existing_customer["_id"])
-                update_fields = {"updated_at": datetime.utcnow()}
-                if contact_data.get("companyEmail"):
-                    update_fields["email"] = contact_data["companyEmail"]
-                if contact_data.get("companyHeadquarters"):
-                    update_fields["billing_address.line1"] = contact_data["companyHeadquarters"]
-                    update_fields["shipping_address.line1"] = contact_data["companyHeadquarters"]
-                
-                finance_customers_collection.update_one(
-                    {"_id": existing_customer["_id"]},
-                    {"$set": update_fields}
-                )
-            else:
-                # Create new customer for this company
-                customer_data = {
-                    "name": contact_data["companyName"],
-                    "customer_type": "business",
-                    "company_name": contact_data["companyName"],
-                    "email": contact_data.get("companyEmail", ""),
-                    "phone": "",
-                    "gst_treatment": "unregistered",
-                    "gstin": "",
-                    "pan": "",
-                    "billing_address": {
-                        "line1": contact_data.get("companyHeadquarters", ""),
-                        "line2": "",
-                        "city": "",
-                        "state": "",
-                        "pincode": "",
-                        "country": "India",
-                    },
-                    "shipping_address": {
-                        "line1": contact_data.get("companyHeadquarters", ""),
-                        "line2": "",
-                        "city": "",
-                        "state": "",
-                        "pincode": "",
-                        "country": "India",
-                    },
-                    "same_as_billing": True,
-                    "payment_terms": 30,
-                    "credit_limit": 0,
-                    "currency": "INR",
-                    "opening_balance": 0,
-                    "notes": "",
-                    "status": "active",
-                    "created_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow(),
-                }
-                result_customer = finance_customers_collection.insert_one(customer_data)
-                linked_customer_id = str(result_customer.inserted_id)
-        
-        # Store the linked customer ID in the contact
-        contact_data["linked_customer_id"] = linked_customer_id
-        result = contacts_collection.insert_one(contact_data)
-        contact_data["_id"] = str(result.inserted_id)
-        
-        return {"message": "Contact created successfully", "contact": contact_data}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Contact creation error: {str(e)}")
-
-# Get all contacts
-@app.get("/contacts/", dependencies=[Depends(verify_session)])
-async def get_contacts():
-    try:
-        contacts = list(contacts_collection.find())
-        
-        # Build a map of all customers for quick lookup
-        all_customers = {str(c["_id"]): c for c in finance_customers_collection.find()}
-        
-        for contact in contacts:
-            contact["_id"] = str(contact["_id"])
-            # Convert datetime to string for JSON serialization
-            for date_field in ["createdAt", "updatedAt", "movedFromLeadAt", "addedOn"]:
-                if date_field in contact:
-                    contact[date_field] = contact[date_field].isoformat() if isinstance(contact[date_field], datetime) else str(contact[date_field])
-            
-            # Include linked customer info if available
-            linked_customer_id = contact.get("linked_customer_id")
-            if linked_customer_id and linked_customer_id in all_customers:
-                customer = all_customers[linked_customer_id]
-                contact["linked_customer"] = {
-                    "_id": str(customer["_id"]),
-                    "name": customer.get("name", ""),
-                    "company_name": customer.get("company_name", ""),
-                    "email": customer.get("email", ""),
-                    "status": customer.get("status", "active")
-                }
-            elif contact.get("companyName"):
-                # Try to find by company name if linked_customer_id not set
-                for cid, customer in all_customers.items():
-                    if customer.get("company_name") == contact["companyName"]:
-                        contact["linked_customer_id"] = cid
-                        contact["linked_customer"] = {
-                            "_id": cid,
-                            "name": customer.get("name", ""),
-                            "company_name": customer.get("company_name", ""),
-                            "email": customer.get("email", ""),
-                            "status": customer.get("status", "active")
-                        }
-                        # Update the contact with the linked_customer_id
-                        contacts_collection.update_one(
-                            {"_id": ObjectId(contact["_id"])},
-                            {"$set": {"linked_customer_id": cid}}
-                        )
-                        break
-        
-        return {"contacts": contacts}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Fetch contacts error: {str(e)}")
-
-# Update a contact
-@app.put("/contacts/{contact_id}")
-async def update_contact(contact_id: str, contact_data: Dict[str, Any] = Body(...)):
-    try:
-        # Exclude _id from updates
-        contact_data = {k: v for k, v in contact_data.items() if k not in ["_id", "createdAt", "movedFromLeadAt"]}
-        
-        # Validate required fields if they are being updated
-        if "email" in contact_data and (not contact_data["email"] or not contact_data["email"].strip()):
-            raise HTTPException(status_code=400, detail="Email cannot be empty")
-        
-        contact_data["updatedAt"] = datetime.utcnow()
-        result = contacts_collection.update_one(
-            {"_id": ObjectId(contact_id)}, {"$set": contact_data}
-        )
-        if result.matched_count == 0:
-            raise HTTPException(status_code=404, detail="Contact not found")
-        
-        # Auto-sync to Customers (finance_db): update customer with company info
-        if contact_data.get("companyName"):
-            # Check if customer exists for this company
-            existing_customer = finance_customers_collection.find_one({"company_name": contact_data["companyName"]})
-            
-            if existing_customer:
-                # Update existing customer and store the link
-                linked_customer_id = str(existing_customer["_id"])
-                update_fields = {"updated_at": datetime.utcnow()}
-                if contact_data.get("companyEmail"):
-                    update_fields["email"] = contact_data["companyEmail"]
-                if contact_data.get("companyHeadquarters"):
-                    update_fields["billing_address.line1"] = contact_data["companyHeadquarters"]
-                    update_fields["shipping_address.line1"] = contact_data["companyHeadquarters"]
-                
-                finance_customers_collection.update_one(
-                    {"_id": existing_customer["_id"]},
-                    {"$set": update_fields}
-                )
-                
-                # Update the contact with the linked_customer_id
-                contacts_collection.update_one(
-                    {"_id": ObjectId(contact_id)},
-                    {"$set": {"linked_customer_id": linked_customer_id}}
-                )
-        
-        return {"message": "Contact updated successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Contact update error: {str(e)}")
-
-# Delete a contact
-@app.delete("/contacts/{contact_id}")
-async def delete_contact(contact_id: str):
-    try:
-        result = contacts_collection.delete_one({"_id": ObjectId(contact_id)})
-        if result.deleted_count == 0:
-            raise HTTPException(status_code=404, detail="Contact not found")
-        return {"message": "Contact deleted successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Contact delete error: {str(e)}")
-
-# Bulk delete contacts
-@app.post("/contacts/bulk-delete")
-async def bulk_delete_contacts(data: Dict[str, Any] = Body(...)):
-    """Delete multiple contacts by their IDs"""
-    try:
-        ids = data.get("ids", [])
-        if not ids:
-            raise HTTPException(status_code=400, detail="No IDs provided")
-        
-        object_ids = [ObjectId(id) for id in ids]
-        result = contacts_collection.delete_many({"_id": {"$in": object_ids}})
-        
-        return {
-            "message": f"Successfully deleted {result.deleted_count} contacts",
-            "deleted_count": result.deleted_count
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Bulk delete error: {str(e)}")
-
-def generate_vid():
-    while True:
-        vid = str(datetime.utcnow().microsecond % 10000).zfill(4)
-        if not vendors_collection.find_one({"vid": vid}):
-            return vid
-
-@app.post("/vendors/")
-async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
-    try:
-        # Validate required fields
-        if not vendor_data.get("vendorName") or not vendor_data["vendorName"].strip():
-            raise HTTPException(status_code=400, detail="Vendor name is required")
-        if not vendor_data.get("vendorVariable") or not vendor_data["vendorVariable"].strip():
-            raise HTTPException(status_code=400, detail="Vendor Variable is required")
-        if not vendor_data.get("vendorType") or not vendor_data["vendorType"].strip():
-            raise HTTPException(status_code=400, detail="Vendor Type is required")
-        if not vendor_data.get("status") or not vendor_data["status"].strip():
-            raise HTTPException(status_code=400, detail="Status is required")
-
-        # Validate redirect URLs if provided
-        for url_field in ["completeRD", "terminateRD", "quotaRD"]:
-            urls = vendor_data.get(url_field, [])
-            if urls:
-                # Handle both array and string format
-                url_list = urls if isinstance(urls, list) else [urls]
-                for url in url_list:
-                    if url and url.strip():
-                        is_valid, error_msg = validate_redirect_url(url.strip(), require_https=False)
-                        if not is_valid:
-                            raise HTTPException(
-                                status_code=400,
-                                detail=f"Invalid {url_field} URL: {error_msg}"
-                            )
-
-        vendor_data["vid"] = generate_vid()
-        result = vendors_collection.insert_one(vendor_data)
-        vendor_data["_id"] = str(result.inserted_id)
-        return {"message": "Vendor created successfully", "vendor": vendor_data}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Vendor creation error: {str(e)}")
-
-@app.get("/vendors/",dependencies=[Depends(verify_session)])
-async def get_vendors():
-    try:
-        vendors = list(vendors_collection.find())
-        for v in vendors:
-            v["_id"] = str(v["_id"])
-        return {"vendors": vendors}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Fetch vendors error: {str(e)}")
-
-@app.put("/vendors/{vendor_id}")
-async def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...)):
-    try:
-        vendor_data = {k: v for k, v in vendor_data.items() if k != "_id" and k != "vid"}
-        
-        # Validate redirect URLs if provided
-        for url_field in ["completeRD", "terminateRD", "quotaRD"]:
-            urls = vendor_data.get(url_field, [])
-            if urls:
-                # Handle both array and string format
-                url_list = urls if isinstance(urls, list) else [urls]
-                for url in url_list:
-                    if url and url.strip():
-                        is_valid, error_msg = validate_redirect_url(url.strip(), require_https=False)
-                        if not is_valid:
-                            raise HTTPException(
-                                status_code=400,
-                                detail=f"Invalid {url_field} URL: {error_msg}"
-                            )
-        
-        result = vendors_collection.update_one({"_id": ObjectId(vendor_id)}, {"$set": vendor_data})
-        if result.matched_count == 0:
-            raise HTTPException(status_code=404, detail="Vendor not found")
-        return {"message": "Vendor updated successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Vendor update error: {str(e)}")
-
-@app.delete("/vendors/{vendor_id}")
-async def delete_vendor(vendor_id: str):
-    """
-    Soft delete a panel vendor with safety checks.
-    - Blocks if vendor has traffic records
-    - Blocks if vendor is linked to a billing vendor
-    """
-    try:
-        # First check if the vendor exists
-        vendor = vendors_collection.find_one({"_id": ObjectId(vendor_id)})
-        if not vendor:
-            raise HTTPException(status_code=404, detail="Vendor not found")
-        
-        # Safety Check 1: Check for traffic records linked to this vendor
-        if url_parameters_collection is not None:
-            vid = vendor.get("vid")
-            if vid:
-                traffic_count = url_parameters_collection.count_documents({"vendorId": vid})
-                if traffic_count > 0:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Cannot delete vendor with {traffic_count} traffic records. Archive instead."
-                    )
-        
-        # Safety Check 2: Check if linked to a billing vendor
-        linked_billing_id = vendor.get("linked_billing_vendor_id")
-        if linked_billing_id:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot delete vendor linked to billing vendor (ID: {linked_billing_id}). Unlink first."
-            )
-        
-        # Soft delete instead of hard delete
-        result = vendors_collection.update_one(
-            {"_id": ObjectId(vendor_id)},
-            {
-                "$set": {
-                    "is_deleted": True,
-                    "deleted_at": datetime.utcnow(),
-                    "status": "deleted"
-                }
-            }
-        )
-        if result.matched_count == 0:
-            raise HTTPException(status_code=404, detail="Vendor not found")
-        return {"message": "Vendor deleted successfully (soft delete)"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Vendor delete error: {str(e)}")
-    
-
-def generate_survey_no():
-    while True:
-        survey_no = str(datetime.utcnow().microsecond % 100000).zfill(5)
-        if not projects_collection.find_one({"surveyNo": survey_no}):
-            return survey_no
-        
-@app.post("/projects/")
-async def create_project(project_data: Dict[str, Any] = Body(...)):
-    try:
-        # Validate required fields
-        if not project_data.get("projectName") or not project_data["projectName"].strip():
-            raise HTTPException(status_code=400, detail="Project name is required")
-        if not project_data.get("salesPerson") or not project_data["salesPerson"].strip():
-            raise HTTPException(status_code=400, detail="Sales person is required")
-        if not project_data.get("client") or not project_data["client"].strip():
-            raise HTTPException(status_code=400, detail="Client is required")
-
-        project_data["surveyNo"] = generate_survey_no()
-        project_data["createdAt"] = datetime.utcnow()
-        result = projects_collection.insert_one(project_data)
-        project_data["_id"] = str(result.inserted_id)
-        return {"message": "Project created successfully", "project": project_data}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Project creation error: {str(e)}")
-
-@app.get("/projects/",dependencies=[Depends(verify_session)])
-async def get_projects():
-    import asyncio as _asyncio
-    try:
-        def _fetch():
-            docs = list(projects_collection.find({"is_deleted": {"$ne": True}}))
-            for p in docs:
-                p["_id"] = str(p["_id"])
-            return docs
-        projects = await _asyncio.to_thread(_fetch)
-        return {"projects": projects}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Fetch projects error: {str(e)}")
-
-# Alias for /projects (without trailing slash)
-@app.get("/projects", dependencies=[Depends(verify_session)])
-async def get_projects_no_slash():
-    """Alias for /projects/ - GET projects"""
-    return await get_projects()
-
-@app.post("/projects")
-async def create_project_no_slash(project_data: Dict[str, Any] = Body(...)):
-    """Alias for /projects/ - POST project"""
-    return await create_project(project_data=project_data)
-
-@app.put("/projects/{project_id}")
-async def update_project(project_id: str, project_data: Dict[str, Any] = Body(...)):
-    try:
-        project_data = {k: v for k, v in project_data.items() if k not in ["_id", "surveyNo"]}
-        result = projects_collection.update_one({"_id": ObjectId(project_id)}, {"$set": project_data})
-        if result.matched_count == 0:
-            raise HTTPException(status_code=404, detail="Project not found")
-        return {"message": "Project updated successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Project update error: {str(e)}")
-
-@app.delete("/projects/{project_id}")
-async def delete_project(project_id: str):
-    """
-    Soft delete a project with cascade validation.
-    Checks for linked invoices, bills, and expenses before deletion.
-    P0.13: Project Soft Delete with Cascade Validation
-    """
-    try:
-        # First check if project exists
-        project = projects_collection.find_one({"_id": ObjectId(project_id)})
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        
-        # Import finance collections for cascade validation
-        finance_db = client["finance_db"]
-        invoices_collection = finance_db["invoices"]
-        bills_collection = finance_db["bills"]
-        expenses_collection = finance_db["expenses"]
-        
-        # Check for linked invoices (excluding soft-deleted)
-        linked_invoices = invoices_collection.count_documents({
-            "project_id": project_id,
-            "is_deleted": {"$ne": True}
-        })
-        if linked_invoices > 0:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot delete project with {linked_invoices} linked invoice(s). Delete or unlink invoices first."
-            )
-        
-        # Check for linked bills (excluding soft-deleted)
-        linked_bills = bills_collection.count_documents({
-            "project_id": project_id,
-            "is_deleted": {"$ne": True}
-        })
-        if linked_bills > 0:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot delete project with {linked_bills} linked bill(s). Delete or unlink bills first."
-            )
-        
-        # Check for linked expenses (excluding soft-deleted)
-        linked_expenses = expenses_collection.count_documents({
-            "project_id": project_id,
-            "is_deleted": {"$ne": True}
-        })
-        if linked_expenses > 0:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot delete project with {linked_expenses} linked expense(s). Delete or unlink expenses first."
-            )
-        
-        # Soft delete - set is_deleted flag instead of removing
-        result = projects_collection.update_one(
-            {"_id": ObjectId(project_id)},
-            {
-                "$set": {
-                    "is_deleted": True,
-                    "deleted_at": datetime.utcnow(),
-                    "projectStatus": "Deleted"
-                }
-            }
-        )
-        if result.matched_count == 0:
-            raise HTTPException(status_code=404, detail="Project not found")
-        
-        return {"message": "Project deleted successfully (soft delete)"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Project delete error: {str(e)}")
+# Admin user management  → routers/admin_handler.py
+# Lists / templates / email tracking / reports → routers/legacy_campaign.py
+# Leads CRUD → routers/legacy_leads.py
+# Contacts CRUD → routers/legacy_contacts.py
+# Vendors / Projects → routers/legacy_vendors_projects.py
