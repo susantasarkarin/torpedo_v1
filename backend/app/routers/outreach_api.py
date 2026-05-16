@@ -96,8 +96,12 @@ class PromptUpdateRequest(BaseModel):
 # =============================================================================
 
 async def get_ai_client():
-    """Get OpenAI client."""
-    api_key = os.getenv("OPENAI_API_KEY")
+    """Get OpenAI client via key rotator."""
+    try:
+        from leads.openai_rotator import get_pipeline_rotator
+        _, api_key = get_pipeline_rotator("mail").get_available_key()
+    except Exception:
+        api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
     return AsyncOpenAI(api_key=api_key)

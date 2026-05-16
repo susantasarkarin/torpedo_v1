@@ -160,7 +160,14 @@ class ReplySentimentClassifier:
                 "openai package required. Install with: pip install openai"
             )
         
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        if api_key:
+            self.api_key = api_key
+        else:
+            try:
+                from leads.openai_rotator import get_pipeline_rotator
+                _, self.api_key = get_pipeline_rotator("mail").get_available_key()
+            except Exception:
+                self.api_key = os.getenv("OPENAI_API_KEY", "")
         if not self.api_key:
             raise ValueError(
                 "OpenAI API key required. Set OPENAI_API_KEY or pass api_key parameter."

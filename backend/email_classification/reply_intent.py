@@ -143,7 +143,14 @@ class ReplyIntentClassifier:
             api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
             model: OpenAI model to use (default: gpt-4o-mini)
         """
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        if api_key:
+            self.api_key = api_key
+        else:
+            try:
+                from leads.openai_rotator import get_pipeline_rotator
+                _, self.api_key = get_pipeline_rotator("mail").get_available_key()
+            except Exception:
+                self.api_key = os.getenv("OPENAI_API_KEY", "")
         if not self.api_key:
             raise ValueError("OpenAI API key required (set OPENAI_API_KEY env var)")
         

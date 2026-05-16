@@ -496,8 +496,12 @@ async def test_prompt(
         # through the appropriate agent
         
         import openai as _openai
-        import os as _os
-        api_key = _os.getenv("OPENAI_API_KEY")
+        try:
+            from leads.openai_rotator import get_pipeline_rotator
+            _, api_key = get_pipeline_rotator("mail").get_available_key()
+        except Exception:
+            import os as _os
+            api_key = _os.getenv("OPENAI_API_KEY", "")
         
         if not api_key:
             raise HTTPException(status_code=400, detail="OpenAI API not configured")
