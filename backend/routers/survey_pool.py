@@ -11,7 +11,7 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from typing import Dict, Any, Optional
 import logging
 
-from ..services.activation_service import get_activation_service
+from app.services.activation_service import get_activation_service
 
 logger = logging.getLogger(__name__)
 

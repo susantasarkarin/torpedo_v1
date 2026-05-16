@@ -1,5 +1,5 @@
 # App routers package
-from . import cint
-from . import cpx
-from . import gmail_router
-from . import survey_allocation
+# Note: cpx, gmail_router, survey_allocation, survey_pool, cint have been
+# moved to backend/routers/ as part of Phase 6 router consolidation.
+# Only outreach_api remains here due to its dependency on app.services.
+from . import outreach_api

@@ -49,11 +49,11 @@ try:
     # Prefer relative import when running as a package (python -m uvicorn backend.main)
     from .routers import traffic as traffic_router
     from .routers import cpx_api as cpx_api_router
-    from .app.routers import cpx as cpx_router
+    from .routers import cpx_app as cpx_router
     from .routers import finance as finance_router
     from .routers import settings as settings_router
     from .routers import gmail as gmail_router
-    from .app.routers import gmail_router as gmail_api_router
+    from .routers import gmail_app_router as gmail_api_router
     from .routers import rfq as rfq_router
     from .routers import operations as operations_router
     from .routers import health as health_router
@@ -61,8 +61,8 @@ try:
     from .routers import roles as roles_router
     from .routers import approvals as approvals_router
     from .app.services.cpx_service import CPXService
-    from .app.routers import survey_allocation as survey_allocation_router
-    from .app.routers import cint as cint_router
+    from .routers import survey_allocation as survey_allocation_router
+    from .routers import cint as cint_router
     from .app.integrations.cint_integration import CintIntegration
     from .leads import router as leads_router
     from .routers import panel as panel_router
@@ -73,11 +73,11 @@ except Exception:
     # Fallback to absolute import for other runtimes
     from routers import traffic as traffic_router
     from routers import cpx_api as cpx_api_router
-    from app.routers import cpx as cpx_router
+    from routers import cpx_app as cpx_router
     from routers import finance as finance_router
     from routers import settings as settings_router
     from routers import gmail as gmail_router
-    from app.routers import gmail_router as gmail_api_router
+    from routers import gmail_app_router as gmail_api_router
     from routers import rfq as rfq_router
     from routers import operations as operations_router
     from routers import health as health_router
@@ -85,9 +85,9 @@ except Exception:
     from routers import roles as roles_router
     from routers import approvals as approvals_router
     from app.services.cpx_service import CPXService
-    from app.routers import survey_allocation as survey_allocation_router
+    from routers import survey_allocation as survey_allocation_router
     from routers import panel as panel_router
-    from app.routers import cint as cint_router
+    from routers import cint as cint_router
     from app.integrations.cint_integration import CintIntegration
     from leads import router as leads_router
     from routers import mail_operations as mail_operations_router
@@ -860,7 +860,7 @@ except Exception as e:
 
 # Survey Pool Management router (sync/activate surveys from CPX/CINT)
 try:
-    from app.routers import survey_pool as survey_pool_router
+    from routers import survey_pool as survey_pool_router
     app.include_router(survey_pool_router.router)
     print("✅ Survey Pool router included")
 except Exception as e:

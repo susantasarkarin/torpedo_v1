@@ -23,8 +23,8 @@ from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
 from pydantic import BaseModel, EmailStr, Field
 from google_auth_oauthlib.flow import Flow
 
-from ..services.gmail_service import GmailService
-from ..services.ai_classification_service import AIClassificationService
+from app.services.gmail_service import GmailService
+from app.services.ai_classification_service import AIClassificationService
 
 logger = logging.getLogger(__name__)
 

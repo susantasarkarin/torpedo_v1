@@ -15,22 +15,13 @@ from datetime import datetime
 from bson import ObjectId
 
 # Import service and models
-try:
-    from ..services.survey_allocation_service import get_survey_allocation_service
-    from ..models.survey_allocation import (
-        AllocationRequest, AllocationResponse,
-        CallbackEvent, CallbackResponse,
-        SurveyCreate, SurveyUpdate, SurveyStatus,
-        AllocationSettings, RespondentStatus
-    )
-except ImportError:
-    from app.services.survey_allocation_service import get_survey_allocation_service
-    from app.models.survey_allocation import (
-        AllocationRequest, AllocationResponse,
-        CallbackEvent, CallbackResponse,
-        SurveyCreate, SurveyUpdate, SurveyStatus,
-        AllocationSettings, RespondentStatus
-    )
+from app.services.survey_allocation_service import get_survey_allocation_service
+from app.models.survey_allocation import (
+    AllocationRequest, AllocationResponse,
+    CallbackEvent, CallbackResponse,
+    SurveyCreate, SurveyUpdate, SurveyStatus,
+    AllocationSettings, RespondentStatus
+)
 
 
 router = APIRouter(
