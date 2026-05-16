@@ -1047,7 +1047,27 @@ class CintService:
                 # Store in MongoDB if collection provided
                 if self.cint_surveys_collection is not None:
                     self._upsert_opportunity(opportunity)
-                
+
+                # Dispatch AI cold-start scoring for brand-new surveys with no in-field data
+                # Per Cint guide: rank new opportunities before real conversion data exists
+                if is_new_survey and opportunity.is_active:
+                    has_real_ir = (
+                        (opportunity.conversion or 0) > 0
+                        or (opportunity.bid_incidence or 0) > 0
+                    )
+                    if not has_real_ir:
+                        try:
+                            from tasks.cint_survey_scoring import score_cold_start_survey
+                            score_cold_start_survey.delay(opportunity.survey_id)
+                            logger.info(
+                                f"Dispatched cold-start scoring for survey {opportunity.survey_id}"
+                            )
+                        except Exception as _scoring_err:
+                            logger.debug(
+                                f"Could not dispatch scoring task for {opportunity.survey_id}: "
+                                f"{_scoring_err}"
+                            )
+
                 # Auto-create entry links for new active surveys
                 if auto_create_entry_links and is_new_survey and opportunity.is_active:
                     try:

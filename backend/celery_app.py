@@ -26,6 +26,7 @@ celery_app = Celery(
         'backend.tasks.traffic_tasks',
         'backend.tasks.outreach_tasks',
         'backend.tasks.linkedin_tasks',
+        'backend.tasks.cint_survey_scoring',
         'backend.sales.tasks',
         'backend.sales.outreach_pipeline',
         'backend.sales.mail_pool_extractor',

@@ -100,6 +100,43 @@ async def get_active_surveys(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/top-by-country")
+async def get_top_surveys_by_country(
+    limit: int = Query(5, ge=1, le=25, description="Maximum surveys to return per country"),
+    country_code: Optional[str] = Query(None, min_length=2, max_length=3, description="Optional ISO country filter, e.g. US or IN"),
+    ir_weight: float = Query(0.5, ge=0.0, le=1.0, description="Relative weight for incidence/conversion score"),
+    cpi_weight: float = Query(0.5, ge=0.0, le=1.0, description="Relative weight for payout/CPI score"),
+) -> Dict[str, Any]:
+    """
+    Return the top active Cint surveys per country, ranked by a composite of IR and CPI.
+    """
+    try:
+        if ir_weight == 0 and cpi_weight == 0:
+            raise HTTPException(status_code=400, detail="At least one weight must be greater than 0")
+
+        total_weight = ir_weight + cpi_weight
+        normalized_ir_weight = ir_weight / total_weight
+        normalized_cpi_weight = cpi_weight / total_weight
+
+        service = get_activation_service()
+        results = service.get_top_surveys_by_country(
+            limit=limit,
+            country_code=country_code,
+            ir_weight=normalized_ir_weight,
+            cpi_weight=normalized_cpi_weight,
+        )
+
+        return {
+            "success": True,
+            "data": results,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting top surveys by country: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/toggle/{provider}/{survey_id}")
 async def toggle_survey_activation(
     provider: str,
@@ -152,6 +189,40 @@ async def get_filter_settings() -> Dict[str, Any]:
         }
     except Exception as e:
         logger.error(f"Error getting filters: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/top-by-country")
+async def get_top_surveys_by_country(
+    limit: int = Query(5, ge=1, le=25, description="Max surveys per country"),
+    country_code: Optional[str] = Query(None, min_length=2, max_length=3, description="ISO country code filter (e.g. US, GB)"),
+    ir_weight: float = Query(0.5, ge=0.0, le=1.0, description="Weight for incidence rate (0–1)"),
+    cpi_weight: float = Query(0.5, ge=0.0, le=1.0, description="Weight for CPI (0–1)"),
+) -> Dict[str, Any]:
+    """
+    Return top-N active Cint surveys ranked by composite IR + CPI score,
+    grouped by country (or filtered to one country via country_code).
+    Weights are auto-normalized to sum to 1.0.
+    """
+    if ir_weight == 0.0 and cpi_weight == 0.0:
+        raise HTTPException(status_code=400, detail="At least one of ir_weight or cpi_weight must be > 0")
+
+    # Normalize weights to sum to 1.0
+    total = ir_weight + cpi_weight
+    ir_weight = round(ir_weight / total, 4)
+    cpi_weight = round(cpi_weight / total, 4)
+
+    try:
+        service = get_activation_service()
+        data = service.get_top_surveys_by_country(
+            limit=limit,
+            country_code=country_code,
+            ir_weight=ir_weight,
+            cpi_weight=cpi_weight,
+        )
+        return {"success": True, "data": data}
+    except Exception as e:
+        logger.error(f"Error getting top surveys by country: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
