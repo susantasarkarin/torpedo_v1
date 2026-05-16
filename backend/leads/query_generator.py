@@ -13,6 +13,11 @@ Example:
 """
 
 import os
+
+try:
+    from app.services.prompt_templates import LINKEDIN_SEARCH_PLAN_PROMPT as SEARCH_PLAN_SYSTEM_PROMPT
+except ImportError:
+    from ..app.services.prompt_templates import LINKEDIN_SEARCH_PLAN_PROMPT as SEARCH_PLAN_SYSTEM_PROMPT
 import json
 import hashlib
 from datetime import datetime, timedelta
@@ -37,19 +42,7 @@ except:
     pass
 
 
-# ============== SEARCH PLAN GENERATION ==============
-
-SEARCH_PLAN_SYSTEM_PROMPT = """You are an expert B2B lead researcher. Generate diverse Google search queries to find LinkedIn profiles.
-
-Rules:
-1. Each query should target LinkedIn profiles: site:linkedin.com/in/
-2. Vary job title synonyms (CEO vs Founder vs Owner vs President)
-3. Include industry-specific terms
-4. Mix company sizes (startup, enterprise, Fortune 500)
-5. Use quotation marks for exact phrases
-6. Include location variations when relevant
-
-Return JSON array of search queries."""
+# SEARCH_PLAN_SYSTEM_PROMPT is imported from app.services.prompt_templates at the top of this file
 
 
 SEARCH_PLAN_USER_PROMPT = """Generate {count} diverse Google search queries to find:

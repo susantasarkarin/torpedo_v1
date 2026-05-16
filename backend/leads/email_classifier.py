@@ -18,6 +18,11 @@ Categories:
 
 import os
 import json
+
+try:
+    from app.services.prompt_templates import UNIFIED_EMAIL_CLASSIFIER_PROMPT as UNIFIED_SYSTEM_PROMPT
+except ImportError:
+    from ..app.services.prompt_templates import UNIFIED_EMAIL_CLASSIFIER_PROMPT as UNIFIED_SYSTEM_PROMPT
 import logging
 import re
 import time
@@ -54,89 +59,7 @@ CATEGORIES = [
     "newsletter", "bounce", "promotional", "automated", "others"
 ]
 
-# Unified system prompt for classification + summarization + lead extraction
-UNIFIED_SYSTEM_PROMPT = """You are an email analyzer for a B2B survey/market research company (Survey Fieldwork / Cogentix Research).
-
-Analyze the email and return JSON with summary, classification, sender information, and RFQ details if applicable.
-
-CATEGORIES (pick ONE most appropriate):
-- client: Business inquiry FROM prospects/customers seeking OUR research/survey services (RFQ, project inquiry, meeting request about their needs, pricing request, feasibility check)
-- vendor: FROM external suppliers/service providers contacting US (sales pitch, partnership offer, software vendor, payment followup FROM vendor about THEIR invoice)
-- invoice: Invoice/bill attached or referenced, billing statement, payment request WITH specific invoice details/numbers
-- banking: FROM bank domains (axisbank, hdfcbank, icici, sbi, kotak, etc) - statements, transactions, OTPs, KYC, alerts
-- internal: FROM @surveyfieldwork.com or @cogentixresearch.com to same - team communications between colleagues
-- newsletter: Marketing newsletters with "unsubscribe" link AND regular publication pattern, industry news digests, weekly/monthly roundups from companies
-- bounce: Delivery failure, "undeliverable", "mailer-daemon", "postmaster", NDR, returned mail, "failed to deliver"
-- promotional: One-off marketing/sales email, ads, offers, cold outreach, webinar invites (NOT regular newsletters)
-- automated: System notifications, noreply@, auto-replies, calendar invites, password resets, confirmations, OTPs (non-bank), alerts
-- others: ONLY if absolutely cannot determine from any context
-
-OUTPUT FORMAT (valid JSON only, no markdown):
-{
-  "summary": "2-3 sentence summary explaining email purpose, key points, and any required actions",
-  "category": "one of the categories above",
-  "confidence": 0.0-1.0,
-  "urgency": "critical|high|medium|low|none",
-  "action_required": true/false,
-  "action_items": ["list of specific action items if any"],
-  "is_rfq": true/false,
-  "rfq_details": {
-    "title": "Brief title for the RFQ/project (e.g., 'Healthcare Survey - US')",
-    "methodology": "CATI|CAWI|F2F|IDI|Focus Group|Mixed|Online Panel|null",
-    "loi": null or number (Length of Interview in minutes, extract from 'LOI', '15 min survey', etc.),
-    "ir": null or number (Incidence Rate percentage, extract from 'IR', '50% incidence', etc.),
-    "sample_size": null or number (n=500, 'need 500 completes', 'sample of 1000', etc.),
-    "country": "Target country/countries (US, UK, India, Global, etc.)",
-    "target_audience": "Description of who needs to be surveyed",
-    "timeline": "Project timeline or deadline if mentioned",
-    "budget": null or number (estimated budget/CPI if mentioned),
-    "currency": "USD|EUR|GBP|INR|null",
-    "study_type": "B2B|B2C|Healthcare|IT|Consumer|Other",
-    "additional_requirements": "Any special requirements mentioned"
-  },
-  "sender_info": {
-    "name": "Full name of sender (extract from signature or From header)",
-    "first_name": "First name only",
-    "last_name": "Last name only", 
-    "email": "sender@email.com",
-    "email_status": "valid",
-    "title": "Job title/designation if mentioned in email or signature",
-    "linkedin": "LinkedIn profile URL if mentioned",
-    "location": "City, Country if mentioned",
-    "company_name": "Company/organization name",
-    "company_domain": "company.com",
-    "company_linkedin": "Company LinkedIn URL if mentioned",
-    "company_industry": "Industry if determinable",
-    "company_size": "Employee count if mentioned",
-    "company_type": "Type of company if determinable",
-    "phone": "Phone number if in signature"
-  }
-}
-
-CLASSIFICATION HINTS:
-- "mailer-daemon", "postmaster", "Undeliverable", "Delivery Status" = bounce
-- @axisbank.com, @hdfcbank.com, @icicibank.com, alerts@*.bank = banking
-- @surveyfieldwork.com, @cogentixresearch.com between team = internal
-- Has "Unsubscribe" + comes regularly from same sender = newsletter
-- Vendor asking about THEIR unpaid invoice = vendor (not invoice category)
-- Invoice WITH attachment or specific invoice number for US to pay = invoice
-- "noreply@", "no-reply@", system-generated = automated
-- Research/survey project inquiry from external company = client
-
-RFQ DETECTION HINTS (set is_rfq=true if ANY of these):
-- Mentions "feasibility", "pricing", "quote", "RFQ", "proposal", "bid"
-- Asks about sample availability, field capacity, panel size
-- Mentions LOI (Length of Interview), IR (Incidence Rate), CPI (Cost Per Interview)
-- Requests survey/research services with specific requirements
-- Asks for timeline or availability for a project
-- Contains project specifications (n=, completes, respondents)
-
-IMPORTANT: 
-- Extract as much sender information as possible from the email signature, headers, and content.
-- For RFQ emails, extract ALL available project details even if partial.
-- LOI is usually in minutes (e.g., "15 min LOI" = 15)
-- IR is usually a percentage (e.g., "IR: 25%" = 25)
-- Sample size often mentioned as "n=500" or "500 completes" = 500"""
+# UNIFIED_SYSTEM_PROMPT is imported from app.services.prompt_templates at the top of this file
 
 
 def extract_sender_name(from_header: str) -> tuple:

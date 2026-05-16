@@ -95,42 +95,20 @@ categorization_runs_collection = ai_db['categorization_runs']
 
 
 # ============================================================================
+try:
+    from app.services.prompt_templates import (
+        AGENT1_THREAD_ANALYSIS_PROMPT as AGENT1_SYSTEM_PROMPT,
+        AGENT2_BULK_CATEGORISATION_PROMPT as AGENT2_SYSTEM_PROMPT,
+    )
+except ImportError:
+    from ..app.services.prompt_templates import (
+        AGENT1_THREAD_ANALYSIS_PROMPT as AGENT1_SYSTEM_PROMPT,
+        AGENT2_BULK_CATEGORISATION_PROMPT as AGENT2_SYSTEM_PROMPT,
+    )
+
 # AGENT 1: EMAIL SUMMARY & CONTACT EXTRACTION
 # ============================================================================
-
-AGENT1_SYSTEM_PROMPT = """You are an expert email analyst specializing in B2B communications. Your task is to:
-
-1. Create a comprehensive summary of the email conversation (entire thread/trail)
-2. Extract contact information from the emails
-
-IMPORTANT GUIDELINES:
-- Consider ALL emails in the thread (trail mails included)
-- Create a summary that captures the full context and progression of the conversation
-- Maximum 500 words for the summary
-- Focus on: purpose, key requests, important details (pricing, dates, specifications), action items, relationship status
-- Extract contact info from signatures, email addresses, and context clues
-
-OUTPUT FORMAT (JSON):
-{
-    "summary": "Comprehensive summary of the email conversation (max 500 words)",
-    "conversation_status": "active|stale|closed|new",
-    "intent": "inquiry|rfq|follow_up|negotiation|support|internal|promotional|other",
-    "urgency": "high|medium|low",
-    "key_points": ["point1", "point2", "point3"],
-    "action_items": ["action1", "action2"],
-    "contact": {
-        "first_name": "string",
-        "last_name": "string", 
-        "full_name": "string",
-        "email": "email@domain.com",
-        "company_domain": "domain.com",
-        "company_name": "Company Name if found",
-        "title": "Job title if found",
-        "phone": "Phone if found",
-        "linkedin_url": "LinkedIn URL if found"
-    },
-    "confidence_score": 0.0-1.0
-}"""
+# AGENT1_SYSTEM_PROMPT is imported from app.services.prompt_templates at the top of this file
 
 
 def _build_thread_text(emails: List[Dict[str, Any]]) -> str:
@@ -352,60 +330,9 @@ def agent1_batch_process(
     return results
 
 
-# ============================================================================
 # AGENT 2: BULK CATEGORIZATION
 # ============================================================================
-
-AGENT2_SYSTEM_PROMPT = """You are an expert at categorizing B2B email leads into meaningful business segments. 
-
-Your task is to analyze a batch of lead summaries and:
-1. Determine the optimal categories based on the data (you decide the categories)
-2. Assign each lead to the most appropriate category
-3. Provide reasoning for the categorization
-
-CATEGORY GUIDELINES:
-- Create 5-15 categories based on the data patterns
-- Categories should be actionable for sales/marketing teams
-- Consider: intent, company size, industry, urgency, conversation stage
-- Each category should have a clear business meaning
-
-SUGGESTED CATEGORY TYPES (adapt as needed):
-- Hot Leads (immediate opportunity)
-- Warm Leads (interested but not urgent)
-- RFQ/Pricing Requests
-- Technical Inquiries
-- Partnership Proposals
-- Vendor Outreach (companies trying to sell to us)
-- Support/Existing Customer
-- Dormant/Stale Leads
-- Low Quality/Spam
-- Internal Communications
-
-OUTPUT FORMAT (JSON):
-{
-    "categories": [
-        {
-            "id": "category_id",
-            "name": "Category Name",
-            "description": "What this category represents",
-            "priority": "high|medium|low",
-            "suggested_action": "What to do with leads in this category"
-        }
-    ],
-    "categorized_leads": [
-        {
-            "contact_email": "email@domain.com",
-            "category_id": "category_id",
-            "confidence": 0.0-1.0,
-            "reasoning": "Brief reason for this categorization"
-        }
-    ],
-    "summary": {
-        "total_leads": 0,
-        "category_distribution": {"category_id": count},
-        "insights": "Key observations about this batch of leads"
-    }
-}"""
+# AGENT2_SYSTEM_PROMPT is imported from app.services.prompt_templates at the top of this file
 
 
 def _prepare_summaries_for_categorization(summaries: List[Dict[str, Any]]) -> str:
