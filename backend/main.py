@@ -984,14 +984,6 @@ try:
 except Exception as e:
     print(f"⚠️ Email Campaigns router not included: {e}")
 
-# Campaign Automation router
-try:
-    from routers import campaign_automation as campaign_automation_router
-    app.include_router(campaign_automation_router.router)
-    print("✅ Campaign Automation router included")
-except Exception as e:
-    print(f"⚠️ Campaign Automation router not included: {e}")
-
 # Deliverability Monitoring router (Agent 11)
 try:
     try:
@@ -1225,7 +1217,6 @@ try:
     except ImportError:
         from routers import panel_admin as panel_admin_router
     app.include_router(panel_admin_router.router)
-    app.include_router(panel_admin_router.router, prefix="/api")
     print("✅ Panel Admin router included")
 except Exception as e:
     print(f"⚠️ Panel Admin router not included: {e}")
@@ -1240,9 +1231,7 @@ try:
         from routers import panel_ses_webhook as panel_ses_webhook_router
 
     app.include_router(panel_invitations_router.router)
-    app.include_router(panel_invitations_router.router, prefix="/api")
     app.include_router(panel_ses_webhook_router.router)
-    app.include_router(panel_ses_webhook_router.router, prefix="/api")
     print("✅ Panel mailing routers included")
 except Exception as e:
     print(f"⚠️ Panel mailing routers not included: {e}")
