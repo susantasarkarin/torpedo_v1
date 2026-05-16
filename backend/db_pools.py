@@ -158,6 +158,12 @@ def get_ai_db():
     return pool_manager.get_db('ai')
 
 
+def get_db(db_name: str):
+    """Get a specific MongoDB database by name using the background pool client."""
+    client = pool_manager.get_client('background')
+    return client[db_name]
+
+
 def get_api_collection(name: str):
     """Get collection for API operations."""
     return pool_manager.get_collection(name, 'api')
