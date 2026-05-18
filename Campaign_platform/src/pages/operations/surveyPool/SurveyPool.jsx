@@ -272,7 +272,7 @@ export default function SurveyPool() {
   // Fetch clients for client name lookup
   const fetchClients = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/api/finance/customers/`), {
+      const response = await fetch(buildApiUrl(`/finance/customers/`), {
         headers: {
           'Authorization': token,
           'Content-Type': 'application/json',

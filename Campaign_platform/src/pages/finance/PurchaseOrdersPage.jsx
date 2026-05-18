@@ -101,7 +101,7 @@ function PurchaseOrdersPage() {
 
   const fetchVendors = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/vendors/`))
+      const response = await fetch(buildApiUrl(`/finance/vendors/`))
       if (response.ok) {
         const data = await response.json()
         setVendors(data)
@@ -113,7 +113,7 @@ function PurchaseOrdersPage() {
 
   const fetchItems = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/items/`))
+      const response = await fetch(buildApiUrl(`/finance/items/`))
       if (response.ok) {
         const data = await response.json()
         setItems(data)

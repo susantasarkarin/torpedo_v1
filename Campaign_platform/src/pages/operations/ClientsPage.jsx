@@ -90,7 +90,7 @@ function ClientsPage() {
     }
 
     try {
-      const res = await fetch(buildApiUrl(`/finance/finance/customers/`), {
+      const res = await fetch(buildApiUrl(`/finance/customers/`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -265,8 +265,8 @@ function ClientsPage() {
       const payload = clientToCustomer(formData);
 
       const url = editingId
-        ? buildApiUrl(`/finance/finance/customers/${editingId}`)
-        : buildApiUrl(`/finance/finance/customers/`);
+        ? buildApiUrl(`/finance/customers/${editingId}`)
+        : buildApiUrl(`/finance/customers/`);
       const method = editingId ? "PUT" : "POST";
 
       const res = await fetch(url, {
@@ -313,7 +313,7 @@ function ClientsPage() {
     }
 
     try {
-      const res = await fetch(buildApiUrl(`/finance/finance/customers/${id}`), {
+      const res = await fetch(buildApiUrl(`/finance/customers/${id}`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",

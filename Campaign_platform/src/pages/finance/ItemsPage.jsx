@@ -52,7 +52,7 @@ function ItemsPage() {
       setLoading(true)
       const params = new URLSearchParams({ page: String(pg), page_size: String(ps) })
       if (srch) params.set("search", srch)
-      const response = await fetch(buildApiUrl(`/finance/finance/items/?${params}`))
+      const response = await fetch(buildApiUrl(`/finance/items/?${params}`))
       if (response.ok) {
         const data = await response.json()
         setItems(data.items || [])
@@ -70,8 +70,8 @@ function ItemsPage() {
     e.preventDefault()
     try {
       const url = editingItem
-        ? buildApiUrl(`/finance/finance/items/${editingItem._id}`)
-        : buildApiUrl(`/finance/finance/items/`)
+        ? buildApiUrl(`/finance/items/${editingItem._id}`)
+        : buildApiUrl(`/finance/items/`)
 
       const method = editingItem ? "PUT" : "POST"
 
@@ -94,7 +94,7 @@ function ItemsPage() {
     if (!window.confirm("Are you sure you want to delete this item?")) return
 
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/items/${id}`), {
+      const response = await fetch(buildApiUrl(`/finance/items/${id}`), {
         method: "DELETE",
       })
       if (response.ok) {
@@ -186,7 +186,7 @@ function ItemsPage() {
   const handleExportCSV = async () => {
     setExporting(true)
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/items/export/csv`))
+      const response = await fetch(buildApiUrl(`/finance/items/export/csv`))
       if (response.ok) {
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
@@ -216,7 +216,7 @@ function ItemsPage() {
     formDataUpload.append("file", file)
 
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/items/import/csv`), {
+      const response = await fetch(buildApiUrl(`/finance/items/import/csv`), {
         method: "POST",
         body: formDataUpload,
       })

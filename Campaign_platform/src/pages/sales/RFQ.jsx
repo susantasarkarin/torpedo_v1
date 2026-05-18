@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { API_BASE_URL } from "../../config"
 import { Link } from "react-router-dom"
 import "./RFQ.css"
+import "../../styles/SalesPages.css"
 import { buildApiUrl } from "../../config"
 
 // Helper to get auth token - handles both storage methods
@@ -36,6 +37,9 @@ function RFQ() {
     priority: "",
     search: ""
   })
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [totalPages, setTotalPages] = useState(1)
   const [editingValue, setEditingValue] = useState(null) // { rfq_id, value, currency }
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState({ type: "", text: "" })
@@ -61,22 +65,30 @@ function RFQ() {
     loadRFQs()
     loadStats()
     loadCustomers()
-  }, [])
+  }, []) // eslint-disable-line
 
   useEffect(() => {
     const debounce = setTimeout(() => {
-      loadRFQs()
+      setPage(1)
+      loadRFQs(1)
     }, 300)
     return () => clearTimeout(debounce)
-  }, [filters])
+  }, [filters]) // eslint-disable-line
 
-  const loadRFQs = async () => {
+  useEffect(() => {
+    loadRFQs(page)
+  }, [page]) // eslint-disable-line
+
+  const loadRFQs = async (pageNum) => {
+    const currentPage = pageNum ?? page
+    setLoading(true)
     try {
       const token = localStorage.getItem("session_id")
-      const params = new URLSearchParams()
+      const params = new URLSearchParams({ page: String(currentPage), limit: "25" })
       
       if (filters.status) params.append("status", filters.status)
       if (filters.priority) params.append("priority", filters.priority)
+      if (filters.search) params.append("search", filters.search)
       
       const url = buildApiUrl(`/api/rfq/?${params.toString()}`)
       const response = await fetch(url, {
@@ -85,20 +97,9 @@ function RFQ() {
       
       if (response.ok) {
         const data = await response.json()
-        let rfqList = data.rfqs || []
-        
-        // Client-side search filter
-        if (filters.search) {
-          const search = filters.search.toLowerCase()
-          rfqList = rfqList.filter(rfq => 
-            rfq.title?.toLowerCase().includes(search) ||
-            rfq.client_name?.toLowerCase().includes(search) ||
-            rfq.client_email?.toLowerCase().includes(search) ||
-            rfq.lead_email?.toLowerCase().includes(search)
-          )
-        }
-        
-        setRfqs(rfqList)
+        setRfqs(data.rfqs || [])
+        setTotal(data.total || 0)
+        setTotalPages(data.pages || 1)
       }
     } catch (error) {
       console.error("Error loading RFQs:", error)
@@ -117,7 +118,14 @@ function RFQ() {
       
       if (response.ok) {
         const data = await response.json()
-        setStats(data)
+        setStats({
+          total: data.total_count,
+          by_status: {
+            won: data.stats?.won?.count || 0,
+            pending: data.stats?.pending?.count || 0,
+          },
+          total_value: data.total_value,
+        })
       }
     } catch (error) {
       console.error("Error loading stats:", error)
@@ -127,7 +135,7 @@ function RFQ() {
   const loadCustomers = async () => {
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/finance/finance/customers/`), {
+      const response = await fetch(buildApiUrl(`/finance/customers/`), {
         headers: { Authorization: token }
       })
       
@@ -410,28 +418,26 @@ function RFQ() {
   }
 
   return (
-    <div className="rfq-container">
+    <div className="rfq-container sales-page">
       {/* Stats Cards */}
-      {stats && (
-        <div className="rfq-stats">
-          <div className="stat-card">
-            <span className="stat-label">Total RFQs</span>
-            <span className="stat-value">{stats.total}</span>
-          </div>
-          <div className="stat-card success">
-            <span className="stat-label">Won</span>
-            <span className="stat-value">{stats.by_status?.won || 0}</span>
-          </div>
-          <div className="stat-card warning">
-            <span className="stat-label">Pending</span>
-            <span className="stat-value">{stats.by_status?.pending || 0}</span>
-          </div>
-          <div className="stat-card info">
-            <span className="stat-label">Total Value</span>
-            <span className="stat-value">{formatCurrency(stats.total_value)}</span>
-          </div>
+      <div className="stats-row">
+        <div className="stat-card primary">
+          <div className="stat-value">{stats?.total ?? "—"}</div>
+          <div className="stat-label">Total RFQs</div>
         </div>
-      )}
+        <div className="stat-card success">
+          <div className="stat-value">{stats?.by_status?.won ?? "—"}</div>
+          <div className="stat-label">Won</div>
+        </div>
+        <div className="stat-card warning">
+          <div className="stat-value">{stats?.by_status?.pending ?? "—"}</div>
+          <div className="stat-label">Pending</div>
+        </div>
+        <div className="stat-card info">
+          <div className="stat-value">{stats ? formatCurrency(stats.total_value) : "—"}</div>
+          <div className="stat-label">Total Value</div>
+        </div>
+      </div>
 
       {/* Message */}
       {message.text && (
@@ -672,6 +678,31 @@ function RFQ() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="pagination-bar">
+            <button
+              className="btn btn-outline"
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+            >
+               Previous
+            </button>
+            <span className="page-info">
+              Page <strong>{page}</strong> of <strong>{totalPages}</strong>
+              {" "}
+              <span style={{ marginLeft: 8 }}>({total.toLocaleString()} RFQs)</span>
+            </span>
+            <button
+              className="btn btn-outline"
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+            >
+              Next 
+            </button>
           </div>
         )}
       </div>

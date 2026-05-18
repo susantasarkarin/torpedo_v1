@@ -10,12 +10,13 @@
  * Can be minimized when not needed.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Zap, ChevronDown, ChevronUp, X, CheckCircle, 
   AlertCircle, Clock, Loader2
 } from 'lucide-react';
 import { useLeadAgent } from '../contexts/LeadAgentContext';
+import { cancelPolling, pollOperation, OperationStatus } from '../utils/asyncOperations';
 
 // Progress bar component
 const ProgressBar = ({ progress, status }) => {
@@ -102,6 +103,7 @@ export default function AgentProgress() {
   const [isMinimized, setIsMinimized] = useState(false);
   const [dismissedJobs, setDismissedJobs] = useState(new Set());
   const [notifications, setNotifications] = useState([]);
+  const pollKeyRef = useRef('agent-progress-jobs-refresh');
 
   // Filter active and recent jobs
   const activeJobs = jobs.filter(j => 
@@ -120,13 +122,36 @@ export default function AgentProgress() {
 
   // Poll for updates when jobs are active
   useEffect(() => {
-    if (!hasActiveJobs) return;
-    
-    const interval = setInterval(() => {
-      fetchJobs();
-    }, 3000);
-    
-    return () => clearInterval(interval);
+    if (!hasActiveJobs) {
+      cancelPolling(pollKeyRef.current);
+      return;
+    }
+
+    pollOperation(
+      pollKeyRef.current,
+      {
+        onError: (err) => {
+          console.error('AgentProgress polling error:', err);
+        },
+      },
+      {
+        initialInterval: 3000,
+        maxInterval: 12000,
+        backoffMultiplier: 1,
+        timeout: 24 * 60 * 60 * 1000,
+        maxAttempts: Number.MAX_SAFE_INTEGER,
+        statusFetcher: async () => {
+          await fetchJobs();
+          return { status: OperationStatus.IN_PROGRESS };
+        },
+      }
+    ).catch(() => {
+      // Polling errors are surfaced via onError callback
+    });
+
+    return () => {
+      cancelPolling(pollKeyRef.current);
+    };
   }, [hasActiveJobs, fetchJobs]);
 
   // Track completions for notifications

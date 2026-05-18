@@ -81,6 +81,20 @@ export const isOperationSuccessful = (status) => {
 // Track active polling operations to prevent duplicates
 const activePollers = new Map();
 
+const isAsyncDebugEnabled = () => {
+  try {
+    if (typeof window === 'undefined') return false;
+    return window.__ASYNC_DEBUG__ === true || window.localStorage?.getItem('async_debug') === '1';
+  } catch {
+    return false;
+  }
+};
+
+const asyncDebug = (event, details = {}) => {
+  if (!isAsyncDebugEnabled()) return;
+  console.debug(`[poll:${event}]`, details);
+};
+
 /**
  * Get all active polling operations
  */
@@ -106,6 +120,7 @@ export const cancelPolling = (operationId) => {
   if (poller) {
     poller.cancelled = true;
     activePollers.delete(operationId);
+    asyncDebug('cancel', { key: operationId });
     return true;
   }
   return false;
@@ -201,12 +216,14 @@ export const pollOperation = async (operationId, callbacks = {}, options = {}) =
     maxInterval = MAX_POLL_INTERVAL,
     backoffMultiplier = BACKOFF_MULTIPLIER,
     maxAttempts = MAX_POLL_ATTEMPTS,
-    timeout = POLL_TIMEOUT
+    timeout = POLL_TIMEOUT,
+    statusFetcher = getOperationStatus
   } = options;
   
   // Check if already polling this operation
   if (activePollers.has(operationId)) {
     console.warn(`Already polling operation: ${operationId}`);
+    asyncDebug('resume', { key: operationId });
     return activePollers.get(operationId).promise;
   }
   
@@ -221,6 +238,8 @@ export const pollOperation = async (operationId, callbacks = {}, options = {}) =
     attempts: 0,
     lastStatus: null
   };
+
+  asyncDebug('start', { key: operationId });
   
   const pollPromise = new Promise(async (resolve, reject) => {
     while (!pollerState.cancelled) {
@@ -232,6 +251,7 @@ export const pollOperation = async (operationId, callbacks = {}, options = {}) =
         const error = new Error(`Operation ${operationId} timed out after ${timeout}ms`);
         onError(error);
         activePollers.delete(operationId);
+        asyncDebug('timeout', { key: operationId, attempts });
         reject(error);
         return;
       }
@@ -241,12 +261,13 @@ export const pollOperation = async (operationId, callbacks = {}, options = {}) =
         const error = new Error(`Operation ${operationId} exceeded max polling attempts (${maxAttempts})`);
         onError(error);
         activePollers.delete(operationId);
+        asyncDebug('max-attempts', { key: operationId, attempts });
         reject(error);
         return;
       }
       
       try {
-        const status = await getOperationStatus(operationId);
+        const status = await statusFetcher(operationId);
         pollerState.lastStatus = status;
         
         // Call progress callback
@@ -258,11 +279,13 @@ export const pollOperation = async (operationId, callbacks = {}, options = {}) =
           
           if (isOperationSuccessful(status.status)) {
             onComplete(status);
+            asyncDebug('complete', { key: operationId, status: status.status, attempts });
             resolve(status);
           } else {
             const error = new Error(status.error || `Operation ${operationId} failed`);
             error.status = status;
             onError(error);
+            asyncDebug('error', { key: operationId, status: status.status, attempts });
             reject(error);
           }
           return;
@@ -285,6 +308,7 @@ export const pollOperation = async (operationId, callbacks = {}, options = {}) =
     
     // Polling was cancelled
     activePollers.delete(operationId);
+    asyncDebug('cancelled', { key: operationId, attempts });
     resolve({ operationId, status: OperationStatus.CANCELLED, cancelled: true });
   });
   

@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
 import "../styles/login.css"
-import { API_BASE_URL, buildApiUrl } from "../config"
+import api, { APIError } from "../utils/api"
 
 function Login() {
   const [credentials, setCredentials] = useState({ username: "", password: "" })
@@ -16,31 +16,18 @@ function Login() {
     setIsLoading(true)
 
     try {
-      const response = await fetch(buildApiUrl(`/login/`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(credentials),
-      })
-
-      const data = await response.json().catch(() => ({}))
-
-      if (!response.ok) {
-        alert("❌ " + (data.detail || "Login failed"))
-        setIsLoading(false)
-        return
-      }
-
-      // Store all session data synchronously
-      localStorage.setItem("session_id", data.session_id)
-      localStorage.setItem("username", data.username)
-      localStorage.setItem("role", data.role || "admin")
+      await api.login(credentials.username, credentials.password)
       localStorage.setItem("auth", "true")
 
       // Use window.location for instant redirect (bypasses React Router overhead)
       window.location.href = "/admin/dashboard"
     } catch (error) {
       console.error("❌ Login error:", error)
-      alert("❌ Login failed: " + error.message)
+      const message =
+        error instanceof APIError
+          ? error.message
+          : (error?.message || "Login failed")
+      alert("❌ Login failed: " + message)
       setIsLoading(false)
     }
   }

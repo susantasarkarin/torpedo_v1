@@ -101,7 +101,7 @@ function PaymentsPage() {
 
   const fetchCustomers = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/customers/`))
+      const response = await fetch(buildApiUrl(`/finance/customers/`))
       if (response.ok) {
         const data = await response.json()
         setCustomers(data)
@@ -113,7 +113,7 @@ function PaymentsPage() {
 
   const fetchVendors = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/vendors/`))
+      const response = await fetch(buildApiUrl(`/finance/vendors/`))
       if (response.ok) {
         const data = await response.json()
         setVendors(data)
@@ -125,7 +125,7 @@ function PaymentsPage() {
 
   const fetchInvoices = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/invoices/`))
+      const response = await fetch(buildApiUrl(`/finance/invoices/`))
       if (response.ok) {
         const data = await response.json()
         // Only show unpaid invoices
@@ -138,7 +138,7 @@ function PaymentsPage() {
 
   const fetchBills = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/bills/`))
+      const response = await fetch(buildApiUrl(`/finance/bills/`))
       if (response.ok) {
         const data = await response.json()
         // Only show unpaid bills

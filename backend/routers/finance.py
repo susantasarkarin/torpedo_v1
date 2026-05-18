@@ -383,7 +383,7 @@ ITEM_COLUMN_MAPPINGS = {
 # CUSTOMERS ENDPOINTS
 # ============================================================
 
-@router.get("/finance/customers/")
+@router.get("/customers/")
 async def get_customers(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
@@ -449,7 +449,7 @@ async def get_customers(
         raise HTTPException(status_code=500, detail=f"Error fetching customers: {str(e)}")
 
 
-@router.get("/finance/customers/{customer_id}")
+@router.get("/customers/{customer_id}")
 async def get_customer(customer_id: str):
     """Get a single customer by ID"""
     try:
@@ -461,7 +461,7 @@ async def get_customer(customer_id: str):
         raise HTTPException(status_code=500, detail=f"Error fetching customer: {str(e)}")
 
 
-@router.post("/finance/customers/")
+@router.post("/customers/")
 async def create_customer(customer_data: Dict[str, Any] = Body(...)):
     """Create a new customer with validation"""
     try:
@@ -512,7 +512,7 @@ async def create_customer(customer_data: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=500, detail=f"Error creating customer: {str(e)}")
 
 
-@router.put("/finance/customers/{customer_id}")
+@router.put("/customers/{customer_id}")
 async def update_customer(customer_id: str, customer_data: Dict[str, Any] = Body(...)):
     """Update a customer"""
     try:
@@ -537,7 +537,7 @@ async def update_customer(customer_id: str, customer_data: Dict[str, Any] = Body
         raise HTTPException(status_code=500, detail=f"Error updating customer: {str(e)}")
 
 
-@router.delete("/finance/customers/{customer_id}")
+@router.delete("/customers/{customer_id}")
 async def delete_customer(customer_id: str):
     """Delete a customer"""
     try:
@@ -562,7 +562,7 @@ async def delete_customer(customer_id: str):
         raise HTTPException(status_code=500, detail=f"Error deleting customer: {str(e)}")
 
 
-@router.post("/finance/customers/bulk-delete")
+@router.post("/customers/bulk-delete")
 async def bulk_delete_customers(data: Dict[str, Any] = Body(...)):
     """Delete multiple customers by their IDs"""
     try:
@@ -598,7 +598,7 @@ async def bulk_delete_customers(data: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=500, detail=f"Bulk delete error: {str(e)}")
 
 
-@router.get("/finance/customers/export/csv")
+@router.get("/customers/export/csv")
 async def export_customers_csv():
     """Export all customers to CSV format"""
     try:
@@ -648,7 +648,7 @@ async def export_customers_csv():
         raise HTTPException(status_code=500, detail=f"Error exporting customers: {str(e)}")
 
 
-@router.post("/finance/customers/import/csv")
+@router.post("/customers/import/csv")
 async def import_customers_csv(file: UploadFile = File(...)):
     """Import customers from CSV file with flexible column mapping"""
     try:
@@ -736,7 +736,7 @@ async def import_customers_csv(file: UploadFile = File(...)):
 # VENDORS ENDPOINTS
 # ============================================================
 
-@router.get("/finance/vendors/")
+@router.get("/vendors/")
 async def get_vendors(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
@@ -768,7 +768,7 @@ async def get_vendors(
 
 
 # NOTE: This endpoint must be before {vendor_id} to avoid route conflicts
-@router.get("/finance/vendors/panel-vendors")
+@router.get("/vendors/panel-vendors")
 async def get_panel_vendors_for_linking():
     """
     Get all Operations panel vendors available for linking.
@@ -798,7 +798,7 @@ async def get_panel_vendors_for_linking():
         raise HTTPException(status_code=500, detail=f"Error fetching panel vendors: {str(e)}")
 
 
-@router.get("/finance/vendors/{vendor_id}")
+@router.get("/vendors/{vendor_id}")
 async def get_vendor(vendor_id: str):
     """Get a single vendor by ID"""
     try:
@@ -810,7 +810,7 @@ async def get_vendor(vendor_id: str):
         raise HTTPException(status_code=500, detail=f"Error fetching vendor: {str(e)}")
 
 
-@router.post("/finance/vendors/")
+@router.post("/vendors/")
 async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
     """Create a new vendor with validation"""
     try:
@@ -861,7 +861,7 @@ async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=500, detail=f"Error creating vendor: {str(e)}")
 
 
-@router.put("/finance/vendors/{vendor_id}")
+@router.put("/vendors/{vendor_id}")
 async def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...)):
     """Update a vendor"""
     try:
@@ -881,7 +881,7 @@ async def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...))
         raise HTTPException(status_code=500, detail=f"Error updating vendor: {str(e)}")
 
 
-@router.delete("/finance/vendors/{vendor_id}")
+@router.delete("/vendors/{vendor_id}")
 async def delete_vendor(vendor_id: str):
     """
     Soft delete a billing vendor with safety checks.
@@ -955,7 +955,7 @@ async def delete_vendor(vendor_id: str):
 # Vendor Integration - Link Panel Vendors from Operations
 # =============================================================================
 
-@router.post("/finance/vendors/{vendor_id}/link-panel-vendor")
+@router.post("/vendors/{vendor_id}/link-panel-vendor")
 async def link_panel_vendor(
     vendor_id: str,
     panel_vendor_id: str = Body(..., embed=True, description="The Operations panel vendor ID to link")
@@ -1026,7 +1026,7 @@ async def link_panel_vendor(
         raise HTTPException(status_code=500, detail=f"Error linking vendors: {str(e)}")
 
 
-@router.delete("/finance/vendors/{vendor_id}/unlink-panel-vendor")
+@router.delete("/vendors/{vendor_id}/unlink-panel-vendor")
 async def unlink_panel_vendor(vendor_id: str):
     """Unlink a finance vendor from its Operations panel vendor."""
     try:
@@ -1077,7 +1077,7 @@ async def unlink_panel_vendor(vendor_id: str):
         raise HTTPException(status_code=500, detail=f"Error unlinking vendors: {str(e)}")
 
 
-@router.get("/finance/vendors/export/csv")
+@router.get("/vendors/export/csv")
 async def export_vendors_csv():
     """Export all vendors to CSV format"""
     try:
@@ -1130,7 +1130,7 @@ async def export_vendors_csv():
         raise HTTPException(status_code=500, detail=f"Error exporting vendors: {str(e)}")
 
 
-@router.post("/finance/vendors/import/csv")
+@router.post("/vendors/import/csv")
 async def import_vendors_csv(file: UploadFile = File(...)):
     """Import vendors from CSV file with flexible column mapping"""
     try:
@@ -1219,7 +1219,7 @@ async def import_vendors_csv(file: UploadFile = File(...)):
 # ITEMS ENDPOINTS
 # ============================================================
 
-@router.get("/finance/items/")
+@router.get("/items/")
 async def get_items(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
@@ -1254,7 +1254,7 @@ async def get_items(
         raise HTTPException(status_code=500, detail=f"Error fetching items: {str(e)}")
 
 
-@router.get("/finance/items/{item_id}")
+@router.get("/items/{item_id}")
 async def get_item(item_id: str):
     """
     Get a single item by ID (excluding soft-deleted).
@@ -1269,7 +1269,7 @@ async def get_item(item_id: str):
         raise HTTPException(status_code=500, detail=f"Error fetching item: {str(e)}")
 
 
-@router.post("/finance/items/")
+@router.post("/items/")
 async def create_item(item_data: Dict[str, Any] = Body(...)):
     """Create a new item"""
     try:
@@ -1291,7 +1291,7 @@ async def create_item(item_data: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=500, detail=f"Error creating item: {str(e)}")
 
 
-@router.put("/finance/items/{item_id}")
+@router.put("/items/{item_id}")
 async def update_item(item_id: str, item_data: Dict[str, Any] = Body(...)):
     """Update an item"""
     try:
@@ -1311,7 +1311,7 @@ async def update_item(item_id: str, item_data: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=500, detail=f"Error updating item: {str(e)}")
 
 
-@router.delete("/finance/items/{item_id}")
+@router.delete("/items/{item_id}")
 async def delete_item(item_id: str):
     """
     Soft delete an item with usage validation.
@@ -1384,7 +1384,7 @@ async def delete_item(item_id: str):
         raise HTTPException(status_code=500, detail=f"Error deleting item: {str(e)}")
 
 
-@router.get("/finance/items/export/csv")
+@router.get("/items/export/csv")
 async def export_items_csv():
     """Export all items to CSV"""
     try:
@@ -1426,7 +1426,7 @@ async def export_items_csv():
         raise HTTPException(status_code=500, detail=f"Error exporting items: {str(e)}")
 
 
-@router.post("/finance/items/import/csv")
+@router.post("/items/import/csv")
 async def import_items_csv(file: UploadFile = File(...)):
     """Import items from CSV file with flexible column mapping"""
     try:
@@ -1505,7 +1505,7 @@ async def import_items_csv(file: UploadFile = File(...)):
 # ESTIMATES ENDPOINTS
 # ============================================================
 
-@router.get("/finance/estimates/")
+@router.get("/estimates/")
 async def get_estimates(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
@@ -1569,7 +1569,7 @@ async def get_estimates(
         raise HTTPException(status_code=500, detail=f"Error fetching estimates: {str(e)}")
 
 
-@router.get("/finance/estimates/{estimate_id}")
+@router.get("/estimates/{estimate_id}")
 async def get_estimate(estimate_id: str):
     """
     Get a single estimate by ID (excluding soft-deleted).
@@ -1591,7 +1591,7 @@ async def get_estimate(estimate_id: str):
         raise HTTPException(status_code=500, detail=f"Error fetching estimate: {str(e)}")
 
 
-@router.post("/finance/estimates/")
+@router.post("/estimates/")
 async def create_estimate(estimate_data: Dict[str, Any] = Body(...)):
     """Create a new estimate"""
     try:
@@ -1622,7 +1622,7 @@ async def create_estimate(estimate_data: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=500, detail=f"Error creating estimate: {str(e)}")
 
 
-@router.put("/finance/estimates/{estimate_id}")
+@router.put("/estimates/{estimate_id}")
 async def update_estimate(estimate_id: str, estimate_data: Dict[str, Any] = Body(...)):
     """Update an estimate"""
     try:
@@ -1643,7 +1643,7 @@ async def update_estimate(estimate_id: str, estimate_data: Dict[str, Any] = Body
         raise HTTPException(status_code=500, detail=f"Error updating estimate: {str(e)}")
 
 
-@router.delete("/finance/estimates/{estimate_id}")
+@router.delete("/estimates/{estimate_id}")
 async def delete_estimate(estimate_id: str):
     """
     Soft delete an estimate.
@@ -1672,7 +1672,7 @@ async def delete_estimate(estimate_id: str):
         raise HTTPException(status_code=500, detail=f"Error deleting estimate: {str(e)}")
 
 
-@router.get("/finance/estimates/export/csv")
+@router.get("/estimates/export/csv")
 async def export_estimates_csv():
     """Export all estimates to CSV format"""
     try:
@@ -1743,7 +1743,7 @@ async def export_estimates_csv():
         raise HTTPException(status_code=500, detail=f"Error exporting estimates: {str(e)}")
 
 
-@router.post("/finance/estimates/import/csv")
+@router.post("/estimates/import/csv")
 async def import_estimates_csv(file: UploadFile = File(...)):
     """Import estimates from CSV file with flexible column mapping"""
     try:
@@ -1851,7 +1851,7 @@ async def import_estimates_csv(file: UploadFile = File(...)):
 # INVOICES ENDPOINTS
 # ============================================================
 
-@router.get("/finance/invoices/")
+@router.get("/invoices/")
 @require_any_permission(Permissions.FINANCE_INVOICE_READ, Permissions.ADMIN_ALL)
 async def get_invoices(
     page: int = Query(1, ge=1, description="Page number"),
@@ -1916,7 +1916,7 @@ async def get_invoices(
         raise HTTPException(status_code=500, detail=f"Error fetching invoices: {str(e)}")
 
 
-@router.get("/finance/invoices/{invoice_id}")
+@router.get("/invoices/{invoice_id}")
 @require_any_permission(Permissions.FINANCE_INVOICE_READ, Permissions.ADMIN_ALL)
 async def get_invoice(invoice_id: str):
     """
@@ -1939,7 +1939,7 @@ async def get_invoice(invoice_id: str):
         raise HTTPException(status_code=500, detail=f"Error fetching invoice: {str(e)}")
 
 
-@router.post("/finance/invoices/")
+@router.post("/invoices/")
 @require_any_permission(Permissions.FINANCE_INVOICE_CREATE, Permissions.ADMIN_ALL)
 async def create_invoice(invoice_data: Dict[str, Any] = Body(...)):
     """Create a new invoice"""
@@ -1979,7 +1979,7 @@ async def create_invoice(invoice_data: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=500, detail=f"Error creating invoice: {str(e)}")
 
 
-@router.put("/finance/invoices/{invoice_id}")
+@router.put("/invoices/{invoice_id}")
 @require_any_permission(Permissions.FINANCE_INVOICE_UPDATE, Permissions.ADMIN_ALL)
 async def update_invoice(invoice_id: str, invoice_data: Dict[str, Any] = Body(...)):
     """Update an invoice"""
@@ -2001,7 +2001,7 @@ async def update_invoice(invoice_id: str, invoice_data: Dict[str, Any] = Body(..
         raise HTTPException(status_code=500, detail=f"Error updating invoice: {str(e)}")
 
 
-@router.delete("/finance/invoices/{invoice_id}")
+@router.delete("/invoices/{invoice_id}")
 @require_any_permission(Permissions.FINANCE_INVOICE_DELETE, Permissions.ADMIN_ALL)
 async def delete_invoice(invoice_id: str):
     """
@@ -2038,7 +2038,7 @@ async def delete_invoice(invoice_id: str):
         raise HTTPException(status_code=500, detail=f"Error deleting invoice: {str(e)}")
 
 
-@router.get("/finance/invoices/export/csv")
+@router.get("/invoices/export/csv")
 async def export_invoices_csv():
     """Export all invoices to CSV format"""
     try:
@@ -2114,7 +2114,7 @@ async def export_invoices_csv():
         raise HTTPException(status_code=500, detail=f"Error exporting invoices: {str(e)}")
 
 
-@router.post("/finance/invoices/import/csv")
+@router.post("/invoices/import/csv")
 async def import_invoices_csv(file: UploadFile = File(...)):
     """Import invoices from CSV file with flexible column mapping"""
     try:
@@ -2234,7 +2234,7 @@ async def import_invoices_csv(file: UploadFile = File(...)):
 # BILLS ENDPOINTS
 # ============================================================
 
-@router.get("/finance/bills/")
+@router.get("/bills/")
 @require_any_permission(Permissions.FINANCE_BILL_READ, Permissions.ADMIN_ALL)
 async def get_bills(
     page: int = Query(1, ge=1, description="Page number"),
@@ -2299,7 +2299,7 @@ async def get_bills(
         raise HTTPException(status_code=500, detail=f"Error fetching bills: {str(e)}")
 
 
-@router.get("/finance/bills/{bill_id}")
+@router.get("/bills/{bill_id}")
 @require_any_permission(Permissions.FINANCE_BILL_READ, Permissions.ADMIN_ALL)
 async def get_bill(bill_id: str):
     """
@@ -2322,7 +2322,7 @@ async def get_bill(bill_id: str):
         raise HTTPException(status_code=500, detail=f"Error fetching bill: {str(e)}")
 
 
-@router.post("/finance/bills/")
+@router.post("/bills/")
 @require_any_permission(Permissions.FINANCE_BILL_CREATE, Permissions.ADMIN_ALL)
 async def create_bill(bill_data: Dict[str, Any] = Body(...)):
     """Create a new bill"""
@@ -2364,7 +2364,7 @@ async def create_bill(bill_data: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=500, detail=f"Error creating bill: {str(e)}")
 
 
-@router.put("/finance/bills/{bill_id}")
+@router.put("/bills/{bill_id}")
 @require_any_permission(Permissions.FINANCE_BILL_UPDATE, Permissions.ADMIN_ALL)
 async def update_bill(bill_id: str, bill_data: Dict[str, Any] = Body(...)):
     """Update a bill"""
@@ -2385,7 +2385,7 @@ async def update_bill(bill_id: str, bill_data: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=500, detail=f"Error updating bill: {str(e)}")
 
 
-@router.delete("/finance/bills/{bill_id}")
+@router.delete("/bills/{bill_id}")
 @require_any_permission(Permissions.FINANCE_BILL_DELETE, Permissions.ADMIN_ALL)
 async def delete_bill(bill_id: str):
     """
@@ -2422,7 +2422,7 @@ async def delete_bill(bill_id: str):
         raise HTTPException(status_code=500, detail=f"Error deleting bill: {str(e)}")
 
 
-@router.get("/finance/bills/export/csv")
+@router.get("/bills/export/csv")
 async def export_bills_csv():
     """Export all bills to CSV format"""
     try:
@@ -2484,7 +2484,7 @@ async def export_bills_csv():
         raise HTTPException(status_code=500, detail=f"Error exporting bills: {str(e)}")
 
 
-@router.post("/finance/bills/import/csv")
+@router.post("/bills/import/csv")
 async def import_bills_csv(file: UploadFile = File(...)):
     """Import bills from CSV file with flexible column mapping"""
     try:

@@ -258,7 +258,7 @@ function ProjectsPage() {
 
     const fetchClients = async () => {
       try {
-        const res = await fetch(buildApiUrl(`/finance/finance/customers/`), {
+        const res = await fetch(buildApiUrl(`/finance/customers/`), {
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,

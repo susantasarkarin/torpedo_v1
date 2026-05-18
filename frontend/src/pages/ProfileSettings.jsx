@@ -51,8 +51,7 @@ import {
   PlayArrow as PlayArrowIcon,
   Visibility as VisibilityIcon,
 } from '@mui/icons-material';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+import apiFetch from '../utils/api';
 
 function TabPanel(props) {
   const { children, value, index, ...other } = props;
@@ -146,11 +145,7 @@ export default function ProfileSettings() {
     try {
       setLoading(true);
       const params = new URLSearchParams(filter);
-      const response = await fetch(`${API_BASE_URL}/api/prompts?${params}`, {
-        headers: {
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
-      });
+      const response = await apiFetch(`/api/prompts?${params}`);
       
       if (!response.ok) throw new Error('Failed to fetch prompts');
       
@@ -166,11 +161,7 @@ export default function ProfileSettings() {
   // Fetch prompt versions
   const fetchVersions = async (promptId) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/prompts/${promptId}/versions`, {
-        headers: {
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
-      });
+      const response = await apiFetch(`/api/prompts/${promptId}/versions`);
       
       if (!response.ok) throw new Error('Failed to fetch versions');
       
@@ -186,12 +177,8 @@ export default function ProfileSettings() {
   const handleCreatePrompt = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/prompts/create`, {
+      const response = await apiFetch('/api/prompts/create', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
         body: JSON.stringify(formData),
       });
       
@@ -215,12 +202,8 @@ export default function ProfileSettings() {
     
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/prompts/${selectedPrompt.id}`, {
+      const response = await apiFetch(`/api/prompts/${selectedPrompt.id}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
         body: JSON.stringify(formData),
       });
       
@@ -247,11 +230,8 @@ export default function ProfileSettings() {
     
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/prompts/${promptId}`, {
+      const response = await apiFetch(`/api/prompts/${promptId}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
       });
       
       if (!response.ok) throw new Error('Failed to delete prompt');
@@ -269,12 +249,8 @@ export default function ProfileSettings() {
   const handleTestPrompt = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/prompts/test`, {
+      const response = await apiFetch('/api/prompts/test', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
         body: JSON.stringify(testData),
       });
       
@@ -296,11 +272,8 @@ export default function ProfileSettings() {
     
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/prompts/${promptId}/rollback/${version}`, {
+      const response = await apiFetch(`/api/prompts/${promptId}/rollback/${version}`, {
         method: 'POST',
-        headers: {
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
       });
       
       if (!response.ok) throw new Error('Failed to rollback');
@@ -361,11 +334,7 @@ export default function ProfileSettings() {
   const fetchOpenaiKeys = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/settings`, {
-        headers: {
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
-      });
+      const response = await apiFetch('/api/settings');
       
       if (!response.ok) throw new Error('Failed to fetch settings');
       
@@ -402,11 +371,7 @@ export default function ProfileSettings() {
   const fetchSegregationStats = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/mail/segregation-stats`, {
-        headers: {
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
-      });
+      const response = await apiFetch('/api/mail/segregation-stats');
       
       if (!response.ok) throw new Error('Failed to fetch stats');
       
@@ -422,12 +387,8 @@ export default function ProfileSettings() {
   const handleSegregateEmails = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/mail/segregate`, {
+      const response = await apiFetch('/api/mail/segregate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
         body: JSON.stringify(segregateForm),
       });
       
@@ -451,12 +412,8 @@ export default function ProfileSettings() {
   const handleGenerateSummary = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/mail/generate-summary`, {
+      const response = await apiFetch('/api/mail/generate-summary', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
         body: JSON.stringify(summaryForm),
       });
       
@@ -476,12 +433,8 @@ export default function ProfileSettings() {
   const handleExtractContacts = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/mail/extract-contacts`, {
+      const response = await apiFetch('/api/mail/extract-contacts', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
       });
       
       if (!response.ok) throw new Error('Failed to extract contacts');
@@ -518,12 +471,8 @@ export default function ProfileSettings() {
   const handleSaveOpenaiKeys = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/settings`, {
+      const response = await apiFetch('/api/settings', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
         body: JSON.stringify(openaiKeys),
       });
       

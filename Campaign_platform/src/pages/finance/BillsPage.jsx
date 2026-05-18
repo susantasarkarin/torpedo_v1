@@ -64,7 +64,7 @@ function BillsPage() {
         ...(search ? { search } : {}),
         ...(status && status !== "all" ? { status } : {}),
       })
-      const response = await fetch(buildApiUrl(`/finance/finance/bills/?${params}`))
+      const response = await fetch(buildApiUrl(`/finance/bills/?${params}`))
       if (response.ok) {
         const data = await response.json()
         setBills(data.items || [])
@@ -79,7 +79,7 @@ function BillsPage() {
 
   const fetchVendors = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/vendors/`))
+      const response = await fetch(buildApiUrl(`/finance/vendors/`))
       if (response.ok) {
         const data = await response.json()
         setVendors(data)
@@ -124,7 +124,7 @@ function BillsPage() {
         })),
       }
 
-      const response = await fetch(buildApiUrl(`/finance/finance/bills/`), {
+      const response = await fetch(buildApiUrl(`/finance/bills/`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(billData),
@@ -147,7 +147,7 @@ function BillsPage() {
     if (!window.confirm("Are you sure you want to delete this bill?")) return
 
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/bills/${id}`), {
+      const response = await fetch(buildApiUrl(`/finance/bills/${id}`), {
         method: "DELETE",
       })
       if (response.ok) {
@@ -170,7 +170,7 @@ function BillsPage() {
   const handleExportCSV = async () => {
     setExporting(true)
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/bills/export/csv`))
+      const response = await fetch(buildApiUrl(`/finance/bills/export/csv`))
       if (response.ok) {
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
@@ -200,7 +200,7 @@ function BillsPage() {
     formDataUpload.append("file", file)
 
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/bills/import/csv`), {
+      const response = await fetch(buildApiUrl(`/finance/bills/import/csv`), {
         method: "POST",
         body: formDataUpload,
       })

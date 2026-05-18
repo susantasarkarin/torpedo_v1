@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL, buildApiUrl } from "../config"
+import { cancelPolling, pollOperation } from "../utils/asyncOperations"
 import "./Settings.css"
 
 // Segment colors for labels - DEPRECATED: Now using AI categories
@@ -360,6 +361,8 @@ function MailPool() {
   const filterDebounceTimer = useRef(null)
   // Retry timer for stats when server is still computing (cold start)
   const statsRetryTimer = useRef(null)
+  const recategorizePollKeyRef = useRef(null)
+  const classifyPollKeyRef = useRef(null)
 
   // Fetch stats
   const fetchStats = useCallback(async () => {
@@ -755,7 +758,7 @@ function MailPool() {
         })
         alert(`Started re-categorization of ${data.total_emails} emails. Check status in the console or refresh page.`)
         // Start polling for status
-        pollRecategorizeStatus(data.task_id)
+        startRecategorizePolling(data.task_id)
       } else {
         alert(`Failed to start re-categorization: ${data.message || "Unknown error"}`)
       }
@@ -767,25 +770,48 @@ function MailPool() {
     }
   }
 
-  const pollRecategorizeStatus = async (taskId) => {
-    const sessionId = localStorage.getItem("session_id")
-    try {
-      const res = await fetch(buildApiUrl(`/email-sync/recategorize-status/${taskId}`), {
-        headers: { Authorization: sessionId },
-      })
-      const data = await res.json()
-      setRecategorizeStatus(data)
-      
-      if (data.status === "running" || data.status === "pending") {
-        // Continue polling
-        setTimeout(() => pollRecategorizeStatus(taskId), 3000)
-      } else if (data.status === "completed") {
-        alert(`Re-categorization completed! Processed ${data.processed} emails.`)
-        fetchEmails(1)
-      }
-    } catch (e) {
-      console.error("Error polling status:", e)
+  const startRecategorizePolling = async (taskId) => {
+    if (recategorizePollKeyRef.current) {
+      cancelPolling(recategorizePollKeyRef.current)
     }
+
+    const pollKey = `mailpool-recategorize-${taskId}`
+    recategorizePollKeyRef.current = pollKey
+
+    await pollOperation(
+      pollKey,
+      {
+        onProgress: (status) => {
+          setRecategorizeStatus(status)
+        },
+        onComplete: (status) => {
+          setRecategorizeStatus(status)
+          alert(`Re-categorization completed! Processed ${status.processed} emails.`)
+          fetchEmails(1)
+        },
+        onError: (error) => {
+          if (error?.status) {
+            setRecategorizeStatus(error.status)
+          }
+          console.error("Error polling recategorize status:", error)
+        },
+      },
+      {
+        initialInterval: 3000,
+        maxInterval: 3000,
+        backoffMultiplier: 1,
+        timeout: 600000,
+        statusFetcher: async () => {
+          const sessionId = localStorage.getItem("session_id")
+          const res = await fetch(buildApiUrl(`/email-sync/recategorize-status/${taskId}`), {
+            headers: { Authorization: sessionId },
+          })
+          return res.json()
+        },
+      }
+    ).catch(() => {
+      // Error state is handled in onError callback
+    })
   }
 
   // AI Classification state
@@ -855,7 +881,7 @@ function MailPool() {
           processed: 0
         })
         alert(`Started AI classification of ${data.total_emails} emails.`)
-        pollClassifyStatus(data.task_id)
+        startClassifyPolling(data.task_id)
       } else {
         alert(`Failed: ${data.message || "Unknown error"}`)
         setClassifying(false)
@@ -867,28 +893,54 @@ function MailPool() {
     }
   }
 
-  const pollClassifyStatus = async (taskId) => {
-    const sessionId = localStorage.getItem("session_id")
-    try {
-      const res = await fetch(buildApiUrl(`/gmail/mail-pool/classify/status/${taskId}`), {
-        headers: { Authorization: sessionId },
-      })
-      const data = await res.json()
-      setClassifyStatus(data)
-      
-      if (data.status === "running" || data.status === "pending") {
-        setTimeout(() => pollClassifyStatus(taskId), 3000)
-      } else if (data.status === "completed") {
-        alert(`AI classification completed!\n\n• Processed: ${data.processed}\n• Tier 1 only: ${data.tier1_only || 0}\n• Tier 2 analyzed: ${data.tier2_analyzed || 0}\n• Errors: ${data.errors || 0}`)
-        setClassifying(false)
-        fetchEmails(1)
-      } else if (data.status === "failed") {
-        alert(`Classification failed: ${data.error || "Unknown error"}`)
-        setClassifying(false)
-      }
-    } catch (e) {
-      console.error("Error polling status:", e)
+  const startClassifyPolling = async (taskId) => {
+    if (classifyPollKeyRef.current) {
+      cancelPolling(classifyPollKeyRef.current)
     }
+
+    const pollKey = `mailpool-classify-${taskId}`
+    classifyPollKeyRef.current = pollKey
+
+    await pollOperation(
+      pollKey,
+      {
+        onProgress: (status) => {
+          setClassifyStatus(status)
+        },
+        onComplete: (status) => {
+          setClassifyStatus(status)
+          alert(`AI classification completed!\n\n• Processed: ${status.processed}\n• Tier 1 only: ${status.tier1_only || 0}\n• Tier 2 analyzed: ${status.tier2_analyzed || 0}\n• Errors: ${status.errors || 0}`)
+          setClassifying(false)
+          fetchEmails(1)
+        },
+        onError: (error) => {
+          const failedStatus = error?.status
+          if (failedStatus) {
+            setClassifyStatus(failedStatus)
+            if (failedStatus.status === "failed") {
+              alert(`Classification failed: ${failedStatus.error || "Unknown error"}`)
+            }
+          }
+          setClassifying(false)
+          console.error("Error polling classify status:", error)
+        },
+      },
+      {
+        initialInterval: 3000,
+        maxInterval: 3000,
+        backoffMultiplier: 1,
+        timeout: 600000,
+        statusFetcher: async () => {
+          const sessionId = localStorage.getItem("session_id")
+          const res = await fetch(buildApiUrl(`/gmail/mail-pool/classify/status/${taskId}`), {
+            headers: { Authorization: sessionId },
+          })
+          return res.json()
+        },
+      }
+    ).catch(() => {
+      // Error state is handled in onError callback
+    })
   }
 
   // Get AI category badge
@@ -1034,7 +1086,7 @@ function MailPool() {
       
       if (data.success) {
         alert(`Started re-categorization of ${data.total_emails} emails for this mailbox.`)
-        pollRecategorizeStatus(data.task_id)
+        startRecategorizePolling(data.task_id)
       } else {
         alert(`Failed: ${data.message || "Unknown error"}`)
       }
@@ -1080,6 +1132,20 @@ function MailPool() {
       fetchReviewQueue()
     }
   }, [showReviewQueue, viewMode, fetchReviewQueue])
+
+  useEffect(() => {
+    return () => {
+      if (statsRetryTimer.current) {
+        clearTimeout(statsRetryTimer.current)
+      }
+      if (recategorizePollKeyRef.current) {
+        cancelPolling(recategorizePollKeyRef.current)
+      }
+      if (classifyPollKeyRef.current) {
+        cancelPolling(classifyPollKeyRef.current)
+      }
+    }
+  }, [])
 
   // Format date like Gmail
   const formatDate = (dateStr) => {

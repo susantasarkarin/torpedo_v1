@@ -43,8 +43,7 @@ import {
   Refresh as RefreshIcon,
   Visibility as VisibilityIcon,
 } from '@mui/icons-material';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+import apiFetch from '../utils/api';
 
 function TabPanel(props) {
   const { children, value, index, ...other } = props;
@@ -102,11 +101,7 @@ export default function MailOperations() {
   const fetchSegregationStats = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/mail/segregation-stats`, {
-        headers: {
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
-      });
+      const response = await apiFetch('/api/mail/segregation-stats');
       
       if (!response.ok) throw new Error('Failed to fetch stats');
       
@@ -123,12 +118,8 @@ export default function MailOperations() {
   const handleSegregateEmails = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/mail/segregate`, {
+      const response = await apiFetch('/api/mail/segregate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
         body: JSON.stringify(segregateForm),
       });
       
@@ -153,12 +144,8 @@ export default function MailOperations() {
   const handleGenerateSummary = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/mail/summary`, {
+      const response = await apiFetch('/api/mail/summary', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
         body: JSON.stringify(summaryForm),
       });
       
@@ -180,11 +167,7 @@ export default function MailOperations() {
   const handleExtractContacts = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/api/mail/extracted-contacts`, {
-        headers: {
-          'Authorization': localStorage.getItem('sessionToken') || '',
-        },
-      });
+      const response = await apiFetch('/api/mail/extracted-contacts');
       
       if (!response.ok) throw new Error('Failed to fetch contacts');
       

@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import asyncio
 import os
 from dotenv import load_dotenv
+from pydantic import BaseModel
 
 from .models import (
     LeadInput, LeadImportRequest, LeadImportResponse,
@@ -45,7 +46,7 @@ router = APIRouter(prefix="/leads", tags=["Leads"])
 # ============== SHARED STATE (extracted to router_shared.py) ==============
 from .router_shared import (
     # MongoDB collections
-    web_search_jobs_collection, email_metadata_collection, ai_companies_collection,
+    _mongo_client, _jobs_db, web_search_jobs_collection, email_metadata_collection, ai_companies_collection,
     # Constants
     JobStatus, DAILY_LIMIT, LEADS_PER_MINUTE, DELAY_BETWEEN_BATCHES,
     # Search control

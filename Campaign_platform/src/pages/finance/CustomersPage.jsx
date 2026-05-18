@@ -101,7 +101,7 @@ function CustomersPage() {
   const fetchOperationsClients = async () => {
     const sessionId = localStorage.getItem("session_id")
     try {
-      const res = await fetch(buildApiUrl(`/finance/finance/customers/`), {
+      const res = await fetch(buildApiUrl(`/finance/customers/`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -130,7 +130,7 @@ function CustomersPage() {
     const sessionId = localStorage.getItem("session_id")
     try {
       // Update the customer with the linked operations client ID
-      const res = await fetch(buildApiUrl(`/finance/finance/customers/${customerId}`), {
+      const res = await fetch(buildApiUrl(`/finance/customers/${customerId}`), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -191,7 +191,7 @@ function CustomersPage() {
       setLoading(true)
       const params = new URLSearchParams({ page: String(pg), page_size: String(ps) })
       if (srch) params.set("search", srch)
-      const response = await fetch(buildApiUrl(`/finance/finance/customers/?${params}`), {
+      const response = await fetch(buildApiUrl(`/finance/customers/?${params}`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -303,8 +303,8 @@ function CustomersPage() {
       }
       
       const url = editingCustomer
-        ? buildApiUrl(`/finance/finance/customers/${editingCustomer._id}`)
-        : buildApiUrl(`/finance/finance/customers/`)
+        ? buildApiUrl(`/finance/customers/${editingCustomer._id}`)
+        : buildApiUrl(`/finance/customers/`)
 
       const method = editingCustomer ? "PUT" : "POST"
 
@@ -348,7 +348,7 @@ function CustomersPage() {
 
     try {
       setError(null)
-      const response = await fetch(buildApiUrl(`/finance/finance/customers/${id}`), {
+      const response = await fetch(buildApiUrl(`/finance/customers/${id}`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -457,7 +457,7 @@ function CustomersPage() {
 
     setExporting(true)
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/customers/export/csv`), {
+      const response = await fetch(buildApiUrl(`/finance/customers/export/csv`), {
         headers: {
           Authorization: sessionId,
         },

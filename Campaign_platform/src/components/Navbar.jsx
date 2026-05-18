@@ -1,8 +1,9 @@
 "use client"
 
 import { Link, useNavigate } from "react-router-dom"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { API_BASE_URL, buildApiUrl } from "../config"
+import { logout } from "../services/authService"
 import "./Navbar.css"
 
 function Navbar({
@@ -12,7 +13,17 @@ function Navbar({
   setSelectedSection,
 }) {
   const [logoDropdownOpen, setLogoDropdownOpen] = useState(false)
+  const [buildId, setBuildId] = useState("unknown")
   const navigate = useNavigate()
+
+  useEffect(() => {
+    const scripts = Array.from(document.querySelectorAll("script[src]"))
+    const indexScript = scripts.find((script) => script.src.includes("/static/index-"))
+    const match = indexScript?.src.match(/index-([^./]+)\.js/)
+    if (match?.[1]) {
+      setBuildId(match[1])
+    }
+  }, [])
 
   const handleLogoDropdownToggle = () => {
     setLogoDropdownOpen((prev) => !prev)
@@ -35,20 +46,7 @@ function Navbar({
     setLogoDropdownOpen(false)
   }
 
-  const handleLogout = async () => {
-    const sessionId = localStorage.getItem("session_id")
-    try {
-      await fetch(buildApiUrl(`/logout/`), {
-        method: "POST",
-        headers: { Authorization: sessionId },
-      })
-    } catch (err) {
-      console.error("Logout failed:", err)
-    } finally {
-      localStorage.removeItem("session_id")
-      navigate("/login")
-    }
-  }
+  const handleLogout = () => logout(navigate)
 
   return (
     <nav className="top-navbar">
@@ -120,6 +118,10 @@ function Navbar({
               Panel
             </button>
           </div>
+        </div>
+
+        <div className="build-badge" title="Deployed frontend build fingerprint">
+          Build {buildId}
         </div>
       </div>
 

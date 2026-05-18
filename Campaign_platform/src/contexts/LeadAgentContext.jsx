@@ -253,6 +253,7 @@ export function LeadAgentProvider({ children }) {
       ws.onopen = () => {
         if (isUnmountedRef.current) return;
         console.log('[LeadAgent] WebSocket connected');
+        console.debug('[ws:connect]', { domain: 'lead-agent' });
         setState(prev => ({
           ...prev,
           isConnected: true,
@@ -290,6 +291,7 @@ export function LeadAgentProvider({ children }) {
       ws.onclose = () => {
         if (isUnmountedRef.current) return;
         console.log('[LeadAgent] WebSocket disconnected');
+        console.debug('[ws:disconnect]', { domain: 'lead-agent' });
         
         setState(prev => ({ ...prev, isConnected: false }));
         

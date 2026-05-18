@@ -38,16 +38,18 @@ To start a server, run `--help` first, then use the helper:
 
 **Single server:**
 ```bash
-python scripts/with_server.py --server "npm run dev" --port 5173 -- python your_automation.py
+python scripts/with_server.py --server "npm run dev -- --host 127.0.0.1 --port 5173" --port 5173 -- python your_automation.py
 ```
 
 **Multiple servers (e.g., backend + frontend):**
 ```bash
 python scripts/with_server.py \
   --server "cd backend && python server.py" --port 3000 \
-  --server "cd frontend && npm run dev" --port 5173 \
+  --server "cd frontend && npm run dev -- --host 127.0.0.1 --port 5173" --port 5173 \
   -- python your_automation.py
 ```
+
+Important: for Vite, pass host/port via `-- --host ... --port ...`. Avoid positional forms like `vite 127.0.0.1 5173`, which can serve incorrect/empty responses.
 
 To create an automation script, include only Playwright logic (servers are managed automatically):
 ```python

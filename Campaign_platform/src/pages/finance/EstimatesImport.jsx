@@ -391,7 +391,7 @@ function EstimatesImport() {
       const formDataUpload = new FormData()
       formDataUpload.append("file", blob, "import.csv")
       
-      const response = await fetch(buildApiUrl(`/finance/finance/estimates/import/csv`), {
+      const response = await fetch(buildApiUrl(`/finance/estimates/import/csv`), {
         method: "POST",
         headers: {
           Authorization: sessionId,

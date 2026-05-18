@@ -20,10 +20,12 @@ import time
 import sys
 import argparse
 
-def is_server_ready(port, timeout=30):
-    """Wait for server to be ready by polling the port."""
+def is_server_ready(port, process=None, timeout=30):
+    """Wait for server to be ready by polling the port and process liveness."""
     start_time = time.time()
     while time.time() - start_time < timeout:
+        if process is not None and process.poll() is not None:
+            return False
         try:
             with socket.create_connection(('localhost', port), timeout=1):
                 return True
@@ -69,14 +71,14 @@ def main():
             process = subprocess.Popen(
                 server['cmd'],
                 shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
             )
             server_processes.append(process)
 
             # Wait for this server to be ready
             print(f"Waiting for server on port {server['port']}...")
-            if not is_server_ready(server['port'], timeout=args.timeout):
+            if not is_server_ready(server['port'], process=process, timeout=args.timeout):
                 raise RuntimeError(f"Server failed to start on port {server['port']} within {args.timeout}s")
 
             print(f"Server ready on port {server['port']}")

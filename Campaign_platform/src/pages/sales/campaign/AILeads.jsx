@@ -1483,7 +1483,7 @@ function AILeads() {
           className={`tab-btn ${activeTab === "classified" ? "active" : ""}`}
           onClick={() => { setActiveTab("classified"); }}
         >
-          Classified ({leads.length})
+          Classified ({(statistics?.raw?.classified ?? 0).toLocaleString()})
         </button>
         <button 
           className={`tab-btn ${activeTab === "leads" ? "active" : ""}`}

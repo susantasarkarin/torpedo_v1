@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from "react"
-import { API_BASE_URL, buildApiUrl } from "../config"
+import { useState, useEffect, useRef, useCallback } from "react"
+import { buildApiUrl } from "../config"
+import { cancelPolling, pollOperation, OperationStatus } from "../utils/asyncOperations"
 import "./LogsPage.css"
 
 // Helper to get auth token - handles both storage methods
@@ -14,34 +15,20 @@ function LogsPage() {
   const [fileInfo, setFileInfo] = useState(null)
   const logContainerRef = useRef(null)
 
-  useEffect(() => {
-    fetchLogs()
-  }, [lines])
-
-  useEffect(() => {
-    let interval = null
-    if (autoRefresh) {
-      interval = setInterval(() => {
-        fetchLogs()
-      }, 5000) // Refresh every 5 seconds
-    }
-    return () => {
-      if (interval) clearInterval(interval)
-    }
-  }, [autoRefresh, lines])
-
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async (silent = false) => {
     try {
-      setLoading(true)
+      if (!silent) {
+        setLoading(true)
+      }
       setError(null)
       const token = getAuthToken()
-      
+
       const response = await fetch(buildApiUrl(`/settings/logs?lines=${lines}`), {
         headers: { Authorization: token }
       })
-      
+
       const data = await response.json()
-      
+
       if (data.success) {
         setLogs(data.logs || [])
         setFileInfo({
@@ -59,9 +46,51 @@ function LogsPage() {
       setError(`Error fetching logs: ${err.message}`)
       setLogs([])
     } finally {
-      setLoading(false)
+      if (!silent) {
+        setLoading(false)
+      }
     }
-  }
+  }, [lines])
+
+  useEffect(() => {
+    fetchLogs()
+  }, [fetchLogs])
+
+  useEffect(() => {
+    if (!autoRefresh) return
+
+    const pollKey = `logs-page-refresh-${lines}`
+
+    pollOperation(
+      pollKey,
+      {
+        onError: (err) => {
+          console.error("LogsPage polling error:", err)
+        },
+      },
+      {
+        initialInterval: 5000,
+        maxInterval: 20000,
+        backoffMultiplier: 1,
+        timeout: 24 * 60 * 60 * 1000,
+        maxAttempts: Number.MAX_SAFE_INTEGER,
+        statusFetcher: async () => {
+          if (typeof document !== "undefined" && document.hidden) {
+            return { status: OperationStatus.IN_PROGRESS }
+          }
+
+          await fetchLogs(true)
+          return { status: OperationStatus.IN_PROGRESS }
+        }
+      }
+    ).catch(() => {
+      // Polling errors are handled by onError
+    })
+
+    return () => {
+      cancelPolling(pollKey)
+    }
+  }, [autoRefresh, lines, fetchLogs])
 
   const handleRefresh = () => {
     fetchLogs()

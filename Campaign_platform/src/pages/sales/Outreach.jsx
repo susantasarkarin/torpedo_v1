@@ -9,16 +9,31 @@
  *   D — Dual Fit           (all 3 in score order, 21-day gap)
  */
 import { useState, useEffect, useCallback } from "react"
-import { buildApiUrl } from "../../config"
+import {
+  fetchCampaigns, fetchMailboxes, fetchSuppressionStats,
+  fetchSuppression as fetchSuppressionApi,
+  createCampaign as createCampaignApi,
+  launchCampaign as launchCampaignApi,
+  pauseCampaign as pauseCampaignApi,
+  resumeCampaign as resumeCampaignApi,
+  saveStep as saveStepApi,
+  sendTestEmail as sendTestEmailApi,
+  generateStep,
+  saveContext as saveContextApi,
+  fetchCampaignStats,
+  fetchLeadsByStatus as fetchLeadsByStatusApi,
+  enrollDualFit as enrollDualFitApi,
+  addMailbox as addMailboxApi,
+  removeMailbox as removeMailboxApi,
+  addSuppression as addSuppressionApi,
+  removeSuppression as removeSuppressionApi,
+} from "../../services/outreachService"
 import "./campaign/AILeads.css"
 
 const spinKeyframes = `@keyframes spin { to { transform: rotate(360deg); } }`
 if (typeof document !== "undefined" && !document.getElementById("spin-kf")) {
   const s = document.createElement("style"); s.id = "spin-kf"; s.textContent = spinKeyframes; document.head.appendChild(s)
 }
-
-const SESSION_ID = () => localStorage.getItem("session_id") || ""
-const AUTH = () => ({ Authorization: SESSION_ID(), "Content-Type": "application/json" })
 
 const BUSINESSES = [
   { key: "sfw",      label: "Survey Fieldwork",  basket: "A", color: "#065f46", bg: "#d1fae5", border: "#6ee7b7", icon: "📊" },
@@ -82,9 +97,9 @@ function Outreach() {
     setLoading(true)
     try {
       const [cRes, mRes, sRes] = await Promise.all([
-        fetch(buildApiUrl("/api/cold-outreach/campaigns"), { headers: AUTH() }),
-        fetch(buildApiUrl("/api/cold-outreach/mailboxes"), { headers: AUTH() }),
-        fetch(buildApiUrl("/api/cold-outreach/suppression/stats"), { headers: AUTH() }),
+        fetchCampaigns(),
+        fetchMailboxes(),
+        fetchSuppressionStats(),
       ])
       if (cRes.ok) { const d = await cRes.json(); setCampaigns(d.campaigns || []); setBasketCounts(d.basket_counts || {}); setTotalLeads(d.total_leads || 0) }
       if (mRes.ok) { const d = await mRes.json(); setMailboxes(d.mailboxes || []) }
@@ -97,10 +112,7 @@ function Outreach() {
   }, [])
 
   const fetchSuppression = useCallback(async () => {
-    const res = await fetch(
-      buildApiUrl(`/api/cold-outreach/suppression?limit=100&search=${suppSearch}`),
-      { headers: AUTH() }
-    )
+    const res = await fetchSuppressionApi(suppSearch)
     if (res.ok) { const d = await res.json(); setSuppList(d.suppressed || []); setSuppTotal(d.total || 0) }
   }, [suppSearch])
 
@@ -137,34 +149,24 @@ function Outreach() {
 
   // ── Actions ────────────────────────────────────────────────────────────────
   const createCampaign = async (bizKey) => {
-    const res = await fetch(buildApiUrl("/api/cold-outreach/campaigns"), {
-      method: "POST",
-      headers: AUTH(),
-      body: JSON.stringify({ business: bizKey }),
-    })
+    const res = await createCampaignApi(bizKey)
     if (res.ok) { flash(`Campaign created for ${bizKey}`); fetchAll() }
     else { const d = await res.json(); flash(`Error: ${d.detail}`) }
   }
 
   const launchCampaign = async (campaignId) => {
-    const res = await fetch(buildApiUrl(`/api/cold-outreach/campaigns/${campaignId}/launch`), {
-      method: "POST", headers: AUTH(),
-    })
+    const res = await launchCampaignApi(campaignId)
     if (res.ok) { flash("Campaign launched. Enrollment running…"); fetchAll() }
     else flash("Launch failed")
   }
 
   const pauseCampaign = async (campaignId) => {
-    await fetch(buildApiUrl(`/api/cold-outreach/campaigns/${campaignId}/pause`), {
-      method: "POST", headers: AUTH(),
-    })
+    await pauseCampaignApi(campaignId)
     flash("Campaign paused"); fetchAll()
   }
 
   const resumeCampaign = async (campaignId) => {
-    await fetch(buildApiUrl(`/api/cold-outreach/campaigns/${campaignId}/resume`), {
-      method: "POST", headers: AUTH(),
-    })
+    await resumeCampaignApi(campaignId)
     flash("Campaign resumed"); fetchAll()
   }
 
@@ -174,10 +176,7 @@ function Outreach() {
       flash("Add subject and body before saving"); return
     }
     setSavingStep(`${campaignId}-${stepNum}`)
-    const res = await fetch(
-      buildApiUrl(`/api/cold-outreach/campaigns/${campaignId}/steps/${stepNum}`),
-      { method: "PUT", headers: AUTH(), body: JSON.stringify({ subject: data.subject, body_html: data.body_html, body_text: data.body_html.replace(/<[^>]+>/g, "") }) }
-    )
+    const res = await saveStepApi(campaignId, stepNum, data.subject, data.body_html)
     setSavingStep(null)
     if (res.ok) { flash(`Step ${stepNum} saved`); fetchAll() }
     else flash("Save failed")
@@ -189,10 +188,7 @@ function Outreach() {
     if (!recipient.trim()) { flash("Enter a recipient email first"); return }
     setSendingTest(stepKey)
     try {
-      const res = await fetch(
-        buildApiUrl(`/api/cold-outreach/campaigns/${campaignId}/steps/${stepNum}/test`),
-        { method: "POST", headers: AUTH(), body: JSON.stringify({ recipient_email: recipient }) }
-      )
+      const res = await sendTestEmailApi(campaignId, stepNum, recipient)
       if (res.ok) {
         const d = await res.json()
         flash(`✓ Test sent to ${d.sent_to} from ${d.from}`)
@@ -211,10 +207,7 @@ function Outreach() {
   const generateStepWithAI = async (campaignId, stepNum) => {
     const stepKey = `${campaignId}-${stepNum}`
     setGeneratingStep(stepKey)
-    const res = await fetch(
-      buildApiUrl(`/api/cold-outreach/campaigns/${campaignId}/steps/${stepNum}/generate`),
-      { method: "POST", headers: AUTH() }
-    )
+    const res = await generateStep(campaignId, stepNum)
     setGeneratingStep(null)
     if (res.ok) {
       const d = await res.json()
@@ -248,28 +241,21 @@ function Outreach() {
   const saveContext = async (campaignId) => {
     setSavingContext(true)
     const data = getContextDraft(campaignId)
-    const res = await fetch(
-      buildApiUrl(`/api/cold-outreach/campaigns/${campaignId}/context`),
-      { method: "PUT", headers: AUTH(), body: JSON.stringify(data) }
-    )
+    const res = await saveContextApi(campaignId, data)
     setSavingContext(false)
     if (res.ok) { flash("Business context saved"); fetchAll() }
     else flash("Failed to save context")
   }
 
   const enrollDualFit = async () => {
-    const res = await fetch(buildApiUrl("/api/cold-outreach/dual-fit/enroll"), {
-      method: "POST", headers: AUTH(),
-    })
+    const res = await enrollDualFitApi()
     if (res.ok) flash("Dual Fit enrollment started in background")
     else flash("Enrollment failed")
   }
 
   const addMailbox = async () => {
     setAddingMailbox(true)
-    const res = await fetch(buildApiUrl("/api/cold-outreach/mailboxes"), {
-      method: "POST", headers: AUTH(), body: JSON.stringify(mailboxForm),
-    })
+    const res = await addMailboxApi(mailboxForm)
     setAddingMailbox(false)
     if (res.ok) {
       flash("Mailbox added"); setShowAddMailbox(false)
@@ -282,24 +268,20 @@ function Outreach() {
 
   const removeMailbox = async (mid) => {
     if (!window.confirm("Remove this mailbox?")) return
-    await fetch(buildApiUrl(`/api/cold-outreach/mailboxes/${mid}`), { method: "DELETE", headers: AUTH() })
+    await removeMailboxApi(mid)
     flash("Mailbox removed"); fetchAll()
   }
 
   const addSuppression = async () => {
     if (!manualEmail.trim()) return
-    const res = await fetch(buildApiUrl("/api/cold-outreach/suppression/manual"), {
-      method: "POST", headers: AUTH(), body: JSON.stringify({ email: manualEmail }),
-    })
+    const res = await addSuppressionApi(manualEmail)
     if (res.ok) { flash(`${manualEmail} suppressed`); setManualEmail(""); fetchSuppression(); fetchAll() }
     else flash("Failed to suppress")
   }
 
   const removeSuppression = async (email) => {
     if (!window.confirm(`Remove ${email} from suppression list?`)) return
-    await fetch(buildApiUrl(`/api/cold-outreach/suppression/${encodeURIComponent(email)}`), {
-      method: "DELETE", headers: AUTH(),
-    })
+    await removeSuppressionApi(email)
     flash(`${email} removed from suppression`); fetchSuppression(); fetchAll()
   }
 
@@ -764,7 +746,7 @@ function StatsPanel({ campaignId, campaign }) {
   useEffect(() => {
     if (!campaignId) return
     setLoading(true)
-    fetch(buildApiUrl(`/api/cold-outreach/campaigns/${campaignId}/stats`), { headers: AUTH() })
+    fetchCampaignStats(campaignId)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setStats(d) })
       .finally(() => setLoading(false))
@@ -866,7 +848,7 @@ function LeadsByStatusPanel({ campaignId }) {
     if (!campaignId) return
     setLoading(true)
     const params = new URLSearchParams({ status: statusFilter, page: String(page), limit: "50" })
-    fetch(buildApiUrl(`/api/cold-outreach/campaigns/${campaignId}/leads-by-status?${params}`), { headers: AUTH() })
+    fetchLeadsByStatusApi(campaignId, statusFilter, page)
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (d) {

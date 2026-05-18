@@ -71,7 +71,7 @@ function InvoicesPage() {
         ...(search ? { search } : {}),
         ...(status && status !== "all" ? { status } : {}),
       })
-      const response = await fetch(buildApiUrl(`/finance/finance/invoices/?${params}`))
+      const response = await fetch(buildApiUrl(`/finance/invoices/?${params}`))
       if (response.ok) {
         const data = await response.json()
         setInvoices(data.items || [])
@@ -86,7 +86,7 @@ function InvoicesPage() {
 
   const fetchCustomers = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/customers/`))
+      const response = await fetch(buildApiUrl(`/finance/customers/`))
       if (response.ok) {
         const data = await response.json()
         setCustomers(data)
@@ -98,7 +98,7 @@ function InvoicesPage() {
 
   const fetchItems = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/items/`))
+      const response = await fetch(buildApiUrl(`/finance/items/`))
       if (response.ok) {
         const data = await response.json()
         setItems(data)
@@ -120,7 +120,7 @@ function InvoicesPage() {
         })),
       }
 
-      const response = await fetch(buildApiUrl(`/finance/finance/invoices/`), {
+      const response = await fetch(buildApiUrl(`/finance/invoices/`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(invoiceData),
@@ -219,7 +219,7 @@ function InvoicesPage() {
   const handleExportCSV = async () => {
     setExporting(true)
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/invoices/export/csv`))
+      const response = await fetch(buildApiUrl(`/finance/invoices/export/csv`))
       if (response.ok) {
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
@@ -249,7 +249,7 @@ function InvoicesPage() {
     formDataUpload.append("file", file)
 
     try {
-      const response = await fetch(buildApiUrl(`/finance/finance/invoices/import/csv`), {
+      const response = await fetch(buildApiUrl(`/finance/invoices/import/csv`), {
         method: "POST",
         body: formDataUpload,
       })

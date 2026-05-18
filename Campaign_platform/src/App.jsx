@@ -120,9 +120,6 @@ const GmailSetup = lazy(() => import("./pages/GmailSetup"))
 // Settings Page
 const Settings = lazy(() => import("./pages/Settings"))
 
-// AI Database Page
-const AIDatabase = lazy(() => import("./pages/AIDatabase"))
-
 // Logs Page
 const LogsPage = lazy(() => import("./pages/LogsPage"))
 

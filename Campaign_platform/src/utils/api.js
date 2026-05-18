@@ -130,7 +130,7 @@ const handleError = (error, response) => {
     switch (response.status) {
       case 401:
         clearAuth();
-        window.location.href = "/login";
+        window.location.href = "/admin/login";
         throw new APIError("Session expired. Please log in again.", 401);
       case 403:
         throw new APIError(
@@ -198,6 +198,7 @@ const buildUrl = (endpoint, params = {}) => {
 const getHeaders = (customHeaders = {}) => {
   const headers = {
     "Content-Type": "application/json",
+    "X-Request-ID": crypto.randomUUID(),
     ...customHeaders,
   };
 
@@ -327,6 +328,17 @@ const request = async (
 
     throw lastError || new APIError("Request failed after retries", 0);
   })();
+
+  // Log final failure for observability
+  requestPromise.catch((err) => {
+    console.error("[api] request failed", {
+      method,
+      url,
+      status: err instanceof APIError ? err.status : 0,
+      message: err.message,
+      attempts: attempt,
+    });
+  });
 
   // Store in-flight GET requests for deduplication
   if (method === "GET" && cacheKey) {

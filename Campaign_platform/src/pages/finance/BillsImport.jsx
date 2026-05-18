@@ -385,7 +385,7 @@ function BillsImport() {
       const formDataUpload = new FormData()
       formDataUpload.append("file", blob, "import.csv")
       
-      const response = await fetch(buildApiUrl(`/finance/finance/bills/import/csv`), {
+      const response = await fetch(buildApiUrl(`/finance/bills/import/csv`), {
         method: "POST",
         headers: {
           Authorization: sessionId,

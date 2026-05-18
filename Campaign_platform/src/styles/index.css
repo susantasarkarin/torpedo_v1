@@ -62,6 +62,21 @@ h6 {
   gap: 2rem;
 }
 
+.build-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.12);
+  color: #e5e7eb;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
 .navbar-logo {
   display: flex;
   align-items: center;
@@ -802,6 +817,10 @@ table tbody tr:last-child td {
 @media (max-width: 768px) {
   .navbar-left {
     gap: 1rem;
+  }
+
+  .build-badge {
+    display: none;
   }
 
   .navbar-logo {

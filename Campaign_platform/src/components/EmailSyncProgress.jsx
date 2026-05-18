@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { API_BASE_URL, buildApiUrl } from '../config'
+import { cancelPolling, pollOperation, OperationStatus } from '../utils/asyncOperations'
 import './EmailSyncProgress.css'
 
 /**
@@ -18,6 +19,7 @@ const EmailSyncProgress = ({ refreshInterval = 3000 }) => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [expanded, setExpanded] = useState({})
+  const pollKeyRef = useRef('email-sync-progress-refresh')
 
   // Get auth token
   const getAuthToken = () => {
@@ -134,17 +136,40 @@ const EmailSyncProgress = ({ refreshInterval = 3000 }) => {
     }
   }
 
-  // Initial fetch and polling
+  // Initial fetch and managed polling
   useEffect(() => {
-    fetchHealth()
-    fetchMailboxes()
+    const runSnapshot = async () => {
+      // Pause network refresh while the tab is hidden.
+      if (typeof document !== 'undefined' && document.hidden) {
+        return { status: OperationStatus.IN_PROGRESS }
+      }
 
-    const interval = setInterval(() => {
-      fetchHealth()
-      fetchMailboxes()
-    }, refreshInterval)
+      await Promise.all([fetchHealth(), fetchMailboxes()])
+      return { status: OperationStatus.IN_PROGRESS }
+    }
 
-    return () => clearInterval(interval)
+    pollOperation(
+      pollKeyRef.current,
+      {
+        onError: (err) => {
+          console.error('EmailSyncProgress polling error:', err)
+        },
+      },
+      {
+        initialInterval: refreshInterval,
+        maxInterval: Math.max(refreshInterval * 4, refreshInterval),
+        backoffMultiplier: 1,
+        timeout: 24 * 60 * 60 * 1000,
+        maxAttempts: Number.MAX_SAFE_INTEGER,
+        statusFetcher: runSnapshot,
+      }
+    ).catch(() => {
+      // Polling errors are surfaced via onError callback
+    })
+
+    return () => {
+      cancelPolling(pollKeyRef.current)
+    }
   }, [fetchHealth, fetchMailboxes, refreshInterval])
 
   // Get status color

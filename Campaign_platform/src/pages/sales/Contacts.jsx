@@ -336,7 +336,7 @@ function Contacts() {
       <div className="page-header">
         <div className="header-left">
           <h1>Contacts</h1>
-          <p className="subtitle">Manage qualified leads through the sales pipeline stages</p>
+          <p className="subtitle">Manage and track your sales contacts through the pipeline</p>
         </div>
         <div className="header-actions">
           {selectedIds.length > 0 && (
@@ -368,7 +368,7 @@ function Contacts() {
       {/* Stats Row */}
       <div className="stats-row">
         <div className="stat-card primary">
-          <div className="stat-value">{contacts.length}</div>
+          <div className="stat-value">{total}</div>
           <div className="stat-label">Total Contacts</div>
         </div>
         {contactStages.map(stage => (

@@ -91,6 +91,7 @@ export function useSurveyWebSocket(channel, options = {}) {
         if (isUnmountedRef.current) return;
         
         console.log(`[${channel}] WebSocket connected`);
+        console.debug('[ws:connect]', { domain: `survey-${channel}` });
         setIsConnected(true);
         setError(null);
         retryCountRef.current = 0;
@@ -131,6 +132,7 @@ export function useSurveyWebSocket(channel, options = {}) {
         if (isUnmountedRef.current) return;
         
         console.log(`[${channel}] WebSocket closed:`, event.code, event.reason);
+        console.debug('[ws:disconnect]', { domain: `survey-${channel}`, code: event.code });
         setIsConnected(false);
         wsRef.current = null;
         onDisconnect?.();

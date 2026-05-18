@@ -1,21 +1,16 @@
 /**
  * useLeadAgentWebSocket Hook
  * 
- * WebSocket hook for real-time lead generation agent progress updates.
+ * Context adapter for lead generation agent real-time updates.
  * 
  * Features:
- * - Auto-reconnect with exponential backoff
- * - Job-specific or global connection
- * - Progress and status updates
- * - Callback support for updates
+ * - Uses LeadAgentContext as the single transport/state authority
+ * - Exposes a backward-compatible API for existing consumers
+ * - Emits callbacks based on context state changes
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { WS_BASE_URL } from '../config';
-
-// Retry delays in milliseconds
-const RETRY_DELAYS = [2000, 5000, 10000, 20000, 30000];
-const MAX_RETRIES = 5;
+import { useEffect, useMemo, useRef } from 'react';
+import { useLeadAgent } from '../contexts/LeadAgentContext';
 
 /**
  * WebSocket hook for lead agent progress
@@ -36,142 +31,82 @@ export function useLeadAgentWebSocket(options = {}) {
     onError,
   } = options;
 
-  const [isConnected, setIsConnected] = useState(false);
-  const [error, setError] = useState(null);
-  const [lastUpdate, setLastUpdate] = useState(null);
-  const [currentJob, setCurrentJob] = useState(null);
+  const {
+    isConnected,
+    connectionError,
+    jobs,
+    connectWebSocket,
+    disconnectWebSocket,
+  } = useLeadAgent();
 
-  const wsRef = useRef(null);
-  const reconnectTimeoutRef = useRef(null);
-  const retryCountRef = useRef(0);
-  const isUnmountedRef = useRef(false);
+  const prevJobRef = useRef(null);
+  const prevJobStatusRef = useRef(null);
 
-  // Build WebSocket URL
-  const getWsUrl = useCallback(() => {
+  const currentJob = useMemo(() => {
+    if (!Array.isArray(jobs) || jobs.length === 0) return null;
     if (jobId) {
-      return `${WS_BASE_URL}/leads/agents/ws/${jobId}`;
+      return jobs.find((job) => job.job_id === jobId) || null;
     }
-    return `${WS_BASE_URL}/leads/agents/ws/all`;
-  }, [jobId]);
+    return jobs[0] || null;
+  }, [jobs, jobId]);
 
-  // Connect to WebSocket
-  const connect = useCallback(() => {
-    if (isUnmountedRef.current) return;
-    if (wsRef.current && wsRef.current.readyState === WebSocket.CONNECTING) return;
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
+  const lastUpdate = currentJob?.updated_at || currentJob?.last_update || null;
 
-    if (retryCountRef.current >= MAX_RETRIES) {
-      setError('Maximum reconnection attempts exceeded');
-      onError?.('Maximum reconnection attempts exceeded');
-      return;
-    }
+  const connect = () => connectWebSocket(jobId);
+  const disconnect = () => disconnectWebSocket();
 
-    try {
-      const wsUrl = getWsUrl();
-      console.log('[LeadAgentWS] Connecting to:', wsUrl);
-      
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        if (isUnmountedRef.current) return;
-        console.log('[LeadAgentWS] Connected');
-        setIsConnected(true);
-        setError(null);
-        retryCountRef.current = 0;
-      };
-
-      ws.onmessage = (event) => {
-        if (isUnmountedRef.current) return;
-        
-        try {
-          const data = JSON.parse(event.data);
-          setLastUpdate(new Date().toISOString());
-          
-          if (data.type === 'agent_progress') {
-            setCurrentJob(data);
-            onProgress?.(data);
-          } else if (data.type === 'job_completed' || data.status === 'completed') {
-            setCurrentJob(data);
-            onComplete?.(data);
-          } else if (data.type === 'job_failed' || data.status === 'failed') {
-            setCurrentJob(data);
-            onError?.(data.error || data.message || 'Job failed');
-          } else if (data.type === 'connected') {
-            console.log('[LeadAgentWS] Connection confirmed');
-          } else if (data.type === 'heartbeat') {
-            // Send pong
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'pong' }));
-            }
-          }
-        } catch (e) {
-          console.error('[LeadAgentWS] Failed to parse message:', e);
-        }
-      };
-
-      ws.onclose = () => {
-        if (isUnmountedRef.current) return;
-        console.log('[LeadAgentWS] Disconnected');
-        setIsConnected(false);
-        
-        // Attempt reconnect with backoff
-        const delay = RETRY_DELAYS[Math.min(retryCountRef.current, RETRY_DELAYS.length - 1)];
-        retryCountRef.current++;
-        
-        reconnectTimeoutRef.current = setTimeout(connect, delay);
-      };
-
-      ws.onerror = (err) => {
-        console.error('[LeadAgentWS] Error:', err);
-        setError('WebSocket connection error');
-        onError?.('WebSocket connection error');
-      };
-
-    } catch (err) {
-      console.error('[LeadAgentWS] Connection failed:', err);
-      setError(err.message);
-      onError?.(err.message);
-    }
-  }, [getWsUrl, onProgress, onComplete, onError]);
-
-  // Disconnect
-  const disconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    setIsConnected(false);
-    retryCountRef.current = 0;
-  }, []);
-
-  // Auto-connect on mount
+  // Optional auto-connect delegates to context transport.
   useEffect(() => {
     if (autoConnect) {
       connect();
     }
-    
     return () => {
-      isUnmountedRef.current = true;
-      disconnect();
+      if (autoConnect) {
+        disconnect();
+      }
     };
-  }, [autoConnect, connect, disconnect]);
+  }, [autoConnect, jobId]);
 
-  // Reconnect if jobId changes
+  // Rebind connection when tracking a different job.
   useEffect(() => {
-    if (isConnected) {
+    if (autoConnect && isConnected) {
       disconnect();
-      setTimeout(connect, 100);
+      connect();
     }
   }, [jobId]);
 
+  // Emit callbacks from context-driven state transitions.
+  useEffect(() => {
+    if (!currentJob) return;
+
+    const prevJobId = prevJobRef.current;
+    const prevStatus = prevJobStatusRef.current;
+    const isSameJob = prevJobId === currentJob.job_id;
+    const statusChanged = !isSameJob || prevStatus !== currentJob.status;
+
+    onProgress?.(currentJob);
+
+    if (statusChanged) {
+      if (currentJob.status === 'completed') {
+        onComplete?.(currentJob);
+      } else if (currentJob.status === 'failed') {
+        onError?.(currentJob.error || currentJob.message || 'Job failed');
+      }
+    }
+
+    prevJobRef.current = currentJob.job_id;
+    prevJobStatusRef.current = currentJob.status;
+  }, [currentJob, onProgress, onComplete, onError]);
+
+  useEffect(() => {
+    if (connectionError) {
+      onError?.(connectionError);
+    }
+  }, [connectionError, onError]);
+
   return {
     isConnected,
-    error,
+    error: connectionError,
     lastUpdate,
     currentJob,
     connect,

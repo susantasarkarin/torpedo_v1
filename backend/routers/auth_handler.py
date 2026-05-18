@@ -56,6 +56,7 @@ def _get_users_collection():
 # ---------------------------------------------------------------------------
 
 @router.post("/login/")
+@router.post("/api/login/", include_in_schema=False)
 async def login(credentials: Dict[str, str] = Body(...)):
     users_col = _get_users_collection()
     try:
@@ -103,6 +104,7 @@ async def login(credentials: Dict[str, str] = Body(...)):
 
 
 @router.post("/logout/")
+@router.post("/api/logout/", include_in_schema=False)
 async def logout(request: Request):
     session_id = request.headers.get("Authorization")
     if session_id:
@@ -117,6 +119,7 @@ async def logout(request: Request):
 # ---------------------------------------------------------------------------
 
 @router.get("/profile/", dependencies=[Depends(verify_session)])
+@router.get("/api/profile/", include_in_schema=False, dependencies=[Depends(verify_session)])
 async def get_profile(request: Request):
     """Get current user's profile (audit-safe fields only)."""
     users_col = _get_users_collection()
@@ -140,6 +143,7 @@ async def get_profile(request: Request):
 
 
 @router.put("/profile/update", dependencies=[Depends(verify_session)])
+@router.put("/api/profile/update", include_in_schema=False, dependencies=[Depends(verify_session)])
 async def update_profile(request: Request, profile_data: Dict[str, Any] = Body(...)):
     """Update user profile (audit-safe fields: email, displayName)."""
     users_col = _get_users_collection()
@@ -170,6 +174,7 @@ async def update_profile(request: Request, profile_data: Dict[str, Any] = Body(.
 
 
 @router.put("/profile/change-password", dependencies=[Depends(verify_session)])
+@router.put("/api/profile/change-password", include_in_schema=False, dependencies=[Depends(verify_session)])
 async def change_password(request: Request, password_data: Dict[str, str] = Body(...)):
     """Change password (requires current password verification)."""
     users_col = _get_users_collection()

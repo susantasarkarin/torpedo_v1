@@ -165,7 +165,7 @@ function PotentialClients() {
 
   const fetchClients = async () => {
     try {
-      const response = await fetch(buildApiUrl("/finance/finance/customers/"), {
+      const response = await fetch(buildApiUrl("/finance/customers/"), {
         headers: {
           Authorization: token,
           "Content-Type": "application/json",
