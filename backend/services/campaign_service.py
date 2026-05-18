@@ -19,6 +19,11 @@ from typing import Any, Dict, List, Tuple
 
 from bson import ObjectId
 
+try:
+    from repositories import campaign_repo
+except ImportError:
+    from ..repositories import campaign_repo
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -108,14 +113,7 @@ async def send_campaign(
     html_content = template.get("htmlContent", "")
     campaign_id = str(ObjectId())
 
-    reports_col.insert_one({
-        "campaignId": campaign_id,
-        "subject": subject,
-        "sent": [],
-        "opens": [],
-        "clicks": [],
-        "createdAt": datetime.utcnow(),
-    })
+    campaign_repo.create_campaign_report(reports_col, campaign_id, subject)
 
     sent: List[str] = []
     failed: List[Dict[str, str]] = []
@@ -133,10 +131,7 @@ async def send_campaign(
             await asyncio.to_thread(send_email_html_sync, email, subject, personalized)
 
             sent.append(email)
-            reports_col.update_one(
-                {"campaignId": campaign_id},
-                {"$push": {"sent": {"email": email, "time": datetime.utcnow()}}},
-            )
+            campaign_repo.append_sent_event(reports_col, campaign_id, email)
         except Exception as exc:
             logger.warning("Send failed for %s: %s", email, exc)
             failed.append({"email": email, "error": str(exc)})
@@ -172,10 +167,10 @@ def upload_contacts_batch(
             if incoming_list_id and ObjectId.is_valid(str(incoming_list_id)):
                 resolved_list_id = str(incoming_list_id)
             elif incoming_list_id:
-                found = lists_col.find_one({"name": incoming_list_id})
+                found = campaign_repo.find_list_by_name(lists_col, incoming_list_id)
                 resolved_list_id = str(found["_id"]) if found else incoming_list_id
             elif list_name:
-                found = lists_col.find_one({"name": list_name})
+                found = campaign_repo.find_list_by_name(lists_col, list_name)
                 resolved_list_id = str(found["_id"]) if found else None
         except Exception as exc:
             logger.warning("upload_contacts_batch: list id resolution error: %s", exc)
@@ -186,7 +181,7 @@ def upload_contacts_batch(
         elif list_name:
             query["listName"] = list_name
 
-        if contacts_col.find_one(query):
+        if campaign_repo.contact_exists(contacts_col, query):
             continue  # deduplicate
 
         if list_name:
@@ -195,7 +190,7 @@ def upload_contacts_batch(
             contact["listId"] = resolved_list_id
 
         try:
-            result = contacts_col.insert_one(contact)
+            result = campaign_repo.insert_contact(contacts_col, contact)
             contact["_id"] = str(result.inserted_id)
             inserted.append(contact)
         except Exception as exc:
@@ -213,7 +208,7 @@ def delete_list_cascade(list_id: str, lists_col: Any, contacts_col: Any) -> int:
     Delete a list document and all its associated contacts.
     Returns deleted_count for the contacts (informational).
     """
-    lists_col.delete_one({"_id": ObjectId(list_id)})
-    result = contacts_col.delete_many({"listId": list_id})
+    campaign_repo.delete_list_by_id(lists_col, list_id)
+    result = campaign_repo.delete_contacts_by_list_id(contacts_col, list_id)
     logger.info("List %s deleted with %d cascaded contacts", list_id, result.deleted_count)
     return result.deleted_count

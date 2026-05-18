@@ -15,6 +15,11 @@ from typing import Any, Dict, Optional
 
 from bson import ObjectId
 
+try:
+    from repositories import leads_repo
+except ImportError:
+    from ..repositories import leads_repo
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,7 +43,7 @@ def move_lead_to_contacts(
     step 3 would leave a duplicate. A future improvement is a MongoDB
     multi-document transaction here.
     """
-    lead = leads_col.find_one({"_id": ObjectId(lead_id)})
+    lead = leads_repo.find_lead_by_id(leads_col, lead_id)
     if lead is None:
         return None
 
@@ -48,9 +53,9 @@ def move_lead_to_contacts(
     contact_data["createdAt"] = lead.get("createdAt", datetime.utcnow())
     contact_data["updatedAt"] = datetime.utcnow()
 
-    result = contacts_col.insert_one(contact_data)
+    result = leads_repo.insert_contact(contacts_col, contact_data)
     contact_data["_id"] = str(result.inserted_id)
 
-    leads_col.delete_one({"_id": ObjectId(lead_id)})
+    leads_repo.delete_lead_by_id(leads_col, lead_id)
     logger.info("Lead %s moved to contacts (stage=%s, contact_id=%s)", lead_id, stage, contact_data["_id"])
     return contact_data

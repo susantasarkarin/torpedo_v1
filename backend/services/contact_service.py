@@ -18,6 +18,11 @@ from typing import Any, Dict, List, Optional
 
 from bson import ObjectId
 
+try:
+    from repositories import contact_repo
+except ImportError:
+    from ..repositories import contact_repo
+
 logger = logging.getLogger(__name__)
 
 
@@ -70,7 +75,7 @@ def _sync_customer_from_contact(
     if not company_name:
         return None
 
-    existing = customers_col.find_one({"company_name": company_name})
+    existing = contact_repo.find_customer_by_company_name(customers_col, company_name)
     if existing:
         update_fields: Dict[str, Any] = {"updated_at": datetime.utcnow()}
         if contact_data.get("companyEmail"):
@@ -78,10 +83,10 @@ def _sync_customer_from_contact(
         if contact_data.get("companyHeadquarters"):
             update_fields["billing_address.line1"] = contact_data["companyHeadquarters"]
             update_fields["shipping_address.line1"] = contact_data["companyHeadquarters"]
-        customers_col.update_one({"_id": existing["_id"]}, {"$set": update_fields})
+        contact_repo.update_customer_by_id(customers_col, existing["_id"], update_fields)
         return str(existing["_id"])
     else:
-        result = customers_col.insert_one(_build_new_customer(contact_data))
+        result = contact_repo.insert_customer(customers_col, _build_new_customer(contact_data))
         return str(result.inserted_id)
 
 
@@ -105,7 +110,7 @@ def create_contact(
     linked_customer_id = _sync_customer_from_contact(contact_data, customers_col)
     contact_data["linked_customer_id"] = linked_customer_id
 
-    result = contacts_col.insert_one(contact_data)
+    result = contact_repo.insert_contact(contacts_col, contact_data)
     contact_data["_id"] = str(result.inserted_id)
     logger.info("Contact created: %s (customer_id=%s)", contact_data.get("email"), linked_customer_id)
     return contact_data
@@ -118,8 +123,8 @@ def get_all_contacts(contacts_col: Any, customers_col: Any) -> List[Dict[str, An
 
     NOTE: This performs a write-on-read to repair missing links.
     """
-    contacts = list(contacts_col.find())
-    all_customers = {str(c["_id"]): c for c in customers_col.find()}
+    contacts = contact_repo.list_contacts(contacts_col)
+    all_customers = {str(c["_id"]): c for c in contact_repo.list_customers(customers_col)}
 
     for contact in contacts:
         contact["_id"] = str(contact["_id"])
@@ -153,10 +158,7 @@ def get_all_contacts(contacts_col: Any, customers_col: Any) -> List[Dict[str, An
                         "status": customer.get("status", "active"),
                     }
                     # Self-heal: persist the discovered link
-                    contacts_col.update_one(
-                        {"_id": ObjectId(contact["_id"])},
-                        {"$set": {"linked_customer_id": cid}},
-                    )
+                    contact_repo.set_linked_customer_id(contacts_col, contact["_id"], cid)
                     break
 
     return contacts
@@ -173,10 +175,10 @@ def update_contact(
     Returns matched_count (0 means not found).
     """
     contact_data["updatedAt"] = datetime.utcnow()
-    result = contacts_col.update_one({"_id": ObjectId(contact_id)}, {"$set": contact_data})
+    result = contact_repo.update_contact_by_id(contacts_col, contact_id, contact_data)
 
     if result.matched_count > 0 and contact_data.get("companyName"):
-        existing_customer = customers_col.find_one({"company_name": contact_data["companyName"]})
+        existing_customer = contact_repo.find_customer_by_company_name(customers_col, contact_data["companyName"])
         if existing_customer:
             update_fields: Dict[str, Any] = {"updated_at": datetime.utcnow()}
             if contact_data.get("companyEmail"):
@@ -184,10 +186,7 @@ def update_contact(
             if contact_data.get("companyHeadquarters"):
                 update_fields["billing_address.line1"] = contact_data["companyHeadquarters"]
                 update_fields["shipping_address.line1"] = contact_data["companyHeadquarters"]
-            customers_col.update_one({"_id": existing_customer["_id"]}, {"$set": update_fields})
-            contacts_col.update_one(
-                {"_id": ObjectId(contact_id)},
-                {"$set": {"linked_customer_id": str(existing_customer["_id"])}},
-            )
+            contact_repo.update_customer_by_id(customers_col, existing_customer["_id"], update_fields)
+            contact_repo.set_linked_customer_id(contacts_col, contact_id, str(existing_customer["_id"]))
 
     return result.matched_count
