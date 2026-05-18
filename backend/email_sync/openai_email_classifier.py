@@ -368,12 +368,13 @@ class OpenAIEmailClassifier:
             "total_cost_usd": 0.0
         }
         
-        # Sales leads collection
+        # Lead extraction now goes through canonical ingestion in email_automation.
+        # Keep legacy collection handle only for backward-compatible read checks.
         if db is None:
-            self.leads_collection = get_client()["campaign_platform"]["leads"]
+            self.leads_collection = get_client()["email_automation"]["leads_raw"]
         else:
             # When db is provided, use db.client to access other databases
-            self.leads_collection = db.client["campaign_platform"]["leads"]
+            self.leads_collection = db.client["email_automation"]["leads_raw"]
         
         self._setup_indexes()
     
@@ -787,38 +788,53 @@ class OpenAIEmailClassifier:
             # Parse name from display_name or email
             first_name, last_name = self._parse_name(display_name, email_addr)
             
-            # Check for existing lead by email
-            existing_lead = self.leads_collection.find_one({"email": email_addr})
-            if existing_lead:
-                logger.debug(f"Lead already exists for {email_addr}")
-                return
-            
-            # Create lead document
-            lead_doc = {
-                "firstName": first_name,
-                "lastName": last_name,
+            # Build canonical ingestion payload so all lead sources converge to
+            # email_automation.leads_raw / leads_enriched.
+            domain = email_addr.split("@")[1] if "@" in email_addr else ""
+            company_name = None
+            if domain and not any(free in domain.lower() for free in ["gmail", "yahoo", "hotmail", "outlook", "aol"]):
+                company_name = domain.split(".")[0].title()
+
+            payload = {
                 "email": email_addr,
-                "source": "email_classification",
-                "source_category": classification.get("category"),
+                "first_name": first_name,
+                "last_name": last_name,
+                "name": f"{first_name} {last_name}".strip(),
+                "company": company_name,
+                "company_name": company_name,
+                "company_domain": domain if domain else None,
+                "title": None,
                 "source_email_id": str(email.get("_id")),
                 "source_subject": email.get("subject", "")[:200],
-                "created_at": datetime.utcnow(),
-                "status": "new",
-                "pipeline_stage": "lead_captured",
-                "classification_confidence": classification.get("confidence", 0),
-                "notes": f"Auto-extracted from {classification.get('category')} email"
+                "notes": f"Auto-extracted from {classification.get('category')} email",
             }
-            
-            # Add company info if we can parse it from domain
-            domain = email_addr.split("@")[1] if "@" in email_addr else ""
-            if domain and not any(free in domain.lower() for free in ["gmail", "yahoo", "hotmail", "outlook", "aol"]):
-                lead_doc["companyDomain"] = domain
-                lead_doc["companyName"] = domain.split(".")[0].title()
-            
-            # Insert lead
-            result = self.leads_collection.insert_one(lead_doc)
-            self.stats["leads_extracted"] += 1
-            logger.info(f"Lead extracted and saved: {email_addr} (ID: {result.inserted_id})")
+
+            try:
+                from ..leads.canonical_ingestion import ingest_lead
+            except ImportError:
+                from leads.canonical_ingestion import ingest_lead
+
+            ingest_result = ingest_lead(
+                payload=payload,
+                source="gmail",
+                source_detail="email_classification",
+                skip_classification=False,
+            )
+
+            if ingest_result.get("success"):
+                if ingest_result.get("action") in {"inserted", "updated"}:
+                    self.stats["leads_extracted"] += 1
+                logger.info(
+                    "Lead extracted via canonical ingestion: %s (action=%s)",
+                    email_addr,
+                    ingest_result.get("action"),
+                )
+            else:
+                logger.warning(
+                    "Canonical ingestion rejected lead %s: %s",
+                    email_addr,
+                    ingest_result.get("error"),
+                )
             
         except Exception as e:
             logger.error(f"Failed to extract lead from email {email.get('_id')}: {e}")

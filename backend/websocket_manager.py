@@ -105,6 +105,7 @@ class ConnectionManager:
             "cint_surveys": "CINT survey updates",
             "cpx_surveys": "CPX survey updates", 
             "sync_progress": "Email sync progress updates",
+            "lead_generation": "AI lead generation agent progress",
         }
         
         # Heartbeat interval in seconds

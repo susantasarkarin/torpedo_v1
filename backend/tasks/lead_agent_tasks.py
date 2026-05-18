@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 
 from celery_app import celery_app
-from db_pools import get_ai_db, get_ai_collection
+from db_pools import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 
 def get_agents_db():
     """Get database connection for agent operations."""
-    return get_ai_db()
+    db_name = os.getenv("LEAD_AGENTS_DB", "email_automation")
+    return get_db(db_name)
 
 
 def update_job_status(
@@ -123,17 +124,30 @@ def run_lead_generation_pipeline(
         Job result summary
     """
     from bson import ObjectId
-    from agents import (
-        CompanyDiscoveryAgent,
-        ContactFinderAgent,
-        LeadEnricherAgent,
-        LeadScorerAgent,
-        OutreachComposerAgent,
-        LeadDeduplicator,
-        DAILY_LEAD_LIMIT,
-        LEADS_PER_BATCH,
-    )
-    from agents.schemas import AgentConfig, AgentStatus
+    try:
+        from ..agents import (
+            CompanyDiscoveryAgent,
+            ContactFinderAgent,
+            LeadEnricherAgent,
+            LeadScorerAgent,
+            OutreachComposerAgent,
+            LeadDeduplicator,
+            DAILY_LEAD_LIMIT,
+            LEADS_PER_BATCH,
+        )
+        from ..agents.schemas import AgentConfig, AgentStatus
+    except ImportError:
+        from agents import (
+            CompanyDiscoveryAgent,
+            ContactFinderAgent,
+            LeadEnricherAgent,
+            LeadScorerAgent,
+            OutreachComposerAgent,
+            LeadDeduplicator,
+            DAILY_LEAD_LIMIT,
+            LEADS_PER_BATCH,
+        )
+        from agents.schemas import AgentConfig, AgentStatus
     
     db = get_agents_db()
     task_id = self.request.id

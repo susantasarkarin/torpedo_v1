@@ -3,35 +3,64 @@ Lead Generation Agents API Router
 FastAPI endpoints for AI agent operations
 """
 
-import os
+import asyncio
 import io
 import csv
+import os
 import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Body, Query
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Body, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 from pymongo import MongoClient
 from bson import ObjectId
 
-from agents import (
-    AGENT_REGISTRY,
-    DAILY_LEAD_LIMIT,
-    LEADS_PER_BATCH,
-    LeadDeduplicator,
-)
-from agents.schemas import (
-    AgentConfig,
-    AgentJobStatus,
-    AgentQuotaStatus,
-    AgentStatus,
-    AgentType,
-    CompanyDiscoveryConfig,
-    ContactFinderConfig,
-    LeadEnricherConfig,
-    LeadScorerConfig,
-    OutreachComposerConfig,
-)
+# WebSocket manager (optional — graceful if not available)
+try:
+    from websocket_manager import connection_manager as _ws_manager
+    _WS_AVAILABLE = True
+except ImportError:
+    _ws_manager = None
+    _WS_AVAILABLE = False
+
+try:
+    from ..agents import (
+        AGENT_REGISTRY,
+        DAILY_LEAD_LIMIT,
+        LEADS_PER_BATCH,
+        LeadDeduplicator,
+    )
+    from ..agents.schemas import (
+        AgentConfig,
+        AgentJobStatus,
+        AgentQuotaStatus,
+        AgentStatus,
+        AgentType,
+        CompanyDiscoveryConfig,
+        ContactFinderConfig,
+        LeadEnricherConfig,
+        LeadScorerConfig,
+        OutreachComposerConfig,
+    )
+except ImportError:
+    from agents import (
+        AGENT_REGISTRY,
+        DAILY_LEAD_LIMIT,
+        LEADS_PER_BATCH,
+        LeadDeduplicator,
+    )
+    from agents.schemas import (
+        AgentConfig,
+        AgentJobStatus,
+        AgentQuotaStatus,
+        AgentStatus,
+        AgentType,
+        CompanyDiscoveryConfig,
+        ContactFinderConfig,
+        LeadEnricherConfig,
+        LeadScorerConfig,
+        OutreachComposerConfig,
+    )
 
 router = APIRouter(prefix="/leads/agents", tags=["Lead Generation Agents"])
 
@@ -209,7 +238,10 @@ async def import_companies(
         
         # Optionally trigger contact finder
         if run_contact_finder and company_ids:
-            from tasks.lead_agent_tasks import run_lead_generation_pipeline
+            try:
+                from ..tasks.lead_agent_tasks import run_lead_generation_pipeline
+            except ImportError:
+                from tasks.lead_agent_tasks import run_lead_generation_pipeline
             
             job_id = str(uuid.uuid4())
             
@@ -328,7 +360,10 @@ async def run_agents(request: RunAgentsRequest):
     agent_jobs_collection.insert_one(job_doc)
     
     # Queue the pipeline task
-    from tasks.lead_agent_tasks import run_lead_generation_pipeline
+    try:
+        from ..tasks.lead_agent_tasks import run_lead_generation_pipeline
+    except ImportError:
+        from tasks.lead_agent_tasks import run_lead_generation_pipeline
     
     run_lead_generation_pipeline.delay(
         job_id=job_id,
@@ -773,3 +808,58 @@ async def delete_draft(draft_id: str):
         return {"success": True, "message": "Draft deleted"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== WEBSOCKET ENDPOINTS ==============
+
+_AGENT_WS_CHANNEL = "lead_generation"
+
+
+@router.websocket("/ws/{job_id}")
+async def agent_job_websocket(websocket: WebSocket, job_id: str):
+    """
+    WebSocket endpoint for real-time agent job progress.
+
+    Connect for a specific job (or 'all' for all jobs) to receive:
+    - agent_progress: incremental pipeline updates
+    - job_completed / job_failed: terminal events
+    - heartbeat: keep-alive every 30 s
+    """
+    if not _WS_AVAILABLE or _ws_manager is None:
+        await websocket.close(code=1011, reason="WebSocket manager not available")
+        return
+
+    connected = await _ws_manager.connect(
+        websocket,
+        channel=_AGENT_WS_CHANNEL,
+        metadata={"job_id": job_id, "connected_from": "agent_router"},
+    )
+    if not connected:
+        return
+
+    try:
+        while True:
+            try:
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=35.0)
+                try:
+                    msg = __import__("json").loads(data)
+                    if msg.get("type") == "ping":
+                        await websocket.send_json(
+                            {"type": "pong", "timestamp": datetime.utcnow().isoformat()}
+                        )
+                except Exception:
+                    pass
+            except asyncio.TimeoutError:
+                try:
+                    await websocket.send_json(
+                        {"type": "heartbeat", "timestamp": datetime.utcnow().isoformat()}
+                    )
+                except Exception:
+                    break
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).error("Agent WebSocket error: %s", exc)
+    finally:
+        _ws_manager.disconnect(websocket, _AGENT_WS_CHANNEL)

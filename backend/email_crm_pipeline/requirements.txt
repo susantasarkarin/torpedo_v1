@@ -1,0 +1,4 @@
+anthropic>=0.53.0
+apscheduler>=3.10.4
+python-dotenv>=1.0.1
+pymongo>=4.8.0
