@@ -318,9 +318,6 @@ async def general_exception_handler(request, exc):
 import time as perf_time
 from starlette.middleware.base import BaseHTTPMiddleware
 
-LOG_ALL_REQUEST_TIMINGS = os.getenv("LOG_ALL_REQUEST_TIMINGS", "0").lower() in {"1", "true", "yes", "on"}
-REQUEST_SLOW_MS = float(os.getenv("REQUEST_SLOW_MS", "1000"))
-
 class TimingMiddleware(BaseHTTPMiddleware):
     """Track request timing and add X-Response-Time header"""
     
@@ -329,11 +326,10 @@ class TimingMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         process_time = (perf_time.perf_counter() - start_time) * 1000
         response.headers["X-Response-Time"] = f"{process_time:.2f}ms"
-
-        if LOG_ALL_REQUEST_TIMINGS:
-            print(f"{request.method} {request.url.path} -> {process_time:.2f}ms")
-        elif process_time > REQUEST_SLOW_MS:
-            print(f"SLOW REQUEST: {request.method} {request.url.path} - {process_time:.0f}ms")
+        
+        # Log slow requests (>1 second)
+        if process_time > 1000:
+            print(f"âš ï¸ SLOW REQUEST: {request.method} {request.url.path} - {process_time:.0f}ms")
         
         return response
 
@@ -740,6 +736,9 @@ try:
     except Exception as _leads_err:
         print(f"âš ï¸ Leads router not included: {_leads_err}")
     register_simple_routers(app)
+    from routers.auth_handler import router as _auth_router
+    app.include_router(_auth_router)
+    print("âœ… auth_handler router included")
 except Exception as e:
     print(f"âš ï¸ router_registry failed: {e}")
     import traceback; traceback.print_exc()

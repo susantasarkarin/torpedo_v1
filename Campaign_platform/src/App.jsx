@@ -209,6 +209,7 @@ function App() {
         <Route path="sales/campaign/email-patterns" element={<LazyPage><EmailPatterns /></LazyPage>} />
         <Route path="sales/campaign/workflow" element={<LazyPage><Workflow /></LazyPage>} />
         <Route path="sales/outreach" element={<LazyPage><ColdOutreach /></LazyPage>} />
+        <Route path="sales/account" element={<LazyPage><AccountsPage /></LazyPage>} />
 
         {/* AI Agent Routes */}
         <Route path="sales/company-upload" element={<LazyPage><CompanyUpload /></LazyPage>} />
