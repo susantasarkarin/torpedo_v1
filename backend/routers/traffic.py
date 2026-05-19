@@ -2616,7 +2616,7 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
                 if value is None:
                     continue
                 candidate = str(value).strip()
-                if "@" in candidate:
+                if candidate:
                     return candidate
 
             return ""

@@ -179,7 +179,7 @@ function extractEmailFromParams(params = {}) {
 
   for (const key of candidateKeys) {
     const value = String(params?.[key] || "").trim();
-    if (value && value.includes("@")) {
+    if (value) {
       return value;
     }
   }
