@@ -19,6 +19,7 @@ import logging
 import argparse
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 from bson import ObjectId
@@ -31,7 +32,7 @@ from database import get_collection
 from email_crm_pipeline.config import (
     ANTHROPIC_API_KEY, CLASSIFIER_MODEL, BATCH_SIZE, BATCH_POLL_INTERVAL,
     CLASSIFIER_MAX_TOKENS, MAX_ITEM_RETRIES, DB_EMAIL_SYNC, COL_EMAILS, DB_CRM,
-    COL_EMAIL_EXTRACTIONS, COL_PIPELINE_STATE, PIPELINE_STATE_DOC_ID,
+    COL_EMAIL_EXTRACTIONS, COL_PIPELINE_STATE, PIPELINE_STATE_DOC_ID, EMAIL_POOL_FILE,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -64,6 +65,7 @@ Analyse the provided email and extract structured data. Return ONLY a single val
   set job_change_signal.detected=true.
 - Extract phone numbers and LinkedIn URLs only if explicitly present in the email.
 - rfq_status should reflect only what can be inferred from THIS single email thread.
+- If the source record includes attachments_text, read and use it. If not, attachment filenames may still help.
 
 === OUTPUT SCHEMA ===
 {
@@ -118,6 +120,100 @@ def _get_collections():
     return emails_col, extractions_col, state_col
 
 
+def _parse_timestamp(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str) and value:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
+def _normalize_email_record(email: dict) -> Optional[dict]:
+    """Normalize either JSONL prompt-style records or Mongo-style records."""
+    source_id = email.get("_id") or email.get("email_id")
+    if source_id is None:
+        return None
+
+    def _as_people(value: Any) -> list[dict]:
+        if isinstance(value, list):
+            out = []
+            for item in value:
+                if isinstance(item, dict):
+                    out.append({"name": item.get("name"), "email": item.get("email")})
+                elif isinstance(item, str):
+                    out.append({"name": None, "email": item})
+            return out
+        if isinstance(value, str) and value:
+            return [{"name": None, "email": value}]
+        return []
+
+    from_value = email.get("from_address") or email.get("from") or {}
+    if isinstance(from_value, str):
+        from_value = {"email": from_value}
+
+    body = email.get("body_plain") or email.get("body") or ""
+    attachments_text = email.get("attachments_text")
+    if not attachments_text and email.get("attachments"):
+        attachment_names = []
+        for item in (email.get("attachments") or [])[:10]:
+            if isinstance(item, dict):
+                name = item.get("filename") or item.get("name")
+                text = item.get("text") or item.get("content")
+                if text:
+                    attachment_names.append(str(text))
+                elif name:
+                    attachment_names.append(str(name))
+            elif isinstance(item, str):
+                attachment_names.append(item)
+        attachments_text = "\n".join(attachment_names) if attachment_names else None
+
+    normalized = {
+        "_id": str(source_id),
+        "from_address": from_value,
+        "to_addresses": _as_people(email.get("to_addresses") or email.get("to")),
+        "cc_addresses": _as_people(email.get("cc_addresses") or email.get("cc")),
+        "subject": email.get("subject", ""),
+        "body_plain": body,
+        "attachments_text": attachments_text,
+        "direction": email.get("direction", "inbound"),
+        "timestamp": _parse_timestamp(email.get("timestamp") or email.get("date") or email.get("last_communication_date")),
+        "mailbox_id": email.get("mailbox_id"),
+        "source_record": email,
+    }
+    return normalized
+
+
+def load_email_pool_from_jsonl(path: Path, since_date: Optional[datetime], limit: Optional[int]) -> list[dict]:
+    """Load prompt-style JSONL email records from disk."""
+    if not path.exists():
+        return []
+
+    emails: list[dict] = []
+    with open(path, "r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                raw = json.loads(line)
+            except json.JSONDecodeError:
+                log.warning("Skipping invalid JSONL row in %s", path)
+                continue
+            normalized = _normalize_email_record(raw)
+            if not normalized:
+                continue
+            if since_date and normalized["timestamp"] and normalized["timestamp"] < since_date:
+                continue
+            emails.append(normalized)
+            if limit and len(emails) >= limit:
+                break
+    return emails
+
+
 def get_unprocessed_emails(
     since_date: Optional[datetime],
     limit: Optional[int],
@@ -137,7 +233,14 @@ def get_unprocessed_emails(
     cursor = emails_col.find(query).sort("timestamp", 1)
     if limit:
         cursor = cursor.limit(limit)
-    return list(cursor)
+    normalized: list[dict] = []
+    for email in cursor:
+        record = _normalize_email_record(email)
+        if record:
+            if since_date and record["timestamp"] and record["timestamp"] < since_date:
+                continue
+            normalized.append(record)
+    return normalized
 
 
 def _format_email_for_prompt(email: dict) -> str:
@@ -164,6 +267,7 @@ def _format_email_for_prompt(email: dict) -> str:
     if len(body) > 3000:
         body = body[:3000] + "\n[...truncated...]"
 
+    attachments_text = email.get("attachments_text")
     attachments = email.get("attachments") or []
     attachment_names = []
     for item in attachments[:10]:
@@ -181,6 +285,9 @@ def _format_email_for_prompt(email: dict) -> str:
     ]
     if cc_list:
         lines.append(f"CC: {', '.join(cc_list)}")
+    if attachments_text:
+        lines.append("ATTACHMENTS_TEXT:")
+        lines.append(str(attachments_text)[:4000])
     if attachment_names:
         lines.append(f"ATTACHMENTS: {', '.join(attachment_names)}")
     lines += [
@@ -324,7 +431,7 @@ def process_batch_results(
     batch_id: str,
     email_map: dict[str, dict],
     extractions_col: Any,
-    emails_col: Any,
+    emails_col: Any = None,
     dry_run: bool = False,
 ) -> dict[str, int]:
     """
@@ -375,6 +482,7 @@ def process_batch_results(
             extraction["_email_direction"] = email_doc.get("direction", "inbound")
             extraction["_email_timestamp"] = email_doc.get("timestamp")
             extraction["_mailbox_id"] = str(email_doc.get("mailbox_id", ""))
+            extraction["_source_subject"] = email_doc.get("subject", "")
 
         if not dry_run:
             extractions_col.update_one(
@@ -393,7 +501,7 @@ def process_batch_results(
             counts["saved"] += 1
 
     # Bulk-mark source emails as processed
-    if processed_email_ids and not dry_run:
+    if processed_email_ids and emails_col is not None and not dry_run:
         emails_col.update_many(
             {"_id": {"$in": processed_email_ids}},
             {"$set": {"crm_pipeline_processed": True}},
@@ -411,6 +519,7 @@ def run_classification(
     since_date: Optional[datetime] = None,
     limit: Optional[int] = None,
     dry_run: bool = False,
+    input_path: Optional[Path] = None,
 ) -> dict:
     """
     Full classification run:
@@ -425,9 +534,15 @@ def run_classification(
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     emails_col, extractions_col, state_col = _get_collections()
 
-    emails = get_unprocessed_emails(since_date, limit, emails_col)
+    source_path = input_path or EMAIL_POOL_FILE
+    if source_path and Path(source_path).exists():
+        emails = load_email_pool_from_jsonl(Path(source_path), since_date, limit)
+        source_mode = "jsonl"
+    else:
+        emails = get_unprocessed_emails(since_date, limit, emails_col)
+        source_mode = "mongo"
     total = len(emails)
-    log.info("Found %d unprocessed emails to classify", total)
+    log.info("Found %d emails to classify (source=%s)", total, source_mode)
 
     if total == 0:
         return {"total": 0, "saved": 0, "failed": 0, "retried": 0, "batches": 0}
@@ -465,7 +580,7 @@ def run_classification(
             )
             poll_batch(client, batch_id)
             counts = process_batch_results(
-                client, batch_id, email_map, extractions_col, emails_col
+                client, batch_id, email_map, extractions_col, emails_col if source_mode == "mongo" else None
             )
             state_col.update_one(
                 {"_id": PIPELINE_STATE_DOC_ID},
@@ -508,6 +623,11 @@ if __name__ == "__main__":
         help="Maximum number of emails to process in this run",
     )
     parser.add_argument(
+        "--input",
+        metavar="PATH",
+        help="Path to email_pool.jsonl (overrides Mongo source if present)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Preview what would happen without writing to MongoDB or calling Anthropic",
@@ -518,5 +638,10 @@ if __name__ == "__main__":
     if args.since:
         since = datetime.fromisoformat(args.since).replace(tzinfo=timezone.utc)
 
-    result = run_classification(since_date=since, limit=args.limit, dry_run=args.dry_run)
+    result = run_classification(
+        since_date=since,
+        limit=args.limit,
+        dry_run=args.dry_run,
+        input_path=Path(args.input) if args.input else None,
+    )
     print(json.dumps(result, indent=2, default=str))

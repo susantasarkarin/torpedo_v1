@@ -68,7 +68,11 @@ def load_candidates(path: Path) -> list[dict]:
 def group_candidates(candidates: list[dict]) -> list[dict]:
     grouped: dict[tuple[str, str], dict] = {}
     for item in candidates:
-        account = (item.get("company") or "Unknown Account").strip()
+        account_value = item.get("account")
+        if isinstance(account_value, dict):
+            account = (account_value.get("company_name") or account_value.get("name") or "Unknown Account").strip()
+        else:
+            account = (account_value or item.get("company") or "Unknown Account").strip()
         country = (item.get("country") or "Unknown").strip()
         key = (account, country)
 
@@ -82,20 +86,21 @@ def group_candidates(candidates: list[dict]) -> list[dict]:
                 "rfq_history": [],
             }
 
-        email = (item.get("contact_email") or "").strip().lower()
+        contact = item.get("contact") or {}
+        email = (contact.get("email") or item.get("contact_email") or "").strip().lower()
         if email:
             grouped[key]["contacts"].append({
-                "name": item.get("contact_name"),
+                "name": contact.get("name") or item.get("contact_name"),
                 "email": email,
-                "designation": item.get("designation"),
+                "designation": contact.get("designation") or item.get("designation"),
             })
 
-        bucket = item.get("bucket") or "unknown"
+        bucket = item.get("bucket_type") or item.get("bucket") or "unknown"
         grouped[key]["bucket_types"].add(bucket)
 
         if item.get("relationship_context"):
             grouped[key]["contexts"].append(item["relationship_context"])
-        for rfq in item.get("rfq_history") or []:
+        for rfq in item.get("rfq_history_summary") or item.get("rfq_history") or []:
             if rfq:
                 grouped[key]["rfq_history"].append(str(rfq))
 

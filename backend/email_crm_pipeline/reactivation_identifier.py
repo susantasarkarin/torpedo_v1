@@ -116,15 +116,18 @@ def get_dormant_contacts(
 
         if last_date < cutoff:
             candidates.append({
+                "bucket_type": "dormant",
                 "bucket": "dormant",
-                "contact_email": row["_id"],
-                "contact_name": row.get("name"),
-                "designation": row.get("designation"),
-                "company": row.get("company"),
+                "contact": {
+                    "email": row["_id"],
+                    "name": row.get("name"),
+                    "designation": row.get("designation"),
+                },
+                "account": row.get("company"),
                 "country": row.get("country"),
                 "last_communication_date": last_date.isoformat(),
                 "total_exchanges": row["email_count"],
-                "rfq_history": [s for s in (row.get("rfq_summaries") or []) if s],
+                "rfq_history_summary": [s for s in (row.get("rfq_summaries") or []) if s],
                 "relationship_context": (
                     f"Had {row['email_count']} email exchanges; "
                     f"last contact was {(datetime.now(timezone.utc) - last_date).days} days ago."
@@ -179,18 +182,21 @@ def get_unanswered_outbound(
             days_since = None
 
         candidates.append({
+            "bucket_type": "unanswered_outbound",
             "bucket": "unanswered_outbound",
-            "contact_email": email,
-            "contact_name": doc.get("contact", {}).get("name"),
-            "designation": doc.get("contact", {}).get("designation"),
-            "company": doc.get("contact", {}).get("company_name"),
+            "contact": {
+                "email": email,
+                "name": doc.get("contact", {}).get("name"),
+                "designation": doc.get("contact", {}).get("designation"),
+            },
+            "account": doc.get("contact", {}).get("company_name"),
             "country": doc.get("contact", {}).get("country"),
             "last_communication_date": (
                 email_ts.isoformat() if isinstance(email_ts, datetime) else str(email_ts or "")
             ),
             "pitch_summary": doc.get("one_line_summary"),
             "days_since_sent": days_since,
-            "rfq_history": (
+            "rfq_history_summary": (
                 [doc["rfq"]["rfq_summary"]]
                 if doc.get("rfq", {}).get("rfq_summary") else []
             ),
@@ -240,10 +246,14 @@ def get_job_changers(
 
         seen_emails.add(email)
         candidates.append({
+            "bucket_type": "job_changer",
             "bucket": "job_changer",
-            "contact_email": email,
-            "contact_name": change.get("contact_name"),
-            "company": new_company,
+            "contact": {
+                "email": email,
+                "name": change.get("contact_name"),
+                "designation": change.get("designation"),
+            },
+            "account": new_company,
             "old_company": change.get("old_company"),
             "country": change.get("country"),
             "last_communication_date": (
@@ -251,7 +261,7 @@ def get_job_changers(
                 if isinstance(change.get("detected_at"), datetime)
                 else str(change.get("detected_at", ""))
             ),
-            "rfq_history": [],
+            "rfq_history_summary": [],
             "relationship_context": (
                 f"Previously worked at {change.get('old_company', 'unknown company')}; "
                 f"now at {new_company}. No prior relationship at new company."
@@ -292,6 +302,14 @@ def run_identification(output_path: Optional[Path] = None) -> dict:
     # Attach metadata
     for c in all_candidates:
         c["identified_at"] = run_date
+        if "contact" not in c:
+            c["contact"] = {
+                "email": c.get("contact_email"),
+                "name": c.get("contact_name"),
+                "designation": c.get("designation"),
+            }
+        if "account" not in c:
+            c["account"] = c.get("company")
 
     # Write JSONL
     out_path = output_path or REACTIVATION_FILE
@@ -305,7 +323,7 @@ def run_identification(output_path: Optional[Path] = None) -> dict:
     # Upsert into MongoDB for dashboard/tracking
     for c in all_candidates:
         reactivation_col.update_one(
-            {"contact_email": c["contact_email"], "bucket": c["bucket"]},
+            {"contact_email": c["contact"].get("email"), "bucket": c["bucket"]},
             {"$set": c},
             upsert=True,
         )

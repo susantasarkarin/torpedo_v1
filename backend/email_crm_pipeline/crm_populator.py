@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from pymongo import ReturnDocument
+from bson import ObjectId
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -55,6 +56,11 @@ def normalize_company_name(name: Optional[str]) -> str:
         return ""
     cleaned = _SUFFIX_RE.sub("", name)
     return re.sub(r"\s+", " ", cleaned).strip().lower()
+
+
+def relationship_key(company_name: Optional[str], country: Optional[str]) -> str:
+    """Stable key for a contact/account relationship entry."""
+    return f"{normalize_company_name(company_name)}|{(country or '').strip().lower()}"
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +138,21 @@ def upsert_contact(extraction: dict, contacts_col: Any, dry_run: bool = False) -
         "source": "email_pipeline",
         "tags": [tag] if tag else [],
     }
+
+    company_name = contact_data.get("company_name")
+    country = contact_data.get("country")
+    if company_name:
+        rel_key = relationship_key(company_name, country)
+        relationship_doc = {
+            "account_key": rel_key,
+            "company_name": company_name,
+            "country": country,
+            "active": True,
+            "first_seen_date": now,
+            "last_seen_date": now,
+        }
+        set_on_insert["account_relationships"] = {rel_key: relationship_doc}
+        set_fields[f"account_relationships.{rel_key}"] = relationship_doc
 
     if not dry_run:
         result = contacts_col.find_one_and_update(
@@ -230,6 +251,9 @@ def upsert_rfq(
 
     # Build dedup key from subject stored in extraction
     subject = extraction.get("one_line_summary", "") or ""
+    source_subject = extraction.get("_source_subject") or subject
+    if source_subject:
+        subject = source_subject
     subj_key = _subject_key(subject)
 
     # Use received_date month for dedup (group same RFQ across email threads)
@@ -272,7 +296,7 @@ def upsert_rfq(
 
     if not dry_run:
         existing = rfqs_col.find_one({
-            "contact_email": contact_email,
+            "account_id": account_id,
             "subject_key": subj_key,
             "received_month": received_month,
         })
@@ -292,10 +316,12 @@ def upsert_rfq(
                 "contact_email": contact_email,
                 "contact_id": contact_id,
                 "account_id": account_id,
+                "account_name": extraction.get("account", {}).get("company_name"),
                 "subject_key": subj_key,
                 "received_month": received_month,
                 "status": status,
                 "priority": "medium",
+                "subject": subject,
                 "project_type": rfq_data.get("project_type"),
                 "geography": rfq_data.get("geography"),
                 "summary": rfq_data.get("rfq_summary"),
@@ -410,6 +436,19 @@ def detect_and_record_job_change(
 
     if not dry_run:
         history_col.insert_one(history_doc)
+        if old_company:
+            country = extraction.get("contact", {}).get("country")
+            old_key = relationship_key(old_company, country)
+            contacts_col.update_one(
+                {"_id": ObjectId(contact_id)},
+                {
+                    "$set": {
+                        f"account_relationships.{old_key}.active": False,
+                        f"account_relationships.{old_key}.inactive_at": now,
+                        f"account_relationships.{old_key}.last_seen_date": now,
+                    }
+                },
+            )
         log.info("Recorded job change for contact %s: %s → %s", contact_id, old_company, new_company)
     else:
         log.info(

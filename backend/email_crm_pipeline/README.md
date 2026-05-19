@@ -25,6 +25,12 @@ Python pipeline for:
    - `MONGO_URI`
    - `ANTHROPIC_API_KEY`
 
+## Input Format
+- Default source file: `./data/email_pool.jsonl`
+- Each JSONL row can use the prompt schema:
+  - `email_id`, `from`, `to`, `cc`, `date`, `subject`, `body`, `attachments_text`
+- Override the file path with `EMAIL_POOL_FILE` or the classifier CLI `--input` flag.
+
 ## Run Manually
 - Task 1: `python -m backend.email_crm_pipeline.email_classifier --limit 100`
 - Task 2: `python -m backend.email_crm_pipeline.crm_populator`
@@ -41,7 +47,7 @@ Default monthly trigger is day 1 at 02:00 UTC. Override with env vars:
 - `PIPELINE_MONTHLY_MINUTE_UTC`
 
 ## Data Flow
-- Reads source emails from `campaign_platform.emails` (or `MONGO_DB_NAME` if overridden)
+- Reads source emails from `./data/email_pool.jsonl` when present, otherwise falls back to MongoDB (`campaign_platform.emails` or `EMAIL_SOURCE_DB.EMAIL_SOURCE_COLLECTION`)
 - Stores extraction output in `email_automation.email_crm_extractions`
 - Populates existing CRM collections:
   - `email_automation.contacts`

@@ -19,11 +19,17 @@ load_dotenv(_PROJECT_ROOT / ".env", override=False)
 # ---------------------------------------------------------------------------
 ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 
-# Classification: claude-opus-4-7 for best extraction accuracy
-CLASSIFIER_MODEL = "claude-opus-4-7"
+# Default Anthropic model requested by the master prompt.
+# Environment overrides are supported for temporary experimentation.
+CLASSIFIER_MODEL = os.getenv(
+	"EMAIL_PIPELINE_CLASSIFIER_MODEL",
+	os.getenv("CLASSIFICATION_MODEL", "claude-sonnet-4-20250514"),
+)
 
-# Drafting: claude-sonnet-4-5 for balanced quality/cost on creative writing
-DRAFTER_MODEL = "claude-sonnet-4-5"
+DRAFTER_MODEL = os.getenv(
+	"EMAIL_PIPELINE_DRAFTER_MODEL",
+	os.getenv("DRAFTING_MODEL", "claude-sonnet-4-20250514"),
+)
 
 # Emails sent per Anthropic Batch API call (max 10,000; keep at 100 for safety)
 BATCH_SIZE: int = int(os.getenv("EMAIL_PIPELINE_BATCH_SIZE", "100"))
@@ -43,19 +49,21 @@ DRAFTER_MAX_TOKENS = 512
 # ---------------------------------------------------------------------------
 # MongoDB — Email Sync Source
 # ---------------------------------------------------------------------------
-# The email_sync module stores emails in the database named by MONGO_DB_NAME
-DB_EMAIL_SYNC: str = os.getenv("MONGO_DB_NAME", "campaign_platform")
-COL_EMAILS = "emails"
-COL_MAILBOXES = "mailboxes"
+# The email_sync module stores emails in the database named by MONGO_DB_NAME.
+# Keep EMAIL_SOURCE_DB / EMAIL_SOURCE_COLLECTION for compatibility with the
+# prompt and existing environment templates.
+DB_EMAIL_SYNC: str = os.getenv("EMAIL_SOURCE_DB", os.getenv("MONGO_DB_NAME", "campaign_platform"))
+COL_EMAILS = os.getenv("EMAIL_SOURCE_COLLECTION", "emails")
+COL_MAILBOXES = os.getenv("EMAIL_SOURCE_MAILBOX_COLLECTION", "mailboxes")
 
 # ---------------------------------------------------------------------------
 # MongoDB — CRM Target (existing production collections)
 # ---------------------------------------------------------------------------
-DB_CRM = "email_automation"
-COL_CONTACTS = "contacts"          # upsert key: email
-COL_SALES_ACCOUNTS = "sales_accounts"  # upsert key: (normalized_name, country)
-COL_RFQS = "rfqs"                  # upsert key: (contact_email, subject_key, month)
-COL_VENDORS = "vendors"            # existing panel vendor registry (read-only here)
+DB_CRM = os.getenv("CRM_TARGET_DB", "email_automation")
+COL_CONTACTS = os.getenv("CONTACTS_COLLECTION", "contacts")          # upsert key: email
+COL_SALES_ACCOUNTS = os.getenv("ACCOUNTS_COLLECTION", "sales_accounts")  # upsert key: (normalized_name, country)
+COL_RFQS = os.getenv("RFQS_COLLECTION", "rfqs")                  # upsert key: (account_id, subject_key, month)
+COL_VENDORS = os.getenv("VENDORS_COLLECTION", "vendors")            # existing panel vendor registry (read-only here)
 COL_FINANCE_LOG = os.getenv("FINANCE_LOG_COLLECTION", "finance_email_log")
 
 # ---------------------------------------------------------------------------
@@ -80,6 +88,7 @@ COL_REACTIVATION = "reactivation_candidates"
 # File output paths
 # ---------------------------------------------------------------------------
 PIPELINE_DATA_DIR = Path(os.getenv("PIPELINE_DATA_DIR", str(_PROJECT_ROOT / "data")))
+EMAIL_POOL_FILE = Path(os.getenv("EMAIL_POOL_FILE", str(PIPELINE_DATA_DIR / "email_pool.jsonl")))
 REACTIVATION_FILE = PIPELINE_DATA_DIR / "reactivation_candidates.jsonl"
 DRAFTS_FILE = PIPELINE_DATA_DIR / "reactivation_drafts.jsonl"
 
