@@ -7,7 +7,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from ..router_shared import ai_companies_collection, _jobs_db, web_search_jobs_collection
+from ..router_shared import ai_companies_collection, _jobs_db, web_search_jobs_collection, _mongo_client
 from ..service import leads_enriched_collection
 
 def register_icp_routes(router: APIRouter):
