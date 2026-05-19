@@ -166,6 +166,27 @@ function normalizeCountryCode(value) {
   return normalized;
 }
 
+function extractEmailFromParams(params = {}) {
+  const candidateKeys = [
+    "email",
+    "email_id",
+    "emailid",
+    "user_email",
+    "mail",
+    "mail_id",
+    "mailid",
+  ];
+
+  for (const key of candidateKeys) {
+    const value = String(params?.[key] || "").trim();
+    if (value && value.includes("@")) {
+      return value;
+    }
+  }
+
+  return "";
+}
+
 export default function TrafficFlowParser() {
   const [urlParams, setUrlParams] = useState({});
   const [fullUrl, setFullUrl] = useState("");
@@ -372,6 +393,7 @@ export default function TrafficFlowParser() {
             ...urlParams,
             cc: effectiveCountryCode,
           },
+          email: extractEmailFromParams(urlParams),
           userAgent: navigator.userAgent,
           // IP data from server-side prefetch (fast) or fallback
           clientIp: ipResult.ip || null,

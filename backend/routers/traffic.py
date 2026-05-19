@@ -2593,8 +2593,35 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         device_fingerprint = data.get('deviceFingerprint', '')
         fingerprint_components = data.get('fingerprintComponents', {})
         
-        # Extract email from client (mandatory field)
-        user_email = data.get('email', '').strip()
+        # Extract email from client.
+        # Fallback to common URL param names because parsing pages may only forward
+        # query params and not a dedicated body email field.
+        def _extract_user_email(payload: Dict[str, Any], parsed_params: Dict[str, Any]) -> str:
+            candidate_keys = (
+                "email",
+                "email_id",
+                "emailid",
+                "user_email",
+                "mail",
+                "mail_id",
+                "mailid",
+            )
+
+            body_email = str(payload.get("email") or "").strip()
+            if body_email:
+                return body_email
+
+            for key in candidate_keys:
+                value = parsed_params.get(key)
+                if value is None:
+                    continue
+                candidate = str(value).strip()
+                if "@" in candidate:
+                    return candidate
+
+            return ""
+
+        user_email = _extract_user_email(data, params)
         if user_email:
             print(f"ðŸ“§ User email: {user_email}")
 
