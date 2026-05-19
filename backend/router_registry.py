@@ -140,7 +140,8 @@ def register_simple_routers(app: FastAPI) -> None:
     try:
         from routers import panel_admin as panel_admin_router
         app.include_router(panel_admin_router.router)
-        print("✅ Panel Admin router included")
+        app.include_router(panel_admin_router.router, prefix="/api")
+        print("✅ Panel Admin router included (/panel-admin and /api/panel-admin)")
     except Exception as e:
         print(f"⚠️ Panel Admin router not included: {e}")
 
