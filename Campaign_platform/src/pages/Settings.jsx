@@ -1648,21 +1648,6 @@ function Settings() {
                 </div>
               </div>
 
-              <div className="settings-group settings-grid-full">
-                <h3>📄 Google Sheets Service Account</h3>
-                <div className="setting-row">
-                  <label>Service Account JSON</label>
-                  <textarea
-                    placeholder={maskedSettings.google_sheets_service_account_masked || '{"type": "service_account", ...}'}
-                    value={appSettings.google_sheets_service_account}
-                    onChange={(e) => handleAppSettingChange("google_sheets_service_account", e.target.value)}
-                    rows={3}
-                    style={{ fontFamily: 'monospace', fontSize: '11px', width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #d1d5db' }}
-                  />
-                  <p className="setting-hint">Full JSON key for Sheets API. Download from <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener noreferrer">Service Accounts</a></p>
-                </div>
-              </div>
-
               {/* Survey Filter Settings */}
               <div className="settings-group">
                 <h3>📋 Survey Filters</h3>
