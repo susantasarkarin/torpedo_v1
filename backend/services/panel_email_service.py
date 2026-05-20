@@ -13,6 +13,7 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 import boto3
 from botocore.exceptions import ClientError
@@ -21,6 +22,8 @@ from pymongo import MongoClient
 from services.panel_bounce_handler import (
     is_suppressed,
     has_been_invited,
+  has_been_invited_today,
+  is_double_opted_in,
     log_invitation,
     suppression_collection,
     invitation_log_collection,
@@ -40,6 +43,11 @@ AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
 SES_FROM_EMAIL = os.getenv("PANEL_SES_FROM_EMAIL", os.getenv("SES_FROM_EMAIL", "noreply@surveyfieldwork.com"))
 SES_FROM_NAME = os.getenv("PANEL_SES_FROM_NAME", "SurveyFieldwork")
+PANEL_SIGNUP_URL = os.getenv("PANEL_SIGNUP_URL", "https://panel.surveyfieldwork.com/signup")
+PANEL_INVITE_JOIN_URL = os.getenv("PANEL_INVITE_JOIN_URL", "https://torpedo.cogentixresearch.com/api/panel/invite/join")
+PANEL_TEMPLATE_VERSION = os.getenv("PANEL_TEMPLATE_VERSION", "panel-invite-v3")
+PANEL_SEND_TIMEZONE = os.getenv("PANEL_SEND_TIMEZONE", "Asia/Kolkata")
+PANEL_DAILY_SEND_CAP = int(os.getenv("PANEL_DAILY_SEND_CAP", "1000"))
 
 # Rate limiting: SES sandbox = 1/sec, production = 14/sec
 SES_SEND_RATE = float(os.getenv("PANEL_SES_SEND_RATE", "1"))  # emails per second
@@ -56,9 +64,15 @@ def _get_ses_client():
 
 # ============== HTML INVITATION TEMPLATE ==============
 
-def _build_invitation_html(first_name: str = "") -> str:
+def _build_join_link(invite_token: str) -> str:
+  token = quote(invite_token.strip())
+  return f"{PANEL_INVITE_JOIN_URL}?token={token}"
+
+
+def _build_invitation_html(first_name: str = "", join_link: str = "") -> str:
     """Build a beautiful, responsive HTML invitation email."""
     greeting = f"Hi {first_name}," if first_name else "Hello,"
+  cta_link = join_link or PANEL_SIGNUP_URL
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -67,26 +81,26 @@ def _build_invitation_html(first_name: str = "") -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>You're Invited to SurveyFieldwork</title>
 </head>
-<body style="margin:0;padding:0;background-color:#f4f6f9;font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f6f9;padding:40px 20px;">
+<body style="margin:0;padding:0;background:#f7fafc;font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7fafc;padding:40px 20px;">
     <tr>
       <td align="center">
         <!-- Main Container -->
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 12px 32px rgba(15,23,42,0.12);">
 
           <!-- Header -->
           <tr>
-            <td style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 50%,#a855f7 100%);padding:48px 40px;text-align:center;">
+            <td style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 55%,#334155 100%);padding:44px 40px;text-align:center;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td align="center">
-                    <div style="width:64px;height:64px;background-color:rgba(255,255,255,0.2);border-radius:16px;display:inline-block;line-height:64px;font-size:28px;color:#ffffff;font-weight:bold;margin-bottom:16px;">SF</div>
+                    <div style="width:64px;height:64px;background-color:rgba(255,255,255,0.16);border-radius:16px;display:inline-block;line-height:64px;font-size:28px;color:#ffffff;font-weight:bold;margin-bottom:16px;">CR</div>
                   </td>
                 </tr>
                 <tr>
                   <td align="center" style="padding-top:8px;">
-                    <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:700;letter-spacing:-0.5px;">You're Invited!</h1>
-                    <p style="margin:8px 0 0;color:rgba(255,255,255,0.85);font-size:15px;font-weight:400;">Join thousands earning rewards for sharing their opinions</p>
+                    <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:700;letter-spacing:-0.4px;">Join The Cogentix Panel</h1>
+                    <p style="margin:10px 0 0;color:rgba(255,255,255,0.9);font-size:15px;font-weight:400;">Complete a quick double opt-in and start earning from verified surveys</p>
                   </td>
                 </tr>
               </table>
@@ -99,33 +113,40 @@ def _build_invitation_html(first_name: str = "") -> str:
               <p style="margin:0 0 20px;color:#1f2937;font-size:16px;line-height:1.6;">
                 {greeting}
               </p>
-              <p style="margin:0 0 24px;color:#374151;font-size:15px;line-height:1.7;">
-                We'd love for you to be part of <strong>SurveyFieldwork</strong> — a premium survey panel where your opinions shape products, services, and policies around the world.
+              <p style="margin:0 0 24px;color:#334155;font-size:15px;line-height:1.7;">
+                You're one click away from joining our verified respondent community. Use your personal invite button below, complete double opt-in on the panel, and you'll start receiving quality invites.
               </p>
 
               <!-- Benefits -->
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
                 <tr>
-                  <td style="padding:16px 20px;background-color:#f0fdf4;border-radius:12px;border-left:4px solid #22c55e;">
+                  <td style="padding:16px 20px;background-color:#fff7ed;border-radius:12px;border-left:4px solid #f97316;">
                     <table role="presentation" cellpadding="0" cellspacing="0">
                       <tr>
                         <td style="padding-bottom:12px;">
                           <span style="color:#15803d;font-size:18px;margin-right:8px;">&#10003;</span>
-                          <strong style="color:#166534;font-size:14px;">Earn Real Rewards</strong>
+                          <strong style="color:#9a3412;font-size:14px;">Paid Surveys</strong>
                           <span style="color:#4b5563;font-size:13px;"> — Cash out via PayPal, gift cards, or bank transfer</span>
                         </td>
                       </tr>
                       <tr>
                         <td style="padding-bottom:12px;">
                           <span style="color:#15803d;font-size:18px;margin-right:8px;">&#10003;</span>
-                          <strong style="color:#166534;font-size:14px;">Quick Surveys</strong>
+                          <strong style="color:#9a3412;font-size:14px;">Fast Participation</strong>
                           <span style="color:#4b5563;font-size:13px;"> — Most take just 5-15 minutes to complete</span>
                         </td>
                       </tr>
                       <tr>
                         <td style="padding-bottom:12px;">
                           <span style="color:#15803d;font-size:18px;margin-right:8px;">&#10003;</span>
-                          <strong style="color:#166534;font-size:14px;">Your Privacy Matters</strong>
+                          <strong style="color:#9a3412;font-size:14px;">Double Opt-In Protection</strong>
+                          <span style="color:#4b5563;font-size:13px;"> — Only confirmed users stay active in the panel</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding-bottom:12px;">
+                          <span style="color:#15803d;font-size:18px;margin-right:8px;">&#10003;</span>
+                          <strong style="color:#9a3412;font-size:14px;">Your Privacy Matters</strong>
                           <span style="color:#4b5563;font-size:13px;"> — All responses are 100% anonymous</span>
                         </td>
                       </tr>
@@ -145,13 +166,17 @@ def _build_invitation_html(first_name: str = "") -> str:
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td align="center" style="padding:8px 0 32px;">
-                    <a href="https://panel.surveyfieldwork.com/signup"
-                       style="display:inline-block;padding:16px 48px;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#ffffff;text-decoration:none;font-size:16px;font-weight:700;border-radius:12px;letter-spacing:0.3px;box-shadow:0 4px 16px rgba(79,70,229,0.35);">
-                      Start Earning Now &rarr;
+                    <a href="{cta_link}"
+                       style="display:inline-block;padding:16px 44px;background:linear-gradient(135deg,#f97316,#ea580c);color:#ffffff;text-decoration:none;font-size:16px;font-weight:700;border-radius:12px;letter-spacing:0.3px;box-shadow:0 8px 20px rgba(249,115,22,0.35);">
+                      Join Panel & Confirm Email &rarr;
                     </a>
                   </td>
                 </tr>
               </table>
+
+              <p style="margin:0 0 18px;color:#64748b;font-size:12px;line-height:1.6;text-align:center;">
+                This is your unique join link. It is tied to your invitation profile.
+              </p>
 
               <!-- Social Proof -->
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #e5e7eb;padding-top:24px;">
@@ -161,16 +186,16 @@ def _build_invitation_html(first_name: str = "") -> str:
                     <table role="presentation" cellpadding="0" cellspacing="0">
                       <tr>
                         <td style="padding:0 16px;text-align:center;">
-                          <p style="margin:0;color:#4f46e5;font-size:24px;font-weight:800;">10K+</p>
+                          <p style="margin:0;color:#0f172a;font-size:24px;font-weight:800;">50K+</p>
                           <p style="margin:2px 0 0;color:#9ca3af;font-size:11px;">Active Members</p>
                         </td>
                         <td style="padding:0 16px;text-align:center;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;">
-                          <p style="margin:0;color:#4f46e5;font-size:24px;font-weight:800;">$50K+</p>
-                          <p style="margin:2px 0 0;color:#9ca3af;font-size:11px;">Rewards Paid</p>
+                          <p style="margin:0;color:#0f172a;font-size:24px;font-weight:800;">Daily</p>
+                          <p style="margin:2px 0 0;color:#9ca3af;font-size:11px;">Fresh Studies</p>
                         </td>
                         <td style="padding:0 16px;text-align:center;">
-                          <p style="margin:0;color:#4f46e5;font-size:24px;font-weight:800;">4.8/5</p>
-                          <p style="margin:2px 0 0;color:#9ca3af;font-size:11px;">Avg Rating</p>
+                          <p style="margin:0;color:#0f172a;font-size:24px;font-weight:800;">Secure</p>
+                          <p style="margin:2px 0 0;color:#9ca3af;font-size:11px;">Double Opt-In</p>
                         </td>
                       </tr>
                     </table>
@@ -209,22 +234,25 @@ def _build_invitation_html(first_name: str = "") -> str:
 </html>"""
 
 
-def _build_invitation_plain(first_name: str = "") -> str:
+def _build_invitation_plain(first_name: str = "", join_link: str = "") -> str:
     """Build plain-text version of the invitation."""
     greeting = f"Hi {first_name}," if first_name else "Hello,"
+  cta_link = join_link or PANEL_SIGNUP_URL
     return f"""{greeting}
 
-You're invited to join SurveyFieldwork — a premium survey panel where your opinions shape products, services, and policies around the world.
+You're invited to join the Cogentix Research Panel.
+
+Use your unique link below and complete the panel double opt-in process.
 
 Why join?
-- Earn Real Rewards: Cash out via PayPal, gift cards, or bank transfer
-- Quick Surveys: Most take just 5-15 minutes
-- Your Privacy Matters: All responses are 100% anonymous
-- 100% Free: No fees, no catches
+- Paid surveys with real rewards
+- New opportunities added daily
+- Double opt-in keeps access secure
+- 100% free to join
 
-Start earning now: https://panel.surveyfieldwork.com/signup
+Join now: {cta_link}
 
-Trusted by 10K+ panelists worldwide.
+Note: this link is unique to your invitation.
 
 ---
 SurveyFieldwork
@@ -238,6 +266,7 @@ Privacy: https://panel.surveyfieldwork.com/privacy
 def send_invitation_email(
     to_email: str,
     first_name: str = "",
+  invite_token: str = "",
 ) -> Tuple[bool, Dict[str, Any]]:
     """
     Send a single invitation email via SES.
@@ -249,11 +278,13 @@ def send_invitation_email(
         msg = MIMEMultipart("alternative")
         msg["To"] = to_email
         msg["From"] = f"{SES_FROM_NAME} <{SES_FROM_EMAIL}>"
-        msg["Subject"] = "You're Invited to Earn Rewards with SurveyFieldwork!"
+        msg["Subject"] = "Complete your panel signup and start earning rewards"
         msg["Message-ID"] = f"<panel-{uuid.uuid4()}@surveyfieldwork.com>"
 
-        msg.attach(MIMEText(_build_invitation_plain(first_name), "plain", "utf-8"))
-        msg.attach(MIMEText(_build_invitation_html(first_name), "html", "utf-8"))
+        join_link = _build_join_link(invite_token) if invite_token else PANEL_SIGNUP_URL
+
+        msg.attach(MIMEText(_build_invitation_plain(first_name, join_link), "plain", "utf-8"))
+        msg.attach(MIMEText(_build_invitation_html(first_name, join_link), "html", "utf-8"))
 
         response = client.send_raw_email(
             Source=f"{SES_FROM_NAME} <{SES_FROM_EMAIL}>",
@@ -278,6 +309,8 @@ def send_invitation_email(
 def send_bulk_invitations(
     country: Optional[str] = None,
     force_resend: bool = False,
+  daily_mode: bool = False,
+  daily_cap: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Send invitation emails to all eligible panelists.
@@ -310,7 +343,14 @@ def send_bulk_invitations(
     seen_emails = set()
     send_interval = 1.0 / SES_SEND_RATE if SES_SEND_RATE > 0 else 1.0
 
+    cap_value = daily_cap if daily_cap is not None else PANEL_DAILY_SEND_CAP
+    capped = 0
+
     for panelist in panelist_cursor:
+      if daily_mode and sent >= cap_value:
+        capped += 1
+        continue
+
         email = (panelist.get("email") or "").lower().strip()
         if not email:
             skipped += 1
@@ -322,19 +362,31 @@ def send_bulk_invitations(
             continue
         seen_emails.add(email)
 
+        # Stop workflow once double opt-in is complete.
+        if is_double_opted_in(email):
+          skipped += 1
+          continue
+
         # Check suppression list
         if is_suppressed(email):
             skipped += 1
             continue
 
-        # Check already invited
-        if not force_resend and has_been_invited(email):
+        # Daily campaign mode: send at most once per local day.
+        if daily_mode:
+          if has_been_invited_today(email, timezone_name=PANEL_SEND_TIMEZONE):
+            skipped += 1
+            continue
+        else:
+          # Legacy mode: one-time invite unless force_resend is enabled.
+          if not force_resend and has_been_invited(email):
             skipped += 1
             continue
 
         # Send
         first_name = panelist.get("first_name", "")
-        success, details = send_invitation_email(email, first_name)
+        invite_token = uuid.uuid4().hex
+        success, details = send_invitation_email(email, first_name, invite_token=invite_token)
 
         if success:
             log_invitation(
@@ -343,6 +395,8 @@ def send_bulk_invitations(
                 batch_id=batch_id,
                 ses_message_id=details.get("ses_message_id", ""),
                 status="sent",
+            invite_token=invite_token,
+            template_version=PANEL_TEMPLATE_VERSION,
             )
             sent += 1
         else:
@@ -351,6 +405,8 @@ def send_bulk_invitations(
                 panelist_id=str(panelist["_id"]),
                 batch_id=batch_id,
                 status="failed",
+            invite_token=invite_token,
+            template_version=PANEL_TEMPLATE_VERSION,
             )
             failed += 1
 
@@ -363,11 +419,19 @@ def send_bulk_invitations(
         "sent": sent,
         "skipped": skipped,
         "failed": failed,
+      "capped": capped,
+      "daily_mode": daily_mode,
+      "daily_cap": cap_value if daily_mode else None,
+      "timezone": PANEL_SEND_TIMEZONE if daily_mode else None,
         "total_processed": sent + skipped + failed,
     }
 
 
-def get_eligible_count(country: Optional[str] = None, force_resend: bool = False) -> int:
+  def get_eligible_count(
+    country: Optional[str] = None,
+    force_resend: bool = False,
+    daily_mode: bool = False,
+  ) -> int:
     """
     Count how many panelists would receive an invitation
     (excluding suppressed and already invited).
@@ -381,10 +445,15 @@ def get_eligible_count(country: Optional[str] = None, force_resend: bool = False
         email = (panelist.get("email") or "").lower().strip()
         if not email:
             continue
+        if is_double_opted_in(email):
+          continue
         if is_suppressed(email):
             continue
-        if not force_resend and has_been_invited(email):
+        if daily_mode:
+          if has_been_invited_today(email, timezone_name=PANEL_SEND_TIMEZONE):
             continue
+        elif not force_resend and has_been_invited(email):
+          continue
         count += 1
 
     return count

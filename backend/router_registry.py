@@ -148,8 +148,11 @@ def register_simple_routers(app: FastAPI) -> None:
     try:
         from routers import panel_invitations as panel_invitations_router
         from routers import panel_ses_webhook as panel_ses_webhook_router
+        from routers import panel_join as panel_join_router
         app.include_router(panel_invitations_router.router)
         app.include_router(panel_ses_webhook_router.router)
+        app.include_router(panel_join_router.router)
+        app.include_router(panel_join_router.router, prefix="/api")
         print("✅ Panel mailing routers included")
     except Exception as e:
         print(f"⚠️ Panel mailing routers not included: {e}")

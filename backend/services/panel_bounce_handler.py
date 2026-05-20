@@ -7,11 +7,13 @@ but operates on panel-specific collections in campaign_platform DB.
 
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, Optional
+from zoneinfo import ZoneInfo
 
 from pymongo import MongoClient
+from pymongo import ReturnDocument
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,7 @@ _db = _client["campaign_platform"]
 
 suppression_collection = _db["panel_email_suppression"]
 invitation_log_collection = _db["panel_invitation_log"]
+panelists_collection = _db["panelists"]
 
 # Ensure indexes
 try:
@@ -28,6 +31,8 @@ try:
     invitation_log_collection.create_index([("email", 1)])
     invitation_log_collection.create_index([("batch_id", 1)])
     invitation_log_collection.create_index([("ses_message_id", 1)], sparse=True)
+    invitation_log_collection.create_index([("invite_token", 1)], unique=True, sparse=True)
+    invitation_log_collection.create_index([("sent_at", -1)])
 except Exception as e:
     logger.warning(f"Index creation warning (panel bounce): {e}")
 
@@ -123,12 +128,141 @@ def has_been_invited(email: str) -> bool:
     ) > 0
 
 
+def has_been_invited_today(email: str, timezone_name: str = "Asia/Kolkata") -> bool:
+    """Return True if an invite was sent to this email during the current local day."""
+    normalized = email.lower().strip()
+    if not normalized:
+        return False
+
+    try:
+        tz = ZoneInfo(timezone_name)
+    except Exception:
+        tz = ZoneInfo("UTC")
+
+    now_local = datetime.now(tz)
+    day_start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    next_day_local = day_start_local + timedelta(days=1)
+
+    day_start_utc = day_start_local.astimezone(timezone.utc).replace(tzinfo=None)
+    next_day_utc = next_day_local.astimezone(timezone.utc).replace(tzinfo=None)
+
+    return invitation_log_collection.count_documents(
+        {
+            "email": normalized,
+            "status": "sent",
+            "sent_at": {"$gte": day_start_utc, "$lt": next_day_utc},
+        },
+        limit=1,
+    ) > 0
+
+
+def is_double_opted_in(email: str) -> bool:
+    """Return True if panelist has completed double opt-in confirmation."""
+    normalized = email.lower().strip()
+    if not normalized:
+        return False
+
+    panelist = panelists_collection.find_one(
+        {"email": normalized},
+        {"double_opt_in_completed": 1, "email_verified": 1, "status": 1},
+    )
+    if not panelist:
+        return False
+
+    if panelist.get("double_opt_in_completed"):
+        return True
+
+    status = str(panelist.get("status") or "").strip().lower()
+    return bool(panelist.get("email_verified")) and status in {"active", "confirmed", "double_opted_in"}
+
+
+def mark_invite_clicked(invite_token: str) -> Optional[Dict[str, Any]]:
+    """Mark invitation link click and return invitation metadata if token exists."""
+    token = str(invite_token or "").strip()
+    if not token:
+        return None
+
+    now = datetime.utcnow()
+    doc = invitation_log_collection.find_one_and_update(
+        {"invite_token": token},
+        {
+            "$set": {"last_clicked_at": now},
+            "$inc": {"click_count": 1},
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+
+    if not doc:
+        return None
+
+    if not doc.get("clicked_at"):
+        invitation_log_collection.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"clicked_at": now}},
+        )
+
+    return {
+        "email": doc.get("email", ""),
+        "panelist_id": doc.get("panelist_id", ""),
+        "invite_token": token,
+    }
+
+
+def mark_double_opt_in_completed(
+    email: str = "",
+    invite_token: str = "",
+    metadata: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Mark a panelist as confirmed via double opt-in and stop future invite workflow."""
+    normalized_email = str(email or "").strip().lower()
+    token = str(invite_token or "").strip()
+
+    if not normalized_email and token:
+        doc = invitation_log_collection.find_one({"invite_token": token}, {"email": 1})
+        if doc:
+            normalized_email = str(doc.get("email") or "").strip().lower()
+
+    if not normalized_email:
+        return False
+
+    now = datetime.utcnow()
+    panelists_collection.update_one(
+        {"email": normalized_email},
+        {
+            "$set": {
+                "double_opt_in_completed": True,
+                "double_opt_in_completed_at": now,
+                "email_verified": True,
+                "updated_at": now,
+            }
+        },
+    )
+
+    update_payload = {
+        "$set": {
+            "status": "confirmed",
+            "confirmed_at": now,
+            "confirmation_metadata": metadata or {},
+        }
+    }
+    invitation_log_collection.update_many(
+        {"email": normalized_email, "status": {"$in": ["sent", "soft_bounced"]}},
+        update_payload,
+    )
+    if token:
+        invitation_log_collection.update_one({"invite_token": token}, update_payload)
+
+    return True
+
+
 def log_invitation(
     email: str,
     panelist_id: str,
     batch_id: str,
     ses_message_id: str = "",
     status: str = "sent",
+    invite_token: str = "",
+    template_version: str = "",
 ) -> None:
     """Log a sent invitation for duplicate detection."""
     invitation_log_collection.insert_one({
@@ -137,6 +271,8 @@ def log_invitation(
         "batch_id": batch_id,
         "ses_message_id": ses_message_id,
         "status": status,
+        "invite_token": invite_token,
+        "template_version": template_version,
         "sent_at": datetime.utcnow(),
     })
 

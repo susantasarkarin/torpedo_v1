@@ -1170,6 +1170,44 @@ def weekly_panel_mail_integration_job():
         traceback.print_exc()
 
 
+def daily_panel_invitation_job():
+    """
+    Daily panel invitation workflow.
+
+    Sends invites once per local day with a cap and continues daily
+    until users complete double opt-in confirmation.
+    """
+    enabled = os.getenv("PANEL_DAILY_INVITES_ENABLED", "false").lower() == "true"
+    if not enabled:
+        print("â„¹ï¸ [PanelDaily] Job skipped (PANEL_DAILY_INVITES_ENABLED=false)")
+        return
+
+    country = (os.getenv("PANEL_DAILY_MAIL_COUNTRY", "") or "").strip() or None
+    daily_cap = int(os.getenv("PANEL_DAILY_SEND_CAP", "1000"))
+
+    try:
+        try:
+            from .services.panel_email_service import send_bulk_invitations
+        except ImportError:
+            from services.panel_email_service import send_bulk_invitations
+
+        result = send_bulk_invitations(
+            country=country,
+            force_resend=True,
+            daily_mode=True,
+            daily_cap=daily_cap,
+        )
+        print(
+            "âœ… [PanelDaily] Completed | "
+            f"sent={result.get('sent', 0)} skipped={result.get('skipped', 0)} "
+            f"failed={result.get('failed', 0)} capped={result.get('capped', 0)} "
+            f"cap={daily_cap} country={country or 'all'}"
+        )
+    except Exception as e:
+        print(f"âŒ [PanelDaily] Daily invitation run failed: {e}")
+        traceback.print_exc()
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize scheduler and start background jobs"""
@@ -1569,6 +1607,28 @@ async def startup_event():
         print(f"âš ï¸ Could not schedule mail segregation job: {e}")
 
     # ----------------------------
+    # Daily Panel Invitations (IST)
+    # ----------------------------
+    try:
+        daily_enabled = os.getenv("PANEL_DAILY_INVITES_ENABLED", "false").lower() == "true"
+        if scheduler.running and daily_enabled:
+            daily_hour = int(os.getenv("PANEL_DAILY_HOUR_IST", "10"))
+            daily_minute = int(os.getenv("PANEL_DAILY_MINUTE_IST", "0"))
+
+            scheduler.add_job(
+                daily_panel_invitation_job,
+                CronTrigger(hour=daily_hour, minute=daily_minute, timezone="Asia/Kolkata"),
+                id="panel_daily_invitations",
+                name="Panel Daily Invitations",
+                replace_existing=True,
+            )
+            print(f"âœ… Daily panel invitations scheduled ({daily_hour:02d}:{daily_minute:02d} Asia/Kolkata)")
+        elif not daily_enabled:
+            print("â„¹ï¸ Daily panel invitations disabled (set PANEL_DAILY_INVITES_ENABLED=true to enable)")
+    except Exception as e:
+        print(f"âš ï¸ Could not schedule daily panel invitations: {e}")
+
+    # ----------------------------
     # Weekly Panel Mail Integration (SFW -> Campaign)
     # ----------------------------
     try:
@@ -1624,6 +1684,8 @@ async def startup_event():
         print("   â€¢ Cint Survey Refresh: Active (every 5 minutes)")
         print("   â€¢ Gmail Background Sync: Active (every 5 minutes)")
         print("   â€¢ Historic Email Backfill: Active (every 30 seconds, rate-limited)")
+        if os.getenv("PANEL_DAILY_INVITES_ENABLED", "false").lower() == "true":
+            print("   â€¢ Panel Daily Invitations: Active (daily, Asia/Kolkata cron)")
         if os.getenv("PANEL_WEEKLY_MAIL_ENABLED", "false").lower() == "true":
             print("   â€¢ Panel Weekly Mail Integration: Active (weekly, UTC cron)")
         if email_classify_enabled:
