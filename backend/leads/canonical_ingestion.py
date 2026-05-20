@@ -174,6 +174,9 @@ def normalize_payload(payload: Dict[str, Any], source: str, source_detail: str, 
         'lead_bracket': 'lead',  # Will be recalculated after enrichment
         'icp_segment': icp_segment or None,
         'stage': 'already_contacted' if source == 'gmail' else None,
+        # Email content fields (from mail_pool_extractor)
+        'subject': (payload.get('subject') or '').strip() or None,
+        'notes': (payload.get('notes') or '').strip() or None,
         'created_at': now,
         'updated_at': now,
     }
@@ -291,6 +294,9 @@ def sync_to_enriched(lead_data: Dict[str, Any], raw_lead_id: str) -> Optional[st
             'updated_at': datetime.utcnow(),
             # Lead bracket categorization
             'lead_bracket': lead_data.get('lead_bracket', 'lead'),
+            # Email content context
+            'subject': lead_data.get('subject'),  # Source email subject line
+            'notes': lead_data.get('notes'),  # Source email body (first 2000 chars)
         }
         
         # Remove None values to avoid overwriting with nulls
