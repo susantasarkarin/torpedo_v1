@@ -830,7 +830,7 @@ function AILeads() {
                   } else if (status.status === "stopped") {
                     alert(`⏹️ Search stopped. Imported ${status.total_imported} leads so far.`);
                   } else if (status.status === "api_error") {
-                    alert(`🔴 API Error: Check your Google CSE/OpenAI API keys in Settings. Imported ${status.total_imported} leads before error.`);
+                    alert(`🔴 API Error: Check your Google CSE/Anthropic API keys in Settings. Imported ${status.total_imported} leads before error.`);
                   } else if (status.status === "paused") {
                     // Don't alert for paused - user can see in control panel
                   }

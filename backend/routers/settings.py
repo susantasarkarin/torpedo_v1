@@ -109,6 +109,7 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
             "cpx_ext_user_id": stored.get("cpx_ext_user_id", os.getenv("CPX_EXT_USER_ID", "")),
             "cpx_secure_hash_key": stored.get("cpx_secure_hash_key", os.getenv("CPX_SECURE_HASH_KEY", "")),
             "cpx_api_timeout": stored.get("cpx_api_timeout", int(os.getenv("CPX_API_TIMEOUT", "30"))),
+            "anthropic_api_key": stored.get("anthropic_api_key", os.getenv("ANTHROPIC_API_KEY", "")),
             # AI Provider - OpenAI (pay-as-you-go for all AI ops)
             "openai_api_key": stored.get("openai_api_key", os.getenv("OPENAI_API_KEY", "")),
             # OpenAI API Keys (up to 10 keys for pipeline rotation)
@@ -133,6 +134,7 @@ async def get_app_settings(request: Request = None) -> Dict[str, Any]:
         masked_settings = {**settings}
         sensitive_fields = [
             "cpx_secure_hash_key",
+            "anthropic_api_key",
             "openai_api_key",
             "openai_api_key_1", "openai_api_key_2", "openai_api_key_3", "openai_api_key_4",
             "openai_api_key_5", "openai_api_key_6", "openai_api_key_7",
@@ -184,6 +186,7 @@ async def save_app_settings(
         allowed_keys = [
             "mongo_uri",
             "cpx_app_id", "cpx_ext_user_id", "cpx_secure_hash_key", "cpx_api_timeout",
+            "anthropic_api_key",
             # AI Providers - OpenAI (pay-as-you-go) for all AI operations
             "openai_api_key",
             "openai_api_key_1", "openai_api_key_2", "openai_api_key_3", "openai_api_key_4",

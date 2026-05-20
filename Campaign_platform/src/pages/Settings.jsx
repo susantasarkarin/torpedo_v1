@@ -47,17 +47,7 @@ function Settings() {
     cpx_ext_user_id: "",
     cpx_secure_hash_key: "",
     cpx_api_timeout: 30,
-    openai_api_key: "",      // PRIMARY - pay-as-you-go
-    openai_api_key_1: "",    // Pipeline keys (rotated)
-    openai_api_key_2: "",
-    openai_api_key_3: "",
-    openai_api_key_4: "",
-    openai_api_key_5: "",
-    openai_api_key_6: "",
-    openai_api_key_7: "",
-    openai_api_key_8: "",
-    openai_api_key_9: "",
-    openai_api_key_10: "",
+    anthropic_api_key: "",
     google_sheets_service_account: "",
   })
   const [maskedSettings, setMaskedSettings] = useState({})
@@ -1643,64 +1633,18 @@ function Settings() {
 
               <div className="settings-group">
                 <h3>🤖 AI / LLM Settings</h3>
-                <p className="setting-hint" style={{ marginBottom: '1rem', padding: '0.75rem', background: '#f0fdf4', borderRadius: '6px', border: '1px solid #86efac' }}>
-                  <strong>2-Provider Architecture:</strong> DeepSeek (PRIMARY - bulk tasks, $0.14/1M tokens) + OpenAI (PREMIUM - web search, tier 2)
-                </p>
                 <div className="setting-row">
-                  <label>🚀 DeepSeek API Key (PRIMARY)</label>
+                  <label>Anthropic API Key</label>
                   <input
                     type="password"
-                    placeholder={maskedSettings.deepseek_api_key_masked || "sk-..."}
-                    value={appSettings.deepseek_api_key}
-                    onChange={(e) => handleAppSettingChange("deepseek_api_key", e.target.value)}
+                    placeholder={maskedSettings.anthropic_api_key_masked || "sk-ant-..."}
+                    value={appSettings.anthropic_api_key}
+                    onChange={(e) => handleAppSettingChange("anthropic_api_key", e.target.value)}
                   />
                   <p className="setting-hint">
-                    <strong>Primary provider</strong> for all bulk tasks. ~$0.14/1M tokens, 60 RPM (86,400/day).
-                    Model: <code>deepseek-chat</code>. Get from <a href="https://platform.deepseek.com/" target="_blank" rel="noopener noreferrer">DeepSeek Platform</a>
+                    Claude key used for lead extraction and AI workflows.
+                    Get it from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Anthropic Console</a>.
                   </p>
-                </div>
-                <div className="setting-row">
-                  <label>⭐ OpenAI API Key (PREMIUM)</label>
-                  <input
-                    type="password"
-                    placeholder={maskedSettings.openai_api_key_masked || "sk-..."}
-                    value={appSettings.openai_api_key}
-                    onChange={(e) => handleAppSettingChange("openai_api_key", e.target.value)}
-                  />
-                  <p className="setting-hint">
-                    For <strong>web search discovery</strong> and <strong>tier 2 analysis</strong>.
-                    Models: <code>gpt-4o-mini</code> (default), <code>gpt-4o</code> (premium). Get from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>
-                  </p>
-                </div>
-                <div className="setting-row">
-                  <label>� OpenAI Pipeline Keys (pay-as-you-go rotation)</label>
-                  <p className="setting-hint" style={{ marginBottom: '0.75rem' }}>
-                    Add up to 10 keys for pipeline rotation. Get from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI Platform</a>
-                  </p>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.5rem' }}>
-                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((num) => (
-                      <div key={num} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <span style={{ minWidth: '20px', fontSize: '12px', color: '#6b7280' }}>#{num}</span>
-                        <input
-                          type="password"
-                          placeholder={maskedSettings[`openai_api_key_${num}_masked`] || "sk-..."}
-                          value={appSettings[`openai_api_key_${num}`] || ""}
-                          onChange={(e) => handleAppSettingChange(`openai_api_key_${num}`, e.target.value)}
-                          style={{ flex: 1 }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#f8fafc', borderRadius: '6px', fontSize: '13px' }}>
-                  <strong>Task Routing (all OpenAI):</strong>
-                  <ul style={{ margin: '0.5rem 0 0 1.5rem', padding: 0 }}>
-                    <li>Email Classification → OpenAI gpt-4o-mini</li>
-                    <li>Lead Classification → OpenAI gpt-4o-mini</li>
-                    <li>Company Enrichment → OpenAI gpt-4o-mini</li>
-                    <li>Email Drafting → OpenAI gpt-4o-mini</li>
-                    <li>Web Search Discovery → OpenAI (with web_search tool)</li>
-                  </ul>
                 </div>
               </div>
 
