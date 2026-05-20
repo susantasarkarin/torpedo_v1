@@ -1,0 +1,965 @@
+# ============== ICP CONFIGURATION ENDPOINTS ==============
+
+@router.get("/icps")
+async def list_icps(active_only: bool = False):
+    """
+    GET /leads/icps
+    List all ICP configurations.
+    Use ?active_only=true to return only active ICPs.
+    """
+    from .icp_config import get_active_icps, get_all_icps
+    icps = get_active_icps() if active_only else get_all_icps()
+    return {"icps": icps, "count": len(icps)}
+
+
+@router.post("/icps")
+async def create_icp_config(data: Dict[str, Any] = Body(...)):
+    """
+    POST /leads/icps
+    Create a new ICP configuration.
+    Required: slug, name
+    Optional: designations, industries, countries, seniority_levels, custom_context, daily_budget, is_active
+    """
+    from .icp_config import create_icp
+    try:
+        icp = create_icp(data)
+        return {"success": True, "icp": icp}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/icps/{slug}")
+async def update_icp_config(slug: str, data: Dict[str, Any] = Body(...)):
+    """
+    PUT /leads/icps/{slug}
+    Update an existing ICP configuration.
+    slug and created_at are protected and cannot be changed.
+    """
+    from .icp_config import update_icp
+    updated = update_icp(slug, data)
+    if updated is None:
+        raise HTTPException(status_code=404, detail=f"ICP '{slug}' not found")
+    return {"success": True, "icp": updated}
+
+
+@router.delete("/icps/{slug}")
+async def delete_icp_config(slug: str):
+    """
+    DELETE /leads/icps/{slug}
+    Soft-delete an ICP (sets is_active=False). Does not remove the record.
+    """
+    from .icp_config import soft_delete_icp
+    found = soft_delete_icp(slug)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"ICP '{slug}' not found")
+    return {"success": True, "message": f"ICP '{slug}' deactivated"}
+
+
+# ============== BULK ICP TAG ==============
+
+class BulkIcpTagRequest(BaseModel):
+    lead_ids: List[str]
+    icp_segment: str
+
+
+@router.post("/bulk-icp-tag")
+async def bulk_tag_icp_segment(request: BulkIcpTagRequest):
+    """
+    POST /leads/bulk-icp-tag
+    Bulk assign icp_segment to selected leads in both leads_raw and leads_enriched.
+    Validates icp_segment against active ICP slugs (or allows 'unknown').
+    """
+    from .icp_config import get_all_icps
+    from bson import ObjectId
+
+    # Validate slug
+    valid_slugs = {icp["slug"] for icp in get_all_icps()} | {"unknown"}
+    if request.icp_segment not in valid_slugs:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid icp_segment '{request.icp_segment}'. Valid values: {sorted(valid_slugs)}"
+        )
+
+    object_ids = []
+    for lid in request.lead_ids:
+        try:
+            object_ids.append(ObjectId(lid))
+        except Exception:
+            pass
+
+    if not object_ids:
+        raise HTTPException(status_code=400, detail="No valid lead IDs provided")
+
+    enriched_result = leads_enriched_collection.update_many(
+        {"_id": {"$in": object_ids}},
+        {"$set": {"icp_segment": request.icp_segment, "updated_at": datetime.utcnow()}}
+    )
+    raw_result = _jobs_db["leads_raw"].update_many(
+        {"enriched_lead_id": {"$in": [str(oid) for oid in object_ids]}},
+        {"$set": {"icp_segment": request.icp_segment, "updated_at": datetime.utcnow()}}
+    )
+
+    return {
+        "success": True,
+        "enriched_updated": enriched_result.modified_count,
+        "raw_updated": raw_result.modified_count,
+        "message": f"Tagged {enriched_result.modified_count} lead(s) as ICP '{request.icp_segment}'",
+    }
+
+
+# ============== BULK BASKET RECLASSIFICATION ==============
+
+@router.post("/reclassify-baskets")
+async def reclassify_baskets_all(background_tasks: BackgroundTasks):
+    """
+    POST /leads/reclassify-baskets
+    Runs compute_icp_basket() on ALL leads_enriched docs that are missing
+    classification_basket (or have basket=null). No AI calls — pure rule-based.
+    After updating, also triggers cold-outreach enrollment catch-up.
+    """
+    background_tasks.add_task(_run_reclassify_baskets_job)
+    total = leads_enriched_collection.count_documents(
+        {"classification_basket": {"$in": [None, ""]}}
+    )
+    return {
+        "success": True,
+        "message": f"Basket reclassification started for ~{total} leads without a basket.",
+        "leads_to_process": total,
+    }
+
+
+async def _run_reclassify_baskets_job():
+    """
+    Background: assign classification_basket to every leads_enriched doc missing it.
+    Processes in bulk batches; after completion triggers enrollment sync.
+    """
+    from .canonical_ingestion import compute_icp_basket
+    from pymongo import UpdateOne
+
+    batch_size = 500
+    updated = 0
+    processed = 0
+    last_id = None
+
+    print("[ReclassifyBaskets] Starting basket reclassification...")
+    try:
+        while True:
+            query = {"classification_basket": {"$in": [None, ""]}}
+            if last_id is not None:
+                query["_id"] = {"$gt": last_id}
+
+            batch = list(leads_enriched_collection.find(query).sort("_id", 1).limit(batch_size))
+            if not batch:
+                break
+
+            bulk_ops = []
+            for lead in batch:
+                basket_data = compute_icp_basket(lead)
+                bulk_ops.append(UpdateOne(
+                    {"_id": lead["_id"]},
+                    {"$set": {**basket_data, "updated_at": datetime.utcnow()}},
+                ))
+
+            if bulk_ops:
+                result = leads_enriched_collection.bulk_write(bulk_ops, ordered=False)
+                updated += result.modified_count
+
+            last_id = batch[-1]["_id"]
+            processed += len(batch)
+            print(f"[ReclassifyBaskets] Processed {processed}, updated {updated}")
+
+        print(f"[ReclassifyBaskets] Done — {updated}/{processed} leads updated with basket")
+
+        # Trigger cold outreach enrollment catch-up
+        try:
+            from ..routers.cold_outreach_router import _sync_active_campaign_enrollment, get_db
+            _sync_active_campaign_enrollment(get_db())
+            print("[ReclassifyBaskets] Triggered cold outreach enrollment sync")
+        except Exception as enroll_err:
+            print(f"[ReclassifyBaskets] Enrollment sync skipped: {enroll_err}")
+
+    except Exception as e:
+        import traceback
+        print(f"[ReclassifyBaskets] Error: {e}")
+        traceback.print_exc()
+
+
+@router.get("/reclassify-baskets/stats")
+async def reclassify_baskets_stats():
+    """
+    GET /leads/reclassify-baskets/stats
+    Returns count of leads missing classification_basket (to check if re-run is needed).
+    """
+    missing = leads_enriched_collection.count_documents(
+        {"classification_basket": {"$in": [None, ""]}}
+    )
+    total = leads_enriched_collection.count_documents({})
+    pipeline = [
+        {"$group": {"_id": "$classification_basket", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+    ]
+    dist = list(leads_enriched_collection.aggregate(pipeline))
+    return {
+        "total_leads": total,
+        "missing_basket": missing,
+        "basket_distribution": [{"basket": d["_id"], "count": d["count"]} for d in dist],
+    }
+
+
+@router.post("/backfill-emails-from-raw")
+async def backfill_emails_from_raw(background_tasks: BackgroundTasks):
+    """
+    POST /leads/backfill-emails-from-raw
+    One-time backfill: for every leads_enriched record missing an email,
+    look up its linked leads_raw record (via raw_lead_id) and copy the email
+    + company_domain over if present.  Then triggers cold outreach enrollment.
+    """
+    no_email_count = leads_enriched_collection.count_documents(
+        {"$or": [{"email": None}, {"email": ""}, {"email": {"$exists": False}}]}
+    )
+    background_tasks.add_task(_run_backfill_emails_job)
+    return {
+        "success": True,
+        "message": f"Email backfill started for ~{no_email_count} leads_enriched records without email.",
+        "leads_to_process": no_email_count,
+    }
+
+
+async def _run_backfill_emails_job():
+    """
+    Background: copy email + company_domain from leads_raw → leads_enriched
+    for records that are missing email.
+    """
+    from pymongo import UpdateOne as _UpdateOne
+    from bson import ObjectId as _ObjId
+
+    _raw_col = leads_enriched_collection.database["leads_raw"]
+
+    batch_size = 500
+    processed = 0
+    updated = 0
+    last_id = None
+
+    print("[BackfillEmails] Starting email backfill from leads_raw → leads_enriched...")
+    try:
+        while True:
+            query: dict = {
+                "$or": [{"email": None}, {"email": ""}, {"email": {"$exists": False}}],
+                "raw_lead_id": {"$exists": True},
+            }
+            if last_id is not None:
+                query["_id"] = {"$gt": last_id}
+
+            batch = list(leads_enriched_collection.find(query).sort("_id", 1).limit(batch_size))
+            if not batch:
+                break
+
+            bulk_ops = []
+            for enriched_doc in batch:
+                raw_id_str = enriched_doc.get("raw_lead_id")
+                if not raw_id_str:
+                    continue
+                try:
+                    raw_doc = _raw_col.find_one({"_id": _ObjId(str(raw_id_str))})
+                except Exception:
+                    raw_doc = _raw_col.find_one({"_id": raw_id_str})
+
+                if not raw_doc:
+                    continue
+
+                raw_email = (raw_doc.get("email") or "").strip()
+                if not raw_email:
+                    continue
+
+                set_fields: dict = {"email": raw_email, "updated_at": datetime.utcnow()}
+                for _f in ("email_status", "email_source", "email_pattern_confidence",
+                           "company_domain", "company_name", "company_industry",
+                           "company_revenue_range", "company_headquarters"):
+                    val = raw_doc.get(_f)
+                    if val and not enriched_doc.get(_f):
+                        set_fields[_f] = val
+
+                bulk_ops.append(_UpdateOne({"_id": enriched_doc["_id"]}, {"$set": set_fields}))
+
+            if bulk_ops:
+                result = leads_enriched_collection.bulk_write(bulk_ops, ordered=False)
+                updated += result.modified_count
+
+            last_id = batch[-1]["_id"]
+            processed += len(batch)
+            print(f"[BackfillEmails] Processed {processed}, updated {updated}")
+
+        print(f"[BackfillEmails] Done — {updated}/{processed} leads updated with email")
+
+        # Trigger cold outreach enrollment for newly-emailed leads
+        try:
+            from ..routers.cold_outreach_router import _sync_active_campaign_enrollment, get_db as _co_db
+            _sync_active_campaign_enrollment(_co_db())
+            print("[BackfillEmails] Triggered cold outreach enrollment sync")
+        except Exception as enroll_err:
+            print(f"[BackfillEmails] Enrollment sync skipped: {enroll_err}")
+
+    except Exception as e:
+        import traceback
+        print(f"[BackfillEmails] Error: {e}")
+        traceback.print_exc()
+
+
+@router.post("/backfill-emails-from-name-domain")
+async def backfill_emails_from_name_domain(background_tasks: BackgroundTasks):
+    """
+    POST /leads/backfill-emails-from-name-domain
+    For every leads_enriched record that has first_name + company_domain but
+    no email, construct a guessed email (firstname.lastname@domain) and store
+    it with email_status='predicted'.  Runs in background.
+    """
+    no_email_count = leads_enriched_collection.count_documents({
+        "$or": [{"email": None}, {"email": ""}, {"email": {"$exists": False}}],
+        "first_name": {"$nin": [None, ""]},
+        "company_domain": {"$nin": [None, ""]},
+    })
+    background_tasks.add_task(_run_backfill_name_domain_job)
+    return {
+        "success": True,
+        "message": f"Name+domain email backfill started for ~{no_email_count} leads.",
+        "leads_to_process": no_email_count,
+    }
+
+
+async def _run_backfill_name_domain_job():
+    """
+    Background: for leads_enriched records missing email but with first_name +
+    company_domain, call _discover_and_apply_email_pattern (which now includes a
+    name+domain guess fallback).  Write the derived email back to both collections.
+    """
+    import re as _re
+    from .canonical_ingestion import _discover_and_apply_email_pattern
+    from bson import ObjectId as _ObjId
+
+    _raw_col = leads_enriched_collection.database["leads_raw"]
+    PERSONAL_DOMAINS = {
+        "gmail.com", "yahoo.com", "hotmail.com", "outlook.com",
+        "aol.com", "icloud.com", "live.com", "protonmail.com",
+    }
+
+    batch_size = 200
+    processed = 0
+    updated = 0
+    last_id = None
+
+    print("[BackfillNameDomain] Starting guessed-email backfill...")
+    try:
+        while True:
+            query: dict = {
+                "$or": [{"email": None}, {"email": ""}, {"email": {"$exists": False}}],
+                "first_name": {"$nin": [None, ""]},
+                "company_domain": {"$nin": [None, ""]},
+            }
+            if last_id is not None:
+                query["_id"] = {"$gt": last_id}
+
+            batch = list(leads_enriched_collection.find(query).sort("_id", 1).limit(batch_size))
+            if not batch:
+                break
+
+            for doc in batch:
+                domain = (doc.get("company_domain") or "").lower().strip()
+                if not domain or domain in PERSONAL_DOMAINS:
+                    continue
+
+                stub = {
+                    "email": None,
+                    "first_name": doc.get("first_name", ""),
+                    "last_name": doc.get("last_name", ""),
+                    "company_domain": domain,
+                    "email_status": "Unknown",
+                }
+                try:
+                    _discover_and_apply_email_pattern(stub)
+                except Exception:
+                    pass
+
+                guessed = (stub.get("email") or "").strip()
+                if not guessed or "@" not in guessed:
+                    continue
+
+                try:
+                    leads_enriched_collection.update_one(
+                        {"_id": doc["_id"]},
+                        {"$set": {
+                            "email": guessed,
+                            "email_status": stub.get("email_status", "predicted"),
+                            "email_source": stub.get("email_source", "name_domain_guess"),
+                            "updated_at": datetime.utcnow(),
+                        }},
+                    )
+                except Exception as _dup_err:
+                    # E11000 duplicate key — another lead already has this email, skip
+                    print(f"[BackfillNameDomain] Skip dup email {guessed}: {_dup_err}")
+                    continue
+                # Mirror to leads_raw if linked
+                raw_id = doc.get("raw_lead_id")
+                if raw_id:
+                    try:
+                        _raw_col.update_one(
+                            {"_id": _ObjId(str(raw_id))},
+                            {"$set": {"email": guessed}},
+                        )
+                    except Exception:
+                        pass
+                updated += 1
+
+            last_id = batch[-1]["_id"]
+            processed += len(batch)
+            print(f"[BackfillNameDomain] Processed {processed}, updated {updated}")
+
+        print(f"[BackfillNameDomain] Done — {updated}/{processed} leads now have guessed email")
+    except Exception as e:
+        import traceback
+        print(f"[BackfillNameDomain] Error: {e}")
+        traceback.print_exc()
+
+
+# ============== GEMINI DOMAIN BACKFILL ==============
+
+@router.post("/backfill-company-domain-gemini")
+async def backfill_company_domain_gemini(background_tasks: BackgroundTasks):
+    """
+    POST /leads/backfill-company-domain-gemini
+    For leads_enriched records that have company_name but no company_domain,
+    use Gemini to infer the company domain, then generate a guessed email.
+    """
+    count = leads_enriched_collection.count_documents({
+        "$or": [{"email": None}, {"email": {"$exists": False}}],
+        "company_name": {"$nin": [None, ""]},
+        "$or": [{"company_domain": None}, {"company_domain": ""}, {"company_domain": {"$exists": False}}],
+    })
+    background_tasks.add_task(_run_gemini_domain_backfill)
+    return {"message": "Gemini domain backfill started", "leads_to_process": count}
+
+
+async def _run_gemini_domain_backfill():
+    """
+    Background: infer company_domain from company_name using _infer_company_domain(),
+    then generate a guessed email from first_name + last_name + domain.
+    Falls back to Gemini only if string inference fails.
+    """
+    import re as _re
+    from .canonical_ingestion import _discover_and_apply_email_pattern
+    from .ingestion import _infer_company_domain
+    from bson import ObjectId as _ObjId
+
+    EMAIL_RE = _re.compile(r'^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$')
+    PERSONAL_DOMAINS = {"gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "aol.com"}
+    SKIP_NAMES = {"not specified", "unknown", "n/a", ""}
+
+    _raw_col = leads_enriched_collection.database["leads_raw"]
+
+    query = {
+        "$and": [
+            {"$or": [{"email": None}, {"email": {"$exists": False}}]},
+            {"company_name": {"$nin": [None, "", "Not specified", "not specified", "Unknown", "N/A"]}},
+            {"$or": [{"company_domain": None}, {"company_domain": ""}, {"company_domain": {"$exists": False}}]},
+            {"first_name": {"$nin": [None, ""]}},
+        ]
+    }
+
+    leads = list(leads_enriched_collection.find(query).limit(500))
+    print(f"[GeminiDomainBackfill] Found {len(leads)} leads to process")
+
+    processed = 0
+    domain_found = 0
+    email_found = 0
+
+    for doc in leads:
+        company_name = (doc.get("company_name") or "").strip()
+        if not company_name or company_name.lower() in SKIP_NAMES:
+            processed += 1
+            continue
+
+        # Try string-based inference first (free, no API call)
+        snippet = doc.get("snippet") or doc.get("source_detail") or ""
+        domain = _infer_company_domain(company_name, snippet if isinstance(snippet, str) else "")
+        # Guard against junk domains derived from placeholder company names
+        if not domain or domain in PERSONAL_DOMAINS or domain == "notspecified.com":
+            domain = None
+
+        if not domain:
+            processed += 1
+            continue
+
+        domain_found += 1
+
+        # Now try to build email from first_name + last_name + domain
+        stub = {
+            "email": None,
+            "first_name": doc.get("first_name", ""),
+            "last_name": doc.get("last_name", ""),
+            "company_domain": domain,
+            "email_status": "Unknown",
+        }
+        try:
+            _discover_and_apply_email_pattern(stub)
+        except Exception:
+            pass
+
+        update_fields: dict = {"company_domain": domain, "updated_at": datetime.utcnow()}
+        guessed_email = (stub.get("email") or "").strip()
+        if guessed_email and "@" in guessed_email and EMAIL_RE.match(guessed_email):
+            update_fields["email"] = guessed_email
+            update_fields["email_status"] = stub.get("email_status", "predicted")
+            update_fields["email_source"] = "name_domain_inferred"
+            email_found += 1
+
+        try:
+            leads_enriched_collection.update_one({"_id": doc["_id"]}, {"$set": update_fields})
+        except Exception as _dup:
+            print(f"[GeminiDomainBackfill] Dup skip {guessed_email}: {_dup}")
+
+        # Mirror domain to leads_raw
+        raw_id = doc.get("raw_lead_id")
+        if raw_id:
+            try:
+                _raw_col.update_one(
+                    {"_id": _ObjId(str(raw_id))},
+                    {"$set": {"company_domain": domain}},
+                )
+            except Exception:
+                pass
+
+        processed += 1
+
+    print(f"[GeminiDomainBackfill] Done — {processed} processed, {domain_found} domains inferred, {email_found} emails generated")
+
+
+# ============== BULK ICP RECLASSIFICATION ==============
+
+@router.post("/reclassify-icp")
+async def reclassify_icp_all(background_tasks: BackgroundTasks):
+    """
+    POST /leads/reclassify-icp
+    Filter-based ICP reclassification of ALL leads in leads_enriched.
+    No AI calls — pure string matching against ICP designation/industry/country/seniority.
+    Force-all: processes every lead regardless of current icp_segment.
+    Returns a job_id to poll for progress.
+    """
+    job_id = str(uuid.uuid4())[:8]
+    web_search_jobs_collection.insert_one({
+        "job_id": job_id,
+        "type": "reclassify_icp",
+        "status": "pending",
+        "processed": 0,
+        "total": 0,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+    })
+    background_tasks.add_task(_run_reclassify_icp_job, job_id)
+    return {
+        "success": True,
+        "job_id": job_id,
+        "message": "ICP reclassification started for all leads.",
+        "status_url": f"/leads/reclassify-icp/status/{job_id}",
+    }
+
+
+@router.get("/reclassify-icp/status/{job_id}")
+async def reclassify_icp_status(job_id: str):
+    """
+    GET /leads/reclassify-icp/status/{job_id}
+    Poll the progress of a reclassify-icp job.
+    """
+    job = web_search_jobs_collection.find_one({"job_id": job_id, "type": "reclassify_icp"})
+    if not job:
+        raise HTTPException(status_code=404, detail="Reclassify job not found")
+    return {
+        "job_id": job_id,
+        "status": job.get("status"),
+        "processed": job.get("processed", 0),
+        "total": job.get("total", 0),
+        "updated": job.get("updated", 0),
+        "created_at": job["created_at"].isoformat() if job.get("created_at") else None,
+        "completed_at": job["completed_at"].isoformat() if job.get("completed_at") else None,
+        "error": job.get("error"),
+    }
+
+
+async def _run_reclassify_icp_job(job_id: str):
+    """
+    Background task: filter-based ICP assignment for ALL leads.
+    Phase 1: processes leads_enriched (5k) and mirrors back to leads_raw via enriched_lead_id.
+    Phase 2: processes remaining leads_raw docs that have no enriched counterpart.
+    """
+    from .icp_config import get_active_icps, classify_lead_by_icp
+
+    try:
+        active_icps = get_active_icps()
+        raw_col = _jobs_db["leads_raw"]
+
+        enriched_total = leads_enriched_collection.count_documents({})
+        raw_only_total = raw_col.count_documents({"enriched_lead_id": {"$in": [None, ""]}})
+        total = enriched_total + raw_only_total
+
+        web_search_jobs_collection.update_one(
+            {"job_id": job_id},
+            {"$set": {
+                "status": "running",
+                "total": total,
+                "enriched_total": enriched_total,
+                "raw_only_total": raw_only_total,
+                "updated_at": datetime.utcnow(),
+            }},
+        )
+
+        processed = 0
+        updated = 0
+        batch_size = 500
+
+        # ── Phase 1: leads_enriched (and mirror to leads_raw) ──────────────────
+        skip = 0
+        while skip < enriched_total:
+            batch = list(leads_enriched_collection.find({}, {
+                "_id": 1, "title": 1, "company_industry": 1, "location": 1,
+                "seniority_level": 1, "country": 1, "inferred_location": 1,
+                "company_headquarters": 1,
+            }).skip(skip).limit(batch_size))
+
+            if not batch:
+                break
+
+            for lead in batch:
+                segment = classify_lead_by_icp(lead, active_icps)
+                oid = lead["_id"]
+                r = leads_enriched_collection.update_one(
+                    {"_id": oid},
+                    {"$set": {"icp_segment": segment, "updated_at": datetime.utcnow()}},
+                )
+                raw_col.update_many(
+                    {"enriched_lead_id": str(oid)},
+                    {"$set": {"icp_segment": segment, "updated_at": datetime.utcnow()}},
+                )
+                if r.modified_count:
+                    updated += 1
+
+            skip += len(batch)
+            processed += len(batch)
+            web_search_jobs_collection.update_one(
+                {"job_id": job_id},
+                {"$set": {"processed": processed, "updated": updated, "updated_at": datetime.utcnow()}},
+            )
+
+        # ── Phase 2: raw leads still untagged after Phase 1 ──────────────────
+        # Catches raw-only leads (no enriched counterpart) AND raw leads whose
+        # enriched_lead_id points to a deleted/non-existent enriched doc.
+        FIELDS = {"_id": 1, "title": 1, "company_industry": 1, "location": 1,
+                  "seniority_level": 1, "country": 1}
+        last_id = None
+        while True:
+            query = {"icp_segment": None}
+            if last_id is not None:
+                query["_id"] = {"$gt": last_id}
+            batch = list(raw_col.find(query, FIELDS).sort("_id", 1).limit(batch_size))
+
+            if not batch:
+                break
+
+            bulk_ops = []
+            from pymongo import UpdateOne
+            for lead in batch:
+                segment = classify_lead_by_icp(lead, active_icps)
+                bulk_ops.append(UpdateOne(
+                    {"_id": lead["_id"]},
+                    {"$set": {"icp_segment": segment, "updated_at": datetime.utcnow()}},
+                ))
+
+            if bulk_ops:
+                result = raw_col.bulk_write(bulk_ops, ordered=False)
+                updated += result.modified_count
+
+            last_id = batch[-1]["_id"]
+            processed += len(batch)
+            web_search_jobs_collection.update_one(
+                {"job_id": job_id},
+                {"$set": {"processed": processed, "updated": updated, "updated_at": datetime.utcnow()}},
+            )
+
+        web_search_jobs_collection.update_one(
+            {"job_id": job_id},
+            {"$set": {
+                "status": "done",
+                "processed": processed,
+                "updated": updated,
+                "completed_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+            }},
+        )
+        print(f"[ReclassifyICP:{job_id}] Done — {updated}/{processed} leads tagged")
+
+    except Exception as e:
+        import traceback
+        web_search_jobs_collection.update_one(
+            {"job_id": job_id},
+            {"$set": {"status": "error", "error": str(e), "updated_at": datetime.utcnow()}},
+        )
+        print(f"[ReclassifyICP:{job_id}] Error: {e}")
+        traceback.print_exc()
+
+
+# ============== SKRAPP USAGE STATS ==============
+
+@router.get("/skrapp/usage")
+async def get_skrapp_usage():
+    """
+    GET /leads/skrapp/usage
+    Returns monthly usage stats for all 3 Skrapp accounts.
+    """
+    month = datetime.utcnow().strftime("%Y-%m")
+    settings_db = _mongo_client["torpedo_settings"]
+    app_settings = settings_db["app_settings"].find_one({"_id": "app_config"}) or {}
+
+    key_count = 0
+    for i in range(1, 4):
+        if app_settings.get(f"skrapp_api_key_{i}") or os.getenv(f"SKRAPP_API_KEY_{i}"):
+            key_count += 1
+
+    usage_col = _jobs_db["skrapp_usage"]
+    stats = []
+    for i in range(1, 4):
+        doc = usage_col.find_one({"account_id": str(i), "month": month}) or {}
+        used = doc.get("searches_used", 0)
+        limit = doc.get("searches_limit", 150)
+        stats.append({
+            "account": i,
+            "month": month,
+            "searches_used": used,
+            "searches_limit": limit,
+            "remaining": max(limit - used, 0),
+            "key_configured": i <= key_count,
+        })
+
+    return {"accounts": stats}
+
+
+# ============== IMPORT FROM RFQS / CONTACTS ==============
+
+_rfqs_col = _jobs_db["rfqs"]
+_torpedo_gmail_col = _mongo_client["torpedo_gmail"]["email_metadata"]
+
+
+@router.post("/import/from-rfqs")
+async def import_leads_from_rfqs(payload: Dict[str, Any] = Body(default={})):
+    """
+    POST /leads/import/from-rfqs
+    Scans email_automation.rfqs for unique contacts and creates leads.
+    For each unique email found in RFQs it records:
+      - name, email, company (from the RFQ)
+      - rfq_ids: list of linked RFQ IDs
+      - last_email_date: last inbound/outbound email timestamp (from torpedo_gmail)
+      - conversation_summary: latest RFQ subject/description as AI summary placeholder
+    Returns import stats.
+    """
+    from .canonical_ingestion import ingest_lead
+
+    skip_classification: bool = payload.get("skip_classification", True)
+
+    # 1. Aggregate unique contacts from RFQs
+    pipeline = [
+        {"$match": {"contact_email": {"$exists": True, "$ne": None, "$ne": ""}}},
+        {"$group": {
+            "_id": {"$toLower": "$contact_email"},
+            "name": {"$first": "$contact_name"},
+            "company": {"$first": "$company_name"},
+            "rfq_ids": {"$push": {"$ifNull": ["$rfq_id", {"$toString": "$_id"}]}},
+            "latest_subject": {"$last": "$subject"},
+            "latest_description": {"$last": "$description"},
+            "latest_date": {"$max": "$created_at"},
+        }},
+        {"$limit": 2000},
+    ]
+    rfq_contacts = list(_rfqs_col.aggregate(pipeline))
+
+    # 2. Build email → last_email_date map from torpedo_gmail
+    all_emails = [c["_id"] for c in rfq_contacts if c["_id"]]
+    email_dates: Dict[str, Any] = {}
+    if all_emails:
+        gmail_pipeline = [
+            {"$match": {"from_email": {"$in": all_emails}}},
+            {"$group": {
+                "_id": "$from_email",
+                "last_date": {"$max": "$date"},
+            }},
+        ]
+        for row in _torpedo_gmail_col.aggregate(gmail_pipeline):
+            email_dates[row["_id"]] = row["last_date"]
+
+    # 3. Ingest each unique contact
+    inserted = 0
+    updated = 0
+    skipped = 0
+    errors = 0
+
+    for contact in rfq_contacts:
+        email = contact["_id"]
+        if not email or "@" not in email:
+            skipped += 1
+            continue
+
+        last_date = email_dates.get(email) or contact.get("latest_date")
+        days_since: Optional[int] = None
+        if last_date:
+            try:
+                if isinstance(last_date, str):
+                    from dateutil import parser as _dateparser
+                    last_date = _dateparser.parse(last_date)
+                delta = datetime.utcnow() - last_date.replace(tzinfo=None) if hasattr(last_date, "replace") else None
+                if delta:
+                    days_since = delta.days
+            except Exception:
+                pass
+
+        lead_payload = {
+            "email": email,
+            "name": contact.get("name") or "",
+            "company": contact.get("company") or "",
+            "company_name": contact.get("company") or "",
+            "source": "rfq",
+            "source_detail": "import_from_rfqs",
+            "rfq_ids": contact.get("rfq_ids", [])[:20],
+            "last_email_date": last_date.isoformat() if hasattr(last_date, "isoformat") else str(last_date) if last_date else None,
+            "days_since_last_contact": days_since,
+            "conversation_summary": contact.get("latest_subject") or contact.get("latest_description") or "",
+        }
+
+        try:
+            result = ingest_lead(
+                payload=lead_payload,
+                source="rfq",
+                source_detail="import_from_rfqs",
+                skip_classification=skip_classification,
+            )
+            if result["success"]:
+                if result["action"] == "inserted":
+                    inserted += 1
+                else:
+                    updated += 1
+            else:
+                skipped += 1
+        except Exception:
+            errors += 1
+
+    return {
+        "success": True,
+        "total_rfq_contacts": len(rfq_contacts),
+        "inserted": inserted,
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors,
+    }
+
+
+# ── Retry failed leads ──────────────────────────────────────────────────────
+
+@router.post("/retry-failed", summary="Reset failed leads back to pending for retry")
+async def retry_failed_leads(limit: int = Query(10000, ge=1, le=50000)):
+    """
+    Reset all leads with classification_status='Failed' back to Pending
+    and clear classification_attempts so they get picked up by the next
+    background classification run.
+    """
+    try:
+        result = leads_raw_collection.update_many(
+            {"classification_status": "Failed"},
+            {
+                "$set": {
+                    "classification_status": "Pending",
+                    "classification_attempts": 0,
+                    "last_error": None,
+                    "retry_queued_at": datetime.utcnow(),
+                },
+                "$unset": {"last_attempt_at": ""}
+            }
+        )
+        return {
+            "success": True,
+            "reset_count": result.modified_count,
+            "message": f"Reset {result.modified_count} failed leads to Pending. They will be classified in the next background run.",
+        }
+    except Exception as e:
+        logger.error(f"[retry-failed] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Clean names/titles in leads_enriched ────────────────────────────────────
+
+@router.post("/clean-enriched-names", summary="Strip LinkedIn suffix from names and titles in leads_enriched")
+async def clean_enriched_names():
+    """
+    Strip ' | ...' LinkedIn/title suffixes from name and title fields in leads_enriched.
+    Also strips them from first_name/last_name where applicable.
+    """
+    try:
+        import re
+        updated = 0
+        skipped = 0
+
+        for doc in leads_enriched_collection.find(
+            {"$or": [
+                {"name": {"$regex": r"\s*\|", "$options": "i"}},
+                {"title": {"$regex": r"\s*\|", "$options": "i"}},
+                {"first_name": {"$regex": r"\s*\|", "$options": "i"}},
+            ]},
+            {"_id": 1, "name": 1, "title": 1, "first_name": 1, "last_name": 1}
+        ):
+            updates = {}
+
+            name = doc.get("name", "") or ""
+            if " | " in name:
+                clean_name = name.split(" | ")[0].strip()
+                updates["name"] = clean_name
+                # Re-split first/last if first_name not set
+                if not doc.get("first_name") and clean_name:
+                    parts = clean_name.strip().split(" ", 1)
+                    updates["first_name"] = parts[0]
+                    updates["last_name"] = parts[1] if len(parts) > 1 else ""
+
+            title = doc.get("title", "") or ""
+            if " | " in title:
+                updates["title"] = title.split(" | ")[0].strip()
+
+            first_name = doc.get("first_name", "") or ""
+            if " | " in first_name:
+                updates["first_name"] = first_name.split(" | ")[0].strip()
+
+            if updates:
+                leads_enriched_collection.update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": updates}
+                )
+                updated += 1
+            else:
+                skipped += 1
+
+        # Also clean leads_raw names
+        raw_updated = 0
+        for doc in leads_raw_collection.find(
+            {"name": {"$regex": r"\s*\|", "$options": "i"}},
+            {"_id": 1, "name": 1}
+        ):
+            name = doc.get("name", "") or ""
+            if " | " in name:
+                leads_raw_collection.update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": {"name": name.split(" | ")[0].strip()}}
+                )
+                raw_updated += 1
+
+        return {
+            "success": True,
+            "enriched_updated": updated,
+            "raw_updated": raw_updated,
+            "message": f"Cleaned {updated} enriched leads and {raw_updated} raw leads",
+        }
+    except Exception as e:
+        logger.error(f"[clean-enriched-names] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+

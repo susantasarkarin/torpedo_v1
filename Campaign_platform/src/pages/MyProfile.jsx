@@ -48,7 +48,7 @@ function MyProfile() {
     }
 
     try {
-      const res = await fetch(buildApiUrl(`/profile/`), {
+      const res = await fetch(buildApiUrl(`/api/profile/`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -120,7 +120,7 @@ function MyProfile() {
     setSuccess(null)
 
     try {
-      const res = await fetch(buildApiUrl(`/profile/update`), {
+      const res = await fetch(buildApiUrl(`/api/profile/update`), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -173,7 +173,7 @@ function MyProfile() {
     setSuccess(null)
 
     try {
-      const res = await fetch(buildApiUrl(`/profile/change-password`), {
+      const res = await fetch(buildApiUrl(`/api/profile/change-password`), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

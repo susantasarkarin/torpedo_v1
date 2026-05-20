@@ -409,7 +409,7 @@ const api = {
   login: async (username, password) => {
     const response = await request(
       "POST",
-      "/login/",
+      "/api/login/",
       { username, password },
       { skipAuth: true }
     );
@@ -428,7 +428,7 @@ const api = {
    */
   logout: async () => {
     try {
-      await request("POST", "/logout/");
+      await request("POST", "/api/logout/");
     } catch (error) {
       console.warn("Logout request failed:", error);
     } finally {
@@ -444,7 +444,7 @@ const api = {
   /**
    * Get current user profile
    */
-  getProfile: () => request("GET", "/profile/"),
+  getProfile: () => request("GET", "/api/profile/"),
 
   // ============== HELPER METHODS ==============
 

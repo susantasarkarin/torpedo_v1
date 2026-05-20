@@ -1,0 +1,106 @@
+# ============== EMAIL ALIASES ENDPOINTS ==============
+
+class AliasCreate(BaseModel):
+    """Request model for adding an alias"""
+    email: str
+    name: Optional[str] = ""
+
+
+@router.get("/gmail/accounts/{account_email}/aliases")
+async def get_account_aliases(account_email: str):
+    """
+    GET /leads/gmail/accounts/{account_email}/aliases
+    Get all aliases for an IMAP account.
+    """
+    account = imap_accounts_collection.find_one({"email": account_email})
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    
+    return {"aliases": account.get("aliases", [])}
+
+
+@router.post("/gmail/accounts/{account_email}/aliases")
+async def add_account_alias(account_email: str, alias: AliasCreate):
+    """
+    POST /leads/gmail/accounts/{account_email}/aliases
+    Add an alias to an IMAP account.
+    """
+    account = imap_accounts_collection.find_one({"email": account_email})
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    
+    aliases = account.get("aliases", [])
+    
+    # Check if alias already exists
+    if any(a["email"].lower() == alias.email.lower() for a in aliases):
+        raise HTTPException(status_code=400, detail="Alias already exists")
+    
+    new_alias = {
+        "email": alias.email,
+        "name": alias.name or "",
+        "is_primary": False,
+        "added_at": datetime.utcnow().isoformat()
+    }
+    
+    aliases.append(new_alias)
+    
+    imap_accounts_collection.update_one(
+        {"email": account_email},
+        {"$set": {"aliases": aliases}}
+    )
+    
+    return {"success": True, "alias": new_alias, "message": "Alias added successfully"}
+
+
+@router.delete("/gmail/accounts/{account_email}/aliases/{alias_email}")
+async def remove_account_alias(account_email: str, alias_email: str):
+    """
+    DELETE /leads/gmail/accounts/{account_email}/aliases/{alias_email}
+    Remove an alias from an IMAP account.
+    """
+    account = imap_accounts_collection.find_one({"email": account_email})
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    
+    aliases = account.get("aliases", [])
+    original_count = len(aliases)
+    
+    aliases = [a for a in aliases if a["email"].lower() != alias_email.lower()]
+    
+    if len(aliases) == original_count:
+        raise HTTPException(status_code=404, detail="Alias not found")
+    
+    imap_accounts_collection.update_one(
+        {"email": account_email},
+        {"$set": {"aliases": aliases}}
+    )
+    
+    return {"success": True, "message": "Alias removed"}
+
+
+@router.post("/gmail/accounts/{account_email}/aliases/detect")
+async def detect_account_aliases(account_email: str):
+    """
+    POST /leads/gmail/accounts/{account_email}/aliases/detect
+    Auto-detect aliases by scanning sent emails.
+    Returns detected aliases without adding them.
+    """
+    result = detect_aliases_from_sent(account_email)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+
+@router.post("/gmail/accounts/{account_email}/aliases/sync")
+async def sync_account_aliases(account_email: str):
+    """
+    POST /leads/gmail/accounts/{account_email}/aliases/sync
+    Auto-detect and add aliases from sent emails.
+    Scans sent folder for unique From addresses and adds them as aliases.
+    """
+    result = add_detected_aliases(account_email)
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+

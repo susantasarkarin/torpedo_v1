@@ -42,6 +42,8 @@ def _ingest_via_canonical(lead_data: Dict[str, Any]) -> Dict[str, Any]:
         "name": lead_data.get("name"),
         "company": lead_data.get("company"),
         "company_domain": lead_data.get("domain"),
+        "subject": lead_data.get("subject"),  # Email subject - passed to enriched collection
+        "notes": lead_data.get("notes"),  # Email body - passed as lead notes
     }
     result = ingest_lead(payload, source="gmail", source_detail="mail_pool_extraction") or {}
     return {
@@ -276,6 +278,7 @@ def extract_lead_from_email_record(email_record: Dict[str, Any]) -> Optional[Dic
 
     # Pull any extra metadata available without AI
     subject = email_record.get("subject", "")
+    body = (email_record.get("body_plain") or email_record.get("body") or "").strip()[:2000]  # Cap at 2000 chars
     received_at = email_record.get("timestamp") or email_record.get("date") or email_record.get("received_at") or email_record.get("synced_at") or email_record.get("internalDate")
 
     return {
@@ -290,9 +293,12 @@ def extract_lead_from_email_record(email_record: Dict[str, Any]) -> Optional[Dic
         "email_status": "pending",
         "track": "cold",
         "enrichment": {"status": "pending"},
+        "subject": subject,  # Email subject line
+        "notes": body,  # Email body text - store in notes field for lead display
         "metadata": {
             "source_email_id": str(email_record.get("_id", "")),
             "source_subject": subject,
+            "source_body": body,
             "received_at": str(received_at) if received_at else None,
         },
         "created_at": datetime.utcnow(),

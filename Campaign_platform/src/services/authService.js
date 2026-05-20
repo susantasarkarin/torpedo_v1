@@ -3,7 +3,7 @@ import { clearAuth } from "../utils/api";
 
 /**
  * Log out the current user.
- * Calls the backend /logout/ endpoint, then clears local auth state
+ * Calls the backend /api/logout/ endpoint, then clears local auth state
  * and redirects to the login page.
  *
  * Always clears local state even if the backend call fails, so the
@@ -12,7 +12,7 @@ import { clearAuth } from "../utils/api";
 export const logout = async (navigate) => {
   const sessionId = localStorage.getItem("session_id");
   try {
-    await fetch(buildApiUrl(`/logout/`), {
+    await fetch(buildApiUrl(`/api/logout/`), {
       method: "POST",
       headers: { Authorization: sessionId },
     });
