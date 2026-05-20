@@ -43,6 +43,13 @@ function PanelistManagement() {
   const [inviteResult, setInviteResult] = useState(null)
   const [inviteCount, setInviteCount] = useState(0)
 
+  // Test email state
+  const [showTestEmailModal, setShowTestEmailModal] = useState(false)
+  const [testEmailAddress, setTestEmailAddress] = useState("")
+  const [testEmailName, setTestEmailName] = useState("")
+  const [testEmailLoading, setTestEmailLoading] = useState(false)
+  const [testEmailResult, setTestEmailResult] = useState(null)
+
   const PAGE_SIZE = 20
 
   useEffect(() => {
@@ -250,6 +257,31 @@ function PanelistManagement() {
     }
   }
 
+  // Test email handler
+  const handleSendTestEmail = async () => {
+    if (!testEmailAddress || !testEmailAddress.includes("@")) return
+    setTestEmailLoading(true)
+    setTestEmailResult(null)
+    const sessionId = localStorage.getItem("session_id")
+    try {
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/invitations/test-send`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: sessionId },
+        body: JSON.stringify({ to_email: testEmailAddress, first_name: testEmailName }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setTestEmailResult({ success: true, message: `Test email sent to ${testEmailAddress}` })
+      } else {
+        setTestEmailResult({ success: false, message: data.detail || "Failed to send test email" })
+      }
+    } catch (err) {
+      setTestEmailResult({ success: false, message: "Network error: " + err.message })
+    } finally {
+      setTestEmailLoading(false)
+    }
+  }
+
   // Invitation handlers
   const handleSendInvitationsClick = async () => {
     const sessionId = localStorage.getItem("session_id")
@@ -333,6 +365,12 @@ function PanelistManagement() {
               style={{ background: "#059669", borderColor: "#059669" }}
             >
               Send Invitations
+            </button>
+            <button
+              className="btn btn-outline"
+              onClick={() => { setTestEmailResult(null); setShowTestEmailModal(true) }}
+            >
+              Send Test Email
             </button>
             <button
               className="btn btn-primary"
@@ -715,6 +753,94 @@ function PanelistManagement() {
           </div>
         )}
       </div>
+
+      {/* Test Email Modal */}
+      {showTestEmailModal && (
+        <div
+          style={{
+            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: "rgba(0,0,0,0.5)", display: "flex",
+            alignItems: "center", justifyContent: "center", zIndex: 1000,
+          }}
+          onClick={() => !testEmailLoading && setShowTestEmailModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: "#fff", borderRadius: "12px", padding: "2rem",
+              maxWidth: "440px", width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ fontSize: "1.25rem", fontWeight: "700", marginBottom: "0.75rem", color: "#111827" }}>
+              Send Test Invitation Email
+            </h3>
+            <p style={{ color: "#6b7280", fontSize: "0.875rem", marginBottom: "1.25rem", lineHeight: "1.5" }}>
+              Preview the invite email by sending it to any address. Sent from <strong>panel@surveyfieldwork.com</strong> via SES.
+            </p>
+
+            <div style={{ marginBottom: "1rem" }}>
+              <label style={{ display: "block", fontSize: "0.875rem", fontWeight: "600", color: "#374151", marginBottom: "0.4rem" }}>
+                Recipient Email <span style={{ color: "#ef4444" }}>*</span>
+              </label>
+              <input
+                type="email"
+                value={testEmailAddress}
+                onChange={(e) => setTestEmailAddress(e.target.value)}
+                placeholder="you@example.com"
+                style={{
+                  width: "100%", padding: "0.5rem 0.75rem", border: "1px solid #d1d5db",
+                  borderRadius: "6px", fontSize: "0.9rem", boxSizing: "border-box",
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: "1.5rem" }}>
+              <label style={{ display: "block", fontSize: "0.875rem", fontWeight: "600", color: "#374151", marginBottom: "0.4rem" }}>
+                First Name (optional)
+              </label>
+              <input
+                type="text"
+                value={testEmailName}
+                onChange={(e) => setTestEmailName(e.target.value)}
+                placeholder="e.g. Alex"
+                style={{
+                  width: "100%", padding: "0.5rem 0.75rem", border: "1px solid #d1d5db",
+                  borderRadius: "6px", fontSize: "0.9rem", boxSizing: "border-box",
+                }}
+              />
+            </div>
+
+            {testEmailResult && (
+              <div style={{
+                padding: "0.75rem 1rem", borderRadius: "8px", marginBottom: "1.25rem",
+                backgroundColor: testEmailResult.success ? "#d1fae5" : "#fee2e2",
+                color: testEmailResult.success ? "#065f46" : "#991b1b",
+                fontSize: "0.875rem",
+              }}>
+                {testEmailResult.message}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: "0.75rem", justifyContent: "flex-end" }}>
+              <button
+                className="btn btn-outline"
+                onClick={() => setShowTestEmailModal(false)}
+                disabled={testEmailLoading}
+              >
+                Close
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleSendTestEmail}
+                disabled={testEmailLoading || !testEmailAddress.includes("@")}
+                style={{ opacity: testEmailLoading || !testEmailAddress.includes("@") ? 0.5 : 1 }}
+              >
+                {testEmailLoading ? "Sending..." : "Send Test Email"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Send Invitations Modal */}
       {showInviteModal && (
