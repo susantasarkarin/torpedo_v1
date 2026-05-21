@@ -45,6 +45,7 @@ Usage:
 """
 
 import os
+import re
 import logging
 import json
 from typing import Dict, Any, Optional, List, Tuple
@@ -236,8 +237,11 @@ class ReplySentimentClassifier:
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            # Parse response
-            content = response.content[0].text
+            # Parse response — strip markdown fences Claude may add
+            content = response.content[0].text.strip()
+            if content.startswith("```"):
+                content = re.sub(r"^```(?:json)?\s*", "", content)
+                content = re.sub(r"\s*```$", "", content).strip()
             result = json.loads(content)
             
             # Validate and normalize result
