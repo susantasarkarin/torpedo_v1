@@ -72,7 +72,7 @@ def _build_join_link(invite_token: str) -> str:
 def _build_invitation_html(first_name: str = "", join_link: str = "") -> str:
     """Build a beautiful, responsive HTML invitation email."""
     greeting = f"Hi {first_name}," if first_name else "Hello,"
-  cta_link = join_link or PANEL_SIGNUP_URL
+    cta_link = join_link or PANEL_SIGNUP_URL
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -237,7 +237,7 @@ def _build_invitation_html(first_name: str = "", join_link: str = "") -> str:
 def _build_invitation_plain(first_name: str = "", join_link: str = "") -> str:
     """Build plain-text version of the invitation."""
     greeting = f"Hi {first_name}," if first_name else "Hello,"
-  cta_link = join_link or PANEL_SIGNUP_URL
+    cta_link = join_link or PANEL_SIGNUP_URL
     return f"""{greeting}
 
 You're invited to join the Cogentix Research Panel.
@@ -266,7 +266,7 @@ Privacy: https://panel.surveyfieldwork.com/privacy
 def send_invitation_email(
     to_email: str,
     first_name: str = "",
-  invite_token: str = "",
+    invite_token: str = "",
 ) -> Tuple[bool, Dict[str, Any]]:
     """
     Send a single invitation email via SES.
@@ -309,8 +309,8 @@ def send_invitation_email(
 def send_bulk_invitations(
     country: Optional[str] = None,
     force_resend: bool = False,
-  daily_mode: bool = False,
-  daily_cap: Optional[int] = None,
+    daily_mode: bool = False,
+    daily_cap: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Send invitation emails to all eligible panelists.
@@ -347,9 +347,9 @@ def send_bulk_invitations(
     capped = 0
 
     for panelist in panelist_cursor:
-      if daily_mode and sent >= cap_value:
-        capped += 1
-        continue
+        if daily_mode and sent >= cap_value:
+            capped += 1
+            continue
 
         email = (panelist.get("email") or "").lower().strip()
         if not email:
@@ -364,8 +364,8 @@ def send_bulk_invitations(
 
         # Stop workflow once double opt-in is complete.
         if is_double_opted_in(email):
-          skipped += 1
-          continue
+            skipped += 1
+            continue
 
         # Check suppression list
         if is_suppressed(email):
@@ -374,14 +374,14 @@ def send_bulk_invitations(
 
         # Daily campaign mode: send at most once per local day.
         if daily_mode:
-          if has_been_invited_today(email, timezone_name=PANEL_SEND_TIMEZONE):
-            skipped += 1
-            continue
+            if has_been_invited_today(email, timezone_name=PANEL_SEND_TIMEZONE):
+                skipped += 1
+                continue
         else:
-          # Legacy mode: one-time invite unless force_resend is enabled.
-          if not force_resend and has_been_invited(email):
-            skipped += 1
-            continue
+            # Legacy mode: one-time invite unless force_resend is enabled.
+            if not force_resend and has_been_invited(email):
+                skipped += 1
+                continue
 
         # Send
         first_name = panelist.get("first_name", "")
@@ -395,8 +395,8 @@ def send_bulk_invitations(
                 batch_id=batch_id,
                 ses_message_id=details.get("ses_message_id", ""),
                 status="sent",
-            invite_token=invite_token,
-            template_version=PANEL_TEMPLATE_VERSION,
+                invite_token=invite_token,
+                template_version=PANEL_TEMPLATE_VERSION,
             )
             sent += 1
         else:
@@ -405,8 +405,8 @@ def send_bulk_invitations(
                 panelist_id=str(panelist["_id"]),
                 batch_id=batch_id,
                 status="failed",
-            invite_token=invite_token,
-            template_version=PANEL_TEMPLATE_VERSION,
+                invite_token=invite_token,
+                template_version=PANEL_TEMPLATE_VERSION,
             )
             failed += 1
 
@@ -419,19 +419,19 @@ def send_bulk_invitations(
         "sent": sent,
         "skipped": skipped,
         "failed": failed,
-      "capped": capped,
-      "daily_mode": daily_mode,
-      "daily_cap": cap_value if daily_mode else None,
-      "timezone": PANEL_SEND_TIMEZONE if daily_mode else None,
+        "capped": capped,
+        "daily_mode": daily_mode,
+        "daily_cap": cap_value if daily_mode else None,
+        "timezone": PANEL_SEND_TIMEZONE if daily_mode else None,
         "total_processed": sent + skipped + failed,
     }
 
 
-  def get_eligible_count(
+def get_eligible_count(
     country: Optional[str] = None,
     force_resend: bool = False,
     daily_mode: bool = False,
-  ) -> int:
+) -> int:
     """
     Count how many panelists would receive an invitation
     (excluding suppressed and already invited).
@@ -446,14 +446,14 @@ def send_bulk_invitations(
         if not email:
             continue
         if is_double_opted_in(email):
-          continue
+            continue
         if is_suppressed(email):
             continue
         if daily_mode:
-          if has_been_invited_today(email, timezone_name=PANEL_SEND_TIMEZONE):
-            continue
+            if has_been_invited_today(email, timezone_name=PANEL_SEND_TIMEZONE):
+                continue
         elif not force_resend and has_been_invited(email):
-          continue
+            continue
         count += 1
 
     return count
