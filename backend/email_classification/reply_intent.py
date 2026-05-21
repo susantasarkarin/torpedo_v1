@@ -47,9 +47,9 @@ from datetime import datetime
 from enum import Enum
 
 try:
-    import openai
+    import anthropic
 except ImportError:
-    openai = None
+    anthropic = None
 
 logger = logging.getLogger(__name__)
 
@@ -135,31 +135,36 @@ class ReplyIntentClassifier:
         }
     ]
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o-mini"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "claude-haiku-4-5"):
         """
         Initialize the intent classifier.
-        
+
         Args:
-            api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
-            model: OpenAI model to use (default: gpt-4o-mini)
+            api_key: Anthropic API key (reads from MongoDB/env if not provided)
+            model: Anthropic model to use (default: claude-haiku-4-5)
         """
         if api_key:
             self.api_key = api_key
         else:
+            # Read from MongoDB torpedo_settings first, then env var
             try:
-                from leads.openai_rotator import get_pipeline_rotator
-                _, self.api_key = get_pipeline_rotator("mail").get_available_key()
+                from pymongo import MongoClient
+                _mc = MongoClient(os.getenv('MONGO_URI', 'mongodb://localhost:27017/'), serverSelectionTimeoutMS=3000)
+                _s = _mc['torpedo_settings']['app_settings'].find_one({'_id': 'app_config'})
+                self.api_key = (_s or {}).get('anthropic_api_key', '') if _s else ''
             except Exception:
-                self.api_key = os.getenv("OPENAI_API_KEY", "")
+                self.api_key = ''
+            if not self.api_key:
+                self.api_key = os.getenv("ANTHROPIC_API_KEY", "")
         if not self.api_key:
-            raise ValueError("OpenAI API key required (set OPENAI_API_KEY env var)")
-        
-        if openai is None:
-            raise ImportError("openai package required: pip install openai")
-        
+            raise ValueError("Anthropic API key required (save in Settings or set ANTHROPIC_API_KEY env var)")
+
+        if anthropic is None:
+            raise ImportError("anthropic package required: pip install anthropic")
+
         self.model = model
-        self.client = openai.OpenAI(api_key=self.api_key)
-        
+        self.client = anthropic.Anthropic(api_key=self.api_key)
+
         logger.info(f"ReplyIntentClassifier initialized with model: {model}")
     
     def _build_classification_prompt(self, reply_text: str, lead_context: Dict) -> str:
@@ -263,23 +268,15 @@ Respond with ONLY a valid JSON object in this exact format:
         try:
             prompt = self._build_classification_prompt(reply_text, lead_context)
             
-            response = self.client.chat.completions.create(
+            response = self.client.messages.create(
                 model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert at analyzing sales email replies. Always respond with valid JSON."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                temperature=0.3,  # Lower temperature for more consistent classifications
-                max_tokens=500
+                max_tokens=500,
+                temperature=0.3,
+                system="You are an expert at analyzing sales email replies. Always respond with valid JSON.",
+                messages=[{"role": "user", "content": prompt}],
             )
-            
-            result_text = response.choices[0].message.content.strip()
+
+            result_text = response.content[0].text.strip()
             
             # Parse JSON response
             if result_text.startswith("```json"):

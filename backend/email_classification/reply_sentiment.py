@@ -52,9 +52,9 @@ from datetime import datetime
 from enum import Enum
 
 try:
-    import openai
+    import anthropic
 except ImportError:
-    openai = None
+    anthropic = None
 
 logger = logging.getLogger(__name__)
 
@@ -147,35 +147,40 @@ class ReplySentimentClassifier:
         }
     ]
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "gpt-4o-mini"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "claude-haiku-4-5"):
         """
         Initialize the classifier.
-        
+
         Args:
-            api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
-            model: Model to use (default: gpt-4o-mini for cost efficiency)
+            api_key: Anthropic API key (reads from MongoDB/env if not provided)
+            model: Model to use (default: claude-haiku-4-5)
         """
-        if openai is None:
+        if anthropic is None:
             raise ImportError(
-                "openai package required. Install with: pip install openai"
+                "anthropic package required. Install with: pip install anthropic"
             )
-        
+
         if api_key:
             self.api_key = api_key
         else:
+            # Read from MongoDB torpedo_settings first, then env var
             try:
-                from leads.openai_rotator import get_pipeline_rotator
-                _, self.api_key = get_pipeline_rotator("mail").get_available_key()
+                from pymongo import MongoClient
+                _mc = MongoClient(os.getenv('MONGO_URI', 'mongodb://localhost:27017/'), serverSelectionTimeoutMS=3000)
+                _s = _mc['torpedo_settings']['app_settings'].find_one({'_id': 'app_config'})
+                self.api_key = (_s or {}).get('anthropic_api_key', '') if _s else ''
             except Exception:
-                self.api_key = os.getenv("OPENAI_API_KEY", "")
+                self.api_key = ''
+            if not self.api_key:
+                self.api_key = os.getenv("ANTHROPIC_API_KEY", "")
         if not self.api_key:
             raise ValueError(
-                "OpenAI API key required. Set OPENAI_API_KEY or pass api_key parameter."
+                "Anthropic API key required. Set ANTHROPIC_API_KEY or save in Settings."
             )
-        
+
         self.model = model
-        self.client = openai.OpenAI(api_key=self.api_key)
-        
+        self.client = anthropic.Anthropic(api_key=self.api_key)
+
         logger.info(f"ReplySentimentClassifier initialized (model: {model})")
     
     def classify_reply(
@@ -222,26 +227,17 @@ class ReplySentimentClassifier:
             # Build the prompt with few-shot examples
             prompt = self._build_prompt(reply_text, lead_context)
             
-            # Call GPT-4o-mini
-            response = self.client.chat.completions.create(
+            # Call Claude
+            response = self.client.messages.create(
                 model=self.model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": self._get_system_prompt()
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                temperature=0.3,  # Low temperature for consistent classification
                 max_tokens=500,
-                response_format={"type": "json_object"}  # Structured output
+                temperature=0.3,
+                system=self._get_system_prompt(),
+                messages=[{"role": "user", "content": prompt}],
             )
-            
+
             # Parse response
-            content = response.choices[0].message.content
+            content = response.content[0].text
             result = json.loads(content)
             
             # Validate and normalize result

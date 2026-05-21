@@ -21,7 +21,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict
 
-import openai
+import anthropic
 from pymongo import MongoClient
 
 from .governance_checks import (
@@ -39,8 +39,7 @@ logger = logging.getLogger(__name__)
 
 # ============== CONFIGURATION ==============
 
-OPENAI_MODEL = "gpt-4o-mini"          # fast + cheap for classification / enrichment
-OPENAI_DRAFT_MODEL = "gpt-4o-mini"    # email drafting (use gpt-4o for higher quality if budget allows)
+ANTHROPIC_MODEL = "claude-haiku-4-5"   # fast + cheap for classification / enrichment
 
 _mongo_client: Optional[MongoClient] = None
 
@@ -53,26 +52,23 @@ def _get_mongo_client() -> MongoClient:
     return _mongo_client
 
 
-def _get_openai_api_key() -> str:
+def _get_anthropic_api_key() -> str:
     """
-    Get an OpenAI API key via the 'mail' pipeline rotator.
-    Falls back to OPENAI_API_KEY env var if the rotator module is unavailable.
+    Get the Anthropic API key from MongoDB settings first, then env var fallback.
     """
     try:
-        from leads.openai_rotator import get_pipeline_rotator
-        _, api_key = get_pipeline_rotator("mail").get_available_key()
-        return api_key
-    except Exception as rotator_err:
-        err_str = str(rotator_err).lower()
-        if any(w in err_str for w in ("exhausted", "quota", "daily limit", "no available")):
-            raise AIDailyLimitExceeded(
-                f"All mail-pipeline OpenAI keys are exhausted: {rotator_err}"
-            )
-        logger.warning(f"OpenAI pipeline rotator unavailable, falling back to env var: {rotator_err}")
-        env_key = os.getenv("OPENAI_API_KEY", "")
-        if env_key:
-            return env_key
-    raise ValueError("No OpenAI API key configured — rotator failed and OPENAI_API_KEY env var is not set")
+        client = _get_mongo_client()
+        settings = client['torpedo_settings']['app_settings'].find_one({'_id': 'app_config'})
+        if settings:
+            key = settings.get('anthropic_api_key', '')
+            if key:
+                return key
+    except Exception as e:
+        logger.warning(f"Could not read Anthropic key from MongoDB: {e}")
+    env_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if env_key:
+        return env_key
+    raise ValueError("No Anthropic API key configured — save it in Settings or set ANTHROPIC_API_KEY env var")
 
 
 # ============== DATA CLASSES ==============
@@ -105,21 +101,21 @@ class LeadExtractionResult:
 class AIGateway:
     """
     SINGLE ENTRY POINT for all LLM operations.
-    Backed by OpenAI. Drop-in replacement for the old GeminiGateway.
+    Backed by Anthropic Claude. Drop-in replacement for the old OpenAI/Gemini gateway.
     """
 
     def __init__(self):
-        self._client: Optional[openai.OpenAI] = None
+        self._client: Optional[anthropic.Anthropic] = None
 
-    def _get_client(self) -> openai.OpenAI:
-        api_key = _get_openai_api_key()
-        self._client = openai.OpenAI(api_key=api_key)
+    def _get_client(self) -> anthropic.Anthropic:
+        api_key = _get_anthropic_api_key()
+        self._client = anthropic.Anthropic(api_key=api_key)
         return self._client
 
     def _call_llm(self, prompt: str, model: str = None, max_tokens: int = 1024,
                   temperature: float = 0.3) -> str:
         """
-        Internal method — call OpenAI chat API. Enforces daily limit.
+        Internal method — call Anthropic Claude API. Enforces daily limit.
         """
         if not check_ai_daily_limit():
             raise AIDailyLimitExceeded(
@@ -129,15 +125,15 @@ class AIGateway:
 
         try:
             client = self._get_client()
-            response = client.chat.completions.create(
-                model=model or OPENAI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=temperature,
+            response = client.messages.create(
+                model=model or ANTHROPIC_MODEL,
                 max_tokens=max_tokens,
+                temperature=temperature,
+                messages=[{"role": "user", "content": prompt}],
             )
-            return response.choices[0].message.content.strip()
+            return response.content[0].text.strip()
         except Exception as e:
-            logger.error(f"OpenAI API call failed: {e}. NO AUTOMATIC RETRY.")
+            logger.error(f"Anthropic API call failed: {e}. NO AUTOMATIC RETRY.")
             raise
 
     # ------------------------------------------------------------------
@@ -270,16 +266,14 @@ No preamble. No markdown. Only JSON."""
     def generate_email_draft(self, system_prompt: str, user_prompt: str) -> Optional[Dict[str, str]]:
         try:
             client = self._get_client()
-            response = client.chat.completions.create(
-                model=OPENAI_DRAFT_MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.7,
+            response = client.messages.create(
+                model=ANTHROPIC_MODEL,
                 max_tokens=600,
+                temperature=0.7,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
             )
-            raw = response.choices[0].message.content.strip()
+            raw = response.content[0].text.strip()
             clean = raw.strip("```json").strip("```").strip()
             result = json.loads(clean)
             if "subject" in result and "body" in result:
@@ -434,15 +428,14 @@ Return JSON only:
 No preamble. No markdown. Only JSON."""
         try:
             client = self._get_client()
-            response = client.chat.completions.create(
-                model=OPENAI_DRAFT_MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=0.7, max_tokens=600,
+            response = client.messages.create(
+                model=ANTHROPIC_MODEL,
+                max_tokens=600,
+                temperature=0.7,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
             )
-            raw = response.choices[0].message.content.strip()
+            raw = response.content[0].text.strip()
             clean = raw.strip("```json").strip("```").strip()
             return json.loads(clean)
         except Exception as e:
