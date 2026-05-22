@@ -7,11 +7,12 @@ from pymongo import MongoClient
 from datetime import datetime
 import os
 import time
+from pathlib import Path
 from dotenv import load_dotenv
 # Import email safety module for kill switch status
 from campaigns.email_safety import get_email_status
 # Load env
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=False)
 
 # Simple in-memory settings cache (TTL: 60 seconds)
 _settings_cache: Dict[str, Any] = {}

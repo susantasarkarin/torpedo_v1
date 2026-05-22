@@ -17,12 +17,18 @@ Constraints (MANDATORY):
 import os
 import logging
 import json
+import re
+from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict
+from dotenv import load_dotenv
 
 import anthropic
 from pymongo import MongoClient
+
+# Load backend environment variables from the backend/.env file
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 
 from .governance_checks import (
     check_ai_daily_limit,
@@ -35,6 +41,14 @@ from .governance_checks import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_markdown_json(text: str) -> str:
+    """Strip ```json ... ``` or ``` ... ``` fences from an LLM response."""
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    return text.strip()
 
 
 # ============== CONFIGURATION ==============
@@ -175,7 +189,7 @@ Return JSON only:
 {{"summary": "...", "key_points": ["...", "..."], "sentiment": "positive|neutral|negative"}}"""
         try:
             response_text = self._call_llm(prompt)
-            parsed = json.loads(response_text.strip().strip("```json").strip("```"))
+            parsed = json.loads(_strip_markdown_json(response_text))
             return {"email_id": email_id, "summary": parsed.get("summary", ""),
                     "key_points": parsed.get("key_points", []),
                     "sentiment": parsed.get("sentiment", "neutral"),
@@ -213,7 +227,7 @@ Return JSON only:
 If no leads found, return {{"leads": []}}"""
         try:
             response_text = self._call_llm(prompt)
-            parsed = json.loads(response_text.strip().strip("```json").strip("```"))
+            parsed = json.loads(_strip_markdown_json(response_text))
             return LeadExtractionResult(
                 email_id=email_id, leads=parsed.get("leads", []),
                 extracted_at=datetime.utcnow().isoformat(), success=True)
@@ -253,7 +267,7 @@ Rules for email_address:
 No preamble. No markdown. Only JSON."""
         try:
             response_text = self._call_llm(prompt)
-            clean = response_text.strip().strip("```json").strip("```").strip()
+            clean = _strip_markdown_json(response_text)
             return json.loads(clean)
         except Exception as e:
             logger.error(f"Lead enrichment failed: {e}. NO RETRY.")
@@ -274,7 +288,7 @@ No preamble. No markdown. Only JSON."""
                 messages=[{"role": "user", "content": user_prompt}],
             )
             raw = response.content[0].text.strip()
-            clean = raw.strip("```json").strip("```").strip()
+            clean = _strip_markdown_json(raw)
             result = json.loads(clean)
             if "subject" in result and "body" in result:
                 return result
@@ -304,7 +318,7 @@ Return JSON only:
 No preamble. No markdown."""
         try:
             response_text = self._call_llm(prompt)
-            clean = response_text.strip().strip("```json").strip("```").strip()
+            clean = _strip_markdown_json(response_text)
             return json.loads(clean).get("results", [])
         except Exception as e:
             logger.error(f"Sender classification failed: {e}. NO RETRY.")
@@ -334,7 +348,7 @@ Return JSON only:
 No preamble. No markdown."""
         try:
             response_text = self._call_llm(prompt)
-            clean = response_text.strip().strip("```json").strip("```").strip()
+            clean = _strip_markdown_json(response_text)
             result = json.loads(clean)
             result.update({"email_id": email_id,
                            "analyzed_at": datetime.utcnow().isoformat(), "success": True})
@@ -380,7 +394,7 @@ Return JSON only:
 No preamble. No markdown. Only JSON."""
         try:
             response_text = self._call_llm(prompt, temperature=0.4)
-            clean = response_text.strip().strip("```json").strip("```").strip()
+            clean = _strip_markdown_json(response_text)
             result = json.loads(clean)
             result.update({"routed_at": datetime.utcnow().isoformat(), "success": True})
             return result
@@ -436,7 +450,7 @@ No preamble. No markdown. Only JSON."""
                 messages=[{"role": "user", "content": user_prompt}],
             )
             raw = response.content[0].text.strip()
-            clean = raw.strip("```json").strip("```").strip()
+            clean = _strip_markdown_json(raw)
             return json.loads(clean)
         except Exception as e:
             logger.error(f"Outreach email draft failed: {e}")
@@ -483,7 +497,9 @@ Return JSON only:
         try:
             clean = response_text.strip()
             if clean.startswith("```"):
-                clean = clean.strip("```json").strip("```")
+                clean = re.sub(r"^```(?:json)?\s*", "", clean)
+                clean = re.sub(r"\s*```$", "", clean)
+                clean = clean.strip()
             parsed = json.loads(clean)
             return ClassificationResult(
                 email_id=email_id, category=parsed.get("category", "other"),
