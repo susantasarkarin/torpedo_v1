@@ -4,6 +4,8 @@
  */
 
 import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react'
+import PrivacyModal from '../components/PrivacyModal'
 import '../styles/panel.css';
 
 export default function WhyJoin() {
@@ -40,6 +42,14 @@ export default function WhyJoin() {
     }
   ];
 
+  const [privacyOpen, setPrivacyOpen] = useState(false)
+
+  useEffect(()=>{
+    const handler = ()=>setPrivacyOpen(true)
+    document.addEventListener('openPrivacyModal', handler)
+    return ()=>document.removeEventListener('openPrivacyModal', handler)
+  },[])
+
   return (
     <div className="min-h-screen bg-background">
       {/* Hero Section */}
@@ -52,7 +62,7 @@ export default function WhyJoin() {
             Join thousands of panelists who share their opinions and get rewarded.
           </p>
           <Link to="/panel/signup" className="panel-btn-accent text-lg px-8 py-4">
-            Join Now - It's FREE!
+            Join Cogentix Research Panel - It's FREE!
           </Link>
         </div>
       </section>
@@ -120,11 +130,13 @@ export default function WhyJoin() {
           <Link to="/panel/login">Login</Link>
           <Link to="/panel/signup">Sign Up</Link>
           <Link to="/panel/terms">Terms</Link>
-          <Link to="/panel/privacy">Privacy</Link>
+          <button onClick={(e)=>{e.preventDefault(); document.dispatchEvent(new CustomEvent('openPrivacyModal'))}} style={{background:'none',border:'none',color:'rgba(255,255,255,0.8)',cursor:'pointer'}}>Privacy</button>
           <Link to="/panel/faq">FAQ</Link>
+          <Link to="/panel/unsubscribe">Unsubscribe</Link>
         </nav>
-        <p className="text-white/50 text-sm">© {new Date().getFullYear()} Survey Fieldwork. All rights reserved.</p>
+        <p className="text-white/50 text-sm">© {new Date().getFullYear()} Cogentix Research. All rights reserved.</p>
       </footer>
+      <PrivacyModal open={privacyOpen} onClose={()=>setPrivacyOpen(false)} />
     </div>
   );
 }

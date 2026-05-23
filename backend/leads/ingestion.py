@@ -431,12 +431,14 @@ def normalize_lead_data(item: dict) -> dict:
         "title": str(item.get("title", item.get("job_title", item.get("position", "")))).strip(),
         "linkedin_url": str(item.get("linkedin_url", item.get("url", item.get("profile_url", "")))).strip(),
         "company_name": str(item.get("company_name", item.get("company", item.get("organization", "")))).strip(),
+        "company_domain": str(item.get("company_domain", "")).strip(),
         "location": str(item.get("location", item.get("city", ""))).strip(),
         "seniority_level": str(item.get("seniority_level", item.get("seniority", ""))).strip(),
         "department": str(item.get("department", "Insights")).strip(),
         "company_industry": str(item.get("company_industry", item.get("industry", ""))).strip(),
         "company_size": str(item.get("company_size", "")).strip(),
         "email": str(item.get("email", "")).strip(),
+        "email_candidate": str(item.get("email_candidate", "")).strip(),
         "snippet": str(item.get("snippet", item.get("description", ""))).strip(),
         "source": "openai_search"
     }
@@ -444,65 +446,94 @@ def normalize_lead_data(item: dict) -> dict:
 
 async def extract_leads_from_google_results(search_results: List[dict], query: str) -> List[dict]:
     """
-    Extract leads from Google search results using OpenAI.
-    This is the fallback when OpenAI web search is not available.
+    Extract leads from Google search results using Claude (Anthropic).
+    Falls back to regex parsing if Anthropic key is unavailable.
     """
-    api_key = get_openai_api_key()
-    if not api_key:
+    import os
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not anthropic_key:
+        # Try to load from torpedo_settings
+        try:
+            settings_db = client["torpedo_settings"]
+            stored = settings_db["app_settings"].find_one({"_id": "app_config"})
+            if stored:
+                anthropic_key = stored.get("anthropic_api_key", "")
+        except Exception:
+            pass
+
+    if not anthropic_key:
         # Fallback to regex parsing
         leads = [parse_google_search_result(item) for item in search_results]
         return [l for l in leads if l]
-    
-    try:
-        # from openai import OpenAI  # DISABLED — OpenAI removed
-        # client_ai = OpenAI(api_key=api_key)  # DISABLED
-        raise RuntimeError("OpenAI disabled — lead extraction now uses Google CSE + Gemini")
-        
-        search_context = []
-        for item in search_results:
-            search_context.append({
-                "title": item.get("title", ""),
-                "link": item.get("link", ""),
-                "snippet": item.get("snippet", "")
-            })
-        
-        extraction_prompt = f"""Extract LinkedIn profile information from these search results:
-{json.dumps(search_context, indent=2)}
+
+    search_context = []
+    for item in search_results:
+        search_context.append({
+            "title": item.get("title", ""),
+            "link": item.get("link", ""),
+            "snippet": item.get("snippet", "")
+        })
+
+    extraction_prompt = f"""Extract LinkedIn profile information from these Google search results.
 
 Query: {query}
-Target: Market research and consumer insights professionals
 
-Return JSON with "leads" array containing objects with:
-- name, title, linkedin_url, company_name, location, seniority_level, department, snippet
+Search results:
+{json.dumps(search_context, indent=2)}
 
-Only include real profiles with valid LinkedIn URLs (/in/)."""
+Return a JSON object with a "leads" array. Each lead must have:
+- name: full name (string)
+- title: job title (string)
+- linkedin_url: MUST match one of the links above (only /in/ profile URLs)
+- company_name: extracted from title/snippet "at Company" pattern (string)
+- company_domain: company website domain if inferable (string, empty if unknown)
+- location: city/country if mentioned (string)
+- seniority_level: inferred from title — VP/Director/Manager/Lead/Senior (string)
+- department: inferred from title — Sales/Marketing/Research/Analytics/Operations (string)
+- snippet: the search snippet text (string)
+- email_candidate: best-guess work email using firstname.lastname@domain pattern if company_domain known, else empty string
 
-        response = client_ai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "Extract lead data. Return valid JSON only."},
-                {"role": "user", "content": extraction_prompt}
-            ],
-            temperature=0.0,
-            response_format={"type": "json_object"}
+Only include profiles with a valid linkedin.com/in/ URL. Skip company pages, group pages, or directories.
+Return ONLY the JSON object, no markdown."""
+
+    try:
+        import anthropic
+        client_ai = anthropic.Anthropic(api_key=anthropic_key)
+        response = client_ai.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": extraction_prompt}]
         )
-        
-        content = response.choices[0].message.content
+        content = response.content[0].text.strip()
+        # Strip markdown code fences if present
+        if content.startswith("```"):
+            content = re.sub(r"^```[a-z]*\n?", "", content)
+            content = re.sub(r"\n?```$", "", content)
         data = json.loads(content)
-        parsed_leads = data.get("leads", data.get("profiles", []))
-        
+        parsed_leads = data.get("leads", [])
+        if not isinstance(parsed_leads, list):
+            parsed_leads = []
+
         leads = []
         for item in parsed_leads:
             lead = normalize_lead_data(item)
+            # Add email_candidate if present
+            email_candidate = str(item.get("email_candidate", "")).strip()
+            if email_candidate and "@" in email_candidate:
+                lead["email_candidate"] = email_candidate
             if lead.get("name") and lead.get("linkedin_url"):
                 leads.append(lead)
-        
-        return leads
-        
+
+        if leads:
+            logger.info(f"[Claude extraction] Extracted {len(leads)} leads from {len(search_results)} results")
+            return leads
+
     except Exception as e:
-        logger.error(f"OpenAI extraction failed: {e}")
-        leads = [parse_google_search_result(item) for item in search_results]
-        return [l for l in leads if l]
+        logger.warning(f"[Claude extraction] Failed: {e} — falling back to regex")
+
+    # Regex fallback
+    leads = [parse_google_search_result(item) for item in search_results]
+    return [l for l in leads if l]
 
 
 def parse_openai_linkedin_response(response_text: str, max_results: int = 10) -> List[dict]:
@@ -1291,7 +1322,7 @@ def _infer_company_domain(company_name: str, snippet: str) -> str:
         snippet,
     )
     if domain_match:
-        candidate = domain_match.group(1).lower()
+        candidate = re.sub(r'^www\.', '', domain_match.group(1).lower())
         # Skip obviously irrelevant domains
         if "linkedin" not in candidate and "google" not in candidate:
             return candidate
@@ -1347,6 +1378,11 @@ def parse_google_search_result(item: dict) -> Optional[dict]:
         company_name = at_match.group(1).strip()
 
     company_domain = _infer_company_domain(company_name, snippet)
+    email_candidate = ""
+    if company_domain:
+        name_parts = re.findall(r"[A-Za-z]+", name.lower())
+        if len(name_parts) >= 2:
+            email_candidate = f"{name_parts[0]}.{name_parts[-1]}@{company_domain}"
 
     return {
         "name": name,
@@ -1355,6 +1391,7 @@ def parse_google_search_result(item: dict) -> Optional[dict]:
         "snippet": snippet,
         "company_name": company_name,
         "company_domain": company_domain,
+        "email_candidate": email_candidate,
         "source": "google_search",
     }
 

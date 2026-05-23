@@ -196,20 +196,42 @@ def check_email_classification_status(email_id: str) -> bool:
 def acquire_classification_lock(email_id: str, source: str = "api") -> bool:
     """
     Acquire exclusive classification lock for an email.
-    This ensures only ONE classification can ever happen per email.
-    
+    Completed classifications cannot be re-run (idempotency guarantee).
+    Failed or in-progress (stale) records are allowed to retry.
+
     Args:
         email_id: Unique email identifier
         source: Source of the classification request (for audit)
-        
+
     Returns:
-        True if lock acquired, False if email already classified
-        
+        True if lock acquired
+
     Raises:
-        EmailAlreadyClassified: If email was already classified
+        EmailAlreadyClassified: If email was already successfully classified
     """
     collection = _get_classification_guard_collection()
-    
+
+    # Check for an existing record first
+    existing = collection.find_one({"email_id": email_id})
+    if existing:
+        if existing.get("status") == "completed":
+            raise EmailAlreadyClassified(
+                f"Email {email_id} has already been classified. Reclassification is forbidden."
+            )
+        # Failed or stale in-progress — reset so this attempt can proceed
+        collection.update_one(
+            {"email_id": email_id},
+            {
+                "$set": {
+                    "classification_started_at": datetime.utcnow(),
+                    "source": source,
+                    "status": "in_progress",
+                    "retried_at": datetime.utcnow(),
+                }
+            }
+        )
+        return True
+
     try:
         collection.insert_one({
             "email_id": email_id,
@@ -219,9 +241,15 @@ def acquire_classification_lock(email_id: str, source: str = "api") -> bool:
         })
         return True
     except DuplicateKeyError:
-        raise EmailAlreadyClassified(
-            f"Email {email_id} has already been classified. Reclassification is forbidden."
-        )
+        # Race condition: another process inserted between our find and insert.
+        # Re-fetch to determine status.
+        existing = collection.find_one({"email_id": email_id})
+        if existing and existing.get("status") == "completed":
+            raise EmailAlreadyClassified(
+                f"Email {email_id} has already been classified. Reclassification is forbidden."
+            )
+        # It's a failed/in-progress record inserted concurrently — treat as lock acquired
+        return True
 
 
 def complete_classification(email_id: str, result: dict) -> None:

@@ -21,6 +21,22 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def get_anthropic_api_key() -> Optional[str]:
+    """Get Anthropic API key from database or environment."""
+    try:
+        settings_db = client["torpedo_settings"]
+        app_settings = settings_db["app_settings"]
+        stored = app_settings.find_one({"_id": "app_config"})
+
+        if stored and stored.get("anthropic_api_key"):
+            return stored["anthropic_api_key"]
+
+        return os.getenv("ANTHROPIC_API_KEY")
+    except Exception as e:
+        logger.error(f"Error fetching Anthropic key: {e}")
+        return os.getenv("ANTHROPIC_API_KEY")
+
 # Cost optimization modules
 from .search_cache import (
     get_cached_response, 
@@ -326,94 +342,10 @@ async def search_linkedin_leads(
         logger.info(f"Google CSE returned no results for: {clean_query}")
         return []
     
-    # Prepare search results for AI parsing
-    search_context = []
-    for item in search_results:
-        search_context.append({
-            "title": item.get("title", ""),
-            "link": item.get("link", ""),
-            "snippet": item.get("snippet", "")
-        })
-    
-    # ===== OPENAI EXTRACTION =====
-    api_key = get_openai_api_key()
-    if not api_key:
-        # Fallback to simple regex parsing if no OpenAI key
-        logger.warning("No OpenAI key, using regex parsing")
-        leads = [parse_google_search_result(item) for item in search_results]
-        return [l for l in leads if l]
-    
-    try:
-        # from openai import OpenAI  # DISABLED — OpenAI removed
-        # client_ai = OpenAI(api_key=api_key)  # DISABLED
-        raise RuntimeError("OpenAI disabled — extraction now uses Google CSE")
-        
-        extraction_prompt = f"""Extract LinkedIn profile information from these search results:
-{json.dumps(search_context, indent=2)}
+    leads = await extract_leads_from_google_results(search_results, clean_query)
 
-Criteria:
-- Query was: {clean_query}
-- ONLY include people relevant to the query context (e.g. decision makers, specific roles)
-- EXCLUDE generic lists, directories, or irrelevant profiles
-- Extract Company Name from the title/snippet (usually "Title at Company")
-- Infer Seniority and Department from Job Title
-
-Return a JSON array of objects with:
-- name
-- title
-- linkedin_url (MUST MATCH the link provided)
-- company_name
-- location (if mentioned)
-- seniority_level
-- department
-- snippet (the search snippet)
-
-Verify the LinkedIn URL is a profile URL (/in/).
-"""
-
-        response = client_ai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a lead extractor. Return strictly valid JSON."},
-                {"role": "user", "content": extraction_prompt}
-            ],
-            temperature=0.0,
-            response_format={"type": "json_object"}
-        )
-        
-        content = response.choices[0].message.content
-        data = json.loads(content)
-        parsed_leads = data.get("leads", data.get("profiles", [])) 
-        
-        if not isinstance(parsed_leads, list):
-            # Try to handle if it returned just the array
-            if isinstance(data, list):
-                parsed_leads = data
-            else:
-                parsed_leads = []
-
-    except Exception as e:
-        logger.error(f"OpenAI extraction failed: {e}")
-        # Fallback to regex
-        leads = [parse_google_search_result(item) for item in search_results]
-        return [l for l in leads if l]
-
-    # Normalize extracted leads
-    leads = []
-    for item in parsed_leads:
-        lead = {
-            "name": item.get("name", "").strip(),
-            "title": item.get("title", "").strip(),
-            "linkedin_url": item.get("linkedin_url", "").strip(),
-            "company_name": item.get("company_name", "").strip(),
-            "location": item.get("location", "").strip(),
-            "seniority_level": item.get("seniority_level", "").strip(),
-            "department": item.get("department", "").strip(),
-            "snippet": item.get("snippet", "").strip(),
-            "source": "openai_search"
-        }
-        if lead["name"] and lead["linkedin_url"]:
-            leads.append(lead)
+    for lead in leads:
+        lead["source"] = "google_search"
             
     # ===== CACHE RESPONSE =====
     if leads:
@@ -425,6 +357,97 @@ Verify the LinkedIn URL is a profile URL (/in/).
         return unique_leads
     
     return leads
+
+
+def normalize_lead_data(item: dict) -> dict:
+    """Normalize parsed lead data to the shared lead shape."""
+    return {
+        "name": str(item.get("name", item.get("full_name", ""))).strip(),
+        "title": str(item.get("title", item.get("job_title", item.get("position", "")))).strip(),
+        "linkedin_url": str(item.get("linkedin_url", item.get("url", item.get("profile_url", "")))).strip(),
+        "company_name": str(item.get("company_name", item.get("company", item.get("organization", "")))).strip(),
+        "company_domain": str(item.get("company_domain", "")).strip(),
+        "location": str(item.get("location", item.get("city", ""))).strip(),
+        "seniority_level": str(item.get("seniority_level", item.get("seniority", ""))).strip(),
+        "department": str(item.get("department", "")).strip(),
+        "email": str(item.get("email", "")).strip(),
+        "email_candidate": str(item.get("email_candidate", "")).strip(),
+        "snippet": str(item.get("snippet", item.get("description", ""))).strip(),
+        "source": str(item.get("source", "google_search")).strip() or "google_search",
+    }
+
+
+async def extract_leads_from_google_results(search_results: List[dict], query: str) -> List[dict]:
+    """Extract structured leads from Google CSE results using Claude, with regex fallback."""
+    anthropic_key = get_anthropic_api_key()
+    if not anthropic_key:
+        logger.warning("No Anthropic key, using regex parsing for Google search results")
+        leads = [parse_google_search_result(item) for item in search_results]
+        return [lead for lead in leads if lead]
+
+    search_context = []
+    for item in search_results:
+        search_context.append({
+            "title": item.get("title", ""),
+            "link": item.get("link", ""),
+            "snippet": item.get("snippet", "")
+        })
+
+    extraction_prompt = f"""Extract LinkedIn profile information from these Google search results.
+
+Query: {query}
+
+Search results:
+{json.dumps(search_context, indent=2)}
+
+Return a JSON object with a \"leads\" array. Each lead must have:
+- name: full name (string)
+- title: job title (string)
+- linkedin_url: MUST match one of the links above and be a linkedin.com/in/ profile URL
+- company_name: extracted from the title/snippet if present (string)
+- company_domain: company domain if inferable from snippet or URL context, else empty string
+- location: city/country if mentioned (string)
+- seniority_level: inferred from title, else empty string
+- department: inferred from title, else empty string
+- snippet: the search snippet text (string)
+- email_candidate: best-guess work email using firstname.lastname@domain when company_domain is known, else empty string
+
+Only include real people with a valid linkedin.com/in/ URL. Exclude company pages, directories, lists, and non-profile URLs.
+Return only valid JSON. No markdown fences."""
+
+    try:
+        import anthropic
+
+        client_ai = anthropic.Anthropic(api_key=anthropic_key)
+        response = client_ai.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": extraction_prompt}]
+        )
+        content = response.content[0].text.strip()
+        if content.startswith("```"):
+            content = re.sub(r"^```[a-zA-Z0-9_-]*\n?", "", content)
+            content = re.sub(r"\n?```$", "", content)
+
+        data = json.loads(content)
+        parsed_leads = data.get("leads", [])
+        if not isinstance(parsed_leads, list):
+            parsed_leads = []
+
+        leads = []
+        for item in parsed_leads:
+            lead = normalize_lead_data(item)
+            if lead.get("name") and "linkedin.com/in/" in lead.get("linkedin_url", ""):
+                leads.append(lead)
+
+        if leads:
+            logger.info(f"[Claude extraction] Extracted {len(leads)} leads from {len(search_results)} results")
+            return leads
+    except Exception as e:
+        logger.warning(f"[Claude extraction] Failed: {e} - falling back to regex")
+
+    leads = [parse_google_search_result(item) for item in search_results]
+    return [lead for lead in leads if lead]
 
 
 def parse_openai_linkedin_response(response_text: str, max_results: int = 10) -> List[dict]:
@@ -1224,12 +1247,39 @@ def parse_google_search_result(item: dict) -> Optional[dict]:
     
     if not name:
         return None
+
+    company_name = ""
+    company_domain = ""
+    location = ""
+
+    if snippet:
+        company_match = re.search(r'(?:\bat\b|@|\|)\s+([A-Z][^|•·\-\n]+?)(?:\s*[|•·\-]|$)', snippet)
+        if company_match:
+            company_name = company_match.group(1).strip()
+
+        location_match = re.search(r'(?:Location|Based in|Located in)[:\s]+([^|•·\n]+)', snippet, re.IGNORECASE)
+        if location_match:
+            location = location_match.group(1).strip()
+
+    domain_match = re.search(r'https?://(?:www\.)?([^/\s]+)', item.get("displayLink", "") or "")
+    if domain_match:
+        company_domain = domain_match.group(1).lower()
+
+    email_candidate = ""
+    if company_domain:
+        name_parts = re.findall(r"[A-Za-z]+", name.lower())
+        if len(name_parts) >= 2:
+            email_candidate = f"{name_parts[0]}.{name_parts[-1]}@{company_domain}"
     
     return {
         "name": name,
         "title": job_title or "",
         "linkedin_url": link,
         "snippet": snippet,
+        "company_name": company_name,
+        "company_domain": company_domain,
+        "location": location,
+        "email_candidate": email_candidate,
         "source": "google_search"
     }
 

@@ -22,8 +22,8 @@ from pymongo import MongoClient
 from services.panel_bounce_handler import (
     is_suppressed,
     has_been_invited,
-  has_been_invited_today,
-  is_double_opted_in,
+    has_been_invited_today,
+    is_double_opted_in,
     log_invitation,
     suppression_collection,
     invitation_log_collection,
@@ -45,6 +45,10 @@ SES_FROM_EMAIL = os.getenv("PANEL_SES_FROM_EMAIL", "panel@surveyfieldwork.com")
 SES_FROM_NAME = os.getenv("PANEL_SES_FROM_NAME", "SurveyFieldwork Panel")
 PANEL_SIGNUP_URL = os.getenv("PANEL_SIGNUP_URL", "https://panel.surveyfieldwork.com/signup")
 PANEL_INVITE_JOIN_URL = os.getenv("PANEL_INVITE_JOIN_URL", "https://torpedo.cogentixresearch.com/api/panel/invite/join")
+PANEL_LOGO_URL = os.getenv(
+  "PANEL_LOGO_URL",
+  "https://surveyfieldwork.com/wp-content/uploads/2021/07/Vatsalya-Sign-1-1.png",
+)
 PANEL_TEMPLATE_VERSION = os.getenv("PANEL_TEMPLATE_VERSION", "panel-invite-v3")
 PANEL_SEND_TIMEZONE = os.getenv("PANEL_SEND_TIMEZONE", "Asia/Kolkata")
 PANEL_DAILY_SEND_CAP = int(os.getenv("PANEL_DAILY_SEND_CAP", "1000"))
@@ -90,16 +94,16 @@ def _build_invitation_html(first_name: str = "", join_link: str = "") -> str:
 
           <!-- Header -->
           <tr>
-            <td style="background:linear-gradient(135deg,#0f172a 0%,#1e293b 55%,#334155 100%);padding:44px 40px;text-align:center;">
+            <td style="background:linear-gradient(135deg,#071733 0%,#0c2d63 58%,#13498b 100%);padding:44px 40px;text-align:center;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td align="center">
-                    <div style="width:64px;height:64px;background-color:rgba(255,255,255,0.16);border-radius:16px;display:inline-block;line-height:64px;font-size:28px;color:#ffffff;font-weight:bold;margin-bottom:16px;">CR</div>
+                    <img src="{PANEL_LOGO_URL}" alt="SurveyFieldwork" width="220" style="display:block;max-width:220px;width:100%;height:auto;margin:0 auto 18px;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;" />
                   </td>
                 </tr>
                 <tr>
                   <td align="center" style="padding-top:8px;">
-                    <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:700;letter-spacing:-0.4px;">Join The Cogentix Panel</h1>
+                    <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:700;letter-spacing:-0.4px;">Join The SurveyFieldwork Panel</h1>
                     <p style="margin:10px 0 0;color:rgba(255,255,255,0.9);font-size:15px;font-weight:400;">Complete a quick double opt-in and start earning from verified surveys</p>
                   </td>
                 </tr>
@@ -120,33 +124,33 @@ def _build_invitation_html(first_name: str = "", join_link: str = "") -> str:
               <!-- Benefits -->
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
                 <tr>
-                  <td style="padding:16px 20px;background-color:#fff7ed;border-radius:12px;border-left:4px solid #f97316;">
+                  <td style="padding:16px 20px;background-color:#eff6ff;border-radius:12px;border-left:4px solid #0ea5e9;">
                     <table role="presentation" cellpadding="0" cellspacing="0">
                       <tr>
                         <td style="padding-bottom:12px;">
                           <span style="color:#15803d;font-size:18px;margin-right:8px;">&#10003;</span>
-                          <strong style="color:#9a3412;font-size:14px;">Paid Surveys</strong>
+                          <strong style="color:#0b3a75;font-size:14px;">Paid Surveys</strong>
                           <span style="color:#4b5563;font-size:13px;"> — Cash out via PayPal, gift cards, or bank transfer</span>
                         </td>
                       </tr>
                       <tr>
                         <td style="padding-bottom:12px;">
                           <span style="color:#15803d;font-size:18px;margin-right:8px;">&#10003;</span>
-                          <strong style="color:#9a3412;font-size:14px;">Fast Participation</strong>
+                          <strong style="color:#0b3a75;font-size:14px;">Fast Participation</strong>
                           <span style="color:#4b5563;font-size:13px;"> — Most take just 5-15 minutes to complete</span>
                         </td>
                       </tr>
                       <tr>
                         <td style="padding-bottom:12px;">
                           <span style="color:#15803d;font-size:18px;margin-right:8px;">&#10003;</span>
-                          <strong style="color:#9a3412;font-size:14px;">Double Opt-In Protection</strong>
+                          <strong style="color:#0b3a75;font-size:14px;">Double Opt-In Protection</strong>
                           <span style="color:#4b5563;font-size:13px;"> — Only confirmed users stay active in the panel</span>
                         </td>
                       </tr>
                       <tr>
                         <td style="padding-bottom:12px;">
                           <span style="color:#15803d;font-size:18px;margin-right:8px;">&#10003;</span>
-                          <strong style="color:#9a3412;font-size:14px;">Your Privacy Matters</strong>
+                          <strong style="color:#0b3a75;font-size:14px;">Your Privacy Matters</strong>
                           <span style="color:#4b5563;font-size:13px;"> — All responses are 100% anonymous</span>
                         </td>
                       </tr>
@@ -167,7 +171,7 @@ def _build_invitation_html(first_name: str = "", join_link: str = "") -> str:
                 <tr>
                   <td align="center" style="padding:8px 0 32px;">
                     <a href="{cta_link}"
-                       style="display:inline-block;padding:16px 44px;background:linear-gradient(135deg,#f97316,#ea580c);color:#ffffff;text-decoration:none;font-size:16px;font-weight:700;border-radius:12px;letter-spacing:0.3px;box-shadow:0 8px 20px rgba(249,115,22,0.35);">
+                       style="display:inline-block;padding:16px 44px;background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#ffffff;text-decoration:none;font-size:16px;font-weight:700;border-radius:12px;letter-spacing:0.3px;box-shadow:0 8px 20px rgba(2,132,199,0.35);">
                       Join Panel & Confirm Email &rarr;
                     </a>
                   </td>
@@ -216,9 +220,9 @@ def _build_invitation_html(first_name: str = "", join_link: str = "") -> str:
                     </p>
                     <p style="margin:0;color:#9ca3af;font-size:11px;line-height:1.5;">
                       You're receiving this because you signed up as a panelist.<br>
-                      <a href="https://panel.surveyfieldwork.com/unsubscribe" style="color:#6366f1;text-decoration:underline;">Unsubscribe</a>
+                      <a href="https://panel.surveyfieldwork.com/unsubscribe" style="color:#0284c7;text-decoration:underline;">Unsubscribe</a>
                       &nbsp;|&nbsp;
-                      <a href="https://panel.surveyfieldwork.com/privacy" style="color:#6366f1;text-decoration:underline;">Privacy Policy</a>
+                      <a href="https://panel.surveyfieldwork.com/privacy" style="color:#0284c7;text-decoration:underline;">Privacy Policy</a>
                     </p>
                   </td>
                 </tr>
@@ -240,7 +244,7 @@ def _build_invitation_plain(first_name: str = "", join_link: str = "") -> str:
     cta_link = join_link or PANEL_SIGNUP_URL
     return f"""{greeting}
 
-You're invited to join the Cogentix Research Panel.
+You're invited to join the SurveyFieldwork Panel.
 
 Use your unique link below and complete the panel double opt-in process.
 

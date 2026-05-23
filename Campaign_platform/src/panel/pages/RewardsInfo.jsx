@@ -141,8 +141,8 @@ export default function RewardsInfo() {
         <div className="max-w-3xl mx-auto text-center">
           <p className="text-gray-600">
             Have questions about rewards? Contact us at{' '}
-            <a href="mailto:rewards@surveyfieldwork.com" className="text-panel-primary hover:underline">
-              rewards@surveyfieldwork.com
+            <a href="mailto:rewards@cogentixresearch.com" className="text-panel-primary hover:underline">
+              rewards@cogentixresearch.com
             </a>
           </p>
         </div>
@@ -157,7 +157,7 @@ export default function RewardsInfo() {
           <Link to="/panel/privacy">Privacy</Link>
           <Link to="/panel/faq">FAQ</Link>
         </nav>
-        <p className="text-white/50 text-sm">© {new Date().getFullYear()} Survey Fieldwork. All rights reserved.</p>
+        <p className="text-white/50 text-sm">© {new Date().getFullYear()} Cogentix Research. All rights reserved.</p>
       </footer>
     </div>
   );

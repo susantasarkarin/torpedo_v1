@@ -27,8 +27,8 @@ def register_ai_database_routes(router: APIRouter):
         Returns counts by status and whether refill is needed.
         """
         try:
-            from .ingestion_vm import get_google_api_credentials
-            from .google_rate_limit import get_usage_stats
+            from ..ingestion_vm import get_google_api_credentials
+            from ..google_rate_limit import get_usage_stats
         
             # Check if Google CSE is configured
             api_key, cse_id = get_google_api_credentials()
@@ -123,10 +123,10 @@ def register_ai_database_routes(router: APIRouter):
         Cost: ~$0.005 per search (free tier: 100/day)
         """
         try:
-            from .ingestion_vm import search_linkedin_leads, get_google_api_credentials
-            from .google_rate_limit import can_make_query, record_query, get_usage_stats
-            from .service import import_leads
-            from .models import LeadRaw
+            from ..ingestion_vm import search_linkedin_leads, get_google_api_credentials
+            from ..google_rate_limit import can_make_query, record_query, get_usage_stats
+            from ..service import import_leads
+            from ..models import LeadRaw
         
             # Check if Google CSE is configured
             api_key, cse_id = get_google_api_credentials()
@@ -387,7 +387,7 @@ def register_ai_database_routes(router: APIRouter):
         Check if Google CSE API is properly configured and working.
         """
         try:
-            from .ingestion_vm import get_google_api_credentials, perform_google_search
+            from ..ingestion_vm import get_google_api_credentials, perform_google_search
         
             api_key, cse_id = get_google_api_credentials()
         
@@ -454,7 +454,7 @@ def register_ai_database_routes(router: APIRouter):
         Get Google CSE usage statistics and rate limit status.
         """
         try:
-            from .google_rate_limit import get_usage_stats, estimate_monthly_cost, get_historical_usage
+            from ..google_rate_limit import get_usage_stats, estimate_monthly_cost, get_historical_usage
         
             stats = get_usage_stats()
             cost_estimate = estimate_monthly_cost()
@@ -492,7 +492,7 @@ def register_ai_database_routes(router: APIRouter):
         Reset today's Google CSE usage counter (admin function).
         """
         try:
-            from .google_rate_limit import reset_daily_counter
+            from ..google_rate_limit import reset_daily_counter
         
             stats = reset_daily_counter()
         

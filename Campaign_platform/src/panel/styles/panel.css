@@ -2,7 +2,7 @@
 
 /* ============== HERO BACKGROUNDS ============== */
 .panel-hero-bg {
-  background: linear-gradient(135deg, #1a237e 0%, #3f51b5 50%, #7986cb 100%);
+  background: linear-gradient(135deg, #111827 0%, #fb923c 55%, #f97316 100%);
   position: relative;
   overflow: hidden;
 }
@@ -14,12 +14,12 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.08'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
 }
 
 .panel-hero-leaves {
   background: 
-    linear-gradient(135deg, rgba(26, 35, 126, 0.9) 0%, rgba(63, 81, 181, 0.8) 100%),
+    linear-gradient(135deg, rgba(17, 24, 39, 0.92) 0%, rgba(249, 115, 22, 0.85) 100%),
     url('/images/leaves-bg.jpg');
   background-size: cover;
   background-position: center;
@@ -46,7 +46,7 @@
   flex-direction: column;
   justify-content: center;
   padding: 2rem 3rem;
-  background: #ffffff;
+  background: linear-gradient(135deg, #111827 0%, #f97316 100%);
 }
 
 .panel-auth-right {
@@ -57,9 +57,11 @@
 
 @media (min-width: 1024px) {
   .panel-auth-right {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: block;
+  }
+
+  .panel-auth-left {
+    background: linear-gradient(135deg, #111827 0%, #fb923c 100%);
   }
 }
 
@@ -173,11 +175,11 @@
 
 /* ============== BUTTONS ============== */
 .panel-btn-primary {
-  background: linear-gradient(135deg, #3f51b5 0%, #5c6bc0 100%);
+  background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
   color: white;
   padding: 0.75rem 1.5rem;
-  border-radius: 0.5rem;
-  font-weight: 500;
+  border-radius: 0.75rem;
+  font-weight: 600;
   border: none;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -188,31 +190,52 @@
 }
 
 .panel-btn-primary:hover {
-  background: linear-gradient(135deg, #303f9f 0%, #3f51b5 100%);
+  background: linear-gradient(135deg, #f59e0b 0%, #fb8500 100%);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(63, 81, 181, 0.3);
+  box-shadow: 0 16px 30px rgba(249, 115, 22, 0.18);
 }
 
 .panel-btn-primary:disabled {
-  opacity: 0.6;
+  opacity: 0.65;
   cursor: not-allowed;
   transform: none;
 }
 
 .panel-btn-accent {
-  background: linear-gradient(135deg, #ff9800 0%, #ffa726 100%);
+  background: linear-gradient(135deg, #fb923c 0%, #f97316 100%);
   color: white;
   padding: 0.75rem 1.5rem;
-  border-radius: 0.5rem;
-  font-weight: 500;
+  border-radius: 0.75rem;
+  font-weight: 600;
   border: none;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .panel-btn-accent:hover {
-  background: linear-gradient(135deg, #f57c00 0%, #ff9800 100%);
+  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
   transform: translateY(-1px);
+}
+
+.text-panel-primary {
+  color: #f97316 !important;
+}
+
+.bg-panel-primary {
+  background-color: #f97316 !important;
+}
+
+.bg-panel-accent {
+  background-color: #fb923c !important;
+}
+
+.panel-footer-link {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
 }
 
 /* ============== EMPTY STATE ============== */
@@ -231,7 +254,7 @@
 
 /* ============== FOOTER ============== */
 .panel-footer {
-  background: #1a237e;
+  background: #111827;
   color: white;
   padding: 2rem;
   text-align: center;

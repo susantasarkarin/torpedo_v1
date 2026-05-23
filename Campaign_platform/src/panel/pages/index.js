@@ -14,3 +14,4 @@ export { default as RewardsInfo } from './RewardsInfo';
 export { default as Terms } from './Terms';
 export { default as Privacy } from './Privacy';
 export { default as FAQ } from './FAQ';
+export { default as Unsubscribe } from './Unsubscribe';

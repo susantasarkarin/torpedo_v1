@@ -54,7 +54,7 @@ function Navbar({
         <div className={`logo-dropdown ${logoDropdownOpen ? "open" : ""}`}>
           <button className="logo-dropdown-toggle" onClick={handleLogoDropdownToggle}>
             <div className="logo-section">
-              <img src="/newlogo.png" alt="Company Logo" className="logo-image" />
+              <img src="/newlogo.png" alt="Cogentix Research Logo" className="logo-image" style={{height:32}} />
             </div>
             <span className="dropdown-arrow">⏷</span>
           </button>

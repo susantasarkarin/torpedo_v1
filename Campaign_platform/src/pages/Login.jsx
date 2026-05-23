@@ -1,11 +1,12 @@
 "use client"
 
 import { useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import "../styles/login.css"
 import api, { APIError } from "../utils/api"
 
 function Login() {
+  const navigate = useNavigate()
   const [credentials, setCredentials] = useState({ username: "", password: "" })
   const [isLoading, setIsLoading] = useState(false)
 
@@ -17,10 +18,8 @@ function Login() {
 
     try {
       await api.login(credentials.username, credentials.password)
-      localStorage.setItem("auth", "true")
 
-      // Use window.location for instant redirect (bypasses React Router overhead)
-      window.location.href = "/admin/dashboard"
+      navigate("/admin/dashboard", { replace: true })
     } catch (error) {
       console.error("❌ Login error:", error)
       const message =

@@ -344,6 +344,46 @@ async def logout(request: Request):
     return {"message": "Logged out successfully"}
 
 
+@router.post("/unsubscribe")
+async def unsubscribe(request: Request):
+    """Mark the current panelist as DND/unsubscribed."""
+    email = None
+    payload = {}
+
+    try:
+        payload = await request.json()
+        email = payload.get("email")
+    except Exception:
+        pass
+
+    if not email:
+        email = request.query_params.get("email")
+
+    panelist = None
+    if email:
+        panelist = panelists_collection.find_one({"email": email.lower()})
+
+    if not panelist:
+        session_id = request.headers.get("X-Panel-Session-Id") or request.headers.get("Authorization", "").replace("Bearer ", "")
+        if session_id:
+            panelist = get_panelist_from_session(session_id)
+
+    if panelist:
+        panelists_collection.update_one(
+            {"_id": panelist["_id"]},
+            {
+                "$set": {
+                    "status": "dnd",
+                    "unsubscribed": True,
+                    "dnd": True,
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+
+    return {"message": "Your unsubscribe request has been recorded."}
+
+
 @router.post("/forgot-password")
 @limiter.limit("3/hour")  # Rate limit: 3 password reset requests per hour per IP
 async def forgot_password(request: Request, data: ForgotPasswordRequest):

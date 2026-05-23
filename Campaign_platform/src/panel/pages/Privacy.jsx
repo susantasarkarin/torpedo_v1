@@ -11,15 +11,11 @@ export default function Privacy() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="bg-panel-primary text-white py-6">
-        <div className="max-w-4xl mx-auto px-6">
-          <Link to="/panel/login" className="inline-flex items-center gap-2 mb-4">
-            <span className="text-2xl font-bold">
-              Sur<span className="text-panel-accent">v</span>ey
-            </span>
-            <span className="bg-white/20 text-white text-xs font-bold px-2 py-0.5 rounded">
-              FIELDWORK
-            </span>
-          </Link>
+        <div className="max-w-4xl mx-auto px-6 flex items-center justify-between">
+          <div className="inline-flex items-center gap-3 mb-4">
+            <img src="/newlogo.png" alt="Cogentix Research" style={{height:36}} />
+            <span className="text-xl font-semibold">Cogentix Research</span>
+          </div>
           <h1 className="text-3xl font-bold">Privacy Policy</h1>
         </div>
       </header>
@@ -113,8 +109,8 @@ export default function Privacy() {
             <h2 className="text-xl font-semibold text-gray-800 mb-3">9. Contact Us</h2>
             <p className="text-gray-600">
               For privacy-related inquiries or to exercise your data rights, contact us at{' '}
-              <a href="mailto:privacy@surveyfieldwork.com" className="text-panel-primary hover:underline">
-                privacy@surveyfieldwork.com
+              <a href="mailto:privacy@cogentixresearch.com" className="text-panel-primary hover:underline">
+                privacy@cogentixresearch.com
               </a>
             </p>
           </section>

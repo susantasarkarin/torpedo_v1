@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { usePanelAuth } from '../context/PanelAuthContext';
+import PrivacyModal from '../components/PrivacyModal';
 import '../styles/panel.css';
 
 const COUNTRIES = [
@@ -34,6 +35,7 @@ export default function PanelSignup() {
   });
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
+  const [privacyOpen, setPrivacyOpen] = useState(false);
   
   const { signup } = usePanelAuth();
   const navigate = useNavigate();
@@ -115,13 +117,9 @@ export default function PanelSignup() {
         <div className="panel-auth-form panel-animate-in py-8">
           {/* Logo */}
           <div className="mb-6">
-            <Link to="/panel/login" className="inline-flex items-center gap-2">
-              <span className="text-3xl font-bold text-panel-primary">
-                Sur<span className="text-panel-accent">v</span>ey
-              </span>
-              <span className="bg-panel-primary text-white text-xs font-bold px-2 py-0.5 rounded">
-                FIELDWORK
-              </span>
+            <Link to="/panel/login" className="inline-flex items-center gap-3">
+              <img src="/newlogo.png" alt="Cogentix Research logo" style={{height:32}} />
+              <span className="text-xl font-bold text-gray-900">Cogentix Research</span>
             </Link>
           </div>
 
@@ -256,7 +254,14 @@ export default function PanelSignup() {
                   I agree to the{' '}
                   <Link to="/panel/terms" className="text-panel-primary hover:underline">Terms & Conditions</Link>
                   {' '}and{' '}
-                  <Link to="/panel/privacy" className="text-panel-primary hover:underline">Privacy Policy</Link>
+                  <button
+                    type="button"
+                    onClick={() => setPrivacyOpen(true)}
+                    className="text-panel-primary hover:underline"
+                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                  >
+                    Privacy Policy
+                  </button>
                 </span>
               </label>
               {errors.agree_terms && <p className="panel-form-error">{errors.agree_terms}</p>}
@@ -280,6 +285,7 @@ export default function PanelSignup() {
           </p>
         </div>
       </section>
+      <PrivacyModal open={privacyOpen} onClose={() => setPrivacyOpen(false)} />
 
       {/* Right: Hero Section */}
       <section className="panel-auth-right panel-hero-bg">

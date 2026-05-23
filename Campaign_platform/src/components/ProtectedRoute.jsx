@@ -1,8 +1,8 @@
 import { Navigate } from "react-router-dom";
+import { isAuthenticated } from "../utils/api";
 
 export default function ProtectedRoute({ children }) {
-  const sessionId = localStorage.getItem("session_id");
-  if (!sessionId) {
+  if (!isAuthenticated()) {
     return <Navigate to="/admin/login" replace />;
   }
   return children;

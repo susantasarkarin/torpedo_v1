@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { forgotPassword } from '../services/panelApi';
+import PrivacyModal from '../components/PrivacyModal';
 import '../styles/panel.css';
 
 export default function PanelForgotPassword() {
@@ -13,6 +14,7 @@ export default function PanelForgotPassword() {
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
+  const [privacyOpen, setPrivacyOpen] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -38,13 +40,9 @@ export default function PanelForgotPassword() {
         <div className="panel-auth-form panel-animate-in">
           {/* Logo */}
           <div className="mb-8">
-            <Link to="/panel/login" className="inline-flex items-center gap-2">
-              <span className="text-3xl font-bold text-panel-primary">
-                Sur<span className="text-panel-accent">v</span>ey
-              </span>
-              <span className="bg-panel-primary text-white text-xs font-bold px-2 py-0.5 rounded">
-                FIELDWORK
-              </span>
+            <Link to="/panel/login" className="inline-flex items-center gap-3">
+              <img src="/newlogo.png" alt="Cogentix Research logo" style={{height:32}} />
+              <span className="text-xl font-bold text-gray-900">Cogentix Research</span>
             </Link>
           </div>
 
@@ -118,12 +116,20 @@ export default function PanelForgotPassword() {
           <div className="mt-8 pt-6 border-t border-gray-200 text-center">
             <div className="flex justify-center gap-4 text-sm text-gray-500">
               <Link to="/panel/terms" className="hover:text-panel-primary">Terms</Link>
-              <Link to="/panel/privacy" className="hover:text-panel-primary">Privacy</Link>
+              <button
+                type="button"
+                onClick={() => setPrivacyOpen(true)}
+                className="hover:text-panel-primary"
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+              >
+                Privacy
+              </button>
               <Link to="/panel/faq" className="hover:text-panel-primary">FAQ</Link>
             </div>
           </div>
         </div>
       </section>
+      <PrivacyModal open={privacyOpen} onClose={() => setPrivacyOpen(false)} />
 
       {/* Right: Hero Section */}
       <section className="panel-auth-right panel-hero-bg">

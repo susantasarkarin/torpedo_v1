@@ -33,6 +33,7 @@ const RewardsInfo = lazy(() => import("./panel/pages/RewardsInfo"))
 const Terms = lazy(() => import("./panel/pages/Terms"))
 const Privacy = lazy(() => import("./panel/pages/Privacy"))
 const FAQ = lazy(() => import("./panel/pages/FAQ"))
+const Unsubscribe = lazy(() => import("./panel/pages/Unsubscribe"))
 
 // ============== LAZY LOADED PAGES ==============
 // Main Pages
@@ -159,6 +160,7 @@ function App() {
       <Route path="/panel/rewards-info" element={<LazyPage><RewardsInfo /></LazyPage>} />
       <Route path="/panel/terms" element={<LazyPage><Terms /></LazyPage>} />
       <Route path="/panel/privacy" element={<LazyPage><Privacy /></LazyPage>} />
+      <Route path="/panel/unsubscribe" element={<LazyPage><Unsubscribe /></LazyPage>} />
       <Route path="/panel/faq" element={<LazyPage><FAQ /></LazyPage>} />
 
       {/* Panel Protected Routes (auth required) */}
@@ -191,6 +193,7 @@ function App() {
           </ProtectedRoute>
         }
       >
+        <Route index element={<Navigate to="/admin/dashboard" replace />} />
         {/* Dashboard */}
         <Route path="dashboard" element={<LazyPage><Dashboard /></LazyPage>} />
 
@@ -209,7 +212,6 @@ function App() {
         <Route path="sales/campaign/email-patterns" element={<LazyPage><EmailPatterns /></LazyPage>} />
         <Route path="sales/campaign/workflow" element={<LazyPage><Workflow /></LazyPage>} />
         <Route path="sales/outreach" element={<LazyPage><ColdOutreach /></LazyPage>} />
-        <Route path="sales/account" element={<LazyPage><AccountsPage /></LazyPage>} />
 
         {/* AI Agent Routes */}
         <Route path="sales/company-upload" element={<LazyPage><CompanyUpload /></LazyPage>} />
