@@ -161,6 +161,21 @@ function PanelistManagement() {
     fetchPanelists()
   }
 
+  const parseApiResponse = async (res) => {
+    const contentType = (res.headers.get("content-type") || "").toLowerCase()
+    if (contentType.includes("application/json")) {
+      return await res.json()
+    }
+
+    const text = await res.text()
+    return {
+      detail:
+        res.status === 524 || res.status === 522
+          ? `Server timeout (HTTP ${res.status}) — the backend took too long to respond.`
+          : `Unexpected server response (${res.status}): ${text}`,
+    }
+  }
+
   // CSV Upload handlers
   const handleFileSelect = (e) => {
     const file = e.target.files[0]
@@ -199,7 +214,7 @@ function PanelistManagement() {
         body: JSON.stringify({ panelists: csvData }),
       })
 
-      const data = await res.json()
+      const data = await parseApiResponse(res)
       if (res.ok) {
         setUploadResult({ success: true, message: data.message || `Uploaded ${data.inserted || 0} panelists`, data })
         setCsvData(null)
@@ -239,7 +254,7 @@ function PanelistManagement() {
         body: JSON.stringify(payload),
       })
 
-      const data = await res.json()
+      const data = await parseApiResponse(res)
       if (res.ok) {
         setImportLinkResult({
           success: true,
