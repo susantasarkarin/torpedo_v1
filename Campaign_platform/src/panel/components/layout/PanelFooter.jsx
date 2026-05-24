@@ -33,4 +33,5 @@ export default function PanelFooter() {
     </footer>
     <PrivacyModal open={privacyOpen} onClose={() => setPrivacyOpen(false)} />
   </>
+  )
 }
