@@ -614,6 +614,7 @@ except Exception as e:
     print(f"⚠️ CPX postback logs injection issue: {e}")
 
 app.include_router(traffic_router.router)
+app.include_router(traffic_router.router, prefix="/api")
 
 # Auth router (login/logout/profile) must be mounted before any auth-protected routes
 try:
@@ -856,7 +857,7 @@ except Exception as e:
 # Survey Pool Management router (sync/activate surveys from CPX/CINT)
 try:
     from routers import survey_pool as survey_pool_router
-    app.include_router(survey_pool_router.router)
+    app.include_router(survey_pool_router.router, prefix="/api")
     print("✅ Survey Pool router included")
 except Exception as e:
     print(f"⚠️ Survey Pool router not included: {e}")
@@ -1066,7 +1067,7 @@ try:
         from .routers import unified_inbox as unified_inbox_router
     except ImportError:
         from routers import unified_inbox as unified_inbox_router
-    app.include_router(unified_inbox_router.router)
+    app.include_router(unified_inbox_router.router, prefix="/api")
     print("✅ Unified Inbox router included")
 except Exception as e:
     print(f"⚠️ Unified Inbox router not included: {e}")
@@ -1224,6 +1225,18 @@ try:
     print("✅ Panel Admin router included")
 except Exception as e:
     print(f"⚠️ Panel Admin router not included: {e}")
+
+try:
+    from routers import panel_invitations as panel_invitations_router
+    from routers import panel_ses_webhook as panel_ses_webhook_router
+    from routers import panel_join as panel_join_router
+    app.include_router(panel_invitations_router.router, prefix="/api")
+    app.include_router(panel_ses_webhook_router.router)
+    app.include_router(panel_join_router.router)
+    app.include_router(panel_join_router.router, prefix="/api")
+    print("✅ Panel mailing routers included")
+except Exception as e:
+    print(f"⚠️ Panel mailing routers not included: {e}")
 
 # ----------------------------
 # APScheduler for CPX refresh job
