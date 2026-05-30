@@ -347,8 +347,11 @@ def register_simple_routers(app: FastAPI) -> None:
     # --- Auth / Admin (extracted Phase 8) ---
     try:
         from routers.auth_handler import router as auth_handler_router
-        app.include_router(auth_handler_router)
-        print("✅ Auth handler router included")
+        # Register auth routes under the `/api` prefix only to avoid duplicate
+        # route registrations (previously registered both with and without
+        # prefix which caused route collisions and confusion).
+        app.include_router(auth_handler_router, prefix="/api")
+        print("✅ Auth handler router included (prefixed)")
     except Exception as e:
         print(f"⚠️ Auth handler router not included: {e}")
 

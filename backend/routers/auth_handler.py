@@ -7,8 +7,6 @@ Extracted from main.py to keep the app entry-point lean.
 
 import os
 import logging
-import asyncio
-from time import perf_counter
 from datetime import datetime, timedelta
 from typing import Dict, Any
 
@@ -58,9 +56,7 @@ def _get_users_collection():
 # ---------------------------------------------------------------------------
 
 @router.post("/login/")
-@router.post("/api/login/")
 async def login(credentials: Dict[str, str] = Body(...)):
-    started = perf_counter()
     users_col = _get_users_collection()
     try:
         username = credentials.get("username")
@@ -85,26 +81,13 @@ async def login(credentials: Dict[str, str] = Body(...)):
         role = user.get("role", "admin")
         session_id = serializer.dumps(username)
 
-        # Keep login responsive even if Redis/session persistence is temporarily slow.
-        try:
-            store = await asyncio.wait_for(get_session_store_instance(), timeout=2.0)
-            await asyncio.wait_for(
-                store.create(session_id, {"username": username, "role": role}, SESSION_TTL_SECONDS),
-                timeout=2.0,
-            )
-        except Exception as store_err:
-            logger.warning("Session store persistence skipped for '%s': %s", username, store_err)
+        store = await get_session_store_instance()
+        await store.create(session_id, {"username": username, "role": role}, SESSION_TTL_SECONDS)
 
         sessions[session_id] = {
             "username": username,
             "expires_at": datetime.utcnow() + timedelta(seconds=SESSION_TTL_SECONDS),
         }
-
-        duration_ms = int((perf_counter() - started) * 1000)
-        if duration_ms > 1500:
-            logger.warning("Slow login for '%s': %sms", username, duration_ms)
-        else:
-            logger.info("Login ok for '%s' in %sms", username, duration_ms)
 
         return {
             "message": "Login successful",
@@ -116,21 +99,15 @@ async def login(credentials: Dict[str, str] = Body(...)):
     except HTTPException:
         raise
     except Exception as e:
-        duration_ms = int((perf_counter() - started) * 1000)
-        logger.exception("Login error after %sms", duration_ms)
         raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
 
 
 @router.post("/logout/")
-@router.post("/api/logout/")
 async def logout(request: Request):
     session_id = request.headers.get("Authorization")
     if session_id:
-        try:
-            store = await asyncio.wait_for(get_session_store_instance(), timeout=2.0)
-            await asyncio.wait_for(store.delete(session_id), timeout=2.0)
-        except Exception as store_err:
-            logger.warning("Session store delete skipped: %s", store_err)
+        store = await get_session_store_instance()
+        await store.delete(session_id)
         sessions.pop(session_id, None)
     return {"message": "Logged out successfully"}
 
@@ -140,7 +117,6 @@ async def logout(request: Request):
 # ---------------------------------------------------------------------------
 
 @router.get("/profile/", dependencies=[Depends(verify_session)])
-@router.get("/api/profile/", dependencies=[Depends(verify_session)])
 async def get_profile(request: Request):
     """Get current user's profile (audit-safe fields only)."""
     users_col = _get_users_collection()
@@ -164,7 +140,6 @@ async def get_profile(request: Request):
 
 
 @router.put("/profile/update", dependencies=[Depends(verify_session)])
-@router.put("/api/profile/update", dependencies=[Depends(verify_session)])
 async def update_profile(request: Request, profile_data: Dict[str, Any] = Body(...)):
     """Update user profile (audit-safe fields: email, displayName)."""
     users_col = _get_users_collection()
@@ -195,7 +170,6 @@ async def update_profile(request: Request, profile_data: Dict[str, Any] = Body(.
 
 
 @router.put("/profile/change-password", dependencies=[Depends(verify_session)])
-@router.put("/api/profile/change-password", dependencies=[Depends(verify_session)])
 async def change_password(request: Request, password_data: Dict[str, str] = Body(...)):
     """Change password (requires current password verification)."""
     users_col = _get_users_collection()

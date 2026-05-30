@@ -1,0 +1,47 @@
+# Normalize line endings across all platforms.
+# Store text files with LF in the repo AND check them out as LF everywhere
+# (Windows + Linux), so the same file never shows up as fully "changed"
+# just because of CRLF vs LF. This is the source-of-truth EOL policy.
+
+* text=auto eol=lf
+
+# Be explicit for the languages/text we use
+*.py     text eol=lf
+*.pyi    text eol=lf
+*.js     text eol=lf
+*.jsx    text eol=lf
+*.ts     text eol=lf
+*.tsx    text eol=lf
+*.json   text eol=lf
+*.css    text eol=lf
+*.scss   text eol=lf
+*.html   text eol=lf
+*.md     text eol=lf
+*.txt    text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.toml   text eol=lf
+*.cfg    text eol=lf
+*.ini    text eol=lf
+*.sh     text eol=lf
+*.env    text eol=lf
+
+# Windows-only scripts must keep CRLF
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+*.ps1    text eol=crlf
+
+# Binary assets — never touch
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.webp   binary
+*.pdf    binary
+*.woff   binary
+*.woff2  binary
+*.ttf    binary
+*.eot    binary
+*.zip    binary
+*.gz     binary

@@ -13,6 +13,9 @@
 # VM settings with sensitive data
 vm_settings.json
 
+# Claude Code session/config (local only)
+.claude/
+
 # Python
 __pycache__/
 *.py[cod]

@@ -2,7 +2,7 @@
 import traceback
 import re
 import logging
-from pathlib import Path
+from pathlib import Path as _FilePath
 from fastapi import FastAPI, HTTPException, Body, Path, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -49,20 +49,21 @@ try:
     # Prefer relative import when running as a package (python -m uvicorn backend.main)
     from .routers import traffic as traffic_router
     from .routers import cpx_api as cpx_api_router
-    from .app.routers import cpx as cpx_router
+    from .routers import cpx_app as cpx_router
     from .routers import finance as finance_router
     from .routers import settings as settings_router
     from .routers import gmail as gmail_router
-    from .app.routers import gmail_router as gmail_api_router
+    from .routers import gmail_app_router as gmail_api_router
     from .routers import rfq as rfq_router
     from .routers import operations as operations_router
     from .routers import health as health_router
     from .routers import users as users_router
     from .routers import roles as roles_router
     from .routers import approvals as approvals_router
+    from .routers import auth_handler as auth_handler_router
     from .app.services.cpx_service import CPXService
-    from .app.routers import survey_allocation as survey_allocation_router
-    from .app.routers import cint as cint_router
+    from .routers import survey_allocation as survey_allocation_router
+    from .routers import cint as cint_router
     from .app.integrations.cint_integration import CintIntegration
     from .leads import router as leads_router
     from .routers import panel as panel_router
@@ -73,21 +74,22 @@ except Exception:
     # Fallback to absolute import for other runtimes
     from routers import traffic as traffic_router
     from routers import cpx_api as cpx_api_router
-    from app.routers import cpx as cpx_router
+    from routers import cpx_app as cpx_router
     from routers import finance as finance_router
     from routers import settings as settings_router
     from routers import gmail as gmail_router
-    from app.routers import gmail_router as gmail_api_router
+    from routers import gmail_app_router as gmail_api_router
     from routers import rfq as rfq_router
     from routers import operations as operations_router
     from routers import health as health_router
     from routers import users as users_router
     from routers import roles as roles_router
     from routers import approvals as approvals_router
+    from routers import auth_handler as auth_handler_router
     from app.services.cpx_service import CPXService
-    from app.routers import survey_allocation as survey_allocation_router
+    from routers import survey_allocation as survey_allocation_router
     from routers import panel as panel_router
-    from app.routers import cint as cint_router
+    from routers import cint as cint_router
     from app.integrations.cint_integration import CintIntegration
     from leads import router as leads_router
     from routers import mail_operations as mail_operations_router
@@ -105,7 +107,7 @@ except Exception:
 # ----------------------------
 # Load environment variables
 # ----------------------------
-load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
+load_dotenv(_FilePath(__file__).resolve().parent / ".env", override=False)
 
 # ----------------------------
 # Config
@@ -161,93 +163,28 @@ reports_collection = db["reports"]
 projects_collection = db["projects"]
 vendors_collection = db["vendors"]  # Vendors collection for CPX callback handling
 
-# CPX Research collections
+# CPX and settings collections
+try:
+    settings_db = client["torpedo_settings"]
+    app_settings_collection = settings_db["app_settings"]
+    print("✅ Settings collection initialized")
+except Exception as e:
+    app_settings_collection = None
+    print(f"⚠️ Settings collection initialization issue: {e}")
+
 try:
     cpx_db = client["cpx_research"]
     cpx_surveys_collection = cpx_db["cpx_surveys"]
     cpx_filters_collection = cpx_db["cpx_filters"]
-    print("✅ CPX Research database collections initialized")
+    print("✅ CPX collections initialized")
 except Exception as e:
     cpx_surveys_collection = None
     cpx_filters_collection = None
-    print(f"⚠️ CPX Research database initialization issue: {e}")
+    print(f"⚠️ CPX collections initialization issue: {e}")
 
-# Settings database for app configuration (profile > settings)
-try:
-    settings_db = client["torpedo_settings"]
-    app_settings_collection = settings_db["app_settings"]
-except Exception as e:
-    app_settings_collection = None
-    print(f"⚠️ Settings database initialization issue: {e}")
-
-
-def get_cpx_config() -> Dict[str, Any]:
-    """
-    Get CPX configuration from settings database with env vars as fallback.
-    This allows CPX credentials to be configured via profile > settings UI.
-    """
-    config = {
-        "cpx_app_id": os.getenv("CPX_APP_ID", ""),
-        "cpx_ext_user_id": os.getenv("CPX_EXT_USER_ID", ""),
-        "cpx_secure_hash_key": os.getenv("CPX_SECURE_HASH_KEY", ""),
-        "cpx_api_timeout": int(os.getenv("CPX_API_TIMEOUT", "30")),
-        "cpx_fetch_limit": int(os.getenv("CPX_FETCH_LIMIT", "1000")),
-    }
-    
-    # Try to get config from settings database
-    if app_settings_collection is not None:
-        try:
-            stored = app_settings_collection.find_one({"_id": "app_config"})
-            if stored:
-                # Override with stored values if they exist and are not empty
-                if stored.get("cpx_app_id"):
-                    config["cpx_app_id"] = stored["cpx_app_id"]
-                if stored.get("cpx_ext_user_id"):
-                    config["cpx_ext_user_id"] = stored["cpx_ext_user_id"]
-                if stored.get("cpx_secure_hash_key"):
-                    config["cpx_secure_hash_key"] = stored["cpx_secure_hash_key"]
-                if stored.get("cpx_api_timeout"):
-                    config["cpx_api_timeout"] = int(stored["cpx_api_timeout"])
-        except Exception as e:
-            print(f"⚠️ Could not read CPX config from settings: {e}")
-    
-    return config
-
-
-def get_survey_filter_settings() -> Dict[str, Any]:
-    """
-    Get survey filter settings from settings database.
-    Used for CPX filtering, cleanup, and refresh scheduling.
-    """
-    defaults = {
-        "max_loi": 30,  # Increased from 20 to show more surveys
-        "min_cpi": 0.3,  # Lowered from 1.0 to show more surveys
-        "min_incidence": 10,  # Lowered from 60 to show more surveys
-        "deletion_period_days": 7,
-        "auto_refresh_enabled": True,
-        "refresh_interval_seconds": 60,  # 1 minute
-    }
-    
-    if app_settings_collection is not None:
-        try:
-            stored = app_settings_collection.find_one({"_id": "survey_filters"})
-            if stored:
-                return {
-                    "max_loi": stored.get("max_loi", defaults["max_loi"]),
-                    "min_cpi": stored.get("min_cpi", defaults["min_cpi"]),
-                    "min_incidence": stored.get("min_incidence", defaults["min_incidence"]),
-                    "deletion_period_days": stored.get("deletion_period_days", defaults["deletion_period_days"]),
-                    "auto_refresh_enabled": stored.get("auto_refresh_enabled", defaults["auto_refresh_enabled"]),
-                    "refresh_interval_seconds": stored.get("refresh_interval_seconds", defaults["refresh_interval_seconds"]),
-                }
-        except Exception as e:
-            print(f"\u26a0\ufe0f Could not read survey filter settings: {e}")
-    
-    return defaults
-
-
-# ----------------------------
-# Session Management
+# Auth endpoints are handled by the `routers/auth_handler.py` APIRouter.
+# The router is mounted both at `/` and `/api` for backward compatibility
+# with legacy tests and the frontend client.
 # ----------------------------
 SECRET_KEY = os.getenv("SESSION_SECRET", "supersecretkey")
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", 60 * 60 * 24))  # default 24h
@@ -678,12 +615,70 @@ except Exception as e:
 
 app.include_router(traffic_router.router)
 
-# Finance router for CRUD endpoints used by the frontend
+# Auth router (login/logout/profile) must be mounted before any auth-protected routes
+try:
+    app.include_router(auth_handler_router.router)
+    app.include_router(auth_handler_router.router, prefix="/api")
+    print("✅ Auth router included at / and /api")
+except Exception as e:
+    print(f"⚠️ Auth router not included: {e}")
+
 try:
     app.include_router(finance_router.router)
     print("✅ Finance router included")
 except Exception as e:
     print(f"⚠️ Finance router not included: {e}")
+
+def get_cpx_config() -> Dict[str, Any]:
+    """Load CPX configuration from app settings with env fallbacks."""
+    stored = {}
+    try:
+        if app_settings_collection is not None:
+            stored = app_settings_collection.find_one({"_id": "app_config"}) or {}
+    except Exception as e:
+        print(f"⚠️ Could not load CPX settings from database: {e}")
+        stored = {}
+
+    return {
+        "cpx_app_id": stored.get("cpx_app_id", os.getenv("CPX_APP_ID", "")),
+        "cpx_ext_user_id": stored.get("cpx_ext_user_id", os.getenv("CPX_EXT_USER_ID", "")),
+        "cpx_secure_hash_key": stored.get("cpx_secure_hash_key", os.getenv("CPX_SECURE_HASH_KEY", "")),
+        "cpx_api_timeout": stored.get("cpx_api_timeout", int(os.getenv("CPX_API_TIMEOUT", "30"))),
+        "cpx_fetch_limit": stored.get("cpx_fetch_limit", int(os.getenv("CPX_FETCH_LIMIT", "1000"))),
+    }
+
+
+def get_survey_filter_settings() -> Dict[str, Any]:
+    """
+    Get survey filter settings from settings database.
+    Used for CPX filtering, cleanup, and refresh scheduling.
+    """
+    defaults = {
+        "max_loi": 30,  # Increased from 20 to show more surveys
+        "min_cpi": 0.3,  # Lowered from 1.0 to show more surveys
+        "min_incidence": 10,  # Lowered from 60 to show more surveys
+        "deletion_period_days": 7,
+        "auto_refresh_enabled": True,
+        "refresh_interval_seconds": 60,  # 1 minute
+    }
+
+    if app_settings_collection is not None:
+        try:
+            stored = app_settings_collection.find_one({"_id": "survey_filters"})
+            if stored:
+                return {
+                    "max_loi": stored.get("max_loi", defaults["max_loi"]),
+                    "min_cpi": stored.get("min_cpi", defaults["min_cpi"]),
+                    "min_incidence": stored.get("min_incidence", defaults["min_incidence"]),
+                    "deletion_period_days": stored.get("deletion_period_days", defaults["deletion_period_days"]),
+                    "auto_refresh_enabled": stored.get("auto_refresh_enabled", defaults["auto_refresh_enabled"]),
+                    "refresh_interval_seconds": stored.get("refresh_interval_seconds", defaults["refresh_interval_seconds"]),
+                }
+        except Exception as e:
+            print(f"⚠️ Could not read survey filter settings: {e}")
+
+    return defaults
+
 
 # CPX Research router
 if cpx_surveys_collection is not None and cpx_filters_collection is not None:
@@ -860,7 +855,7 @@ except Exception as e:
 
 # Survey Pool Management router (sync/activate surveys from CPX/CINT)
 try:
-    from app.routers import survey_pool as survey_pool_router
+    from routers import survey_pool as survey_pool_router
     app.include_router(survey_pool_router.router)
     print("✅ Survey Pool router included")
 except Exception as e:
@@ -2102,78 +2097,16 @@ if not users_collection.find_one({"username": DEFAULT_ADMIN_USERNAME}):
     )
 
 
-@app.post("/login/")
-async def login(credentials: Dict[str, str] = Body(...)):
-    try:
-        username = credentials.get("username")
-        password = credentials.get("password")
-
-        if not username or not password:
-            raise HTTPException(status_code=400, detail="Missing username or password")
-
-        # Find user by username only
-        user = users_collection.find_one({"username": username})
-        if not user:
-            print(f"❌ Login failed: User '{username}' not found")
-            raise HTTPException(status_code=401, detail="Invalid username or password")
-        
-        # Verify password using secure comparison
-        stored_password = user.get("password", "")
-        
-        # Debug: Log hash type for troubleshooting (don't log actual password)
-        if stored_password.startswith('$2'):
-            print(f"🔐 User '{username}' has bcrypt hash")
-        elif stored_password.startswith('pbkdf2:'):
-            print(f"🔐 User '{username}' has PBKDF2 hash")
-        else:
-            print(f"⚠️ User '{username}' has plaintext/unknown password format")
-        
-        if not verify_password(password, stored_password):
-            print(f"❌ Login failed: Password verification failed for '{username}'")
-            raise HTTPException(status_code=401, detail="Invalid username or password")
-        
-        print(f"✅ Password verified for user '{username}'")
-        
-        # Migrate plaintext password to hash if needed (one-time migration)
-        if needs_rehash(stored_password):
-            migrate_user_password(users_collection, username, password)
-
-        # ✅ If user has no role field, assume admin
-        role = user.get("role", "admin")
-
-        # ✅ Create session token
-        session_id = serializer.dumps(username)
-        
-        # Store session in Redis (with fallback to in-memory)
-        store = await get_session_store_instance()
-        await store.create(
-            session_id,
-            {"username": username, "role": role},
-            SESSION_TTL_SECONDS
-        )
-        
-        # Also store in memory for backward compatibility
-        sessions[session_id] = {
-            "username": username,
-            "expires_at": datetime.utcnow() + timedelta(seconds=SESSION_TTL_SECONDS)
-        }
-
-        return {
-            "message": "Login successful",
-            "username": username,
-            "session_id": session_id,
-            "role": role  # ✅ return role to frontend
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Login error: {str(e)}")
+# Auth endpoints (login/logout/profile) moved to `routers/auth_handler.py`.
+# This avoids duplicate inline handlers in `main.py` and centralizes
+# authentication logic within the `auth_handler` APIRouter which is
+# included under the `/api` prefix by `router_registry.py`.
 
 
 
 
 @app.post("/logout/")
+@app.post("/api/logout/")
 async def logout(request: Request):
     session_id = request.headers.get("Authorization")
     if session_id:

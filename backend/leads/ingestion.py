@@ -244,8 +244,9 @@ async def perform_google_search(query: str, num_results: int = 10) -> List[dict]
                 elif response.status_code == 429:
                     consecutive_429 += 1
                     logger.warning(f"[Google CSE] 429 received (#{consecutive_429})")
-                    if consecutive_429 >= 2:
-                        _pause_cse_for_24h()
+                    # A 429 from CSE means the daily quota (100/day) is exhausted;
+                    # every further request today will also 429, so pause for 24h now.
+                    _pause_cse_for_24h()
                     break
                 else:
                     logger.error(f"Google Search error: {response.status_code}")
