@@ -1,7 +1,7 @@
 "use client"
 
 import { Link, useNavigate } from "react-router-dom"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { API_BASE_URL, buildApiUrl } from "../config"
 import { logout } from "../services/authService"
 import "./Navbar.css"
@@ -13,17 +13,7 @@ function Navbar({
   setSelectedSection,
 }) {
   const [logoDropdownOpen, setLogoDropdownOpen] = useState(false)
-  const [buildId, setBuildId] = useState("unknown")
   const navigate = useNavigate()
-
-  useEffect(() => {
-    const scripts = Array.from(document.querySelectorAll("script[src]"))
-    const indexScript = scripts.find((script) => script.src.includes("/static/index-"))
-    const match = indexScript?.src.match(/index-([^./]+)\.js/)
-    if (match?.[1]) {
-      setBuildId(match[1])
-    }
-  }, [])
 
   const handleLogoDropdownToggle = () => {
     setLogoDropdownOpen((prev) => !prev)
@@ -120,9 +110,6 @@ function Navbar({
           </div>
         </div>
 
-        <div className="build-badge" title="Deployed frontend build fingerprint">
-          Build {buildId}
-        </div>
       </div>
 
       <div className="profile-section">
