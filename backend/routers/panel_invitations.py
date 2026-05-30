@@ -10,6 +10,8 @@ Endpoints:
 
 import asyncio
 import logging
+import threading
+from datetime import datetime
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Request, Query, Body
 
@@ -74,16 +76,34 @@ async def send_invitations(
 
     try:
         from services.panel_email_service import send_bulk_invitations
-        result = await asyncio.to_thread(
-            send_bulk_invitations,
-            country=country,
-            force_resend=force_resend,
-            daily_mode=daily_mode,
-            daily_cap=daily_cap,
-        )
-        return result
+        import uuid as _uuid
+        job_id = f"invite-{_uuid.uuid4().hex[:10]}"
+        started_at = datetime.utcnow().isoformat()
+
+        def _run():
+            try:
+                result = send_bulk_invitations(
+                    country=country,
+                    force_resend=force_resend,
+                    daily_mode=daily_mode,
+                    daily_cap=daily_cap,
+                )
+                logger.info(f"[{job_id}] Bulk invite complete: {result}")
+            except Exception as exc:
+                logger.error(f"[{job_id}] Bulk invite failed: {exc}")
+
+        threading.Thread(target=_run, daemon=True, name=f"invite-{job_id}").start()
+
+        return {
+            "job_id": job_id,
+            "status": "started",
+            "started_at": started_at,
+            "message": "Invitation job started in background. Monitor logs for progress.",
+            "country": country or "all",
+            "daily_mode": daily_mode,
+        }
     except Exception as e:
-        logger.error(f"Error sending invitations: {e}")
+        logger.error(f"Error starting invitation job: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

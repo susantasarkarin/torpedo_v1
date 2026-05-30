@@ -336,56 +336,86 @@ def send_bulk_invitations(
     if country:
         query["country"] = {"$regex": f"^{country}$", "$options": "i"}
 
-    panelist_cursor = panelists_collection.find(
+    # Bulk pre-fetch all panelists
+    all_panelists = list(panelists_collection.find(
         query,
-        {"email": 1, "first_name": 1, "_id": 1},
-    )
+        {"email": 1, "first_name": 1, "_id": 1, "double_opt_in_completed": 1, "email_verified": 1},
+    ))
+
+    # Deduplicate and build email→doc map
+    email_map: Dict[str, Any] = {}
+    for p in all_panelists:
+        email = (p.get("email") or "").lower().strip()
+        if email and email not in email_map:
+            email_map[email] = p
+
+    email_list = list(email_map.keys())
+
+    # Bulk fetch suppressed emails
+    suppressed_set: set = {
+        doc["email"].lower().strip()
+        for doc in suppression_collection.find({"email": {"$in": email_list}}, {"email": 1})
+    }
+
+    # Bulk fetch already-invited / invited-today emails
+    if daily_mode:
+        from datetime import timezone as _tz
+        from zoneinfo import ZoneInfo
+        try:
+            tz = ZoneInfo(PANEL_SEND_TIMEZONE)
+        except Exception:
+            tz = ZoneInfo("UTC")
+        from datetime import datetime as _dt, timedelta as _td
+        now_local = _dt.now(tz)
+        day_start_utc = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(_tz.utc).replace(tzinfo=None)
+        next_day_utc = day_start_utc + _td(days=1)
+        invited_set: set = {
+            doc["email"].lower().strip()
+            for doc in invitation_log_collection.find(
+                {"email": {"$in": email_list}, "status": "sent",
+                 "sent_at": {"$gte": day_start_utc, "$lt": next_day_utc}},
+                {"email": 1}
+            )
+        }
+    elif not force_resend:
+        invited_set = {
+            doc["email"].lower().strip()
+            for doc in invitation_log_collection.find(
+                {"email": {"$in": email_list}, "status": "sent"}, {"email": 1}
+            )
+        }
+    else:
+        invited_set = set()
+
+    # Build eligible list
+    eligible = []
+    for email, panelist in email_map.items():
+        doc_status = str(panelist.get("status") or "").strip().lower()
+        # Skip double opted-in
+        if panelist.get("double_opt_in_completed"):
+            continue
+        if panelist.get("email_verified") and doc_status in {"active", "confirmed", "double_opted_in"}:
+            continue
+        if email in suppressed_set:
+            continue
+        if email in invited_set:
+            continue
+        eligible.append(panelist)
 
     sent = 0
-    skipped = 0
+    skipped = len(email_map) - len(eligible)
     failed = 0
-    seen_emails = set()
     send_interval = 1.0 / SES_SEND_RATE if SES_SEND_RATE > 0 else 1.0
 
     cap_value = daily_cap if daily_cap is not None else PANEL_DAILY_SEND_CAP
     capped = 0
 
-    for panelist in panelist_cursor:
+    for panelist in eligible:
         if daily_mode and sent >= cap_value:
             capped += 1
             continue
 
         email = (panelist.get("email") or "").lower().strip()
-        if not email:
-            skipped += 1
-            continue
-
-        # Deduplicate within batch
-        if email in seen_emails:
-            skipped += 1
-            continue
-        seen_emails.add(email)
-
-        # Stop workflow once double opt-in is complete.
-        if is_double_opted_in(email):
-            skipped += 1
-            continue
-
-        # Check suppression list
-        if is_suppressed(email):
-            skipped += 1
-            continue
-
-        # Daily campaign mode: send at most once per local day.
-        if daily_mode:
-            if has_been_invited_today(email, timezone_name=PANEL_SEND_TIMEZONE):
-                skipped += 1
-                continue
-        else:
-            # Legacy mode: one-time invite unless force_resend is enabled.
-            if not force_resend and has_been_invited(email):
-                skipped += 1
-                continue
 
         # Send
         first_name = panelist.get("first_name", "")
