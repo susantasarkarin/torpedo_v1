@@ -36,6 +36,7 @@ client = MongoClient(MONGO_URI)
 cp_db = client["campaign_platform"]
 panelists_collection = cp_db["panelists"]
 rewards_collection = cp_db["panel_rewards"]
+invitation_log_collection = cp_db["panel_invitation_log"]
 
 # traffic_flow_db (traffic records from parsing page)
 tf_db = client["traffic_flow_db"]
@@ -404,6 +405,109 @@ async def list_panelists(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/panelists/with-email-status")
+async def list_panelists_with_email_status(
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    search: Optional[str] = Query(None),
+    country: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+):
+    """List all panelists with their latest email status and sent date from invitation logs"""
+    verify_admin_session(request)
+
+    try:
+        query = {}
+        conditions = []
+
+        if search:
+            conditions.append({
+                "$or": [
+                    {"first_name": {"$regex": search, "$options": "i"}},
+                    {"last_name": {"$regex": search, "$options": "i"}},
+                    {"email": {"$regex": search, "$options": "i"}},
+                    {"country": {"$regex": search, "$options": "i"}},
+                ]
+            })
+
+        if country:
+            conditions.append({"country": {"$regex": f"^{country}$", "$options": "i"}})
+
+        if status:
+            conditions.append({"status": {"$regex": f"^{status}$", "$options": "i"}})
+
+        if conditions:
+            query = {"$and": conditions} if len(conditions) > 1 else conditions[0]
+
+        total = panelists_collection.count_documents(query)
+        skip = (page - 1) * page_size
+
+        # Use aggregation to join with invitation_log
+        pipeline = [
+            {"$match": query},
+            {
+                "$lookup": {
+                    "from": "panel_invitation_log",
+                    "localField": "email",
+                    "foreignField": "email",
+                    "as": "invitations"
+                }
+            },
+            {
+                "$addFields": {
+                    "latest_invitation": {
+                        "$arrayElemAt": [
+                            {
+                                "$sortArray": {
+                                    "input": "$invitations",
+                                    "sortBy": {"sent_at": -1}
+                                }
+                            },
+                            0
+                        ]
+                    }
+                }
+            },
+            {
+                "$project": {
+                    "password_hash": 0,
+                    "reset_token": 0,
+                    "reset_token_expires": 0,
+                    "invitations": 0
+                }
+            },
+            {"$sort": {"created_at": -1}},
+            {"$skip": skip},
+            {"$limit": page_size},
+        ]
+
+        results = []
+        for doc in panelists_collection.aggregate(pipeline):
+            doc_serialized = serialize_doc(doc)
+            
+            # Add email status from latest invitation
+            if doc_serialized.get("latest_invitation"):
+                inv = doc_serialized["latest_invitation"]
+                doc_serialized["email_sent_date"] = inv.get("sent_at")
+                doc_serialized["email_status"] = inv.get("status")  # sent, bounced, complained, confirmed, clicked, etc.
+            else:
+                doc_serialized["email_sent_date"] = None
+                doc_serialized["email_status"] = None
+            
+            results.append(doc_serialized)
+
+        return {
+            "results": results,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+    except Exception as e:
+        logger.error(f"Error listing panelists with email status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/panelist-leads/")
 async def list_panelist_leads(
     request: Request,
@@ -630,4 +734,127 @@ async def list_redemptions(
         return {"results": results, "total": total, "page": page, "page_size": page_size}
     except Exception as e:
         logger.error(f"Error listing redemptions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== DASHBOARD ==============
+
+@router.get("/dashboard/daily-stats")
+async def get_daily_email_stats(
+    request: Request,
+    days: int = Query(30, ge=1, le=365),
+):
+    """Get daily email send statistics for the last N days"""
+    verify_admin_session(request)
+
+    try:
+        from datetime import timedelta, timezone
+        from zoneinfo import ZoneInfo
+        
+        # Get timezone-aware stats (use Asia/Kolkata or UTC)
+        try:
+            tz = ZoneInfo("Asia/Kolkata")
+        except Exception:
+            tz = ZoneInfo("UTC")
+        
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        start_date = now_utc - timedelta(days=days)
+        
+        # Aggregation pipeline to group by date
+        pipeline = [
+            {
+                "$match": {
+                    "sent_at": {"$gte": start_date, "$lte": now_utc},
+                    "status": "sent"
+                }
+            },
+            {
+                "$group": {
+                    "_id": {
+                        "$dateToString": {
+                            "format": "%Y-%m-%d",
+                            "date": "$sent_at"
+                        }
+                    },
+                    "count": {"$sum": 1},
+                    "bounced": {
+                        "$sum": {
+                            "$cond": [{"$eq": ["$status", "bounced"]}, 1, 0]
+                        }
+                    },
+                    "complained": {
+                        "$sum": {
+                            "$cond": [{"$eq": ["$status", "complained"]}, 1, 0]
+                        }
+                    },
+                    "confirmed": {
+                        "$sum": {
+                            "$cond": [{"$eq": ["$status", "confirmed"]}, 1, 0]
+                        }
+                    },
+                }
+            },
+            {"$sort": {"_id": 1}}
+        ]
+        
+        daily_stats = list(invitation_log_collection.aggregate(pipeline))
+        
+        # Also get overall stats
+        total_sent_count = invitation_log_collection.count_documents({"status": "sent"})
+        total_bounced_count = invitation_log_collection.count_documents({"status": "bounced"})
+        total_confirmed_count = invitation_log_collection.count_documents({"status": "confirmed"})
+        
+        return {
+            "daily_stats": daily_stats,
+            "total_sent": total_sent_count,
+            "total_bounced": total_bounced_count,
+            "total_confirmed": total_confirmed_count,
+            "days_requested": days,
+        }
+    except Exception as e:
+        logger.error(f"Error fetching daily email stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/dashboard/registrations-by-country")
+async def get_registrations_by_country(
+    request: Request,
+):
+    """Get panelists registered (double opt-in confirmed) by country"""
+    verify_admin_session(request)
+
+    try:
+        pipeline = [
+            {
+                "$match": {
+                    "double_opt_in_completed": True
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$country",
+                    "count": {"$sum": 1}
+                }
+            },
+            {"$sort": {"count": -1}}
+        ]
+        
+        registrations = list(panelists_collection.aggregate(pipeline))
+        
+        # Format response
+        by_country = {}
+        total_registered = 0
+        for doc in registrations:
+            country = doc.get("_id") or "Unknown"
+            count = doc.get("count", 0)
+            by_country[country] = count
+            total_registered += count
+        
+        return {
+            "registrations_by_country": by_country,
+            "total_registered": total_registered,
+            "countries_represented": len(by_country),
+        }
+    except Exception as e:
+        logger.error(f"Error fetching registrations by country: {e}")
         raise HTTPException(status_code=500, detail=str(e))

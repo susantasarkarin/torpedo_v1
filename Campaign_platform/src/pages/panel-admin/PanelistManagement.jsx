@@ -134,7 +134,7 @@ function PanelistManagement() {
       if (countryFilter) params.append("country", countryFilter)
       params.append("status", "active")
 
-      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/?${params}`), {
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelists/with-email-status?${params}`), {
         headers: { Authorization: sessionId },
       })
       if (res.ok) {
@@ -174,6 +174,21 @@ function PanelistManagement() {
           ? `Server timeout (HTTP ${res.status}) — the backend took too long to respond.`
           : `Unexpected server response (${res.status}): ${text}`,
     }
+  }
+
+  // Helper to get email status badge styling
+  const getEmailStatusBadge = (status) => {
+    if (!status) return { bg: "#f3f4f6", text: "#6b7280", label: "Not sent" }
+    const statusMap = {
+      sent: { bg: "#dbeafe", text: "#1e40af", label: "Sent" },
+      bounced: { bg: "#fee2e2", text: "#991b1b", label: "Bounced" },
+      complained: { bg: "#fecaca", text: "#7c2d12", label: "Complained" },
+      confirmed: { bg: "#d1fae5", text: "#065f46", label: "Confirmed" },
+      clicked: { bg: "#c7d2fe", text: "#312e81", label: "Clicked" },
+      soft_bounced: { bg: "#fef3c7", text: "#92400e", label: "Soft Bounce" },
+      failed: { bg: "#f3f4f6", text: "#6b7280", label: "Failed" },
+    }
+    return statusMap[status] || { bg: "#f3f4f6", text: "#6b7280", label: status }
   }
 
   // CSV Upload handlers
@@ -696,47 +711,65 @@ function PanelistManagement() {
                         <th style={thStyle}>Status</th>
                         <th style={thStyle}>Verified</th>
                         <th style={thStyle}>Joined</th>
+                        <th style={thStyle}>Email Sent Date</th>
+                        <th style={thStyle}>Email Status</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {panelists.map((panelist, index) => (
-                        <tr key={panelist._id || panelist.id || index} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                          <td style={{ ...tdStyle, fontWeight: "600", color: "#1f2937" }}>{panelist.email || "-"}</td>
-                          <td style={{ ...tdStyle, fontWeight: "600", color: "#1f2937" }}>
-                            {panelist.country ? (
+                      {panelists.map((panelist, index) => {
+                        const emailStatusBadge = getEmailStatusBadge(panelist.email_status)
+                        return (
+                          <tr key={panelist._id || panelist.id || index} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                            <td style={{ ...tdStyle, fontWeight: "600", color: "#1f2937" }}>{panelist.email || "-"}</td>
+                            <td style={{ ...tdStyle, fontWeight: "600", color: "#1f2937" }}>
+                              {panelist.country ? (
+                                <span style={{
+                                  display: "inline-flex", alignItems: "center", gap: "0.25rem",
+                                  background: "#eff6ff", color: "#1e40af", padding: "0.2rem 0.6rem",
+                                  borderRadius: "9999px", fontSize: "0.8rem", fontWeight: "600",
+                                }}>
+                                  {panelist.country}
+                                </span>
+                              ) : "-"}
+                            </td>
+                            <td style={tdStyle}>{[panelist.first_name, panelist.last_name].filter(Boolean).join(" ") || "-"}</td>
+                            <td style={tdStyle}>
                               <span style={{
-                                display: "inline-flex", alignItems: "center", gap: "0.25rem",
-                                background: "#eff6ff", color: "#1e40af", padding: "0.2rem 0.6rem",
-                                borderRadius: "9999px", fontSize: "0.8rem", fontWeight: "600",
+                                fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
+                                backgroundColor: panelist.status === "active" ? "#d1fae5" : panelist.status === "pending" ? "#fef3c7" : "#fee2e2",
+                                color: panelist.status === "active" ? "#065f46" : panelist.status === "pending" ? "#92400e" : "#991b1b",
                               }}>
-                                {panelist.country}
+                                {panelist.status || "active"}
                               </span>
-                            ) : "-"}
-                          </td>
-                          <td style={tdStyle}>{[panelist.first_name, panelist.last_name].filter(Boolean).join(" ") || "-"}</td>
-                          <td style={tdStyle}>
-                            <span style={{
-                              fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
-                              backgroundColor: panelist.status === "active" ? "#d1fae5" : panelist.status === "pending" ? "#fef3c7" : "#fee2e2",
-                              color: panelist.status === "active" ? "#065f46" : panelist.status === "pending" ? "#92400e" : "#991b1b",
-                            }}>
-                              {panelist.status || "active"}
-                            </span>
-                          </td>
-                          <td style={tdStyle}>
-                            <span style={{
-                              fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
-                              backgroundColor: panelist.email_verified ? "#d1fae5" : "#f3f4f6",
-                              color: panelist.email_verified ? "#065f46" : "#6b7280",
-                            }}>
-                              {panelist.email_verified ? "Verified" : "Unverified"}
-                            </span>
-                          </td>
-                          <td style={tdStyle}>
-                            {panelist.created_at ? new Date(panelist.created_at).toLocaleDateString() : "-"}
-                          </td>
-                        </tr>
-                      ))}
+                            </td>
+                            <td style={tdStyle}>
+                              <span style={{
+                                fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
+                                backgroundColor: panelist.email_verified ? "#d1fae5" : "#f3f4f6",
+                                color: panelist.email_verified ? "#065f46" : "#6b7280",
+                              }}>
+                                {panelist.email_verified ? "Verified" : "Unverified"}
+                              </span>
+                            </td>
+                            <td style={tdStyle}>
+                              {panelist.created_at ? new Date(panelist.created_at).toLocaleDateString() : "-"}
+                            </td>
+                            <td style={tdStyle}>
+                              {panelist.email_sent_date ? new Date(panelist.email_sent_date).toLocaleDateString() : "-"}
+                            </td>
+                            <td style={tdStyle}>
+                              <span style={{
+                                fontSize: "0.75rem", padding: "0.2rem 0.6rem", borderRadius: "9999px",
+                                backgroundColor: emailStatusBadge.bg,
+                                color: emailStatusBadge.text,
+                                fontWeight: "600",
+                              }}>
+                                {emailStatusBadge.label}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>

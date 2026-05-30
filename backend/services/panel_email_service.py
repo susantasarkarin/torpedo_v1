@@ -51,7 +51,7 @@ PANEL_LOGO_URL = os.getenv(
 )
 PANEL_TEMPLATE_VERSION = os.getenv("PANEL_TEMPLATE_VERSION", "panel-invite-v3")
 PANEL_SEND_TIMEZONE = os.getenv("PANEL_SEND_TIMEZONE", "Asia/Kolkata")
-PANEL_DAILY_SEND_CAP = int(os.getenv("PANEL_DAILY_SEND_CAP", "1000"))
+PANEL_DAILY_SEND_CAP = int(os.getenv("PANEL_DAILY_SEND_CAP", "6000"))
 
 # Rate limiting: SES sandbox = 1/sec, production = 14/sec
 SES_SEND_RATE = float(os.getenv("PANEL_SES_SEND_RATE", "1"))  # emails per second
