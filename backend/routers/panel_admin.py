@@ -10,6 +10,7 @@ Endpoints:
 - GET /panel-admin/rewards/redemptions - Pending redemption requests
 """
 
+import asyncio
 import os
 import logging
 import csv
@@ -480,7 +481,7 @@ async def upload_panelists_csv(
         panelist_rows = data.get("panelists", [])
         if not panelist_rows:
             raise HTTPException(status_code=400, detail="No panelist data provided")
-        result = _upsert_panelists(panelist_rows, source="csv_upload")
+        result = await asyncio.to_thread(_upsert_panelists, panelist_rows, "csv_upload")
 
         return {
             "message": f"Uploaded {result['inserted']} panelists, skipped {result['skipped']} (duplicates/empty)",
@@ -514,7 +515,7 @@ async def import_panelists_from_link(
     if format_hint not in {"auto", "csv", "json"}:
         raise HTTPException(status_code=400, detail="format must be one of: auto, csv, json")
 
-    fetched = _fetch_link_data(url, request_headers=request_headers)
+    fetched = await asyncio.to_thread(_fetch_link_data, url, request_headers)
     content_type = fetched["content_type"]
     text = fetched["text"]
 
@@ -544,7 +545,7 @@ async def import_panelists_from_link(
     if not rows:
         raise HTTPException(status_code=400, detail="No rows found in provided link")
 
-    result = _upsert_panelists(rows, source="link_import")
+    result = await asyncio.to_thread(_upsert_panelists, rows, "link_import")
     return {
         "message": f"Imported {result['inserted']} panelists from link, skipped {result['skipped']}",
         "inserted": result["inserted"],

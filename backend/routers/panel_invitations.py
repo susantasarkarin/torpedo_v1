@@ -8,6 +8,7 @@ Endpoints:
 - GET  /panel-admin/invitations/status   - Get send statistics
 """
 
+import asyncio
 import logging
 from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Request, Query, Body
@@ -43,7 +44,7 @@ async def invitation_preview(
 
     try:
         from services.panel_email_service import get_eligible_count
-        count = get_eligible_count(country=country, daily_mode=daily_mode)
+        count = await asyncio.to_thread(get_eligible_count, country=country, daily_mode=daily_mode)
         return {"eligible_count": count, "country": country or "all", "daily_mode": daily_mode}
     except Exception as e:
         logger.error(f"Error getting invitation preview: {e}")
@@ -73,7 +74,8 @@ async def send_invitations(
 
     try:
         from services.panel_email_service import send_bulk_invitations
-        result = send_bulk_invitations(
+        result = await asyncio.to_thread(
+            send_bulk_invitations,
             country=country,
             force_resend=force_resend,
             daily_mode=daily_mode,
@@ -107,7 +109,8 @@ async def send_test_invitation(
 
     try:
         from services.panel_email_service import send_invitation_email
-        success, details = send_invitation_email(
+        success, details = await asyncio.to_thread(
+            send_invitation_email,
             to_email=to_email,
             first_name=first_name,
             invite_token=test_token,
