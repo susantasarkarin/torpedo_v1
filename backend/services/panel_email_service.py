@@ -437,26 +437,76 @@ def get_eligible_count(
     daily_mode: bool = False,
 ) -> int:
     """
-    Count how many panelists would receive an invitation
-    (excluding suppressed and already invited).
+    Count panelists eligible for an invitation using bulk set queries
+    (3 DB round-trips total instead of N×3).
     """
     query = {"status": "active"}
     if country:
         query["country"] = {"$regex": f"^{country}$", "$options": "i"}
 
+    # 1. Fetch all active panelists with fields needed for double-opt-in check
+    panelist_docs = list(panelists_collection.find(
+        query, {"email": 1, "double_opt_in_completed": 1, "email_verified": 1, "status": 1}
+    ))
+
+    email_map: dict = {}
+    for doc in panelist_docs:
+        email = (doc.get("email") or "").lower().strip()
+        if email:
+            email_map[email] = doc
+
+    if not email_map:
+        return 0
+
+    email_list = list(email_map.keys())
+
+    # 2. Bulk fetch suppressed emails
+    suppressed: set = {
+        doc["email"].lower().strip()
+        for doc in suppression_collection.find({"email": {"$in": email_list}}, {"email": 1})
+    }
+
+    # 3. Bulk fetch already-invited emails
+    if daily_mode:
+        from datetime import timezone as _tz
+        from zoneinfo import ZoneInfo
+        try:
+            tz = ZoneInfo(PANEL_SEND_TIMEZONE)
+        except Exception:
+            tz = ZoneInfo("UTC")
+        from datetime import datetime as _dt, timedelta as _td
+        now_local = _dt.now(tz)
+        day_start_utc = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(_tz.utc).replace(tzinfo=None)
+        next_day_utc = (day_start_utc + _td(days=1))
+        invited: set = {
+            doc["email"].lower().strip()
+            for doc in invitation_log_collection.find(
+                {"email": {"$in": email_list}, "status": "sent",
+                 "sent_at": {"$gte": day_start_utc, "$lt": next_day_utc}},
+                {"email": 1}
+            )
+        }
+    elif not force_resend:
+        invited = {
+            doc["email"].lower().strip()
+            for doc in invitation_log_collection.find(
+                {"email": {"$in": email_list}, "status": "sent"}, {"email": 1}
+            )
+        }
+    else:
+        invited = set()
+
     count = 0
-    for panelist in panelists_collection.find(query, {"email": 1}):
-        email = (panelist.get("email") or "").lower().strip()
-        if not email:
+    for email, doc in email_map.items():
+        # Skip double opted-in (mirrors is_double_opted_in logic)
+        if doc.get("double_opt_in_completed"):
             continue
-        if is_double_opted_in(email):
+        status = str(doc.get("status") or "").strip().lower()
+        if doc.get("email_verified") and status in {"active", "confirmed", "double_opted_in"}:
             continue
-        if is_suppressed(email):
+        if email in suppressed:
             continue
-        if daily_mode:
-            if has_been_invited_today(email, timezone_name=PANEL_SEND_TIMEZONE):
-                continue
-        elif not force_resend and has_been_invited(email):
+        if email in invited:
             continue
         count += 1
 
