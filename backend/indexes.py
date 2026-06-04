@@ -518,7 +518,41 @@ def setup_indexes(db_manager=None):
     rfqs = email_db["rfqs"]
     create_index_safe(rfqs, [("status", ASCENDING), ("created_at", DESCENDING)],
                       name="rfqs_status_date")
-    
+
+    # ============== CAMPAIGN PLATFORM DATABASE ==============
+    campaign_db = client["campaign_platform"]
+
+    # Panelists collection
+    panelists = campaign_db["panelists"]
+    create_index_safe(panelists, "email", unique=True)
+    create_index_safe(panelists, "country")
+    create_index_safe(panelists, "status")
+    create_index_safe(panelists, "double_opt_in_completed")
+    create_index_safe(panelists, [("status", ASCENDING), ("created_at", DESCENDING)],
+                      name="panelists_status_date")
+
+    # Panel invitation log - critical for panelists/with-email-status lookup
+    invitation_log = campaign_db["panel_invitation_log"]
+    create_index_safe(invitation_log, "email")
+    create_index_safe(invitation_log, [("email", ASCENDING), ("sent_at", DESCENDING)],
+                      name="invitation_log_email_sent")
+    create_index_safe(invitation_log, "batch_id")
+    create_index_safe(invitation_log, "status")
+    create_index_safe(invitation_log, "type")
+    create_index_safe(invitation_log, "ses_message_id", sparse=True)
+    create_index_safe(invitation_log, "invite_token", unique=True, sparse=True)
+
+    # Panel email suppression
+    suppression = campaign_db["panel_email_suppression"]
+    create_index_safe(suppression, "email", unique=True)
+    create_index_safe(suppression, "reason")
+
+    # Panel rewards
+    rewards = campaign_db["panel_rewards"]
+    create_index_safe(rewards, "panelist_id")
+    create_index_safe(rewards, [("type", ASCENDING), ("status", ASCENDING)],
+                      name="rewards_type_status")
+
     print("✅ Database indexes setup complete!")
     return True
 

@@ -443,30 +443,29 @@ async def list_panelists_with_email_status(
         total = panelists_collection.count_documents(query)
         skip = (page - 1) * page_size
 
-        # Use aggregation to join with invitation_log
+        # Use optimized aggregation to get latest invitation
+        # Sort and paginate BEFORE the lookup to reduce data processed
         pipeline = [
             {"$match": query},
+            {"$sort": {"created_at": -1}},
+            {"$skip": skip},
+            {"$limit": page_size},
             {
                 "$lookup": {
                     "from": "panel_invitation_log",
-                    "localField": "email",
-                    "foreignField": "email",
-                    "as": "invitations"
+                    "let": {"email": "$email"},
+                    "pipeline": [
+                        {"$match": {"$expr": {"$eq": ["$email", "$$email"]}}},
+                        {"$sort": {"sent_at": -1}},
+                        {"$limit": 1},
+                        {"$project": {"_id": 0, "sent_at": 1, "status": 1, "type": 1}}
+                    ],
+                    "as": "latest_invitation_arr"
                 }
             },
             {
                 "$addFields": {
-                    "latest_invitation": {
-                        "$arrayElemAt": [
-                            {
-                                "$sortArray": {
-                                    "input": "$invitations",
-                                    "sortBy": {"sent_at": -1}
-                                }
-                            },
-                            0
-                        ]
-                    }
+                    "latest_invitation": {"$arrayElemAt": ["$latest_invitation_arr", 0]}
                 }
             },
             {
@@ -474,12 +473,9 @@ async def list_panelists_with_email_status(
                     "password_hash": 0,
                     "reset_token": 0,
                     "reset_token_expires": 0,
-                    "invitations": 0
+                    "latest_invitation_arr": 0
                 }
-            },
-            {"$sort": {"created_at": -1}},
-            {"$skip": skip},
-            {"$limit": page_size},
+            }
         ]
 
         results = []
