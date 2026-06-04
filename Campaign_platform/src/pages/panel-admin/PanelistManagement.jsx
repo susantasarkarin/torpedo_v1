@@ -710,6 +710,7 @@ function PanelistManagement() {
                         <th style={thStyle}>Name</th>
                         <th style={thStyle}>Status</th>
                         <th style={thStyle}>Verified</th>
+                        <th style={thStyle}>Bounce Status</th>
                         <th style={thStyle}>Joined</th>
                         <th style={thStyle}>Email Sent Date</th>
                         <th style={thStyle}>Email Status</th>
@@ -749,6 +750,26 @@ function PanelistManagement() {
                                 color: panelist.email_verified ? "#065f46" : "#6b7280",
                               }}>
                                 {panelist.email_verified ? "Verified" : "Unverified"}
+                              </span>
+                            </td>
+                            <td style={tdStyle}>
+                              <span style={{
+                                fontSize: "0.75rem", padding: "0.25rem 0.65rem", borderRadius: "6px", fontWeight: "600",
+                                backgroundColor:
+                                  panelist.email_status === "bounced" ? "#fee2e2" :
+                                  panelist.email_status === "soft_bounced" ? "#fef3c7" :
+                                  panelist.email_status === "complained" ? "#fecaca" :
+                                  "#d1fae5",
+                                color:
+                                  panelist.email_status === "bounced" ? "#991b1b" :
+                                  panelist.email_status === "soft_bounced" ? "#92400e" :
+                                  panelist.email_status === "complained" ? "#7c2d12" :
+                                  "#065f46",
+                              }}>
+                                {panelist.email_status === "bounced" ? "⚠ BOUNCED" :
+                                 panelist.email_status === "soft_bounced" ? "⚠ SOFT BOUNCE" :
+                                 panelist.email_status === "complained" ? "⚠ COMPLAINED" :
+                                 "✓ OK"}
                               </span>
                             </td>
                             <td style={tdStyle}>
