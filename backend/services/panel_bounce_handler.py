@@ -263,8 +263,9 @@ def log_invitation(
     status: str = "sent",
     invite_token: str = "",
     template_version: str = "",
+    type: str = "signup",
 ) -> None:
-    """Log a sent invitation for duplicate detection."""
+    """Log a sent invitation for duplicate detection. Type can be 'signup' or 'login'."""
     invitation_log_collection.insert_one({
         "email": email.lower().strip(),
         "panelist_id": panelist_id,
@@ -273,6 +274,7 @@ def log_invitation(
         "status": status,
         "invite_token": invite_token,
         "template_version": template_version,
+        "type": type,
         "sent_at": datetime.utcnow(),
     })
 

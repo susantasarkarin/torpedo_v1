@@ -265,6 +265,191 @@ Privacy: https://panel.surveyfieldwork.com/privacy
 """
 
 
+# ============== LOGIN INVITATION EMAIL TEMPLATES ==============
+
+def _build_login_invitation_html(first_name: str = "", login_url: str = "") -> str:
+    """Build a responsive HTML email inviting registered users to log in and take surveys."""
+    greeting = f"Hi {first_name}," if first_name else "Hello,"
+    cta_link = login_url or "https://panel.surveyfieldwork.com/login"
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ready to Earn? Log In to Your Panel</title>
+</head>
+<body style="margin:0;padding:0;background:#f7fafc;font-family:'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f7fafc;padding:40px 20px;">
+    <tr>
+      <td align="center">
+        <!-- Main Container -->
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 12px 32px rgba(15,23,42,0.12);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background:linear-gradient(135deg,#071733 0%,#0c2d63 58%,#13498b 100%);padding:44px 40px;text-align:center;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center">
+                    <img src="{PANEL_LOGO_URL}" alt="SurveyFieldwork" width="220" style="display:block;max-width:220px;width:100%;height:auto;margin:0 auto 18px;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;" />
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding-top:8px;">
+                    <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:700;letter-spacing:-0.4px;">Ready to Start Earning?</h1>
+                    <p style="margin:10px 0 0;color:rgba(255,255,255,0.9);font-size:15px;font-weight:400;">New surveys are waiting for you</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:40px;">
+              <p style="margin:0 0 20px;color:#1f2937;font-size:16px;line-height:1.6;">
+                {greeting}
+              </p>
+              <p style="margin:0 0 24px;color:#334155;font-size:15px;line-height:1.7;">
+                You're all set! Your panel account is active and ready to go. Log in now to explore available surveys and start earning rewards.
+              </p>
+
+              <!-- Benefits -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:32px;">
+                <tr>
+                  <td style="padding:16px 20px;background-color:#eff6ff;border-radius:12px;border-left:4px solid #0ea5e9;">
+                    <table role="presentation" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding-bottom:12px;">
+                          <span style="color:#15803d;font-size:18px;margin-right:8px;">✓</span>
+                          <strong style="color:#0b3a75;font-size:14px;">New Surveys Today</strong>
+                          <span style="color:#4b5563;font-size:13px;"> — Fresh opportunities added daily</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding-bottom:12px;">
+                          <span style="color:#15803d;font-size:18px;margin-right:8px;">✓</span>
+                          <strong style="color:#0b3a75;font-size:14px;">Earn Instantly</strong>
+                          <span style="color:#4b5563;font-size:13px;"> — Get paid per completed survey</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding-bottom:12px;">
+                          <span style="color:#15803d;font-size:18px;margin-right:8px;">✓</span>
+                          <strong style="color:#0b3a75;font-size:14px;">Quick & Easy</strong>
+                          <span style="color:#4b5563;font-size:13px;"> — Most surveys take 5-15 minutes</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td>
+                          <span style="color:#15803d;font-size:18px;margin-right:8px;">✓</span>
+                          <strong style="color:#166534;font-size:14px;">Multiple Rewards</strong>
+                          <span style="color:#4b5563;font-size:13px;"> — PayPal, gift cards, bank transfer</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- CTA Button -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" style="padding:8px 0 32px;">
+                    <a href="{cta_link}"
+                       style="display:inline-block;padding:16px 44px;background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#ffffff;text-decoration:none;font-size:16px;font-weight:700;border-radius:12px;letter-spacing:0.3px;box-shadow:0 8px 20px rgba(2,132,199,0.35);">
+                      Log In & View Surveys &rarr;
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0 0 18px;color:#64748b;font-size:12px;line-height:1.6;text-align:center;">
+                Use your email address to log in to your account.
+              </p>
+
+              <!-- Stats -->
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #e5e7eb;padding-top:24px;">
+                <tr>
+                  <td align="center">
+                    <p style="margin:0 0 8px;color:#6b7280;font-size:13px;font-weight:500;text-transform:uppercase;letter-spacing:1px;">Why you'll love the panel</p>
+                    <table role="presentation" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding:0 16px;text-align:center;">
+                          <p style="margin:0;color:#0f172a;font-size:24px;font-weight:800;">50K+</p>
+                          <p style="margin:2px 0 0;color:#9ca3af;font-size:11px;">Members</p>
+                        </td>
+                        <td style="padding:0 16px;text-align:center;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;">
+                          <p style="margin:0;color:#0f172a;font-size:24px;font-weight:800;">100+</p>
+                          <p style="margin:2px 0 0;color:#9ca3af;font-size:11px;">Monthly</p>
+                        </td>
+                        <td style="padding:0 16px;text-align:center;">
+                          <p style="margin:0;color:#0f172a;font-size:24px;font-weight:800;">$$$</p>
+                          <p style="margin:2px 0 0;color:#9ca3af;font-size:11px;">Cash Rewards</p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#f9fafb;padding:24px 40px;border-top:1px solid #e5e7eb;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center">
+                    <p style="margin:0 0 8px;color:#6b7280;font-size:12px;">
+                      &copy; {datetime.utcnow().year} SurveyFieldwork. All rights reserved.
+                    </p>
+                    <p style="margin:0;color:#9ca3af;font-size:11px;line-height:1.5;">
+                      This is a courtesy reminder — you're receiving this because you're an active panel member.<br>
+                      <a href="https://panel.surveyfieldwork.com/unsubscribe" style="color:#0284c7;text-decoration:underline;">Unsubscribe</a>
+                      &nbsp;|&nbsp;
+                      <a href="https://panel.surveyfieldwork.com/privacy" style="color:#0284c7;text-decoration:underline;">Privacy Policy</a>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
+
+
+def _build_login_invitation_plain(first_name: str = "", login_url: str = "") -> str:
+    """Build plain-text version of login invitation."""
+    greeting = f"Hi {first_name}," if first_name else "Hello,"
+    cta_link = login_url or "https://panel.surveyfieldwork.com/login"
+    return f"""{greeting}
+
+You're all set! Your panel account is active and ready to go.
+
+New surveys are available for you right now. Log in and start earning.
+
+Why take surveys with us?
+- Paid for every completed survey
+- New opportunities added daily
+- Quick surveys (5-15 minutes each)
+- Multiple payment options
+
+Log in now: {cta_link}
+
+---
+SurveyFieldwork
+Unsubscribe: https://panel.surveyfieldwork.com/unsubscribe
+Privacy: https://panel.surveyfieldwork.com/privacy
+"""
+
+
 # ============== SEND FUNCTIONS ==============
 
 def send_invitation_email(
@@ -457,6 +642,170 @@ def send_bulk_invitations(
         "daily_mode": daily_mode,
         "daily_cap": cap_value if daily_mode else None,
         "timezone": PANEL_SEND_TIMEZONE if daily_mode else None,
+        "total_processed": sent + skipped + failed,
+    }
+
+
+def send_login_invitation_email(
+    to_email: str,
+    first_name: str = "",
+) -> Tuple[bool, Dict[str, Any]]:
+    """
+    Send a login reminder email to registered panelists via SES.
+    Returns (success, details_dict).
+    """
+    try:
+        client = _get_ses_client()
+
+        msg = MIMEMultipart("alternative")
+        msg["To"] = to_email
+        msg["From"] = f"{SES_FROM_NAME} <{SES_FROM_EMAIL}>"
+        msg["Subject"] = "Ready to earn? New surveys waiting for you"
+        msg["Message-ID"] = f"<panel-login-{uuid.uuid4()}@surveyfieldwork.com>"
+
+        login_url = "https://panel.surveyfieldwork.com/login"
+
+        msg.attach(MIMEText(_build_login_invitation_plain(first_name, login_url), "plain", "utf-8"))
+        msg.attach(MIMEText(_build_login_invitation_html(first_name, login_url), "html", "utf-8"))
+
+        response = client.send_raw_email(
+            Source=f"{SES_FROM_NAME} <{SES_FROM_EMAIL}>",
+            Destinations=[to_email],
+            RawMessage={"Data": msg.as_bytes()},
+        )
+
+        ses_message_id = response.get("MessageId", "")
+        logger.info(f"Panel login invitation sent → {to_email} | SES MessageId={ses_message_id}")
+        return True, {"ses_message_id": ses_message_id}
+
+    except ClientError as e:
+        error_code = e.response["Error"]["Code"]
+        error_msg = e.response["Error"]["Message"]
+        logger.error(f"SES error sending login invite to {to_email}: {error_code} — {error_msg}")
+        return False, {"error": error_code, "message": error_msg}
+    except Exception as e:
+        logger.error(f"Unexpected error sending login invite to {to_email}: {e}")
+        return False, {"error": str(e)}
+
+
+def send_bulk_login_invitations(
+    country: Optional[str] = None,
+    daily_cap: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Send login reminder emails to all registered (double_opt_in_completed=true) panelists.
+
+    Pipeline:
+    1. Query panelists with double_opt_in_completed=true
+    2. Check if already sent login email today (from invitation_log with type='login')
+    3. Send via SES with rate limiting
+    4. Log each send
+
+    Returns summary dict with sent, skipped, failed counts.
+    """
+    batch_id = f"login-batch-{uuid.uuid4().hex[:12]}"
+
+    # Build query for registered users
+    query = {"double_opt_in_completed": True}
+    if country:
+        query["country"] = {"$regex": f"^{country}$", "$options": "i"}
+
+    # Bulk pre-fetch all registered panelists
+    all_panelists = list(panelists_collection.find(
+        query,
+        {"email": 1, "first_name": 1, "_id": 1},
+    ))
+
+    # Deduplicate and build email→doc map
+    email_map: Dict[str, Any] = {}
+    for p in all_panelists:
+        email = (p.get("email") or "").lower().strip()
+        if email and email not in email_map:
+            email_map[email] = p
+
+    email_list = list(email_map.keys())
+
+    # Check if already sent login email today
+    from datetime import timezone as _tz
+    from zoneinfo import ZoneInfo
+    try:
+        tz = ZoneInfo(PANEL_SEND_TIMEZONE)
+    except Exception:
+        tz = ZoneInfo("UTC")
+    from datetime import datetime as _dt, timedelta as _td
+    now_local = _dt.now(tz)
+    day_start_utc = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(_tz.utc).replace(tzinfo=None)
+    next_day_utc = day_start_utc + _td(days=1)
+
+    already_sent_today: set = {
+        doc["email"].lower().strip()
+        for doc in invitation_log_collection.find(
+            {"email": {"$in": email_list}, "status": "sent", "type": "login",
+             "sent_at": {"$gte": day_start_utc, "$lt": next_day_utc}},
+            {"email": 1}
+        )
+    }
+
+    # Build eligible list (not sent today)
+    eligible = []
+    for email, panelist in email_map.items():
+        if email in already_sent_today:
+            continue
+        eligible.append(panelist)
+
+    sent = 0
+    skipped = len(email_map) - len(eligible)
+    failed = 0
+    send_interval = 1.0 / SES_SEND_RATE if SES_SEND_RATE > 0 else 1.0
+
+    cap_value = daily_cap if daily_cap is not None else PANEL_DAILY_SEND_CAP
+    capped = 0
+
+    for panelist in eligible:
+        if sent >= cap_value:
+            capped += 1
+            continue
+
+        email = (panelist.get("email") or "").lower().strip()
+
+        # Send
+        first_name = panelist.get("first_name", "")
+        success, details = send_login_invitation_email(email, first_name)
+
+        if success:
+            log_invitation(
+                email=email,
+                panelist_id=str(panelist["_id"]),
+                batch_id=batch_id,
+                ses_message_id=details.get("ses_message_id", ""),
+                status="sent",
+                template_version="panel-login-v1",
+                type="login",
+            )
+            sent += 1
+        else:
+            log_invitation(
+                email=email,
+                panelist_id=str(panelist["_id"]),
+                batch_id=batch_id,
+                status="failed",
+                template_version="panel-login-v1",
+                type="login",
+            )
+            failed += 1
+
+        # Rate limiting
+        time.sleep(send_interval)
+
+    logger.info(f"Bulk login invitation complete batch={batch_id}: sent={sent} skipped={skipped} failed={failed}")
+    return {
+        "batch_id": batch_id,
+        "sent": sent,
+        "skipped": skipped,
+        "failed": failed,
+        "capped": capped,
+        "daily_cap": cap_value,
+        "timezone": PANEL_SEND_TIMEZONE,
         "total_processed": sent + skipped + failed,
     }
 

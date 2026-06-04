@@ -998,7 +998,53 @@ def initialize_scheduler(loop=None):
             logger.info("[Scheduler] Added mail pool stats cache refresh (every 15 min)")
         except Exception as e:
             logger.warning(f"[Scheduler] Could not add mail pool stats job: {e}")
-        
+
+        # Panel invitation jobs
+        try:
+            from services.panel_email_service import send_bulk_invitations, send_bulk_login_invitations
+
+            async def _run_panel_daily_invitations():
+                """Send invitations to unregistered panelists daily at 9 AM UTC"""
+                try:
+                    import threading
+                    def _send():
+                        result = send_bulk_invitations(daily_mode=True)
+                        logger.info(f"[Scheduler/Panel] Daily invitations sent: {result}")
+                    threading.Thread(target=_send, daemon=True).start()
+                except Exception as _e:
+                    logger.error(f"[Scheduler/Panel] Error in daily invitations: {_e}")
+
+            async def _run_panel_daily_login_invitations():
+                """Send login reminders to registered panelists daily at 10 AM UTC"""
+                try:
+                    import threading
+                    def _send():
+                        result = send_bulk_login_invitations()
+                        logger.info(f"[Scheduler/Panel] Daily login invitations sent: {result}")
+                    threading.Thread(target=_send, daemon=True).start()
+                except Exception as _e:
+                    logger.error(f"[Scheduler/Panel] Error in daily login invitations: {_e}")
+
+            scheduler.add_job(
+                _run_panel_daily_invitations,
+                CronTrigger(hour=9, minute=0, timezone=pytz.UTC),
+                id="panel_daily_invitations",
+                name="Panel Daily Signups Invitations (9 AM UTC)",
+                max_instances=1,
+            )
+            logger.info("[Scheduler] Added panel daily invitations job (9 AM UTC)")
+
+            scheduler.add_job(
+                _run_panel_daily_login_invitations,
+                CronTrigger(hour=10, minute=0, timezone=pytz.UTC),
+                id="panel_daily_login_invitations",
+                name="Panel Daily Login Reminders (10 AM UTC)",
+                max_instances=1,
+            )
+            logger.info("[Scheduler] Added panel daily login invitations job (10 AM UTC)")
+        except Exception as e:
+            logger.warning(f"[Scheduler] Could not add panel invitation jobs: {e}")
+
         # Start scheduler
         if not scheduler.running:
             # scheduler.start() is synchronous in APScheduler
