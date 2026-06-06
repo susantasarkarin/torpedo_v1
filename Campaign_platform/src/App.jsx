@@ -136,6 +136,7 @@ const AIApprovals = lazy(() => import("./pages/ai/AIApprovals"))
 // CRM Spine Pages (canonical accounts/contacts/opportunities)
 const CrmDashboard = lazy(() => import("./pages/crm/CrmDashboard"))
 const Pipeline = lazy(() => import("./pages/crm/Pipeline"))
+const AccountTimeline = lazy(() => import("./pages/crm/AccountTimeline"))
 
 // Wrapper for lazy loaded pages with consistent loading state
 const LazyPage = ({ children }) => (
@@ -312,6 +313,7 @@ function App() {
         {/* CRM - Canonical spine dashboards */}
         <Route path="crm" element={<LazyPage><CrmDashboard /></LazyPage>} />
         <Route path="crm/pipeline" element={<LazyPage><Pipeline /></LazyPage>} />
+        <Route path="crm/accounts" element={<LazyPage><AccountTimeline /></LazyPage>} />
       </Route>
 
       {/* Catch all */}

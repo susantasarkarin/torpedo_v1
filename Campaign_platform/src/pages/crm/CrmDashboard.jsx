@@ -63,12 +63,20 @@ export default function CrmDashboard() {
           <h1 className="text-xl font-semibold text-gray-900">CRM Dashboard</h1>
           <p className="text-sm text-gray-500">Canonical accounts, contacts, leads and opportunities.</p>
         </div>
-        <Link
-          to="/admin/crm/pipeline"
-          className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
-        >
-          <KanbanSquare className="h-4 w-4" /> Pipeline
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            to="/admin/crm/accounts"
+            className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <Building2 className="h-4 w-4" /> Accounts
+          </Link>
+          <Link
+            to="/admin/crm/pipeline"
+            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            <KanbanSquare className="h-4 w-4" /> Pipeline
+          </Link>
+        </div>
       </div>
 
       {error && (
