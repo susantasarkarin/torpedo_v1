@@ -130,6 +130,9 @@ const Projects = lazy(() => import("./pages/Projects"))
 // Support Page
 const Support = lazy(() => import("./pages/Support"))
 
+// AI Approvals Page (AI decision engine queue)
+const AIApprovals = lazy(() => import("./pages/ai/AIApprovals"))
+
 // Wrapper for lazy loaded pages with consistent loading state
 const LazyPage = ({ children }) => (
   <Suspense fallback={<PageLoading />}>
@@ -298,6 +301,9 @@ function App() {
 
         {/* Support - Ticket Management */}
         <Route path="support" element={<LazyPage><Support /></LazyPage>} />
+
+        {/* AI - Decision engine approvals queue */}
+        <Route path="ai/approvals" element={<LazyPage><AIApprovals /></LazyPage>} />
       </Route>
 
       {/* Catch all */}
