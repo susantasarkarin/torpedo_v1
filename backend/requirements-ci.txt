@@ -1,0 +1,14 @@
+# Minimal dependencies to run the CRM/AI foundation smoke tests in CI.
+# The full production dependency set lives in requirements-outreach.txt, which is
+# far too heavy/flaky for CI (selenium, playwright, langchain, sentry, ...).
+# Keep this in sync with what backend/tests/smoke/test_{crm_*,ai_engine,
+# *_agent,legacy_lead_migration,auth_module}.py actually import.
+
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pymongo>=4.6.0
+motor>=3.3.0
+pydantic>=2.5.0
+email-validator>=2.0.0
+python-dotenv>=1.0.0
+bcrypt>=4.0.0
