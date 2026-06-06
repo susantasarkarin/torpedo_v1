@@ -160,6 +160,23 @@ def get_or_create_account(name: str, defaults: Optional[Dict[str, Any]] = None) 
     return create("accounts", data), True
 
 
+def find_contact_by_email(email: str) -> Optional[dict]:
+    """Find a contact by lowercased email (dedupe helper)."""
+    if not email:
+        return None
+    return serialize(_col("contacts").find_one({"email": email.strip().lower()}))
+
+
+def get_or_create_contact(email: str, defaults: Optional[Dict[str, Any]] = None) -> Tuple[dict, bool]:
+    """Return (contact, created). Reuses an existing contact matched by email."""
+    existing = find_contact_by_email(email)
+    if existing:
+        return existing, False
+    data = dict(defaults or {})
+    data["email"] = (email or "").strip().lower()
+    return create("contacts", data), True
+
+
 # ------------------------ central linking layer ----------------------
 
 def log_activity(data: Dict[str, Any]) -> dict:
