@@ -1203,6 +1203,17 @@ try:
 except Exception as e:
     print(f"⚠️ CRM Spine router not included: {e}")
 
+# --- AI Engine Router (decision engine, action queue, approvals) ---
+try:
+    try:
+        from .routers import ai as ai_router
+    except ImportError:
+        from routers import ai as ai_router
+    app.include_router(ai_router.router)
+    print("✅ AI Engine router included")
+except Exception as e:
+    print(f"⚠️ AI Engine router not included: {e}")
+
 # --- MCP Action Router ---
 try:
     try:
