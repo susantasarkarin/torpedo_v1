@@ -2,14 +2,12 @@
 
 import { Link, useNavigate } from "react-router-dom"
 import { useState } from "react"
-import { API_BASE_URL, buildApiUrl } from "../config"
 import { logout } from "../services/authService"
 import "./Navbar.css"
 
 function Navbar({
   profileDropdownOpen,
   setProfileDropdownOpen,
-  selectedSection,
   setSelectedSection,
 }) {
   const [logoDropdownOpen, setLogoDropdownOpen] = useState(false)
@@ -107,6 +105,15 @@ function Navbar({
               <span className="dropdown-icon">📋</span>
               Panel
             </button>
+
+            <Link
+              to="/admin/ai/approvals"
+              className="logo-dropdown-item"
+              onClick={handleNonSidebarSection}
+            >
+              <span className="dropdown-icon">🤖</span>
+              AI Approvals
+            </Link>
           </div>
         </div>
 
