@@ -20,6 +20,7 @@ from .permissions import Permissions, PermissionCategory
 from .models import Role, Permission, UserRole, ApprovalAuthority
 from .decorators import require_permission, require_any_permission, require_all_permissions
 from .service import RBACService, get_rbac_service
+from .simple import can, has_role, SIMPLE_ROLES
 
 __all__ = [
     # Permissions
@@ -27,7 +28,7 @@ __all__ = [
     "PermissionCategory",
     # Models
     "Role",
-    "Permission", 
+    "Permission",
     "UserRole",
     "ApprovalAuthority",
     # Decorators
@@ -37,4 +38,8 @@ __all__ = [
     # Service
     "RBACService",
     "get_rbac_service",
+    # Simple coarse-grained helpers (folded in from the old root rbac.py stub)
+    "can",
+    "has_role",
+    "SIMPLE_ROLES",
 ]

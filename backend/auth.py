@@ -65,11 +65,14 @@ def verify_password(password: str, hashed: str) -> bool:
         
     Returns:
         True if password matches, False otherwise
+        
+    Raises:
+        ValueError: If password hash is in plaintext format
     """
-    # Handle legacy plaintext passwords (for migration)
+    # Reject plaintext passwords - this is a security violation
     if not hashed.startswith('$2') and not hashed.startswith('pbkdf2:'):
-        # This is a plaintext password - direct comparison (INSECURE - for migration only)
-        return password == hashed
+        raise ValueError(f"❌ SECURITY VIOLATION: Found plaintext password hash. All passwords must be hashed with bcrypt or PBKDF2. "
+                        f"Use hash_password() or migrate_user_password() to fix user accounts.")
     
     # Handle bcrypt hashes (start with $2a$, $2b$, $2y$)
     if hashed.startswith('$2'):
@@ -224,51 +227,52 @@ def generate_reset_token() -> Tuple[str, datetime]:
 
 # ============== CURRENT USER DEPENDENCY ==============
 
-def get_current_user() -> dict:
+from fastapi import Request, Depends, HTTPException
+
+
+def get_current_user(request: Request = None) -> dict:
     """
-    FastAPI dependency to get the current authenticated user.
-    
-    This is a placeholder implementation - integrate with your actual
-    authentication system (JWT, session, OAuth, etc.).
-    
-    Returns:
-        Dictionary with user information:
-        - _id: User ID
-        - user_id: User ID (alias)
-        - id: User ID (alias)
-        - name: User display name
-        - email: User email
-        - roles: List of user roles
-    
-    Raises:
-        HTTPException: If user is not authenticated
-    
-    Usage:
-        from auth import get_current_user
-        from fastapi import Depends
-        
-        @router.get("/protected")
-        def protected_route(current_user: dict = Depends(get_current_user)):
-            return {"user": current_user}
+    FastAPI dependency to get the current authenticated user via session token.
+    Uses verify_session from main.py which raises HTTPException on failure.
+    Returns a minimal user dict loaded from the users collection.
     """
-    # TODO: Implement actual authentication logic
-    # This could be:
-    # - JWT token validation from Authorization header
-    # - Session validation from cookie
-    # - OAuth token validation
-    
-    # Placeholder: Return a system user
-    # In production, this should:
-    # 1. Extract token from request headers
-    # 2. Validate token
-    # 3. Query user from database
-    # 4. Return user dict or raise HTTPException(401)
-    
-    return {
-        "_id": "system",
-        "id": "system",
-        "user_id": "system",
-        "name": "System User",
-        "email": "system@localhost",
-        "roles": ["admin"],
-    }
+    try:
+        # Import here to avoid circular imports at module load time
+        try:
+            from .main import verify_session, serializer, SESSION_TTL_SECONDS
+        except Exception:
+            from main import verify_session, serializer, SESSION_TTL_SECONDS
+
+        username = None
+        # verify_session returns username (the serializer payload)
+        if request is None:
+            raise HTTPException(status_code=401, detail="Missing request for auth")
+        username = None
+        # Manually call verify_session dependency logic
+        session_id = request.headers.get("Authorization")
+        if not session_id:
+            raise HTTPException(status_code=401, detail="Missing session token")
+        username = serializer.loads(session_id, max_age=SESSION_TTL_SECONDS)
+
+        # Fetch user from DB
+        try:
+            from .database import get_database
+        except Exception:
+            from database import get_database
+        users_col = get_database("email_automation")["users"]
+        user = users_col.find_one({"username": username})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Minimal user dict
+        return {
+            "_id": str(user.get("_id")),
+            "username": user.get("username"),
+            "email": user.get("email"),
+            "displayName": user.get("displayName", user.get("username")),
+            "roles": user.get("roles", [user.get("role")]) if user.get("roles") or user.get("role") else ["user"]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")

@@ -71,12 +71,29 @@ async def login(credentials: Dict[str, str] = Body(...)):
             raise HTTPException(status_code=401, detail="Invalid username or password")
 
         stored_password = user.get("password", "")
-        if not verify_password(password, stored_password):
-            logger.warning("Login failed: bad password for '%s'", username)
-            raise HTTPException(status_code=401, detail="Invalid username or password")
+        try:
+            if not verify_password(password, stored_password):
+                logger.warning("Login failed: bad password for '%s'", username)
+                raise HTTPException(status_code=401, detail="Invalid username or password")
+        except ValueError as ve:
+            # Legacy plaintext password detected — allow direct match once, then migrate to secure hash
+            logger.warning("Legacy plaintext password encountered for user '%s' — migrating to hashed password", username)
+            if stored_password != password:
+                logger.warning("Login failed: bad password for '%s' (legacy plaintext)", username)
+                raise HTTPException(status_code=401, detail="Invalid username or password")
+            # Migrate plaintext to secure hash
+            try:
+                migrate_user_password(users_col, username, password)
+            except Exception:
+                # Migration should not block login; log and continue
+                logger.exception("Failed to migrate plaintext password for user %s", username)
 
+        # If hash algorithm is outdated, rehash to bcrypt when possible
         if needs_rehash(stored_password):
-            migrate_user_password(users_col, username, password)
+            try:
+                migrate_user_password(users_col, username, password)
+            except Exception:
+                logger.exception("Password rehash failed for user %s", username)
 
         role = user.get("role", "admin")
         session_id = serializer.dumps(username)
