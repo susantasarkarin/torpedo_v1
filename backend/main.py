@@ -98,6 +98,14 @@ except Exception:
 
 # Ensure stdout/stderr use UTF-8 on Windows consoles to avoid UnicodeEncodeError
 import sys
+
+# CORS setup using centralized config
+try:
+    from .config import CORS_ORIGINS
+except Exception:
+    from config import CORS_ORIGINS
+
+# Register CORS middleware later when app is created (see bottom of file)
 try:
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
@@ -186,8 +194,11 @@ except Exception as e:
 # The router is mounted both at `/` and `/api` for backward compatibility
 # with legacy tests and the frontend client.
 # ----------------------------
-SECRET_KEY = os.getenv("SESSION_SECRET", "supersecretkey")
-SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", 60 * 60 * 24))  # default 24h
+try:
+    from .config import SESSION_SECRET as SECRET_KEY, SESSION_TTL_SECONDS
+except Exception:
+    from config import SESSION_SECRET as SECRET_KEY, SESSION_TTL_SECONDS
+
 serializer = URLSafeTimedSerializer(SECRET_KEY)
 
 # In-memory sessions dict for backward compatibility during Redis initialization
@@ -1180,6 +1191,17 @@ try:
     print("✅ Approvals router included")
 except Exception as e:
     print(f"⚠️ Approvals router not included: {e}")
+
+# --- CRM Spine Router (canonical /api/crm/* layer) ---
+try:
+    try:
+        from .routers import crm as crm_router
+    except ImportError:
+        from routers import crm as crm_router
+    app.include_router(crm_router.router)
+    print("✅ CRM Spine router included")
+except Exception as e:
+    print(f"⚠️ CRM Spine router not included: {e}")
 
 # --- MCP Action Router ---
 try:
