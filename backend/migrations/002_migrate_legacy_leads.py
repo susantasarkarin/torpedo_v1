@@ -90,11 +90,17 @@ def migrate_legacy_leads(
             continue
 
         try:
+            # Field mapping tolerates both the real camelCase lead shape
+            # (companyName/companyDomain/firstName...) and snake_case variants.
             email = doc.get("email") or doc.get("email_address")
-            company = doc.get("company") or doc.get("company_name")
-            first, last = _split_name(doc.get("name"))
-            first = first or doc.get("firstName") or doc.get("first_name")
-            last = last or doc.get("lastName") or doc.get("last_name")
+            company = doc.get("companyName") or doc.get("company") or doc.get("company_name")
+            first = doc.get("firstName") or doc.get("first_name")
+            last = doc.get("lastName") or doc.get("last_name")
+            if not first and not last:
+                first, last = _split_name(doc.get("name"))
+            domain = doc.get("companyDomain") or _domain_from_email(email)
+            website = doc.get("companyWebsite") or (f"https://{domain}" if domain else None)
+            country = doc.get("country") or doc.get("location")
 
             account_id = None
             if company:
@@ -103,13 +109,19 @@ def migrate_legacy_leads(
                     stats["accounts_reused" if existing else "accounts_created"] += 1
                     account_id = existing["_id"] if existing else None
                 else:
-                    domain = _domain_from_email(email)
                     account, created = crm_service.get_or_create_account(
                         company,
                         defaults={
                             "account_type": "client",
-                            "website": f"https://{domain}" if domain else None,
-                            "metadata": {"source": source_key},
+                            "website": website,
+                            "metadata": {
+                                "source": source_key,
+                                "domain": domain,
+                                "industry": doc.get("companyIndustry") or doc.get("industry"),
+                                "employee_range": doc.get("companyEmployeeCountRange"),
+                                "linkedin": doc.get("companyLinkedinUrl"),
+                                "country": country,
+                            },
                         },
                     )
                     account_id = account["_id"]
@@ -130,8 +142,9 @@ def migrate_legacy_leads(
                             "source": source_key,
                             "source_id": source_id,
                             "title": doc.get("title"),
-                            "industry": doc.get("industry"),
-                            "country": doc.get("country"),
+                            "industry": doc.get("companyIndustry") or doc.get("industry"),
+                            "country": country,
+                            "linkedin": doc.get("linkedin"),
                             "business_unit": default_business_unit,
                         },
                     },
