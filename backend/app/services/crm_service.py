@@ -15,8 +15,9 @@ Design notes:
 """
 
 import os
+import re
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -124,6 +125,39 @@ def update(collection: str, id_str: str, data: Dict[str, Any]) -> Optional[dict]
 def delete(collection: str, id_str: str) -> bool:
     result = _col(collection).delete_one({"_id": _oid(id_str)})
     return result.deleted_count > 0
+
+
+# --------------------------- account dedupe --------------------------
+
+def _normalize_name(name: Optional[str]) -> str:
+    return re.sub(r"\s+", " ", (name or "").strip()).lower()
+
+
+def find_account_by_name(name: str) -> Optional[dict]:
+    """Find an account by case-insensitive normalized name (dedupe helper)."""
+    norm = _normalize_name(name)
+    if not norm:
+        return None
+    col = _col("accounts")
+    doc = col.find_one({"name_normalized": norm})
+    if not doc:
+        # Fallback for accounts created outside the dedupe path (no normalized field).
+        doc = col.find_one({"name": {"$regex": f"^{re.escape(name.strip())}$", "$options": "i"}})
+    return serialize(doc)
+
+
+def get_or_create_account(name: str, defaults: Optional[Dict[str, Any]] = None) -> Tuple[dict, bool]:
+    """
+    Return (account, created). Reuses an existing account matched by normalized
+    name, otherwise creates one. Stores `name_normalized` for fast future dedupe.
+    """
+    existing = find_account_by_name(name)
+    if existing:
+        return existing, False
+    data = dict(defaults or {})
+    data["name"] = name
+    data["name_normalized"] = _normalize_name(name)
+    return create("accounts", data), True
 
 
 # ------------------------ central linking layer ----------------------
