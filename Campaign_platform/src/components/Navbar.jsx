@@ -116,6 +116,15 @@ function Navbar({
             </Link>
 
             <Link
+              to="/admin/surveys/revenue"
+              className="logo-dropdown-item"
+              onClick={handleNonSidebarSection}
+            >
+              <span className="dropdown-icon">📊</span>
+              Surveys
+            </Link>
+
+            <Link
               to="/admin/ai/approvals"
               className="logo-dropdown-item"
               onClick={handleNonSidebarSection}

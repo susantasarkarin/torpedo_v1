@@ -138,6 +138,9 @@ const CrmDashboard = lazy(() => import("./pages/crm/CrmDashboard"))
 const Pipeline = lazy(() => import("./pages/crm/Pipeline"))
 const AccountTimeline = lazy(() => import("./pages/crm/AccountTimeline"))
 
+// Surveys
+const SurveyRevenue = lazy(() => import("./pages/surveys/SurveyRevenue"))
+
 // Wrapper for lazy loaded pages with consistent loading state
 const LazyPage = ({ children }) => (
   <Suspense fallback={<PageLoading />}>
@@ -314,6 +317,9 @@ function App() {
         <Route path="crm" element={<LazyPage><CrmDashboard /></LazyPage>} />
         <Route path="crm/pipeline" element={<LazyPage><Pipeline /></LazyPage>} />
         <Route path="crm/accounts" element={<LazyPage><AccountTimeline /></LazyPage>} />
+
+        {/* Surveys - revenue intelligence */}
+        <Route path="surveys/revenue" element={<LazyPage><SurveyRevenue /></LazyPage>} />
       </Route>
 
       {/* Catch all */}
