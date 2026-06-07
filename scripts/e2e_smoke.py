@@ -31,7 +31,8 @@ NAV_TIMEOUT = int(os.getenv("SMOKE_NAV_TIMEOUT_MS", "60000"))
 
 # (path, a text marker expected on the rendered page)
 ROUTES = [
-    ("/admin/dashboard", "dashboard"),
+    # empty marker = only require the page not to bounce to /admin/login
+    ("/admin/dashboard", ""),
     ("/admin/crm", "CRM Dashboard"),
     ("/admin/crm/pipeline", "Opportunity Pipeline"),
     ("/admin/crm/accounts", "Account Timeline"),

@@ -111,6 +111,7 @@ _ACTION_ENTITY = {
     "log_activity": "activity",
     "create_lead": "lead",
     "create_account": "account",
+    "update_record": "record",
 }
 
 _HANDLERS: Dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]] = {}
@@ -143,10 +144,16 @@ def _h_create_account(payload):
     return account
 
 
+def _h_update_record(payload):
+    # payload: {"collection": "leads"|"contacts"|..., "id": "<oid>", "updates": {...}}
+    return crm_service.update(payload["collection"], payload["id"], payload.get("updates") or {})
+
+
 register_action_handler("create_task", _h_create_task)
 register_action_handler("log_activity", _h_log_activity)
 register_action_handler("create_lead", _h_create_lead)
 register_action_handler("create_account", _h_create_account)
+register_action_handler("update_record", _h_update_record)
 
 
 # --------------------------------- internals --------------------------------
