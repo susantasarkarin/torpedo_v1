@@ -107,6 +107,15 @@ function Navbar({
             </button>
 
             <Link
+              to="/admin/crm"
+              className="logo-dropdown-item"
+              onClick={handleNonSidebarSection}
+            >
+              <span className="dropdown-icon">🧭</span>
+              CRM
+            </Link>
+
+            <Link
               to="/admin/ai/approvals"
               className="logo-dropdown-item"
               onClick={handleNonSidebarSection}

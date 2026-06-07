@@ -133,6 +133,11 @@ const Support = lazy(() => import("./pages/Support"))
 // AI Approvals Page (AI decision engine queue)
 const AIApprovals = lazy(() => import("./pages/ai/AIApprovals"))
 
+// CRM Spine Pages (canonical accounts/contacts/opportunities)
+const CrmDashboard = lazy(() => import("./pages/crm/CrmDashboard"))
+const Pipeline = lazy(() => import("./pages/crm/Pipeline"))
+const AccountTimeline = lazy(() => import("./pages/crm/AccountTimeline"))
+
 // Wrapper for lazy loaded pages with consistent loading state
 const LazyPage = ({ children }) => (
   <Suspense fallback={<PageLoading />}>
@@ -304,6 +309,11 @@ function App() {
 
         {/* AI - Decision engine approvals queue */}
         <Route path="ai/approvals" element={<LazyPage><AIApprovals /></LazyPage>} />
+
+        {/* CRM - Canonical spine dashboards */}
+        <Route path="crm" element={<LazyPage><CrmDashboard /></LazyPage>} />
+        <Route path="crm/pipeline" element={<LazyPage><Pipeline /></LazyPage>} />
+        <Route path="crm/accounts" element={<LazyPage><AccountTimeline /></LazyPage>} />
       </Route>
 
       {/* Catch all */}
