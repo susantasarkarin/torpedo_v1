@@ -86,6 +86,16 @@ DEFAULT_AGENTS: Dict[str, Dict[str, Any]] = {
         "default_mode": AutonomyMode.OBSERVE.value,
         "low_risk_actions": ["log_activity"],
     },
+    "panel_intelligence_agent": {
+        "description": "Mirrors panel activity into the CRM spine and flags fraud/anomaly signals.",
+        "default_mode": AutonomyMode.RECOMMEND.value,
+        "low_risk_actions": ["create_task", "log_activity"],
+    },
+    "seo_agent": {
+        "description": "SEO intelligence from GA/Search Console/site signals (needs API keys).",
+        "default_mode": AutonomyMode.OBSERVE.value,
+        "low_risk_actions": ["log_activity"],
+    },
 }
 
 _AGENTS: Dict[str, Dict[str, Any]] = {k: dict(v) for k, v in DEFAULT_AGENTS.items()}
