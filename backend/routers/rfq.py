@@ -619,10 +619,47 @@ async def get_rfq(rfq_id: str) -> Dict[str, Any]:
     }
 
 
+def mirror_rfq_to_spine(rfq_id: str, contact_email: Optional[str], title: Optional[str],
+                        budget: Optional[float]) -> Optional[Dict[str, str]]:
+    """
+    Mirror a legacy RFQ into the canonical CRM spine: ensures a canonical Contact
+    (by email) and creates a linked Opportunity + Project stub via
+    crm_service.create_rfq. Touches only crm_db (testable in isolation).
+    Returns {opportunity_id, project_id}.
+    """
+    try:
+        from ..app.services import crm_service
+    except ImportError:  # pragma: no cover
+        from app.services import crm_service
+
+    contact_id = None
+    account_id = None
+    if contact_email:
+        contact, _ = crm_service.get_or_create_contact(
+            contact_email, defaults={"metadata": {"source": "rfq"}}
+        )
+        contact_id = contact["_id"]
+        account_id = contact.get("account_id")
+
+    spine = crm_service.create_rfq({
+        "title": title or rfq_id,
+        "budget": budget or 0,
+        "contact_id": contact_id,
+        "account_id": account_id,
+        "rfq_id": rfq_id,
+    })
+    return {
+        "opportunity_id": spine["opportunity"]["_id"],
+        "project_id": spine["project"]["_id"],
+    }
+
+
 @router.post("/")
 async def create_rfq(rfq_data: RFQCreate) -> Dict[str, Any]:
     """
     Create a new RFQ manually.
+
+    Also mirrors the RFQ into the canonical CRM spine (Opportunity + Project stub).
     """
     # Generate RFQ ID
     rfq_id = generate_rfq_id()
@@ -672,9 +709,30 @@ async def create_rfq(rfq_data: RFQCreate) -> Dict[str, Any]:
             {"email": rfq_data.contact_email},
             {"$addToSet": {"rfq_ids": rfq_id}}
         )
-    
+
+    # Mirror into the canonical CRM spine (best-effort; never blocks RFQ creation).
+    try:
+        mirror = mirror_rfq_to_spine(
+            rfq_id=rfq_id,
+            contact_email=rfq_data.contact_email,
+            title=rfq_data.title,
+            budget=rfq_data.manual_value,
+        )
+        if mirror:
+            rfqs_collection.update_one(
+                {"_id": result.inserted_id},
+                {"$set": {
+                    "crm_opportunity_id": mirror["opportunity_id"],
+                    "crm_project_id": mirror["project_id"],
+                }},
+            )
+            rfq_doc["crm_opportunity_id"] = mirror["opportunity_id"]
+            rfq_doc["crm_project_id"] = mirror["project_id"]
+    except Exception as e:
+        logger.warning(f"RFQ {rfq_id}: CRM spine mirror failed (non-fatal): {e}")
+
     rfq_doc["_id"] = result.inserted_id
-    
+
     return {
         "success": True,
         "message": f"RFQ {rfq_id} created successfully",
