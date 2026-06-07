@@ -76,6 +76,11 @@ DEFAULT_AGENTS: Dict[str, Dict[str, Any]] = {
         "default_mode": AutonomyMode.RECOMMEND.value,
         "low_risk_actions": ["create_lead", "create_account", "log_activity"],
     },
+    "survey_revenue_agent": {
+        "description": "Ranks surveys by expected revenue per entrant and recommends the best.",
+        "default_mode": AutonomyMode.RECOMMEND.value,
+        "low_risk_actions": ["create_task", "log_activity"],
+    },
 }
 
 _AGENTS: Dict[str, Dict[str, Any]] = {k: dict(v) for k, v in DEFAULT_AGENTS.items()}
