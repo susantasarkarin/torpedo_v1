@@ -28,16 +28,19 @@ jobs:
           python-version: "3.13"
       - name: Install CI dependencies
         run: pip install -r backend/requirements-ci.txt
-      - name: Run CRM/AI foundation smoke tests
+      - name: Run self-contained smoke tests
+        # Run the whole smoke dir, ignoring tests that need a running server or
+        # heavy prod-only deps. New self-contained tests are then auto-included
+        # regardless of branch/merge order.
         run: >
-          pytest -v
-          backend/tests/smoke/test_crm_spine.py
-          backend/tests/smoke/test_crm_models.py
-          backend/tests/smoke/test_ai_engine.py
-          backend/tests/smoke/test_old_mail_classifier.py
-          backend/tests/smoke/test_follow_up_agent.py
-          backend/tests/smoke/test_legacy_lead_migration.py
-          backend/tests/smoke/test_auth_module.py
+          pytest -v backend/tests/smoke
+          --ignore=backend/tests/smoke/test_auth.py
+          --ignore=backend/tests/smoke/test_campaigns.py
+          --ignore=backend/tests/smoke/test_contacts.py
+          --ignore=backend/tests/smoke/test_leads.py
+          --ignore=backend/tests/smoke/test_ai_generation.py
+          --ignore=backend/tests/smoke/test_backend_startup.py
+          --ignore=backend/tests/smoke/test_mail_integration.py
 
   frontend-build:
     name: Frontend build
