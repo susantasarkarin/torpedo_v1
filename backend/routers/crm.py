@@ -10,17 +10,23 @@ Generic CRUD is exposed per canonical collection, plus the cross-object flows
 canonical Pydantic models in app/models/crm_objects.py.
 """
 
-from fastapi import APIRouter, HTTPException, Body, Query, Request, Depends
+from fastapi import APIRouter, HTTPException, Body, Query, Depends
 from typing import Optional, Dict, Any
 
 try:
     from ..app.services import crm_service
     from ..app.models import crm_objects
+    from ..app.security import require
 except ImportError:  # pragma: no cover - absolute import fallback
     from app.services import crm_service
     from app.models import crm_objects
+    from app.security import require
 
 router = APIRouter(prefix="/api/crm", tags=["CRM Spine"])
+
+# Coarse capability gates (enforced only when RBAC_ENABLED=true).
+require_read = require("read")
+require_write = require("write")
 
 # Map a URL resource to its canonical Pydantic model for create-time validation.
 _MODELS = {
@@ -36,15 +42,6 @@ _MODELS = {
 }
 
 
-async def require_auth(request: Request) -> str:
-    """Lazy-bound auth dependency reusing the canonical session verifier."""
-    try:
-        from ..main import verify_session
-    except ImportError:  # pragma: no cover
-        from main import verify_session
-    return await verify_session(request)
-
-
 def _check_resource(resource: str):
     if resource not in crm_service.COLLECTIONS:
         raise HTTPException(status_code=404, detail=f"Unknown CRM resource: {resource}")
@@ -53,7 +50,7 @@ def _check_resource(resource: str):
 # ----------------------- cross-object flows (specific first) -----------------------
 
 @router.get("/timeline/{object_type}/{object_id}")
-async def get_timeline(object_type: str, object_id: str, _user: str = Depends(require_auth)):
+async def get_timeline(object_type: str, object_id: str, _user: str = Depends(require_read)):
     """Activities + tasks linked to one canonical object (account/contact/opportunity/project)."""
     try:
         return crm_service.timeline(object_type, object_id)
@@ -62,13 +59,13 @@ async def get_timeline(object_type: str, object_id: str, _user: str = Depends(re
 
 
 @router.post("/rfq")
-async def create_rfq(payload: Dict[str, Any] = Body(...), _user: str = Depends(require_auth)):
+async def create_rfq(payload: Dict[str, Any] = Body(...), _user: str = Depends(require_write)):
     """RFQ -> creates an Opportunity and a Project stub, cross-linked."""
     return crm_service.create_rfq(payload)
 
 
 @router.post("/opportunities/{opp_id}/win")
-async def win_opportunity(opp_id: str, _user: str = Depends(require_auth)):
+async def win_opportunity(opp_id: str, _user: str = Depends(require_write)):
     """Mark Opportunity Won -> activate Project and create Invoice stub."""
     result = crm_service.mark_opportunity_won(opp_id)
     if result is None:
@@ -83,7 +80,7 @@ async def list_resource(
     resource: str,
     limit: int = Query(200, le=1000),
     skip: int = Query(0, ge=0),
-    _user: str = Depends(require_auth),
+    _user: str = Depends(require_read),
 ):
     _check_resource(resource)
     return crm_service.list_docs(resource, limit=limit, skip=skip)
@@ -93,7 +90,7 @@ async def list_resource(
 async def create_resource(
     resource: str,
     payload: Dict[str, Any] = Body(...),
-    _user: str = Depends(require_auth),
+    _user: str = Depends(require_write),
 ):
     _check_resource(resource)
     model = _MODELS.get(resource)
@@ -106,7 +103,7 @@ async def create_resource(
 
 
 @router.get("/{resource}/{doc_id}")
-async def get_resource(resource: str, doc_id: str, _user: str = Depends(require_auth)):
+async def get_resource(resource: str, doc_id: str, _user: str = Depends(require_read)):
     _check_resource(resource)
     try:
         doc = crm_service.get(resource, doc_id)
@@ -122,7 +119,7 @@ async def update_resource(
     resource: str,
     doc_id: str,
     payload: Dict[str, Any] = Body(...),
-    _user: str = Depends(require_auth),
+    _user: str = Depends(require_write),
 ):
     _check_resource(resource)
     try:
@@ -135,7 +132,7 @@ async def update_resource(
 
 
 @router.delete("/{resource}/{doc_id}")
-async def delete_resource(resource: str, doc_id: str, _user: str = Depends(require_auth)):
+async def delete_resource(resource: str, doc_id: str, _user: str = Depends(require_write)):
     _check_resource(resource)
     try:
         ok = crm_service.delete(resource, doc_id)
