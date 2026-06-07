@@ -1,28 +1,18 @@
 /**
- * CRM Dashboard — overview of the canonical CRM spine.
- *
- * Consumes the Phase 2 backend (/api/crm/*): object counts + recent activity.
- * Data lives in the dedicated crm_db; until the legacy migration is run it will
- * show empty/zero states, which is expected.
+ * CRM Dashboard — overview of the canonical CRM spine (/api/crm/*).
+ * Plain CSS (this app does not use Tailwind) via styles/crm-ui.css.
  */
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import {
-  Building2,
-  Users,
-  UserPlus,
-  Target,
-  Activity as ActivityIcon,
-  KanbanSquare,
-  ArrowRight,
-} from "lucide-react";
+import { Building2, Users, UserPlus, Target, Activity as ActivityIcon, KanbanSquare } from "lucide-react";
 import api from "../../utils/api";
+import "../../styles/crm-ui.css";
 
 const CARDS = [
-  { key: "accounts", label: "Accounts", icon: Building2, color: "text-indigo-600" },
-  { key: "contacts", label: "Contacts", icon: Users, color: "text-sky-600" },
-  { key: "leads", label: "Leads", icon: UserPlus, color: "text-emerald-600" },
-  { key: "opportunities", label: "Opportunities", icon: Target, color: "text-amber-600" },
+  { key: "accounts", label: "Accounts", icon: Building2 },
+  { key: "contacts", label: "Contacts", icon: Users },
+  { key: "leads", label: "Leads", icon: UserPlus },
+  { key: "opportunities", label: "Opportunities", icon: Target },
 ];
 
 export default function CrmDashboard() {
@@ -57,79 +47,60 @@ export default function CrmDashboard() {
   }, []);
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
+    <div className="crm-page">
+      <div className="crm-head">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">CRM Dashboard</h1>
-          <p className="text-sm text-gray-500">Canonical accounts, contacts, leads and opportunities.</p>
+          <h1 className="crm-title">CRM Dashboard</h1>
+          <p className="crm-subtitle">Canonical accounts, contacts, leads and opportunities.</p>
         </div>
-        <div className="flex gap-2">
-          <Link
-            to="/admin/crm/accounts"
-            className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            <Building2 className="h-4 w-4" /> Accounts
-          </Link>
-          <Link
-            to="/admin/crm/pipeline"
-            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
-          >
-            <KanbanSquare className="h-4 w-4" /> Pipeline
-          </Link>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <Link to="/admin/crm/accounts" className="crm-btn"><Building2 size={16} /> Accounts</Link>
+          <Link to="/admin/crm/pipeline" className="crm-btn crm-btn--primary"><KanbanSquare size={16} /> Pipeline</Link>
         </div>
       </div>
 
-      {error && (
-        <div className="mb-4 rounded-md bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>
-      )}
+      {error && <div className="crm-error">{error}</div>}
 
-      <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="crm-cards">
         {CARDS.map((card) => {
           const CardIcon = card.icon;
           return (
-            <div key={card.key} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-500">{card.label}</span>
-                <CardIcon className={`h-5 w-5 ${card.color}`} />
+            <div key={card.key} className="crm-card">
+              <div className="crm-card__top">
+                <span className="crm-card__label">{card.label}</span>
+                <CardIcon size={18} className="crm-icon" />
               </div>
-              <div className="mt-2 text-3xl font-semibold text-gray-900">
-                {loading ? "—" : (counts[card.key] ?? 0)}
-              </div>
+              <div className="crm-card__value">{loading ? "—" : (counts[card.key] ?? 0)}</div>
             </div>
           );
         })}
       </div>
 
-      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
-        <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-3">
-          <ActivityIcon className="h-4 w-4 text-gray-400" />
-          <h2 className="text-sm font-semibold text-gray-900">Recent activity</h2>
-        </div>
+      <div className="crm-panel">
+        <div className="crm-panel__head"><ActivityIcon size={16} className="crm-icon" /> Recent activity</div>
         {loading ? (
-          <p className="px-4 py-6 text-sm text-gray-500">Loading…</p>
+          <p className="crm-muted" style={{ padding: "1.25rem" }}>Loading…</p>
         ) : activities.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-gray-500">
+          <p className="crm-muted" style={{ padding: "1.25rem" }}>
             No activity yet. Run the legacy migration / agents to populate the spine.
           </p>
         ) : (
-          <ul className="divide-y divide-gray-100">
-            {activities.map((a) => (
-              <li key={a._id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-                <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">{a.type}</span>
-                <span className="flex-1 truncate text-gray-800">{a.subject || a.description || "—"}</span>
-                <span className="text-xs text-gray-400">
-                  {a.created_at ? new Date(a.created_at).toLocaleString() : ""}
-                </span>
-              </li>
-            ))}
-          </ul>
+          activities.map((a) => (
+            <div key={a._id} className="crm-row">
+              <span className="crm-mono">{a.type}</span>
+              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {a.subject || a.description || "—"}
+              </span>
+              <span className="crm-muted" style={{ fontSize: "0.75rem" }}>
+                {a.created_at ? new Date(a.created_at).toLocaleString() : ""}
+              </span>
+            </div>
+          ))
         )}
       </div>
 
-      <p className="mt-4 text-xs text-gray-400">
-        <Link to="/admin/ai/approvals" className="inline-flex items-center gap-1 hover:text-gray-600">
-          AI Approvals queue <ArrowRight className="h-3 w-3" />
-        </Link>
+      <p style={{ marginTop: "1rem" }}>
+        <Link to="/admin/ai/approvals" className="crm-muted">AI Approvals queue →</Link>
       </p>
     </div>
   );

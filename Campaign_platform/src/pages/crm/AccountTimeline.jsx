@@ -1,47 +1,27 @@
 /**
- * Account Timeline — master/detail view of the CRM central linking layer.
- *
- * Left: searchable account list (/api/crm/accounts).
- * Right: selected account's activities + open tasks, from
- *        /api/crm/timeline/account/{id}. This is the clearest demonstration
- *        that activities/tasks link back to canonical objects.
+ * Account Timeline — master/detail over the CRM central linking layer.
+ * Plain CSS (crm-ui.css). Consumes /api/crm/accounts + /api/crm/timeline/account/{id}.
  */
 import { useEffect, useState, useCallback } from "react";
-import {
-  Building2,
-  Search,
-  Mail,
-  Phone,
-  FileText,
-  CheckSquare,
-  Clock,
-} from "lucide-react";
+import { Building2, Search, Mail, Phone, FileText, CheckSquare, Clock } from "lucide-react";
 import api from "../../utils/api";
+import "../../styles/crm-ui.css";
 
-const ACTIVITY_ICONS = {
-  email: Mail,
-  call: Phone,
-  note: FileText,
-  rfq_created: FileText,
-  opportunity_won: FileText,
-};
+const ACTIVITY_ICONS = { email: Mail, call: Phone, note: FileText, rfq_created: FileText, opportunity_won: FileText };
 
 function ActivityRow({ act }) {
   const Icon = ACTIVITY_ICONS[act.type] || FileText;
   return (
-    <li className="relative flex gap-3 pb-4">
-      <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
-        <Icon className="h-3.5 w-3.5" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">{act.type}</span>
-          <span className="truncate text-sm font-medium text-gray-900">{act.subject || "—"}</span>
+    <li className="crm-tl-item">
+      <span className="crm-tl-dot"><Icon size={14} /></span>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span className="crm-mono">{act.type}</span>
+          <span style={{ fontWeight: 600, color: "#111827" }}>{act.subject || "—"}</span>
         </div>
-        {act.description && <p className="mt-0.5 text-sm text-gray-600">{act.description}</p>}
-        <span className="mt-0.5 flex items-center gap-1 text-xs text-gray-400">
-          <Clock className="h-3 w-3" />
-          {act.created_at ? new Date(act.created_at).toLocaleString() : ""}
+        {act.description && <p className="crm-muted" style={{ margin: "0.15rem 0 0" }}>{act.description}</p>}
+        <span className="crm-muted" style={{ fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: "0.25rem" }}>
+          <Clock size={12} /> {act.created_at ? new Date(act.created_at).toLocaleString() : ""}
         </span>
       </div>
     </li>
@@ -75,8 +55,7 @@ export default function AccountTimeline() {
   const loadTimeline = useCallback(async (accountId) => {
     setLoadingTimeline(true);
     try {
-      const data = await api.get(`/api/crm/timeline/account/${accountId}`);
-      setTimeline(data);
+      setTimeline(await api.get(`/api/crm/timeline/account/${accountId}`));
     } catch (e) {
       setError(e.message || "Failed to load timeline");
     } finally {
@@ -84,120 +63,79 @@ export default function AccountTimeline() {
     }
   }, []);
 
-  useEffect(() => {
-    if (selected?._id) loadTimeline(selected._id);
-  }, [selected, loadTimeline]);
+  useEffect(() => { if (selected?._id) loadTimeline(selected._id); }, [selected, loadTimeline]);
 
-  const filtered = accounts.filter((a) =>
-    (a.name || "").toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = accounts.filter((a) => (a.name || "").toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className="p-6">
-      <div className="mb-5">
-        <h1 className="text-xl font-semibold text-gray-900">Account Timeline</h1>
-        <p className="text-sm text-gray-500">Activities and tasks linked to each account.</p>
+    <div className="crm-page">
+      <div className="crm-head">
+        <div>
+          <h1 className="crm-title">Account Timeline</h1>
+          <p className="crm-subtitle">Activities and tasks linked to each account.</p>
+        </div>
       </div>
 
-      {error && (
-        <div className="mb-4 rounded-md bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>
-      )}
+      {error && <div className="crm-error">{error}</div>}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-[18rem_1fr]">
-        {/* Account list */}
-        <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div className="border-b border-gray-100 p-2">
-            <div className="flex items-center gap-2 rounded-md bg-gray-50 px-2 py-1.5">
-              <Search className="h-4 w-4 text-gray-400" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search accounts…"
-                className="w-full bg-transparent text-sm outline-none"
-              />
-            </div>
+      <div className="crm-md">
+        <div className="crm-panel">
+          <div className="crm-search">
+            <Search size={16} className="crm-icon" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search accounts…" />
           </div>
-          <ul className="max-h-[28rem] overflow-y-auto">
+          <div className="crm-list">
             {loadingAccounts ? (
-              <li className="px-3 py-4 text-sm text-gray-500">Loading…</li>
+              <p className="crm-muted" style={{ padding: "1rem" }}>Loading…</p>
             ) : filtered.length === 0 ? (
-              <li className="px-3 py-4 text-sm text-gray-500">No accounts.</li>
+              <p className="crm-muted" style={{ padding: "1rem" }}>No accounts.</p>
             ) : (
               filtered.map((a) => (
-                <li key={a._id}>
-                  <button
-                    onClick={() => setSelected(a)}
-                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 ${
-                      selected?._id === a._id ? "bg-indigo-50 text-indigo-700" : "text-gray-700"
-                    }`}
-                  >
-                    <Building2 className="h-4 w-4 flex-shrink-0 text-gray-400" />
-                    <span className="truncate">{a.name || "(unnamed)"}</span>
-                  </button>
-                </li>
+                <button key={a._id} onClick={() => setSelected(a)}
+                  className={`crm-list__item ${selected?._id === a._id ? "active" : ""}`}>
+                  <Building2 size={16} className="crm-icon" />
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name || "(unnamed)"}</span>
+                </button>
               ))
             )}
-          </ul>
+          </div>
         </div>
 
-        {/* Timeline detail */}
-        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="crm-panel" style={{ padding: "1rem" }}>
           {!selected ? (
-            <p className="py-12 text-center text-sm text-gray-500">Select an account.</p>
+            <p className="crm-muted" style={{ textAlign: "center", padding: "3rem" }}>Select an account.</p>
           ) : (
             <>
-              <div className="mb-4 border-b border-gray-100 pb-3">
-                <h2 className="text-lg font-semibold text-gray-900">{selected.name}</h2>
-                <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-500">
-                  {selected.account_type && (
-                    <span className="rounded-full bg-gray-100 px-2 py-0.5 capitalize">
-                      {selected.account_type}
-                    </span>
-                  )}
-                  {selected.website && <span>{selected.website}</span>}
+              <div style={{ borderBottom: "1px solid #f3f4f6", paddingBottom: "0.75rem", marginBottom: "1rem" }}>
+                <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 600, color: "#111827" }}>{selected.name}</h2>
+                <div style={{ marginTop: "0.25rem", display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                  {selected.account_type && <span className="crm-badge">{selected.account_type}</span>}
+                  {selected.website && <span className="crm-muted" style={{ fontSize: "0.75rem" }}>{selected.website}</span>}
                 </div>
               </div>
 
               {loadingTimeline ? (
-                <p className="text-sm text-gray-500">Loading timeline…</p>
+                <p className="crm-muted">Loading timeline…</p>
               ) : (
                 <>
-                  {/* Open tasks */}
                   {timeline?.tasks?.length > 0 && (
-                    <div className="mb-5">
-                      <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-gray-700">
-                        <CheckSquare className="h-4 w-4 text-amber-500" /> Tasks ({timeline.tasks.length})
-                      </h3>
-                      <ul className="space-y-1.5">
-                        {timeline.tasks.map((t) => (
-                          <li
-                            key={t._id}
-                            className="flex items-center gap-2 rounded-md border border-gray-100 px-3 py-1.5 text-sm"
-                          >
-                            <span className="flex-1 truncate text-gray-800">{t.title}</span>
-                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs capitalize text-gray-600">
-                              {t.status}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
+                    <div style={{ marginBottom: "1.25rem" }}>
+                      <h3 className="crm-section-title"><CheckSquare size={16} className="crm-icon" /> Tasks ({timeline.tasks.length})</h3>
+                      {timeline.tasks.map((t) => (
+                        <div key={t._id} className="crm-row" style={{ border: "1px solid #f3f4f6", borderRadius: "0.4rem", marginBottom: "0.35rem" }}>
+                          <span style={{ flex: 1 }}>{t.title}</span>
+                          <span className="crm-badge">{t.status}</span>
+                        </div>
+                      ))}
                     </div>
                   )}
-
-                  {/* Activity timeline */}
-                  <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-gray-700">
-                    <Clock className="h-4 w-4 text-indigo-500" /> Activity
-                  </h3>
+                  <h3 className="crm-section-title"><Clock size={16} className="crm-icon" /> Activity</h3>
                   {timeline?.activities?.length > 0 ? (
-                    <ul className="relative border-l border-gray-100 pl-1">
-                      {timeline.activities.map((act) => (
-                        <ActivityRow key={act._id} act={act} />
-                      ))}
+                    <ul className="crm-timeline">
+                      {timeline.activities.map((act) => <ActivityRow key={act._id} act={act} />)}
                     </ul>
                   ) : (
-                    <p className="text-sm text-gray-500">
-                      No activity linked to this account yet.
-                    </p>
+                    <p className="crm-muted">No activity linked to this account yet.</p>
                   )}
                 </>
               )}
