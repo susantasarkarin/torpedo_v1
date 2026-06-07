@@ -50,7 +50,7 @@ function PanelistManagement() {
   const [testEmailLoading, setTestEmailLoading] = useState(false)
   const [testEmailResult, setTestEmailResult] = useState(null)
 
-  const PAGE_SIZE = 20
+  const PAGE_SIZE = 100
 
   useEffect(() => {
     if (activeTab === "panelist-leads") {

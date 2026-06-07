@@ -16,6 +16,7 @@ import logging
 import csv
 import json
 import io
+import time
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Request, Query, Body
@@ -291,6 +292,21 @@ def _panel_lead_group_stages() -> List[Dict[str, Any]]:
     ]
 
 
+# Cache the expensive lead dedup-count so it isn't recomputed on every page.
+_lead_total_cache: Dict[str, Any] = {}
+_LEAD_TOTAL_TTL = 180  # seconds
+
+
+def _cached_lead_total(cache_key: str, compute):
+    now = time.time()
+    hit = _lead_total_cache.get(cache_key)
+    if hit and (now - hit[0]) < _LEAD_TOTAL_TTL:
+        return hit[1]
+    total = compute()
+    _lead_total_cache[cache_key] = (now, total)
+    return total
+
+
 # ============== STATS ==============
 
 @router.get("/stats/")
@@ -516,13 +532,18 @@ async def list_panelist_leads(
     verify_admin_session(request)
 
     try:
-        total_pipeline = [
-            *_panel_lead_base_stages(search=search, country=country),
-            *_panel_lead_group_stages(),
-            {"$count": "total"},
-        ]
-        total_result = list(traffic_collection.aggregate(total_pipeline))
-        total = total_result[0]["total"] if total_result else 0
+        # The dedup count is expensive over the full traffic collection, so cache
+        # it per (search, country) — only the first request per filter pays for it.
+        def _compute_total():
+            total_pipeline = [
+                *_panel_lead_base_stages(search=search, country=country),
+                *_panel_lead_group_stages(),
+                {"$count": "total"},
+            ]
+            total_result = list(traffic_collection.aggregate(total_pipeline, allowDiskUse=True))
+            return total_result[0]["total"] if total_result else 0
+
+        total = _cached_lead_total(f"leads|{search or ''}|{country or ''}", _compute_total)
 
         skip = (page - 1) * page_size
         results_pipeline = [
@@ -533,7 +554,8 @@ async def list_panelist_leads(
             {"$limit": page_size},
         ]
 
-        leads = [serialize_doc(doc) for doc in traffic_collection.aggregate(results_pipeline)]
+        # allowDiskUse avoids the in-memory sort/group limit on large collections.
+        leads = [serialize_doc(doc) for doc in traffic_collection.aggregate(results_pipeline, allowDiskUse=True)]
 
         return {
             "results": leads,
