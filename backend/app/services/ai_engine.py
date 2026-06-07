@@ -81,6 +81,11 @@ DEFAULT_AGENTS: Dict[str, Dict[str, Any]] = {
         "default_mode": AutonomyMode.RECOMMEND.value,
         "low_risk_actions": ["create_task", "log_activity"],
     },
+    "opportunity_scoring_agent": {
+        "description": "Scores open opportunities and recommends a next-best-action.",
+        "default_mode": AutonomyMode.OBSERVE.value,
+        "low_risk_actions": ["log_activity"],
+    },
 }
 
 _AGENTS: Dict[str, Dict[str, Any]] = {k: dict(v) for k, v in DEFAULT_AGENTS.items()}
