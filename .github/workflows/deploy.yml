@@ -25,12 +25,26 @@ jobs:
           username: root
           key: ${{ secrets.GCP_SSH_KEY }}
           script: |
+            set -e
             cd /var/www/campaign_platform
             git fetch origin main
             git reset --hard origin/main
             source /var/www/campaign_platform/backend/venv/bin/activate
             pip install -r /var/www/campaign_platform/backend/requirements-outreach.txt
             sudo systemctl restart torpedo-backend torpedo-sales-worker
+            # Backend takes ~10-15s to bind :8000 — poll instead of a fixed sleep
+            for i in $(seq 1 30); do
+              if curl -sf -o /dev/null http://127.0.0.1:8000/docs; then
+                echo "Backend healthy"
+                break
+              fi
+              if [ "$i" = "30" ]; then
+                echo "Backend failed health check after 300s" >&2
+                systemctl status torpedo-backend --no-pager >&2 || true
+                exit 1
+              fi
+              sleep 10
+            done
             cd /var/www/campaign_platform/Campaign_platform
             npm install
             npm run build

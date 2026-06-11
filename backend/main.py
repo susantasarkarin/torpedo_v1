@@ -991,13 +991,7 @@ try:
 except Exception as e:
     print(f"⚠️ Email Campaigns router not included: {e}")
 
-# Campaign Automation router
-try:
-    from routers import campaign_automation as campaign_automation_router
-    app.include_router(campaign_automation_router.router)
-    print("✅ Campaign Automation router included")
-except Exception as e:
-    print(f"⚠️ Campaign Automation router not included: {e}")
+# Campaign Automation router is mounted once, further down (see "automated outreach with tracking")
 
 # Deliverability Monitoring router (Agent 11)
 try:
@@ -1253,7 +1247,7 @@ try:
         from .routers import panel_admin as panel_admin_router
     except ImportError:
         from routers import panel_admin as panel_admin_router
-    app.include_router(panel_admin_router.router)
+    # nginx only proxies the /api form; the bare mount was unreachable externally
     app.include_router(panel_admin_router.router, prefix="/api")
     print("✅ Panel Admin router included")
 except Exception as e:
@@ -1265,7 +1259,7 @@ try:
     from routers import panel_join as panel_join_router
     app.include_router(panel_invitations_router.router, prefix="/api")
     app.include_router(panel_ses_webhook_router.router)
-    app.include_router(panel_join_router.router)
+    # invite links are always generated with the /api prefix (panel_email_service.PANEL_INVITE_JOIN_URL)
     app.include_router(panel_join_router.router, prefix="/api")
     print("✅ Panel mailing routers included")
 except Exception as e:

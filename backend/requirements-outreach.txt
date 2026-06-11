@@ -34,7 +34,6 @@ redis>=5.0.0
 # Task Queue & Scheduling
 # =============================================================================
 celery>=5.3.0
-celery-beat>=2.5.0
 kombu>=5.3.0
 tenacity>=8.2.0  # Retry library
 

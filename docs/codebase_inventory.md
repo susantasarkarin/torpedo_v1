@@ -1,5 +1,5 @@
 # Torpedo Codebase Inventory
-> Generated: 2026-05 | Recovery Phase 0
+> Generated: 2026-05 | Recovery Phase 0 | Updated: 2026-06-11 (cleanup sweep — see Addendum at bottom)
 
 This document is the authoritative snapshot of the backend's structural state: routers, Celery task modules, APScheduler jobs, startup hooks, and environment variables.
 Update this file whenever routers are added, removed, or moved.
@@ -13,11 +13,10 @@ Update this file whenever routers are added, removed, or moved.
 | Router File | Prefix | Notes |
 |---|---|---|
 | `backend/routers/approvals.py` | (none) | |
-| `backend/routers/audit.py` | `/api/audit` | ⚠️ CONFLICT — same prefix as `audit_router.py` (audit trail history) |
-| `backend/routers/audit_router.py` | `/api/audit` | ⚠️ CONFLICT — same prefix as `audit.py` (outreach event monitoring) |
+| `backend/routers/audit.py` | `/api/audit` | conflict RESOLVED — `audit_router.py` unmounted, moved to `deprecated/` 2026-06-11 |
 | `backend/routers/automation.py` | `/automation` | |
 | `backend/routers/campaigns.py` | `/campaigns` | |
-| `backend/routers/campaign_automation.py` | `/campaigns/automation` | ⚠️ MOUNTED TWICE in main.py (lines 989 + 1095) |
+| `backend/routers/campaign_automation.py` | `/campaigns/automation` | double-mount FIXED 2026-06-11 — mounted once |
 | `backend/routers/classification.py` | `/classification` | |
 | `backend/routers/classified_gmail.py` | (none) | |
 | `backend/routers/cold_outreach_router.py` | `/api/cold-outreach` | |
@@ -36,9 +35,9 @@ Update this file whenever routers are added, removed, or moved.
 | `backend/routers/mcp.py` | (none) | |
 | `backend/routers/operations.py` | `/api/operations` | |
 | `backend/routers/panel.py` | `/panel` | |
-| `backend/routers/panel_admin.py` | `/panel-admin` | ⚠️ MOUNTED WITH AND WITHOUT `/api` prefix |
-| `backend/routers/panel_invitations.py` | `/panel-admin/invitations` | ⚠️ MOUNTED WITH AND WITHOUT `/api` prefix |
-| `backend/routers/panel_ses_webhook.py` | `/webhooks` | ⚠️ MOUNTED WITH AND WITHOUT `/api` prefix |
+| `backend/routers/panel_admin.py` | `/api/panel-admin` | dual mount FIXED 2026-06-11 — `/api` form only (nginx only proxies `/api`) |
+| `backend/routers/panel_invitations.py` | `/api/panel-admin/invitations` | |
+| `backend/routers/panel_ses_webhook.py` | `/webhooks` | single mount (no `/api`) |
 | `backend/routers/performance.py` | `/performance` | |
 | `backend/routers/projects.py` | `/api/projects` | |
 | `backend/routers/prompt_management.py` | (none) | |
@@ -66,15 +65,13 @@ Update this file whenever routers are added, removed, or moved.
 | Router File | Prefix | Status |
 |---|---|---|
 | `backend/routers/agents.py` | `/agents` | Dead / incomplete |
-| `backend/routers/ai_governance_router.py` | `/api/v2/ai` | Dead / incomplete |
 | `backend/routers/autopilot.py` | `/api/autopilot` | Dead / incomplete |
 | `backend/routers/intelligence.py` | `/api/intelligence` | Dead / incomplete |
 | `backend/routers/marketing.py` | `/marketing` | Dead / incomplete |
-| `backend/routers/predictions.py` | `/api/predictions` | Dead / incomplete |
-| `backend/routers/public_website.py` | `/api/website` | Dead / incomplete |
-| `backend/routers/seo_monitoring.py` | `/api/seo` | Dead / incomplete |
 | `backend/routers/team.py` | `/team` | Dead / incomplete |
 | `backend/app/routers/outreach_api.py` | `/api/outreach` | Dead / incomplete |
+
+(`ai_governance_router.py`, `predictions.py`, `public_website.py`, `seo_monitoring.py`, `audit_router.py` were fully orphaned — moved to `backend/deprecated/routers/` 2026-06-11.)
 
 ### 1.3 Duplicate Router Files (functional overlap, same domain)
 
@@ -105,14 +102,9 @@ Update this file whenever routers are added, removed, or moved.
 | `backend.sales.outreach_pipeline` | Sales outreach pipeline | `sales` |
 | `backend.sales.mail_pool_extractor` | Mail pool extraction | `sales` |
 
-### 2.2 Unregistered Task Modules — PRODUCTION BUGS
+### 2.2 Unregistered Task Modules — ALL RESOLVED
 
-| Module | Task Functions | Impact | Investigation Status |
-|---|---|---|---|
-| `backend.tasks.lead_agent_tasks` | `run_lead_generation_pipeline`, `run_company_discovery`, `run_contact_finder`, `run_lead_enricher`, `run_lead_scorer`, `run_outreach_composer`, `reset_daily_quota` | `.delay()` called from `leads/agent_router.py` — silent discard | CONFIRMED BUG — register immediately |
-| `backend.tasks.enrichment_tasks` | `auto_enrich_potential_clients`, `check_new_potential_clients`, `bulk_enrich_companies` | Auto-enrichment pipeline broken | NEVER REGISTERED — accidentally omitted on creation (commit `be5b844`) |
-| `backend.app.tasks.outreach_tasks` | `process_email_queue`, `send_email_task`, `process_followups`, `generate_followup_task`, `enrich_lead_task`, `generate_outreach_email_task`, `process_reply_task` | Gemini-based email pipeline — all tasks silently orphaned | Distinct from `backend.tasks.outreach_tasks` (OpenAI). Needs evaluation: merge or register separately |
-| `backend.campaigns.send_queue` | `process_send_queue` | Campaign send queue never fires | Needs investigation |
+All four previously-unregistered modules (`lead_agent_tasks`, `enrichment_tasks`, `app.tasks.outreach_tasks`, `campaigns.send_queue`) are now in the `celery_app.py` `include` list (verified 2026-06-11).
 
 ### 2.3 Celery Queue Definitions
 
@@ -161,7 +153,7 @@ Defined in `backend/celery_app.py`:
 | `backend/main.py:1802` | `asyncio.create_task(run_web_search_job(job_id))` | Called inside startup event |
 | `backend/main.py:1829` | `asyncio.create_task(asyncio.to_thread(refresh_cpx_inventory))` | Called inside startup event |
 | `backend/main.py:1897` | `asyncio.create_task(asyncio.to_thread(refresh_cint_inventory))` | Called inside startup event |
-| `backend/analytics/report_builder.py:58` | Module-level `BackgroundScheduler()` | ⚠️ Fires on import — not controlled by startup event |
+| `backend/analytics/report_builder.py` | Lazy global via `get_report_builder()` | FIXED — no longer fires on import |
 | `backend/app/integrations/cint_integration.py:319` | `@app.on_event("startup")` | ⚠️ Second startup hook — ordering is unpredictable |
 
 ---
@@ -266,3 +258,16 @@ Total .env keys: 32
 | pipdeptree not pre-installed | Installed ad-hoc for this audit |
 | APScheduler 3.x | Using 3.x not 4.x (3.x is compatible with current usage pattern) |
 | openai 2.x | New major version — verify no breaking changes vs prior usage |
+
+---
+
+## Addendum — 2026-06-11 Cleanup Sweep (branch `fix/cleanup-sweep`)
+
+- Removed `celery-beat>=2.5.0` from requirements-outreach.txt (not a PyPI package; broke `pip install` on every deploy — beat is built into celery).
+- deploy.yml: added `set -e` + a polling health gate on :8000 (up to 300s) so a dead backend fails the deploy.
+- main.py: `campaign_automation` mounted once; bare (non-`/api`) mounts of `panel_admin` and `panel_join` removed — nginx only proxies the `/api` form and invite links are always generated with `/api`.
+- Quarantined 35 fully-orphaned backend modules into `backend/deprecated/` (dead routers, the Agent-5 campaign engine, dead sales/leads routers, `leads/routers/` sub-package, `router_registry.py`, finished one-shot migrations). `indexes.py` / `create_templates.py` intentionally left (manual ops scripts).
+- Archived 27 orphaned frontend files into `Campaign_platform/src/_archived/`; deleted 0-byte `SendEmailModal.jsx`.
+- Untracked PII mailpool CSVs (gitignored, kept on disk — note they remain in git history); removed `.tmp_login_probe.py`, `build-output.txt`.
+- Multiple `@app.on_event("startup")` hooks (main.py + `setup_cint_with_fastapp`) confirmed NOT a bug — FastAPI runs them in deterministic registration order.
+- Still open: AI-governance bypasses (§5), monolith files (traffic/leads/gmail/finance routers + main.py all 3,500-4,300 lines), gmail/cpx/cint duplicate-router consolidation, `legacy_*` routers, `ingestion.py` vs `ingestion_vm.py` fork, RBAC default-off, prod admin password rotation.
