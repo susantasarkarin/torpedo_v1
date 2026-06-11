@@ -143,7 +143,9 @@ class SurveyAllocationService:
                     auto_pause_enabled=stored.get("auto_pause_enabled", True),
                     pause_cooldown_minutes=stored.get("pause_cooldown_minutes", 30),
                     prefer_high_ir_surveys=stored.get("prefer_high_ir_surveys", True),
-                    prefer_high_cpi_surveys=stored.get("prefer_high_cpi_surveys", False)
+                    prefer_high_cpi_surveys=stored.get("prefer_high_cpi_surveys", False),
+                    min_sessions_for_conv_eval=stored.get("min_sessions_for_conv_eval", 20),
+                    testing_mode_batch_size=stored.get("testing_mode_batch_size", 30),
                 )
                 self._alloc_settings_cache = result
                 self._alloc_settings_ts = now
@@ -487,8 +489,8 @@ class SurveyAllocationService:
         )
     
     def _try_atomic_allocation(
-        self, 
-        respondent_id: str, 
+        self,
+        respondent_id: str,
         survey: dict,
         request: AllocationRequest
     ) -> Optional[AllocationResponse]:
@@ -498,7 +500,24 @@ class SurveyAllocationService:
         """
         settings = self.get_allocation_settings()
         survey_id = str(survey["_id"])
-        max_batch = int(settings.batch_size * settings.buffer_multiplier)
+
+        # Determine effective batch size: testing surveys get smaller cap
+        external_id = survey.get("external_id") or survey.get("survey_id")
+        is_testing = False
+        if external_id and survey.get("provider", "").upper() == "CINT":
+            try:
+                from pymongo import MongoClient
+                client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
+                cint_doc = client["cint_research"]["cint_surveys"].find_one(
+                    {"survey_id": int(external_id) if str(external_id).isdigit() else external_id},
+                    {"is_testing": 1}
+                )
+                is_testing = bool((cint_doc or {}).get("is_testing", False))
+            except Exception:
+                pass
+
+        effective_batch_size = (settings.testing_mode_batch_size if is_testing else settings.batch_size)
+        max_batch = int(effective_batch_size * settings.buffer_multiplier)
         
         # Generate unique allocation ID
         allocation_id = f"alloc_{secrets.token_hex(8)}"
@@ -1046,47 +1065,136 @@ class SurveyAllocationService:
     
     def _evaluate_auto_pause(self, survey_id: str):
         """
-        Evaluate whether a survey should be auto-paused.
-        
+        Evaluate whether a survey should be auto-paused or yield-deactivated.
+
         Rules (only evaluated after minimum entrants threshold):
-        1. Incomplete Rate > max_incomplete_rate → PAUSE
-        2. Incidence Rate < min_incidence_rate → PAUSE
+        1. Incomplete Rate > max_incomplete_rate → PAUSE (after minimum_entrants_for_evaluation)
+        2. Incidence Rate < min_incidence_rate → PAUSE (after minimum_entrants_for_evaluation)
+        3. Internal Conversion < threshold → YIELD-DEACTIVATE (after min_sessions_for_conv_eval, Cint only)
+        4. Quota remaining == 0 → PAUSE (quota-full)
         """
         settings = self.get_allocation_settings()
-        
+
         if not settings.auto_pause_enabled:
             return
-        
+
         metrics = self.get_survey_metrics(survey_id)
         if not metrics:
             return
-        
+
         entrants = metrics.get("entrants_n", 0)
-        
-        # Don't evaluate until minimum threshold is reached
-        if entrants < settings.minimum_entrants_for_evaluation:
-            return
-        
-        incomplete_rate = metrics.get("incomplete_rate", 0.0)
-        incidence_rate = metrics.get("incidence_rate", 0.0)
-        
-        pause_reason = None
-        
-        # Check incomplete rate
-        if incomplete_rate > settings.max_incomplete_rate:
-            pause_reason = f"High incomplete rate: {incomplete_rate:.1f}% (threshold: {settings.max_incomplete_rate}%)"
-        
-        # Check incidence rate
-        elif incidence_rate < settings.min_incidence_rate:
-            pause_reason = f"Low incidence rate: {incidence_rate:.1f}% (threshold: {settings.min_incidence_rate}%)"
-        
-        if pause_reason:
-            print(f"⚠️ Auto-pausing survey {survey_id}: {pause_reason}")
-            self.update_survey_status(
-                survey_id,
-                SurveyStatus.PAUSED,
-                pause_reason
+
+        # Block 1: Incomplete rate and incidence rate checks (original logic)
+        if entrants >= settings.minimum_entrants_for_evaluation:
+            incomplete_rate = metrics.get("incomplete_rate", 0.0)
+            incidence_rate = metrics.get("incidence_rate", 0.0)
+
+            # Check incomplete rate
+            if incomplete_rate > settings.max_incomplete_rate:
+                pause_reason = f"High incomplete rate: {incomplete_rate:.1f}% (threshold: {settings.max_incomplete_rate}%)"
+                print(f"⚠️ Auto-pausing survey {survey_id}: {pause_reason}")
+                self.update_survey_status(survey_id, SurveyStatus.PAUSED, pause_reason)
+                return
+
+            # Check incidence rate
+            if incidence_rate < settings.min_incidence_rate:
+                pause_reason = f"Low incidence rate: {incidence_rate:.1f}% (threshold: {settings.min_incidence_rate}%)"
+                print(f"⚠️ Auto-pausing survey {survey_id}: {pause_reason}")
+                self.update_survey_status(survey_id, SurveyStatus.PAUSED, pause_reason)
+                return
+
+        # Block 2: Conversion-based deactivation (Cint only, after min_sessions_for_conv_eval)
+        if entrants >= settings.min_sessions_for_conv_eval:
+            try:
+                # Get yield threshold from torpedo_settings
+                threshold_doc = self.settings_collection.find_one({"_id": "yield_thresholds"}) or {}
+                deact_threshold = float((threshold_doc.get("global") or {}).get("inactive_conv_threshold", 0.05))
+
+                # Get Cint metrics for internal conversion
+                from pymongo import MongoClient
+                client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
+                cint_metrics_col = client["cint_research"]["cint_metrics"]
+                cint_m = cint_metrics_col.find_one({"survey_id": survey_id})
+
+                if cint_m:
+                    internal_conv = cint_m.get("internal_conversion")
+                    if internal_conv is not None and internal_conv < deact_threshold:
+                        msg = f"Yield-deactivating survey {survey_id}: internal_conv {internal_conv:.3f} < threshold {deact_threshold:.3f}"
+                        print(f"⚠️ {msg}")
+                        self._yield_deactivate(survey_id, "low_conversion", msg)
+                        return
+            except Exception as e:
+                print(f"⚠️ Error checking conversion-based deactivation for {survey_id}: {e}")
+
+        # Block 3: Quota-full check
+        try:
+            survey_doc = self.surveys.find_one(
+                {"external_id": survey_id},
+                {"remaining_quota": 1}
             )
+            if survey_doc and survey_doc.get("remaining_quota", 1) == 0:
+                msg = f"Auto-pausing survey {survey_id}: quota exhausted (remaining=0)"
+                print(f"⚠️ {msg}")
+                self._pause_with_reason(survey_id, "quota_full", msg)
+                return
+        except Exception as e:
+            print(f"⚠️ Error checking quota for {survey_id}: {e}")
+
+    def _pause_with_reason(self, survey_id: str, reason: str, message: str):
+        """Pause survey in allocation engine and record reason."""
+        try:
+            self.update_survey_status(survey_id, SurveyStatus.PAUSED, message)
+        except Exception as e:
+            print(f"❌ Error pausing survey {survey_id}: {e}")
+
+    def _yield_deactivate(self, survey_id: str, reason: str, message: str):
+        """
+        Deactivate in BOTH yield layer (cint_metrics) and pool layer (cint_surveys).
+        Mirrors what the PATCH /surveys/{id}/yield-status endpoint does.
+        """
+        try:
+            from pymongo import MongoClient
+            import os
+
+            client = MongoClient(os.getenv("MONGO_URI", "mongodb://localhost:27017/"))
+            cint_metrics_col = client["cint_research"]["cint_metrics"]
+            cint_surveys_col = client["cint_research"]["cint_surveys"]
+
+            now = datetime.utcnow()
+
+            # Snapshot global_conv at deactivation
+            try:
+                sid_int = int(survey_id)
+            except (ValueError, TypeError):
+                sid_int = survey_id
+
+            survey_snap = cint_surveys_col.find_one({"survey_id": sid_int}, {"conversion": 1})
+            global_conv_now = float((survey_snap or {}).get("conversion") or 0)
+
+            # Update yield layer
+            cint_metrics_col.update_one(
+                {"survey_id": survey_id},
+                {"$set": {
+                    "survey_status": "inactive",
+                    "deactivated_at": now,
+                    "global_conv_at_deactivation": global_conv_now,
+                    "deactivation_reason": reason,
+                    "auto_deactivated": True,
+                }},
+                upsert=True
+            )
+
+            # Update pool layer
+            cint_surveys_col.update_one(
+                {"survey_id": sid_int},
+                {"$set": {"is_active_in_pool": False}}
+            )
+
+            # Also pause in allocation engine
+            self._pause_with_reason(survey_id, reason, message)
+            print(f"✓ Survey {survey_id} yield-deactivated: {reason}")
+        except Exception as e:
+            print(f"❌ Error yield-deactivating survey {survey_id}: {e}")
     
     def manually_resume_survey(self, survey_id: str) -> bool:
         """Manually resume a paused survey"""

@@ -393,10 +393,22 @@ class CintService:
                 {"$set": {"is_active_in_pool": False, "updated_at": datetime.now(timezone.utc)}}
             )
             
+            # Also deactivate quota-exhausted surveys (total_remaining == 0)
+            quota_full_result = self.cint_surveys_collection.update_many(
+                {"total_remaining": 0, "is_active_in_pool": True},
+                {"$set": {
+                    "is_active_in_pool": False,
+                    "updated_at": datetime.now(timezone.utc),
+                    "deactivation_reason": "quota_full",
+                }}
+            )
+            if quota_full_result.modified_count:
+                logger.info(f"Deactivated {quota_full_result.modified_count} quota-exhausted surveys")
+
             # Get actual counts after update
             actual_active = self.cint_surveys_collection.count_documents({"is_active_in_pool": True})
             actual_inactive = self.cint_surveys_collection.count_documents({"is_active_in_pool": False})
-            
+
             logger.info(f"✅ CINT active status synced: {actual_active} active, {actual_inactive} inactive (total: {total_surveys})")
             
             return {
@@ -1048,6 +1060,15 @@ class CintService:
                 if self.cint_surveys_collection is not None:
                     self._upsert_opportunity(opportunity)
 
+                # Quota-full auto-deactivation: if total_remaining == 0, deactivate
+                if (opportunity.total_remaining is not None
+                        and opportunity.total_remaining == 0
+                        and opportunity.is_active):
+                    logger.info(
+                        f"Auto-deactivating survey {opportunity.survey_id}: quota exhausted (total_remaining=0)"
+                    )
+                    await self._auto_deactivate_quota_full(opportunity.survey_id)
+
                 # Dispatch AI cold-start scoring for brand-new surveys with no in-field data
                 # Per Cint guide: rank new opportunities before real conversion data exists
                 if is_new_survey and opportunity.is_active:
@@ -1145,10 +1166,19 @@ class CintService:
         """
         if self.cint_surveys_collection is None:
             return
-        
+
+        # Compute testing state from completes count
+        overall_completes = opportunity.overall_completes or 0
+        is_testing = overall_completes < 20
+        testing_sessions_remaining = max(0, 20 - overall_completes)
+
+        opp_dict = opportunity.dict(exclude={"id"}, exclude_none=False)
+        opp_dict["is_testing"] = is_testing
+        opp_dict["testing_sessions_remaining"] = testing_sessions_remaining
+
         query = {"survey_id": opportunity.survey_id}
         update = {
-            "$set": opportunity.dict(exclude={"id"}, exclude_none=False),
+            "$set": opp_dict,
             # Set created_at and click tracking fields only on first insert
             # click_count is incremented by allocation service when user is routed to survey
             "$setOnInsert": {
@@ -1158,7 +1188,7 @@ class CintService:
                 "is_active_in_pool": False  # Default to inactive, must be activated by sync job
             },
         }
-        
+
         self.cint_surveys_collection.update_one(
             query,
             update,
@@ -1838,6 +1868,48 @@ class CintService:
                 "deleted_count": 0
             }
 
+    async def _auto_deactivate_quota_full(self, survey_id: int) -> None:
+        """Deactivate survey in yield layer and pool layer when quota is exhausted."""
+        if self.cint_surveys_collection is None:
+            return
+
+        try:
+            metrics_col = self.db["cint_metrics"] if hasattr(self, 'db') else None
+            if metrics_col is None:
+                return
+
+            now = datetime.now(timezone.utc)
+            sid_str = str(survey_id)
+
+            # Snapshot conversion rate at deactivation
+            survey_snap = self.cint_surveys_collection.find_one(
+                {"survey_id": survey_id},
+                {"conversion": 1}
+            )
+            global_conv_now = float((survey_snap or {}).get("conversion") or 0)
+
+            # Update yield layer
+            metrics_col.update_one(
+                {"survey_id": sid_str},
+                {"$set": {
+                    "survey_status": "inactive",
+                    "deactivated_at": now,
+                    "global_conv_at_deactivation": global_conv_now,
+                    "deactivation_reason": "quota_full",
+                    "auto_deactivated": True,
+                }},
+                upsert=True,
+            )
+
+            # Update pool layer
+            self.cint_surveys_collection.update_one(
+                {"survey_id": survey_id},
+                {"$set": {"is_active_in_pool": False}}
+            )
+            logger.info(f"Survey {survey_id} yield-deactivated: quota_full")
+        except Exception as e:
+            logger.error(f"Error auto-deactivating quota-full survey {survey_id}: {e}")
+
     def cleanup_unclicked_surveys(self, days: int = 3) -> int:
         """
         Delete CINT surveys that have received 0 clicks and are older than specified days.
@@ -1894,3 +1966,40 @@ class CintService:
         except Exception as e:
             logger.error(f"Error cleaning up unclicked surveys: {e}")
             return 0
+
+
+# ============================================
+# Module-level Helpers
+# ============================================
+
+def calculate_safe_volume(survey: dict, floor_conv: float = 0.05) -> int:
+    """
+    Recommended number of respondents to send to avoid over-pacing.
+
+    Formula:  ceil(quota_remaining / max(functional_conv, floor_conv))
+
+    Args:
+        survey: Dict that has 'total_remaining' and optional 'conversion' /
+                'internal_conversion' fields
+        floor_conv: Minimum conversion rate to use as divisor (avoid division by very small value)
+
+    Returns:
+        Recommended volume (integer)
+    """
+    import math
+    quota_remaining = int(survey.get("total_remaining") or 0)
+    if quota_remaining <= 0:
+        return 0
+
+    # functional_conv is the better signal; fall back to global conversion
+    internal_conv = survey.get("internal_conversion")
+    entrants_n = int(survey.get("entrants_n") or 0)
+    global_conv = float(survey.get("conversion") or 0)
+
+    functional_conv = (
+        internal_conv if (internal_conv is not None and entrants_n >= 20)
+        else global_conv
+    )
+    effective_conv = max(float(functional_conv or 0), floor_conv)
+
+    return math.ceil(quota_remaining / effective_conv)

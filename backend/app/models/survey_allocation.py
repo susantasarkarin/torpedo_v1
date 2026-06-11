@@ -225,7 +225,17 @@ class AllocationSettings(BaseModel):
     # Allocation preferences
     prefer_high_ir_surveys: bool = Field(default=True, description="Prioritize surveys with higher expected IR")
     prefer_high_cpi_surveys: bool = Field(default=False, description="Prioritize surveys with higher CPI")
-    
+
+    # Yield management thresholds
+    min_sessions_for_conv_eval: int = Field(
+        default=20, ge=5, le=200,
+        description="Min entrant sessions before evaluating low-conversion auto-deactivation"
+    )
+    testing_mode_batch_size: int = Field(
+        default=30, ge=5, le=100,
+        description="Batch cap for surveys still in testing phase (< 20 internal completes)"
+    )
+
     class Config:
         use_enum_values = True
 
