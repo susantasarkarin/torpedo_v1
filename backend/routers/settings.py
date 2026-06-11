@@ -516,8 +516,8 @@ async def get_openai_usage(request: Request = None, hours: int = 24) -> Dict[str
             },
             "by_model_and_source": breakdown,
             "cost_control_settings": {
-                "kill_switch": os.getenv("DISABLE_OPENAI_CALLS", "false"),
-                "default_model": "gpt-4o-mini",
+                "kill_switch": os.getenv("DISABLE_AI_CALLS", os.getenv("DISABLE_OPENAI_CALLS", "false")),
+                "default_model": "claude-haiku-4-5",
                 "max_output_tokens_default": 300,
                 "max_output_tokens_background": 150
             }

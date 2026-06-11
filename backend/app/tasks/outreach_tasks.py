@@ -10,7 +10,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 
 from celery import shared_task, Task
-# from openai import AsyncOpenAI  # DISABLED: OpenAI replaced by Gemini
+from ai_governance.claude_gateway import AsyncClaudeChatClient
 import os
 
 logger = logging.getLogger(__name__)
@@ -114,7 +114,7 @@ def generate_followup_task(self, lead_id: str, contact_email: str, company_name:
     
     async def _generate():
         try:
-            ai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            ai_client = AsyncClaudeChatClient()  # governed Claude client via ai_governance
             
             from app.services.outreach import (
                 EmailGeneratorService,
@@ -173,7 +173,7 @@ def enrich_lead_task(self, lead_id: str, company_name: str, website_url: str = N
     
     async def _enrich():
         try:
-            ai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            ai_client = AsyncClaudeChatClient()  # governed Claude client via ai_governance
             
             from app.services.outreach import (
                 LeadIntelligenceService,
@@ -222,7 +222,7 @@ def generate_outreach_email_task(self, lead_id: str, company_name: str, contact_
     
     async def _generate():
         try:
-            ai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            ai_client = AsyncClaudeChatClient()  # governed Claude client via ai_governance
             
             from app.services.outreach import (
                 EmailGeneratorService,
@@ -342,7 +342,7 @@ def process_reply_task(self, from_email: str, subject: str, body: str):
     
     async def _process():
         try:
-            ai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            ai_client = AsyncClaudeChatClient()  # governed Claude client via ai_governance
             
             from app.services.outreach import (
                 ReplyHandlerService,

@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List, TypeVar, Generic
 from pydantic import BaseModel
 
-from openai import OpenAI
+from ai_governance.claude_gateway import ClaudeChatClient
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +23,12 @@ LEADS_PER_BATCH = 10
 MAX_RETRIES = 3
 RETRY_DELAY_BASE = 2.0  # seconds
 
-# MODEL CONFIGURATION: OpenAI for web search only (Gemini for email ops via ai_governance)
-DEFAULT_MODEL = "gpt-4o-mini"           # OpenAI gpt-4o-mini for web search
-DEFAULT_PROVIDER = "openai"
-WEB_SEARCH_MODEL = "gpt-4o-mini"        # OpenAI for web search (required)
-WEB_SEARCH_PROVIDER = "openai"
-# NOTE: Email classification/summarization uses Gemini via ai_governance module
+# MODEL CONFIGURATION: Anthropic Claude for everything (via ai_governance)
+DEFAULT_MODEL = "claude-opus-4-8"
+DEFAULT_PROVIDER = "anthropic"
+WEB_SEARCH_MODEL = "claude-opus-4-8"
+WEB_SEARCH_PROVIDER = "anthropic"
+# NOTE: Email classification/summarization uses Claude via ai_governance module
 
 
 class AgentResult(BaseModel):
@@ -68,43 +68,21 @@ class BaseAgent(ABC, Generic[T]):
             config: Agent-specific configuration dict
         """
         self.config = config or {}
-        self._openai_client: Optional[OpenAI] = None
+        self._openai_client: Optional[ClaudeChatClient] = None
         self._mongo_client = None
         self._db = None
-    
+
     @property
-    def client(self) -> OpenAI:
-        """Default client (OpenAI for web search)."""
+    def client(self) -> ClaudeChatClient:
+        """Default LLM client (Claude via the governed compat layer)."""
         return self._get_openai_client()
-    
-    def _get_openai_client(self) -> OpenAI:
-        """Get OpenAI client for web search tasks."""
+
+    def _get_openai_client(self) -> ClaudeChatClient:
+        """Get the Claude-backed chat client (name kept for compat)."""
         if self._openai_client is None:
-            api_key = self._get_openai_api_key()
-            if not api_key:
-                raise ValueError("OPENAI_API_KEY not configured")
-            self._openai_client = OpenAI(api_key=api_key)
+            # Key resolution happens inside ai_governance (DB settings, then env)
+            self._openai_client = ClaudeChatClient()
         return self._openai_client
-    
-    def _get_openai_api_key(self) -> Optional[str]:
-        """Get OpenAI API key from DB or environment."""
-        try:
-            from pymongo import MongoClient
-            mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-            client = MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
-            settings_db = client["torpedo_settings"]
-            app_settings = settings_db["app_settings"]
-            stored = app_settings.find_one({"_id": "app_config"})
-            if stored and stored.get("openai_api_key"):
-                return stored["openai_api_key"]
-        except Exception as e:
-            logger.debug(f"Could not fetch OpenAI key from DB: {e}")
-        return os.getenv("OPENAI_API_KEY")
-    
-    # Legacy compatibility
-    def _get_api_key(self) -> Optional[str]:
-        """Legacy method - returns OpenAI key."""
-        return self._get_openai_api_key()
     
     def _get_db(self):
         """Get MongoDB database connection."""
@@ -243,9 +221,9 @@ class BaseAgent(ABC, Generic[T]):
         )
     
     def _call_chat_completion(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
-        """Make a chat completion call using OpenAI."""
+        """Make a chat completion call via the governed Claude compat client."""
         response = self.client.chat.completions.create(
-            model=DEFAULT_MODEL,  # gpt-4o-mini
+            model=DEFAULT_MODEL,
             messages=messages,
             temperature=0.1,
             max_tokens=2000,
@@ -258,7 +236,7 @@ class BaseAgent(ABC, Generic[T]):
         return {
             "content": message.content,
             "model": response.model,
-            "provider": "openai",
+            "provider": "anthropic",
             "input_tokens": usage.prompt_tokens if usage else 0,
             "output_tokens": usage.completion_tokens if usage else 0,
             "total_tokens": usage.total_tokens if usage else 0
@@ -298,7 +276,7 @@ class BaseAgent(ABC, Generic[T]):
             return {
                 "content": content,
                 "model": WEB_SEARCH_MODEL,
-                "provider": "openai",
+                "provider": "anthropic",
                 "input_tokens": usage.prompt_tokens if usage else 0,
                 "output_tokens": usage.completion_tokens if usage else 0,
                 "total_tokens": usage.total_tokens if usage else 0
@@ -309,13 +287,15 @@ class BaseAgent(ABC, Generic[T]):
             # Fallback to regular OpenAI completion
             return self._call_chat_completion(messages)
     
+    # USD per 1K tokens
+    _MODEL_COSTS = {
+        "claude-opus-4-8": {"input": 0.005, "output": 0.025},
+        "claude-haiku-4-5": {"input": 0.001, "output": 0.005},
+    }
+
     def _calculate_cost(self, input_tokens: int, output_tokens: int, model: str) -> float:
         """Calculate cost in USD based on token usage."""
-        costs = {
-            "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
-            "gpt-4o": {"input": 0.005, "output": 0.015},
-        }
-        model_costs = costs.get(model, costs["gpt-4o-mini"])
+        model_costs = self._MODEL_COSTS.get(model, self._MODEL_COSTS["claude-opus-4-8"])
         return (input_tokens / 1000 * model_costs["input"]) + (output_tokens / 1000 * model_costs["output"])
     
     def _log_usage(
@@ -332,15 +312,8 @@ class BaseAgent(ABC, Generic[T]):
             db = self._get_db()
             collection = db['ai_usage_logs']
             
-            costs = {
-                "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
-                "gpt-4o": {"input": 0.005, "output": 0.015},
-            }
-            model_costs = costs.get(model, costs["gpt-4o-mini"])
-            cost_usd = (input_tokens / 1000 * model_costs["input"]) + (output_tokens / 1000 * model_costs["output"])
-            
-            # Determine provider from model
-            provider = "openai"
+            cost_usd = self._calculate_cost(input_tokens, output_tokens, model)
+            provider = "anthropic"
             
             doc = {
                 "timestamp": datetime.utcnow(),

@@ -1,6 +1,7 @@
 """
 Lead Enrichment Module
-Provides intelligent lead classification, enrichment, and email processing using OpenAI
+Provides intelligent lead classification, enrichment, and email processing using Claude
+(governed via ai_governance; the rotator is kept for quota accounting only)
 """
 
 import os
@@ -9,13 +10,13 @@ import re
 import logging
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
-import openai
+from ai_governance.claude_gateway import ClaudeChatClient
 from .openai_rotator import get_rotator
 
 logger = logging.getLogger(__name__)
 
 # Constants
-MODEL_NAME = "gpt-4o-mini"
+MODEL_NAME = "claude-opus-4-8"
 DEFAULT_TEMPERATURE = 0.7
 CLASSIFY_TEMPERATURE = 0.3  # Lower for consistent classification
 EXTRACT_TEMPERATURE = 0.5  # Medium for structured extraction
@@ -249,7 +250,7 @@ Priority: Based on role seniority, buying intent, and urgency
 """
     
     try:
-        client = openai.OpenAI(api_key=api_key)
+        client = ClaudeChatClient()  # governed Claude client (rotator key unused)
         
         response = client.chat.completions.create(
             model=MODEL_NAME,
@@ -353,7 +354,7 @@ Be specific and actionable. Base inferences on typical patterns for this role/co
 """
     
     try:
-        client = openai.OpenAI(api_key=api_key)
+        client = ClaudeChatClient()  # governed Claude client (rotator key unused)
         
         response = client.chat.completions.create(
             model=MODEL_NAME,
@@ -474,7 +475,7 @@ Leave fields empty if not found.
 """
     
     try:
-        client = openai.OpenAI(api_key=api_key)
+        client = ClaudeChatClient()  # governed Claude client (rotator key unused)
         
         response = client.chat.completions.create(
             model=MODEL_NAME,
@@ -563,7 +564,7 @@ Focus on business relevance and actionable insights.
 """
     
     try:
-        client = openai.OpenAI(api_key=api_key)
+        client = ClaudeChatClient()  # governed Claude client (rotator key unused)
         
         response = client.chat.completions.create(
             model=MODEL_NAME,
@@ -658,7 +659,7 @@ Definitions:
 """
     
     try:
-        client = openai.OpenAI(api_key=api_key)
+        client = ClaudeChatClient()  # governed Claude client (rotator key unused)
         
         response = client.chat.completions.create(
             model=MODEL_NAME,
@@ -749,7 +750,7 @@ Focus on quick, accurate categorization.
 """
     
     try:
-        client = openai.OpenAI(api_key=api_key)
+        client = ClaudeChatClient()  # governed Claude client (rotator key unused)
         
         response = client.chat.completions.create(
             model=MODEL_NAME,

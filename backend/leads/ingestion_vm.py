@@ -246,7 +246,7 @@ Return JSON format: {{"leads": [...]}}"""
         logger.warning("Using OpenAI chat completion as fallback. Configure Google CSE for better results.")
         
         response = client_ai.chat.completions.create(
-            model="gpt-4o-mini",
+            model="claude-opus-4-8",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant that provides information about professionals based on your training data. Note: You cannot perform real-time web searches."},
                 {"role": "user", "content": search_prompt}
@@ -642,18 +642,8 @@ async def search_linkedin_leads_discovery(
             return cached
     
     # ===== OPENAI API CALL =====
-    api_key = get_openai_api_key()
-    
-    if not api_key:
-        raise ValueError("OpenAI API Key is required. Configure in Settings.")
-    
-    raise RuntimeError("OpenAI disabled — web search now uses Google CSE + Gemini")
-    # try:
-    #     from openai import OpenAI
-    # except ImportError:
-    #     raise ValueError("OpenAI package not installed.")
-    # 
-    # client_ai = OpenAI(api_key=api_key)
+    from ai_governance.claude_gateway import ClaudeWebSearchChatClient
+    client_ai = ClaudeWebSearchChatClient()  # governed Claude client with real web search
     
     # Extract search criteria from the query
     clean_query = re.sub(r'site:linkedin\.com[^\s]*\s*', '', query, flags=re.IGNORECASE).strip()
@@ -709,7 +699,7 @@ CRITICAL:
 
     try:
         response = client_ai.chat.completions.create(
-            model="gpt-4o-mini",
+            model="claude-opus-4-8",
             messages=[
                 {"role": "system", "content": "You find market research, consumer insights, and analytics professionals on LinkedIn. ONLY include people with insights/research/analytics roles - NO CEOs, CTOs, or generic executives. Never fabricate LinkedIn URLs - real URLs have random alphanumeric suffixes. Return valid JSON arrays only."},
                 {"role": "user", "content": search_prompt}
@@ -795,18 +785,8 @@ async def discover_top_companies(
             return cached
     
     # ===== OPENAI API CALL =====
-    api_key = get_openai_api_key()
-    
-    if not api_key:
-        raise ValueError("OpenAI API Key is required. Configure in Settings.")
-    
-    raise RuntimeError("OpenAI disabled — company search now uses Google CSE + Gemini")
-    # try:
-    #     from openai import OpenAI
-    # except ImportError:
-    #     raise ValueError("OpenAI package not installed.")
-    # 
-    # client_ai = OpenAI(api_key=api_key)
+    from ai_governance.claude_gateway import ClaudeWebSearchChatClient
+    client_ai = ClaudeWebSearchChatClient()  # governed Claude client with real web search
     
     # Determine if this is a market research company search
     is_research_company = "research" in industry.lower() or "panel" in industry.lower()
@@ -844,7 +824,7 @@ CRITICAL: Only include REAL companies with verified information. Use empty strin
 
     try:
         response = client_ai.chat.completions.create(
-            model="gpt-4o-mini",
+            model="claude-opus-4-8",
             messages=[
                 {"role": "system", "content": f"You are a B2B market researcher identifying top companies in {industry} in {region_name}. Only return real, verifiable companies. Return valid JSON arrays."},
                 {"role": "user", "content": search_prompt}
@@ -918,18 +898,8 @@ async def find_decision_makers_in_company(
             return cached
     
     # ===== OPENAI API CALL =====
-    api_key = get_openai_api_key()
-    
-    if not api_key:
-        raise ValueError("OpenAI API Key is required.")
-    
-    raise RuntimeError("OpenAI disabled — contact extraction now uses Google CSE + Gemini")
-    # try:
-    #     from openai import OpenAI
-    # except ImportError:
-    #     raise ValueError("OpenAI package not installed.")
-    # 
-    # client_ai = OpenAI(api_key=api_key)
+    from ai_governance.claude_gateway import ClaudeWebSearchChatClient
+    client_ai = ClaudeWebSearchChatClient()  # governed Claude client with real web search
     
     # Different target roles based on company type
     if is_research_company:
@@ -1007,7 +977,7 @@ CRITICAL:
 
     try:
         response = client_ai.chat.completions.create(
-            model="gpt-4o-mini",
+            model="claude-opus-4-8",
             messages=[
                 {"role": "system", "content": f"You find decision makers at {company_name} who purchase research/insights services. Only return real LinkedIn profiles with verified URLs. Real LinkedIn URLs have random alphanumeric suffixes. Return valid JSON arrays."},
                 {"role": "user", "content": search_prompt}

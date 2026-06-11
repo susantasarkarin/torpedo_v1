@@ -174,8 +174,8 @@ def route_lead_to_bu(self, lead_id: str) -> Dict[str, Any]:
             business_units[0] if business_units else {}
         )
 
-        # Draft the outreach email via OpenAI GPT-4
-        draft = gateway.draft_outreach_email_openai(
+        # Draft the outreach email via Claude (ai_governance gateway)
+        draft = gateway.draft_outreach_email(
             lead_context=lead_context,
             bu_description=chosen_bu.get("description", ""),
             gap_analysis=result.get("gap_analysis", ""),

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Campaign Optimizer Service.
 
 Analyzes campaign performance and provides optimization recommendations.
@@ -168,7 +168,7 @@ class CampaignOptimizerService:
         
         try:
             response = await self.ai_client.chat.completions.create(
-                model="gpt-4o",
+                model="claude-opus-4-8",
                 messages=[
                     {"role": "user", "content": f"{WEEKLY_OPTIMIZATION_PROMPT}\n\n---\n\nPERFORMANCE DATA:\n{context}"}
                 ],

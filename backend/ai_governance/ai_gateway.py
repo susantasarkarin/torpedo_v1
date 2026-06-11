@@ -1,10 +1,11 @@
 """
-AI GATEWAY - Single Entry Point for All AI Operations (OpenAI)
-==============================================================
-This is the ONLY file that may invoke LLM API calls.
+AI GATEWAY - Single Entry Point for All AI Operations (Anthropic Claude)
+========================================================================
+Task-specific LLM operations live here; generic generation and web search
+live in claude_gateway.py. Claude is the ONLY AI provider in this codebase.
 
-Uses OpenAI GPT-4o-mini (fast, cheap) for all classification /
-summarization / extraction tasks, and GPT-4o for email drafting.
+Uses claude-haiku-4-5 (fast, cheap) for high-volume classification /
+summarization / extraction tasks.
 
 Constraints (MANDATORY):
 - Hard limit: 50,000 requests per day (configurable safeguard)

@@ -4,7 +4,7 @@ Cint Survey Cold-Start AI Scoring Task
 
 When a new Cint survey arrives via the opportunities webhook with no
 in-field data (conversion == 0, bid_incidence == 0), this task uses
-gpt-4o-mini to predict a conversion score from survey metadata.
+Claude to predict a conversion score from survey metadata.
 
 The score is written to cint_surveys.predicted_score and is used as
 the last-resort fallback in the country-wise ranking when no real IR
@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 # Minimum session threshold before we rely on real data (Cint guide: 20)
 INTERNAL_IR_MIN_SESSIONS = 20
 
-# OpenAI model — lightweight, keeps token cost low
-_OPENAI_MODEL = "gpt-4o-mini"
+# Claude model — lightweight, keeps token cost low for this high-volume task
+_AI_MODEL = "claude-haiku-4-5"
 
 # System prompt — concise so it stays within the cheap model's sweet spot
 _SYSTEM_PROMPT = (
@@ -102,19 +102,14 @@ def score_cold_start_survey(self, survey_id: int) -> Dict[str, Any]:
         logger.info(f"[CintScoring] survey_id={survey_id} has real data, skipping AI score")
         return {"survey_id": survey_id, "skipped": True, "reason": "has_real_data"}
 
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        logger.warning("[CintScoring] OPENAI_API_KEY not set — skipping AI prediction")
-        return {"survey_id": survey_id, "skipped": True, "reason": "no_api_key"}
-
     try:
-        from openai import OpenAI
+        from ai_governance.claude_gateway import ClaudeChatClient
 
-        oai = OpenAI(api_key=api_key)
+        oai = ClaudeChatClient()  # governed Claude client (key resolved by ai_governance)
         prompt = _build_prompt(survey)
 
         response = oai.chat.completions.create(
-            model=_OPENAI_MODEL,
+            model=_AI_MODEL,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},

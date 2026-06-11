@@ -506,7 +506,10 @@ class OpenAIEmailClassifier:
         # Rule-based confidence too low — fall through to AI
         logger.info(f"Rule-based low confidence ({rule_result['confidence_score']}) for {email.get('_id')}, falling through to AI")
         
-        from ..leads.openai_wrapper import chat_completion_with_escalation
+        try:
+            from ..ai_governance.claude_gateway import chat_completion_with_escalation
+        except ImportError:
+            from ai_governance.claude_gateway import chat_completion_with_escalation
         
         # Build prompt
         user_prompt = EMAIL_PROMPT_TEMPLATE.format(
@@ -634,7 +637,10 @@ class OpenAIEmailClassifier:
         Returns:
             Tier 2 analysis result or None
         """
-        from ..leads.openai_wrapper import chat_completion, PREMIUM_MODEL
+        try:
+            from ..ai_governance.claude_gateway import chat_completion, PREMIUM_MODEL
+        except ImportError:
+            from ai_governance.claude_gateway import chat_completion, PREMIUM_MODEL
         
         from_email = self._extract_email_address(email.get("from_address"))
         to_email = self._extract_email_address(email.get("to_addresses", [{}])[0] if email.get("to_addresses") else {})

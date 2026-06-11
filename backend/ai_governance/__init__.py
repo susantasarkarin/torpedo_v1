@@ -3,10 +3,23 @@ AI GOVERNANCE FRAMEWORK
 =======================
 Consolidated AI functionality with governance checks, hard daily limits, and zero duplication.
 
-Provider: OpenAI (pay-as-you-go) for all AI operations.
+Provider: Anthropic Claude — the ONLY AI provider in this codebase.
 
-This module is the SINGLE entry point for all AI operations.
+This module is the SINGLE entry point for all AI operations:
+- ai_gateway:     task-specific operations (classify/summarize/extract/draft)
+- claude_gateway: generic generate()/web_search() + drop-in chat clients
+                  used by migrated call sites
 """
+
+from .claude_gateway import (
+    ClaudeGateway,
+    get_claude_gateway,
+    claude_chat_client,
+    async_claude_chat_client,
+    ClaudeChatClient,
+    AsyncClaudeChatClient,
+    ClaudeGenerativeModel,
+)
 
 from .ai_gateway import (
     AIGateway,
@@ -31,24 +44,26 @@ from .governance_checks import (
 get_gemini_gateway = get_ai_gateway
 GeminiGateway = AIGateway
 
-# Try importing openai_gateway if it still exists (for web_search)
-try:
-    from .openai_gateway import (
-        OpenAIGateway,
-        get_openai_gateway,
-        web_search,
-        discover_leads_external,
-        OpenAIWebSearchOnly,
-    )
-except ImportError:
-    OpenAIGateway = None
-    get_openai_gateway = None
-    web_search = None
-    discover_leads_external = None
-    OpenAIWebSearchOnly = None
+# Web gateway (Claude-backed; OpenAI names kept for compat)
+from .openai_gateway import (
+    OpenAIGateway,
+    get_openai_gateway,
+    web_search,
+    discover_leads_external,
+    OpenAIWebSearchOnly,
+)
 
 __all__ = [
-    # AI Gateway (OpenAI-powered)
+    # Claude gateway (generic governed access)
+    'ClaudeGateway',
+    'get_claude_gateway',
+    'claude_chat_client',
+    'async_claude_chat_client',
+    'ClaudeChatClient',
+    'AsyncClaudeChatClient',
+    'ClaudeGenerativeModel',
+
+    # AI Gateway (Claude-powered task operations)
     'AIGateway',
     'get_ai_gateway',
     'GeminiGateway',  # backward compat alias

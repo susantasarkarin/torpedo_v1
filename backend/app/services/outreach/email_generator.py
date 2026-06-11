@@ -1,4 +1,4 @@
-"""
+﻿"""
 Email Generator Service.
 
 Generates personalized initial outreach emails and follow-ups
@@ -110,7 +110,7 @@ class EmailGeneratorService:
         
         try:
             response = await self.ai_client.chat.completions.create(
-                model="gpt-4o",
+                model="claude-opus-4-8",
                 messages=[
                     {"role": "system", "content": MASTER_SYSTEM_PROMPT},
                     {"role": "user", "content": f"{EMAIL_GENERATION_PROMPT}\n\n---\n\nCONTEXT:\n{context}"}
@@ -146,7 +146,7 @@ class EmailGeneratorService:
         
         try:
             response = await self.ai_client.chat.completions.create(
-                model="gpt-4o",
+                model="claude-opus-4-8",
                 messages=[
                     {"role": "system", "content": MASTER_SYSTEM_PROMPT},
                     {"role": "user", "content": f"{FOLLOWUP_GENERATION_PROMPT}\n\n---\n\nCONTEXT:\n{context}"}
@@ -187,7 +187,7 @@ BODY:
         
         try:
             response = await self.ai_client.chat.completions.create(
-                model="gpt-4o",
+                model="claude-opus-4-8",
                 messages=[
                     {"role": "user", "content": f"{SPAM_CHECK_PROMPT}\n\n---\n\nEMAIL TO CHECK:\n{context}"}
                 ],
@@ -262,7 +262,7 @@ Be more conservative and professional. Avoid any promotional language.
 """
         
         response = await self.ai_client.chat.completions.create(
-            model="gpt-4o",
+            model="claude-opus-4-8",
             messages=[
                 {"role": "system", "content": MASTER_SYSTEM_PROMPT},
                 {"role": "user", "content": f"{EMAIL_GENERATION_PROMPT}\n\n---\n\nCONTEXT:\n{context}"}

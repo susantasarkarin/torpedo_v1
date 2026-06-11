@@ -1,4 +1,4 @@
-"""
+﻿"""
 Reply Handler Service.
 
 Classifies incoming email replies and generates appropriate responses.
@@ -153,7 +153,7 @@ class ReplyHandlerService:
         
         try:
             response = await self.ai_client.chat.completions.create(
-                model="gpt-4o",
+                model="claude-opus-4-8",
                 messages=[
                     {"role": "user", "content": f"{REPLY_CLASSIFIER_PROMPT}\n\n---\n\nREPLY TO CLASSIFY:\n{prompt_context}"}
                 ],
@@ -228,7 +228,7 @@ CONTACT: {context.contact_name} at {context.company_name}
         
         try:
             response = await self.ai_client.chat.completions.create(
-                model="gpt-4o",
+                model="claude-opus-4-8",
                 messages=[
                     {"role": "user", "content": f"{AUTO_RESPONSE_PROMPT}\n\n---\n\n{prompt_context}"}
                 ],

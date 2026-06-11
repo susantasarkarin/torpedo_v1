@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any, Dict
 
 from bson import ObjectId
-from openai import AsyncOpenAI
+from ai_governance.claude_gateway import AsyncClaudeChatClient
 
 from celery_app import celery_app
 from db_pools import get_background_db
@@ -289,8 +289,8 @@ def process_outreach_lead_task(
 	db = get_background_db()
 
 	async def _run() -> Dict[str, Any]:
-		openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-		orchestrator = OutreachOrchestrator(ai_client=openai_client, db=db)
+		ai_client = AsyncClaudeChatClient()  # governed Claude client via ai_governance
+		orchestrator = OutreachOrchestrator(ai_client=ai_client, db=db)
 
 		lead_doc = db["outreach_leads"].find_one({"_id": _to_object_id(lead_id)}) or {}
 

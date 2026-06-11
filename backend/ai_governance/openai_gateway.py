@@ -1,221 +1,120 @@
 """
-OPENAI GATEWAY - Restricted to Web Search Only
-===============================================
-This is the ONLY file that may invoke OpenAI/ChatGPT API calls.
+WEB GATEWAY - Claude-backed web search & external discovery
+===========================================================
+Historically this was the OpenAI gateway (web search only). The codebase is
+now Claude-only: the same public API (class/function names kept so existing
+imports keep working) is served by Anthropic Claude with its server-side
+web_search tool — which performs REAL web searches, unlike the old
+implementation that asked GPT to produce "results" from memory.
 
-OpenAI/ChatGPT is ONLY allowed for:
-- Web search
-- Lead generation OUTSIDE existing emails
-
-OpenAI/ChatGPT MUST NEVER be used for:
-- Email classification
-- Email summarization
-- Background or scheduled tasks
-- Reprocessing existing emails
+Boundaries preserved from the original design:
+- ONLY web search / external lead discovery / web enrichment
+- NEVER email classification, summarization, or background reprocessing
+  (use ai_gateway for those)
 """
 
-import os
+import json
 import logging
 from datetime import datetime
-from typing import Dict, Any, Optional, List
-import json
+from typing import Any, Dict, List, Optional
 
-from openai import OpenAI
-from pymongo import MongoClient
+import anthropic
+
+from .ai_gateway import _get_anthropic_api_key
+from .claude_gateway import DEFAULT_MODEL, _governance_gate, _log_usage, _strip_markdown_json
 
 logger = logging.getLogger(__name__)
 
 
 class OpenAIWebSearchOnly(Exception):
-    """Raised when OpenAI is used for forbidden operations"""
+    """Raised when this gateway is used for forbidden operations (name kept for compat)."""
     pass
 
 
-# ============== CONFIGURATION ==============
-
-OPENAI_MODEL = "gpt-4o-mini"
-
-_mongo_client: Optional[MongoClient] = None
-_openai_client: Optional[OpenAI] = None
-
-
-def _get_mongo_client() -> MongoClient:
-    """Get singleton MongoDB client"""
-    global _mongo_client
-    if _mongo_client is None:
-        mongo_uri = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-        _mongo_client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
-    return _mongo_client
-
-
-def _get_openai_api_key() -> str:
-    """Get OpenAI API key from database or environment"""
-    try:
-        client = _get_mongo_client()
-        settings = client['torpedo_settings']['app_settings'].find_one()
-        
-        if settings and settings.get('openai_api_key'):
-            return settings['openai_api_key']
-        
-    except Exception as e:
-        logger.warning(f"Error loading OpenAI API key from DB: {e}")
-    
-    env_key = os.getenv('OPENAI_API_KEY')
-    if env_key:
-        return env_key
-    
-    raise ValueError("No OpenAI API key configured in database or environment")
-
-
-def _get_openai_client() -> OpenAI:
-    """Get singleton OpenAI client"""
-    global _openai_client
-    if _openai_client is None:
-        api_key = _get_openai_api_key()
-        _openai_client = OpenAI(api_key=api_key)
-    return _openai_client
-
-
-# ============== OPENAI GATEWAY ==============
-
 class OpenAIGateway:
     """
-    RESTRICTED OpenAI Gateway - Web Search Only
-    
-    This class enforces strict usage boundaries:
+    RESTRICTED web gateway — Claude-backed (class name kept for compat).
+
     - ONLY web search and external lead discovery
     - FORBIDDEN: email classification, summarization, background tasks
     """
-    
-    # Allowed operations
+
     ALLOWED_OPERATIONS = frozenset({
         "web_search",
         "company_discovery",
         "external_lead_generation",
-        "web_enrichment"
+        "web_enrichment",
     })
-    
-    # Forbidden operations (will raise exception)
+
     FORBIDDEN_OPERATIONS = frozenset({
         "email_classification",
         "email_summarization",
         "email_processing",
         "background_task",
         "scheduled_task",
-        "cron_task"
+        "cron_task",
     })
-    
+
     def _validate_operation(self, operation: str) -> None:
-        """
-        Validate that operation is allowed for OpenAI.
-        
-        Raises:
-            OpenAIWebSearchOnly: If operation is forbidden
-        """
         if operation in self.FORBIDDEN_OPERATIONS:
             raise OpenAIWebSearchOnly(
-                f"Operation '{operation}' is FORBIDDEN for OpenAI. "
-                "OpenAI can only be used for web search and external lead discovery. "
-                "For email operations, use Gemini."
+                f"Operation '{operation}' is FORBIDDEN for the web gateway. "
+                "It may only be used for web search and external lead discovery. "
+                "For email operations, use ai_gateway."
             )
-        
         if operation not in self.ALLOWED_OPERATIONS:
             logger.warning(f"Operation '{operation}' is not in allowed list. Proceeding with caution.")
-    
-    def web_search(
-        self,
-        query: str,
-        num_results: int = 10,
-        search_type: str = "web_search"
-    ) -> Dict[str, Any]:
-        """
-        Perform web search using OpenAI's web search capability.
-        
-        This is one of the ONLY allowed uses of OpenAI.
-        
-        Args:
-            query: Search query
-            num_results: Maximum number of results
-            search_type: Type of search (for audit)
-            
-        Returns:
-            Dictionary with search results
-        """
-        self._validate_operation("web_search")
-        
+
+    def _search_call(self, instruction: str, query: str, max_uses: int = 5,
+                     task_type: str = "web_search") -> str:
+        """One governed Claude call with the server-side web_search tool."""
+        _governance_gate()
+        client = anthropic.Anthropic(api_key=_get_anthropic_api_key())
+        response = client.messages.create(
+            model=DEFAULT_MODEL,
+            max_tokens=16000,
+            system=instruction,
+            tools=[{"type": "web_search_20260209", "name": "web_search",
+                    "max_uses": max_uses}],
+            messages=[{"role": "user", "content": query}],
+        )
+        _log_usage(task_type, DEFAULT_MODEL, response.usage, caller="web_gateway")
+        return " ".join(b.text for b in response.content if b.type == "text").strip()
+
+    @staticmethod
+    def _parse_json(content: str) -> Optional[Dict[str, Any]]:
         try:
-            client = _get_openai_client()
-            
-            # Use OpenAI with web search tool
-            response = client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a research assistant that searches the web for information. Return results in JSON format."
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Search the web for: {query}\n\nReturn up to {num_results} relevant results as JSON:\n{{\"results\": [{{\"title\": \"...\", \"url\": \"...\", \"snippet\": \"...\"}}]}}"
-                    }
-                ],
-                temperature=0.1,
-                max_tokens=1000
+            return json.loads(_strip_markdown_json(content))
+        except json.JSONDecodeError:
+            return None
+
+    def web_search(self, query: str, num_results: int = 10,
+                   search_type: str = "web_search") -> Dict[str, Any]:
+        """Perform a real web search via Claude's server-side web_search tool."""
+        self._validate_operation("web_search")
+        try:
+            content = self._search_call(
+                "You are a research assistant. Search the web and return results as JSON only:\n"
+                '{"results": [{"title": "...", "url": "...", "snippet": "..."}]}',
+                f"Search the web for: {query}\nReturn up to {num_results} relevant results.",
+                max_uses=max(1, min(num_results, 10)),
             )
-            
-            content = response.choices[0].message.content
-            
-            try:
-                parsed = json.loads(content.strip().strip('```json').strip('```'))
-                return {
-                    "query": query,
-                    "results": parsed.get("results", []),
-                    "searched_at": datetime.utcnow().isoformat(),
-                    "success": True
-                }
-            except json.JSONDecodeError:
-                return {
-                    "query": query,
-                    "results": [],
-                    "raw_response": content,
-                    "searched_at": datetime.utcnow().isoformat(),
-                    "success": True
-                }
-                
+            parsed = self._parse_json(content)
+            if parsed is not None:
+                return {"query": query, "results": parsed.get("results", []),
+                        "searched_at": datetime.utcnow().isoformat(), "success": True}
+            return {"query": query, "results": [], "raw_response": content,
+                    "searched_at": datetime.utcnow().isoformat(), "success": True}
         except Exception as e:
             logger.error(f"Web search failed: {e}")
-            return {
-                "query": query,
-                "results": [],
-                "error": str(e),
-                "success": False
-            }
-    
-    def discover_leads_external(
-        self,
-        company_name: str = None,
-        industry: str = None,
-        location: str = None,
-        job_titles: List[str] = None
-    ) -> Dict[str, Any]:
-        """
-        Discover leads from external sources (NOT from emails).
-        
-        This is for EXTERNAL lead generation only.
-        For leads from emails, use Gemini's extract_leads_from_email.
-        
-        Args:
-            company_name: Target company name
-            industry: Target industry
-            location: Geographic location
-            job_titles: Target job titles
-            
-        Returns:
-            Dictionary with discovered leads
-        """
+            return {"query": query, "results": [], "error": str(e), "success": False}
+
+    def discover_leads_external(self, company_name: str = None, industry: str = None,
+                                location: str = None,
+                                job_titles: List[str] = None) -> Dict[str, Any]:
+        """Discover leads from external (web) sources — NOT from emails."""
         self._validate_operation("external_lead_generation")
-        
-        # Build search query
+
         query_parts = []
         if company_name:
             query_parts.append(f"company: {company_name}")
@@ -225,153 +124,52 @@ class OpenAIGateway:
             query_parts.append(f"location: {location}")
         if job_titles:
             query_parts.append(f"roles: {', '.join(job_titles)}")
-        
         query = " ".join(query_parts) if query_parts else "business contacts"
-        
-        try:
-            client = _get_openai_client()
-            
-            response = client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a B2B lead research assistant. Find potential business contacts based on the criteria. Return results as JSON."
-                    },
-                    {
-                        "role": "user",
-                        "content": f"""Find business contacts matching these criteria:
-{query}
 
-Return JSON:
-{{
-  "leads": [
-    {{
-      "name": "Full Name",
-      "title": "Job Title",
-      "company": "Company Name",
-      "linkedin_url": "https://linkedin.com/in/... or null",
-      "source": "public_data"
-    }}
-  ],
-  "search_criteria": {{...}}
-}}"""
-                    }
-                ],
-                temperature=0.2,
-                max_tokens=1500
+        try:
+            content = self._search_call(
+                "You are a B2B lead research assistant. Search the web for potential "
+                "business contacts matching the criteria. Return JSON only:\n"
+                '{"leads": [{"name": "Full Name", "title": "Job Title", "company": "Company Name", '
+                '"linkedin_url": "https://linkedin.com/in/... or null", "source": "public_data"}]}',
+                f"Find business contacts matching these criteria: {query}",
+                task_type="external_lead_discovery",
             )
-            
-            content = response.choices[0].message.content
-            
-            try:
-                parsed = json.loads(content.strip().strip('```json').strip('```'))
-                return {
-                    "leads": parsed.get("leads", []),
-                    "search_criteria": {
-                        "company_name": company_name,
-                        "industry": industry,
-                        "location": location,
-                        "job_titles": job_titles
-                    },
-                    "discovered_at": datetime.utcnow().isoformat(),
-                    "success": True
-                }
-            except json.JSONDecodeError:
-                return {
-                    "leads": [],
-                    "raw_response": content,
-                    "discovered_at": datetime.utcnow().isoformat(),
-                    "success": True
-                }
-                
+            parsed = self._parse_json(content)
+            criteria = {"company_name": company_name, "industry": industry,
+                        "location": location, "job_titles": job_titles}
+            if parsed is not None:
+                return {"leads": parsed.get("leads", []), "search_criteria": criteria,
+                        "discovered_at": datetime.utcnow().isoformat(), "success": True}
+            return {"leads": [], "raw_response": content,
+                    "discovered_at": datetime.utcnow().isoformat(), "success": True}
         except Exception as e:
             logger.error(f"External lead discovery failed: {e}")
-            return {
-                "leads": [],
-                "error": str(e),
-                "success": False
-            }
-    
-    def enrich_company_web(
-        self,
-        company_name: str,
-        domain: str = None
-    ) -> Dict[str, Any]:
-        """
-        Enrich company information using web search.
-        
-        This is for enriching data from EXTERNAL sources only.
-        
-        Args:
-            company_name: Company name to research
-            domain: Company domain if known
-            
-        Returns:
-            Dictionary with company information
-        """
-        self._validate_operation("web_enrichment")
-        
-        try:
-            client = _get_openai_client()
-            
-            query = f"Company information for {company_name}"
-            if domain:
-                query += f" ({domain})"
-            
-            response = client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a business research assistant. Find company information from public sources. Return as JSON."
-                    },
-                    {
-                        "role": "user",
-                        "content": f"""Research this company: {company_name}
-Domain: {domain or 'unknown'}
+            return {"leads": [], "error": str(e), "success": False}
 
-Return JSON:
-{{
-  "company_name": "Official Name",
-  "industry": "Industry",
-  "size": "1-10|11-50|51-200|201-500|501-1000|1001+",
-  "location": "City, Country",
-  "website": "https://...",
-  "description": "Brief description",
-  "founded": "Year or null",
-  "linkedin_url": "https://linkedin.com/company/... or null"
-}}"""
-                    }
-                ],
-                temperature=0.1,
-                max_tokens=500
+    def enrich_company_web(self, company_name: str, domain: str = None) -> Dict[str, Any]:
+        """Enrich company information using real web search."""
+        self._validate_operation("web_enrichment")
+        try:
+            content = self._search_call(
+                "You are a business research assistant. Search the web for company "
+                "information from public sources. Return JSON only:\n"
+                '{"company_name": "Official Name", "industry": "Industry", '
+                '"size": "1-10|11-50|51-200|201-500|501-1000|1001+", "location": "City, Country", '
+                '"website": "https://...", "description": "Brief description", '
+                '"founded": "Year or null", "linkedin_url": "https://linkedin.com/company/... or null"}',
+                f"Research this company: {company_name} (domain: {domain or 'unknown'})",
+                task_type="web_enrichment",
             )
-            
-            content = response.choices[0].message.content
-            
-            try:
-                parsed = json.loads(content.strip().strip('```json').strip('```'))
-                return {
-                    "company": parsed,
-                    "enriched_at": datetime.utcnow().isoformat(),
-                    "success": True
-                }
-            except json.JSONDecodeError:
-                return {
-                    "company": {"company_name": company_name},
-                    "raw_response": content,
-                    "enriched_at": datetime.utcnow().isoformat(),
-                    "success": True
-                }
-                
+            parsed = self._parse_json(content)
+            if parsed is not None:
+                return {"company": parsed, "enriched_at": datetime.utcnow().isoformat(),
+                        "success": True}
+            return {"company": {"company_name": company_name}, "raw_response": content,
+                    "enriched_at": datetime.utcnow().isoformat(), "success": True}
         except Exception as e:
             logger.error(f"Company enrichment failed: {e}")
-            return {
-                "company": {"company_name": company_name},
-                "error": str(e),
-                "success": False
-            }
+            return {"company": {"company_name": company_name}, "error": str(e), "success": False}
 
 
 # ============== SINGLETON ==============
@@ -380,7 +178,7 @@ _gateway_instance: Optional[OpenAIGateway] = None
 
 
 def get_openai_gateway() -> OpenAIGateway:
-    """Get singleton OpenAIGateway instance"""
+    """Get singleton gateway instance (name kept for compat — Claude-backed)."""
     global _gateway_instance
     if _gateway_instance is None:
         _gateway_instance = OpenAIGateway()
@@ -390,17 +188,12 @@ def get_openai_gateway() -> OpenAIGateway:
 # ============== CONVENIENCE FUNCTIONS ==============
 
 def web_search(query: str, num_results: int = 10) -> Dict[str, Any]:
-    """Convenience function for web search"""
     return get_openai_gateway().web_search(query, num_results)
 
 
-def discover_leads_external(
-    company_name: str = None,
-    industry: str = None,
-    location: str = None,
-    job_titles: List[str] = None
-) -> Dict[str, Any]:
-    """Convenience function for external lead discovery"""
+def discover_leads_external(company_name: str = None, industry: str = None,
+                            location: str = None,
+                            job_titles: List[str] = None) -> Dict[str, Any]:
     return get_openai_gateway().discover_leads_external(
         company_name, industry, location, job_titles
     )

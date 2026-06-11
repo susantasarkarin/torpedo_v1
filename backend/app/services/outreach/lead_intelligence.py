@@ -1,4 +1,4 @@
-"""
+﻿"""
 Lead Intelligence Service.
 
 Extracts structured intelligence from company data and scores leads
@@ -120,7 +120,7 @@ class LeadIntelligenceService:
         
         try:
             response = await self.ai_client.chat.completions.create(
-                model="gpt-4o",
+                model="claude-opus-4-8",
                 messages=[
                     {"role": "system", "content": MASTER_SYSTEM_PROMPT},
                     {"role": "user", "content": f"{LEAD_INTELLIGENCE_PROMPT}\n\n---\n\nCOMPANY DATA:\n{context}"}
@@ -171,7 +171,7 @@ INTELLIGENCE DATA:
         
         try:
             response = await self.ai_client.chat.completions.create(
-                model="gpt-4o",
+                model="claude-opus-4-8",
                 messages=[
                     {"role": "system", "content": MASTER_SYSTEM_PROMPT},
                     {"role": "user", "content": f"{LEAD_SCORING_PROMPT}\n\n---\n\n{context}"}

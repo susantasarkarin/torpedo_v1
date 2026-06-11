@@ -495,24 +495,14 @@ async def test_prompt(
         # This is a placeholder - actual implementation would run the prompt
         # through the appropriate agent
         
-        import openai as _openai
-        try:
-            from leads.openai_rotator import get_pipeline_rotator
-            _, api_key = get_pipeline_rotator("mail").get_available_key()
-        except Exception:
-            import os as _os
-            api_key = _os.getenv("OPENAI_API_KEY", "")
-        
-        if not api_key:
-            raise HTTPException(status_code=400, detail="OpenAI API not configured")
-        
-        client = _openai.OpenAI(api_key=api_key)
-        
+        from ai_governance.claude_gateway import ClaudeChatClient
+        client = ClaudeChatClient()  # governed Claude client (key resolved by ai_governance)
+
         # Combine prompt with test input
         full_prompt = f"{payload.content}\n\n--- TEST INPUT ---\n{payload.test_input}"
-        
+
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="claude-opus-4-8",
             messages=[{"role": "user", "content": full_prompt}],
             max_tokens=1000
         )

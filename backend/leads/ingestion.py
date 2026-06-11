@@ -874,14 +874,16 @@ async def discover_top_companies(
         return companies
     
     try:
-        # from openai import OpenAI  # DISABLED — OpenAI removed
-        # client_ai = OpenAI(api_key=api_key)  # DISABLED
-        raise RuntimeError("OpenAI disabled — company extraction now uses Google CSE + Gemini")
-        
-        # Dead code below — OpenAI disabled
-        search_context = None  # was: json.dumps([{ ... }])
-        is_research_company = False  # was: "research" in industry...
-        
+        from ai_governance.claude_gateway import ClaudeChatClient
+        client_ai = ClaudeChatClient()  # governed Claude client
+
+        search_context = json.dumps([{
+            "title": r.get("title", ""),
+            "link": r.get("link", ""),
+            "snippet": r.get("snippet", "")
+        } for r in search_results], indent=2)
+        is_research_company = "research" in (industry or "").lower()
+
         extraction_prompt = f"""Extract company information from these Google search results.
 These are LinkedIn company pages for {industry} companies in {region_name}.
 
@@ -903,7 +905,7 @@ Return a JSON object with "companies" array.
 ONLY use information from the search results - do not generate new companies."""
 
         response = client_ai.chat.completions.create(
-            model="gpt-4o-mini",
+            model="claude-opus-4-8",
             messages=[
                 {"role": "system", "content": "Extract company data from search results. Return valid JSON only. Do not generate new companies."},
                 {"role": "user", "content": extraction_prompt}
@@ -1071,10 +1073,9 @@ async def find_decision_makers_in_company(
         return leads
     
     try:
-        # from openai import OpenAI  # DISABLED — OpenAI removed
-        # client_ai = OpenAI(api_key=api_key)  # DISABLED
-        raise RuntimeError("OpenAI disabled — contact extraction now uses Google CSE + Gemini")
-        
+        from ai_governance.claude_gateway import ClaudeChatClient
+        client_ai = ClaudeChatClient()  # governed Claude client
+
         # Prepare search results for AI parsing
         search_context = json.dumps([{
             "title": r.get("title", ""),
@@ -1104,7 +1105,7 @@ Extract up to {num_contacts} contacts who work at "{company_name}". For each per
 Return a JSON object with "contacts" array."""
 
         response = client_ai.chat.completions.create(
-            model="gpt-4o-mini",
+            model="claude-opus-4-8",
             messages=[
                 {"role": "system", "content": "Extract contact data from search results. Return valid JSON only. Do not generate new contacts."},
                 {"role": "user", "content": extraction_prompt}

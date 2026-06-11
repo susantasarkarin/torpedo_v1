@@ -1,4 +1,4 @@
-"""
+﻿"""
 Sender Manager Service.
 
 Manages email sender accounts, warmup status, and allocation.
@@ -326,7 +326,7 @@ LEAD PRIORITY: {priority}
         
         try:
             response = await self.ai_client.chat.completions.create(
-                model="gpt-4o",
+                model="claude-opus-4-8",
                 messages=[
                     {"role": "user", "content": f"{SENDER_ALLOCATION_PROMPT}\n\n---\n\n{context}"}
                 ],
