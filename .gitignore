@@ -136,3 +136,14 @@ writable/session/
 # Playwright
 playwright-report/
 test-results/
+
+# E2E run artifacts
+e2e_artifacts/
+
+# Mailpool email lists (PII - kept local only)
+mailpool_accounts.csv
+mailpool_from_emails.csv
+mailpool_gmail_api_emails.csv
+
+# Build logs
+build-output.txt
