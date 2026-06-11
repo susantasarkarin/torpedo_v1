@@ -20,7 +20,8 @@ import time
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, HTTPException, Request, Query, Body
-from pymongo import MongoClient
+from pymongo import MongoClient, UpdateOne
+from pymongo.errors import BulkWriteError
 from bson import ObjectId
 from urllib.request import Request as UrlRequest, urlopen
 from urllib.error import URLError, HTTPError
@@ -38,6 +39,13 @@ cp_db = client["campaign_platform"]
 panelists_collection = cp_db["panelists"]
 rewards_collection = cp_db["panel_rewards"]
 invitation_log_collection = cp_db["panel_invitation_log"]
+
+# email is the dedupe key for bulk CSV upserts — without this index every
+# upsert filter collection-scans and large uploads take minutes (HTTP 524)
+try:
+    panelists_collection.create_index("email")
+except Exception as _idx_err:  # pragma: no cover
+    logger.warning(f"panelists email index creation failed: {_idx_err}")
 
 # traffic_flow_db (traffic records from parsing page)
 tf_db = client["traffic_flow_db"]
@@ -173,26 +181,51 @@ def _normalize_panelist_row(row: Dict[str, Any], source: str) -> Optional[Dict[s
 
 
 def _upsert_panelists(rows: List[Dict[str, Any]], source: str) -> Dict[str, Any]:
-    """Insert normalized panelists while skipping duplicates and invalid rows."""
-    inserted = 0
+    """
+    Insert normalized panelists while skipping duplicates and invalid rows.
+
+    Uses batched bulk upserts ($setOnInsert keyed on email) instead of a
+    find_one+insert_one pair per row — large CSV uploads (~90K rows) were
+    taking minutes and timing out at the proxy (HTTP 524); bulk writes
+    complete in seconds.
+    """
     skipped = 0
     errors: List[str] = []
 
+    # Normalize and dedupe in-memory first (last duplicate in file wins skip)
+    docs_by_email: Dict[str, Dict[str, Any]] = {}
     for i, row in enumerate(rows):
         try:
             doc = _normalize_panelist_row(row, source=source)
             if not doc:
                 skipped += 1
                 continue
-
-            if panelists_collection.find_one({"email": doc["email"]}):
+            if doc["email"] in docs_by_email:
                 skipped += 1
                 continue
-
-            panelists_collection.insert_one(doc)
-            inserted += 1
+            docs_by_email[doc["email"]] = doc
         except Exception as e:
             errors.append(f"Row {i + 1}: {str(e)}")
+
+    inserted = 0
+    docs = list(docs_by_email.values())
+    batch_size = 5000
+    for start in range(0, len(docs), batch_size):
+        batch = docs[start:start + batch_size]
+        ops = [
+            UpdateOne({"email": d["email"]}, {"$setOnInsert": d}, upsert=True)
+            for d in batch
+        ]
+        try:
+            res = panelists_collection.bulk_write(ops, ordered=False)
+            inserted += res.upserted_count
+            skipped += len(batch) - res.upserted_count
+        except BulkWriteError as e:
+            details = e.details or {}
+            inserted += int(details.get("nUpserted", 0))
+            skipped += len(batch) - int(details.get("nUpserted", 0))
+            for err in (details.get("writeErrors") or [])[:3]:
+                errors.append(f"Bulk write: {err.get('errmsg', 'unknown error')}")
 
     return {
         "inserted": inserted,
