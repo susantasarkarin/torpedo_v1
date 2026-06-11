@@ -2025,7 +2025,7 @@ function Settings() {
           <div className="settings-section">
             <h2>AI Reference Material</h2>
             <p className="section-description">
-              Business unit descriptions used by OpenAI for routing and email drafting.
+              Business unit descriptions used by Claude for routing and email drafting.
               The AI picks the best-fit BU and writes a gap analysis, then drafts the personalised outreach email using the chosen BU file.
             </p>
 

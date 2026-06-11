@@ -29,7 +29,7 @@ CORS_ORIGINS: List[str] = [o.strip() for o in CORS_ORIGINS_RAW.split(",") if o.s
 API_BASE = os.getenv("API_BASE", "http://localhost:9944")
 
 # AI provider
-AI_DEFAULT_PROVIDER = os.getenv("AI_DEFAULT_PROVIDER", "gemini")
+AI_DEFAULT_PROVIDER = os.getenv("AI_DEFAULT_PROVIDER", "anthropic")  # Claude is the only provider
 
 # Additional optional settings with safe defaults
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", 86400))

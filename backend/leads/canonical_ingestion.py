@@ -1004,7 +1004,15 @@ def ingest_lead(
             result['action'] = 'inserted'
             result['lead_id'] = str(insert_result.inserted_id)
             result['email'] = normalized.get('email')
-        
+
+            # Mirror new leads into the canonical CRM spine (best-effort)
+            try:
+                from app.services.spine_connector import mirror_lead_to_spine
+                mirror_lead_to_spine(normalized, source=source,
+                                     source_id=result['lead_id'])
+            except Exception as _spine_err:
+                logger.debug(f"spine mirror skipped: {_spine_err}")
+
         # Log the ingestion event
         _log_email = result.get('email') or normalized.get('linkedin_url') or 'unknown'
         log_ingestion_event(

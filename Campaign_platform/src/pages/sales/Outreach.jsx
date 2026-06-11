@@ -471,7 +471,7 @@ function Outreach() {
                 ) : (
                   <div>
                     <p style={{ color: "#6b7280", fontSize: "0.9rem", marginBottom: 20 }}>
-                      Click <strong>✨ Generate with AI</strong> to let GPT-4o-mini write the full email using your business context,
+                      Click <strong>✨ Generate with AI</strong> to let Claude write the full email using your business context,
                       or paste your own copy. Tokens replaced per recipient at send time:&nbsp;
                       <code>{"{{first_name}}"}</code> <code>{"{{company}}"}</code> <code>{"{{title}}"}</code> <code>{"{{industry}}"}</code>
                     </p>

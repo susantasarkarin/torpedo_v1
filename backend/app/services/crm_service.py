@@ -48,6 +48,7 @@ _TIMELINE_FIELDS = {
     "contact": "contact_id",
     "opportunity": "opportunity_id",
     "project": "project_id",
+    "lead": "lead_id",
 }
 
 

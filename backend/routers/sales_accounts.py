@@ -125,6 +125,18 @@ async def create_sales_account(account: SalesAccountCreate):
         
         result = accounts_collection.insert_one(account_data)
         account_data["_id"] = str(result.inserted_id)
+
+        # Mirror into the canonical CRM spine (best-effort, non-fatal)
+        try:
+            from app.services.spine_connector import mirror_sales_account_to_spine
+            mirror_sales_account_to_spine(
+                account_data.get("company_name") or account_data.get("account_name"),
+                source_id=account_data["_id"],
+                extra={"industry": account_data.get("industry")},
+            )
+        except Exception:
+            pass
+
         return account_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

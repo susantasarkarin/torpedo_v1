@@ -408,14 +408,14 @@ def update_business_context(campaign_id: str, req: BusinessContextRequest):
 @router.post("/campaigns/{campaign_id}/steps/{step_number}/generate")
 def generate_step_email(campaign_id: str, step_number: int):
     """
-    Use OpenAI to generate a full cold email (subject + body) for a given step.
+    Use Claude to generate a full cold email (subject + body) for a given step.
 
     The email will contain live placeholder tokens ({{first_name}}, {{company}}, etc.)
     so each recipient gets a personalised version at send time.
 
     Requires business_context to be saved on the campaign first (via the AI Context tab).
     """
-    import openai as _openai
+    from ai_governance.claude_gateway import ClaudeChatClient
     from leads.openai_rotator import get_pipeline_rotator as _get_pipeline_rotator
 
     db = get_db()
@@ -430,12 +430,12 @@ def generate_step_email(campaign_id: str, step_number: int):
             "No business context saved yet â€” fill in the AI Context tab first so the AI knows what to write."
         )
 
-    # Use pipeline 1 (outreach) for email drafting â€” keys 1, 2, 3
+    # Pipeline rotator kept for per-pipeline quota accounting only
     try:
         _rotator = _get_pipeline_rotator("outreach")
-        key_index, api_key = _rotator.get_available_key()
-    except Exception as e:
-        raise HTTPException(500, f"OpenAI key unavailable: {e}")
+        key_index, _unused_key = _rotator.get_available_key()
+    except Exception:
+        _rotator, key_index = None, None
 
     # Step metadata
     day_labels = {1: "Day 1 (initial outreach)", 2: "Day 4 (first follow-up)",
@@ -507,21 +507,21 @@ Do not write a signature block â€” the system appends one automatically.
 """
 
     try:
-        _client = _openai.OpenAI(api_key=api_key)
+        _client = ClaudeChatClient()  # governed Claude client via ai_governance
         _response = _client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="claude-opus-4-8",
             messages=[
                 {"role": "system", "content": "You are a professional B2B cold email copywriter. Follow instructions precisely."},
                 {"role": "user", "content": prompt},
             ],
             max_tokens=600,
-            temperature=0.72,
         )
         raw = _response.choices[0].message.content.strip()
         tokens_used = _response.usage.total_tokens if _response.usage else 0
-        _rotator.log_request(key_index, tokens_used, "email_generation", success=True)
+        if _rotator is not None:
+            _rotator.log_request(key_index, tokens_used, "email_generation", success=True)
     except Exception as e:
-        logger.error(f"OpenAI generate_step_email failed: {e}")
+        logger.error(f"Claude generate_step_email failed: {e}")
         raise HTTPException(500, f"AI generation failed: {e}")
 
     # Parse subject and body from output
@@ -1697,15 +1697,10 @@ def _generate_personalized_email(
     sender_name: str,
 ) -> tuple[str, str]:
     """
-    Call Gemini to produce a unique (subject, body_html) for this specific lead.
-    Uses the Gemini key rotator (7 free-tier keys).
+    Call Claude to produce a unique (subject, body_html) for this specific lead.
     Returns (subject, body_html). Raises on failure.
     """
-    import google.generativeai as genai
-    from leads.gemini_rotator import get_pipeline_rotator as get_gemini_pipeline_rotator
-
-    rotator = get_gemini_pipeline_rotator("outreach")
-    key_index, api_key = rotator.get_available_key()
+    from ai_governance.claude_gateway import ClaudeGenerativeModel
 
     tone_map = {
         "professional": "formal and professional",
@@ -1758,10 +1753,8 @@ Rules:
 - Keep the tone {tone}
 """
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = ClaudeGenerativeModel("claude-opus-4-8")  # governed via ai_governance
     response = model.generate_content(prompt)
-    rotator.log_request(key_index, 0, "outreach_email_gen", success=True)
 
     raw = response.text.strip()
     subject = ""

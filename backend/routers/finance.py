@@ -505,6 +505,15 @@ async def create_customer(customer_data: Dict[str, Any] = Body(...)):
         
         result = customers_collection.insert_one(customer_data)
         customer_data["_id"] = str(result.inserted_id)
+
+        # Mirror into the canonical CRM spine (best-effort, non-fatal)
+        try:
+            from app.services.spine_connector import mirror_finance_party_to_spine
+            mirror_finance_party_to_spine(customer_data.get("name"), "client",
+                                          source_id=customer_data["_id"])
+        except Exception:
+            pass
+
         return customer_data
     except HTTPException:
         raise
@@ -854,6 +863,15 @@ async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
         
         result = vendors_collection.insert_one(vendor_data)
         vendor_data["_id"] = str(result.inserted_id)
+
+        # Mirror into the canonical CRM spine (best-effort, non-fatal)
+        try:
+            from app.services.spine_connector import mirror_finance_party_to_spine
+            mirror_finance_party_to_spine(vendor_data.get("name"), "vendor",
+                                          source_id=vendor_data["_id"])
+        except Exception:
+            pass
+
         return vendor_data
     except HTTPException:
         raise
@@ -1965,13 +1983,30 @@ async def create_invoice(invoice_data: Dict[str, Any] = Body(...)):
         
         result = invoices_collection.insert_one(invoice_data)
         invoice_data["_id"] = str(result.inserted_id)
-        
+
         # Update customer receivables
         customers_collection.update_one(
             {"_id": ObjectId(invoice_data["customer_id"])},
             {"$inc": {"total_receivables": invoice_data["total_amount"]}}
         )
-        
+
+        # Mirror into the canonical CRM spine (best-effort, non-fatal)
+        try:
+            from app.services.spine_connector import mirror_invoice_to_spine
+            customer = customers_collection.find_one(
+                {"_id": ObjectId(invoice_data["customer_id"])})
+            customer_name = (customer or {}).get("display_name") or \
+                (customer or {}).get("company_name") or (customer or {}).get("name")
+            mirror_invoice_to_spine(
+                {"invoice_number": invoice_data["invoice_number"],
+                 "total": invoice_data["total_amount"],
+                 "currency": invoice_data.get("currency", "USD"),
+                 "status": invoice_data["status"],
+                 "due_date": invoice_data.get("due_date")},
+                customer_name, source_id=invoice_data["_id"])
+        except Exception:
+            pass
+
         return invoice_data
     except HTTPException:
         raise

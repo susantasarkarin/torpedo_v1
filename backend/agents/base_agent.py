@@ -11,7 +11,10 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List, TypeVar, Generic
 from pydantic import BaseModel
 
-from ai_governance.claude_gateway import ClaudeChatClient
+try:
+    from ai_governance.claude_gateway import ClaudeChatClient
+except ImportError:  # package context (tests import as backend.*)
+    from backend.ai_governance.claude_gateway import ClaudeChatClient
 
 logger = logging.getLogger(__name__)
 
