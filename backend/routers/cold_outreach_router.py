@@ -1495,17 +1495,8 @@ _BUSINESS_DISPLAY_NAME: Dict[str, str] = {
     "bimwave": "Susanta Sarkar",
 }
 
-# Daily send cap per sender email (AWS SES mailboxes are exempt).
-# Gmail Workspace senders do not always have a matching outreach_mailboxes row,
-# so keep a default aligned with production policy.
-_DEFAULT_DAILY_SEND_LIMIT_PER_MAILBOX = int(
-    os.getenv("OUTREACH_DAILY_SEND_LIMIT_PER_MAILBOX", "2500")
-)
-
-# Per-cycle pick count per active campaign.
-_SEND_BATCH_PER_CAMPAIGN = int(
-    os.getenv("OUTREACH_SEND_BATCH_PER_CAMPAIGN", "5")
-)
+# Daily send cap per sender email (AWS SES mailboxes are exempt)
+_DAILY_SEND_LIMIT_PER_MAILBOX = 2000
 
 # â”€â”€ Per-mailbox 429 cooldown tracking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # {sender_email: datetime_when_cooldown_expires}  â€” in-memory, resets on restart
@@ -1634,16 +1625,12 @@ def _sender_at_daily_limit(db, from_email: str) -> bool:
     mailbox = db["outreach_mailboxes"].find_one({"email_address": from_email})
     if mailbox and mailbox.get("provider") == "ses":
         return False
-    daily_limit = int(
-        (mailbox or {}).get("daily_limit")
-        or _DEFAULT_DAILY_SEND_LIMIT_PER_MAILBOX
-    )
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     sent_today = db["outreach_sends_v2"].count_documents({
         "from_email": from_email,
         "sent_at": {"$gte": today_start},
     })
-    return sent_today >= daily_limit
+    return sent_today >= _DAILY_SEND_LIMIT_PER_MAILBOX
 
 
 # Per-business step context for AI generation
@@ -2268,8 +2255,8 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
 def process_due_outreach_sends() -> dict:
     """
     Called by APScheduler every 60 seconds.
-    Round-robins across active campaigns, picking up a small configurable batch
-    per campaign each cycle. Respects per-mailbox 429 cooldowns.
+    Round-robins across active campaigns, picking up to 2 leads per campaign
+    per cycle (max 6 total). Respects per-mailbox 429 cooldowns.
     Uses the pre-written step templates (no AI generation).
     Returns a summary dict.
     """
@@ -2298,7 +2285,7 @@ def process_due_outreach_sends() -> dict:
         if not active_campaigns:
             return {"processed": 0, "sent": 0, "skipped": 0}
 
-        # Build list of leads round-robin.
+        # Build list of leads round-robin: up to 2 per campaign
         due = []
         cooldown_skipped = []
         for camp in active_campaigns:
@@ -2348,7 +2335,7 @@ def process_due_outreach_sends() -> dict:
                 "campaign_id": cid,
                 "workflow_status": {"$in": ["not_started", "pending_scheduled", "in_sequence"]},
                 "next_send_at": {"$lte": now},
-            }).sort("next_send_at", 1).limit(_SEND_BATCH_PER_CAMPAIGN))
+            }).limit(2))
             due.extend(camp_due)
 
         if cooldown_skipped:
@@ -2406,100 +2393,6 @@ def trigger_process_due():
     """
     result = process_due_outreach_sends()
     return {"ok": True, **result}
-
-
-@router.post("/reset-stuck-leads")
-def reset_stuck_leads():
-    """
-    Reset leads stuck in transient-error states back to not_started so they
-    can be retried by the send processor.
-
-    Resets:
-    - workflow_status="error" where last_send_error contains a transient failure
-      (connection error, open files limit, etc.)
-    - workflow_status="needs_human_intervention" (set by bounce recovery module
-      but not part of the send loop — leads get permanently stuck)
-    """
-    db = get_db()
-    now = datetime.utcnow()
-
-    # Transient error patterns — connection problems, OS resource limits, etc.
-    transient_patterns = [
-        "Too many open files",
-        "connection refused",
-        "Connection refused",
-        "timed out",
-        "ServerSelectionTimeoutError",
-        "NetworkTimeout",
-    ]
-
-    transient_filter = {
-        "workflow_status": "error",
-        "$or": [{"last_send_error": {"$regex": pat}} for pat in transient_patterns],
-    }
-    transient_result = db["outreach_leads_v2"].update_many(
-        transient_filter,
-        {"$set": {
-            "workflow_status": "not_started",
-            "last_send_error": None,
-            "last_send_error_at": None,
-            "updated_at": now,
-        }},
-    )
-
-    # needs_human_intervention is set by bounce recovery but not consumed by the
-    # send loop, so those leads are permanently stuck. Reset them to not_started.
-    human_result = db["outreach_leads_v2"].update_many(
-        {"workflow_status": "needs_human_intervention"},
-        {"$set": {
-            "workflow_status": "not_started",
-            "updated_at": now,
-        }},
-    )
-
-    # Historical "missing template" errors can become retriable after the user
-    # fills those steps in the frontend. Requeue only when the campaign now has
-    # content for that step.
-    template_errors_reset = 0
-    template_error_rows = list(db["outreach_leads_v2"].find(
-        {
-            "workflow_status": "error",
-            "last_send_error": {"$regex": r"^Step \d+ has no template content$"},
-        },
-        {"_id": 1, "campaign_id": 1, "last_send_error": 1},
-    ))
-    for row in template_error_rows:
-        match = _re.search(r"Step (\d+) has no template content", row.get("last_send_error") or "")
-        if not match:
-            continue
-        step_number = int(match.group(1))
-        campaign = db["outreach_campaigns_v2"].find_one(
-            {"campaign_id": row.get("campaign_id")},
-            {"steps": 1},
-        ) or {}
-        step = next(
-            (s for s in (campaign.get("steps") or []) if s.get("step_number") == step_number),
-            None,
-        )
-        if not step or (not step.get("subject") and not step.get("body_html")):
-            continue
-        result = db["outreach_leads_v2"].update_one(
-            {"_id": row["_id"]},
-            {"$set": {
-                "workflow_status": "not_started",
-                "last_send_error": None,
-                "last_send_error_at": None,
-                "updated_at": now,
-            }},
-        )
-        template_errors_reset += result.modified_count
-
-    return {
-        "ok": True,
-        "transient_errors_reset": transient_result.modified_count,
-        "needs_human_intervention_reset": human_result.modified_count,
-        "template_errors_reset": template_errors_reset,
-    }
 
 
 @router.get("/sender-status")
