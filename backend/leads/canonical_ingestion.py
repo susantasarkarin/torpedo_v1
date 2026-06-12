@@ -12,8 +12,8 @@ import re
 import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, Tuple, List
-from pymongo import MongoClient, ASCENDING
-from pymongo.errors import DuplicateKeyError
+from pymongo import MongoClient, ASCENDING, UpdateOne
+from pymongo.errors import DuplicateKeyError, BulkWriteError
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -221,22 +221,11 @@ def deduplicate_and_merge(existing: Dict[str, Any], new_data: Dict[str, Any]) ->
 # SYNC TO LEADS_ENRICHED (For frontend display)
 # =============================================================================
 
-def sync_to_enriched(lead_data: Dict[str, Any], raw_lead_id: str) -> Optional[str]:
-    """
-    Sync a classified lead to leads_enriched collection.
-    This is required because the frontend reads from leads_enriched.
-    Uses email as primary dedup key; falls back to linkedin_url for no-email leads.
-
-    Returns the enriched lead ID if successful, None otherwise.
-    """
-    try:
-        # Determine dedup key: prefer email, fall back to linkedin_url
-        _email = lead_data.get('email')
-        _linkedin = lead_data.get('linkedin_url')
-        if not _email and not _linkedin:
-            logger.warning("sync_to_enriched: lead has neither email nor linkedin_url â€” skipping")
-            return None
-
+def _build_enriched_doc(lead_data: Dict[str, Any], raw_lead_id: str) -> Dict[str, Any]:
+    """Build the leads_enriched upsert document (shared by sync_to_enriched
+    and the bulk ingestion fast path). None values stripped; includes the
+    rule-based ICP basket fields."""
+    if True:  # indentation kept aligned with original body for a clean diff
         # Clean "Unknown" placeholders left by AI classifier
         _last = (lead_data.get('last_name') or '').strip()
         if _last.lower() == 'unknown':
@@ -305,6 +294,27 @@ def sync_to_enriched(lead_data: Dict[str, Any], raw_lead_id: str) -> Optional[st
         # Merge ICP basket classification (rule-based, no AI needed)
         enriched_doc.update(compute_icp_basket(lead_data))
 
+        return enriched_doc
+
+
+def sync_to_enriched(lead_data: Dict[str, Any], raw_lead_id: str) -> Optional[str]:
+    """
+    Sync a classified lead to leads_enriched collection.
+    This is required because the frontend reads from leads_enriched.
+    Uses email as primary dedup key; falls back to linkedin_url for no-email leads.
+
+    Returns the enriched lead ID if successful, None otherwise.
+    """
+    try:
+        # Determine dedup key: prefer email, fall back to linkedin_url
+        _email = lead_data.get('email')
+        _linkedin = lead_data.get('linkedin_url')
+        if not _email and not _linkedin:
+            logger.warning("sync_to_enriched: lead has neither email nor linkedin_url - skipping")
+            return None
+
+        enriched_doc = _build_enriched_doc(lead_data, raw_lead_id)
+
         # Upsert key: email (primary) or linkedin_url (fallback for no-email leads).
         # IMPORTANT: When a lead was originally stored by linkedin_url (no email) and
         # now has an email after enrichment, we must find the existing record first to
@@ -336,7 +346,7 @@ def sync_to_enriched(lead_data: Dict[str, Any], raw_lead_id: str) -> Optional[st
                 return str(existing['_id'])
 
         return None
-        
+
     except Exception as e:
         logger.error(f"Failed to sync to leads_enriched: {e}")
         return None
@@ -738,6 +748,21 @@ def _discover_and_apply_email_pattern(normalized: Dict[str, Any]) -> None:
                 normalized['email_source'] = 'name_domain_guess'
 
 
+_torpedo_db_cached = None
+
+
+def _get_torpedo_db():
+    """Cached torpedo DB handle. The auto-enroll path used to open a brand-new
+    MongoClient (TCP + handshake) for EVERY ingested lead, which crushed
+    large imports."""
+    global _torpedo_db_cached
+    if _torpedo_db_cached is None:
+        _uri = os.getenv('MONGO_URI') or 'mongodb://localhost:27017/'
+        _torpedo_db_cached = MongoClient(
+            _uri, serverSelectionTimeoutMS=5000)[os.getenv('MONGO_DB_NAME', 'torpedo')]
+    return _torpedo_db_cached
+
+
 def _auto_enroll_in_outreach(lead_data: Dict[str, Any], enriched_id: str) -> None:
     """
     Auto-enroll a newly classified lead into the matching active cold-outreach
@@ -749,10 +774,7 @@ def _auto_enroll_in_outreach(lead_data: Dict[str, Any], enriched_id: str) -> Non
         return
 
     try:
-        from pymongo import MongoClient as _MC
-        import os as _os
-        _uri = _os.getenv('MONGO_URI') or _os.getenv('MONGO_URI') or 'mongodb://localhost:27017/'
-        _torpedo_db = _MC(_uri, serverSelectionTimeoutMS=5000)[_os.getenv('MONGO_DB_NAME', 'torpedo')]
+        _torpedo_db = _get_torpedo_db()
         campaigns_col = _torpedo_db['outreach_campaigns_v2']
         outreach_leads = _torpedo_db['outreach_leads_v2']
         suppression = _torpedo_db['outreach_bounce_suppression']
@@ -1319,6 +1341,201 @@ def extract_lead_from_email(email_doc: Dict[str, Any]) -> Optional[Dict[str, Any
         'location': sig_info.get('location', ''),
         'source_email_id': str(email_doc.get('_id', '')),
     }
-    
+
     return payload
+
+
+# =============================================================================
+# BULK INGESTION FAST PATH (large CSV imports)
+# =============================================================================
+
+def ingest_leads_bulk(
+    payloads: List[Dict[str, Any]],
+    source: str,
+    source_detail,  # str applied to all rows, or List[str] aligned with payloads
+    icp_segment: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Set-based ingestion for large imports. Same canonical semantics as
+    ingest_lead for NEW leads, but ~7 round trips per chunk instead of
+    10-14 per lead. Rows matching an existing lead fall back to ingest_lead
+    so merge behaviour stays identical.
+
+    Intentional differences vs the per-row path:
+    - Skrapp email-pattern discovery for email-less leads is deferred to the
+      background enrichment job (they keep enrichment_status='needed')
+    - CSV email patterns are analysed once per unique domain, not per row
+    - The CRM spine mirror runs in bulk (spine_connector.mirror_leads_bulk)
+    """
+    out = {'total': len(payloads), 'inserted': 0, 'updated': 0,
+           'skipped': 0, 'errors': 0, 'results': []}
+
+    # --- Normalize + filter (pure CPU) -----------------------------------
+    pairs = []  # (normalized, original_payload)
+    for row_idx, payload in enumerate(payloads):
+        try:
+            input_company = payload.get('company') or payload.get('company_name')
+            if input_company and is_unknown_company(input_company):
+                out['skipped'] += 1
+                continue
+            detail = (source_detail[row_idx] if isinstance(source_detail, list)
+                      else source_detail)
+            normalized = normalize_payload(payload, source, detail,
+                                           icp_segment=icp_segment)
+            if source == 'websearch' and normalized.get('email'):
+                _strip_guessed_email_if_unverified(normalized)
+            pairs.append((normalized, payload, detail))
+        except ValueError as e:
+            out['errors'] += 1
+            out['results'].append({'success': False, 'action': None,
+                                   'lead_id': None, 'error': str(e)})
+        except Exception as e:
+            out['errors'] += 1
+            logger.warning(f"bulk normalize failed: {e}")
+
+    # --- In-batch dedupe (email primary, linkedin fallback) --------------
+    seen_keys = set()
+    unique_pairs = []
+    for normalized, payload, detail in pairs:
+        key = normalized.get('email') or normalized.get('linkedin_url')
+        if key in seen_keys:
+            out['skipped'] += 1
+            continue
+        seen_keys.add(key)
+        unique_pairs.append((normalized, payload, detail))
+
+    # --- Prefetch existing leads (two $in queries) ------------------------
+    emails = [n['email'] for n, _, _ in unique_pairs if n.get('email')]
+    linkedins = [n['linkedin_url'] for n, _, _ in unique_pairs
+                 if not n.get('email') and n.get('linkedin_url')]
+    existing_emails = ({d['email'] for d in leads_raw.find(
+        {'email': {'$in': emails}}, {'email': 1})} if emails else set())
+    existing_linkedins = ({d['linkedin_url'] for d in leads_raw.find(
+        {'linkedin_url': {'$in': linkedins}}, {'linkedin_url': 1})}
+        if linkedins else set())
+
+    new_pairs, existing_pairs = [], []
+    for normalized, payload, detail in unique_pairs:
+        is_existing = ((normalized.get('email') and normalized['email'] in existing_emails) or
+                       (not normalized.get('email') and
+                        normalized.get('linkedin_url') in existing_linkedins))
+        (existing_pairs if is_existing else new_pairs).append((normalized, payload, detail))
+
+    # --- Existing leads: classic per-row merge path (identical semantics) -
+    for _, payload, detail in existing_pairs:
+        r = ingest_lead(payload, source, detail, icp_segment=icp_segment)
+        if r.get('success') and r.get('action') == 'updated':
+            out['updated'] += 1
+        elif r.get('success'):
+            out['skipped'] += 1
+        else:
+            out['errors'] += 1
+
+    if not new_pairs:
+        return out
+
+    # --- CSV email patterns: once per unique business domain --------------
+    if source == 'csv':
+        seen_domains = set()
+        for normalized, _, _ in new_pairs:
+            email = normalized.get('email') or ''
+            domain = email.split('@')[1] if '@' in email else None
+            if domain and domain not in seen_domains:
+                seen_domains.add(domain)
+                _store_csv_email_pattern(normalized)
+
+    # --- Finalize docs + one insert_many ----------------------------------
+    docs = []
+    for normalized, _, _ in new_pairs:
+        normalized['enrichment_status'] = ('needed' if needs_enrichment(normalized)
+                                           else 'skipped')
+        normalized['lead_bracket'] = determine_lead_bracket(normalized)
+        docs.append(normalized)
+
+    ok_docs = []
+    try:
+        result = leads_raw.insert_many(docs, ordered=False)
+        ok_docs = docs
+    except BulkWriteError as e:
+        failed_idx = {we['index'] for we in (e.details or {}).get('writeErrors', [])}
+        ok_docs = [d for i, d in enumerate(docs) if i not in failed_idx]
+        out['skipped'] += len(failed_idx)  # duplicate-key races
+
+    # --- leads_enriched: one bulk_write of upserts -------------------------
+    enriched_filters = []
+    enriched_ops = []
+    enriched_docs = []
+    for d in ok_docs:
+        e_doc = _build_enriched_doc(d, str(d['_id']))
+        flt = ({'email': d['email']} if d.get('email')
+               else {'linkedin_url': d['linkedin_url']})
+        enriched_filters.append(flt)
+        enriched_docs.append(e_doc)
+        enriched_ops.append(UpdateOne(
+            flt,
+            {'$set': e_doc, '$setOnInsert': {'created_at': datetime.utcnow()}},
+            upsert=True))
+
+    enriched_ids = {}
+    if enriched_ops:
+        try:
+            bres = leads_enriched.bulk_write(enriched_ops, ordered=False)
+            for idx, eid in (bres.upserted_ids or {}).items():
+                enriched_ids[int(idx)] = eid
+        except BulkWriteError as e:
+            logger.warning(f"bulk enriched sync partial failure: {e.details}")
+        # rows that matched an existing enriched doc instead of upserting
+        for i in range(len(ok_docs)):
+            if i not in enriched_ids:
+                found = leads_enriched.find_one(enriched_filters[i], {'_id': 1})
+                if found:
+                    enriched_ids[i] = found['_id']
+
+    # --- Backfill enriched_lead_id on leads_raw: one bulk_write ------------
+    backfill = [UpdateOne({'_id': ok_docs[i]['_id']},
+                          {'$set': {'enriched_lead_id': str(eid)}})
+                for i, eid in enriched_ids.items()]
+    if backfill:
+        try:
+            leads_raw.bulk_write(backfill, ordered=False)
+        except BulkWriteError as e:
+            logger.warning(f"bulk backfill partial failure: {e.details}")
+
+    # --- Auto-enroll qualifying leads (subset; client now cached) ----------
+    for i, d in enumerate(ok_docs):
+        if i in enriched_ids:
+            try:
+                _auto_enroll_in_outreach({**d, **enriched_docs[i]},
+                                         str(enriched_ids[i]))
+            except Exception as enroll_err:
+                logger.debug(f"bulk auto-enroll skipped: {enroll_err}")
+
+    # --- Ingestion log: one insert_many ------------------------------------
+    try:
+        log_docs = [{
+            'email': d.get('email') or d.get('linkedin_url') or 'unknown',
+            'source': source,
+            'action': 'inserted',
+            'lead_id': str(d['_id']),
+            'error': None,
+            'timestamp': datetime.utcnow(),
+        } for d in ok_docs]
+        if log_docs:
+            ingestion_log.insert_many(log_docs, ordered=False)
+    except Exception as log_err:
+        logger.warning(f"bulk ingestion log failed: {log_err}")
+
+    # --- CRM spine mirror: bulk (best-effort) -------------------------------
+    try:
+        try:
+            from app.services.spine_connector import mirror_leads_bulk
+        except ImportError:
+            from backend.app.services.spine_connector import mirror_leads_bulk
+        mirror_leads_bulk([(d, str(d['_id'])) for d in ok_docs], source)
+    except Exception as spine_err:
+        logger.debug(f"bulk spine mirror skipped: {spine_err}")
+
+    out['inserted'] = len(ok_docs)
+    return out
+
 

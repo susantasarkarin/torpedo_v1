@@ -120,37 +120,59 @@ def import_leads(leads: List[LeadInput], skip_dedup_check: bool = False, auto_cl
     duplicates = 0
     errors = 0
     lead_ids = []
-    
+
+    def _payload_source_detail(lead_input):
+        payload = {
+            'email': lead_input.email,
+            'name': lead_input.name,
+            'first_name': lead_input.first_name,
+            'last_name': lead_input.last_name,
+            'title': lead_input.title,
+            'linkedin_url': lead_input.linkedin_url,
+            'location': lead_input.location,
+            'company': lead_input.company_name,
+            'company_domain': lead_input.company_domain,
+            'phone': getattr(lead_input, 'phone', None),
+        }
+        source = 'websearch'  # Default for web search leads
+        if hasattr(lead_input, 'source') and lead_input.source:
+            if 'csv' in str(lead_input.source).lower():
+                source = 'csv'
+            elif 'gmail' in str(lead_input.source).lower():
+                source = 'gmail'
+            elif lead_input.source in ('google_search', 'websearch', 'openai_search'):
+                source = 'websearch'
+        # Use the actual Google snippet as source_detail so it gets stored on the lead
+        # (source_detail is mapped to the 'snippet' field in canonical ingestion)
+        source_detail = lead_input.snippet or lead_input.source or 'google_search'
+        return payload, source, source_detail
+
+    # Large batches with a single source: set-based bulk path (~7 round trips
+    # per chunk vs 10-14 per lead). Mixed-source batches fall through to the
+    # per-lead loop below.
+    if len(leads) >= 20:
+        from .canonical_ingestion import ingest_leads_bulk
+        triples = [_payload_source_detail(li) for li in leads]
+        sources = {s for _, s, _ in triples}
+        if len(sources) == 1:
+            bulk_source = sources.pop()
+            bulk = ingest_leads_bulk(
+                [p for p, _, _ in triples],
+                source=bulk_source,
+                source_detail=[d for _, _, d in triples],  # per-row snippets preserved
+                icp_segment=icp_segment,
+            )
+            return LeadImportResponse(
+                imported=bulk['inserted'] + bulk['updated'],
+                duplicates=bulk['skipped'],
+                errors=bulk['errors'],
+                lead_ids=[],
+            )
+
     for lead_input in leads:
         try:
-            # Build canonical payload
-            payload = {
-                'email': lead_input.email,
-                'name': lead_input.name,
-                'first_name': lead_input.first_name,
-                'last_name': lead_input.last_name,
-                'title': lead_input.title,
-                'linkedin_url': lead_input.linkedin_url,
-                'location': lead_input.location,
-                'company': lead_input.company_name,
-                'company_domain': lead_input.company_domain,
-                'phone': getattr(lead_input, 'phone', None),
-            }
-            
-            # Determine source
-            source = 'websearch'  # Default for web search leads
-            if hasattr(lead_input, 'source') and lead_input.source:
-                if 'csv' in str(lead_input.source).lower():
-                    source = 'csv'
-                elif 'gmail' in str(lead_input.source).lower():
-                    source = 'gmail'
-                elif lead_input.source in ('google_search', 'websearch', 'openai_search'):
-                    source = 'websearch'
+            payload, source, source_detail = _payload_source_detail(lead_input)
 
-            # Use the actual Google snippet as source_detail so it gets stored on the lead
-            # (source_detail is mapped to the 'snippet' field in canonical ingestion)
-            source_detail = lead_input.snippet or lead_input.source or 'google_search'
-            
             # Use CANONICAL ingestion
             result = ingest_lead(
                 payload=payload,

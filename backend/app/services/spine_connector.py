@@ -17,7 +17,7 @@ Design rules (same as routers/rfq.mirror_rfq_to_spine):
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,83 @@ def mirror_lead_to_spine(lead: Dict[str, Any], source: str,
     except Exception as e:
         logger.warning(f"[spine] lead mirror failed (non-fatal): {e}")
         return None
+
+
+def mirror_leads_bulk(items: List[Tuple[Dict[str, Any], Optional[str]]],
+                      source: str) -> int:
+    """
+    Bulk variant of mirror_lead_to_spine for large imports: one
+    get_or_create per UNIQUE company/email plus two insert_many calls,
+    instead of ~5 round trips per lead. items = [(lead_dict, source_id)].
+    Best-effort/non-fatal like every other mirror. Returns count mirrored.
+    """
+    try:
+        if not items:
+            return 0
+        crm = _crm()
+        now = datetime.utcnow()
+        account_cache: Dict[str, str] = {}
+        contact_cache: Dict[str, str] = {}
+        lead_docs = []
+
+        for lead, source_id in items:
+            email = (lead.get("email") or "").strip().lower()
+            company = (lead.get("company_name") or lead.get("companyName")
+                       or lead.get("company") or "").strip()
+            name = (lead.get("name") or lead.get("full_name")
+                    or f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip())
+
+            account_id = None
+            if company:
+                ckey = company.lower()
+                if ckey not in account_cache:
+                    account, _ = crm.get_or_create_account(
+                        company, defaults={"metadata": {"source": source}})
+                    account_cache[ckey] = account["_id"]
+                account_id = account_cache[ckey]
+
+            contact_id = None
+            if email:
+                if email not in contact_cache:
+                    contact, _ = crm.get_or_create_contact(
+                        email, defaults={"name": name, "account_id": account_id,
+                                         "metadata": {"source": source}})
+                    contact_cache[email] = contact["_id"]
+                contact_id = contact_cache[email]
+
+            doc = {k: v for k, v in {
+                "name": name or email or company,
+                "email": email or None,
+                "title": lead.get("title") or lead.get("job_title"),
+                "account_id": account_id,
+                "contact_id": contact_id,
+                "status": "new",
+                "metadata": {"source": source, "source_id": source_id,
+                             "industry": lead.get("company_industry") or lead.get("industry")},
+                "created_at": now,
+                "updated_at": now,
+            }.items() if v is not None}
+            lead_docs.append(doc)
+
+        result = crm._col("leads").insert_many(lead_docs, ordered=False)
+        activities = [{
+            "type": "lead_ingested",
+            "object_type": "lead",
+            "object_id": str(lead_id),
+            "lead_id": str(lead_id),
+            "account_id": doc.get("account_id"),
+            "contact_id": doc.get("contact_id"),
+            "summary": f"Lead ingested from {source}",
+            "at": now.isoformat(),
+            "created_at": now,
+            "updated_at": now,
+        } for lead_id, doc in zip(result.inserted_ids, lead_docs)]
+        if activities:
+            crm._col("activities").insert_many(activities, ordered=False)
+        return len(result.inserted_ids)
+    except Exception as e:
+        logger.warning(f"[spine] bulk lead mirror failed (non-fatal): {e}")
+        return 0
 
 
 def mirror_sales_account_to_spine(name: str, source_id: Optional[str] = None,
