@@ -1989,13 +1989,28 @@ async def _handle_project_survey_callback(
         return RedirectResponse(url=fallback_url)
 
 
+def _extract_rid(request: Request, rid: Optional[str]) -> Optional[str]:
+    """
+    Tolerant rid extraction. Survey tools are configured by hand and send the
+    record ID under varying parameter names/casings (seen in the wild:
+    rId from Cheetah/Hansa). Falls back to a case-insensitive scan for
+    rid/id/sfwid before giving up.
+    """
+    if rid:
+        return rid
+    for key, value in request.query_params.items():
+        if key.lower() in ("rid", "id", "sfwid") and value:
+            return value
+    return None
+
+
 @router.get("/surveycomplete")
 async def survey_complete_callback(
     request: Request,
     rid: str = Query(None, description="Traffic record ID (SFWID)"),
 ):
     """Callback when respondent completes an adhoc project survey."""
-    return await _handle_project_survey_callback(request, rid, "complete")
+    return await _handle_project_survey_callback(request, _extract_rid(request, rid), "complete")
 
 
 @router.get("/surveyterminate")
@@ -2004,7 +2019,7 @@ async def survey_terminate_callback(
     rid: str = Query(None, description="Traffic record ID (SFWID)"),
 ):
     """Callback when respondent is terminated from an adhoc project survey."""
-    return await _handle_project_survey_callback(request, rid, "terminate")
+    return await _handle_project_survey_callback(request, _extract_rid(request, rid), "terminate")
 
 
 @router.get("/surveyquotafull")
@@ -2013,7 +2028,7 @@ async def survey_quotafull_callback(
     rid: str = Query(None, description="Traffic record ID (SFWID)"),
 ):
     """Callback when adhoc project survey quota is full."""
-    return await _handle_project_survey_callback(request, rid, "quotafull")
+    return await _handle_project_survey_callback(request, _extract_rid(request, rid), "quotafull")
 
 
 @router.get("/cpx-response")
