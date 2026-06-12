@@ -71,8 +71,18 @@ def ensure_indexes():
     
     # classification_logs indexes
     classification_logs_collection.create_index("raw_lead_id")
-    classification_logs_collection.create_index("created_at")
     classification_logs_collection.create_index("success")
+    # 30-day TTL: this collection once ballooned to 81M failed-attempt docs
+    # (~16GB on disk) and crippled the whole server. Logs auto-expire now.
+    try:
+        classification_logs_collection.create_index(
+            "created_at", expireAfterSeconds=30 * 24 * 3600)
+    except Exception:
+        # plain created_at index exists from before TTL — convert it in place
+        classification_logs_collection.database.command(
+            "collMod", "lead_ai_classification_logs",
+            index={"keyPattern": {"created_at": 1},
+                   "expireAfterSeconds": 30 * 24 * 3600})
 
 # Run on module load
 try:
@@ -266,9 +276,13 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
     )
     result, log = classify_lead(lead, pipeline=pipeline)
     
-    # Store classification log
+    # Store classification log (prompt truncated — full prompts ballooned
+    # this collection to 16GB on disk before the TTL was added)
     log.raw_lead_id = raw_lead_id
-    classification_logs_collection.insert_one(log.model_dump())
+    log_doc = log.model_dump()
+    if isinstance(log_doc.get("prompt_used"), str):
+        log_doc["prompt_used"] = log_doc["prompt_used"][:500]
+    classification_logs_collection.insert_one(log_doc)
     
     if result:
         # Create enriched lead with all fields
