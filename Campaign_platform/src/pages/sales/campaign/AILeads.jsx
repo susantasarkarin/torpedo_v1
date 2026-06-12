@@ -291,7 +291,7 @@ function AILeads() {
       // For "mailpool ID's" tab, fetch all gmail/mailpool leads (no stage restriction)
 
       params.append("page", currentPage);
-      params.append("limit", 50);
+      params.append("limit", 100);
 
       const res = await fetch(buildApiUrl(`/leads?${params.toString()}`), {
         headers: { Authorization: sessionId },

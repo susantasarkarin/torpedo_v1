@@ -85,9 +85,11 @@ def serialize_doc(doc):
 @router.get("/accounts")
 async def get_all_sales_accounts(
     status: Optional[str] = Query(None, description="Filter by status"),
-    search: Optional[str] = Query(None, description="Search by name/company")
+    search: Optional[str] = Query(None, description="Search by name/company"),
+    limit: int = Query(0, ge=0, le=1000, description="Chunk size (0 = all, for legacy callers)"),
+    skip: int = Query(0, ge=0, description="Records to skip (chunked loading)"),
 ):
-    """Get all sales accounts"""
+    """Get sales accounts. Pass limit/skip to load in chunks."""
     try:
         query = {}
         if status:
@@ -98,9 +100,13 @@ async def get_all_sales_accounts(
                 {"company_name": {"$regex": search, "$options": "i"}},
                 {"email": {"$regex": search, "$options": "i"}}
             ]
-        
-        accounts = list(accounts_collection.find(query).sort("created_at", -1))
-        return [serialize_doc(acc) for acc in accounts]
+
+        cursor = accounts_collection.find(query).sort("created_at", -1)
+        if skip:
+            cursor = cursor.skip(skip)
+        if limit:
+            cursor = cursor.limit(limit)
+        return [serialize_doc(acc) for acc in cursor]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

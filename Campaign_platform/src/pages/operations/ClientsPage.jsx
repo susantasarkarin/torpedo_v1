@@ -120,22 +120,32 @@ function ClientsPage() {
     fetchSalesAccounts();
   }, []);
 
-  // Fetch sales accounts for linking dropdown
+  // Fetch sales accounts for linking dropdown — chunked: pull 100, show,
+  // keep pulling the next chunk so a large account list never blocks the page
   const fetchSalesAccounts = async () => {
+    const CHUNK = 100;
     try {
-      const res = await fetch(buildApiUrl(`/sales/accounts`));
-      if (res.ok) {
-        const data = await res.json();
-        setSalesAccounts(data || []);
-        
-        // Build a map of client links from sales accounts
+      let skip = 0;
+      let all = [];
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const res = await fetch(buildApiUrl(`/sales/accounts?limit=${CHUNK}&skip=${skip}`));
+        if (!res.ok) break;
+        const chunk = await res.json();
+        all = all.concat(chunk || []);
+
+        // Show what we have so far after every chunk
+        setSalesAccounts([...all]);
         const links = {};
-        (data || []).forEach(acc => {
+        all.forEach(acc => {
           if (acc.linked_operations_client_id) {
             links[acc.linked_operations_client_id] = acc._id;
           }
         });
         setClientAccountLinks(links);
+
+        if (!chunk || chunk.length < CHUNK) break; // short page = done
+        skip += CHUNK;
       }
     } catch (e) {
       console.error("Failed to fetch sales accounts:", e);

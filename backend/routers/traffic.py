@@ -1512,6 +1512,23 @@ def is_webview_user_agent(user_agent: str) -> tuple:
     return False, None
 
 
+async def _log_callback_error(request: Request, source: str, error: str) -> None:
+    """Record a survey callback we couldn't attribute (bad/missing IDs) so the
+    raw query string is inspectable later — these were previously print-only."""
+    try:
+        db = get_async_url_parameters_collection().database
+        await db["survey_callback_errors"].insert_one({
+            "source": source,
+            "error": error,
+            "url": str(request.url),
+            "query": dict(request.query_params),
+            "user_agent": request.headers.get("user-agent", ""),
+            "at": datetime.utcnow(),
+        })
+    except Exception as log_err:
+        print(f"⚠️ Could not log callback error: {log_err}")
+
+
 @router.get("/cint-response")
 async def cint_callback(
     request: Request,
@@ -1560,6 +1577,7 @@ async def cint_callback(
         # Primary lookup key is PID (traffic record ID)
         lookup_id = pid or mid
         if not lookup_id:
+            await _log_callback_error(request, "cint-response", "missing_id")
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=missing_id")
         
         # Find traffic record asynchronously
@@ -1854,6 +1872,7 @@ async def _handle_project_survey_callback(
 
         if not rid:
             print("âš ï¸ Project callback: missing rid")
+            await _log_callback_error(request, f"project-{outcome}", "missing_id")
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=missing_id")
 
         # 1. Find traffic record
@@ -1866,6 +1885,7 @@ async def _handle_project_survey_callback(
 
         if not traffic_record:
             print(f"âš ï¸ Project callback: traffic record not found for rid={rid}")
+            await _log_callback_error(request, f"project-{outcome}", "not_found")
             return RedirectResponse(url=f"{FRONTEND_URL}/survey-error?error=not_found")
 
         # 2. Update traffic record status

@@ -92,49 +92,70 @@ def serialize_docs(docs: list) -> list:
     return [serialize_doc(doc) for doc in docs]
 
 
-def generate_invoice_number() -> str:
-    """Generate unique invoice number"""
-    count = invoices_collection.estimated_document_count() + 1
+def generate_invoice_number(offset: int = 0) -> str:
+    """Generate unique invoice number (offset for batched imports)"""
+    count = invoices_collection.estimated_document_count() + 1 + offset
     return f"INV-{datetime.utcnow().strftime('%Y%m')}-{str(count).zfill(4)}"
 
 
-def generate_estimate_number() -> str:
-    """Generate unique estimate number"""
-    count = estimates_collection.estimated_document_count() + 1
+def generate_estimate_number(offset: int = 0) -> str:
+    """Generate unique estimate number (offset for batched imports)"""
+    count = estimates_collection.estimated_document_count() + 1 + offset
     return f"EST-{datetime.utcnow().strftime('%Y%m')}-{str(count).zfill(4)}"
 
 
-def generate_bill_number() -> str:
-    """Generate unique bill number"""
-    count = bills_collection.estimated_document_count() + 1
+def generate_bill_number(offset: int = 0) -> str:
+    """Generate unique bill number (offset for batched imports)"""
+    count = bills_collection.estimated_document_count() + 1 + offset
     return f"BILL-{datetime.utcnow().strftime('%Y%m')}-{str(count).zfill(4)}"
 
 
-def generate_po_number() -> str:
-    """Generate unique purchase order number"""
-    count = purchase_orders_collection.estimated_document_count() + 1
+def generate_po_number(offset: int = 0) -> str:
+    """Generate unique purchase order number (offset for batched imports)"""
+    count = purchase_orders_collection.estimated_document_count() + 1 + offset
     return f"PO-{datetime.utcnow().strftime('%Y%m')}-{str(count).zfill(4)}"
 
 
-def generate_expense_number() -> str:
-    """Generate unique expense number"""
-    count = expenses_collection.estimated_document_count() + 1
+def generate_expense_number(offset: int = 0) -> str:
+    """Generate unique expense number (offset for batched imports)"""
+    count = expenses_collection.estimated_document_count() + 1 + offset
     return f"EXP-{datetime.utcnow().strftime('%Y%m')}-{str(count).zfill(4)}"
 
 
-def generate_payment_number(prefix: str = "PMT") -> str:
-    """Generate unique payment number"""
-    count = payments_received_collection.estimated_document_count() + payments_made_collection.estimated_document_count() + 1
+def generate_payment_number(prefix: str = "PMT", offset: int = 0) -> str:
+    """Generate unique payment number (offset for batched imports)"""
+    count = payments_received_collection.estimated_document_count() + payments_made_collection.estimated_document_count() + 1 + offset
     return f"{prefix}-{datetime.utcnow().strftime('%Y%m')}-{str(count).zfill(4)}"
 
 
-def generate_sku() -> str:
-    """Generate unique SKU for items"""
-    count = items_collection.estimated_document_count() + 1
+def generate_sku(offset: int = 0) -> str:
+    """Generate unique SKU for items (offset for batched imports)"""
+    count = items_collection.estimated_document_count() + 1 + offset
     return f"SKU-{str(count).zfill(5)}"
 
 
-def generate_customer_number() -> str:
+# ============== CSV IMPORT BATCH HELPERS ==============
+# Per-row find_one + insert_one made large CSV imports take minutes and time
+# out at the proxy (HTTP 524). Imports now prefetch existing keys with one
+# $in query and flush rows with one insert_many.
+
+def _existing_values(collection, field: str, values) -> set:
+    """One query returning the subset of `values` already present in `field`."""
+    vals = [v for v in set(values) if v]
+    if not vals:
+        return set()
+    return {doc.get(field) for doc in collection.find({field: {"$in": vals}}, {field: 1})}
+
+
+def _flush_import(collection, docs: list) -> int:
+    """Insert collected import docs in one unordered insert_many."""
+    if not docs:
+        return 0
+    result = collection.insert_many(docs, ordered=False)
+    return len(result.inserted_ids)
+
+
+def generate_customer_number(offset: int = 0) -> str:
     """Generate unique customer number based on highest existing number"""
     # Find the highest existing customer number
     last_customer = customers_collection.find_one(
@@ -145,15 +166,15 @@ def generate_customer_number() -> str:
         # Extract the number part and increment
         try:
             last_num = int(last_customer["customer_number"].replace("CUST-", ""))
-            return f"CUST-{str(last_num + 1).zfill(5)}"
+            return f"CUST-{str(last_num + 1 + offset).zfill(5)}"
         except ValueError:
             pass
     # Fallback: count + 1
-    count = customers_collection.count_documents({}) + 1
+    count = customers_collection.count_documents({}) + 1 + offset
     return f"CUST-{str(count).zfill(5)}"
 
 
-def generate_vendor_number() -> str:
+def generate_vendor_number(offset: int = 0) -> str:
     """Generate unique vendor number based on highest existing number"""
     # Find the highest existing vendor number
     last_vendor = vendors_collection.find_one(
@@ -164,11 +185,11 @@ def generate_vendor_number() -> str:
         # Extract the number part and increment
         try:
             last_num = int(last_vendor["vendor_number"].replace("VEND-", ""))
-            return f"VEND-{str(last_num + 1).zfill(5)}"
+            return f"VEND-{str(last_num + 1 + offset).zfill(5)}"
         except ValueError:
             pass
     # Fallback: count + 1
-    count = vendors_collection.count_documents({}) + 1
+    count = vendors_collection.count_documents({}) + 1 + offset
     return f"VEND-{str(count).zfill(5)}"
 
 
@@ -675,29 +696,31 @@ async def import_customers_csv(file: UploadFile = File(...)):
         else:
             decoded = contents.decode('utf-8', errors='replace')
         reader = csv.DictReader(io.StringIO(decoded))
-        
+        rows = [map_csv_columns(r, CUSTOMER_COLUMN_MAPPINGS) for r in reader]
+
         imported_count = 0
         errors = []
-        
-        for idx, row in enumerate(reader, start=2):
+        docs_to_insert = []
+        seen_names = _existing_values(
+            customers_collection, "name",
+            [m.get("name", "").strip() for m in rows])
+
+        for idx, mapped in enumerate(rows, start=2):
             try:
-                # Map columns using flexible mapping
-                mapped = map_csv_columns(row, CUSTOMER_COLUMN_MAPPINGS)
-                
                 name = mapped.get("name", "").strip()
                 if not name:
                     errors.append(f"Row {idx}: Customer name is required")
                     continue
-                
-                # Check if customer already exists
-                existing = customers_collection.find_one({"name": name})
-                if existing:
+
+                # Check if customer already exists (prefetched + in-file dupes)
+                if name in seen_names:
                     errors.append(f"Row {idx}: Customer '{name}' already exists")
                     continue
-                
+                seen_names.add(name)
+
                 customer_data = {
                     "name": name,
-                    "customer_number": generate_customer_number(),
+                    "customer_number": generate_customer_number(offset=len(docs_to_insert)),
                     "customer_type": mapped.get("customer_type") or "business",
                     "company_name": mapped.get("company_name", ""),
                     "email": mapped.get("email", ""),
@@ -724,12 +747,13 @@ async def import_customers_csv(file: UploadFile = File(...)):
                     "updated_at": datetime.now(),
                 }
                 
-                customers_collection.insert_one(customer_data)
-                imported_count += 1
-                
+                docs_to_insert.append(customer_data)
+
             except Exception as row_error:
                 errors.append(f"Row {idx}: {str(row_error)}")
-        
+
+        imported_count = _flush_import(customers_collection, docs_to_insert)
+
         return {
             "message": f"Imported {imported_count} customers",
             "imported": imported_count,
@@ -1170,24 +1194,27 @@ async def import_vendors_csv(file: UploadFile = File(...)):
         imported_count = 0
         errors = []
         
-        for idx, row in enumerate(reader, start=2):
+        rows = [map_csv_columns(r, VENDOR_COLUMN_MAPPINGS) for r in reader]
+        docs_to_insert = []
+        seen_names = _existing_values(
+            vendors_collection, "name",
+            [m.get("name", "").strip() for m in rows])
+
+        for idx, mapped in enumerate(rows, start=2):
             try:
-                # Map columns using flexible mapping
-                mapped = map_csv_columns(row, VENDOR_COLUMN_MAPPINGS)
-                
                 name = mapped.get("name", "").strip()
                 if not name:
                     errors.append(f"Row {idx}: Vendor name is required")
                     continue
-                
-                existing = vendors_collection.find_one({"name": name})
-                if existing:
+
+                if name in seen_names:
                     errors.append(f"Row {idx}: Vendor '{name}' already exists")
                     continue
-                
+                seen_names.add(name)
+
                 vendor_data = {
                     "name": name,
-                    "vendor_number": generate_vendor_number(),
+                    "vendor_number": generate_vendor_number(offset=len(docs_to_insert)),
                     "vendor_type": mapped.get("vendor_type") or "supplier",
                     "company_name": mapped.get("company_name", ""),
                     "email": mapped.get("email", ""),
@@ -1216,12 +1243,13 @@ async def import_vendors_csv(file: UploadFile = File(...)):
                     "updated_at": datetime.now(),
                 }
                 
-                vendors_collection.insert_one(vendor_data)
-                imported_count += 1
-                
+                docs_to_insert.append(vendor_data)
+
             except Exception as row_error:
                 errors.append(f"Row {idx}: {str(row_error)}")
-        
+
+        imported_count = _flush_import(vendors_collection, docs_to_insert)
+
         return {
             "message": f"Imported {imported_count} vendors",
             "imported": imported_count,
@@ -1465,33 +1493,33 @@ async def import_items_csv(file: UploadFile = File(...)):
         
         imported_count = 0
         errors = []
-        
-        for idx, row in enumerate(reader, start=2):
+        rows = [map_csv_columns(r, ITEM_COLUMN_MAPPINGS) for r in reader]
+        docs_to_insert = []
+        seen_names = _existing_values(
+            items_collection, "name", [m.get("name", "").strip() for m in rows])
+        seen_skus = _existing_values(
+            items_collection, "sku", [m.get("sku", "").strip() for m in rows])
+
+        for idx, mapped in enumerate(rows, start=2):
             try:
-                # Map columns using flexible mapping
-                mapped = map_csv_columns(row, ITEM_COLUMN_MAPPINGS)
-                
                 name = mapped.get("name", "").strip()
                 sku = mapped.get("sku", "").strip()
-                
+
                 if not name:
                     errors.append(f"Row {idx}: Item name is required")
                     continue
-                
-                # Check if item already exists by SKU or name
-                existing = items_collection.find_one({
-                    "$or": [
-                        {"sku": sku} if sku else {"sku": ""},
-                        {"name": name}
-                    ]
-                })
-                if existing:
+
+                # Check if item already exists by SKU or name (prefetched)
+                if name in seen_names or (sku and sku in seen_skus):
                     errors.append(f"Row {idx}: Item '{name}' or SKU '{sku}' already exists")
                     continue
-                
+                seen_names.add(name)
+                if sku:
+                    seen_skus.add(sku)
+
                 item_data = {
                     "name": name,
-                    "sku": sku or generate_sku(),
+                    "sku": sku or generate_sku(offset=len(docs_to_insert)),
                     "description": mapped.get("description", ""),
                     "type": mapped.get("type") or "goods",
                     "unit": mapped.get("unit") or "nos",
@@ -1507,11 +1535,12 @@ async def import_items_csv(file: UploadFile = File(...)):
                     "updated_at": datetime.now(),
                 }
                 
-                items_collection.insert_one(item_data)
-                imported_count += 1
+                docs_to_insert.append(item_data)
             except Exception as e:
                 errors.append(f"Row {idx}: {str(e)}")
-        
+
+        imported_count = _flush_import(items_collection, docs_to_insert)
+
         return {"imported": imported_count, "errors": errors}
     except HTTPException:
         raise
@@ -1782,29 +1811,37 @@ async def import_estimates_csv(file: UploadFile = File(...)):
         
         imported_count = 0
         errors = []
-        
-        for idx, row in enumerate(reader, start=2):  # Start at 2 for Excel row reference (header is row 1)
+        rows = [map_csv_columns(r, ESTIMATE_COLUMN_MAPPINGS) for r in reader]
+        docs_to_insert = []
+
+        # Prefetch customer name -> id and existing estimate numbers (one query each)
+        customer_names = [m.get("customer_name", "").strip() for m in rows]
+        customer_ids = {
+            c["name"]: str(c["_id"])
+            for c in customers_collection.find(
+                {"name": {"$in": [n for n in set(customer_names) if n]}}, {"name": 1})
+        }
+        seen_numbers = _existing_values(
+            estimates_collection, "estimate_number",
+            [m.get("estimate_number", "") for m in rows])
+
+        for idx, mapped in enumerate(rows, start=2):  # Start at 2 for Excel row reference (header is row 1)
             try:
-                # Map columns using flexible mapping
-                mapped = map_csv_columns(row, ESTIMATE_COLUMN_MAPPINGS)
-                
-                # Find customer by name
                 customer_name = mapped.get("customer_name", "").strip()
-                customer = customers_collection.find_one({"name": customer_name})
-                customer_id = str(customer["_id"]) if customer else None
-                
+                customer_id = customer_ids.get(customer_name)
+
                 if not customer_id:
                     errors.append(f"Row {idx}: Customer '{customer_name}' not found")
                     continue
-                
-                # Check if estimate number already exists
+
+                # Check if estimate number already exists (prefetched + in-file dupes)
                 estimate_number = mapped.get("estimate_number", "")
                 if estimate_number:
-                    existing = estimates_collection.find_one({"estimate_number": estimate_number})
-                    if existing:
+                    if estimate_number in seen_numbers:
                         errors.append(f"Row {idx}: Estimate '{estimate_number}' already exists")
                         continue
-                
+                    seen_numbers.add(estimate_number)
+
                 # Parse dates - support multiple date formats
                 estimate_date = None
                 expiry_date = None
@@ -1831,7 +1868,7 @@ async def import_estimates_csv(file: UploadFile = File(...)):
                 
                 # Create estimate data
                 estimate_data = {
-                    "estimate_number": estimate_number or generate_estimate_number(),
+                    "estimate_number": estimate_number or generate_estimate_number(offset=len(docs_to_insert)),
                     "customer_id": customer_id,
                     "estimate_date": estimate_date or datetime.now(),
                     "expiry_date": expiry_date,
@@ -1848,12 +1885,13 @@ async def import_estimates_csv(file: UploadFile = File(...)):
                     "updated_at": datetime.now(),
                 }
                 
-                estimates_collection.insert_one(estimate_data)
-                imported_count += 1
-                
+                docs_to_insert.append(estimate_data)
+
             except Exception as row_error:
                 errors.append(f"Row {idx}: {str(row_error)}")
-        
+
+        imported_count = _flush_import(estimates_collection, docs_to_insert)
+
         return {
             "message": f"Successfully imported {imported_count} estimates",
             "imported": imported_count,
@@ -2171,27 +2209,37 @@ async def import_invoices_csv(file: UploadFile = File(...)):
         imported_count = 0
         errors = []
         
-        for idx, row in enumerate(reader, start=2):  # Start at 2 for Excel row reference (header is row 1)
+        rows = [map_csv_columns(r, INVOICE_COLUMN_MAPPINGS) for r in reader]
+        docs_to_insert = []
+
+        # Prefetch customer name -> id and existing invoice numbers (one query each)
+        customer_names = [m.get("customer_name", "").strip() for m in rows]
+        customer_ids = {
+            c["name"]: str(c["_id"])
+            for c in customers_collection.find(
+                {"name": {"$in": [n for n in set(customer_names) if n]}}, {"name": 1})
+        }
+        seen_numbers = _existing_values(
+            invoices_collection, "invoice_number",
+            [m.get("invoice_number", "") for m in rows])
+
+        for idx, mapped in enumerate(rows, start=2):  # Start at 2 for Excel row reference (header is row 1)
             try:
-                # Map columns using flexible mapping
-                mapped = map_csv_columns(row, INVOICE_COLUMN_MAPPINGS)
-                
-                # Find customer by name
                 customer_name = mapped.get("customer_name", "").strip()
-                customer = customers_collection.find_one({"name": customer_name})
-                customer_id = str(customer["_id"]) if customer else None
-                
+                customer_id = customer_ids.get(customer_name)
+
                 if not customer_id:
                     errors.append(f"Row {idx}: Customer '{customer_name}' not found")
                     continue
-                
-                # Check if invoice number already exists
+
+                # Check if invoice number already exists (prefetched + in-file dupes)
                 invoice_number = mapped.get("invoice_number", "")
-                existing = invoices_collection.find_one({"invoice_number": invoice_number})
-                if existing:
-                    errors.append(f"Row {idx}: Invoice '{invoice_number}' already exists")
-                    continue
-                
+                if invoice_number:
+                    if invoice_number in seen_numbers:
+                        errors.append(f"Row {idx}: Invoice '{invoice_number}' already exists")
+                        continue
+                    seen_numbers.add(invoice_number)
+
                 # Parse dates - support multiple date formats
                 invoice_date = None
                 due_date = None
@@ -2227,7 +2275,7 @@ async def import_invoices_csv(file: UploadFile = File(...)):
                 
                 # Create invoice data
                 invoice_data = {
-                    "invoice_number": invoice_number or generate_invoice_number(),
+                    "invoice_number": invoice_number or generate_invoice_number(offset=len(docs_to_insert)),
                     "customer_id": customer_id,
                     "invoice_date": invoice_date or datetime.now(),
                     "due_date": due_date,
@@ -2248,12 +2296,13 @@ async def import_invoices_csv(file: UploadFile = File(...)):
                     "updated_at": datetime.now(),
                 }
                 
-                invoices_collection.insert_one(invoice_data)
-                imported_count += 1
-                
+                docs_to_insert.append(invoice_data)
+
             except Exception as row_error:
                 errors.append(f"Row {idx}: {str(row_error)}")
-        
+
+        imported_count = _flush_import(invoices_collection, docs_to_insert)
+
         return {
             "message": f"Imported {imported_count} invoices",
             "imported": imported_count,
@@ -2541,25 +2590,33 @@ async def import_bills_csv(file: UploadFile = File(...)):
         imported_count = 0
         errors = []
         
-        for idx, row in enumerate(reader, start=2):
+        rows = [map_csv_columns(r, BILL_COLUMN_MAPPINGS) for r in reader]
+        docs_to_insert = []
+        vendor_names = [m.get("vendor_name", "").strip() for m in rows]
+        vendor_ids = {
+            v["name"]: str(v["_id"])
+            for v in vendors_collection.find(
+                {"name": {"$in": [n for n in set(vendor_names) if n]}}, {"name": 1})
+        }
+        seen_numbers = _existing_values(
+            bills_collection, "bill_number", [m.get("bill_number", "") for m in rows])
+
+        for idx, mapped in enumerate(rows, start=2):
             try:
-                # Map columns using flexible mapping
-                mapped = map_csv_columns(row, BILL_COLUMN_MAPPINGS)
-                
                 vendor_name = mapped.get("vendor_name", "").strip()
-                vendor = vendors_collection.find_one({"name": vendor_name})
-                vendor_id = str(vendor["_id"]) if vendor else None
-                
+                vendor_id = vendor_ids.get(vendor_name)
+
                 if not vendor_id:
                     errors.append(f"Row {idx}: Vendor '{vendor_name}' not found")
                     continue
-                
+
                 bill_number = mapped.get("bill_number", "")
-                existing = bills_collection.find_one({"bill_number": bill_number})
-                if existing:
-                    errors.append(f"Row {idx}: Bill '{bill_number}' already exists")
-                    continue
-                
+                if bill_number:
+                    if bill_number in seen_numbers:
+                        errors.append(f"Row {idx}: Bill '{bill_number}' already exists")
+                        continue
+                    seen_numbers.add(bill_number)
+
                 # Parse dates - support multiple date formats
                 date_formats = ["%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d"]
                 bill_date = None
@@ -2584,7 +2641,7 @@ async def import_bills_csv(file: UploadFile = File(...)):
                             continue
                 
                 bill_data = {
-                    "bill_number": bill_number or generate_bill_number(),
+                    "bill_number": bill_number or generate_bill_number(offset=len(docs_to_insert)),
                     "vendor_id": vendor_id,
                     "bill_date": bill_date or datetime.now(),
                     "due_date": due_date,
@@ -2597,12 +2654,13 @@ async def import_bills_csv(file: UploadFile = File(...)):
                     "updated_at": datetime.now(),
                 }
                 
-                bills_collection.insert_one(bill_data)
-                imported_count += 1
-                
+                docs_to_insert.append(bill_data)
+
             except Exception as row_error:
                 errors.append(f"Row {idx}: {str(row_error)}")
-        
+
+        imported_count = _flush_import(bills_collection, docs_to_insert)
+
         return {
             "message": f"Imported {imported_count} bills",
             "imported": imported_count,
@@ -2830,20 +2888,33 @@ async def import_purchase_orders_csv(file: UploadFile = File(...)):
         imported_count = 0
         errors = []
         
-        for idx, row in enumerate(reader, start=2):
+        rows = list(reader)
+        docs_to_insert = []
+        vendor_names = [r.get("vendor_name", "").strip() for r in rows]
+        vendor_ids = {
+            v["name"]: str(v["_id"])
+            for v in vendors_collection.find(
+                {"name": {"$in": [n for n in set(vendor_names) if n]}}, {"name": 1})
+        }
+        seen_numbers = _existing_values(
+            purchase_orders_collection, "po_number",
+            [r.get("po_number", "") for r in rows])
+
+        for idx, row in enumerate(rows, start=2):
             try:
-                vendor = vendors_collection.find_one({"name": row.get("vendor_name", "").strip()})
-                vendor_id = str(vendor["_id"]) if vendor else None
-                
+                vendor_id = vendor_ids.get(row.get("vendor_name", "").strip())
+
                 if not vendor_id:
                     errors.append(f"Row {idx}: Vendor '{row.get('vendor_name')}' not found")
                     continue
-                
-                existing = purchase_orders_collection.find_one({"po_number": row.get("po_number", "")})
-                if existing:
-                    errors.append(f"Row {idx}: PO '{row.get('po_number')}' already exists")
-                    continue
-                
+
+                po_number = row.get("po_number", "")
+                if po_number:
+                    if po_number in seen_numbers:
+                        errors.append(f"Row {idx}: PO '{po_number}' already exists")
+                        continue
+                    seen_numbers.add(po_number)
+
                 order_date = None
                 expected_delivery = None
                 if row.get("order_date"):
@@ -2859,7 +2930,7 @@ async def import_purchase_orders_csv(file: UploadFile = File(...)):
                         expected_delivery = None
                 
                 po_data = {
-                    "po_number": row.get("po_number") or generate_po_number(),
+                    "po_number": po_number or generate_po_number(offset=len(docs_to_insert)),
                     "vendor_id": vendor_id,
                     "order_date": order_date or datetime.now(),
                     "expected_delivery": expected_delivery,
@@ -2872,12 +2943,13 @@ async def import_purchase_orders_csv(file: UploadFile = File(...)):
                     "updated_at": datetime.now(),
                 }
                 
-                purchase_orders_collection.insert_one(po_data)
-                imported_count += 1
-                
+                docs_to_insert.append(po_data)
+
             except Exception as row_error:
                 errors.append(f"Row {idx}: {str(row_error)}")
-        
+
+        imported_count = _flush_import(purchase_orders_collection, docs_to_insert)
+
         return {
             "message": f"Imported {imported_count} purchase orders",
             "imported": imported_count,
@@ -3084,7 +3156,8 @@ async def import_expenses_csv(file: UploadFile = File(...)):
         
         imported_count = 0
         errors = []
-        
+        docs_to_insert = []
+
         for idx, row in enumerate(reader, start=2):
             try:
                 expense_date = None
@@ -3109,12 +3182,13 @@ async def import_expenses_csv(file: UploadFile = File(...)):
                     "updated_at": datetime.now(),
                 }
                 
-                expenses_collection.insert_one(expense_data)
-                imported_count += 1
-                
+                docs_to_insert.append(expense_data)
+
             except Exception as row_error:
                 errors.append(f"Row {idx}: {str(row_error)}")
-        
+
+        imported_count = _flush_import(expenses_collection, docs_to_insert)
+
         return {
             "message": f"Imported {imported_count} expenses",
             "imported": imported_count,
@@ -3403,16 +3477,23 @@ async def import_payments_received_csv(file: UploadFile = File(...)):
         
         imported_count = 0
         errors = []
-        
-        for idx, row in enumerate(reader, start=2):
+        rows = list(reader)
+        docs_to_insert = []
+        customer_names = [r.get("customer_name", "").strip() for r in rows]
+        customer_ids = {
+            c["name"]: str(c["_id"])
+            for c in customers_collection.find(
+                {"name": {"$in": [n for n in set(customer_names) if n]}}, {"name": 1})
+        }
+
+        for idx, row in enumerate(rows, start=2):
             try:
-                customer = customers_collection.find_one({"name": row.get("customer_name", "").strip()})
-                customer_id = str(customer["_id"]) if customer else None
-                
+                customer_id = customer_ids.get(row.get("customer_name", "").strip())
+
                 if not customer_id:
                     errors.append(f"Row {idx}: Customer '{row.get('customer_name')}' not found")
                     continue
-                
+
                 payment_date = None
                 if row.get("payment_date"):
                     try:
@@ -3431,12 +3512,13 @@ async def import_payments_received_csv(file: UploadFile = File(...)):
                     "created_at": datetime.now(),
                 }
                 
-                payments_received_collection.insert_one(payment_data)
-                imported_count += 1
-                
+                docs_to_insert.append(payment_data)
+
             except Exception as row_error:
                 errors.append(f"Row {idx}: {str(row_error)}")
-        
+
+        imported_count = _flush_import(payments_received_collection, docs_to_insert)
+
         return {
             "message": f"Imported {imported_count} payments received",
             "imported": imported_count,
@@ -3513,16 +3595,23 @@ async def import_payments_made_csv(file: UploadFile = File(...)):
         
         imported_count = 0
         errors = []
-        
-        for idx, row in enumerate(reader, start=2):
+        rows = list(reader)
+        docs_to_insert = []
+        vendor_names = [r.get("vendor_name", "").strip() for r in rows]
+        vendor_ids = {
+            v["name"]: str(v["_id"])
+            for v in vendors_collection.find(
+                {"name": {"$in": [n for n in set(vendor_names) if n]}}, {"name": 1})
+        }
+
+        for idx, row in enumerate(rows, start=2):
             try:
-                vendor = vendors_collection.find_one({"name": row.get("vendor_name", "").strip()})
-                vendor_id = str(vendor["_id"]) if vendor else None
-                
+                vendor_id = vendor_ids.get(row.get("vendor_name", "").strip())
+
                 if not vendor_id:
                     errors.append(f"Row {idx}: Vendor '{row.get('vendor_name')}' not found")
                     continue
-                
+
                 payment_date = None
                 if row.get("payment_date"):
                     try:
@@ -3541,12 +3630,13 @@ async def import_payments_made_csv(file: UploadFile = File(...)):
                     "created_at": datetime.now(),
                 }
                 
-                payments_made_collection.insert_one(payment_data)
-                imported_count += 1
-                
+                docs_to_insert.append(payment_data)
+
             except Exception as row_error:
                 errors.append(f"Row {idx}: {str(row_error)}")
-        
+
+        imported_count = _flush_import(payments_made_collection, docs_to_insert)
+
         return {
             "message": f"Imported {imported_count} payments made",
             "imported": imported_count,
