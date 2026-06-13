@@ -1662,7 +1662,26 @@ async def startup_event():
         print(f"⚠️ Cint webhook subscription error: {e}")
         import traceback
         traceback.print_exc()
-    
+
+    # Initialize Cint yield management (seed thresholds + bootstrap metrics stubs)
+    try:
+        if cint_integration and cint_integration.cint_service:
+            try:
+                from .app.services.yield_init import initialize_yield_management
+            except ImportError:
+                from app.services.yield_init import initialize_yield_management
+
+            yield_summary = await initialize_yield_management()
+            print(
+                f"✅ Yield management initialized "
+                f"(thresholds_seeded={yield_summary['thresholds_seeded']}, "
+                f"metrics_stubs_created={yield_summary['metrics_stubs_created']})"
+            )
+    except Exception as e:
+        print(f"⚠️ Yield management initialization error: {e}")
+        import traceback
+        traceback.print_exc()
+
     # Start Email Sync workers (runs in background even when user navigates away)
     try:
         try:

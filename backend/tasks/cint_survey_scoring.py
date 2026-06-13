@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 INTERNAL_IR_MIN_SESSIONS = 20
 
 # Claude model — lightweight, keeps token cost low for this high-volume task
-_AI_MODEL = "claude-haiku-4-5"
+_AI_MODEL = "claude-haiku-4-5-20251001"
 
 # System prompt — concise so it stays within the cheap model's sweet spot
 _SYSTEM_PROMPT = (
@@ -64,7 +64,7 @@ def _build_prompt(survey: Dict[str, Any]) -> str:
     default_retry_delay=60,
     autoretry_for=(Exception,),
     retry_backoff=True,
-    rate_limit="30/m",  # gpt-4o-mini rate headroom
+    rate_limit="30/m",  # keeps within Claude Haiku rate headroom
     ignore_result=False,
     queue="default",
 )

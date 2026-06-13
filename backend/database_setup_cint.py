@@ -148,6 +148,24 @@ def setup_cint_database(mongo_uri: str, db_name: str = "cint_research") -> dict:
         logger.error(f"Error creating cint_subscriptions: {e}")
     
     # ============================================
+    # cint_buyer_stats collection (yield management)
+    # ============================================
+    try:
+        collections["cint_buyer_stats"] = db["cint_buyer_stats"]
+
+        # Rolling per-buyer conversion stats consumed by yield-dashboard
+        # and the traffic router's buyer-score cache.
+        db["cint_buyer_stats"].create_index([("buyer_name", ASCENDING)], unique=True)
+        db["cint_buyer_stats"].create_index([("conversion_rate", DESCENDING)])
+        db["cint_buyer_stats"].create_index([("last_updated", DESCENDING)])
+
+        logger.info("✓ cint_buyer_stats collection created and indexed")
+    except OperationFailure as e:
+        logger.warning(f"cint_buyer_stats collection already exists: {e}")
+    except Exception as e:
+        logger.error(f"Error creating cint_buyer_stats: {e}")
+
+    # ============================================
     # cint_respondent_outcomes collection
     # ============================================
     try:
@@ -267,56 +285,6 @@ def setup_survey_allocation_extensions(mongo_uri: str, db_name: str = "survey_al
     
     logger.info("Survey allocation database extensions complete")
     return collections
-
-
-def create_sample_documents(collections: dict) -> None:
-    """
-    Create sample documents for testing (if collections are empty)
-    
-    Args:
-        collections: Dictionary of MongoDB collections
-    """
-    try:
-        # Sample Cint survey opportunity
-        if collections.get("cint_surveys") and collections["cint_surveys"].count_documents({}) == 0:
-            sample_survey = {
-                "survey_id": 123456,
-                "survey_name": "Sample Survey",
-                "account_name": "Test Account",
-                "buyer_id": 789,
-                "country_language": "eng_us",
-                "industry": "technology",
-                "study_type": "adhoc",
-                "bid_length_of_interview": 10,
-                "bid_incidence": 50.0,
-                "collects_pii": False,
-                "revenue_per_interview": {"value": 1.50, "currency_code": "USD"},
-                "conversion": 0.65,
-                "mobile_conversion": 0.50,
-                "length_of_interview": 12,
-                "total_remaining": 100,
-                "is_live": True,
-                "message_reason": "new",
-                "is_active": True,
-            }
-            collections["cint_surveys"].insert_one(sample_survey)
-            logger.info("✓ Sample survey document created")
-        
-        # Sample entry link
-        if collections.get("cint_entry_links") and collections["cint_entry_links"].count_documents({}) == 0:
-            sample_link = {
-                "survey_id": 123456,
-                "supplier_link_type_code": "OWS",
-                "tracking_type_code": "NONE",
-                "live_link": "https://samplicio.us/s/default.aspx?SID=abc123&PID=",
-                "test_link": "https://samplicio.us/s/default.aspx?SID=test456&SUMSTAT=1&PID=test",
-                "rpi": {"value": 1.50, "currency_code": "USD"},
-            }
-            collections["cint_entry_links"].insert_one(sample_link)
-            logger.info("✓ Sample entry link document created")
-    
-    except Exception as e:
-        logger.warning(f"Could not create sample documents: {e}")
 
 
 if __name__ == "__main__":
