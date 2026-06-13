@@ -2,23 +2,25 @@
 Yield Management — Startup Initialization
 =========================================
 
-Brings the Cint yield-management layer into a known-good state at boot:
+Seeds the default yield-threshold config into torpedo_settings.app_settings so
+PUT /yield-thresholds always has a base document to merge against. This is a
+single cheap find-or-insert — it must never do heavy per-document work, because
+it runs inside the FastAPI startup event and blocks the worker from serving
+requests until it returns.
 
-1. Seeds the default yield-threshold config into torpedo_settings.app_settings
-   (so PUT /yield-thresholds always has a base document to merge against, and
-   get_yield_thresholds is backed by a real persisted doc rather than an
-   in-memory fallback).
+NOTE: we intentionally do NOT pre-create cint_metrics stub docs here. The
+yield-dashboard, buyer-stats and yield-status endpoints all treat a missing
+metrics doc as survey_status="testing" (see routers/cint.get_yield_dashboard),
+so stubs add no functional value. A previous version iterated every survey in
+cint_surveys doing one upsert each; on a large collection that ran for minutes
+inside startup, blocking the event loop and saturating Mongo (login/health
+timed out). Removed — surveys without metrics are handled lazily downstream.
 
-2. Bootstraps a stub cint_metrics doc (survey_status="testing") for every
-   survey in cint_surveys that has no metrics yet, so freshly-arrived surveys
-   are visible on the yield dashboard instead of silently missing.
-
-Idempotent: safe to run on every startup. Existing threshold and metrics
-documents are never overwritten.
+Idempotent: safe to run on every startup. An existing threshold doc is never
+overwritten.
 """
 
 import logging
-from datetime import datetime
 
 from database import get_async_collection
 
@@ -43,61 +45,15 @@ async def _seed_thresholds() -> bool:
     return True
 
 
-async def _bootstrap_metrics_stubs() -> int:
-    """
-    Create a testing-state cint_metrics stub for every survey lacking one.
-
-    Returns the number of stubs inserted.
-    """
-    surveys_col = get_async_collection("cint_research", "cint_surveys")
-    metrics_col = get_async_collection("cint_research", "cint_metrics")
-
-    existing_ids = set()
-    async for m in metrics_col.find({}, {"survey_id": 1, "_id": 0}):
-        existing_ids.add(str(m.get("survey_id")))
-
-    now = datetime.utcnow()
-    inserted = 0
-    async for s in surveys_col.find({}, {"survey_id": 1, "_id": 0}):
-        sid = str(s.get("survey_id"))
-        if not sid or sid == "None" or sid in existing_ids:
-            continue
-        await metrics_col.update_one(
-            {"survey_id": sid},
-            {"$setOnInsert": {
-                "survey_id": sid,
-                "survey_status": "testing",
-                "entrants_n": 0,
-                "completions": 0,
-                "quality_term_n": 0,
-                "overquota_n": 0,
-                "internal_conversion": None,
-                "manual_override": False,
-                "created_at": now,
-                "last_updated": now,
-            }},
-            upsert=True,
-        )
-        existing_ids.add(sid)
-        inserted += 1
-
-    return inserted
-
-
 async def initialize_yield_management() -> dict:
     """
-    Run all yield-management startup tasks. Never raises — logs and returns a
+    Run yield-management startup tasks. Never raises — logs and returns a
     summary so a failure here cannot block application startup.
     """
-    summary = {"thresholds_seeded": False, "metrics_stubs_created": 0}
+    summary = {"thresholds_seeded": False}
     try:
         summary["thresholds_seeded"] = await _seed_thresholds()
     except Exception as e:
         logger.error(f"[YieldInit] threshold seed failed: {e}")
-
-    try:
-        summary["metrics_stubs_created"] = await _bootstrap_metrics_stubs()
-    except Exception as e:
-        logger.error(f"[YieldInit] metrics stub bootstrap failed: {e}")
 
     return summary

@@ -1674,8 +1674,7 @@ async def startup_event():
             yield_summary = await initialize_yield_management()
             print(
                 f"✅ Yield management initialized "
-                f"(thresholds_seeded={yield_summary['thresholds_seeded']}, "
-                f"metrics_stubs_created={yield_summary['metrics_stubs_created']})"
+                f"(thresholds_seeded={yield_summary['thresholds_seeded']})"
             )
     except Exception as e:
         print(f"⚠️ Yield management initialization error: {e}")
