@@ -227,7 +227,24 @@ def generate_reset_token() -> Tuple[str, datetime]:
 
 # ============== CURRENT USER DEPENDENCY ==============
 
-from fastapi import Request, Depends, HTTPException
+# fastapi is only needed for the request-bound dependency below. The pure
+# password helpers above must stay importable in the minimal CI env (which
+# installs requirements-ci.txt without fastapi), so fall back to lightweight
+# stand-ins when it is absent. Production always has fastapi installed, so the
+# real Request/Depends/HTTPException are used for dependency injection.
+try:
+    from fastapi import Request, Depends, HTTPException
+except ModuleNotFoundError:  # minimal CI / test env
+    Request = None
+
+    def Depends(dependency):  # type: ignore
+        return dependency
+
+    class HTTPException(Exception):  # type: ignore
+        def __init__(self, status_code: int = 500, detail: str = ""):
+            self.status_code = status_code
+            self.detail = detail
+            super().__init__(detail)
 
 
 def get_current_user(request: Request = None) -> dict:

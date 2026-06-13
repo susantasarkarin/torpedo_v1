@@ -19,7 +19,11 @@ Environment:
 
 import os
 import pytest
-import httpx
+
+# NOTE: httpx is imported lazily inside the `client` fixture below. Only the
+# server-dependent smoke tests use it, and those are excluded from the CI run
+# (which installs the minimal requirements-ci.txt without httpx). Importing it
+# at module level would abort collection of every smoke test in CI.
 
 BASE_URL = os.environ.get("SMOKE_BASE_URL", "http://localhost:8000").rstrip("/")
 SMOKE_USER = os.environ.get("SMOKE_USER", "admin")
@@ -30,6 +34,7 @@ TIMEOUT = float(os.environ.get("SMOKE_TIMEOUT", "15"))
 @pytest.fixture(scope="session")
 def client():
     """httpx client pointed at BASE_URL."""
+    import httpx  # lazy: keeps httpx out of the minimal-deps CI collection
     with httpx.Client(base_url=BASE_URL, timeout=TIMEOUT) as c:
         yield c
 
