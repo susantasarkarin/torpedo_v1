@@ -17,6 +17,7 @@ from pymongo.collection import Collection
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase, AsyncIOMotorCollection
 from dotenv import load_dotenv
 import threading
+import asyncio
 
 load_dotenv()
 
@@ -33,6 +34,7 @@ class DatabaseManager:
     _lock: threading.Lock = threading.Lock()
     _client: Optional[MongoClient] = None
     _async_client: Optional[AsyncIOMotorClient] = None
+    _async_loop = None  # event loop the Motor client is currently bound to
     _databases: Dict[str, Database] = {}
     _async_databases: Dict[str, AsyncIOMotorDatabase] = {}
     
@@ -46,8 +48,11 @@ class DatabaseManager:
     def __init__(self):
         if self._client is None:
             self._initialize_client()
-        if self._async_client is None:
-            self._initialize_async_client()
+        # The async (Motor) client is created lazily, bound to the running
+        # event loop, via _ensure_async_client(). Creating it eagerly here — at
+        # the first DB touch, which is often a synchronous call (e.g. login) —
+        # bound it to the wrong loop under uvloop, so every `await` on an async
+        # collection hung forever while sync endpoints worked fine.
     
     def _initialize_client(self):
         """Initialize the synchronous MongoDB client."""
@@ -88,14 +93,33 @@ class DatabaseManager:
         except Exception as e:
             print(f"❌ MongoDB async connection failed: {e}")
             raise
-    
+
+    def _ensure_async_client(self) -> AsyncIOMotorClient:
+        """Return a Motor client bound to the currently-running event loop.
+
+        Motor binds a client to the event loop running when it is created;
+        operations scheduled from any other loop hang forever. uvicorn serves on
+        uvloop, so we (re)create the client whenever the running loop differs
+        from the one the cached client was bound to.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if self._async_client is None or self._async_loop is not loop:
+            # Databases cached against the stale client/loop must be dropped too.
+            self._async_databases = {}
+            self._initialize_async_client()
+            self._async_loop = loop
+        return self._async_client
+
     @property
     def client(self) -> MongoClient:
         return self._client
 
     @property
     def async_client(self) -> AsyncIOMotorClient:
-        return self._async_client
+        return self._ensure_async_client()
     
     def get_database(self, db_name: str) -> Database:
         if db_name not in self._databases:
@@ -103,8 +127,11 @@ class DatabaseManager:
         return self._databases[db_name]
 
     def get_async_database(self, db_name: str) -> AsyncIOMotorDatabase:
+        # Ensure the client matches the running loop FIRST — this may clear the
+        # cached databases, so the membership check below must come after it.
+        client = self._ensure_async_client()
         if db_name not in self._async_databases:
-            self._async_databases[db_name] = self.async_client[db_name]
+            self._async_databases[db_name] = client[db_name]
         return self._async_databases[db_name]
     
     def get_collection(self, db_name: str, collection_name: str) -> Collection:
