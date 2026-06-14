@@ -2175,7 +2175,10 @@ async def get_yield_dashboard(
             if status and survey_status != status:
                 continue
 
-            global_conv = float(s.get("conversion") or 0)
+            # survey.conversion is stored as a 0–100 percentage, but the UI's
+            # pct() and the review logic below (compared against the 0.10
+            # fraction) both expect a 0–1 fraction — normalise here.
+            global_conv = float(s.get("conversion") or 0) / 100.0
             internal_conv = m.get("internal_conversion")
             functional_conv = internal_conv if (internal_conv is not None and m.get("entrants_n", 0) >= 20) else global_conv
             loi = float(s.get("length_of_interview") or 0)
