@@ -298,6 +298,9 @@ function InvoicesPage() {
     setCurrentPage(1)
   }
 
+  const filteredInvoices = invoices
+  const paginatedInvoices = invoices
+
   return (
     <div style={styles.container}>
       <div style={styles.header}>
