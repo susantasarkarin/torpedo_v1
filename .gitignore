@@ -145,9 +145,11 @@ mailpool_accounts.csv
 mailpool_from_emails.csv
 mailpool_gmail_api_emails.csv
 
-# Finance invoice exports (sensitive financial data - kept local only)
+# Finance exports (sensitive financial data - kept local only)
 Invoice.csv
 Invoices.csv
+Bill.csv
+Bills.csv
 
 # Build logs
 build-output.txt
