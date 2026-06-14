@@ -3,7 +3,7 @@ Finance Router - Complete CRUD endpoints for the Finance Module
 Handles: Customers, Vendors, Items, Invoices, Bills, Purchase Orders, Expenses, Payments
 """
 
-from fastapi import APIRouter, HTTPException, Body, Path, Query, UploadFile, File
+from fastapi import APIRouter, HTTPException, Body, Path, Query, UploadFile, File, Request
 from fastapi.responses import StreamingResponse
 from pymongo import MongoClient
 from bson import ObjectId
@@ -1910,6 +1910,7 @@ async def import_estimates_csv(file: UploadFile = File(...)):
 @router.get("/invoices/")
 @require_any_permission(Permissions.FINANCE_INVOICE_READ, Permissions.ADMIN_ALL)
 async def get_invoices(
+    request: Request,
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
     project_id: Optional[str] = Query(None, description="Filter by project ID"),
@@ -1974,7 +1975,7 @@ async def get_invoices(
 
 @router.get("/invoices/{invoice_id}")
 @require_any_permission(Permissions.FINANCE_INVOICE_READ, Permissions.ADMIN_ALL)
-async def get_invoice(invoice_id: str):
+async def get_invoice(request: Request, invoice_id: str):
     """
     Get a single invoice by ID (excluding soft-deleted).
     P0.16: Returns 404 if invoice is soft-deleted.
@@ -1997,7 +1998,7 @@ async def get_invoice(invoice_id: str):
 
 @router.post("/invoices/")
 @require_any_permission(Permissions.FINANCE_INVOICE_CREATE, Permissions.ADMIN_ALL)
-async def create_invoice(invoice_data: Dict[str, Any] = Body(...)):
+async def create_invoice(request: Request, invoice_data: Dict[str, Any] = Body(...)):
     """Create a new invoice"""
     try:
         if not invoice_data.get("customer_id"):
@@ -2054,7 +2055,7 @@ async def create_invoice(invoice_data: Dict[str, Any] = Body(...)):
 
 @router.put("/invoices/{invoice_id}")
 @require_any_permission(Permissions.FINANCE_INVOICE_UPDATE, Permissions.ADMIN_ALL)
-async def update_invoice(invoice_id: str, invoice_data: Dict[str, Any] = Body(...)):
+async def update_invoice(request: Request, invoice_id: str, invoice_data: Dict[str, Any] = Body(...)):
     """Update an invoice"""
     try:
         invoice_data.pop("_id", None)
@@ -2076,7 +2077,7 @@ async def update_invoice(invoice_id: str, invoice_data: Dict[str, Any] = Body(..
 
 @router.delete("/invoices/{invoice_id}")
 @require_any_permission(Permissions.FINANCE_INVOICE_DELETE, Permissions.ADMIN_ALL)
-async def delete_invoice(invoice_id: str):
+async def delete_invoice(request: Request, invoice_id: str):
     """
     Soft delete an invoice.
     P0.16: Finance Soft Delete - marks as deleted instead of removing.
@@ -2321,6 +2322,7 @@ async def import_invoices_csv(file: UploadFile = File(...)):
 @router.get("/bills/")
 @require_any_permission(Permissions.FINANCE_BILL_READ, Permissions.ADMIN_ALL)
 async def get_bills(
+    request: Request,
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
     project_id: Optional[str] = Query(None, description="Filter by project ID"),
@@ -2385,7 +2387,7 @@ async def get_bills(
 
 @router.get("/bills/{bill_id}")
 @require_any_permission(Permissions.FINANCE_BILL_READ, Permissions.ADMIN_ALL)
-async def get_bill(bill_id: str):
+async def get_bill(request: Request, bill_id: str):
     """
     Get a single bill by ID (excluding soft-deleted).
     P0.16: Returns 404 if bill is soft-deleted.
@@ -2408,7 +2410,7 @@ async def get_bill(bill_id: str):
 
 @router.post("/bills/")
 @require_any_permission(Permissions.FINANCE_BILL_CREATE, Permissions.ADMIN_ALL)
-async def create_bill(bill_data: Dict[str, Any] = Body(...)):
+async def create_bill(request: Request, bill_data: Dict[str, Any] = Body(...)):
     """Create a new bill"""
     try:
         if not bill_data.get("vendor_id"):
@@ -2450,7 +2452,7 @@ async def create_bill(bill_data: Dict[str, Any] = Body(...)):
 
 @router.put("/bills/{bill_id}")
 @require_any_permission(Permissions.FINANCE_BILL_UPDATE, Permissions.ADMIN_ALL)
-async def update_bill(bill_id: str, bill_data: Dict[str, Any] = Body(...)):
+async def update_bill(request: Request, bill_id: str, bill_data: Dict[str, Any] = Body(...)):
     """Update a bill"""
     try:
         bill_data.pop("_id", None)
@@ -2471,7 +2473,7 @@ async def update_bill(bill_id: str, bill_data: Dict[str, Any] = Body(...)):
 
 @router.delete("/bills/{bill_id}")
 @require_any_permission(Permissions.FINANCE_BILL_DELETE, Permissions.ADMIN_ALL)
-async def delete_bill(bill_id: str):
+async def delete_bill(request: Request, bill_id: str):
     """
     Soft delete a bill.
     P0.16: Finance Soft Delete - marks as deleted instead of removing.
