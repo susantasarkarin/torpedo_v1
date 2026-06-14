@@ -33,6 +33,7 @@ function InvoicesPage() {
   const [importing, setImporting] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
     const [recordsPerPage, setRecordsPerPage] = useState(100)
+  const [totalInvoices, setTotalInvoices] = useState(0)
   const fileInputRef = useRef(null)
   
   const initialFormData = {
