@@ -124,11 +124,23 @@ export class APIError extends Error {
 /**
  * Handle API errors with consistent messaging
  */
-const handleError = (error, response) => {
+const handleError = (error, response, { skipAuth = false } = {}) => {
   if (response) {
     // Handle specific status codes
     switch (response.status) {
       case 401:
+        // Auth requests (login) are not an "expired session" — surface the
+        // real backend reason (e.g. "Invalid username or password") instead of
+        // clearing auth and bouncing back to /admin/login (which reloads the
+        // page and masks the actual failure).
+        if (skipAuth) {
+          throw new APIError(
+            (typeof error === "string" ? error : error?.detail || error?.message) ||
+              "Invalid username or password.",
+            401,
+            error
+          );
+        }
         clearAuth();
         window.location.href = "/admin/login";
         throw new APIError("Session expired. Please log in again.", 401);
@@ -295,7 +307,7 @@ const request = async (
 
         // Handle non-OK responses
         if (!response.ok) {
-          handleError(responseData, response);
+          handleError(responseData, response, { skipAuth });
         }
 
         // Cache successful GET responses if caching enabled
