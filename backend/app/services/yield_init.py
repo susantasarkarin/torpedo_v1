@@ -45,15 +45,32 @@ async def _seed_thresholds() -> bool:
     return True
 
 
+async def _ensure_dashboard_index() -> bool:
+    """Ensure the index backing the yield dashboard's pool+conversion query.
+
+    Without it, scoping cint_surveys (~180k docs) to the active pool and sorting
+    by conversion is a full collection scan. create_index is idempotent and a
+    no-op once the index exists, so this is safe to run on every startup.
+    """
+    col = get_async_collection("cint_research", "cint_surveys")
+    await col.create_index([("is_active_in_pool", 1), ("conversion", -1)], background=True)
+    return True
+
+
 async def initialize_yield_management() -> dict:
     """
     Run yield-management startup tasks. Never raises — logs and returns a
     summary so a failure here cannot block application startup.
     """
-    summary = {"thresholds_seeded": False}
+    summary = {"thresholds_seeded": False, "dashboard_index": False}
     try:
         summary["thresholds_seeded"] = await _seed_thresholds()
     except Exception as e:
         logger.error(f"[YieldInit] threshold seed failed: {e}")
+
+    try:
+        summary["dashboard_index"] = await _ensure_dashboard_index()
+    except Exception as e:
+        logger.error(f"[YieldInit] dashboard index ensure failed: {e}")
 
     return summary

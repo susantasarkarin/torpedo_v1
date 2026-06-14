@@ -2112,6 +2112,11 @@ async def diagnostic_check(cint_service = Depends(get_cint_service)):
 # YIELD MANAGEMENT ENDPOINTS
 # =============================================================================
 
+# Max surveys returned by the yield dashboard. The catalog is ~180k surveys, far
+# more than the UI can render or an operator can act on; the dashboard shows the
+# top in-pool surveys by conversion. Raise only alongside server-side pagination.
+YIELD_DASHBOARD_LIMIT = 500
+
 
 @router.get('/yield-dashboard')
 async def get_yield_dashboard(
@@ -2124,20 +2129,34 @@ async def get_yield_dashboard(
         raise HTTPException(status_code=503, detail="Cint service not available")
 
     try:
-        survey_query: dict = {}
+        from database import get_async_collection
+
+        # Yield management ranks surveys that are eligible for traffic (in the
+        # active pool). The full cint_surveys catalog is ~180k docs; loading it
+        # all synchronously took ~75s and left the page stuck on "Loading…".
+        # Scope to the pool, sort by conversion and cap in Mongo (backed by the
+        # {is_active_in_pool:1, conversion:-1} index), and use the async client
+        # so the query never blocks the event loop.
+        survey_query: dict = {"is_active_in_pool": True}
         if country_code:
             survey_query["country_code"] = country_code.upper()
 
-        surveys_col = cint_service.cint_surveys_collection
-        from database import get_async_collection
+        surveys_col = get_async_collection("cint_research", "cint_surveys")
         metrics_col = get_async_collection("cint_research", "cint_metrics")
 
-        surveys_list = list(surveys_col.find(survey_query, {
+        projection = {
+            "_id": 0,
             "survey_id": 1, "account_name": 1, "length_of_interview": 1,
             "termination_length_of_interview": 1, "revenue_per_click": 1,
             "conversion": 1, "total_remaining": 1, "is_live": 1,
             "country_code": 1, "payout": 1, "updated_at": 1, "is_active_in_pool": 1,
-        }))
+        }
+        surveys_list = await (
+            surveys_col.find(survey_query, projection)
+            .sort("conversion", -1)
+            .limit(YIELD_DASHBOARD_LIMIT)
+            .to_list(length=YIELD_DASHBOARD_LIMIT)
+        )
 
         if not surveys_list:
             return {"surveys": [], "total": 0}
