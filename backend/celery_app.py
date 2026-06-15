@@ -5,6 +5,7 @@ Uses Redis as broker for distributed task processing
 
 import os
 from celery import Celery
+from celery.schedules import crontab
 from kombu import Queue
 
 # Redis configuration (using existing Redis setup from session_store)
@@ -29,6 +30,7 @@ celery_app = Celery(
         'backend.tasks.enrichment_tasks',
         'backend.tasks.linkedin_tasks',
         'backend.tasks.cint_survey_scoring',
+        'backend.tasks.panel_tasks',
         'backend.app.tasks.outreach_tasks',
         'backend.campaigns.send_queue',
         'backend.sales.tasks',
@@ -106,6 +108,13 @@ celery_app.conf.update(
             'task': 'backend.tasks.linkedin_tasks.cleanup_old_jobs',
             'schedule': 604800.0,  # Every 7 days
             'options': {'queue': 'linkedin_automation', 'kwargs': {'days': 30}}
+        },
+        'panel-daily-invitations': {
+            # 9:00 AM IST = 03:30 UTC — runs once per day until each lead signs up,
+            # bounces, or unsubscribes
+            'task': 'backend.tasks.panel_tasks.send_daily_panel_invitations',
+            'schedule': crontab(hour=3, minute=30),
+            'options': {'queue': 'default'},
         },
     },
     

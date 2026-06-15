@@ -1,0 +1,40 @@
+"""
+Panel invitation periodic tasks.
+
+send_daily_panel_invitations runs once per day (via Celery Beat) and sends
+invitation emails to every eligible panelist lead.  Per-address it stops when:
+  - the panelist completes double opt-in (signed up)
+  - their address bounces or they unsubscribe (suppression list)
+  - they were already invited today (daily_mode dedup)
+"""
+
+import logging
+from backend.celery_app import celery_app
+
+logger = logging.getLogger(__name__)
+
+
+@celery_app.task(
+    name="backend.tasks.panel_tasks.send_daily_panel_invitations",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+)
+def send_daily_panel_invitations(self):
+    """Send one invitation email per eligible lead per day."""
+    try:
+        try:
+            from services.panel_email_service import send_bulk_invitations
+        except ImportError:
+            from backend.services.panel_email_service import send_bulk_invitations
+
+        result = send_bulk_invitations(daily_mode=True)
+        logger.info(
+            f"[daily-panel-invite] sent={result.get('sent')} "
+            f"skipped={result.get('skipped')} failed={result.get('failed')} "
+            f"capped={result.get('capped')} batch={result.get('batch_id')}"
+        )
+        return result
+    except Exception as exc:
+        logger.error(f"[daily-panel-invite] error: {exc}", exc_info=True)
+        raise self.retry(exc=exc)
