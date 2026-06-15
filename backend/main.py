@@ -2725,51 +2725,84 @@ async def delete_list(list_id: str):
 @app.post("/upload-csv/")
 async def upload_csv(data: Dict[str, List[Dict[str, Any]]] = Body(...)):
     contacts = data.get("contacts", [])
-    inserted_contacts = []
+    if not contacts:
+        return {"message": "No contacts uploaded.", "inserted": 0, "contacts": []}
 
-    for contact in contacts:
-        email = (contact.get("email") or "").strip()
-        list_name = contact.get("listName")
-        incoming_list_id = contact.get("listId")
-        if not email:
-            continue
+    CHUNK = 5000
 
-        resolved_list_id = None
+    # Memoize list resolution — typically 1-2 unique lists per batch
+    _list_cache: Dict[str, Any] = {}
+
+    def resolve_list(incoming_list_id, list_name):
+        cache_key = f"{incoming_list_id}|{list_name}"
+        if cache_key in _list_cache:
+            return _list_cache[cache_key]
+        resolved = None
         try:
             if incoming_list_id and ObjectId.is_valid(str(incoming_list_id)):
-                resolved_list_id = str(incoming_list_id)
+                resolved = str(incoming_list_id)
             elif incoming_list_id:
                 found = lists_collection.find_one({"name": incoming_list_id})
-                resolved_list_id = str(found["_id"]) if found else incoming_list_id
+                resolved = str(found["_id"]) if found else str(incoming_list_id)
             elif list_name:
                 found = lists_collection.find_one({"name": list_name})
-                resolved_list_id = str(found["_id"]) if found else None
+                resolved = str(found["_id"]) if found else None
         except Exception as e:
-            print(f"[upload-csv] Error resolving list id/name: {e}")
+            print(f"[upload-csv] list resolve error: {e}")
+        _list_cache[cache_key] = resolved
+        return resolved
 
-        query = {"email": email}
-        if resolved_list_id:
-            query["listId"] = resolved_list_id
-        elif list_name:
-            query["listName"] = list_name
-
-        if contacts_collection.find_one(query):
+    # Enrich all contacts and collect emails for batch dedup
+    enriched = []
+    all_emails = []
+    for contact in contacts:
+        email = (contact.get("email") or "").strip()
+        if not email:
             continue
-
+        list_name = contact.get("listName")
+        incoming_list_id = contact.get("listId")
+        resolved_list_id = resolve_list(incoming_list_id, list_name)
+        doc = dict(contact)
+        if resolved_list_id:
+            doc["listId"] = resolved_list_id
         if list_name:
-            contact["listName"] = list_name
-        if resolved_list_id:
-            contact["listId"] = resolved_list_id
+            doc["listName"] = list_name
+        all_emails.append(email)
+        enriched.append((email, resolved_list_id, list_name, doc))
 
-        try:
-            result = contacts_collection.insert_one(contact)
-            contact["_id"] = str(result.inserted_id)
-            inserted_contacts.append(contact)
-        except Exception as e:
-            print(f"❌ MongoDB insert failed for {email}: {e}")
+    # Batch-fetch existing (email, list_key) pairs — replaces per-row find_one
+    existing = set()
+    for i in range(0, len(all_emails), CHUNK):
+        chunk = all_emails[i:i + CHUNK]
+        for rec in contacts_collection.find(
+            {"email": {"$in": chunk}},
+            {"email": 1, "listId": 1, "listName": 1}
+        ):
+            e = rec.get("email", "")
+            existing.add((e, rec.get("listId") or rec.get("listName") or ""))
+
+    # Deduplicate against DB and within the batch
+    to_insert = []
+    seen = set()
+    for email, resolved_list_id, list_name, doc in enriched:
+        list_key = resolved_list_id or list_name or ""
+        key = (email, list_key)
+        if key in existing or key in seen:
             continue
+        seen.add(key)
+        to_insert.append(doc)
 
-    return {"message": f"Uploaded {len(inserted_contacts)} contacts!", "contacts": inserted_contacts}
+    inserted = 0
+    if to_insert:
+        try:
+            result = contacts_collection.insert_many(to_insert, ordered=False)
+            inserted = len(result.inserted_ids)
+        except Exception as e:
+            print(f"[upload-csv] insert_many error: {e}")
+            if hasattr(e, "details"):
+                inserted = e.details.get("nInserted", 0)
+
+    return {"message": f"Uploaded {inserted} contacts!", "inserted": inserted, "contacts": []}
 
 # ----------------------------
 # Fetch Contacts
