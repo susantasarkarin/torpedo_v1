@@ -106,32 +106,6 @@ function Navbar({
               Panel
             </button>
 
-            <Link
-              to="/admin/crm"
-              className="logo-dropdown-item"
-              onClick={handleNonSidebarSection}
-            >
-              <span className="dropdown-icon">🧭</span>
-              CRM
-            </Link>
-
-            <Link
-              to="/admin/surveys/revenue"
-              className="logo-dropdown-item"
-              onClick={handleNonSidebarSection}
-            >
-              <span className="dropdown-icon">📊</span>
-              Surveys
-            </Link>
-
-            <Link
-              to="/admin/ai/approvals"
-              className="logo-dropdown-item"
-              onClick={handleNonSidebarSection}
-            >
-              <span className="dropdown-icon">🤖</span>
-              AI Approvals
-            </Link>
           </div>
         </div>
 
