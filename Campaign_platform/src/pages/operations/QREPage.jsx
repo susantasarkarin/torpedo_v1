@@ -6,6 +6,7 @@ import {
   Download, ExternalLink, X, ChevronRight,
 } from "lucide-react";
 import { qreApi } from "../../services/qreApi";
+import MysteryShoppingTab from "./MysteryShoppingTab";
 import "./QREPage.css";
 
 // ── Quota label & grouping map ───────────────────────────────────────────────
@@ -891,6 +892,7 @@ const STUDY_TABS = ["Overview", "Quotas", "Redirects", "Export"];
 
 // ── Main QRE Page ─────────────────────────────────────────────────────────────
 export default function QREPage() {
+  const [mode, setMode] = useState("qre"); // "qre" | "mystery"
   const [view, setView] = useState("list"); // "list" | "detail"
   const [selectedStudy, setSelectedStudy] = useState(null);
   const [activeTab, setActiveTab] = useState("Overview");
@@ -922,6 +924,27 @@ export default function QREPage() {
     setSelectedStudy(null);
     setRefreshKey((k) => k + 1); // re-mount StudiesTab to refresh list
   };
+
+  // ── Mystery Shopping mode ───────────────────────────────────────────────────
+  if (mode === "mystery") {
+    return (
+      <div className="qre-root">
+        <div className="qre-page-header">
+          <div>
+            <div className="qre-page-title-row">
+              <BarChart2 size={20} color="#667eea" />
+              <h1 className="qre-page-title">QRE Platform</h1>
+            </div>
+          </div>
+        </div>
+        <div className="ms-mode-tabs">
+          <button className="ms-mode-tab" onClick={() => setMode("qre")}>QRE Studies</button>
+          <button className="ms-mode-tab active">Mystery Shopping</button>
+        </div>
+        <MysteryShoppingTab />
+      </div>
+    );
+  }
 
   // ── Detail view: study name + sub-tabs ──────────────────────────────────────
   if (view === "detail" && selectedStudy) {
@@ -977,12 +1000,16 @@ export default function QREPage() {
         <div>
           <div className="qre-page-title-row">
             <BarChart2 size={20} color="#667eea" />
-            <h1 className="qre-page-title">QRE Survey Platform</h1>
+            <h1 className="qre-page-title">QRE Platform</h1>
           </div>
           <p className="qre-page-subtitle">
             Quantitative Research Engine — manage studies, quotas, fieldwork and data exports
           </p>
         </div>
+      </div>
+      <div className="ms-mode-tabs">
+        <button className="ms-mode-tab active">QRE Studies</button>
+        <button className="ms-mode-tab" onClick={() => setMode("mystery")}>Mystery Shopping</button>
       </div>
       <StudiesTab key={refreshKey} onSelectStudy={handleSelectStudy} selectedStudyId={null} />
     </div>

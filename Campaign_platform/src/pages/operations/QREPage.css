@@ -534,3 +534,288 @@
   .qre-form-row { grid-template-columns: 1fr; }
   .qre-study-select { min-width: unset; width: 100%; }
 }
+
+/* =====================================================
+   MYSTERY SHOPPING QUESTIONNAIRE — Styles
+   ===================================================== */
+
+/* ---- Top-level mode switcher ---- */
+.ms-mode-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 1.5rem;
+}
+.ms-mode-tab {
+  padding: 0.55rem 1.25rem;
+  border: none;
+  background: none;
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.ms-mode-tab:hover { color: #374151; }
+.ms-mode-tab.active {
+  color: #667eea;
+  border-bottom-color: #667eea;
+}
+
+/* ---- Form root ---- */
+.ms-form-root {
+  padding-bottom: 3rem;
+}
+
+/* ---- Sticky top bar ---- */
+.ms-form-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: #fff;
+  border-bottom: 1.5px solid #e5e7eb;
+  padding: 0.65rem 0;
+  margin-bottom: 1.5rem;
+}
+.ms-topbar-center {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
+}
+.ms-topbar-title {
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: #1a1a2e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+/* ---- Section block ---- */
+.ms-section-block {
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 1.25rem;
+  background: #fff;
+}
+.ms-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.7rem 1rem;
+  background: #7c3aed14;
+  border-bottom: 1.5px solid #e5e7eb;
+}
+.ms-section-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #1a1a2e;
+}
+.ms-section-score {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #667eea;
+  background: #f0f0ff;
+  padding: 0.2rem 0.6rem;
+  border-radius: 20px;
+}
+
+/* ---- Parameter table ---- */
+.ms-param-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.ms-param-table th {
+  background: #f9fafb;
+  padding: 0.45rem 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  color: #6b7280;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid #e5e7eb;
+}
+.ms-param-table td {
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid #f3f4f6;
+  vertical-align: top;
+  color: #374151;
+}
+.ms-param-table tr:last-child td { border-bottom: none; }
+.ms-row-answered { background: #fafbff; }
+
+/* ---- Column widths ---- */
+.ms-col-num { width: 36px; text-align: center; color: #9ca3af; font-size: 0.75rem; }
+.ms-col-param { min-width: 240px; line-height: 1.45; }
+.ms-col-response { width: 180px; }
+.ms-col-score { width: 56px; text-align: center; }
+.ms-col-remarks { min-width: 160px; }
+
+/* ---- Response radio group ---- */
+.ms-response-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.ms-radio-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 0.2rem 0.45rem;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.1s;
+  color: #374151;
+  border: 1.5px solid transparent;
+}
+.ms-radio-label:hover { background: #f3f4f6; }
+.ms-radio-label input[type="radio"] { display: none; }
+
+.ms-radio-yes.ms-radio-selected    { background: #dcfce7; border-color: #16a34a; color: #14532d; }
+.ms-radio-partial.ms-radio-selected { background: #fef3c7; border-color: #f59e0b; color: #78350f; }
+.ms-radio-no.ms-radio-selected      { background: #fee2e2; border-color: #dc2626; color: #7f1d1d; }
+.ms-radio-na.ms-radio-selected      { background: #f1f5f9; border-color: #94a3b8; color: #475569; }
+
+/* ---- Score pill ---- */
+.ms-score-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+.ms-score-5 { background: #dcfce7; color: #14532d; }
+.ms-score-3 { background: #fef3c7; color: #78350f; }
+.ms-score-0 { background: #fee2e2; color: #7f1d1d; }
+.ms-score-na { color: #94a3b8; font-size: 0.75rem; }
+.ms-score-empty { color: #d1d5db; }
+
+/* ---- Remarks textarea ---- */
+.ms-remarks-input {
+  width: 100%;
+  padding: 0.4rem 0.55rem;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-family: inherit;
+  color: #374151;
+  resize: vertical;
+  min-height: 48px;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+.ms-remarks-input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+.ms-remarks-input:disabled { background: #f9fafb; color: #9ca3af; }
+
+/* ---- Visit details grid ---- */
+.ms-visit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem 1.5rem;
+  padding: 1rem;
+}
+.ms-visit-field { display: flex; flex-direction: column; gap: 0.25rem; }
+
+/* ---- Part divider ---- */
+.ms-part-divider {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.ms-part-divider::before,
+.ms-part-divider::after {
+  content: "";
+  flex: 1;
+  height: 2px;
+  background: #7c3aed22;
+}
+.ms-part-label {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #7c3aed;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  background: #f5f3ff;
+  padding: 0.3rem 1rem;
+  border-radius: 20px;
+}
+
+/* ---- Score summary table ---- */
+.ms-score-summary-table td,
+.ms-score-summary-table th { padding: 0.55rem 1rem; }
+.ms-subtotal-row td {
+  background: #f0f4ff;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+.ms-overall-row td {
+  background: #1a1a2e;
+  color: #fff;
+  font-weight: 700;
+}
+
+/* ---- Rating legend ---- */
+.ms-rating-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-top: 1px solid #f3f4f6;
+  background: #fafbfc;
+}
+.ms-legend-dot { color: #d1d5db; }
+
+/* ---- Observations grid ---- */
+.ms-obs-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+/* ---- Bottom form actions ---- */
+.ms-form-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+  padding: 1.25rem 0 0.5rem;
+  border-top: 1.5px solid #e5e7eb;
+  margin-top: 1.5rem;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 900px) {
+  .ms-col-response { width: 140px; }
+  .ms-response-group { flex-direction: row; flex-wrap: wrap; }
+  .ms-visit-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .ms-param-table { display: block; overflow-x: auto; }
+  .ms-form-topbar { flex-wrap: wrap; gap: 0.5rem; }
+}

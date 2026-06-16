@@ -1011,6 +1011,17 @@ try:
 except Exception as e:
     print(f"⚠️ Operations router not included: {e}")
 
+# Mystery Shopping router
+try:
+    try:
+        from .routers import mystery_shopping as mystery_shopping_router
+    except ImportError:
+        from routers import mystery_shopping as mystery_shopping_router
+    app.include_router(mystery_shopping_router.router)
+    print("✅ Mystery Shopping router included")
+except Exception as e:
+    print(f"⚠️ Mystery Shopping router not included: {e}")
+
 # Sales Dashboard router
 try:
     try:
