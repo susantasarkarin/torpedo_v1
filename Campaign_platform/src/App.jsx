@@ -17,6 +17,7 @@ import Login from "./pages/Login"
 import TrafficFlowParser from "./pages/user/TrafficFlowParser"
 import SurveyError from "./pages/user/SurveyError"
 import SurveyResponse from "./pages/user/SurveyResponse"
+import MysteryShopperForm from "./pages/user/MysteryShopperForm"
 
 // ============== PANEL MODULE (Lazy Loaded) ==============
 import PanelProtectedRoute from "./panel/components/PanelProtectedRoute"
@@ -157,6 +158,7 @@ function App() {
       {/* Public user pages */}
       <Route path="/takesurvey" element={<TrafficFlowParser />} />
       <Route path="/survey-start" element={<TrafficFlowParser />} />
+      <Route path="/mystery-shopper/:auditId" element={<MysteryShopperForm />} />
       <Route path="/survey-error" element={<SurveyError />} />
       <Route path="/nosurvey" element={<SurveyError />} />
       <Route path="/response" element={<SurveyResponse />} />

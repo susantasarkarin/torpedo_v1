@@ -80,3 +80,30 @@ async def delete_audit(audit_id: str, request: Request):
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Audit not found")
     return {"ok": True}
+
+
+# ── Public endpoints (no auth — accessed by field shoppers via live link) ─────
+
+@router.get("/public/{audit_id}")
+async def get_audit_public(audit_id: str):
+    try:
+        doc = await _col.find_one({"_id": ObjectId(audit_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid audit ID")
+    if not doc:
+        raise HTTPException(status_code=404, detail="Audit not found")
+    return _serialize(doc)
+
+
+@router.put("/public/{audit_id}/submit")
+async def field_submit(audit_id: str, payload: Dict[str, Any] = Body(...)):
+    payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+    payload.setdefault("status", "submitted")
+    try:
+        await _col.update_one({"_id": ObjectId(audit_id)}, {"$set": payload})
+        doc = await _col.find_one({"_id": ObjectId(audit_id)})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid audit ID")
+    if not doc:
+        raise HTTPException(status_code=404, detail="Audit not found")
+    return _serialize(doc)

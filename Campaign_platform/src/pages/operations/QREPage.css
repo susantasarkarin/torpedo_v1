@@ -809,6 +809,57 @@
   margin-top: 1.5rem;
 }
 
+/* ---- Type badges (unified studies list) ---- */
+.ms-type-badge {
+  display: inline-block;
+  padding: 0.18rem 0.6rem;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.ms-type-qre { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+.ms-type-ms  { background: #f5f3ff; color: #7c3aed; border: 1px solid #ddd6fe; }
+
+/* ---- Live Link card ---- */
+.ms-live-link-card {
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+  background: #fafbfc;
+}
+.ms-live-link-url-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+.ms-live-link-meta { display: flex; align-items: center; gap: 0.5rem; font-size: 0.78rem; }
+.ms-live-link-id-label {
+  color: #9ca3af;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
+.ms-live-link-id {
+  font-family: monospace;
+  font-size: 0.8rem;
+  background: #f3f4f6;
+  padding: 2px 7px;
+  border-radius: 5px;
+  color: #374151;
+  user-select: all;
+}
+.ms-live-link-instructions {
+  background: #f0f9ff;
+  border: 1.5px solid #bae6fd;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+}
+
 /* ---- Responsive ---- */
 @media (max-width: 900px) {
   .ms-col-response { width: 140px; }

@@ -6,7 +6,8 @@ import {
   Download, ExternalLink, X, ChevronRight,
 } from "lucide-react";
 import { qreApi } from "../../services/qreApi";
-import MysteryShoppingTab from "./MysteryShoppingTab";
+import api from "../../utils/api";
+import MysteryShoppingDetail, { calcOverall } from "./MysteryShoppingTab";
 import "./QREPage.css";
 
 // ── Quota label & grouping map ───────────────────────────────────────────────
@@ -103,15 +104,32 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: "", client_name: "", description: "" });
   const [saving, setSaving] = useState(false);
-  const [editingStudy, setEditingStudy] = useState(null); // { id, name, client_name, description }
+  const [editingStudy, setEditingStudy] = useState(null);
   const [editForm, setEditForm] = useState({ name: "", client_name: "", description: "" });
   const [toast, showToast] = useToast();
 
   const load = useCallback(async () => {
     try {
       setError(null);
-      const data = await qreApi.listStudies();
-      setStudies(data);
+      // Fetch QRE studies and mystery shopping audits in parallel
+      const [qreData, msData] = await Promise.all([
+        qreApi.listStudies().catch(() => []),
+        api.get("/api/mystery-shopping/audits").catch(() => []),
+      ]);
+      const qreStudies = (qreData || []).map((s) => ({ ...s, _type: "qre" }));
+      const msStudies = (msData || []).map((a) => ({
+        id: a.id,
+        name: a.visit_details?.branch_name || "Unnamed Branch",
+        client_name: "IDFC FIRST Bank",
+        status: a.status,
+        created_at: a.created_at,
+        _type: "mystery_shopping",
+        _ms_data: a,
+      }));
+      const merged = [...qreStudies, ...msStudies].sort(
+        (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
+      );
+      setStudies(merged);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -146,12 +164,17 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
     }
   };
 
-  const deleteStudy = async (id, name) => {
-    if (!window.confirm(`Delete study "${name}"? This removes all respondent data and cannot be undone.`)) return;
+  const deleteStudy = async (s) => {
+    const label = s._type === "mystery_shopping" ? "mystery shopping audit" : "study";
+    if (!window.confirm(`Delete ${label} "${s.name}"? This cannot be undone.`)) return;
     try {
-      await qreApi.deleteStudy(id);
-      showToast("Study deleted");
-      if (selectedStudyId === id) onSelectStudy(null);
+      if (s._type === "mystery_shopping") {
+        await api.delete(`/api/mystery-shopping/audits/${s.id}`);
+      } else {
+        await qreApi.deleteStudy(s.id);
+      }
+      showToast("Deleted");
+      if (selectedStudyId === s.id) onSelectStudy(null);
       load();
     } catch (e) {
       showToast("Error: " + e.message);
@@ -200,66 +223,82 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
           <div className="qre-empty">
             <div className="qre-empty-icon">📋</div>
             <div className="qre-empty-title">No studies yet</div>
-            <div className="qre-empty-desc">Create your first QRE study to get started.</div>
+            <div className="qre-empty-desc">Create your first QRE study or mystery shopping audit to get started.</div>
           </div>
         ) : (
           <div className="qre-table-wrap">
             <table className="qre-table">
               <thead>
                 <tr>
-                  <th>Study Name</th>
+                  <th>Name</th>
                   <th>Client</th>
+                  <th>Type</th>
                   <th>Status</th>
-                  <th>Created</th>
+                  <th>ID</th>
+                  <th>Date</th>
+                  <th>Score</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {studies.map((s) => (
-                  <tr key={s.id} style={{ background: selectedStudyId === s.id ? "#f0f0ff" : undefined }}>
-                    <td>
-                      <button
-                        className="qre-btn qre-btn-outline qre-btn-sm"
-                        onClick={() => onSelectStudy(s)}
-                        style={{ marginRight: 6 }}
-                        title="View study dashboard"
-                      >
-                        <ChevronRight size={12} />
-                      </button>
-                      <strong>{s.name}</strong>
-                    </td>
-                    <td>{s.client_name}</td>
-                    <td><StatusBadge status={s.status} /></td>
-                    <td>{s.created_at ? new Date(s.created_at).toLocaleDateString() : "—"}</td>
-                    <td>
-                      <div className="actions-cell">
-                        {s.status === "draft" || s.status === "paused" ? (
-                          <button
-                            className="qre-btn qre-btn-success qre-btn-sm"
-                            title="Set Live"
-                            onClick={() => changeStatus(s.id, "live")}
-                          ><Play size={11} /></button>
-                        ) : s.status === "live" ? (
-                          <button
-                            className="qre-btn qre-btn-secondary qre-btn-sm"
-                            title="Pause"
-                            onClick={() => changeStatus(s.id, "paused")}
-                          ><Pause size={11} /></button>
-                        ) : null}
-                        <button
-                          className="qre-btn qre-btn-outline qre-btn-sm"
-                          title="Edit"
-                          onClick={() => openEdit(s)}
-                        ><Pencil size={11} /></button>
-                        <button
-                          className="qre-btn qre-btn-danger qre-btn-sm"
-                          title="Delete"
-                          onClick={() => deleteStudy(s.id, s.name)}
-                        ><Trash2 size={11} /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {studies.map((s) => {
+                  const isMS = s._type === "mystery_shopping";
+                  const msScore = isMS && s._ms_data?.responses
+                    ? calcOverall(s._ms_data.responses)
+                    : null;
+                  return (
+                    <tr key={`${s._type}-${s.id}`} style={{ background: selectedStudyId === s.id ? "#f0f0ff" : undefined }}>
+                      <td>
+                        <button className="qre-btn qre-btn-outline qre-btn-sm"
+                          onClick={() => onSelectStudy(s)} style={{ marginRight: 6 }}
+                          title={isMS ? "Open audit" : "View study dashboard"}>
+                          <ChevronRight size={12} />
+                        </button>
+                        <strong>{s.name}</strong>
+                      </td>
+                      <td>{s.client_name}</td>
+                      <td>
+                        {isMS
+                          ? <span className="ms-type-badge ms-type-ms">Mystery Shopping</span>
+                          : <span className="ms-type-badge ms-type-qre">QRE Survey</span>}
+                      </td>
+                      <td><StatusBadge status={s.status} /></td>
+                      <td>
+                        <code style={{ fontSize: "0.72rem", color: "#6b7280", background: "#f3f4f6", padding: "1px 5px", borderRadius: 4 }}>
+                          {s.id ? s.id.slice(0, 8) : "—"}
+                        </code>
+                      </td>
+                      <td>{s.created_at ? new Date(s.created_at).toLocaleDateString("en-IN") : "—"}</td>
+                      <td>
+                        {isMS && msScore?.pct !== null && msScore?.pct !== undefined
+                          ? (() => {
+                              const pct = msScore.pct;
+                              const color = pct >= 90 ? "#16a34a" : pct >= 75 ? "#2563eb" : pct >= 60 ? "#f59e0b" : "#dc2626";
+                              return <span style={{ color, fontWeight: 700, fontSize: "0.8rem" }}>{pct}%</span>;
+                            })()
+                          : <span style={{ color: "#d1d5db" }}>—</span>}
+                      </td>
+                      <td>
+                        <div className="actions-cell">
+                          {!isMS && (s.status === "draft" || s.status === "paused") && (
+                            <button className="qre-btn qre-btn-success qre-btn-sm" title="Set Live"
+                              onClick={() => changeStatus(s.id, "live")}><Play size={11} /></button>
+                          )}
+                          {!isMS && s.status === "live" && (
+                            <button className="qre-btn qre-btn-secondary qre-btn-sm" title="Pause"
+                              onClick={() => changeStatus(s.id, "paused")}><Pause size={11} /></button>
+                          )}
+                          {!isMS && (
+                            <button className="qre-btn qre-btn-outline qre-btn-sm" title="Edit"
+                              onClick={() => openEdit(s)}><Pencil size={11} /></button>
+                          )}
+                          <button className="qre-btn qre-btn-danger qre-btn-sm" title="Delete"
+                            onClick={() => deleteStudy(s)}><Trash2 size={11} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -892,13 +931,12 @@ const STUDY_TABS = ["Overview", "Quotas", "Redirects", "Export"];
 
 // ── Main QRE Page ─────────────────────────────────────────────────────────────
 export default function QREPage() {
-  const [mode, setMode] = useState("qre"); // "qre" | "mystery"
   const [view, setView] = useState("list"); // "list" | "detail"
   const [selectedStudy, setSelectedStudy] = useState(null);
   const [activeTab, setActiveTab] = useState("Overview");
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Silent auto-login on mount
+  // Silent auto-login for QRE backend
   useEffect(() => {
     const stored = sessionStorage.getItem("qre_admin_token");
     if (stored) {
@@ -909,55 +947,40 @@ export default function QREPage() {
           sessionStorage.setItem("qre_admin_token", res.token);
           qreApi.setToken(res.token);
         })
-        .catch(() => {}); // errors will surface in tab components
+        .catch(() => {});
     }
   }, []);
 
   const handleSelectStudy = (study) => {
     setSelectedStudy(study);
-    setActiveTab("Overview");
+    setActiveTab(study._type === "mystery_shopping" ? "Questionnaire" : "Overview");
     setView("detail");
   };
 
   const handleBackToList = () => {
     setView("list");
     setSelectedStudy(null);
-    setRefreshKey((k) => k + 1); // re-mount StudiesTab to refresh list
+    setRefreshKey((k) => k + 1);
   };
 
-  // ── Mystery Shopping mode ───────────────────────────────────────────────────
-  if (mode === "mystery") {
+  // ── Mystery Shopping detail view ────────────────────────────────────────────
+  if (view === "detail" && selectedStudy?._type === "mystery_shopping") {
     return (
-      <div className="qre-root">
-        <div className="qre-page-header">
-          <div>
-            <div className="qre-page-title-row">
-              <BarChart2 size={20} color="#667eea" />
-              <h1 className="qre-page-title">QRE Platform</h1>
-            </div>
-          </div>
-        </div>
-        <div className="ms-mode-tabs">
-          <button className="ms-mode-tab" onClick={() => setMode("qre")}>QRE Studies</button>
-          <button className="ms-mode-tab active">Mystery Shopping</button>
-        </div>
-        <MysteryShoppingTab />
-      </div>
+      <MysteryShoppingDetail
+        audit={selectedStudy._ms_data}
+        onBack={handleBackToList}
+      />
     );
   }
 
-  // ── Detail view: study name + sub-tabs ──────────────────────────────────────
+  // ── QRE study detail view ───────────────────────────────────────────────────
   if (view === "detail" && selectedStudy) {
     return (
       <div className="qre-root">
-        {/* Header */}
         <div className="qre-page-header">
           <div>
-            <button
-              className="qre-btn qre-btn-outline qre-btn-sm"
-              onClick={handleBackToList}
-              style={{ marginBottom: "0.5rem", fontSize: "0.78rem" }}
-            >
+            <button className="qre-btn qre-btn-outline qre-btn-sm" onClick={handleBackToList}
+              style={{ marginBottom: "0.5rem", fontSize: "0.78rem" }}>
               ← All Studies
             </button>
             <div className="qre-page-title-row">
@@ -970,30 +993,21 @@ export default function QREPage() {
             )}
           </div>
         </div>
-
-        {/* Sub-tabs */}
         <div className="qre-tabs">
           {STUDY_TABS.map((t) => (
-            <button
-              key={t}
-              className={`qre-tab-btn ${activeTab === t ? "active" : ""}`}
-              onClick={() => setActiveTab(t)}
-            >
-              {t}
-            </button>
+            <button key={t} className={`qre-tab-btn ${activeTab === t ? "active" : ""}`}
+              onClick={() => setActiveTab(t)}>{t}</button>
           ))}
         </div>
-
-        {/* Tab content */}
         {activeTab === "Overview"   && <OverviewTab   studyId={selectedStudy.id} />}
         {activeTab === "Quotas"     && <QuotasTab     studyId={selectedStudy.id} />}
-        {activeTab === "Redirects" && <RedirectsTab studyId={selectedStudy.id} />}
+        {activeTab === "Redirects"  && <RedirectsTab  studyId={selectedStudy.id} />}
         {activeTab === "Export"     && <ExportTab     studyId={selectedStudy.id} />}
       </div>
     );
   }
 
-  // ── List view: all studies ───────────────────────────────────────────────────
+  // ── List view ───────────────────────────────────────────────────────────────
   return (
     <div className="qre-root">
       <div className="qre-page-header">
@@ -1003,13 +1017,9 @@ export default function QREPage() {
             <h1 className="qre-page-title">QRE Platform</h1>
           </div>
           <p className="qre-page-subtitle">
-            Quantitative Research Engine — manage studies, quotas, fieldwork and data exports
+            Manage QRE survey studies and mystery shopping audits
           </p>
         </div>
-      </div>
-      <div className="ms-mode-tabs">
-        <button className="ms-mode-tab active">QRE Studies</button>
-        <button className="ms-mode-tab" onClick={() => setMode("mystery")}>Mystery Shopping</button>
       </div>
       <StudiesTab key={refreshKey} onSelectStudy={handleSelectStudy} selectedStudyId={null} />
     </div>
