@@ -102,7 +102,9 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [createType, setCreateType] = useState("qre");
   const [form, setForm] = useState({ name: "", client_name: "", description: "" });
+  const [msForm, setMsForm] = useState({ branch_name: "", visit_date: "", shopper_name: "", city: "" });
   const [saving, setSaving] = useState(false);
   const [editingStudy, setEditingStudy] = useState(null);
   const [editForm, setEditForm] = useState({ name: "", client_name: "", description: "" });
@@ -147,6 +149,29 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
       showToast("Study created");
       setShowCreate(false);
       setForm({ name: "", client_name: "", description: "" });
+      load();
+    } catch (e) {
+      showToast("Error: " + e.message);
+    }
+    setSaving(false);
+  };
+
+  const createMSAudit = async () => {
+    if (!msForm.branch_name.trim()) return;
+    setSaving(true);
+    try {
+      await api.post("/api/mystery-shopping/audits", {
+        visit_details: {
+          branch_name: msForm.branch_name.trim(),
+          visit_date: msForm.visit_date || null,
+          shopper_name: msForm.shopper_name.trim(),
+          city: msForm.city.trim(),
+        },
+        responses: {},
+      });
+      showToast("Mystery shopping audit created");
+      setShowCreate(false);
+      setMsForm({ branch_name: "", visit_date: "", shopper_name: "", city: "" });
       load();
     } catch (e) {
       showToast("Error: " + e.message);
@@ -214,7 +239,7 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
       <div className="qre-section">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem" }}>
           <h2 className="qre-section-title" style={{ margin: 0 }}>All Studies</h2>
-          <button className="qre-btn qre-btn-sm" onClick={() => setShowCreate(true)}>
+          <button className="qre-btn qre-btn-sm" onClick={() => { setCreateType("qre"); setShowCreate(true); }}>
             <Plus size={13} /> New Study
           </button>
         </div>
@@ -306,47 +331,117 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
       </div>
 
       {/* Create modal */}
-      {showCreate && (        <div className="qre-modal-overlay" onClick={() => setShowCreate(false)}>
+      {showCreate && (
+        <div className="qre-modal-overlay" onClick={() => setShowCreate(false)}>
           <div className="qre-modal" onClick={(e) => e.stopPropagation()}>
             <h3 className="qre-modal-title">Create New Study</h3>
-            <div className="qre-form">
-              <div>
-                <label className="qre-label">Study Name *</label>
-                <input
-                  className="qre-input"
-                  placeholder="e.g. India Urban Consumer Health Survey"
-                  value={form.name}
-                  onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-                />
-              </div>
-              <div>
-                <label className="qre-label">Client Name *</label>
-                <input
-                  className="qre-input"
-                  placeholder="e.g. Cogentix Research"
-                  value={form.client_name}
-                  onChange={(e) => setForm((p) => ({ ...p, client_name: e.target.value }))}
-                />
-              </div>
-              <div>
-                <label className="qre-label">Description</label>
-                <textarea
-                  className="qre-textarea"
-                  placeholder="Optional description…"
-                  value={form.description}
-                  onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
-                />
-              </div>
+
+            {/* Type picker */}
+            <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.2rem" }}>
+              <button
+                className={`qre-btn qre-btn-sm${createType === "qre" ? "" : " qre-btn-outline"}`}
+                onClick={() => setCreateType("qre")}
+              >
+                QRE Survey
+              </button>
+              <button
+                className={`qre-btn qre-btn-sm${createType === "ms" ? "" : " qre-btn-outline"}`}
+                onClick={() => setCreateType("ms")}
+              >
+                Mystery Shopping Audit
+              </button>
             </div>
+
+            {createType === "qre" ? (
+              <div className="qre-form">
+                <div>
+                  <label className="qre-label">Study Name *</label>
+                  <input
+                    className="qre-input"
+                    placeholder="e.g. India Urban Consumer Health Survey"
+                    value={form.name}
+                    onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="qre-label">Client Name *</label>
+                  <input
+                    className="qre-input"
+                    placeholder="e.g. Cogentix Research"
+                    value={form.client_name}
+                    onChange={(e) => setForm((p) => ({ ...p, client_name: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="qre-label">Description</label>
+                  <textarea
+                    className="qre-textarea"
+                    placeholder="Optional description…"
+                    value={form.description}
+                    onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="qre-form">
+                <div>
+                  <label className="qre-label">Branch Name *</label>
+                  <input
+                    className="qre-input"
+                    placeholder="e.g. IDFC FIRST Bank – Connaught Place"
+                    value={msForm.branch_name}
+                    onChange={(e) => setMsForm((p) => ({ ...p, branch_name: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="qre-label">City</label>
+                  <input
+                    className="qre-input"
+                    placeholder="e.g. New Delhi"
+                    value={msForm.city}
+                    onChange={(e) => setMsForm((p) => ({ ...p, city: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="qre-label">Date of Visit</label>
+                  <input
+                    className="qre-input"
+                    type="date"
+                    value={msForm.visit_date}
+                    onChange={(e) => setMsForm((p) => ({ ...p, visit_date: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="qre-label">Mystery Shopper Name</label>
+                  <input
+                    className="qre-input"
+                    placeholder="e.g. Priya Sharma"
+                    value={msForm.shopper_name}
+                    onChange={(e) => setMsForm((p) => ({ ...p, shopper_name: e.target.value }))}
+                  />
+                </div>
+              </div>
+            )}
+
             <div className="qre-modal-actions">
               <button className="qre-btn qre-btn-outline" onClick={() => setShowCreate(false)}>Cancel</button>
-              <button
-                className="qre-btn"
-                disabled={saving || !form.name.trim() || !form.client_name.trim()}
-                onClick={createStudy}
-              >
-                {saving ? "Creating…" : "Create Study"}
-              </button>
+              {createType === "qre" ? (
+                <button
+                  className="qre-btn"
+                  disabled={saving || !form.name.trim() || !form.client_name.trim()}
+                  onClick={createStudy}
+                >
+                  {saving ? "Creating…" : "Create Study"}
+                </button>
+              ) : (
+                <button
+                  className="qre-btn"
+                  disabled={saving || !msForm.branch_name.trim()}
+                  onClick={createMSAudit}
+                >
+                  {saving ? "Creating…" : "Create Audit"}
+                </button>
+              )}
             </div>
           </div>
         </div>
