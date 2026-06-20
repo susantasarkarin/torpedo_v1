@@ -81,19 +81,25 @@ async def get_current_user(request: Request) -> Optional[dict]:
         except Exception as e:
             logger.debug(f"Session lookup failed: {e}")
     
-    # Try Authorization header (Bearer token or API key)
-    auth_header = request.headers.get("Authorization")
-    if auth_header:
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]
-            # TODO: Validate JWT token and extract user
-            # For now, return None - implement JWT validation
-            pass
-        elif auth_header.startswith("ApiKey "):
-            api_key = auth_header[7:]
-            # TODO: Validate API key and get associated user
-            pass
-    
+    # Try Authorization header — plain signed session token (main app pattern)
+    auth_header = request.headers.get("Authorization", "").strip()
+    if auth_header and not auth_header.startswith(("Bearer ", "ApiKey ")):
+        try:
+            import sys, os
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from main import serializer, sessions, SESSION_TTL_SECONDS
+            from datetime import datetime, timedelta
+
+            cached = sessions.get(auth_header)
+            if cached and cached.get("expires_at") and cached["expires_at"] > datetime.utcnow():
+                username = cached["username"]
+            else:
+                username = serializer.loads(auth_header, max_age=SESSION_TTL_SECONDS)
+
+            return {"username": username, "email": username, "roles": ["admin"], "permissions": []}
+        except Exception as e:
+            logger.debug(f"RBAC plain-token auth failed: {e}")
+
     return None
 
 

@@ -38,3 +38,29 @@ def send_daily_panel_invitations(self):
     except Exception as exc:
         logger.error(f"[daily-panel-invite] error: {exc}", exc_info=True)
         raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="backend.tasks.panel_tasks.send_daily_panel_login_invitations",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+)
+def send_daily_panel_login_invitations(self):
+    """Send one login reminder email per registered panelist per day."""
+    try:
+        try:
+            from services.panel_email_service import send_bulk_login_invitations
+        except ImportError:
+            from backend.services.panel_email_service import send_bulk_login_invitations
+
+        result = send_bulk_login_invitations()
+        logger.info(
+            f"[daily-panel-login-invite] sent={result.get('sent')} "
+            f"skipped={result.get('skipped')} failed={result.get('failed')} "
+            f"capped={result.get('capped')} batch={result.get('batch_id')}"
+        )
+        return result
+    except Exception as exc:
+        logger.error(f"[daily-panel-login-invite] error: {exc}", exc_info=True)
+        raise self.retry(exc=exc)

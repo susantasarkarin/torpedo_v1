@@ -116,6 +116,12 @@ celery_app.conf.update(
             'schedule': crontab(hour=3, minute=30),
             'options': {'queue': 'default'},
         },
+        'panel-daily-login-invitations': {
+            # 10:00 AM IST = 04:30 UTC — daily login reminder to registered panelists
+            'task': 'backend.tasks.panel_tasks.send_daily_panel_login_invitations',
+            'schedule': crontab(hour=4, minute=30),
+            'options': {'queue': 'default'},
+        },
     },
     
     # Retry settings

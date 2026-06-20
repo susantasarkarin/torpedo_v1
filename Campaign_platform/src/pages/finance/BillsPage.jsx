@@ -64,7 +64,10 @@ function BillsPage() {
         ...(search ? { search } : {}),
         ...(status && status !== "all" ? { status } : {}),
       })
-      const response = await fetch(buildApiUrl(`/finance/bills/?${params}`))
+      const sessionId = localStorage.getItem("session_id")
+      const response = await fetch(buildApiUrl(`/finance/bills/?${params}`), {
+        headers: { Authorization: sessionId || "" },
+      })
       if (response.ok) {
         const data = await response.json()
         setBills(data.bills || data.items || [])

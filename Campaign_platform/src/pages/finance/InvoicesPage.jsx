@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useMemo } from "react"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { CURRENCIES, DEFAULT_CURRENCY, formatCurrency } from "../../utils/currency"
 import { FileText, Search, Eye, Download, Mail, Loader2, Trash2, Upload } from "lucide-react"
@@ -23,6 +23,7 @@ const DISCOUNT_TYPE_OPTIONS = [
 ]
 
 function InvoicesPage() {
+  const navigate = useNavigate()
   const [invoices, setInvoices] = useState([])
   const [customers, setCustomers] = useState([])
   const [items, setItems] = useState([])
@@ -73,7 +74,10 @@ function InvoicesPage() {
         ...(search ? { search } : {}),
         ...(status && status !== "all" ? { status } : {}),
       })
-      const response = await fetch(buildApiUrl(`/finance/invoices/?${params}`))
+      const sessionId = localStorage.getItem("session_id")
+      const response = await fetch(buildApiUrl(`/finance/invoices/?${params}`), {
+        headers: { Authorization: sessionId || "" },
+      })
       if (response.ok) {
         const data = await response.json()
         setInvoices(data.invoices || data.items || [])
