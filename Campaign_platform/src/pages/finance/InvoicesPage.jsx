@@ -76,7 +76,7 @@ function InvoicesPage() {
       const response = await fetch(buildApiUrl(`/finance/invoices/?${params}`))
       if (response.ok) {
         const data = await response.json()
-        setInvoices(data.items || [])
+        setInvoices(data.invoices || data.items || [])
         setTotalInvoices(data.total || 0)
       }
     } catch (error) {

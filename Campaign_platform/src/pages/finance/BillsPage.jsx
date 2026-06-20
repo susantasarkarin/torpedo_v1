@@ -67,7 +67,7 @@ function BillsPage() {
       const response = await fetch(buildApiUrl(`/finance/bills/?${params}`))
       if (response.ok) {
         const data = await response.json()
-        setBills(data.items || [])
+        setBills(data.bills || data.items || [])
         setTotalBills(data.total || 0)
       }
     } catch (error) {
