@@ -6,6 +6,7 @@ import { API_BASE_URL } from "../../config"
 import { CURRENCIES, DEFAULT_CURRENCY, formatCurrency } from "../../utils/currency"
 import { FileText, Search, Eye, Download, Mail, Loader2, Trash2, Upload } from "lucide-react"
 import { buildApiUrl } from "../../config"
+import Pagination from "../../components/ui/Pagination"
 
 // Invoice status options
 const INVOICE_STATUS_OPTIONS = [
@@ -475,7 +476,7 @@ function InvoicesPage() {
         totalPages={totalPages}
         totalRecords={totalInvoices}
         pageSize={recordsPerPage}
-        onPageChange={handlePageChange}
+        onPageChange={(p) => setCurrentPage(p)}
         onPageSizeChange={handleRecordsPerPageChange}
         loading={loading}
       />
