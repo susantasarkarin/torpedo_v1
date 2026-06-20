@@ -563,7 +563,7 @@ const S = {
     fontSize: "0.82rem", color: "#94a3b8", paddingBottom: "0.1rem",
   },
   card: {
-    maxWidth: 680,
+    maxWidth: 1100,
     margin: "1.5rem auto 0",
     background: "#fff",
     borderRadius: 12,
