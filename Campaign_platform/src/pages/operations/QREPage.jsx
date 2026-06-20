@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   BarChart2, RefreshCw, Plus, Trash2, Pencil, Play, Pause,
-  Download, ExternalLink, X, ChevronRight,
+  Download, ExternalLink, X, ChevronRight, Copy, Link,
 } from "lucide-react";
 import { qreApi } from "../../services/qreApi";
 import api from "../../utils/api";
@@ -316,6 +316,18 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
                           {!isMS && (
                             <button className="qre-btn qre-btn-outline qre-btn-sm" title="Edit"
                               onClick={() => openEdit(s)}><Pencil size={11} /></button>
+                          )}
+                          {isMS && (
+                            <button
+                              className="qre-btn qre-btn-outline qre-btn-sm"
+                              title="Copy live link"
+                              onClick={() => {
+                                navigator.clipboard.writeText(`${window.location.origin}/mystery-shopper/${s.id}`);
+                                showToast("Link copied!");
+                              }}
+                            >
+                              <Copy size={11} />
+                            </button>
                           )}
                           <button className="qre-btn qre-btn-danger qre-btn-sm" title="Delete"
                             onClick={() => deleteStudy(s)}><Trash2 size={11} /></button>
