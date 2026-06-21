@@ -433,16 +433,16 @@ const MS_LOCATIONS = [
   { label: "Andheri East",           city: "Mumbai", type: "Branch" },
   { label: "Andheri Apple Heritage", city: "Mumbai", type: "Loan Centre" },
   { label: "Panvel",                 city: "Mumbai", type: "Branch" },
-  { label: "Anand Vihar",            city: "Delhi",  type: "Branch" },
-  { label: "Mayur Vihar",            city: "Delhi",  type: "Branch" },
-  { label: "Rajendra Nagar",         city: "Delhi",  type: "Branch" },
-  { label: "Uttam Nagar",            city: "Delhi",  type: "Loan Centre" },
+  { label: "Anand Vihar",            city: "Kolkata",  type: "Branch" },
+  { label: "Mayur Vihar",            city: "Kolkata",  type: "Branch" },
+  { label: "Rajendra Nagar",         city: "Kolkata",  type: "Branch" },
+  { label: "Uttam Nagar",            city: "Kolkata",  type: "Loan Centre" },
 ];
 
 // High-level quota cells: by City and by Visit Type
 const MS_QUOTA_CELLS = [
   { group: "By City",       label: "Mumbai",      target: 4, match: (a) => /mumbai/i.test(a.visit_details?.city_state || a.visit_details?.city || "") },
-  { group: "By City",       label: "Delhi",       target: 4, match: (a) => /delhi/i.test(a.visit_details?.city_state || a.visit_details?.city || "") },
+  { group: "By City",       label: "Kolkata",     target: 4, match: (a) => /kolkata|delhi/i.test(a.visit_details?.city_state || a.visit_details?.city || "") },
   { group: "By Visit Type", label: "Branch Visit",      target: 6, match: (a) => !/loan/i.test(a.visit_details?.type_of_visit || "") && !/loan centre/i.test(a.visit_details?.branch_name || "") },
   { group: "By Visit Type", label: "Loan Centre Visit", target: 2, match: (a) => /loan/i.test(a.visit_details?.type_of_visit || "") || /loan centre|apple heritage|rajendra|uttam nagar/i.test(a.visit_details?.branch_name || "") },
 ];
