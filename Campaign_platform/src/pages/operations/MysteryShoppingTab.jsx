@@ -427,51 +427,55 @@ function QuestionnaireTab({ audit, onSaved }) {
 }
 
 // ─── Quotas Tab ───────────────────────────────────────────────────────────────
-// Target branches from the IDFC FIRST Bank brief (3A. Mystery Shopping — 8 Visits)
-const MS_QUOTA_BRANCHES = {
-  "Retail Branch": [
-    { label: "Powai", city: "Mumbai" },
-    { label: "Andheri East", city: "Mumbai" },
-    { label: "Anand Vihar", city: "Delhi" },
-    { label: "Mayur Vihar", city: "Delhi" },
-  ],
-  "Loan Centre": [
-    { label: "Andheri Apple Heritage", city: "Mumbai" },
-    { label: "Panvel", city: "Mumbai" },
-    { label: "Rajendra Nagar", city: "Delhi" },
-    { label: "Uttam Nagar", city: "Delhi" },
-  ],
-};
+// Locations from IDFC FIRST Bank brief — 8 visits total
+const MS_LOCATIONS = [
+  { label: "Powai",                  city: "Mumbai", type: "Branch" },
+  { label: "Andheri East",           city: "Mumbai", type: "Branch" },
+  { label: "Andheri Apple Heritage", city: "Mumbai", type: "Loan Centre" },
+  { label: "Panvel",                 city: "Mumbai", type: "Branch" },
+  { label: "Anand Vihar",            city: "Delhi",  type: "Branch" },
+  { label: "Mayur Vihar",            city: "Delhi",  type: "Branch" },
+  { label: "Rajendra Nagar",         city: "Delhi",  type: "Branch" },
+  { label: "Uttam Nagar",            city: "Delhi",  type: "Loan Centre" },
+];
+
+// High-level quota cells: by City and by Visit Type
+const MS_QUOTA_CELLS = [
+  { group: "By City",       label: "Mumbai",      target: 4, match: (a) => /mumbai/i.test(a.visit_details?.city_state || a.visit_details?.city || "") },
+  { group: "By City",       label: "Delhi",       target: 4, match: (a) => /delhi/i.test(a.visit_details?.city_state || a.visit_details?.city || "") },
+  { group: "By Visit Type", label: "Branch Visit",      target: 6, match: (a) => !/loan/i.test(a.visit_details?.type_of_visit || "") && !/loan centre/i.test(a.visit_details?.branch_name || "") },
+  { group: "By Visit Type", label: "Loan Centre Visit", target: 2, match: (a) => /loan/i.test(a.visit_details?.type_of_visit || "") || /loan centre|apple heritage|rajendra|uttam nagar/i.test(a.visit_details?.branch_name || "") },
+];
 
 function MSQuotasTab({ audit }) {
   const [allAudits, setAllAudits] = useState(null);
 
   useEffect(() => {
-    api.get("/api/mystery-shopping/audits").then((data) => setAllAudits(data?.audits || data || [])).catch(() => setAllAudits([]));
+    api.get("/api/mystery-shopping/audits")
+      .then((data) => setAllAudits(data?.audits || data || []))
+      .catch(() => setAllAudits([]));
   }, []);
 
-  // Match an audit to a branch label by branch_name fuzzy contains
-  const auditForBranch = (label) => {
+  const submitted = (allAudits || []).filter((a) => a.status === "submitted");
+  const totalDone = submitted.length;
+  const totalTarget = 8;
+  const overallPct = Math.round((totalDone / totalTarget) * 100);
+
+  const auditForLocation = (loc) => {
     if (!allAudits) return null;
-    const key = label.toLowerCase();
+    const key = loc.label.toLowerCase();
     return allAudits.find((a) => {
       const bn = (a.visit_details?.branch_name || "").toLowerCase();
-      return bn.includes(key) || key.split(" ").every((w) => bn.includes(w));
+      return bn.includes(key) || key.split(" ").every((w) => w.length > 2 && bn.includes(w));
     }) || null;
   };
 
-  const totalTarget = 8;
-  const totalDone = allAudits
-    ? Object.values(MS_QUOTA_BRANCHES).flat().filter((b) => {
-        const a = auditForBranch(b.label);
-        return a && a.status === "submitted";
-      }).length
-    : 0;
-  const fillPct = Math.round((totalDone / totalTarget) * 100);
+  // Group quota cells
+  const groups = [...new Set(MS_QUOTA_CELLS.map((c) => c.group))];
 
   return (
     <>
-      {/* Overall progress */}
+      {/* Overall fieldwork bar */}
       <div className="qre-section">
         <h3 className="qre-section-title">Field Progress — 8 Visits Target</h3>
         <div className="qre-fieldwork-bar-wrap">
@@ -480,62 +484,37 @@ function MSQuotasTab({ audit }) {
             <span>Target: {totalTarget}</span>
           </div>
           <div className="qre-fieldwork-bar-track">
-            <div className="qre-fieldwork-bar-fill" style={{ width: `${fillPct}%` }} />
+            <div className="qre-fieldwork-bar-fill" style={{ width: `${overallPct}%` }} />
           </div>
         </div>
       </div>
 
-      {/* Group grids */}
-      {Object.entries(MS_QUOTA_BRANCHES).map(([groupName, branches]) => {
-        const groupDone = allAudits
-          ? branches.filter((b) => { const a = auditForBranch(b.label); return a && a.status === "submitted"; }).length
-          : 0;
+      {/* Quota cells — By City and By Visit Type */}
+      {groups.map((group) => {
+        const cells = MS_QUOTA_CELLS.filter((c) => c.group === group);
         return (
-          <div className="qre-section" key={groupName}>
-            <h3 className="qre-section-title">
-              {groupName}s &nbsp;
-              <span style={{ fontSize: "0.82rem", fontWeight: 400, color: "#6b7280" }}>
-                {allAudits ? `${groupDone}/${branches.length} done` : "loading…"}
-              </span>
-            </h3>
+          <div className="qre-section" key={group}>
+            <h3 className="qre-section-title">{group}</h3>
             <div className="qre-quota-group">
               <div className="qre-quota-grid">
-                {branches.map((b) => {
-                  const matched = auditForBranch(b.label);
-                  const status = !matched ? "pending" : matched.status === "submitted" ? "done" : "in-progress";
-                  const statusColor = status === "done" ? "#16a34a" : status === "in-progress" ? "#f59e0b" : "#9ca3af";
-                  const statusLabel = status === "done" ? "Completed" : status === "in-progress" ? "In Progress" : "Pending";
-                  const visitDate = matched?.visit_details?.date_of_visit || matched?.visit_details?.visit_date || "";
-                  const score = matched ? (() => {
-                    let t = 0, m = 0;
-                    ALL_SECTIONS.forEach((s) => { const r = calcSectionScore(s, matched.responses || {}); t += r.score; m += (r.max || s.maxPossible); });
-                    return m > 0 ? `${Math.round(t / m * 100)}%` : null;
-                  })() : null;
-
+                {cells.map((cell) => {
+                  const done = allAudits ? allAudits.filter((a) => a.status === "submitted" && cell.match(a)).length : 0;
+                  const pct = Math.round((done / cell.target) * 100);
+                  const full = done >= cell.target;
                   return (
-                    <div className="qre-quota-card" key={b.label} style={{ minWidth: 0 }}>
+                    <div className="qre-quota-card" key={cell.label}>
                       <div className="qre-quota-header">
-                        <span style={{ fontWeight: 700, fontSize: "0.85rem" }}>{b.label}</span>
-                        <span style={{ fontSize: "0.75rem", color: "#6b7280" }}>{b.city}</span>
-                      </div>
-                      <div style={{ marginTop: "0.5rem", marginBottom: "0.4rem" }}>
-                        <span style={{ fontSize: "0.78rem", fontWeight: 700, color: statusColor,
-                          background: status === "done" ? "#f0fdf4" : status === "in-progress" ? "#fffbeb" : "#f9fafb",
-                          border: `1px solid ${statusColor}30`, borderRadius: 6, padding: "2px 8px" }}>
-                          {statusLabel}
+                        <span style={{ fontWeight: 700 }}>{cell.label}</span>
+                        <span style={{ fontWeight: 700, color: full ? "#16a34a" : "#374151" }}>
+                          {allAudits ? done : "…"} / {cell.target}
                         </span>
                       </div>
-                      {visitDate && (
-                        <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>Visit: {visitDate}</div>
-                      )}
-                      {score && (
-                        <div style={{ fontSize: "0.75rem", fontWeight: 700, color: statusColor, marginTop: 2 }}>
-                          Score: {score}
-                        </div>
-                      )}
-                      {!matched && (
-                        <div style={{ fontSize: "0.73rem", color: "#d1d5db", marginTop: 4 }}>No audit recorded</div>
-                      )}
+                      <div className="qre-quota-track" style={{ marginTop: "0.5rem" }}>
+                        <div className="qre-quota-fill" style={{ width: `${Math.min(pct, 100)}%`, background: full ? "#16a34a" : "#667eea" }} />
+                      </div>
+                      <div className="qre-quota-pct" style={{ color: full ? "#16a34a" : "#374151" }}>
+                        {allAudits ? `${pct}%` : ""}
+                      </div>
                     </div>
                   );
                 })}
@@ -545,45 +524,47 @@ function MSQuotasTab({ audit }) {
         );
       })}
 
-      {/* Summary table */}
+      {/* Location-level detail table */}
       <div className="qre-section">
-        <h3 className="qre-section-title">Location Summary</h3>
+        <h3 className="qre-section-title">Location Detail</h3>
         <div className="qre-table-wrap">
           <table className="qre-table">
             <thead>
               <tr>
-                <th>Type</th>
-                <th>Branch / Centre</th>
+                <th>Location</th>
                 <th>City</th>
+                <th>Type</th>
                 <th>Status</th>
                 <th>Visit Date</th>
                 <th>Score</th>
               </tr>
             </thead>
             <tbody>
-              {Object.entries(MS_QUOTA_BRANCHES).map(([groupName, branches]) =>
-                branches.map((b, i) => {
-                  const matched = auditForBranch(b.label);
-                  const status = !matched ? "Pending" : matched.status === "submitted" ? "Completed" : "In Progress";
-                  const statusColor = status === "Completed" ? "#16a34a" : status === "In Progress" ? "#f59e0b" : "#9ca3af";
-                  const visitDate = matched?.visit_details?.date_of_visit || matched?.visit_details?.visit_date || "—";
-                  const score = matched ? (() => {
-                    let t = 0, m = 0;
-                    ALL_SECTIONS.forEach((s) => { const r = calcSectionScore(s, matched.responses || {}); t += r.score; m += (r.max || s.maxPossible); });
-                    return m > 0 ? `${Math.round(t / m * 100)}%` : "—";
-                  })() : "—";
-                  return (
-                    <tr key={b.label}>
-                      {i === 0 && <td rowSpan={branches.length} style={{ fontWeight: 600, verticalAlign: "top", fontSize: "0.82rem" }}>{groupName}</td>}
-                      <td style={{ fontWeight: 600 }}>{b.label}</td>
-                      <td style={{ color: "#6b7280" }}>{b.city}</td>
-                      <td><span style={{ color: statusColor, fontWeight: 700, fontSize: "0.8rem" }}>{status}</span></td>
-                      <td style={{ color: "#6b7280", fontSize: "0.82rem" }}>{visitDate}</td>
-                      <td style={{ fontWeight: 700, color: statusColor }}>{score}</td>
-                    </tr>
-                  );
-                })
-              )}
+              {MS_LOCATIONS.map((loc) => {
+                const matched = auditForLocation(loc);
+                const status = !matched ? "Pending" : matched.status === "submitted" ? "Completed" : "In Progress";
+                const statusColor = status === "Completed" ? "#16a34a" : status === "In Progress" ? "#f59e0b" : "#9ca3af";
+                const visitDate = matched?.visit_details?.date_of_visit || matched?.visit_details?.visit_date || "—";
+                const score = matched ? (() => {
+                  let t = 0, m = 0;
+                  ALL_SECTIONS.forEach((s) => { const r = calcSectionScore(s, matched.responses || {}); t += r.score; m += (r.max || s.maxPossible); });
+                  return m > 0 ? `${Math.round(t / m * 100)}%` : "—";
+                })() : "—";
+                return (
+                  <tr key={loc.label}>
+                    <td style={{ fontWeight: 600 }}>{loc.label}</td>
+                    <td style={{ color: "#6b7280" }}>{loc.city}</td>
+                    <td>
+                      <span className={`qre-badge ${loc.type === "Loan Centre" ? "qre-badge-paused" : "qre-badge-draft"}`}>
+                        {loc.type}
+                      </span>
+                    </td>
+                    <td><span style={{ color: statusColor, fontWeight: 700, fontSize: "0.8rem" }}>{status}</span></td>
+                    <td style={{ color: "#6b7280", fontSize: "0.82rem" }}>{visitDate}</td>
+                    <td style={{ fontWeight: 700, color: statusColor }}>{score}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
