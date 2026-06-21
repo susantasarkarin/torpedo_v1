@@ -70,14 +70,30 @@ async def _authenticated_user(request: Request) -> dict:
     return {"username": username, "roles": _user_roles(user_doc)}
 
 
+def _check_internal_service_token(request: Request) -> bool:
+    """
+    Allow internal services (e.g. the lead-gen MCP server) to call CRM endpoints
+    without a user session. Only active when INTERNAL_SERVICE_TOKEN is set in env.
+    """
+    token = os.getenv("INTERNAL_SERVICE_TOKEN", "").strip()
+    if not token:
+        return False
+    return request.headers.get("X-Service-Token", "").strip() == token
+
+
 def require(capability: Optional[str] = None):
     """
     Dependency factory. Returns a dependency that authenticates the request and,
     when RBAC is enabled, enforces the given coarse capability. Returns the
     username (so call sites that record the acting identity keep working).
+
+    Internal services may bypass session auth by sending:
+        X-Service-Token: <INTERNAL_SERVICE_TOKEN env value>
     """
 
     async def dependency(request: Request) -> str:
+        if _check_internal_service_token(request):
+            return "internal-service"
         user = await _authenticated_user(request)
         if not is_allowed(user, capability):
             raise HTTPException(
