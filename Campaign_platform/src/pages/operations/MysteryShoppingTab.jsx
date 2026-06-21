@@ -732,57 +732,6 @@ function MSOverviewTab({ audit }) {
         </div>
       </div>
 
-      {/* Section breakdown — mirrors quota fill bars */}
-      <div className="qre-section">
-        <h3 className="qre-section-title">Part A — Branch Banking Services</h3>
-        <div className="qre-quota-group">
-          <div className="qre-quota-grid">
-            {QUESTIONNAIRE.partA.map((s) => {
-              const { score, max } = calcSectionScore(s, responses);
-              const adjMax = max || s.maxPossible;
-              const fillPct = adjMax > 0 ? Math.min(100, Math.round((score / adjMax) * 100)) : 0;
-              const { color } = ratingMeta(fillPct);
-              return (
-                <div key={s.id} className="qre-quota-card">
-                  <div className="qre-quota-header">
-                    <span style={{ fontSize: "0.78rem" }}>{s.title}</span>
-                    <span>{score}/{adjMax}</span>
-                  </div>
-                  <div className="qre-quota-track">
-                    <div className="qre-quota-fill" style={{ width: `${fillPct}%`, background: color }} />
-                  </div>
-                  <div className="qre-quota-pct">{fillPct}%</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <h3 className="qre-section-title" style={{ marginTop: "1.5rem" }}>Part B — Loan / Retail Asset Services</h3>
-        <div className="qre-quota-group">
-          <div className="qre-quota-grid">
-            {QUESTIONNAIRE.partB.map((s) => {
-              const { score, max } = calcSectionScore(s, responses);
-              const adjMax = max || s.maxPossible;
-              const fillPct = adjMax > 0 ? Math.min(100, Math.round((score / adjMax) * 100)) : 0;
-              const { color } = ratingMeta(fillPct);
-              return (
-                <div key={s.id} className="qre-quota-card">
-                  <div className="qre-quota-header">
-                    <span style={{ fontSize: "0.78rem" }}>{s.title}</span>
-                    <span>{score}/{adjMax}</span>
-                  </div>
-                  <div className="qre-quota-track">
-                    <div className="qre-quota-fill" style={{ width: `${fillPct}%`, background: color }} />
-                  </div>
-                  <div className="qre-quota-pct">{fillPct}%</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
       {/* Score summary table */}
       <div className="qre-section">
         <h3 className="qre-section-title">Score Summary</h3>
