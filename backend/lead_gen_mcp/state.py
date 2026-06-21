@@ -90,22 +90,59 @@ CREATE TABLE IF NOT EXISTS profiles_seen (
     first_seen_query    TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS domain_patterns (
+    domain              TEXT PRIMARY KEY,
+    pattern             TEXT NOT NULL,          -- e.g. "{first}.{last}"
+    organization        TEXT,
+    company_type        TEXT,
+    company_industry    TEXT,
+    company_country     TEXT,
+    company_city        TEXT,
+    company_state       TEXT,
+    company_employees   TEXT,
+    company_revenue     TEXT,
+    company_website     TEXT,
+    company_linkedin    TEXT,
+    company_twitter     TEXT,
+    company_founded     TEXT,
+    first_seen_ts       TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS leads (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     external_id         TEXT UNIQUE NOT NULL,   -- SHA-256 of normalised profile_url
     profile_url         TEXT NOT NULL,
     icp_id              TEXT NOT NULL,
+    -- Identity
     name                TEXT,
+    first_name          TEXT,
+    last_name           TEXT,
     title               TEXT,
-    company             TEXT,
     location            TEXT,
     snippet             TEXT,
     source_query        TEXT,
     icp_score           REAL,
+    added_on            TEXT,
+    -- Email
     email               TEXT,
-    hunter_confidence   INTEGER,
-    verification_status TEXT,
-    domain              TEXT,
+    email_status        TEXT,                   -- valid | risky | invalid | unknown
+    email_pattern       TEXT,                   -- pattern used to construct email
+    -- Company
+    company             TEXT,
+    company_industry    TEXT,
+    company_linkedin    TEXT,
+    company_location    TEXT,
+    company_city        TEXT,
+    company_state       TEXT,
+    company_country     TEXT,
+    company_employees   TEXT,
+    company_revenue     TEXT,
+    company_type        TEXT,
+    company_website     TEXT,
+    company_domain      TEXT,
+    company_twitter     TEXT,
+    company_founded     TEXT,
+    -- Pipeline
     status              TEXT NOT NULL DEFAULT 'scored',  -- scored|enriched|pushed|failed
     crm_contact_id      TEXT,
     run_ts              TEXT NOT NULL,
@@ -286,42 +323,111 @@ def upsert_lead(data: Dict[str, Any]) -> str:
     with get_conn() as conn:
         conn.execute(
             """
-            INSERT INTO leads
-                (external_id, profile_url, icp_id, name, title, company, location,
-                 snippet, source_query, icp_score, email, hunter_confidence,
-                 verification_status, domain, status, crm_contact_id, run_ts, updated_ts)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO leads (
+                external_id, profile_url, icp_id,
+                name, first_name, last_name, title, location, snippet,
+                source_query, icp_score, added_on,
+                email, email_status, email_pattern,
+                company, company_industry, company_linkedin, company_location,
+                company_city, company_state, company_country, company_employees,
+                company_revenue, company_type, company_website, company_domain,
+                company_twitter, company_founded,
+                status, crm_contact_id, run_ts, updated_ts
+            ) VALUES (
+                ?,?,?,
+                ?,?,?,?,?,?,
+                ?,?,?,
+                ?,?,?,
+                ?,?,?,?,
+                ?,?,?,?,
+                ?,?,?,?,
+                ?,?,
+                ?,?,?,?
+            )
             ON CONFLICT(external_id) DO UPDATE SET
-                status              = excluded.status,
-                email               = COALESCE(excluded.email, leads.email),
-                hunter_confidence   = COALESCE(excluded.hunter_confidence, leads.hunter_confidence),
-                verification_status = COALESCE(excluded.verification_status, leads.verification_status),
-                domain              = COALESCE(excluded.domain, leads.domain),
-                crm_contact_id      = COALESCE(excluded.crm_contact_id, leads.crm_contact_id),
-                updated_ts          = excluded.updated_ts
+                status           = excluded.status,
+                email            = COALESCE(excluded.email,            leads.email),
+                email_status     = COALESCE(excluded.email_status,     leads.email_status),
+                email_pattern    = COALESCE(excluded.email_pattern,    leads.email_pattern),
+                first_name       = COALESCE(excluded.first_name,       leads.first_name),
+                last_name        = COALESCE(excluded.last_name,        leads.last_name),
+                company_industry = COALESCE(excluded.company_industry, leads.company_industry),
+                company_linkedin = COALESCE(excluded.company_linkedin, leads.company_linkedin),
+                company_location = COALESCE(excluded.company_location, leads.company_location),
+                company_city     = COALESCE(excluded.company_city,     leads.company_city),
+                company_state    = COALESCE(excluded.company_state,    leads.company_state),
+                company_country  = COALESCE(excluded.company_country,  leads.company_country),
+                company_employees= COALESCE(excluded.company_employees,leads.company_employees),
+                company_revenue  = COALESCE(excluded.company_revenue,  leads.company_revenue),
+                company_type     = COALESCE(excluded.company_type,     leads.company_type),
+                company_website  = COALESCE(excluded.company_website,  leads.company_website),
+                company_domain   = COALESCE(excluded.company_domain,   leads.company_domain),
+                company_twitter  = COALESCE(excluded.company_twitter,  leads.company_twitter),
+                company_founded  = COALESCE(excluded.company_founded,  leads.company_founded),
+                crm_contact_id   = COALESCE(excluded.crm_contact_id,   leads.crm_contact_id),
+                updated_ts       = excluded.updated_ts
             """,
             (
-                eid,
-                data["profile_url"],
-                data.get("icp_id", ""),
-                data.get("name"),
-                data.get("title"),
-                data.get("company"),
-                data.get("location"),
-                data.get("snippet"),
-                data.get("source_query"),
-                data.get("icp_score"),
-                data.get("email"),
-                data.get("hunter_confidence"),
-                data.get("verification_status"),
-                data.get("domain"),
-                data.get("status", "scored"),
-                data.get("crm_contact_id"),
-                now,
-                now,
+                eid, data["profile_url"], data.get("icp_id", ""),
+                data.get("name"), data.get("first_name"), data.get("last_name"),
+                data.get("title"), data.get("location"), data.get("snippet"),
+                data.get("source_query"), data.get("icp_score"), data.get("added_on"),
+                data.get("email"), data.get("email_status"), data.get("email_pattern"),
+                data.get("company"), data.get("company_industry"), data.get("company_linkedin"),
+                data.get("company_location"), data.get("company_city"), data.get("company_state"),
+                data.get("company_country"), data.get("company_employees"), data.get("company_revenue"),
+                data.get("company_type"), data.get("company_website"), data.get("company_domain"),
+                data.get("company_twitter"), data.get("company_founded"),
+                data.get("status", "scored"), data.get("crm_contact_id"),
+                now, now,
             ),
         )
     return eid
+
+
+# ---------------------------------------------------------------------------
+# Domain pattern cache helpers
+# ---------------------------------------------------------------------------
+
+def get_domain_pattern(domain: str) -> Optional[Dict[str, Any]]:
+    """Return cached domain pattern row, or None if not yet seen."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM domain_patterns WHERE domain = ?", (domain.lower().strip(),)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def save_domain_pattern(domain: str, pattern: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+    """
+    Persist a Hunter.io domain-search result.
+    Idempotent — silently ignores if domain already cached.
+    """
+    m = metadata or {}
+    try:
+        with get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO domain_patterns (
+                    domain, pattern, organization, company_type, company_industry,
+                    company_country, company_city, company_state, company_employees,
+                    company_revenue, company_website, company_linkedin, company_twitter,
+                    company_founded, first_seen_ts
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(domain) DO NOTHING
+                """,
+                (
+                    domain.lower().strip(), pattern,
+                    m.get("organization"), m.get("company_type"), m.get("company_industry"),
+                    m.get("company_country"), m.get("company_city"), m.get("company_state"),
+                    m.get("company_employees"), m.get("company_revenue"),
+                    m.get("company_website"), m.get("company_linkedin"),
+                    m.get("company_twitter"), m.get("company_founded"),
+                    _now(),
+                ),
+            )
+    except Exception:
+        pass
 
 
 def get_lead_counts(icp_id: str) -> Dict[str, int]:
