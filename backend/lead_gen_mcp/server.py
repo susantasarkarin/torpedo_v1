@@ -42,6 +42,7 @@ from .scorer import score_and_dedup as _score_dedup, extract_title_synonyms
 from .enricher import enrich_emails as _enrich
 from .crm_writer import push_to_crm as _push_crm
 from .query_agent import propose_queries as _propose, learn_synonyms_from_results
+from .bounce_handler import handle_bounce as _handle_bounce
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -358,7 +359,43 @@ async def ingest_triggers(
 
 
 # ---------------------------------------------------------------------------
-# 9. get_pipeline_stats
+# 9. handle_bounce
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+async def handle_bounce(
+    bounced_email: str,
+    bounce_type: str = "hard",
+    external_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Re-enrich a lead whose email hard-bounced.
+
+    Resolution order (cheapest first):
+      1. Pattern variants — {first}{last}, {f}.{last}, etc. — probed via SMTP,
+         no API cost
+      2. Claude AI — reasons about nicknames, name variants, and company-specific
+         alias patterns, then SMTP-probes each candidate
+      3. Hunter email-finder — last resort, costs one Hunter credit
+
+    The bounce is logged in bounce_log and the lead row is updated with the
+    new email (status → re_enriched) or left as bounced if all fail.
+
+    Args:
+        bounced_email: The email address that bounced
+        bounce_type:   "hard" | "soft" (default "hard")
+        external_id:   Optional SHA-256 lead ID — used to find the lead faster
+                       than scanning by email
+    """
+    return await _handle_bounce(
+        bounced_email=bounced_email,
+        bounce_type=bounce_type,
+        external_id=external_id,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 10. get_pipeline_stats
 # ---------------------------------------------------------------------------
 
 @mcp.tool()

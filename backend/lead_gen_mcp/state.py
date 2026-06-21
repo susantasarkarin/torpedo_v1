@@ -181,10 +181,25 @@ CREATE TABLE IF NOT EXISTS triggers (
     created_at      TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS bounce_log (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    external_id         TEXT NOT NULL,      -- FK to leads.external_id
+    bounced_email       TEXT NOT NULL,
+    bounce_type         TEXT NOT NULL DEFAULT 'hard',   -- hard | soft
+    bounced_at          TEXT NOT NULL,
+    -- Re-enrichment outcome
+    new_email           TEXT,               -- NULL until re-enrichment succeeds
+    new_email_source    TEXT,               -- "pattern_variant" | "hunter_finder" | "ai_guess"
+    re_enriched_at      TEXT,
+    attempt_count       INTEGER NOT NULL DEFAULT 1,
+    ai_candidates       TEXT                -- JSON array of all AI-suggested emails tried
+);
+
 CREATE INDEX IF NOT EXISTS idx_queries_icp     ON queries(icp_id, run_ts);
 CREATE INDEX IF NOT EXISTS idx_leads_icp       ON leads(icp_id, status);
 CREATE INDEX IF NOT EXISTS idx_leads_ext       ON leads(external_id);
 CREATE INDEX IF NOT EXISTS idx_triggers_inj    ON triggers(injected, icp_id);
+CREATE INDEX IF NOT EXISTS idx_bounce_ext      ON bounce_log(external_id);
 """
 
 
@@ -652,6 +667,90 @@ def get_yield_curve(icp_id: str, limit: int = 30) -> List[Dict[str, Any]]:
             ORDER BY run_ts DESC LIMIT ?
             """,
             (icp_id, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Bounce log helpers
+# ---------------------------------------------------------------------------
+
+def log_bounce(
+    external_id: str,
+    bounced_email: str,
+    bounce_type: str = "hard",
+) -> int:
+    """Record a bounce event. Returns the bounce_log row id."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO bounce_log (external_id, bounced_email, bounce_type, bounced_at)
+            VALUES (?,?,?,?)
+            """,
+            (external_id, bounced_email, bounce_type, _now()),
+        )
+        row_id = cur.lastrowid
+    # Mark lead as bounced
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE leads SET email_status='bounced', updated_ts=? WHERE external_id=?",
+            (_now(), external_id),
+        )
+    return row_id
+
+
+def record_re_enrichment(
+    bounce_log_id: int,
+    external_id: str,
+    new_email: str,
+    source: str,
+    ai_candidates: Optional[List[str]] = None,
+) -> None:
+    """Persist the outcome of a successful re-enrichment."""
+    import json as _json
+    now = _now()
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE bounce_log SET
+                new_email        = ?,
+                new_email_source = ?,
+                re_enriched_at   = ?,
+                ai_candidates    = ?
+            WHERE id = ?
+            """,
+            (new_email, source, now, _json.dumps(ai_candidates or []), bounce_log_id),
+        )
+    # Update the lead row with the new email
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE leads SET email=?, email_status='re_enriched', updated_ts=? WHERE external_id=?",
+            (new_email, now, external_id),
+        )
+
+
+def get_lead_by_external_id(eid: str) -> Optional[Dict[str, Any]]:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM leads WHERE external_id = ?", (eid,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_lead_by_email(email: str) -> Optional[Dict[str, Any]]:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM leads WHERE email = ? ORDER BY updated_ts DESC LIMIT 1",
+            (email.lower().strip(),),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_bounce_history(external_id: str) -> List[Dict[str, Any]]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM bounce_log WHERE external_id=? ORDER BY bounced_at DESC",
+            (external_id,),
         ).fetchall()
     return [dict(r) for r in rows]
 
