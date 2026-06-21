@@ -76,37 +76,30 @@ function Toast({ text, type }) {
   );
 }
 
+const VD_INPUT = {
+  width: "100%", boxSizing: "border-box",
+  padding: "0.65rem 0.85rem",
+  border: "1.5px solid #d1d5db", borderRadius: 8,
+  fontSize: "1rem", fontFamily: "inherit", color: "#111827",
+  outline: "none",
+};
+const VD_LABEL = {
+  display: "block", fontSize: "0.88rem", fontWeight: 700,
+  color: "#374151", marginBottom: "0.3rem",
+};
+const VD_ROW = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" };
+
 function VisitDetailsStep({ vd, onChange, readOnly }) {
-  const f = (key) => (e) => onChange((p) => ({ ...p, [key]: e.target.value }));
-  const inputStyle = {
-    width: "100%", boxSizing: "border-box",
-    padding: "0.65rem 0.85rem",
-    border: "1.5px solid #d1d5db", borderRadius: 8,
-    fontSize: "1rem", fontFamily: "inherit", color: "#111827",
-    background: readOnly ? "#f9fafb" : "#fff",
-    outline: "none",
-  };
-  const labelStyle = {
-    display: "block", fontSize: "0.88rem", fontWeight: 700,
-    color: "#374151", marginBottom: "0.3rem",
-  };
-  const Row = ({ children }) => (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-      {children}
-    </div>
-  );
-  const Field = ({ label, k, type = "text", placeholder }) => (
-    <div>
-      <label style={labelStyle}>{label}</label>
-      <input
-        type={type}
-        disabled={readOnly}
-        value={vd[k] || ""}
-        onChange={f(k)}
-        placeholder={placeholder}
-        style={inputStyle}
-      />
-    </div>
+  const set = (key) => (e) => onChange((p) => ({ ...p, [key]: e.target.value }));
+  const inp = (k, type = "text", placeholder) => (
+    <input
+      type={type}
+      disabled={readOnly}
+      value={vd[k] || ""}
+      onChange={set(k)}
+      placeholder={placeholder}
+      style={{ ...VD_INPUT, background: readOnly ? "#f9fafb" : "#fff" }}
+    />
   );
 
   return (
@@ -115,28 +108,58 @@ function VisitDetailsStep({ vd, onChange, readOnly }) {
         Visit Details
       </h2>
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-        <Row>
-          <Field label="Branch Name *" k="branch_name" placeholder="e.g. IDFC FIRST Bank – Connaught Place" />
-          <Field label="Branch Code" k="branch_code" placeholder="e.g. DEL-042" />
-        </Row>
-        <Row>
-          <Field label="Branch Address" k="branch_address" placeholder="Street address" />
-          <Field label="City / State" k="city_state" placeholder="e.g. New Delhi, Delhi" />
-        </Row>
-        <Row>
-          <Field label="Region / Zone" k="region_zone" placeholder="e.g. North Zone" />
-          <Field label="Date of Visit" k="date_of_visit" type="date" />
-        </Row>
-        <Row>
-          <Field label="Time In" k="time_in" type="time" />
-          <Field label="Time Out" k="time_out" type="time" />
-        </Row>
-        <Row>
-          <Field label="Mystery Shopper Name" k="shopper_name" placeholder="Full name" />
-          <Field label="Shopper ID" k="shopper_id" placeholder="e.g. SH-2024-007" />
-        </Row>
+        <div style={VD_ROW}>
+          <div>
+            <label style={VD_LABEL}>Branch Name *</label>
+            {inp("branch_name", "text", "e.g. IDFC FIRST Bank – Connaught Place")}
+          </div>
+          <div>
+            <label style={VD_LABEL}>Branch Code</label>
+            {inp("branch_code", "text", "e.g. DEL-042")}
+          </div>
+        </div>
+        <div style={VD_ROW}>
+          <div>
+            <label style={VD_LABEL}>Branch Address</label>
+            {inp("branch_address", "text", "Street address")}
+          </div>
+          <div>
+            <label style={VD_LABEL}>City / State</label>
+            {inp("city_state", "text", "e.g. New Delhi, Delhi")}
+          </div>
+        </div>
+        <div style={VD_ROW}>
+          <div>
+            <label style={VD_LABEL}>Region / Zone</label>
+            {inp("region_zone", "text", "e.g. North Zone")}
+          </div>
+          <div>
+            <label style={VD_LABEL}>Date of Visit</label>
+            {inp("date_of_visit", "date")}
+          </div>
+        </div>
+        <div style={VD_ROW}>
+          <div>
+            <label style={VD_LABEL}>Time In</label>
+            {inp("time_in", "time")}
+          </div>
+          <div>
+            <label style={VD_LABEL}>Time Out</label>
+            {inp("time_out", "time")}
+          </div>
+        </div>
+        <div style={VD_ROW}>
+          <div>
+            <label style={VD_LABEL}>Mystery Shopper Name</label>
+            {inp("shopper_name", "text", "Full name")}
+          </div>
+          <div>
+            <label style={VD_LABEL}>Shopper ID</label>
+            {inp("shopper_id", "text", "e.g. SH-2024-007")}
+          </div>
+        </div>
         <div>
-          <label style={labelStyle}>Type of Visit</label>
+          <label style={VD_LABEL}>Type of Visit</label>
           <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
             {["Branch Banking", "Loan Services", "Both"].map((opt) => {
               const sel = vd.type_of_visit === opt;
@@ -160,12 +183,19 @@ function VisitDetailsStep({ vd, onChange, readOnly }) {
             })}
           </div>
         </div>
-        <Row>
-          <Field label="Scenario Used" k="scenario_used" placeholder="Scenario description" />
-          <Field label="Staff Interacted With (Name / Desk)" k="staff_interacted" placeholder="e.g. Rahul – Teller 2" />
-        </Row>
+        <div style={VD_ROW}>
+          <div>
+            <label style={VD_LABEL}>Scenario Used</label>
+            {inp("scenario_used", "text", "Scenario description")}
+          </div>
+          <div>
+            <label style={VD_LABEL}>Staff Interacted With (Name / Desk)</label>
+            {inp("staff_interacted", "text", "e.g. Rahul – Teller 2")}
+          </div>
+        </div>
         <div style={{ maxWidth: "50%" }}>
-          <Field label="Contact No. Collected" k="contact_collected" placeholder="Yes / No / NA" />
+          <label style={VD_LABEL}>Contact No. Collected</label>
+          {inp("contact_collected", "text", "Yes / No / NA")}
         </div>
       </div>
     </div>
