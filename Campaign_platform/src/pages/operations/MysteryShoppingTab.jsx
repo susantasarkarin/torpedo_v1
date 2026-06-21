@@ -426,6 +426,201 @@ function QuestionnaireTab({ audit, onSaved }) {
   );
 }
 
+// ─── Quotas Tab ───────────────────────────────────────────────────────────────
+function MSQuotasTab({ audit }) {
+  const responses = audit.responses || {};
+
+  // Each section shows: parameters answered, score fill, completion %
+  const partA = QUESTIONNAIRE.partA;
+  const partB = QUESTIONNAIRE.partB;
+
+  function SectionQuota({ section }) {
+    const { score, max } = calcSectionScore(section, responses);
+    const adjMax = max || section.maxPossible;
+    const answered = section.params.filter((p) => responses?.[p.id]?.response).length;
+    const total = section.params.length;
+    const completionPct = total > 0 ? Math.round((answered / total) * 100) : 0;
+    const scorePct = adjMax > 0 ? Math.round((score / adjMax) * 100) : 0;
+    const { color } = ratingMeta(scorePct);
+    return (
+      <div className="qre-quota-card" style={{ minWidth: 0 }}>
+        <div className="qre-quota-header">
+          <span style={{ fontSize: "0.78rem", fontWeight: 600 }}>{section.title}</span>
+          <span style={{ fontWeight: 700 }}>{answered}/{total} rated</span>
+        </div>
+        {/* Completion bar */}
+        <div style={{ marginBottom: "0.3rem" }}>
+          <div style={{ fontSize: "0.7rem", color: "#6b7280", marginBottom: 2 }}>Completion</div>
+          <div className="qre-quota-track">
+            <div className="qre-quota-fill" style={{ width: `${completionPct}%`, background: completionPct === 100 ? "#16a34a" : "#667eea" }} />
+          </div>
+          <div className="qre-quota-pct">{completionPct}%</div>
+        </div>
+        {/* Score bar */}
+        <div>
+          <div style={{ fontSize: "0.7rem", color: "#6b7280", marginBottom: 2 }}>Score: {score}/{adjMax}</div>
+          <div className="qre-quota-track">
+            <div className="qre-quota-fill" style={{ width: `${scorePct}%`, background: color }} />
+          </div>
+          <div className="qre-quota-pct" style={{ color }}>{scorePct}%</div>
+        </div>
+      </div>
+    );
+  }
+
+  const totalAnswered = ALL_SECTIONS.reduce((n, s) => n + s.params.filter((p) => responses?.[p.id]?.response).length, 0);
+  const totalParams = ALL_SECTIONS.reduce((n, s) => n + s.params.length, 0);
+  const { total, totalMax } = (() => { let t = 0, m = 0; ALL_SECTIONS.forEach((s) => { const r = calcSectionScore(s, responses); t += r.score; m += (r.max || s.maxPossible); }); return { total: t, totalMax: m }; })();
+  const overallPct = totalMax > 0 ? Math.round((total / totalMax) * 100) : 0;
+  const { color: overallColor, label: overallLabel } = ratingMeta(overallPct);
+
+  return (
+    <>
+      {/* Summary bar like QRE fieldwork progress */}
+      <div className="qre-section">
+        <h3 className="qre-section-title">Audit Completion</h3>
+        <div className="qre-fieldwork-bar-wrap">
+          <div className="qre-fieldwork-bar-labels">
+            <span>{totalAnswered} parameters rated</span>
+            <span>Total: {totalParams}</span>
+          </div>
+          <div className="qre-fieldwork-bar-track">
+            <div className="qre-fieldwork-bar-fill" style={{ width: `${Math.round((totalAnswered / totalParams) * 100)}%` }} />
+          </div>
+        </div>
+        <div style={{ marginTop: "0.5rem", fontSize: "0.88rem", fontWeight: 700, color: overallColor }}>
+          Overall Score: {total}/{totalMax} — {overallPct}% ({overallLabel})
+        </div>
+      </div>
+
+      {/* Part A section grid */}
+      <div className="qre-section">
+        <h3 className="qre-section-title">Part A — Branch Banking Services</h3>
+        <div className="qre-quota-group">
+          <div className="qre-quota-grid">
+            {partA.map((s) => <SectionQuota key={s.id} section={s} />)}
+          </div>
+        </div>
+      </div>
+
+      {/* Part B section grid */}
+      <div className="qre-section">
+        <h3 className="qre-section-title">Part B — Loan / Retail Asset Services</h3>
+        <div className="qre-quota-group">
+          <div className="qre-quota-grid">
+            {partB.map((s) => <SectionQuota key={s.id} section={s} />)}
+          </div>
+        </div>
+      </div>
+
+      {/* Parameter-level detail table */}
+      <div className="qre-section">
+        <h3 className="qre-section-title">Parameter Detail</h3>
+        <div className="qre-table-wrap">
+          <table className="qre-table">
+            <thead>
+              <tr>
+                <th>Section</th>
+                <th>#</th>
+                <th style={{ width: "45%" }}>Parameter</th>
+                <th>Response</th>
+                <th>Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ALL_SECTIONS.map((s) =>
+                s.params.map((p, i) => {
+                  const r = responses?.[p.id] || {};
+                  const sc = r.response && r.response !== "N/A" ? scoreFromResponse(r.response) : null;
+                  return (
+                    <tr key={p.id}>
+                      {i === 0 && <td rowSpan={s.params.length} style={{ fontWeight: 600, verticalAlign: "top", fontSize: "0.78rem" }}>{s.title}</td>}
+                      <td style={{ color: "#9ca3af", fontSize: "0.78rem" }}>{i + 1}</td>
+                      <td style={{ fontSize: "0.8rem" }}>{p.text}</td>
+                      <td>
+                        {r.response ? (
+                          <span className={`qre-badge ${r.response === "Yes" ? "qre-badge-live" : r.response === "No" ? "qre-badge-closed" : r.response === "Partial" ? "qre-badge-paused" : "qre-badge-draft"}`}>
+                            {r.response}
+                          </span>
+                        ) : <span style={{ color: "#d1d5db" }}>—</span>}
+                      </td>
+                      <td style={{ textAlign: "center", fontWeight: 700, color: sc === 5 ? "#16a34a" : sc === 3 ? "#f59e0b" : sc === 0 ? "#dc2626" : "#9ca3af" }}>
+                        {sc !== null ? sc : r.response === "N/A" ? "N/A" : "—"}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Export Tab ───────────────────────────────────────────────────────────────
+function MSExportTab({ auditId, auditName }) {
+  const [busy, setBusy] = useState(null);
+  const [toast, showToast] = useToast();
+
+  const download = async (format) => {
+    if (busy) return;
+    setBusy(format);
+    try {
+      const token = localStorage.getItem("session_id") || "";
+      const res = await fetch(`/api/mystery-shopping/audits/${auditId}/export?format=${format}`, {
+        headers: { Authorization: token },
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const safe = (auditName || "audit").replace(/[^a-z0-9]/gi, "_").slice(0, 40);
+      a.download = `ms_${safe}_${auditId.slice(0, 8)}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      showToast("Export failed: " + e.message);
+    }
+    setBusy(null);
+  };
+
+  return (
+    <div className="qre-section">
+      <h2 className="qre-section-title">Data Export</h2>
+      <p className="qre-section-desc">
+        Download audit responses for this mystery shopping visit. Data includes all visit details, parameter responses, scores, and observations.
+      </p>
+      {toast && <div className="qre-toast">{toast}</div>}
+      <div className="qre-export-grid">
+        <div
+          className={`qre-export-card${busy === "csv" ? " qre-export-loading" : ""}`}
+          onClick={() => download("csv")}
+        >
+          <div className="qre-export-icon">📊</div>
+          <div className="qre-export-title">{busy === "csv" ? "Downloading…" : "Audit Report (CSV)"}</div>
+          <div className="qre-export-desc">
+            Visit details, all 37 parameter responses with scores and remarks, section totals, and observations — ready for Excel.
+          </div>
+        </div>
+        <div
+          className={`qre-export-card${busy === "spss" ? " qre-export-loading" : ""}`}
+          onClick={() => download("spss")}
+        >
+          <div className="qre-export-icon">🗂️</div>
+          <div className="qre-export-title">{busy === "spss" ? "Downloading…" : "Audit Data (SPSS .sav)"}</div>
+          <div className="qre-export-desc">
+            SPSS-compatible .sav file with all parameter responses and scores. Import directly into SPSS or PSPP.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Live Link tab ────────────────────────────────────────────────────────────
 function LiveLinkTab({ auditId }) {
   const [toast, showToast] = useToast();
@@ -603,7 +798,7 @@ function MSOverviewTab({ audit }) {
 }
 
 // ─── Main export — detail view with tabs ─────────────────────────────────────
-const MS_TABS = ["Overview", "Questionnaire", "Live Link"];
+const MS_TABS = ["Overview", "Quotas", "Questionnaire", "Live Link", "Export"];
 
 export default function MysteryShoppingDetail({ audit: initialAudit, onBack }) {
   const [audit, setAudit] = useState(initialAudit);
@@ -648,8 +843,10 @@ export default function MysteryShoppingDetail({ audit: initialAudit, onBack }) {
       </div>
 
       {activeTab === "Overview"      && <MSOverviewTab audit={audit} />}
+      {activeTab === "Quotas"        && <MSQuotasTab audit={audit} />}
       {activeTab === "Questionnaire" && <QuestionnaireTab audit={audit} onSaved={handleSaved} />}
       {activeTab === "Live Link"     && <LiveLinkTab auditId={audit.id} />}
+      {activeTab === "Export"        && <MSExportTab auditId={audit.id} auditName={vd.branch_name} />}
     </div>
   );
 }
