@@ -6,6 +6,7 @@ import { API_BASE_URL } from "../../config"
 import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "../../utils/currency"
 import { FileText, Plus, Search, Eye, Camera, X, Loader2, Trash2, CreditCard, Upload, Download } from "lucide-react"
 import { buildApiUrl } from "../../config"
+import Pagination from "../../components/ui/Pagination"
 
 function BillsPage() {
   const navigate = useNavigate()
@@ -82,7 +83,10 @@ function BillsPage() {
 
   const fetchVendors = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/vendors/`))
+      const sessionId = localStorage.getItem("session_id")
+      const response = await fetch(buildApiUrl(`/finance/vendors/`), {
+        headers: { Authorization: sessionId || "" },
+      })
       if (response.ok) {
         const data = await response.json()
         setVendors(data)
@@ -127,9 +131,10 @@ function BillsPage() {
         })),
       }
 
+      const sessionId = localStorage.getItem("session_id")
       const response = await fetch(buildApiUrl(`/finance/bills/`), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: sessionId || "" },
         body: JSON.stringify(billData),
       })
 
@@ -150,8 +155,10 @@ function BillsPage() {
     if (!window.confirm("Are you sure you want to delete this bill?")) return
 
     try {
+      const sessionId = localStorage.getItem("session_id")
       const response = await fetch(buildApiUrl(`/finance/bills/${id}`), {
         method: "DELETE",
+        headers: { Authorization: sessionId || "" },
       })
       if (response.ok) {
         fetchBills()
@@ -173,7 +180,10 @@ function BillsPage() {
   const handleExportCSV = async () => {
     setExporting(true)
     try {
-      const response = await fetch(buildApiUrl(`/finance/bills/export/csv`))
+      const sessionId = localStorage.getItem("session_id")
+      const response = await fetch(buildApiUrl(`/finance/bills/export/csv`), {
+        headers: { Authorization: sessionId || "" },
+      })
       if (response.ok) {
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
@@ -203,8 +213,10 @@ function BillsPage() {
     formDataUpload.append("file", file)
 
     try {
+      const sessionId = localStorage.getItem("session_id")
       const response = await fetch(buildApiUrl(`/finance/bills/import/csv`), {
         method: "POST",
+        headers: { Authorization: sessionId || "" },
         body: formDataUpload,
       })
 
