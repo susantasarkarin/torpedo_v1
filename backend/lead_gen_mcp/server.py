@@ -431,4 +431,15 @@ async def get_pipeline_stats(
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    mcp.run()
+    import sys
+    transport = "stdio"
+    port = 9001
+    for arg in sys.argv[1:]:
+        if arg.startswith("--transport="):
+            transport = arg.split("=", 1)[1]
+        elif arg.startswith("--port="):
+            port = int(arg.split("=", 1)[1])
+    if transport == "sse":
+        mcp.run(transport="sse", port=port)
+    else:
+        mcp.run()
