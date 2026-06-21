@@ -6,7 +6,7 @@
  * Tabs: Questionnaire | Score | Live Link
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Save, CheckCircle, Copy, ExternalLink, Link } from "lucide-react";
 import api from "../../utils/api";
 
@@ -427,126 +427,159 @@ function QuestionnaireTab({ audit, onSaved }) {
 }
 
 // ─── Quotas Tab ───────────────────────────────────────────────────────────────
+// Target branches from the IDFC FIRST Bank brief (3A. Mystery Shopping — 8 Visits)
+const MS_QUOTA_BRANCHES = {
+  "Retail Branch": [
+    { label: "Powai", city: "Mumbai" },
+    { label: "Andheri East", city: "Mumbai" },
+    { label: "Anand Vihar", city: "Delhi" },
+    { label: "Mayur Vihar", city: "Delhi" },
+  ],
+  "Loan Centre": [
+    { label: "Andheri Apple Heritage", city: "Mumbai" },
+    { label: "Panvel", city: "Mumbai" },
+    { label: "Rajendra Nagar", city: "Delhi" },
+    { label: "Uttam Nagar", city: "Delhi" },
+  ],
+};
+
 function MSQuotasTab({ audit }) {
-  const responses = audit.responses || {};
+  const [allAudits, setAllAudits] = useState(null);
 
-  // Each section shows: parameters answered, score fill, completion %
-  const partA = QUESTIONNAIRE.partA;
-  const partB = QUESTIONNAIRE.partB;
+  useEffect(() => {
+    api.get("/api/mystery-shopping/audits").then((data) => setAllAudits(data?.audits || data || [])).catch(() => setAllAudits([]));
+  }, []);
 
-  function SectionQuota({ section }) {
-    const { score, max } = calcSectionScore(section, responses);
-    const adjMax = max || section.maxPossible;
-    const answered = section.params.filter((p) => responses?.[p.id]?.response).length;
-    const total = section.params.length;
-    const completionPct = total > 0 ? Math.round((answered / total) * 100) : 0;
-    const scorePct = adjMax > 0 ? Math.round((score / adjMax) * 100) : 0;
-    const { color } = ratingMeta(scorePct);
-    return (
-      <div className="qre-quota-card" style={{ minWidth: 0 }}>
-        <div className="qre-quota-header">
-          <span style={{ fontSize: "0.78rem", fontWeight: 600 }}>{section.title}</span>
-          <span style={{ fontWeight: 700 }}>{answered}/{total} rated</span>
-        </div>
-        {/* Completion bar */}
-        <div style={{ marginBottom: "0.3rem" }}>
-          <div style={{ fontSize: "0.7rem", color: "#6b7280", marginBottom: 2 }}>Completion</div>
-          <div className="qre-quota-track">
-            <div className="qre-quota-fill" style={{ width: `${completionPct}%`, background: completionPct === 100 ? "#16a34a" : "#667eea" }} />
-          </div>
-          <div className="qre-quota-pct">{completionPct}%</div>
-        </div>
-        {/* Score bar */}
-        <div>
-          <div style={{ fontSize: "0.7rem", color: "#6b7280", marginBottom: 2 }}>Score: {score}/{adjMax}</div>
-          <div className="qre-quota-track">
-            <div className="qre-quota-fill" style={{ width: `${scorePct}%`, background: color }} />
-          </div>
-          <div className="qre-quota-pct" style={{ color }}>{scorePct}%</div>
-        </div>
-      </div>
-    );
-  }
+  // Match an audit to a branch label by branch_name fuzzy contains
+  const auditForBranch = (label) => {
+    if (!allAudits) return null;
+    const key = label.toLowerCase();
+    return allAudits.find((a) => {
+      const bn = (a.visit_details?.branch_name || "").toLowerCase();
+      return bn.includes(key) || key.split(" ").every((w) => bn.includes(w));
+    }) || null;
+  };
 
-  const totalAnswered = ALL_SECTIONS.reduce((n, s) => n + s.params.filter((p) => responses?.[p.id]?.response).length, 0);
-  const totalParams = ALL_SECTIONS.reduce((n, s) => n + s.params.length, 0);
-  const { total, totalMax } = (() => { let t = 0, m = 0; ALL_SECTIONS.forEach((s) => { const r = calcSectionScore(s, responses); t += r.score; m += (r.max || s.maxPossible); }); return { total: t, totalMax: m }; })();
-  const overallPct = totalMax > 0 ? Math.round((total / totalMax) * 100) : 0;
-  const { color: overallColor, label: overallLabel } = ratingMeta(overallPct);
+  const totalTarget = 8;
+  const totalDone = allAudits
+    ? Object.values(MS_QUOTA_BRANCHES).flat().filter((b) => {
+        const a = auditForBranch(b.label);
+        return a && a.status === "submitted";
+      }).length
+    : 0;
+  const fillPct = Math.round((totalDone / totalTarget) * 100);
 
   return (
     <>
-      {/* Summary bar like QRE fieldwork progress */}
+      {/* Overall progress */}
       <div className="qre-section">
-        <h3 className="qre-section-title">Audit Completion</h3>
+        <h3 className="qre-section-title">Field Progress — 8 Visits Target</h3>
         <div className="qre-fieldwork-bar-wrap">
           <div className="qre-fieldwork-bar-labels">
-            <span>{totalAnswered} parameters rated</span>
-            <span>Total: {totalParams}</span>
+            <span>{allAudits ? totalDone : "…"} visits completed</span>
+            <span>Target: {totalTarget}</span>
           </div>
           <div className="qre-fieldwork-bar-track">
-            <div className="qre-fieldwork-bar-fill" style={{ width: `${Math.round((totalAnswered / totalParams) * 100)}%` }} />
-          </div>
-        </div>
-        <div style={{ marginTop: "0.5rem", fontSize: "0.88rem", fontWeight: 700, color: overallColor }}>
-          Overall Score: {total}/{totalMax} — {overallPct}% ({overallLabel})
-        </div>
-      </div>
-
-      {/* Part A section grid */}
-      <div className="qre-section">
-        <h3 className="qre-section-title">Part A — Branch Banking Services</h3>
-        <div className="qre-quota-group">
-          <div className="qre-quota-grid">
-            {partA.map((s) => <SectionQuota key={s.id} section={s} />)}
+            <div className="qre-fieldwork-bar-fill" style={{ width: `${fillPct}%` }} />
           </div>
         </div>
       </div>
 
-      {/* Part B section grid */}
-      <div className="qre-section">
-        <h3 className="qre-section-title">Part B — Loan / Retail Asset Services</h3>
-        <div className="qre-quota-group">
-          <div className="qre-quota-grid">
-            {partB.map((s) => <SectionQuota key={s.id} section={s} />)}
-          </div>
-        </div>
-      </div>
+      {/* Group grids */}
+      {Object.entries(MS_QUOTA_BRANCHES).map(([groupName, branches]) => {
+        const groupDone = allAudits
+          ? branches.filter((b) => { const a = auditForBranch(b.label); return a && a.status === "submitted"; }).length
+          : 0;
+        return (
+          <div className="qre-section" key={groupName}>
+            <h3 className="qre-section-title">
+              {groupName}s &nbsp;
+              <span style={{ fontSize: "0.82rem", fontWeight: 400, color: "#6b7280" }}>
+                {allAudits ? `${groupDone}/${branches.length} done` : "loading…"}
+              </span>
+            </h3>
+            <div className="qre-quota-group">
+              <div className="qre-quota-grid">
+                {branches.map((b) => {
+                  const matched = auditForBranch(b.label);
+                  const status = !matched ? "pending" : matched.status === "submitted" ? "done" : "in-progress";
+                  const statusColor = status === "done" ? "#16a34a" : status === "in-progress" ? "#f59e0b" : "#9ca3af";
+                  const statusLabel = status === "done" ? "Completed" : status === "in-progress" ? "In Progress" : "Pending";
+                  const visitDate = matched?.visit_details?.date_of_visit || matched?.visit_details?.visit_date || "";
+                  const score = matched ? (() => {
+                    let t = 0, m = 0;
+                    ALL_SECTIONS.forEach((s) => { const r = calcSectionScore(s, matched.responses || {}); t += r.score; m += (r.max || s.maxPossible); });
+                    return m > 0 ? `${Math.round(t / m * 100)}%` : null;
+                  })() : null;
 
-      {/* Parameter-level detail table */}
+                  return (
+                    <div className="qre-quota-card" key={b.label} style={{ minWidth: 0 }}>
+                      <div className="qre-quota-header">
+                        <span style={{ fontWeight: 700, fontSize: "0.85rem" }}>{b.label}</span>
+                        <span style={{ fontSize: "0.75rem", color: "#6b7280" }}>{b.city}</span>
+                      </div>
+                      <div style={{ marginTop: "0.5rem", marginBottom: "0.4rem" }}>
+                        <span style={{ fontSize: "0.78rem", fontWeight: 700, color: statusColor,
+                          background: status === "done" ? "#f0fdf4" : status === "in-progress" ? "#fffbeb" : "#f9fafb",
+                          border: `1px solid ${statusColor}30`, borderRadius: 6, padding: "2px 8px" }}>
+                          {statusLabel}
+                        </span>
+                      </div>
+                      {visitDate && (
+                        <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>Visit: {visitDate}</div>
+                      )}
+                      {score && (
+                        <div style={{ fontSize: "0.75rem", fontWeight: 700, color: statusColor, marginTop: 2 }}>
+                          Score: {score}
+                        </div>
+                      )}
+                      {!matched && (
+                        <div style={{ fontSize: "0.73rem", color: "#d1d5db", marginTop: 4 }}>No audit recorded</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Summary table */}
       <div className="qre-section">
-        <h3 className="qre-section-title">Parameter Detail</h3>
+        <h3 className="qre-section-title">Location Summary</h3>
         <div className="qre-table-wrap">
           <table className="qre-table">
             <thead>
               <tr>
-                <th>Section</th>
-                <th>#</th>
-                <th style={{ width: "45%" }}>Parameter</th>
-                <th>Response</th>
+                <th>Type</th>
+                <th>Branch / Centre</th>
+                <th>City</th>
+                <th>Status</th>
+                <th>Visit Date</th>
                 <th>Score</th>
               </tr>
             </thead>
             <tbody>
-              {ALL_SECTIONS.map((s) =>
-                s.params.map((p, i) => {
-                  const r = responses?.[p.id] || {};
-                  const sc = r.response && r.response !== "N/A" ? scoreFromResponse(r.response) : null;
+              {Object.entries(MS_QUOTA_BRANCHES).map(([groupName, branches]) =>
+                branches.map((b, i) => {
+                  const matched = auditForBranch(b.label);
+                  const status = !matched ? "Pending" : matched.status === "submitted" ? "Completed" : "In Progress";
+                  const statusColor = status === "Completed" ? "#16a34a" : status === "In Progress" ? "#f59e0b" : "#9ca3af";
+                  const visitDate = matched?.visit_details?.date_of_visit || matched?.visit_details?.visit_date || "—";
+                  const score = matched ? (() => {
+                    let t = 0, m = 0;
+                    ALL_SECTIONS.forEach((s) => { const r = calcSectionScore(s, matched.responses || {}); t += r.score; m += (r.max || s.maxPossible); });
+                    return m > 0 ? `${Math.round(t / m * 100)}%` : "—";
+                  })() : "—";
                   return (
-                    <tr key={p.id}>
-                      {i === 0 && <td rowSpan={s.params.length} style={{ fontWeight: 600, verticalAlign: "top", fontSize: "0.78rem" }}>{s.title}</td>}
-                      <td style={{ color: "#9ca3af", fontSize: "0.78rem" }}>{i + 1}</td>
-                      <td style={{ fontSize: "0.8rem" }}>{p.text}</td>
-                      <td>
-                        {r.response ? (
-                          <span className={`qre-badge ${r.response === "Yes" ? "qre-badge-live" : r.response === "No" ? "qre-badge-closed" : r.response === "Partial" ? "qre-badge-paused" : "qre-badge-draft"}`}>
-                            {r.response}
-                          </span>
-                        ) : <span style={{ color: "#d1d5db" }}>—</span>}
-                      </td>
-                      <td style={{ textAlign: "center", fontWeight: 700, color: sc === 5 ? "#16a34a" : sc === 3 ? "#f59e0b" : sc === 0 ? "#dc2626" : "#9ca3af" }}>
-                        {sc !== null ? sc : r.response === "N/A" ? "N/A" : "—"}
-                      </td>
+                    <tr key={b.label}>
+                      {i === 0 && <td rowSpan={branches.length} style={{ fontWeight: 600, verticalAlign: "top", fontSize: "0.82rem" }}>{groupName}</td>}
+                      <td style={{ fontWeight: 600 }}>{b.label}</td>
+                      <td style={{ color: "#6b7280" }}>{b.city}</td>
+                      <td><span style={{ color: statusColor, fontWeight: 700, fontSize: "0.8rem" }}>{status}</span></td>
+                      <td style={{ color: "#6b7280", fontSize: "0.82rem" }}>{visitDate}</td>
+                      <td style={{ fontWeight: 700, color: statusColor }}>{score}</td>
                     </tr>
                   );
                 })

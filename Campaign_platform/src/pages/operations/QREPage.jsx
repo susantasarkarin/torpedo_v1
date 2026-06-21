@@ -121,7 +121,7 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
       const qreStudies = (qreData || []).map((s) => ({ ...s, _type: "qre" }));
       const msStudies = (msData || []).map((a) => ({
         id: a.id,
-        name: a.visit_details?.branch_name || "Unnamed Branch",
+        name: "Mystery Shopping Questionnaire — Branch Visit Audit",
         client_name: "IDFC FIRST Bank",
         status: a.status,
         created_at: a.created_at,
