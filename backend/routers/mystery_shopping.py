@@ -284,6 +284,19 @@ async def get_audit_public(audit_id: str):
     return _serialize(doc)
 
 
+@router.post("/public/new")
+async def create_audit_public():
+    """Create a blank audit for a new field visit — no auth required."""
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "visit_details": {}, "responses": {}, "observations": {},
+        "status": "draft", "created_at": now, "updated_at": now,
+    }
+    result = await _col.insert_one(doc)
+    doc["_id"] = result.inserted_id
+    return _serialize(doc)
+
+
 @router.put("/public/{audit_id}/submit")
 async def field_submit(audit_id: str, payload: Dict[str, Any] = Body(...)):
     payload["updated_at"] = datetime.now(timezone.utc).isoformat()

@@ -470,7 +470,7 @@ export default function MysteryShopperForm() {
               <div style={{
                 display: "inline-block",
                 background: "#f5f3ff", border: "2px solid #ddd6fe",
-                borderRadius: 12, padding: "1rem 2rem",
+                borderRadius: 12, padding: "1rem 2rem", marginBottom: "1.5rem",
               }}>
                 <div style={{ fontSize: "2.5rem", fontWeight: 900, color: ratingColor }}>{pct}%</div>
                 <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "#374151" }}>
@@ -478,6 +478,22 @@ export default function MysteryShopperForm() {
                 </div>
               </div>
             )}
+            <div style={{ marginTop: "1.5rem" }}>
+              <button
+                style={{ padding: "0.75rem 2rem", background: "#667eea", color: "#fff", border: "none", borderRadius: 10, fontSize: "1rem", fontWeight: 700, cursor: "pointer" }}
+                onClick={async () => {
+                  try {
+                    const res = await fetch("/api/mystery-shopping/public/new", { method: "POST" });
+                    const data = await res.json();
+                    window.location.href = `/mystery-shopper/${data.id}`;
+                  } catch {
+                    alert("Could not start a new audit. Please try again.");
+                  }
+                }}
+              >
+                Start New Audit →
+              </button>
+            </div>
           </div>
         </div>
       </div>
