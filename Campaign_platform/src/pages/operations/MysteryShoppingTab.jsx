@@ -783,25 +783,6 @@ function MSOverviewTab({ audit }) {
         </div>
       </div>
 
-      {/* Visit details */}
-      {visitRows.length > 0 && (
-        <div className="qre-section">
-          <h3 className="qre-section-title">Visit Details</h3>
-          <div className="qre-table-wrap">
-            <table className="qre-table">
-              <tbody>
-                {visitRows.map(([k, v]) => (
-                  <tr key={k}>
-                    <td style={{ fontWeight: 600, color: "#374151", width: "30%" }}>{k}</td>
-                    <td>{v}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
       {/* Score summary table */}
       <div className="qre-section">
         <h3 className="qre-section-title">Score Summary</h3>
@@ -811,8 +792,136 @@ function MSOverviewTab({ audit }) {
   );
 }
 
+// ─── Respondents Tab ──────────────────────────────────────────────────────────
+function ResponseView({ audit }) {
+  const responses = audit.responses || {};
+  const vd = audit.visit_details || {};
+  const obs = audit.observations || {};
+
+  return (
+    <div style={{ padding: "1rem 0" }}>
+      {/* Visit details summary */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.5rem 1.5rem", marginBottom: "1.5rem", fontSize: "0.82rem" }}>
+        {[
+          ["Branch", vd.branch_name], ["Branch Code", vd.branch_code],
+          ["City / State", vd.city_state], ["Date", vd.date_of_visit],
+          ["Time In → Out", vd.time_in && vd.time_out ? `${vd.time_in} → ${vd.time_out}` : vd.time_in || ""],
+          ["Shopper", vd.shopper_name], ["Shopper ID", vd.shopper_id],
+          ["Type of Visit", vd.type_of_visit],
+        ].filter(([, v]) => v).map(([k, v]) => (
+          <div key={k}>
+            <span style={{ fontWeight: 600, color: "#6b7280" }}>{k}: </span>
+            <span style={{ color: "#111827" }}>{v}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Responses by section */}
+      {ALL_SECTIONS.map((section) => (
+        <div key={section.id} style={{ marginBottom: "1.2rem" }}>
+          <div style={{ fontWeight: 700, fontSize: "0.82rem", color: "#374151", borderBottom: "1px solid #e5e7eb", paddingBottom: "0.3rem", marginBottom: "0.5rem" }}>
+            {section.title}
+          </div>
+          {section.params.map((p, i) => {
+            const r = responses[p.id] || {};
+            const sc = r.response && r.response !== "N/A" ? scoreFromResponse(r.response) : null;
+            const respColor = r.response === "Yes" ? "#16a34a" : r.response === "No" ? "#dc2626" : r.response === "Partial" ? "#f59e0b" : "#9ca3af";
+            return (
+              <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1.5rem 1fr auto auto", gap: "0 0.75rem", alignItems: "start", padding: "0.3rem 0", borderBottom: "1px solid #f3f4f6", fontSize: "0.8rem" }}>
+                <span style={{ color: "#9ca3af" }}>{i + 1}.</span>
+                <span style={{ color: "#374151" }}>{p.text}{r.remarks ? <span style={{ color: "#9ca3af", fontStyle: "italic" }}> — {r.remarks}</span> : ""}</span>
+                <span style={{ fontWeight: 700, color: respColor, whiteSpace: "nowrap", minWidth: 52, textAlign: "right" }}>{r.response || "—"}</span>
+                <span style={{ fontWeight: 700, color: respColor, minWidth: 28, textAlign: "right" }}>{sc !== null ? sc : r.response === "N/A" ? "N/A" : "—"}</span>
+              </div>
+            );
+          })}
+        </div>
+      ))}
+
+      {/* Observations */}
+      {(obs.strengths || obs.improvements || obs.recommendations) && (
+        <div style={{ marginTop: "1rem", fontSize: "0.82rem" }}>
+          <div style={{ fontWeight: 700, color: "#374151", marginBottom: "0.4rem" }}>Observations</div>
+          {obs.strengths     && <div><strong>Strengths:</strong> {obs.strengths}</div>}
+          {obs.improvements  && <div><strong>Improvements:</strong> {obs.improvements}</div>}
+          {obs.recommendations && <div><strong>Recommendations:</strong> {obs.recommendations}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RespondentsTab({ currentAuditId }) {
+  const [audits, setAudits] = useState(null);
+  const [expanded, setExpanded] = useState(null);
+
+  useEffect(() => {
+    api.get("/api/mystery-shopping/audits")
+      .then((data) => setAudits(data?.audits || data || []))
+      .catch(() => setAudits([]));
+  }, []);
+
+  if (!audits) return <div className="qre-section" style={{ color: "#9ca3af" }}>Loading…</div>;
+  if (!audits.length) return <div className="qre-section" style={{ color: "#9ca3af" }}>No audits recorded yet.</div>;
+
+  return (
+    <div className="qre-section">
+      <h3 className="qre-section-title">All Respondents ({audits.length})</h3>
+      <div className="qre-table-wrap">
+        <table className="qre-table">
+          <thead>
+            <tr>
+              <th style={{ width: 32 }}></th>
+              <th>Branch</th>
+              <th>City / State</th>
+              <th>Shopper</th>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {audits.map((a) => {
+              const vd = a.visit_details || {};
+              const isOpen = expanded === a.id;
+              const { total, totalMax } = (() => { let t = 0, m = 0; ALL_SECTIONS.forEach((s) => { const r = calcSectionScore(s, a.responses || {}); t += r.score; m += (r.max || s.maxPossible); }); return { total: t, totalMax: m }; })();
+              const pct = totalMax > 0 ? Math.round(total / totalMax * 100) : null;
+              const { color } = pct !== null ? ratingMeta(pct) : { color: "#9ca3af" };
+              return [
+                <tr key={a.id} style={{ cursor: "pointer", background: isOpen ? "#f8faff" : undefined }}
+                  onClick={() => setExpanded(isOpen ? null : a.id)}>
+                  <td style={{ textAlign: "center", color: "#9ca3af", fontSize: "0.75rem" }}>{isOpen ? "▲" : "▶"}</td>
+                  <td style={{ fontWeight: 600 }}>{vd.branch_name || "—"}</td>
+                  <td style={{ color: "#6b7280" }}>{vd.city_state || "—"}</td>
+                  <td style={{ color: "#6b7280" }}>{vd.shopper_name || "—"}</td>
+                  <td style={{ color: "#6b7280", fontSize: "0.8rem" }}>{vd.date_of_visit || "—"}</td>
+                  <td style={{ fontSize: "0.78rem" }}>{vd.type_of_visit || "—"}</td>
+                  <td>
+                    <span className={`qre-badge ${a.status === "submitted" ? "qre-badge-live" : a.status === "draft" ? "qre-badge-draft" : "qre-badge-paused"}`}>
+                      {a.status}
+                    </span>
+                  </td>
+                  <td style={{ fontWeight: 700, color }}>{pct !== null ? `${pct}%` : "—"}</td>
+                </tr>,
+                isOpen && (
+                  <tr key={`${a.id}-detail`}>
+                    <td colSpan={8} style={{ padding: "0 1.5rem 1rem", background: "#f8faff", borderTop: "none" }}>
+                      <ResponseView audit={a} />
+                    </td>
+                  </tr>
+                ),
+              ];
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main export — detail view with tabs ─────────────────────────────────────
-const MS_TABS = ["Overview", "Quotas", "Questionnaire", "Live Link", "Export"];
+const MS_TABS = ["Overview", "Quotas", "Respondents", "Live Link", "Export"];
 
 export default function MysteryShoppingDetail({ audit: initialAudit, onBack }) {
   const [audit, setAudit] = useState(initialAudit);
@@ -858,7 +967,7 @@ export default function MysteryShoppingDetail({ audit: initialAudit, onBack }) {
 
       {activeTab === "Overview"      && <MSOverviewTab audit={audit} />}
       {activeTab === "Quotas"        && <MSQuotasTab audit={audit} />}
-      {activeTab === "Questionnaire" && <QuestionnaireTab audit={audit} onSaved={handleSaved} />}
+      {activeTab === "Respondents"   && <RespondentsTab currentAuditId={audit.id} />}
       {activeTab === "Live Link"     && <LiveLinkTab auditId={audit.id} />}
       {activeTab === "Export"        && <MSExportTab auditId={audit.id} auditName={vd.branch_name} />}
     </div>
