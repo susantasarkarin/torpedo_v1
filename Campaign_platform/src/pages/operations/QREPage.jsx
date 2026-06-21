@@ -1060,7 +1060,7 @@ export default function QREPage() {
 
   const handleSelectStudy = (study) => {
     setSelectedStudy(study);
-    setActiveTab(study._type === "mystery_shopping" ? "Questionnaire" : "Overview");
+    setActiveTab("Overview");
     setView("detail");
   };
 

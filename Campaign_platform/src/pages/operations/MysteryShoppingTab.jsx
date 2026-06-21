@@ -474,18 +474,147 @@ function LiveLinkTab({ auditId }) {
   );
 }
 
+// ─── Overview Tab ─────────────────────────────────────────────────────────────
+function MSOverviewTab({ audit }) {
+  const responses = audit.responses || {};
+  const vd = audit.visit_details || {};
+  const { total, totalMax, pct } = calcOverall(responses);
+  const { label: ratingLabel, color: ratingColor } = ratingMeta(pct);
+
+  const partATotal = { score: 0, max: 0 };
+  const partBTotal = { score: 0, max: 0 };
+  QUESTIONNAIRE.partA.forEach((s) => { const { score, max } = calcSectionScore(s, responses); partATotal.score += score; partATotal.max += (max || s.maxPossible); });
+  QUESTIONNAIRE.partB.forEach((s) => { const { score, max } = calcSectionScore(s, responses); partBTotal.score += score; partBTotal.max += (max || s.maxPossible); });
+
+  const answeredCount = ALL_SECTIONS.reduce((n, s) => n + s.params.filter((p) => responses?.[p.id]?.response).length, 0);
+  const totalParams = ALL_SECTIONS.reduce((n, s) => n + s.params.length, 0);
+
+  const visitRows = [
+    ["Branch Name", vd.branch_name], ["Branch Code", vd.branch_code],
+    ["City / State", vd.city_state || vd.city], ["Region / Zone", vd.region_zone],
+    ["Date of Visit", vd.date_of_visit], ["Time In → Out", vd.time_in && vd.time_out ? `${vd.time_in} → ${vd.time_out}` : (vd.time_in || vd.time_out)],
+    ["Shopper Name", vd.shopper_name], ["Shopper ID", vd.shopper_id],
+    ["Type of Visit", vd.type_of_visit], ["Staff Interacted", vd.staff_interacted],
+  ].filter(([, v]) => v);
+
+  return (
+    <>
+      {/* KPI cards — same layout as QRE OverviewTab */}
+      <div className="qre-kpi-grid">
+        <div className="qre-kpi-card qre-kpi-info">
+          <div className="qre-kpi-value" style={{ color: ratingColor }}>{pct !== null ? `${pct}%` : "—"}</div>
+          <div className="qre-kpi-label">Overall Score</div>
+        </div>
+        <div className="qre-kpi-card qre-kpi-success">
+          <div className="qre-kpi-value">{total}</div>
+          <div className="qre-kpi-label">Points Scored</div>
+        </div>
+        <div className="qre-kpi-card">
+          <div className="qre-kpi-value">{totalMax || 185}</div>
+          <div className="qre-kpi-label">Max Points</div>
+        </div>
+        <div className="qre-kpi-card">
+          <div className="qre-kpi-value">{answeredCount}/{totalParams}</div>
+          <div className="qre-kpi-label">Parameters Rated</div>
+        </div>
+        <div className="qre-kpi-card" style={{ gridColumn: "span 2" }}>
+          <div className="qre-kpi-value" style={{ color: ratingColor, fontSize: "1.1rem" }}>{ratingLabel}</div>
+          <div className="qre-kpi-label">Rating Band</div>
+        </div>
+      </div>
+
+      {/* Section breakdown — mirrors quota fill bars */}
+      <div className="qre-section">
+        <h3 className="qre-section-title">Part A — Branch Banking Services</h3>
+        <div className="qre-quota-group">
+          <div className="qre-quota-grid">
+            {QUESTIONNAIRE.partA.map((s) => {
+              const { score, max } = calcSectionScore(s, responses);
+              const adjMax = max || s.maxPossible;
+              const fillPct = adjMax > 0 ? Math.min(100, Math.round((score / adjMax) * 100)) : 0;
+              const { color } = ratingMeta(fillPct);
+              return (
+                <div key={s.id} className="qre-quota-card">
+                  <div className="qre-quota-header">
+                    <span style={{ fontSize: "0.78rem" }}>{s.title}</span>
+                    <span>{score}/{adjMax}</span>
+                  </div>
+                  <div className="qre-quota-track">
+                    <div className="qre-quota-fill" style={{ width: `${fillPct}%`, background: color }} />
+                  </div>
+                  <div className="qre-quota-pct">{fillPct}%</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <h3 className="qre-section-title" style={{ marginTop: "1.5rem" }}>Part B — Loan / Retail Asset Services</h3>
+        <div className="qre-quota-group">
+          <div className="qre-quota-grid">
+            {QUESTIONNAIRE.partB.map((s) => {
+              const { score, max } = calcSectionScore(s, responses);
+              const adjMax = max || s.maxPossible;
+              const fillPct = adjMax > 0 ? Math.min(100, Math.round((score / adjMax) * 100)) : 0;
+              const { color } = ratingMeta(fillPct);
+              return (
+                <div key={s.id} className="qre-quota-card">
+                  <div className="qre-quota-header">
+                    <span style={{ fontSize: "0.78rem" }}>{s.title}</span>
+                    <span>{score}/{adjMax}</span>
+                  </div>
+                  <div className="qre-quota-track">
+                    <div className="qre-quota-fill" style={{ width: `${fillPct}%`, background: color }} />
+                  </div>
+                  <div className="qre-quota-pct">{fillPct}%</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Visit details */}
+      {visitRows.length > 0 && (
+        <div className="qre-section">
+          <h3 className="qre-section-title">Visit Details</h3>
+          <div className="qre-table-wrap">
+            <table className="qre-table">
+              <tbody>
+                {visitRows.map(([k, v]) => (
+                  <tr key={k}>
+                    <td style={{ fontWeight: 600, color: "#374151", width: "30%" }}>{k}</td>
+                    <td>{v}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Score summary table */}
+      <div className="qre-section">
+        <h3 className="qre-section-title">Score Summary</h3>
+        <ScoreSummary responses={responses} />
+      </div>
+    </>
+  );
+}
+
 // ─── Main export — detail view with tabs ─────────────────────────────────────
-const MS_TABS = ["Questionnaire", "Score", "Live Link"];
+const MS_TABS = ["Overview", "Questionnaire", "Live Link"];
 
 export default function MysteryShoppingDetail({ audit: initialAudit, onBack }) {
   const [audit, setAudit] = useState(initialAudit);
-  const [activeTab, setActiveTab] = useState("Questionnaire");
+  const [activeTab, setActiveTab] = useState("Overview");
 
   const handleSaved = (updated) => setAudit(updated);
+  const vd = audit.visit_details || {};
 
   return (
     <div className="qre-root">
-      {/* Header */}
+      {/* Header — identical structure to QRE study detail */}
       <div className="qre-page-header">
         <div>
           <button className="qre-btn qre-btn-outline qre-btn-sm"
@@ -494,22 +623,23 @@ export default function MysteryShoppingDetail({ audit: initialAudit, onBack }) {
             ← All Studies
           </button>
           <div className="qre-page-title-row">
-            <span style={{ fontSize: "1.1rem" }}>🔍</span>
+            <span style={{ fontSize: "1.15rem" }}>🔍</span>
             <h1 className="qre-page-title">
-              {audit.visit_details?.branch_name || "Mystery Shopping Audit"}
+              {vd.branch_name || "Mystery Shopping Audit"}
             </h1>
             <span className={`qre-badge ${audit.status === "submitted" ? "qre-badge-live" : "qre-badge-draft"}`}>
               {audit.status}
             </span>
           </div>
           <p className="qre-page-subtitle">
-            Mystery Shopping · ID: <code style={{ fontSize: "0.78rem", background: "#f3f4f6", padding: "1px 5px", borderRadius: 4 }}>{audit.id}</code>
-            {audit.visit_details?.date_of_visit && ` · Visit: ${audit.visit_details.date_of_visit}`}
+            Client: IDFC FIRST Bank
+            {vd.city_state || vd.city ? ` · ${vd.city_state || vd.city}` : ""}
+            {vd.date_of_visit ? ` · Visit: ${vd.date_of_visit}` : ""}
           </p>
         </div>
       </div>
 
-      {/* Sub-tabs */}
+      {/* Tabs */}
       <div className="qre-tabs">
         {MS_TABS.map((t) => (
           <button key={t} className={`qre-tab-btn ${activeTab === t ? "active" : ""}`}
@@ -517,8 +647,8 @@ export default function MysteryShoppingDetail({ audit: initialAudit, onBack }) {
         ))}
       </div>
 
+      {activeTab === "Overview"      && <MSOverviewTab audit={audit} />}
       {activeTab === "Questionnaire" && <QuestionnaireTab audit={audit} onSaved={handleSaved} />}
-      {activeTab === "Score"         && <ScoreSummary responses={audit.responses || {}} />}
       {activeTab === "Live Link"     && <LiveLinkTab auditId={audit.id} />}
     </div>
   );
