@@ -783,9 +783,11 @@ function BillsPage() {
                   </td>
                   <td style={styles.td}>
                     <div style={styles.actionButtons}>
-                      <button style={styles.btnEdit}>
-                        <Eye style={{ width: "16px", height: "16px" }} />
-                      </button>
+                      <Link to={`/admin/finance/bills/${bill._id}`}>
+                        <button style={styles.btnEdit}>
+                          <Eye style={{ width: "16px", height: "16px" }} />
+                        </button>
+                      </Link>
                       <button style={styles.btnEdit}>
                         <CreditCard style={{ width: "16px", height: "16px" }} />
                       </button>

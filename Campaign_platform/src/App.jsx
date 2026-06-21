@@ -93,8 +93,10 @@ const EstimatesPage = lazy(() => import("./pages/finance/EstimatesPage"))
 const EstimatesImport = lazy(() => import("./pages/finance/EstimatesImport"))
 const InvoicesPage = lazy(() => import("./pages/finance/InvoicesPage"))
 const InvoicesImport = lazy(() => import("./pages/finance/InvoicesImport"))
+const InvoiceDetailPage = lazy(() => import("./pages/finance/InvoiceDetailPage"))
 const BillsPage = lazy(() => import("./pages/finance/BillsPage"))
 const BillsImport = lazy(() => import("./pages/finance/BillsImport"))
+const BillDetailPage = lazy(() => import("./pages/finance/BillDetailPage"))
 const ExpensesPage = lazy(() => import("./pages/finance/ExpensesPage"))
 const PaymentsPage = lazy(() => import("./pages/finance/PaymentsPage"))
 const PaymentsImport = lazy(() => import("./pages/finance/PaymentsImport"))
@@ -242,8 +244,10 @@ function App() {
         <Route path="finance/vendors" element={<LazyPage><FinanceVendorsPage /></LazyPage>} />
         <Route path="finance/invoices" element={<LazyPage><InvoicesPage /></LazyPage>} />
         <Route path="finance/invoices/import" element={<LazyPage><InvoicesImport /></LazyPage>} />
+        <Route path="finance/invoices/:id" element={<LazyPage><InvoiceDetailPage /></LazyPage>} />
         <Route path="finance/bills" element={<LazyPage><BillsPage /></LazyPage>} />
         <Route path="finance/bills/import" element={<LazyPage><BillsImport /></LazyPage>} />
+        <Route path="finance/bills/:id" element={<LazyPage><BillDetailPage /></LazyPage>} />
         <Route path="finance/expenses" element={<LazyPage><ExpensesPage /></LazyPage>} />
         <Route path="finance/purchase-orders" element={<LazyPage><PurchaseOrdersPage /></LazyPage>} />
         <Route path="finance/purchase-orders/import" element={<LazyPage><PurchaseOrdersImport /></LazyPage>} />
