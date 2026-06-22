@@ -45,6 +45,94 @@ async def create_audit(request: Request, payload: Dict[str, Any] = Body(...)):
     return _serialize(created)
 
 
+@router.get("/audits/export")
+async def export_all_audits(request: Request, format: str = Query("csv")):
+    """Study-level export — one row per branch visit (all responses)."""
+    _require_auth(request)
+    docs = []
+    async for d in _col.find({}):
+        docs.append(d)
+
+    # Build a flat wide record for each audit
+    def flat_record(doc):
+        vd = doc.get("visit_details", {})
+        responses = doc.get("responses", {})
+        rec = {
+            "branch_name": vd.get("branch_name", ""), "branch_code": vd.get("branch_code", ""),
+            "city_state": vd.get("city_state", "") or vd.get("city", ""),
+            "region_zone": vd.get("region_zone", ""), "date_of_visit": vd.get("date_of_visit", "") or vd.get("visit_date", ""),
+            "time_in": vd.get("time_in", ""), "time_out": vd.get("time_out", ""),
+            "shopper_name": vd.get("shopper_name", ""), "shopper_id": vd.get("shopper_id", ""),
+            "type_of_visit": vd.get("type_of_visit", ""), "status": doc.get("status", ""),
+        }
+        total, max_s = 0, 0
+        for sec_id, sec_name, param_ids, _ in _SECTIONS:
+            for pid in param_ids:
+                r = responses.get(pid, {})
+                resp = r.get("response", "")
+                rec[f"{pid}_resp"] = resp
+                if resp and resp != "N/A":
+                    sc = _SCORE_MAP.get(resp, 0)
+                    rec[f"{pid}_score"] = sc
+                    total += sc
+                    max_s += 5
+                else:
+                    rec[f"{pid}_score"] = ""
+                rec[f"{pid}_remarks"] = r.get("remarks", "")
+        rec["total_score"] = total
+        rec["max_score"] = max_s
+        rec["pct"] = round(total / max_s * 100) if max_s else ""
+        return rec
+
+    records = [flat_record(d) for d in docs]
+
+    # Stable column order
+    base_cols = ["branch_name","branch_code","city_state","region_zone","date_of_visit",
+                 "time_in","time_out","shopper_name","shopper_id","type_of_visit","status"]
+    param_cols = []
+    for sec_id, sec_name, param_ids, _ in _SECTIONS:
+        for pid in param_ids:
+            param_cols += [f"{pid}_resp", f"{pid}_score", f"{pid}_remarks"]
+    summary_cols = ["total_score", "max_score", "pct"]
+    columns = base_cols + param_cols + summary_cols
+
+    if format == "csv":
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(columns)
+        for rec in records:
+            w.writerow([rec.get(c, "") for c in columns])
+        return StreamingResponse(
+            iter([buf.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="mystery_shopping_all_responses.csv"'},
+        )
+
+    elif format == "spss":
+        try:
+            import pyreadstat, pandas as pd, tempfile, pathlib
+            # SPSS variable names must be short; truncate param remark cols
+            df = pd.DataFrame([{c: rec.get(c, "") for c in columns} for rec in records], columns=columns)
+            # Ensure score columns are numeric where possible
+            for c in columns:
+                if c.endswith("_score") or c in ("total_score", "max_score", "pct"):
+                    df[c] = pd.to_numeric(df[c], errors="coerce")
+            tmp = tempfile.NamedTemporaryFile(suffix=".sav", delete=False)
+            tmp.close()
+            pyreadstat.write_sav(df, tmp.name)
+            data = pathlib.Path(tmp.name).read_bytes()
+            pathlib.Path(tmp.name).unlink(missing_ok=True)
+            return StreamingResponse(
+                iter([data]),
+                media_type="application/octet-stream",
+                headers={"Content-Disposition": 'attachment; filename="mystery_shopping_all_responses.sav"'},
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"SPSS export failed: {e}")
+
+    raise HTTPException(status_code=400, detail="format must be 'csv' or 'spss'")
+
+
 @router.get("/audits/{audit_id}")
 async def get_audit(audit_id: str, request: Request):
     _require_auth(request)

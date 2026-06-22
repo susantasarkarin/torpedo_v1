@@ -119,15 +119,22 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
         api.get("/api/mystery-shopping/audits").catch(() => []),
       ]);
       const qreStudies = (qreData || []).map((s) => ({ ...s, _type: "qre" }));
-      const msStudies = (msData || []).map((a) => ({
-        id: a.id,
+      // Collapse ALL mystery shopping audits into a single study; the individual
+      // audits become records under the study's Respondents tab.
+      const msAudits = msData || [];
+      const msStudies = msAudits.length > 0 ? [{
+        id: "ms-collection",
         name: "Mystery Shopping Questionnaire — Branch Visit Audit",
         client_name: "IDFC FIRST Bank",
-        status: a.status,
-        created_at: a.created_at,
+        status: "active",
+        created_at: msAudits.reduce((latest, a) => {
+          const t = a.created_at || a.updated_at;
+          return t && (!latest || new Date(t) > new Date(latest)) ? t : latest;
+        }, null),
         _type: "mystery_shopping",
-        _ms_data: a,
-      }));
+        _ms_all: msAudits,
+        _ms_count: msAudits.length,
+      }] : [];
       const merged = [...qreStudies, ...msStudies].sort(
         (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
       );
@@ -268,9 +275,17 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
               <tbody>
                 {studies.map((s) => {
                   const isMS = s._type === "mystery_shopping";
-                  const msScore = isMS && s._ms_data?.responses
-                    ? calcOverall(s._ms_data.responses)
-                    : null;
+                  // Aggregate avg score across all submitted audits in the collection
+                  const msScore = (() => {
+                    if (!isMS) return null;
+                    const submitted = (s._ms_all || []).filter((a) => a.status === "submitted");
+                    if (!submitted.length) return null;
+                    const pcts = submitted
+                      .map((a) => calcOverall(a.responses || {}).pct)
+                      .filter((p) => p !== null && p !== undefined);
+                    if (!pcts.length) return null;
+                    return { pct: Math.round(pcts.reduce((x, y) => x + y, 0) / pcts.length) };
+                  })();
                   return (
                     <tr key={`${s._type}-${s.id}`} style={{ background: selectedStudyId === s.id ? "#f0f0ff" : undefined }}>
                       <td>
@@ -289,9 +304,15 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
                       </td>
                       <td><StatusBadge status={s.status} /></td>
                       <td>
-                        <code style={{ fontSize: "0.72rem", color: "#6b7280", background: "#f3f4f6", padding: "1px 5px", borderRadius: 4 }}>
-                          {s.id ? s.id.slice(0, 8) : "—"}
-                        </code>
+                        {isMS ? (
+                          <span style={{ fontSize: "0.78rem", color: "#6b7280" }}>
+                            {s._ms_count} {s._ms_count === 1 ? "response" : "responses"}
+                          </span>
+                        ) : (
+                          <code style={{ fontSize: "0.72rem", color: "#6b7280", background: "#f3f4f6", padding: "1px 5px", borderRadius: 4 }}>
+                            {s.id ? s.id.slice(0, 8) : "—"}
+                          </code>
+                        )}
                       </td>
                       <td>{s.created_at ? new Date(s.created_at).toLocaleDateString("en-IN") : "—"}</td>
                       <td>
@@ -320,17 +341,25 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
                           {isMS && (
                             <button
                               className="qre-btn qre-btn-outline qre-btn-sm"
-                              title="Copy live link"
-                              onClick={() => {
-                                navigator.clipboard.writeText(`${window.location.origin}/mystery-shopper/${s.id}`);
-                                showToast("Link copied!");
+                              title="Generate a fresh field link for a new response"
+                              onClick={async () => {
+                                try {
+                                  const res = await fetch("/api/mystery-shopping/public/new", { method: "POST" });
+                                  const data = await res.json();
+                                  await navigator.clipboard.writeText(`${window.location.origin}/mystery-shopper/${data.id}`);
+                                  showToast("New field link copied!");
+                                } catch {
+                                  showToast("Could not generate link");
+                                }
                               }}
                             >
                               <Copy size={11} />
                             </button>
                           )}
-                          <button className="qre-btn qre-btn-danger qre-btn-sm" title="Delete"
-                            onClick={() => deleteStudy(s)}><Trash2 size={11} /></button>
+                          {!isMS && (
+                            <button className="qre-btn qre-btn-danger qre-btn-sm" title="Delete"
+                              onClick={() => deleteStudy(s)}><Trash2 size={11} /></button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1074,7 +1103,6 @@ export default function QREPage() {
   if (view === "detail" && selectedStudy?._type === "mystery_shopping") {
     return (
       <MysteryShoppingDetail
-        audit={selectedStudy._ms_data}
         onBack={handleBackToList}
       />
     );
