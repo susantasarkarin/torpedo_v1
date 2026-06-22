@@ -120,9 +120,10 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
       ]);
       const qreStudies = (qreData || []).map((s) => ({ ...s, _type: "qre" }));
       // Collapse ALL mystery shopping audits into a single study; the individual
-      // audits become records under the study's Respondents tab.
+      // audits become records under the study's Respondents tab. The study row is
+      // always present (even with zero responses) so it can be opened to add some.
       const msAudits = msData || [];
-      const msStudies = msAudits.length > 0 ? [{
+      const msStudies = [{
         id: "ms-collection",
         name: "Mystery Shopping Questionnaire — Branch Visit Audit",
         client_name: "IDFC FIRST Bank",
@@ -134,7 +135,7 @@ function StudiesTab({ onSelectStudy, selectedStudyId }) {
         _type: "mystery_shopping",
         _ms_all: msAudits,
         _ms_count: msAudits.length,
-      }] : [];
+      }];
       const merged = [...qreStudies, ...msStudies].sort(
         (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
       );
