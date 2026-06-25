@@ -57,13 +57,17 @@ async def export_all_audits(request: Request, format: str = Query("csv")):
     def flat_record(doc):
         vd = doc.get("visit_details", {})
         responses = doc.get("responses", {})
+        obs = doc.get("observations", {})
         rec = {
             "branch_name": vd.get("branch_name", ""), "branch_code": vd.get("branch_code", ""),
+            "branch_address": vd.get("branch_address", ""),
             "city_state": vd.get("city_state", "") or vd.get("city", ""),
             "region_zone": vd.get("region_zone", ""), "date_of_visit": vd.get("date_of_visit", "") or vd.get("visit_date", ""),
             "time_in": vd.get("time_in", ""), "time_out": vd.get("time_out", ""),
             "shopper_name": vd.get("shopper_name", ""), "shopper_id": vd.get("shopper_id", ""),
-            "type_of_visit": vd.get("type_of_visit", ""), "status": doc.get("status", ""),
+            "type_of_visit": vd.get("type_of_visit", ""),
+            "scenario_used": vd.get("scenario_used", ""), "staff_interacted": vd.get("staff_interacted", ""),
+            "contact_collected": vd.get("contact_collected", ""), "status": doc.get("status", ""),
         }
         total, max_s = 0, 0
         for sec_id, sec_name, param_ids, _ in _SECTIONS:
@@ -82,18 +86,23 @@ async def export_all_audits(request: Request, format: str = Query("csv")):
         rec["total_score"] = total
         rec["max_score"] = max_s
         rec["pct"] = round(total / max_s * 100) if max_s else ""
+        rec["key_strengths"] = obs.get("strengths", "")
+        rec["areas_for_improvement"] = obs.get("improvements", "")
+        rec["specific_recommendations"] = obs.get("recommendations", "")
         return rec
 
     records = [flat_record(d) for d in docs]
 
     # Stable column order
-    base_cols = ["branch_name","branch_code","city_state","region_zone","date_of_visit",
-                 "time_in","time_out","shopper_name","shopper_id","type_of_visit","status"]
+    base_cols = ["branch_name","branch_code","branch_address","city_state","region_zone","date_of_visit",
+                 "time_in","time_out","shopper_name","shopper_id","type_of_visit",
+                 "scenario_used","staff_interacted","contact_collected","status"]
     param_cols = []
     for sec_id, sec_name, param_ids, _ in _SECTIONS:
         for pid in param_ids:
             param_cols += [f"{pid}_resp", f"{pid}_score", f"{pid}_remarks"]
-    summary_cols = ["total_score", "max_score", "pct"]
+    summary_cols = ["total_score", "max_score", "pct",
+                    "key_strengths", "areas_for_improvement", "specific_recommendations"]
     columns = base_cols + param_cols + summary_cols
 
     if format == "csv":
