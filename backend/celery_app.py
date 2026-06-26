@@ -109,6 +109,14 @@ celery_app.conf.update(
             'schedule': 604800.0,  # Every 7 days
             'options': {'queue': 'linkedin_automation', 'kwargs': {'days': 30}}
         },
+        'panel-sync-registrations': {
+            # 8:30 AM IST = 03:00 UTC — pull SFW-panel signups and mark them
+            # registered BEFORE the invite cron, so they drop out of the invite
+            # send and into the survey-available send the same day.
+            'task': 'backend.tasks.panel_tasks.sync_panel_registrations',
+            'schedule': crontab(hour=3, minute=0),
+            'options': {'queue': 'default'},
+        },
         'panel-daily-invitations': {
             # 9:00 AM IST = 03:30 UTC — runs once per day until each lead signs up,
             # bounces, or unsubscribes

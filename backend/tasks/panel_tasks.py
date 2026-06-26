@@ -41,6 +41,36 @@ def send_daily_panel_invitations(self):
 
 
 @celery_app.task(
+    name="backend.tasks.panel_tasks.sync_panel_registrations",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+)
+def sync_panel_registrations(self):
+    """Mark Torpedo panelists who completed registration on the SFW panel.
+
+    Runs before the daily invite cron so freshly-registered users are excluded
+    from that day's "register" invites and included in the survey-available send.
+    """
+    try:
+        try:
+            from services.panel_sync_service import sync_registrations_from_sfw
+        except ImportError:
+            from backend.services.panel_sync_service import sync_registrations_from_sfw
+
+        result = sync_registrations_from_sfw()
+        logger.info(
+            f"[panel-sync-registrations] fetched={result.get('fetched')} "
+            f"unique={result.get('unique_emails')} newly_marked={result.get('newly_marked')} "
+            f"log_confirmed={result.get('log_confirmed')}"
+        )
+        return result
+    except Exception as exc:
+        logger.error(f"[panel-sync-registrations] error: {exc}", exc_info=True)
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
     name="backend.tasks.panel_tasks.send_daily_panel_login_invitations",
     bind=True,
     max_retries=2,

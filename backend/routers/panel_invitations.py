@@ -184,6 +184,30 @@ async def invitation_status(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============== REGISTRATION SYNC ==============
+
+@router.post("/sync-registrations")
+async def sync_registrations(
+    request: Request,
+    data: Dict[str, Any] = Body(default={}),
+):
+    """
+    Pull SFW-panel signups and mark matching panelists as registered
+    (double_opt_in_completed). Normally runs daily via Celery; this triggers it
+    on demand. Body (optional): since (ISO datetime) to limit to recent signups.
+    """
+    verify_admin_session(request)
+
+    since = data.get("since")
+    try:
+        from services.panel_sync_service import sync_registrations_from_sfw
+        result = await asyncio.to_thread(sync_registrations_from_sfw, since)
+        return {"status": "completed", **result}
+    except Exception as e:
+        logger.error(f"Error syncing panel registrations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============== LOGIN INVITATIONS ==============
 
 @router.get("/login/preview")
