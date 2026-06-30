@@ -263,14 +263,20 @@ async def _cx_submit_answer(db, rid, qid, answer, respondent) -> RoutingDecision
     if reason:
         return await _terminate(db, rid, reason, respondent=respondent)
 
-    # Age quota claim at S10 (gender/centre captured but not auto-claimed here).
+    # Quota claims: gender at S10, age at S11, centre at I3.
+    # cx_survey._one safely extracts the code even when the answer is an
+    # {"code", "other"} object from an "Other (specify)" selection.
+    quota_key = None
     if qid == "S10":
-        code = _coerce_int(answer)
-        quota_key = cx_survey.AGE_QUOTA_MAP.get(code)
-        if quota_key:
-            claimed = await try_claim_quota(db, quota_key, study_id)
-            if claimed:
-                await db.respondents.update_one({"_id": rid}, {"$push": {"quota_claims": quota_key}})
+        quota_key = cx_survey.GENDER_QUOTA_MAP.get(cx_survey._one(answer))
+    elif qid == "S11":
+        quota_key = cx_survey.AGE_QUOTA_MAP.get(cx_survey._one(answer))
+    elif qid == "I3":
+        quota_key = cx_survey.CENTRE_QUOTA_MAP.get(cx_survey._one(answer))
+    if quota_key:
+        claimed = await try_claim_quota(db, quota_key, study_id)
+        if claimed:
+            await db.respondents.update_one({"_id": rid}, {"$push": {"quota_claims": quota_key}})
 
     nxt = cx_survey.next_question(qid, responses)
     if nxt:

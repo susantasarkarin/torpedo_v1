@@ -72,12 +72,18 @@
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
 
-  function labelFor(qid, code) {
+  function labelFor(qid, val) {
+    var code = (val && typeof val === "object") ? val.code : val;
+    var other = (val && typeof val === "object") ? val.other : null;
     var q = state.bank[qid];
-    if (!q || !q.options) return (code != null ? String(code) : null);
-    var o = q.options.filter(function (x) { return x.code === code; })[0];
+    var o = (q && q.options) ? q.options.filter(function (x) { return x.code === code; })[0] : null;
+    if (o && o.specify && other) return other;
     return o ? o.label : (code != null ? String(code) : null);
   }
+
+  // Extract the numeric code from a single-choice answer (which may be an
+  // {code, other} object when an "Other (specify)" option is chosen).
+  function singleCode(a) { return (a && typeof a === "object") ? a.code : a; }
 
   function subst(text) {
     var bank = labelFor("S4", state.responses["S4"]);
@@ -176,7 +182,17 @@
   }
 
   function optionList(q) {
-    // Questions with no fixed options (bank lists, income) → free text.
+    // S4 (primary bank) is piped from the banks selected at S3.
+    if (q.id === "S4") {
+      var held = state.responses["S3"];
+      if (Array.isArray(held) && held.length) {
+        var s3 = state.bank["S3"];
+        var byCode = {}; ((s3 && s3.options) || []).forEach(function (o) { byCode[o.code] = o; });
+        var piped = held.map(function (c) { return byCode[c]; }).filter(Boolean);
+        if (piped.length) return piped;
+      }
+    }
+    // Questions with no fixed options (income, etc.) → free text.
     return (q.options && q.options.length) ? q.options : null;
   }
 
@@ -188,11 +204,18 @@
       if (q.scale) return renderScale(q);
       var opts = optionList(q);
       if (!opts) return '<input type="text" id="txt" placeholder="Please type…" value="' + esc(state.answer || "") + '">';
-      return opts.map(function (o) {
-        var sel = state.answer === o.code ? " sel" : "";
+      var curCode = singleCode(state.answer);
+      var html = opts.map(function (o) {
+        var sel = curCode === o.code ? " sel" : "";
         return '<label class="opt' + sel + '"><input type="radio" name="opt" value="' + o.code + '"' +
-          (state.answer === o.code ? " checked" : "") + '><span>' + esc(o.label) + '</span></label>';
+          (curCode === o.code ? " checked" : "") + '><span>' + esc(o.label) + '</span></label>';
       }).join("");
+      var selOpt = opts.filter(function (o) { return o.code === curCode; })[0];
+      if (selOpt && selOpt.specify) {
+        var otherVal = (state.answer && typeof state.answer === "object") ? (state.answer.other || "") : "";
+        html += '<input type="text" id="specify" placeholder="Please specify…" value="' + esc(otherVal) + '" style="margin-top:8px">';
+      }
+      return html;
     }
     if (q.type === "multi") {
       var opts2 = optionList(q);
@@ -243,17 +266,49 @@
   function wire(q) {
     var body = document.getElementById("body");
     if (q.type === "single" && !q.scale && optionList(q)) {
+      var sopts = optionList(q);
       body.querySelectorAll('input[name=opt]').forEach(function (el) {
-        el.addEventListener("change", function () { state.answer = parseInt(el.value, 10); markSel(body, ".opt", el); refreshNext(q); });
+        el.addEventListener("change", function () {
+          var c = parseInt(el.value, 10);
+          var o = sopts.filter(function (x) { return x.code === c; })[0];
+          if (o && o.specify) {
+            state.answer = { code: c, other: (state.answer && typeof state.answer === "object") ? state.answer.other || "" : "" };
+          } else {
+            state.answer = c;
+          }
+          render(); // re-render to show/hide the specify box
+        });
       });
+      var sp = document.getElementById("specify");
+      if (sp) {
+        sp.focus();
+        sp.addEventListener("input", function () {
+          if (state.answer && typeof state.answer === "object") { state.answer.other = sp.value; refreshNext(q); }
+        });
+      }
     } else if (q.type === "multi" && optionList(q)) {
+      var opts = optionList(q);
+      var exclusiveCodes = opts.filter(function (o) { return o.exclusive; }).map(function (o) { return o.code; });
       body.querySelectorAll('input[type=checkbox]').forEach(function (el) {
         el.addEventListener("change", function () {
           var v = parseInt(el.value, 10);
           var arr = state.answer || [];
-          if (el.checked) { if (arr.indexOf(v) < 0) arr.push(v); } else { arr = arr.filter(function (x) { return x !== v; }); }
+          if (el.checked) {
+            if (exclusiveCodes.indexOf(v) >= 0) {
+              arr = [v];                                   // "None" chosen → only it
+            } else {
+              arr = arr.filter(function (x) { return exclusiveCodes.indexOf(x) < 0; }); // drop any "None"
+              if (arr.indexOf(v) < 0) arr.push(v);
+            }
+          } else {
+            arr = arr.filter(function (x) { return x !== v; });
+          }
           state.answer = arr;
-          el.closest(".opt").classList.toggle("sel", el.checked);
+          // Re-sync checkbox + highlight states to reflect exclusivity changes.
+          body.querySelectorAll('input[type=checkbox]').forEach(function (c) {
+            var cv = parseInt(c.value, 10), on = arr.indexOf(cv) >= 0;
+            c.checked = on; c.closest(".opt").classList.toggle("sel", on);
+          });
           refreshNext(q);
         });
       });
@@ -293,6 +348,13 @@
     if (q.type === "multi") return Array.isArray(a) && a.length > 0;
     if (q.type === "grid_single") return q.rows && Object.keys(a || {}).length >= q.rows.length;
     if (q.type === "open" || q.type === "record") return q.id === "A3" ? !!(a && a.length) : true; // most opens optional
+    if (q.type === "single" && optionList(q)) {
+      var c = singleCode(a);
+      if (c == null) return false;
+      var o = optionList(q).filter(function (x) { return x.code === c; })[0];
+      if (o && o.specify) return !!(a && typeof a === "object" && a.other && a.other.trim()); // require specify text
+      return true;
+    }
     if (q.type === "single" && !optionList(q) && !q.scale) return !!(a && String(a).length); // free-text single
     return a !== null && a !== undefined && a !== "";
   }

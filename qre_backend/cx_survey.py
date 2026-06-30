@@ -214,8 +214,11 @@ QUESTION_BANK = [
      "options": _opts((1, "Home loan"), (2, "Personal loan"), (3, "Vehicle loan"), (4, "Loan against property (LAP)"),
                       (5, "Business loan"), (6, "Education loan"), (7, "Gold loan"), (8, "New credit card"),
                       (9, "Consumer durable loan / overdraft / cash credit"), (10, "None of these"))},
-    {"id": "S10", "section": "S", "type": "single", "text": "RECORD GENDER. ASK AGE: Which age group do you fall into?",
-     "instruction": "Check age & gender quotas.",
+    {"id": "S10", "section": "S", "type": "single", "text": "Which gender do you identify as?",
+     "instruction": "RECORD GENDER. Check gender quota.",
+     "options": _opts((1, "Female"), (2, "Male"), (3, "Other / prefer not to say"))},
+    {"id": "S11", "section": "S", "type": "single", "text": "Which age group do you fall into?",
+     "instruction": "ASK AGE. Check age quota.",
      "options": _opts((1, "18 – 24"), (2, "25 – 34"), (3, "35 – 44"), (4, "45 – 54"), (5, "55 +"))},
 
     # ---------------- Section A — Relationship, Satisfaction & Trust ----------------
@@ -445,14 +448,27 @@ QUESTION_BANK = [
      "options": _opts((1, "Salaried – private sector"), (2, "Salaried – government / public sector"), (3, "Self-employed / business owner"),
                       (4, "Professional (doctor, lawyer, CA, etc.)"), (5, "Homemaker"), (6, "Student"), (7, "Retired"), (8, "Other (specify)"))},
     {"id": "I2", "section": "I", "type": "single", "text": "Which range best describes your total monthly household income?",
-     "instruction": "SHOW LOCALISED INCOME BANDS. REFUSED = CODE 9.", "options": []},
-    {"id": "I3", "section": "I", "type": "record", "text": "RECORD CITY / TOWN AND CENTRE TYPE (METRO / TIER 1 / TIER 2).", "instruction": "INTERVIEWER RECORD."},
+     "instruction": "SHOW LOCALISED INCOME BANDS. REFUSED = CODE 9.",
+     "options": _opts((1, "Up to ₹25,000"), (2, "₹25,001 – ₹50,000"), (3, "₹50,001 – ₹75,000"),
+                      (4, "₹75,001 – ₹1,00,000"), (5, "₹1,00,001 – ₹2,00,000"), (6, "₹2,00,001 – ₹5,00,000"),
+                      (7, "Above ₹5,00,000"), (9, "Prefer not to say"))},
+    {"id": "I3", "section": "I", "type": "single", "text": "Which city do you live in?",
+     "instruction": "RECORD CITY / CENTRE.",
+     "options": _opts((1, "Mumbai"), (2, "Delhi / NCR"), (3, "Bengaluru"), (4, "Chennai"), (5, "Kolkata"),
+                      (6, "Hyderabad"), (7, "Pune"), (8, "Ahmedabad")) + [{"code": 9, "label": "Other (please specify)", "specify": True}]},
 ]
 
 # Fast lookups
 _ORDER = [q["id"] for q in QUESTION_BANK]
 _BY_ID = {q["id"]: q for q in QUESTION_BANK}
 FIRST_QUESTION_ID = _ORDER[0]
+
+# Mark the "None of these" option exclusive on the NONE=EXCLUSIVE multis so the
+# respondent UI clears other selections when it is chosen (and vice versa).
+for _qid, _code in [("S9", 10), ("D2", 8), ("E8", 6)]:
+    for _o in _BY_ID[_qid]["options"]:
+        if _o["code"] == _code:
+            _o["exclusive"] = True
 
 
 # ---------------------------------------------------------------------------
@@ -514,8 +530,12 @@ CX_QUOTAS = {
     },
 }
 
-# S10 age code → quota key
+# S11 age code → quota key
 AGE_QUOTA_MAP = {1: "age_18_24", 2: "age_25_34", 3: "age_35_44", 4: "age_45_54", 5: "age_55_plus"}
+# S10 gender code → quota key (code 3 "Other / prefer not to say" is not quota'd)
+GENDER_QUOTA_MAP = {1: "female", 2: "male"}
+# I3 city code → centre quota key (only the two in-scope centres are quota'd)
+CENTRE_QUOTA_MAP = {1: "mumbai", 2: "delhi_ncr"}
 
 
 def config_payload():
