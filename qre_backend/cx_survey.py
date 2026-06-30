@@ -170,6 +170,23 @@ def _opts(*pairs):
     return [{"code": c, "label": l} for c, l in pairs]
 
 
+# Bank list shown at S3 (banks held), S4 (primary bank) and H3 (best-CX bank).
+_BANK_NAMES = [
+    "Bank of Baroda", "Bank of India", "Bank of Maharashtra", "Canara Bank",
+    "Central Bank of India", "Indian Bank", "Indian Overseas Bank", "Punjab National Bank",
+    "Punjab & Sind Bank", "State Bank of India", "UCO Bank", "Union Bank of India",
+    "Axis Bank Ltd.", "Bandhan Bank", "Catholic Syrian Bank Ltd.", "City Union Bank Ltd.",
+    "Dhanlaxmi Bank Ltd.", "Development Credit Bank Ltd.", "Federal Bank Ltd.", "HDFC Bank Ltd.",
+    "ICICI Bank Ltd.", "IDBI Bank Ltd.", "IDFC First Bank", "Indusind Bank Ltd.",
+    "Karnataka Bank Ltd.", "Karur Vysya Bank Ltd.", "Kotak Mahindra Bank Ltd.",
+    "Tamilnad Mercantile Bank Ltd.", "The Jammu & Kashmir Bank Ltd.", "The Nainital Bank Ltd.",
+    "RBL Bank", "The South Indian Bank Ltd.", "Yes Bank Ltd.", "BNP Paribas", "Citi Bank",
+    "DBS Bank Ltd.", "Deutsche Bank", "HSBC", "Standard Chartered Bank", "National Westminster Bank",
+]
+BANKS = [{"code": i + 1, "label": name} for i, name in enumerate(_BANK_NAMES)]
+BANKS.append({"code": len(_BANK_NAMES) + 1, "label": "Other (specify)", "specify": True})
+
+
 QUESTION_BANK = [
     # ---------------- Section S — Screener ----------------
     {"id": "S1", "section": "S", "type": "multi", "text": "Do you or any member of your close family work in any of the following?",
@@ -178,9 +195,9 @@ QUESTION_BANK = [
     {"id": "S2", "section": "S", "type": "single", "text": "Have you participated in any market research survey or discussion in the past 6 months?",
      "options": _opts((1, "Yes"), (2, "No"))},
     {"id": "S3", "section": "S", "type": "multi", "text": "Which banks do you currently hold an account or product with?",
-     "instruction": "RECORD ALL. SHOW LIST + OTHER (SPECIFY).", "options": []},
+     "instruction": "RECORD ALL. SHOW LIST + OTHER (SPECIFY).", "options": BANKS},
     {"id": "S4", "section": "S", "type": "single", "text": "And which of these would you consider your MAIN or PRIMARY bank — the one you use most?",
-     "instruction": "All following questions refer to this bank.", "options": []},
+     "instruction": "All following questions refer to this bank.", "options": BANKS},
     {"id": "S5", "section": "S", "type": "single", "text": "How long have you been a customer of [PRIMARY BANK]?",
      "options": _opts((1, "Less than 1 year"), (2, "1 – 3 years"), (3, "4 – 7 years"), (4, "8 – 15 years"), (5, "More than 15 years"))},
     {"id": "S6", "section": "S", "type": "single", "text": "When did you last interact with [PRIMARY BANK] in any way — branch, app, ATM, phone, or staff contact?",
@@ -414,7 +431,7 @@ QUESTION_BANK = [
      "options": _opts((1, "Too much hassle / paperwork"), (2, "Salary account is here"), (3, "Linked services (loans, auto-pay, investments)"),
                       (4, "Long relationship / familiarity"), (5, "No clearly better alternative"), (6, "Other (specify)"))},
     {"id": "H3", "section": "H", "type": "single", "text": "Which ONE bank — whether you use it or not — do you believe offers the best overall customer experience?",
-     "instruction": "SHOW LIST + OTHER. Record primary bank if same.", "options": []},
+     "instruction": "SHOW LIST + OTHER. Record primary bank if same.", "options": BANKS},
     {"id": "H4", "section": "H", "type": "grid_single", "text": "Compared to [BANK NAMED AT H3], would you say [PRIMARY BANK] is BETTER, ABOUT THE SAME, or WORSE on each of the following?",
      "columns": ["Better", "About the same", "Worse", "Can't say"],
      "rows": [

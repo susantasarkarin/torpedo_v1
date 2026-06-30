@@ -72,13 +72,21 @@
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
 
+  function labelFor(qid, code) {
+    var q = state.bank[qid];
+    if (!q || !q.options) return (code != null ? String(code) : null);
+    var o = q.options.filter(function (x) { return x.code === code; })[0];
+    return o ? o.label : (code != null ? String(code) : null);
+  }
+
   function subst(text) {
-    var bank = state.responses["S4"];
+    var bank = labelFor("S4", state.responses["S4"]);
+    var h3 = labelFor("H3", state.responses["H3"]);
     var loan = state.responses["__loan_label"];
     return String(text)
       .replace(/\[PRIMARY BANK\]/g, bank ? esc(bank) : "your bank")
       .replace(/\[LOAN PRODUCT\]/g, loan ? esc(loan) : "your loan / product")
-      .replace(/\[BANK NAMED AT H3\]/g, state.responses["H3"] ? esc(state.responses["H3"]) : "that bank");
+      .replace(/\[BANK NAMED AT H3\]/g, h3 ? esc(h3) : "that bank");
   }
 
   function showStatus(title, msg, redirect) {
