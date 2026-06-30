@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IDFC FIRST Bank — Customer Experience Survey</title>
+  <style>
+    :root { --navy:#1F3864; --terra:#B85042; --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --bg:#f4f6fb; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: "Inter", system-ui, Arial, sans-serif; background:var(--bg); color:var(--ink); }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 28px 18px 64px; }
+    .card { background:#fff; border:1px solid var(--line); border-radius:14px; padding:26px 26px 30px; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+    .brandbar { height:6px; background:linear-gradient(90deg,var(--navy),var(--terra)); border-radius:14px 14px 0 0; margin:-26px -26px 20px; }
+    .qid { font-size:.72rem; letter-spacing:.08em; color:var(--terra); font-weight:700; text-transform:uppercase; }
+    .qtext { font-size:1.18rem; line-height:1.45; margin:6px 0 4px; font-weight:600; }
+    .instr { font-size:.82rem; color:var(--muted); margin:0 0 18px; }
+    .opt { display:flex; align-items:center; gap:10px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; margin:8px 0; cursor:pointer; transition:.12s; }
+    .opt:hover { border-color:var(--navy); background:#f8faff; }
+    .opt.sel { border-color:var(--navy); background:#eef2ff; }
+    .opt input { accent-color:var(--navy); width:17px; height:17px; }
+    .scale { display:flex; flex-wrap:wrap; gap:8px; }
+    .scale .pill { flex:1 1 auto; min-width:42px; text-align:center; padding:12px 6px; border:1px solid var(--line); border-radius:9px; cursor:pointer; font-weight:600; }
+    .scale .pill.sel { background:var(--navy); color:#fff; border-color:var(--navy); }
+    .scale-ends { display:flex; justify-content:space-between; font-size:.72rem; color:var(--muted); margin-top:6px; }
+    table.grid { width:100%; border-collapse:collapse; margin-top:6px; }
+    table.grid th, table.grid td { border-bottom:1px solid var(--line); padding:9px 6px; font-size:.86rem; text-align:center; }
+    table.grid th.rowh, table.grid td.rowh { text-align:left; font-weight:500; }
+    table.grid thead th { font-size:.72rem; color:var(--muted); font-weight:700; }
+    input[type=text], textarea { width:100%; padding:12px 14px; border:1px solid var(--line); border-radius:10px; font:inherit; }
+    textarea { min-height:96px; resize:vertical; }
+    .nav { margin-top:24px; display:flex; justify-content:flex-end; }
+    button.next { background:var(--navy); color:#fff; border:0; border-radius:10px; padding:13px 30px; font-size:1rem; font-weight:600; cursor:pointer; }
+    button.next:disabled { opacity:.45; cursor:not-allowed; }
+    .status { text-align:center; padding:60px 20px; }
+    .status h2 { color:var(--navy); }
+    .spinner { width:34px; height:34px; border:3px solid #d7def0; border-top-color:var(--navy); border-radius:50%; animation:spin .8s linear infinite; margin:0 auto 14px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .err { color:var(--terra); font-size:.86rem; margin-top:10px; }
+    .progress { height:6px; background:#e5e9f2; border-radius:6px; overflow:hidden; margin-bottom:18px; }
+    .progress > div { height:100%; background:linear-gradient(90deg,var(--navy),var(--terra)); transition:width .3s; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card" id="card">
+      <div class="brandbar"></div>
+      <div class="status"><div class="spinner"></div><div>Loading survey…</div></div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+  var API = "/qre-api";
+  var card = document.getElementById("card");
+
+  var params = new URLSearchParams(location.search);
+  var STUDY_ID = params.get("study_id") || "";
+  var RID = params.get("rid") || "";
+  if (RID === "[RID]" || RID === "{RID}") RID = "";
+
+  var state = {
+    respondentId: null,
+    currentQid: null,
+    bank: {},        // qid -> question def
+    order: [],       // question id order (for progress)
+    responses: {},   // qid -> answer (local mirror)
+    answer: null,    // working answer for current question
+  };
+
+  function h(html) { card.innerHTML = '<div class="brandbar"></div>' + html; }
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+
+  function subst(text) {
+    var bank = state.responses["S4"];
+    var loan = state.responses["__loan_label"];
+    return String(text)
+      .replace(/\[PRIMARY BANK\]/g, bank ? esc(bank) : "your bank")
+      .replace(/\[LOAN PRODUCT\]/g, loan ? esc(loan) : "your loan / product")
+      .replace(/\[BANK NAMED AT H3\]/g, state.responses["H3"] ? esc(state.responses["H3"]) : "that bank");
+  }
+
+  function showStatus(title, msg, redirect) {
+    var btn = redirect ? '<div class="nav" style="justify-content:center"><a href="' + esc(redirect) +
+      '"><button class="next">Continue</button></a></div>' : "";
+    h('<div class="status"><h2>' + esc(title) + '</h2><p>' + esc(msg) + '</p>' + btn + '</div>');
+    if (redirect) setTimeout(function () { location.href = redirect; }, 1500);
+  }
+
+  function api(method, path, body) {
+    var opts = { method: method, headers: {} };
+    if (body !== undefined) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+    return fetch(API + path, opts).then(function (r) {
+      return r.text().then(function (t) {
+        var data; try { data = t ? JSON.parse(t) : {}; } catch (e) { data = { detail: t }; }
+        if (!r.ok) { var err = new Error((data && data.detail) || r.statusText); err.status = r.status; err.data = data; throw err; }
+        return data;
+      });
+    });
+  }
+
+  // ---- bootstrap: load question bank + start (or resume) ----
+  function boot() {
+    if (!STUDY_ID) { showStatus("Missing study", "No study_id in the link."); return; }
+    api("GET", "/api/studies/" + STUDY_ID + "/cx-config").then(function (cfg) {
+      (cfg.questions || []).forEach(function (q) { state.bank[q.id] = q; state.order.push(q.id); });
+      return startOrResume();
+    }).catch(function (e) { showStatus("Could not load survey", e.message || "Error"); });
+  }
+
+  function startOrResume() {
+    return api("POST", "/api/survey/start?study_id=" + encodeURIComponent(STUDY_ID) + "&rid=" + encodeURIComponent(RID))
+      .then(function (res) {
+        state.respondentId = res.respondent_id;
+        state.currentQid = res.first_question_id;
+        render();
+      })
+      .catch(function (e) {
+        if (e.status === 409 && e.data && e.data.detail) {
+          var m = /respondent_id=([\w-]+)/.exec(e.data.detail);
+          if (m) { return resume(m[1]); }
+        }
+        if (e.status === 403) { showStatus("Already completed", "This survey has already been completed from your connection."); return; }
+        showStatus("Could not start", e.message || "Error");
+      });
+  }
+
+  function resume(rid) {
+    return api("GET", "/api/survey/resume/" + rid).then(function (res) {
+      if (res.status === "completed") { showStatus("Thank you", "You have already completed this survey."); return; }
+      if (res.status === "terminated") { showStatus("Survey closed", "This session was ended."); return; }
+      state.respondentId = res.respondent_id;
+      state.responses = res.responses || {};
+      state.currentQid = res.current_question_id || state.order[0];
+      // advance one past the last-answered if it was already stored
+      render();
+    });
+  }
+
+  // ---- rendering ----
+  function progressPct() {
+    var idx = state.order.indexOf(state.currentQid);
+    return idx < 0 ? 0 : Math.round((idx / state.order.length) * 100);
+  }
+
+  function render() {
+    var q = state.bank[state.currentQid];
+    if (!q) { showStatus("Survey error", "Unknown question: " + state.currentQid); return; }
+    state.answer = (state.currentQid in state.responses) ? state.responses[state.currentQid] : defaultAnswer(q);
+
+    var html = '<div class="progress"><div style="width:' + progressPct() + '%"></div></div>';
+    html += '<div class="qid">' + esc(q.section) + " · " + esc(q.id) + '</div>';
+    html += '<div class="qtext">' + subst(q.text) + '</div>';
+    if (q.instruction) html += '<div class="instr">' + esc(q.instruction) + '</div>';
+    html += '<div id="body">' + renderBody(q) + '</div>';
+    html += '<div class="err" id="err"></div>';
+    html += '<div class="nav"><button class="next" id="nextBtn">Next →</button></div>';
+    h(html);
+    wire(q);
+    refreshNext(q);
+  }
+
+  function defaultAnswer(q) {
+    if (q.type === "multi") return [];
+    if (q.type === "grid_single") return {};
+    return null;
+  }
+
+  function optionList(q) {
+    // Questions with no fixed options (bank lists, income) → free text.
+    return (q.options && q.options.length) ? q.options : null;
+  }
+
+  function renderBody(q) {
+    if (q.type === "open" || q.type === "record") {
+      return '<textarea id="txt" placeholder="Type your answer…">' + esc(state.answer || "") + '</textarea>';
+    }
+    if (q.type === "single") {
+      if (q.scale) return renderScale(q);
+      var opts = optionList(q);
+      if (!opts) return '<input type="text" id="txt" placeholder="Please type…" value="' + esc(state.answer || "") + '">';
+      return opts.map(function (o) {
+        var sel = state.answer === o.code ? " sel" : "";
+        return '<label class="opt' + sel + '"><input type="radio" name="opt" value="' + o.code + '"' +
+          (state.answer === o.code ? " checked" : "") + '><span>' + esc(o.label) + '</span></label>';
+      }).join("");
+    }
+    if (q.type === "multi") {
+      var opts2 = optionList(q);
+      if (!opts2) return '<input type="text" id="txt" placeholder="Type, separated by commas…" value="' + esc((state.answer || []).join(", ")) + '">';
+      var cur = state.answer || [];
+      return opts2.map(function (o) {
+        var sel = cur.indexOf(o.code) >= 0 ? " sel" : "";
+        return '<label class="opt' + sel + '"><input type="checkbox" value="' + o.code + '"' +
+          (cur.indexOf(o.code) >= 0 ? " checked" : "") + '><span>' + esc(o.label) + '</span></label>';
+      }).join("");
+    }
+    if (q.type === "grid_single") return renderGrid(q);
+    return "";
+  }
+
+  function renderScale(q) {
+    var cur = state.answer;
+    var pills = q.scale.map(function (v) {
+      return '<div class="pill' + (cur === v ? " sel" : "") + '" data-v="' + v + '">' + esc(v) + '</div>';
+    }).join("");
+    var ends = "";
+    if (q.instruction && /0 *=|Not at all|Extremely/.test(q.instruction)) {
+      ends = '<div class="scale-ends"><span>Low</span><span>High</span></div>';
+    }
+    return '<div class="scale">' + pills + '</div>' + ends;
+  }
+
+  function renderGrid(q) {
+    var cols = q.columns ? q.columns : q.scale; // scale grids use the scale as columns
+    var cur = state.answer || {};
+    var head = '<tr><th class="rowh"></th>' + cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join("") + '</tr>';
+    var rows = (q.rows || []).map(function (r) {
+      var cells = cols.map(function (c, i) {
+        var val = colValue(q, i);
+        var checked = cur[r.key] === val ? " checked" : "";
+        return '<td><input type="radio" name="g_' + r.key + '" value="' + val + '"' + checked + '></td>';
+      }).join("");
+      return '<tr><td class="rowh">' + esc(r.label) + '</td>' + cells + '</tr>';
+    }).join("");
+    return '<table class="grid"><thead>' + head + '</thead><tbody>' + rows + '</tbody></table>';
+  }
+
+  // For scale grids, the stored value is the scale position (1..n) so the
+  // routing engine's freq/agreement codes line up (e.g. B1 Never = 5).
+  // For column grids (Yes/No, Better/Same/Worse), value = column index + 1.
+  function colValue(q, i) { return i + 1; }
+
+  function wire(q) {
+    var body = document.getElementById("body");
+    if (q.type === "single" && !q.scale && optionList(q)) {
+      body.querySelectorAll('input[name=opt]').forEach(function (el) {
+        el.addEventListener("change", function () { state.answer = parseInt(el.value, 10); markSel(body, ".opt", el); refreshNext(q); });
+      });
+    } else if (q.type === "multi" && optionList(q)) {
+      body.querySelectorAll('input[type=checkbox]').forEach(function (el) {
+        el.addEventListener("change", function () {
+          var v = parseInt(el.value, 10);
+          var arr = state.answer || [];
+          if (el.checked) { if (arr.indexOf(v) < 0) arr.push(v); } else { arr = arr.filter(function (x) { return x !== v; }); }
+          state.answer = arr;
+          el.closest(".opt").classList.toggle("sel", el.checked);
+          refreshNext(q);
+        });
+      });
+    } else if (q.type === "single" && q.scale) {
+      body.querySelectorAll(".pill").forEach(function (el) {
+        el.addEventListener("click", function () {
+          var v = el.getAttribute("data-v"); v = isNaN(+v) ? v : +v;
+          state.answer = v; body.querySelectorAll(".pill").forEach(function (p) { p.classList.remove("sel"); });
+          el.classList.add("sel"); refreshNext(q);
+        });
+      });
+    } else if (q.type === "grid_single") {
+      body.querySelectorAll('input[type=radio]').forEach(function (el) {
+        el.addEventListener("change", function () {
+          var rowKey = el.name.slice(2);
+          state.answer = state.answer || {};
+          state.answer[rowKey] = parseInt(el.value, 10);
+          refreshNext(q);
+        });
+      });
+    } else { // free text / open
+      var txt = document.getElementById("txt");
+      if (txt) txt.addEventListener("input", function () {
+        if (q.type === "multi") state.answer = txt.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+        else state.answer = txt.value.trim();
+        refreshNext(q);
+      });
+    }
+    document.getElementById("nextBtn").addEventListener("click", function () { submit(q); });
+  }
+
+  function markSel(scope, sel, el) { scope.querySelectorAll(sel).forEach(function (n) { n.classList.remove("sel"); });
+    var lab = el.closest(sel); if (lab) lab.classList.add("sel"); }
+
+  function complete(q) {
+    var a = state.answer;
+    if (q.type === "multi") return Array.isArray(a) && a.length > 0;
+    if (q.type === "grid_single") return q.rows && Object.keys(a || {}).length >= q.rows.length;
+    if (q.type === "open" || q.type === "record") return q.id === "A3" ? !!(a && a.length) : true; // most opens optional
+    if (q.type === "single" && !optionList(q) && !q.scale) return !!(a && String(a).length); // free-text single
+    return a !== null && a !== undefined && a !== "";
+  }
+
+  function refreshNext(q) {
+    var btn = document.getElementById("nextBtn");
+    if (btn) btn.disabled = !complete(q);
+  }
+
+  function submit(q) {
+    if (!complete(q)) return;
+    var btn = document.getElementById("nextBtn"); btn.disabled = true; btn.textContent = "…";
+    state.responses[q.id] = state.answer;
+    // remember a friendly loan label for [LOAN PRODUCT] substitution
+    if (q.id === "S9" && Array.isArray(state.answer) && state.answer.length && q.options) {
+      var first = state.answer.find(function (c) { return c !== 10; });
+      var opt = (q.options || []).find(function (o) { return o.code === first; });
+      if (opt) state.responses["__loan_label"] = opt.label;
+    }
+    api("POST", "/api/survey/answer", { respondent_id: state.respondentId, question_id: q.id, answer: state.answer })
+      .then(function (d) {
+        if (d.action === "terminate") { showStatus("Thank you", "Based on your answers, the survey ends here. We appreciate your time.", d.redirect_url); return; }
+        if (d.action === "complete") { showStatus("Thank you!", "You have completed the survey. Your feedback is genuinely valuable.", d.redirect_url); return; }
+        state.currentQid = d.next_question_id || d.skip_to_question_id;
+        render();
+      })
+      .catch(function (e) {
+        var el = document.getElementById("err"); if (el) el.textContent = e.message || "Could not save answer.";
+        btn.disabled = false; btn.textContent = "Next →";
+      });
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>
