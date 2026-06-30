@@ -9,6 +9,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
 
+import cx_survey
+
 router = APIRouter(prefix="/api/studies", tags=["studies"])
 
 
@@ -100,6 +102,9 @@ class StudyCreate(BaseModel):
     name: str
     client_name: str
     description: str = ""
+    # "qre" = existing health-syndicate questionnaire (default, unchanged behaviour);
+    # "cx_survey" = IDFC FIRST Bank CX & Sales Process QRE (cx_survey module).
+    type: str = "qre"
 
 class WaveCreate(BaseModel):
     label: str = ""
@@ -139,10 +144,17 @@ async def create_study(payload: StudyCreate):
     study_id = str(uuid.uuid4())[:8]
     now = datetime.now(timezone.utc)
 
+    stype = (payload.type or "qre").strip() or "qre"
+    is_cx = stype == "cx_survey"
+
+    # CX surveys use their own quota frame and carry no brand/ad modules.
+    quotas = dict(cx_survey.CX_QUOTAS) if is_cx else dict(DEFAULT_QUOTAS)
+    modules = [] if is_cx else [dict(m) for m in DEFAULT_MODULES]
+
     wave_1 = {
         "wave_id": "w1",
         "label": "Wave 1",
-        "modules": [dict(m) for m in DEFAULT_MODULES],
+        "modules": modules,
         "ad_stimuli": [dict(a) for a in DEFAULT_AD_STIMULI],
         "created_at": now,
         "status": "active",
@@ -153,23 +165,24 @@ async def create_study(payload: StudyCreate):
         "name": payload.name,
         "client_name": payload.client_name,
         "description": payload.description,
+        "type": stype,
         "status": "draft",  # draft | live | paused | closed
         "created_at": now,
         "updated_at": now,
         "active_wave_id": "w1",
         "waves": [wave_1],
-        "quotas": dict(DEFAULT_QUOTAS),
+        "quotas": quotas,
         "redirects": {"complete_url": "", "terminate_url": "", "overquota_url": ""},
     }
 
     await db.studies.insert_one(study_doc)
 
-    # Create scoped quota counter doc
-    cells = {k: 0 for k in DEFAULT_QUOTAS["cells"]}
+    # Create scoped quota counter doc seeded from this study's own quota cells.
+    cells = {k: 0 for k in quotas["cells"]}
     cells["_id"] = f"quota_{study_id}"
     await db.quotas.insert_one(cells)
 
-    return {"id": study_id, "name": payload.name}
+    return {"id": study_id, "name": payload.name, "type": stype}
 
 
 @router.get("/{study_id}")
@@ -181,6 +194,31 @@ async def get_study(study_id: str):
         raise HTTPException(status_code=404, detail="Study not found")
     doc["id"] = doc.pop("_id")
     return doc
+
+
+@router.get("/{study_id}/cx-config")
+async def get_cx_config(study_id: str):
+    """Return the CX questionnaire (question bank S–I + quota frame) for a
+    cx_survey study. This is what a CX respondent UI / external programmer
+    loads to render the survey."""
+    db = _db()
+    study = await db.studies.find_one(
+        {"_id": study_id},
+        {"type": 1, "name": 1, "client_name": 1, "status": 1, "redirects": 1},
+    )
+    if not study:
+        raise HTTPException(status_code=404, detail="Study not found")
+    if study.get("type") != "cx_survey":
+        raise HTTPException(status_code=400, detail="Study is not a CX survey")
+    payload = cx_survey.config_payload()
+    payload.update({
+        "study_id": study_id,
+        "study_name": study["name"],
+        "client_name": study["client_name"],
+        "status": study.get("status"),
+        "redirects": study.get("redirects", {}),
+    })
+    return payload
 
 
 @router.patch("/{study_id}")

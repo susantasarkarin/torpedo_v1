@@ -45,7 +45,14 @@ async def ensure_study_quota_doc(db: AsyncIOMotorDatabase, study_id: str):
     any try_claim_quota call for that study.
     """
     counter_id = f"quota_{study_id}"
-    all_keys = {**QUOTA_AGE, **QUOTA_GENDER, **QUOTA_NCCS, **QUOTA_CITY}
+    # Prefer the study's own quota cells (covers non-health study types such as
+    # cx_survey); fall back to the health-syndicate defaults for legacy studies.
+    study_doc = await db.studies.find_one({"_id": study_id}, {"quotas.cells": 1})
+    cells = (study_doc or {}).get("quotas", {}).get("cells") if study_doc else None
+    if cells:
+        all_keys = {k: 0 for k in cells}
+    else:
+        all_keys = {**QUOTA_AGE, **QUOTA_GENDER, **QUOTA_NCCS, **QUOTA_CITY}
     existing = await db.quotas.find_one({"_id": counter_id})
     if not existing:
         try:

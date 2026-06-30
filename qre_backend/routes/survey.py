@@ -27,6 +27,7 @@ from config import (
     CITY_CODE_MAP, CATEGORY_PRIORITY,
     MIN_COMPLETE_SECONDS, STRAIGHT_LINE_FLAGS_TO_TERMINATE,
 )
+import cx_survey
 
 router = APIRouter(prefix="/api/survey", tags=["survey"])
 
@@ -224,6 +225,66 @@ async def _terminate(db, rid: str, reason: str, respondent: dict = None) -> Rout
     return RoutingDecision(action="terminate", reason=reason, redirect_url=redirect_url)
 
 
+async def _resolve_redirect(db, study_id: str, url_key: str, vendor_rid: str):
+    """Look up and interpolate a study redirect URL ([RID]/{RID} → vendor_rid)."""
+    if not study_id or study_id == "default":
+        return None
+    study = await db.studies.find_one({"_id": study_id}, {"redirects": 1})
+    if not study:
+        return None
+    raw_url = study.get("redirects", {}).get(url_key, "")
+    if not raw_url:
+        return None
+    return (raw_url.replace("[RID]", vendor_rid).replace("[rid]", vendor_rid)
+            .replace("{RID}", vendor_rid).replace("{rid}", vendor_rid))
+
+
+async def _cx_submit_answer(db, rid, qid, answer, respondent) -> RoutingDecision:
+    """Routing for cx_survey-type studies (IDFC FIRST Bank CX QRE).
+
+    Self-contained and independent of the health-syndicate flow above. Persists
+    the answer, applies screener terminations, claims the age quota at S10, then
+    advances via the data-driven cx_survey engine. Completes when no further
+    question is askable.
+    """
+    now = datetime.now(timezone.utc)
+    study_id = respondent.get("study_id")
+    vendor_rid = respondent.get("vendor_rid", "")
+
+    # Persist the answer
+    await db.respondents.update_one(
+        {"_id": rid},
+        {"$set": {f"responses.{qid}": answer, "current_question_id": qid, "updated_at": now}},
+    )
+    responses = {**respondent.get("responses", {}), qid: answer}
+
+    # Screener terminations (S1/S2/S6/S7)
+    reason = cx_survey.terminate_reason(qid, answer)
+    if reason:
+        return await _terminate(db, rid, reason, respondent=respondent)
+
+    # Age quota claim at S10 (gender/centre captured but not auto-claimed here).
+    if qid == "S10":
+        code = _coerce_int(answer)
+        quota_key = cx_survey.AGE_QUOTA_MAP.get(code)
+        if quota_key:
+            claimed = await try_claim_quota(db, quota_key, study_id)
+            if claimed:
+                await db.respondents.update_one({"_id": rid}, {"$push": {"quota_claims": quota_key}})
+
+    nxt = cx_survey.next_question(qid, responses)
+    if nxt:
+        return RoutingDecision(action="next", next_question_id=nxt)
+
+    # No further askable question → complete.
+    await db.respondents.update_one(
+        {"_id": rid},
+        {"$set": {"status": "completed", "completed_at": now, "ip_locked": True}},
+    )
+    redirect_url = await _resolve_redirect(db, study_id, "complete_url", vendor_rid)
+    return RoutingDecision(action="complete", redirect_url=redirect_url)
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -260,13 +321,19 @@ async def start_survey(request: Request, study_id: str = "default", rid: str = "
     # ----------------------------------------------------------------------
 
     wave_id = None
+    survey_type = "qre"
     if study_id != "default":
-        study = await db.studies.find_one({"_id": study_id}, {"active_wave_id": 1, "status": 1})
+        study = await db.studies.find_one(
+            {"_id": study_id}, {"active_wave_id": 1, "status": 1, "type": 1}
+        )
         if not study:
             raise HTTPException(status_code=404, detail="Study not found")
         if study.get("status") not in ("live", "draft"):
             raise HTTPException(status_code=400, detail="Study is not accepting responses")
         wave_id = study.get("active_wave_id")
+        survey_type = study.get("type", "qre")
+
+    first_qid = cx_survey.FIRST_QUESTION_ID if survey_type == "cx_survey" else "Q1"
 
     if study_id and study_id != "default":
         await ensure_study_quota_doc(db, study_id)
@@ -276,6 +343,7 @@ async def start_survey(request: Request, study_id: str = "default", rid: str = "
         "_id": respondent_id,
         "study_id": study_id,
         "wave_id": wave_id,
+        "survey_type": survey_type,
         "vendor_rid": rid,
         "ip_address": ip,
         "ip_locked": False,
@@ -286,11 +354,11 @@ async def start_survey(request: Request, study_id: str = "default", rid: str = "
         "straight_line_flags": 0,
         "started_at": now,
         "updated_at": now,
-        "current_question_id": "Q1",
+        "current_question_id": first_qid,
         "termination_reason": None,
     })
 
-    return StartSurveyResponse(respondent_id=respondent_id, first_question_id="Q1")
+    return StartSurveyResponse(respondent_id=respondent_id, first_question_id=first_qid)
 
 
 @router.post("/answer", response_model=RoutingDecision)
@@ -307,6 +375,10 @@ async def submit_answer(payload: AnswerPayload):
             status_code=404,
             detail="Respondent not found or already completed/terminated",
         )
+
+    # CX-survey studies use their own self-contained routing engine.
+    if respondent.get("survey_type") == "cx_survey":
+        return await _cx_submit_answer(db, rid, qid, answer, respondent)
 
     # Persist the answer
     await db.respondents.update_one(
