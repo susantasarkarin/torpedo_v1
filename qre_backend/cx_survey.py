@@ -135,6 +135,17 @@ ASK_IF = {
     "H2": lambda r: _one(r.get("H1")) in (1, 2),
     # H4 only if the best-CX bank named at H3 is not the respondent's primary bank.
     "H4": lambda r: bool(r.get("H3")) and str(r.get("H3")) != str(r.get("S4")),
+    # ---- Rev 3 additions ----
+    # S12 (PDF S11): reason for additional account — only if S3 names >1 bank.
+    "S12": lambda r: len(set(_as_codes(r.get("S3")))) > 1,
+    # B10: default UPI account — only if uses UPI apps (B9=Yes) AND holds >1 bank.
+    "B10": lambda r: _one(r.get("B9")) == 1 and len(set(_as_codes(r.get("S3")))) > 1,
+    # B11: switched UPI account after a problem — only if uses UPI apps (B9=Yes).
+    "B11": lambda r: _one(r.get("B9")) == 1,
+    # D5: time-of-day pattern — only if D2 reported a problem (anything but 'None', code 8).
+    "D5": lambda r: any(c != 8 for c in _as_codes(r.get("D2"))),
+    # D6: what they did last — only if D2 includes failed/stuck (3) or slow (5).
+    "D6": lambda r: any(c in (3, 5) for c in _as_codes(r.get("D2"))),
 }
 
 # Whole-section gates (apply to every qid in the section).
@@ -158,6 +169,11 @@ def terminate_reason(qid, answer) -> str | None:
         return "S6_inactive_customer"
     if qid == "S7" and _one(answer) == 3:
         return "S7_not_decision_maker"
+    if qid == "S11" and _one(answer) == 6:
+        return "S11_under_18"
+    # Study runs only in Mumbai (1) and Kolkata (5); every other city screens out.
+    if qid == "I3" and _one(answer) not in (1, 5):
+        return "I3_out_of_scope_city"
     return None
 
 
@@ -216,10 +232,22 @@ QUESTION_BANK = [
                       (9, "Consumer durable loan / overdraft / cash credit"), (10, "None of these"))},
     {"id": "S10", "section": "S", "type": "single", "text": "Which gender do you identify as?",
      "instruction": "RECORD GENDER. Check gender quota.",
-     "options": _opts((1, "Female"), (2, "Male"), (3, "Other / prefer not to say"))},
+     "options": _opts((1, "Female"), (2, "Male"))},
     {"id": "S11", "section": "S", "type": "single", "text": "Which age group do you fall into?",
-     "instruction": "ASK AGE. Check age quota.",
-     "options": _opts((1, "18 – 24"), (2, "25 – 34"), (3, "35 – 44"), (4, "45 – 54"), (5, "55 +"))},
+     "instruction": "ASK AGE. Check age quota. Under-18 terminates.",
+     "options": _opts((6, "Under 18"), (1, "18 – 24"), (2, "25 – 34"), (3, "35 – 44"), (4, "45 – 54"), (5, "55 +"))},
+    # NEW — REV 3 (PDF S11). Reason for holding an additional/secondary bank account.
+    # Asked only if S3 names more than one bank. Digitised as a single question about
+    # the main additional account (the PDF's per-bank loop is not supported by the engine).
+    {"id": "S12", "section": "S", "type": "single", "text": "You mentioned you also hold an account with another bank. What is the MAIN reason you hold that additional account, even though it is not your primary bank?",
+     "instruction": "ASK ONLY IF S3 = MORE THAN ONE BANK.",
+     "options": _opts((1, "Most of my family/household banks there"),
+                      (2, "It's linked to my (or a family member's) salary or employer"),
+                      (3, "It's the only place I could get a specific product/service I needed (e.g. a government-linked transaction, a particular loan)"),
+                      (4, "I opened it for an offer or promotion at the time"),
+                      (5, "It's an old/inherited account I've never closed"),
+                      (6, "Convenience / location at the time"),
+                      (7, "Other (specify)"))},
 
     # ---------------- Section A — Relationship, Satisfaction & Trust ----------------
     {"id": "A1", "section": "A", "type": "single", "text": "Overall, how satisfied are you with [PRIMARY BANK]?",
@@ -238,7 +266,20 @@ QUESTION_BANK = [
          {"key": "trust_advice", "label": "I trust the advice given by this bank's staff"},
          {"key": "branch_atm_findable", "label": "This bank's branches and ATMs are conveniently located and easy to find"},
          {"key": "relationship_continuity", "label": "I can always reach the same person or team for help, rather than starting over with someone new"},
+         # NEW — REV 3 (A4 row 9): equal/fair treatment as a distinct trust driver.
+         {"key": "fair_equal", "label": "This bank treats all its customers fairly and equally, regardless of how wealthy or educated they are"},
      ]},
+    # NEW — REV 3 (A5). Main reason first started banking with primary bank.
+    {"id": "A5", "section": "A", "type": "single", "text": "What is the MAIN reason you first started banking with [PRIMARY BANK] as your primary bank?",
+     "instruction": "ROTATE.",
+     "options": _opts((1, "My salary/income is (or was) paid into this account"),
+                      (2, "Family already banked here / recommended by family"),
+                      (3, "Recommended by a friend or colleague"),
+                      (4, "Best interest rate, charges, or offer at the time"),
+                      (5, "Convenient branch/ATM location at the time"),
+                      (6, "A bank employee or agent approached me"),
+                      (7, "It was the only option available to me at the time"),
+                      (8, "Other (specify)"))},
 
     # ---------------- Section B — Channel, Preference & RM ----------------
     {"id": "B1", "section": "B", "type": "grid_single", "text": "How often do you use each of the following to deal with [PRIMARY BANK]?",
@@ -274,6 +315,19 @@ QUESTION_BANK = [
     {"id": "B8", "section": "B", "type": "single", "text": "How was that transition handled?",
      "options": _opts((1, "Smoothly — the new person already knew my situation"), (2, "Okay, but I had to re-explain my situation from scratch"),
                       (3, "Poorly — I lost touch with the bank for a while"), (4, "Other (specify)"))},
+    # NEW — REV 3 (B9–B11): third-party UPI wallet share & reliability-driven leakage.
+    {"id": "B9", "section": "B", "type": "single", "text": "Do you use any third-party UPI apps (for example Google Pay, PhonePe, Paytm) linked to your [PRIMARY BANK] account?",
+     "instruction": "If No, skip B10–B11.",
+     "options": _opts((1, "Yes"), (2, "No"))},
+    {"id": "B10", "section": "B", "type": "single", "text": "Which bank account is your default / most frequently used account within that UPI app?",
+     "instruction": "ASK IF B9 = YES AND S3 = MORE THAN ONE BANK.",
+     "options": _opts((1, "[PRIMARY BANK]"), (2, "A different bank (specify which, from S3 list)"),
+                      (3, "I switch between accounts depending on the situation"))},
+    {"id": "B11", "section": "B", "type": "single", "text": "Have you ever switched which bank account you use for UPI payments because of a problem — for example a slow, failed, or stuck transaction — with one of your banks?",
+     "instruction": "ASK IF B9 = YES.",
+     "options": _opts((1, "Yes, and I still mostly use the other account now"),
+                      (2, "Yes, but only temporarily — I went back to my usual account"),
+                      (3, "No, this hasn't happened to me"), (4, "Can't recall"))},
 
     # ---------------- Section C — Branch Experience (gated on B1 branch != Never) ----------------
     {"id": "C1", "section": "C", "type": "single", "text": "How long did you wait to be served on your most recent branch visit?",
@@ -308,6 +362,17 @@ QUESTION_BANK = [
      ]},
     {"id": "C8", "section": "C", "type": "single", "text": "Was a Branch Manager visible or reachable during your visit, if you needed one?",
      "options": _opts((1, "Yes, visible and reachable"), (2, "No, not visible"), (3, "Didn't need to see the BM"), (4, "Don't know / can't recall"))},
+    # NEW — REV 3 (C9): separates structural drivers of branch visits from service-quality drivers.
+    {"id": "C9", "section": "C", "type": "single", "text": "What is the MAIN reason you still need to visit a branch, rather than completing tasks digitally?",
+     "instruction": "ASK ALL IN SECTION C.",
+     "options": _opts((1, "Depositing a cheque or cash"),
+                      (2, "Opening or enquiring about a fixed/recurring deposit"),
+                      (3, "Submitting documents / KYC"),
+                      (4, "A complex issue that couldn't be resolved on the app or by phone"),
+                      (5, "I prefer to handle large or important transactions face-to-face"),
+                      (6, "My salary/income is paid in a way that requires a branch visit (e.g. by cheque)"),
+                      (7, "Other (specify)"),
+                      (8, "N/A — I don't need to visit, I choose to"))},
 
     # ---------------- Section D — Digital Banking (gated on B1 app/internet != Never) ----------------
     {"id": "D1", "section": "D", "type": "multi", "text": "Which of these have you done digitally (app or internet banking) in the past 3 months?",
@@ -331,6 +396,19 @@ QUESTION_BANK = [
          {"key": "apply_loan", "label": "Applying for a loan"},
          {"key": "report_fraud", "label": "Reporting suspected fraud on your account"},
      ]},
+    # NEW — REV 3 (D5–D6): time-of-day reliability pattern and the wallet-share consequence.
+    {"id": "D5", "section": "D", "type": "single", "text": "Thinking about the digital problems you mentioned, do these tend to happen more at a particular time of day?",
+     "instruction": "ASK IF D2 ≠ 'None of these'.",
+     "options": _opts((1, "Mostly during the day / business hours"), (2, "Mostly in the evening"),
+                      (3, "Mostly late at night"), (4, "No particular pattern"), (5, "Can't recall"))},
+    {"id": "D6", "section": "D", "type": "single", "text": "Thinking of the last time you faced a failed, stuck, or slow digital transaction with [PRIMARY BANK], what did you do?",
+     "instruction": "ASK IF D2 INCLUDES 'Failed or stuck transactions' OR 'Slow performance'.",
+     "options": _opts((1, "Waited and retried later with the same bank"),
+                      (2, "Completed it immediately using a different linked bank account (e.g. via a UPI app)"),
+                      (3, "Went to a branch or ATM instead"),
+                      (4, "Contacted customer care"),
+                      (5, "Gave up / didn't complete the transaction"),
+                      (6, "Other (specify)"))},
 
     # ---------------- Section E — Product & Loan Journey (gated on S9 != None) ----------------
     {"id": "E1", "section": "E", "type": "multi", "text": "Thinking about your [LOAN PRODUCT] taken in the last 24 months — why did you choose [PRIMARY BANK] for this, rather than another lender?",
@@ -376,6 +454,14 @@ QUESTION_BANK = [
     {"id": "E12", "section": "E", "type": "single", "text": "Now that your [LOAN PRODUCT] is active, who do you primarily contact if you need help with it?",
      "options": _opts((1, "The same person who sold it to me"), (2, "A different servicing team or RM"), (3, "The branch generally"),
                       (4, "Call centre / app self-service"), (5, "I'm not sure who to contact"))},
+    # NEW — REV 3 (E13): family involvement in this specific, recent product decision.
+    {"id": "E13", "section": "E", "type": "single", "text": "Who was mainly involved in the decision to take this [LOAN PRODUCT]?",
+     "instruction": "ASK ALL IN SECTION E.",
+     "options": _opts((1, "I decided entirely on my own"),
+                      (2, "I researched and decided, but informed my family"),
+                      (3, "I decided with family input, but I had the final say"),
+                      (4, "A family member (e.g. parent/spouse) had the final say"),
+                      (5, "Other (specify)"))},
 
     # ---------------- Section F — Sales & Cross-sell (core) ----------------
     {"id": "F1", "section": "F", "type": "single", "text": "In the past 6 months, has [PRIMARY BANK] suggested or offered you any additional product — for example a credit card, insurance, loan, or investment?",
@@ -442,6 +528,12 @@ QUESTION_BANK = [
          {"key": "doorstep", "label": "Offering doorstep / at-home service when needed"},
          {"key": "branch_atm", "label": "Having branches and ATMs that are easy to find"},
      ]},
+    # NEW — REV 3 (H5): additional-account-vs-switch behaviour when a need is unmet.
+    {"id": "H5", "section": "H", "type": "single", "text": "If your primary bank doesn't serve a specific need well (for example, a particular type of loan, or a family-linked banking need), are you more likely to…?",
+     "options": _opts((1, "Switch my primary bank entirely"),
+                      (2, "Open an additional account at another bank just for that need, while keeping my primary bank"),
+                      (3, "Not do anything about it"),
+                      (4, "Don't know"))},
 
     # ---------------- Section I — Classification ----------------
     {"id": "I1", "section": "I", "type": "single", "text": "Which best describes your occupation?",
@@ -456,7 +548,27 @@ QUESTION_BANK = [
      "instruction": "RECORD CITY / CENTRE.",
      "options": _opts((1, "Mumbai"), (2, "Delhi / NCR"), (3, "Bengaluru"), (4, "Chennai"), (5, "Kolkata"),
                       (6, "Hyderabad"), (7, "Pune"), (8, "Ahmedabad")) + [{"code": 9, "label": "Other (please specify)", "specify": True}]},
+    # NEW — REV 3 (I4): salary/income payment mode — covariate for branch dependency (see C9).
+    {"id": "I4", "section": "I", "type": "single", "text": "How do you typically receive your salary or main household income?",
+     "options": _opts((1, "Direct bank transfer"), (2, "Physical cheque"), (3, "Cash"),
+                      (4, "A mix of the above"), (5, "Not applicable / prefer not to say"))},
 ]
+
+# ---------------------------------------------------------------------------
+# Front-load screen-outs + profiling (client requirement). All terminating
+# questions and the demographic/classification items are asked early; bank
+# selection (S3→S4) stays ahead of S6 so [PRIMARY BANK] resolves. Only the ask
+# ORDER changes here — the question definitions above are untouched, and IDs
+# (hence stored response keys and the dispatcher's quota hooks) are unchanged.
+# ---------------------------------------------------------------------------
+_FRONT_ORDER = [
+    "S1", "S2", "S3", "S4", "S6", "S7",   # S1/S2/S6/S7 terminate; S3/S4 give S6 its bank context
+    "S10", "S11", "I1", "I2", "I3",       # profile: gender, age, occupation, income, city (I3 also terminates on 'Other')
+    "S5", "S8", "S9", "S12",              # remaining screener items
+]
+_front_set = set(_FRONT_ORDER)
+_by_front = {q["id"]: q for q in QUESTION_BANK}
+QUESTION_BANK = [_by_front[i] for i in _FRONT_ORDER] + [q for q in QUESTION_BANK if q["id"] not in _front_set]
 
 # Fast lookups
 _ORDER = [q["id"] for q in QUESTION_BANK]
@@ -513,29 +625,42 @@ def first_question(responses=None) -> str:
 # ---------------------------------------------------------------------------
 
 CX_QUOTAS = {
-    "total_sample": 400,
+    "total_sample": 200,
     "cells": {
-        # Centres (2)
-        "mumbai": 200,
-        "delhi_ncr": 200,
-        # Age bands (S10 codes 2–5; 18–24 light)
-        "age_18_24": 40,
-        "age_25_34": 120,
-        "age_35_44": 120,
-        "age_45_54": 80,
-        "age_55_plus": 40,
-        # Gender
-        "female": 200,
-        "male": 200,
+        # Interlocking city x primary-bank quota — 50 each (hard quota).
+        # Claimed at I3 (once both S4 and I3 are known); supersedes any
+        # separate city-only / bank-only cells.
+        "mumbai_idfc": 50,
+        "mumbai_competitor": 50,
+        "kolkata_idfc": 50,
+        "kolkata_competitor": 50,
     },
 }
 
-# S11 age code → quota key
-AGE_QUOTA_MAP = {1: "age_18_24", 2: "age_25_34", 3: "age_35_44", 4: "age_45_54", 5: "age_55_plus"}
-# S10 gender code → quota key (code 3 "Other / prefer not to say" is not quota'd)
-GENDER_QUOTA_MAP = {1: "female", 2: "male"}
-# I3 city code → centre quota key (only the two in-scope centres are quota'd)
-CENTRE_QUOTA_MAP = {1: "mumbai", 2: "delhi_ncr"}
+# I3 city code → centre key (only the two in-scope centres are quota'd)
+CENTRE_QUOTA_MAP = {1: "mumbai", 5: "kolkata"}
+
+# S4 primary bank → equal-split kind. "IDFC First Bank" is code 23 in BANKS
+# (index 22 of _BANK_NAMES); every other bank counts as a competitor.
+IDFC_BANK_CODE = _BANK_NAMES.index("IDFC First Bank") + 1
+
+def _bank_kind(code):
+    """Map an S4 primary-bank code to 'idfc' or 'competitor'."""
+    if code is None:
+        return None
+    return "idfc" if int(code) == IDFC_BANK_CODE else "competitor"
+
+
+def cross_quota_key(city_code, bank_code):
+    """Combine I3 (city) + S4 (bank) into the interlocking quota cell key,
+    e.g. 'mumbai_idfc'. Returns None if the city is out of scope."""
+    city = CENTRE_QUOTA_MAP.get(city_code)
+    if not city:
+        return None
+    kind = _bank_kind(bank_code)
+    if not kind:
+        return None
+    return f"{city}_{kind}"
 
 
 def config_payload():

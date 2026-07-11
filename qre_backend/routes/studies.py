@@ -3,6 +3,7 @@ Study & Wave CRUD â€” manages multiple studies/clients and tracking waves.
 Each study has its own quotas, respondents, redirects, and module config.
 Waves allow brands and ad stimuli to change between fieldwork periods.
 """
+import re
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
@@ -781,7 +782,10 @@ async def export_study_csv(study_id: str, status_filter: str = "completed"):
         writer.writerow(row)
     output.seek(0)
     study = await db.studies.find_one({"_id": study_id}, {"name": 1})
-    fname = (study["name"] if study else study_id).replace(" ", "_").lower()
+    raw_name = (study["name"] if study else study_id).replace(" ", "_").lower()
+    # HTTP headers must be latin-1; study names can contain em-dashes and other
+    # non-ASCII characters, so reduce the filename to a safe ASCII slug.
+    fname = re.sub(r"[^A-Za-z0-9_-]", "", raw_name) or study_id
     return StreamingResponse(
         iter([output.getvalue()]),
         media_type="text/csv",
@@ -804,12 +808,15 @@ async def study_dashboard(study_id: str):
     terminated = await db.respondents.count_documents({"study_id": study_id, "status": "terminated"})
     in_progress = await db.respondents.count_documents({"study_id": study_id, "status": "in_progress"})
 
-    # Quota fill
-    counter_doc = await db.quotas.find_one({"_id": f"quota_{study_id}"}) or {}
+    # Quota fill — derive from completed respondents (source of truth), matching
+    # the Manage Quota Cells page; the live counter doc can drift from abandoned
+    # in-progress claims.
+    from services.quota_service import _aggregate_respondent_counts
+    counts = await _aggregate_respondent_counts(db, study_id)
     limits = study["quotas"]["cells"]
     quota_summary = []
     for key, limit in limits.items():
-        current = counter_doc.get(key, 0)
+        current = counts.get(key, 0)
         quota_summary.append({
             "cell": key, "filled": current, "target": limit,
             "pct": round(current / limit * 100, 1) if limit > 0 else 0,

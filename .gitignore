@@ -158,3 +158,9 @@ Bills.csv
 
 # Build logs
 build-output.txt
+
+# VM operational artifacts (backups, recovery dumps, local venvs)
+*.bak-*
+*_recovery.csv
+lead_gen_venv/
+backend/celerybeat-schedule

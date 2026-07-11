@@ -66,7 +66,17 @@
     order: [],       // question id order (for progress)
     responses: {},   // qid -> answer (local mirror)
     answer: null,    // working answer for current question
+    answerQid: null, // qid the working answer belongs to (prevents re-render clobber)
+    redirects: {},   // complete_url / terminate_url / overquota_url (from cx-config)
   };
+
+  // Resolve a vendor redirect URL for the current respondent id.
+  function redirectUrl(key) {
+    var raw = state.redirects && state.redirects[key];
+    if (!raw) return null;
+    return raw.replace(/\[RID\]/g, RID).replace(/\{RID\}/g, RID)
+              .replace(/\[rid\]/g, RID).replace(/\{rid\}/g, RID);
+  }
 
   function h(html) { card.innerHTML = '<div class="brandbar"></div>' + html; }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
@@ -118,6 +128,7 @@
   function boot() {
     if (!STUDY_ID) { showStatus("Missing study", "No study_id in the link."); return; }
     api("GET", "/api/studies/" + STUDY_ID + "/cx-config").then(function (cfg) {
+      state.redirects = cfg.redirects || {};
       (cfg.questions || []).forEach(function (q) { state.bank[q.id] = q; state.order.push(q.id); });
       return startOrResume();
     }).catch(function (e) { showStatus("Could not load survey", e.message || "Error"); });
@@ -135,7 +146,7 @@
           var m = /respondent_id=([\w-]+)/.exec(e.data.detail);
           if (m) { return resume(m[1]); }
         }
-        if (e.status === 403) { showStatus("Already completed", "This survey has already been completed from your connection."); return; }
+        if (e.status === 403) { showStatus("Already completed", "This survey has already been completed from your connection.", redirectUrl("complete_url")); return; }
         showStatus("Could not start", e.message || "Error");
       });
   }
@@ -161,12 +172,18 @@
   function render() {
     var q = state.bank[state.currentQid];
     if (!q) { showStatus("Survey error", "Unknown question: " + state.currentQid); return; }
-    state.answer = (state.currentQid in state.responses) ? state.responses[state.currentQid] : defaultAnswer(q);
+    // Only (re)load the answer when the working answer belongs to a DIFFERENT
+    // question — i.e. real navigation. A re-render of the SAME question (e.g. a
+    // single-choice pick that toggles the specify box) must preserve the pick.
+    if (state.answerQid !== state.currentQid) {
+      state.answer = (state.currentQid in state.responses) ? state.responses[state.currentQid] : defaultAnswer(q);
+      state.answerQid = state.currentQid;
+    }
 
     var html = '<div class="progress"><div style="width:' + progressPct() + '%"></div></div>';
     html += '<div class="qid">' + esc(q.section) + " · " + esc(q.id) + '</div>';
     html += '<div class="qtext">' + subst(q.text) + '</div>';
-    if (q.instruction) html += '<div class="instr">' + esc(q.instruction) + '</div>';
+    if (q.instruction) html += '<div class="instr">' + subst(q.instruction) + '</div>';
     html += '<div id="body">' + renderBody(q) + '</div>';
     html += '<div class="err" id="err"></div>';
     html += '<div class="nav"><button class="next" id="nextBtn">Next →</button></div>';
@@ -208,7 +225,7 @@
       var html = opts.map(function (o) {
         var sel = curCode === o.code ? " sel" : "";
         return '<label class="opt' + sel + '"><input type="radio" name="opt" value="' + o.code + '"' +
-          (curCode === o.code ? " checked" : "") + '><span>' + esc(o.label) + '</span></label>';
+          (curCode === o.code ? " checked" : "") + '><span>' + subst(o.label) + '</span></label>';
       }).join("");
       var selOpt = opts.filter(function (o) { return o.code === curCode; })[0];
       if (selOpt && selOpt.specify) {
@@ -224,7 +241,7 @@
       return opts2.map(function (o) {
         var sel = cur.indexOf(o.code) >= 0 ? " sel" : "";
         return '<label class="opt' + sel + '"><input type="checkbox" value="' + o.code + '"' +
-          (cur.indexOf(o.code) >= 0 ? " checked" : "") + '><span>' + esc(o.label) + '</span></label>';
+          (cur.indexOf(o.code) >= 0 ? " checked" : "") + '><span>' + subst(o.label) + '</span></label>';
       }).join("");
     }
     if (q.type === "grid_single") return renderGrid(q);
@@ -253,7 +270,7 @@
         var checked = cur[r.key] === val ? " checked" : "";
         return '<td><input type="radio" name="g_' + r.key + '" value="' + val + '"' + checked + '></td>';
       }).join("");
-      return '<tr><td class="rowh">' + esc(r.label) + '</td>' + cells + '</tr>';
+      return '<tr><td class="rowh">' + subst(r.label) + '</td>' + cells + '</tr>';
     }).join("");
     return '<table class="grid"><thead>' + head + '</thead><tbody>' + rows + '</tbody></table>';
   }

@@ -128,6 +128,77 @@ async def release_quota(
     )
 
 
+def _cx_one(v):
+    """Extract an int code from a cx answer (int, str, or {"code",...} object)."""
+    if isinstance(v, dict):
+        v = v.get("code")
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+async def cx_cell_is_full(
+    db: AsyncIOMotorDatabase, study_id: str, cell: str
+) -> bool:
+    """Self-healing quota gate for cx_survey interlocking cells (e.g. 'mumbai_idfc').
+
+    Gates directly on the REAL number of COMPLETED respondents in the cell —
+    the same figure the dashboard shows — instead of a separate counter that
+    can drift when quota cells are redefined mid-fielding. Returns True when the
+    cell has already met/exceeded its target (i.e. new respondents should be
+    screened out).
+
+    A cell key is '<city>_<kind>' where city ∈ {mumbai, kolkata} maps to the I3
+    code via cx_survey.CENTRE_QUOTA_MAP and kind ∈ {idfc, competitor} is decided
+    by S4 against cx_survey.IDFC_BANK_CODE.
+    """
+    import cx_survey
+
+    city, _, kind = cell.rpartition("_")
+    city_code = next(
+        (code for code, name in cx_survey.CENTRE_QUOTA_MAP.items() if name == city),
+        None,
+    )
+    if city_code is None or kind not in ("idfc", "competitor"):
+        return False  # unknown cell → don't block
+
+    q: dict = {
+        "study_id": study_id,
+        "status": "completed",
+        "responses.I3": city_code,
+    }
+    if kind == "idfc":
+        q["responses.S4"] = cx_survey.IDFC_BANK_CODE
+    else:  # competitor = any in-scope respondent whose primary bank is not IDFC
+        q["responses.S4"] = {"$exists": True, "$ne": cx_survey.IDFC_BANK_CODE}
+
+    done = await db.respondents.count_documents(q)
+    limit = await _get_limit_async(db, cell, study_id)
+    return done >= limit
+
+
+async def _aggregate_cx_counts(db: AsyncIOMotorDatabase, base: dict) -> dict[str, int]:
+    """Completed-respondent counts for a cx_survey study: the interlocking
+    city x primary-bank cell (e.g. 'mumbai_idfc'), derived from each
+    respondent's own S4 (bank) + I3 (city) answers. (Gender/age are not
+    tracked as quota cells.)"""
+    import cx_survey
+    counts: dict[str, int] = {}
+    cursor = db.respondents.find(
+        {**base, "responses.S4": {"$exists": True}, "responses.I3": {"$exists": True}},
+        {"responses.S4": 1, "responses.I3": 1},
+    )
+    async for doc in cursor:
+        resp = doc.get("responses", {})
+        s4 = _cx_one(resp.get("S4"))
+        i3 = _cx_one(resp.get("I3"))
+        key = cx_survey.cross_quota_key(i3, s4)
+        if key:
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
 async def _aggregate_respondent_counts(
     db: AsyncIOMotorDatabase, study_id: str | None = None
 ) -> dict[str, int]:
@@ -148,6 +219,12 @@ async def _aggregate_respondent_counts(
     base: dict = {"status": "completed"}
     if study_id and study_id != "default":
         base["study_id"] = study_id
+
+    # cx_survey studies store native S-codes (S4/S10/S11/I3), not Q2/Q3/Q4.
+    if study_id and study_id != "default":
+        st = await db.studies.find_one({"_id": study_id}, {"type": 1})
+        if st and st.get("type") == "cx_survey":
+            return await _aggregate_cx_counts(db, base)
 
     counts: dict[str, int] = {}
 

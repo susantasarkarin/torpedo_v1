@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request
 from models import AnswerPayload, StartSurveyResponse, RoutingDecision, ResumeSurveyResponse
-from services.quota_service import try_claim_quota, release_quota, ensure_study_quota_doc, check_overquota_at_completion
+from services.quota_service import try_claim_quota, release_quota, ensure_study_quota_doc, check_overquota_at_completion, cx_cell_is_full
 from services.nccs import classify_nccs
 from config import (
     CITY_CODE_MAP, CATEGORY_PRIORITY,
@@ -263,20 +263,23 @@ async def _cx_submit_answer(db, rid, qid, answer, respondent) -> RoutingDecision
     if reason:
         return await _terminate(db, rid, reason, respondent=respondent)
 
-    # Quota claims: gender at S10, age at S11, centre at I3.
-    # cx_survey._one safely extracts the code even when the answer is an
-    # {"code", "other"} object from an "Other (specify)" selection.
-    quota_key = None
-    if qid == "S10":
-        quota_key = cx_survey.GENDER_QUOTA_MAP.get(cx_survey._one(answer))
-    elif qid == "S11":
-        quota_key = cx_survey.AGE_QUOTA_MAP.get(cx_survey._one(answer))
-    elif qid == "I3":
-        quota_key = cx_survey.CENTRE_QUOTA_MAP.get(cx_survey._one(answer))
-    if quota_key:
-        claimed = await try_claim_quota(db, quota_key, study_id)
-        if claimed:
-            await db.respondents.update_one({"_id": rid}, {"$push": {"quota_claims": quota_key}})
+    # Quota gate: interlocking city x primary-bank cell, enforced at I3 once both
+    # S4 (answered earlier in the screener) and I3 are known. Gating is done
+    # directly against the REAL completed count per cell (see cx_cell_is_full),
+    # which is self-healing — it never drifts when quota cells are redefined
+    # mid-fielding, and it matches exactly what the dashboard displays.
+    # Gender (S10) and age (S11) are no longer tracked as quota cells — those
+    # questions remain in the questionnaire (S11 still screens out under-18).
+    if qid == "I3":
+        cell = cx_survey.cross_quota_key(
+            cx_survey._one(answer), cx_survey._one(responses.get("S4"))
+        )
+        if cell:
+            if await cx_cell_is_full(db, study_id, cell):
+                # Cell target already met → over-quota screen-out (→ overquota_url).
+                return await _terminate(db, rid, f"quota_full_{cell}", respondent=respondent)
+            # Record which cell this respondent belongs to (for reporting/export).
+            await db.respondents.update_one({"_id": rid}, {"$push": {"quota_claims": cell}})
 
     nxt = cx_survey.next_question(qid, responses)
     if nxt:
