@@ -430,12 +430,16 @@ async def background_enrich_leads():
                         # OpenAI may be disabled/unavailable — fall through to pattern lookup below
                         logger.debug(f"[Enrichment] OpenAI enrichment unavailable: {_oai_err}")
                     
+                    # Error dicts ({"success": False, "error": ...}) must fall
+                    # through to the no_data path, not merge as an enrichment.
+                    if result and result.get("error"):
+                        result = None
                     if result:
                         # Merge enrichment results back to the lead
                         update_fields = {
                             'enrichment_status': 'enriched',
                             'enriched_at': datetime.utcnow(),
-                            'enrichment_source': 'openai_websearch',
+                            'enrichment_source': result.get('enrichment_source', 'claude_websearch'),
                             'last_enrichment_attempt': datetime.utcnow(),
                         }
                         
@@ -588,15 +592,36 @@ async def background_enrich_leads():
 
                 except ImportError:
                     logger.warning("[Enrichment] web_search_enrichment module not available")
-                    # Don't return — fall through to release leads to classifier
-                    leads_raw.update_one(
-                        {'_id': lead['_id']},
-                        {'$set': {
-                            'last_enrichment_attempt': datetime.utcnow(),
-                            'enrichment_status': 'no_data',
-                            'classification_status': 'Pending',
-                        }}
-                    )
+                    # Don't return — release to classifier, but STILL attempt
+                    # email-pattern discovery so a missing enrichment module
+                    # doesn't leave every lead email-less (that outage made
+                    # the whole lead-gen pipeline produce unusable leads).
+                    no_module_update = {
+                        'last_enrichment_attempt': datetime.utcnow(),
+                        'enrichment_status': 'no_data',
+                        'classification_status': 'Pending',
+                    }
+                    try:
+                        domain_np = lead.get('company_domain', '')
+                        first_np = lead.get('first_name', '')
+                        last_np = lead.get('last_name', '')
+                        if domain_np and first_np and not lead.get('email'):
+                            from leads.email_pattern_system import EmailPatternSystem
+                            ps = EmailPatternSystem()
+                            pattern_data = ps.get_pattern(domain_np)
+                            if pattern_data and pattern_data.get('confidence', 0) >= 0.5:
+                                built, conf = ps.build_email(first_np, last_np, domain_np)
+                                if built:
+                                    no_module_update.update({
+                                        'email': built,
+                                        'email_source': 'pattern_applied',
+                                        'email_status': 'Predicted',
+                                        'email_pattern_confidence': conf,
+                                    })
+                    except Exception as _np_err:
+                        logger.debug(f"[Enrichment] no-module pattern fallback failed: {_np_err}")
+                    leads_raw.update_one({'_id': lead['_id']},
+                                         {'$set': no_module_update})
                     
             except Exception as e:
                 error_count += 1

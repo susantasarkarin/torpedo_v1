@@ -754,8 +754,10 @@ async def run_web_search_job(job_id: str):
             if success > 0:
                 # Count emails found (leads with predicted_email)
                 from .service import leads_enriched_collection
+                # NOTE: a dict literal can't repeat "$ne" — the second key
+                # silently replaced the first, so email=None rows were counted.
                 emails_count = leads_enriched_collection.count_documents({
-                    "email": {"$ne": None, "$ne": ""},
+                    "email": {"$nin": [None, ""]},
                     "classified_at": {"$gte": datetime.utcnow() - timedelta(minutes=5)}
                 })
                 
