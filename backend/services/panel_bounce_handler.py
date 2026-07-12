@@ -266,17 +266,30 @@ def log_invitation(
     type: str = "signup",
 ) -> None:
     """Log a sent invitation for duplicate detection. Type can be 'signup' or 'login'."""
-    invitation_log_collection.insert_one({
+    doc = {
         "email": email.lower().strip(),
         "panelist_id": panelist_id,
         "batch_id": batch_id,
         "ses_message_id": ses_message_id,
         "status": status,
-        "invite_token": invite_token,
         "template_version": template_version,
         "type": type,
         "sent_at": datetime.utcnow(),
-    })
+    }
+    # Only store invite_token when there actually is one. The index on
+    # invite_token is unique+sparse; sparse skips MISSING fields but NOT an
+    # empty string, so writing "" made the 2nd tokenless row (e.g. every
+    # login/survey-available email) collide and crash the whole batch. Omit
+    # the field entirely for tokenless sends so sparse does its job.
+    if invite_token:
+        doc["invite_token"] = invite_token
+    try:
+        invitation_log_collection.insert_one(doc)
+    except Exception as e:
+        # A logging failure must never abort the send loop — worst case we
+        # might re-send tomorrow, which the daily dedup still guards against
+        # for rows that did write.
+        logger.warning(f"[panel] log_invitation insert failed for {email}: {e}")
 
 
 def handle_ses_notification(payload: Dict[str, Any]) -> Dict[str, Any]:

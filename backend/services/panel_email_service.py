@@ -19,6 +19,16 @@ import boto3
 from botocore.exceptions import ClientError
 from pymongo import MongoClient
 
+try:
+    # Raised by the Celery worker ~5 min before the hard time limit. Catching
+    # it lets a long bulk send stop cleanly with partial progress instead of
+    # being hard-killed mid-loop (which left the daily send perpetually
+    # incomplete and triggered a retry storm).
+    from celery.exceptions import SoftTimeLimitExceeded
+except Exception:  # pragma: no cover - celery always present in worker
+    class SoftTimeLimitExceeded(Exception):
+        pass
+
 from services.panel_bounce_handler import (
     is_suppressed,
     has_been_invited,
@@ -595,6 +605,7 @@ def send_bulk_invitations(
     cap_value = daily_cap if daily_cap is not None else PANEL_DAILY_SEND_CAP
     capped = 0
 
+    truncated = False
     for panelist in eligible:
         if daily_mode and sent >= cap_value:
             capped += 1
@@ -605,7 +616,16 @@ def send_bulk_invitations(
         # Send
         first_name = panelist.get("first_name", "")
         invite_token = uuid.uuid4().hex
-        success, details = send_invitation_email(email, first_name, invite_token=invite_token)
+        try:
+            success, details = send_invitation_email(email, first_name, invite_token=invite_token)
+        except SoftTimeLimitExceeded:
+            truncated = True
+            logger.warning(
+                f"[panel] invite batch {batch_id} hit the worker time limit "
+                f"after {sent} sends — stopping cleanly; the rest go out on the "
+                f"next daily run. Raise PANEL_SES_SEND_RATE to send more per day."
+            )
+            break
 
         if success:
             log_invitation(
@@ -632,13 +652,14 @@ def send_bulk_invitations(
         # Rate limiting
         time.sleep(send_interval)
 
-    logger.info(f"Bulk invitation complete batch={batch_id}: sent={sent} skipped={skipped} failed={failed}")
+    logger.info(f"Bulk invitation complete batch={batch_id}: sent={sent} skipped={skipped} failed={failed} truncated={truncated}")
     return {
         "batch_id": batch_id,
         "sent": sent,
         "skipped": skipped,
         "failed": failed,
         "capped": capped,
+        "truncated": truncated,
         "daily_mode": daily_mode,
         "daily_cap": cap_value if daily_mode else None,
         "timezone": PANEL_SEND_TIMEZONE if daily_mode else None,
@@ -761,6 +782,7 @@ def send_bulk_login_invitations(
     cap_value = daily_cap if daily_cap is not None else PANEL_DAILY_SEND_CAP
     capped = 0
 
+    truncated = False
     for panelist in eligible:
         if sent >= cap_value:
             capped += 1
@@ -770,7 +792,16 @@ def send_bulk_login_invitations(
 
         # Send
         first_name = panelist.get("first_name", "")
-        success, details = send_login_invitation_email(email, first_name)
+        try:
+            success, details = send_login_invitation_email(email, first_name)
+        except SoftTimeLimitExceeded:
+            truncated = True
+            logger.warning(
+                f"[panel] login batch {batch_id} hit the worker time limit "
+                f"after {sent} sends — stopping cleanly; the rest go out on the "
+                f"next daily run."
+            )
+            break
 
         if success:
             log_invitation(
@@ -797,9 +828,10 @@ def send_bulk_login_invitations(
         # Rate limiting
         time.sleep(send_interval)
 
-    logger.info(f"Bulk login invitation complete batch={batch_id}: sent={sent} skipped={skipped} failed={failed}")
+    logger.info(f"Bulk login invitation complete batch={batch_id}: sent={sent} skipped={skipped} failed={failed} truncated={truncated}")
     return {
         "batch_id": batch_id,
+        "truncated": truncated,
         "sent": sent,
         "skipped": skipped,
         "failed": failed,
