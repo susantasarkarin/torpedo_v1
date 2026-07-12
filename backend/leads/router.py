@@ -491,8 +491,80 @@ def generate_query_combinations(designations: List[str], countries: List[str],
 
     query_combinations = list(set(query_combinations)) if query_combinations else [custom_query]
     random.shuffle(query_combinations)
-    
+
     return query_combinations
+
+
+# ============== QUERY DEEPENING (beats Google CSE's ~100-result-per-query cap) ==============
+
+# Major metros per country. Google CSE returns at most ~100 results per unique
+# query, so a country-level query dead-ends once its top-100 is imported.
+# Re-scoping the same query to individual cities gives each city its own ~100
+# pool — the single biggest lever for surfacing genuinely new leads.
+CITY_EXPANSIONS = {
+    "India": ["Mumbai", "Delhi", "Bangalore", "Bengaluru", "Hyderabad", "Chennai",
+              "Pune", "Kolkata", "Ahmedabad", "Gurgaon", "Gurugram", "Noida",
+              "Jaipur", "Chandigarh", "Kochi", "Coimbatore", "Indore"],
+    "United States": ["New York", "San Francisco", "Chicago", "Los Angeles",
+                      "Boston", "Austin", "Seattle", "Atlanta", "Dallas",
+                      "Denver", "Miami", "Washington DC"],
+    "United Kingdom": ["London", "Manchester", "Birmingham", "Leeds", "Glasgow",
+                       "Edinburgh", "Bristol", "Liverpool", "Cambridge"],
+    "Canada": ["Toronto", "Vancouver", "Montreal", "Calgary", "Ottawa"],
+    "Australia": ["Sydney", "Melbourne", "Brisbane", "Perth", "Adelaide"],
+    "Germany": ["Berlin", "Munich", "Hamburg", "Frankfurt", "Cologne"],
+    "France": ["Paris", "Lyon", "Marseille", "Toulouse", "Lille"],
+    "Singapore": ["Singapore"],
+    "UAE": ["Dubai", "Abu Dhabi", "Sharjah"],
+    "South Africa": ["Johannesburg", "Cape Town", "Durban", "Pretoria"],
+}
+
+# Result-window shifters: profile-common words to REQUIRE and noise to EXCLUDE.
+# Requiring/excluding different tokens makes Google re-rank and return a
+# different top-100 for the same logical target.
+_REFINEMENT_MODIFIERS = [
+    "-inurl:jobs", "-inurl:dir/", "-recruiter -hiring",
+    '"currently"', '"experience"', '"connect"', '"years"',
+    "-intitle:jobs", '"present"',
+]
+
+MAX_EXPANSION_WAVES = 3  # city wave, then up to 2 modifier waves
+
+
+def _expand_query(base_query: str, wave: int, countries: List[str]) -> List[str]:
+    """
+    Produce novel derivative queries for an exhausted base query so the search
+    keeps finding new leads past Google's ~100-per-query ceiling.
+
+    wave 0: append each major city of the query's country (or all configured
+            countries' cities when none is embedded in the query).
+    wave 1+: append rotating require/exclude modifiers that shift the result
+             window.
+    """
+    base = base_query.strip()
+    if not base:
+        return []
+
+    if wave == 0:
+        # Which country does this query target?
+        matched_cities: List[str] = []
+        for country, cities in CITY_EXPANSIONS.items():
+            if country.lower() in base.lower():
+                matched_cities = cities
+                break
+        if not matched_cities:
+            # No country in the query — expand across configured countries' cities.
+            for c in (countries or []):
+                matched_cities.extend(CITY_EXPANSIONS.get(c, []))
+        if matched_cities:
+            return [f'{base} "{city}"' for city in matched_cities]
+        # Nothing to geo-expand → fall through to modifier wave.
+        wave = 1
+
+    # Modifier waves: two modifiers per wave, rotating through the list.
+    idx = (wave - 1) * 2
+    mods = _REFINEMENT_MODIFIERS[idx:idx + 2]
+    return [f"{base} {m}" for m in mods]
 
 
 # ============== BACKGROUND SEARCH LOOP ==============
@@ -551,6 +623,11 @@ async def run_web_search_job(job_id: str):
     # key=query, value=consecutive all-dupe count; reset when new leads found
     exhausted_queries: dict = {}
     EXHAUSTED_THRESHOLD = 3  # skip a query after this many all-dupe runs
+    # Query deepening state: how many expansion waves each base query has spent,
+    # and every query ever queued (dedupe guard for generated variants).
+    query_waves: dict = {}
+    all_queries_set: set = set(query_combinations)
+    search_countries = config.get("countries", []) or []
 
     print(f"[WebSearch:{job_id}] Starting job - Target: {target_count}, Queries: {len(query_combinations)}")
     
@@ -613,19 +690,35 @@ async def run_web_search_job(job_id: str):
             })
             continue
         
-        # Get next query — skip exhausted ones
+        # Get next query. When the whole list is cycled, reshuffle but DO NOT
+        # clear exhaustion — clearing just re-runs the same finite queries that
+        # already returned their entire ~100-result pool (the root cause of
+        # "no new leads after a while"). Exhausted bases stay skipped; their
+        # generated city/modifier variants (appended below) carry the frontier.
         if query_index >= len(query_combinations):
             query_index = 0
             random.shuffle(query_combinations)
-            # Reset exhausted state at the start of each full cycle
-            exhausted_queries.clear()
-        
+
         query = query_combinations[query_index]
         query_index += 1
 
-        # Skip queries that consistently return only duplicates this cycle
+        # A query that keeps returning only duplicates is tapped out. Before
+        # skipping it for good, DEEPEN it into novel variants (city-scoped,
+        # then require/exclude-shifted) that surface result windows Google
+        # didn't return for the base query — this is what keeps new leads
+        # flowing past the per-query cap.
         if exhausted_queries.get(query, 0) >= EXHAUSTED_THRESHOLD:
-            print(f"[WebSearch:{job_id}] Skipping exhausted query: '{query[:60]}'")
+            wave = query_waves.get(query, 0)
+            if wave < MAX_EXPANSION_WAVES:
+                variants = [q for q in _expand_query(query, wave, search_countries)
+                            if q not in all_queries_set]
+                query_waves[query] = wave + 1
+                if variants:
+                    query_combinations.extend(variants)
+                    all_queries_set.update(variants)
+                    update_job(job_id, {"query_combinations": query_combinations})
+                    print(f"[WebSearch:{job_id}] Deepened tapped-out query into "
+                          f"{len(variants)} new variants (wave {wave + 1}): '{query[:50]}'")
             await asyncio.sleep(0.2)
             continue
         
