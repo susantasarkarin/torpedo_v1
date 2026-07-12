@@ -257,6 +257,228 @@ def mirror_invoice_to_spine(invoice: Dict[str, Any], customer_name: Optional[str
         return None
 
 
+def mirror_finance_parties_bulk(names: List[str], party: str,
+                                source: Optional[str] = None) -> Dict[str, str]:
+    """
+    Bulk variant of mirror_finance_party_to_spine for CSV imports.
+    Returns {name: spine_account_id} for every name that mirrored, so the
+    caller can write crm_account_id back-references onto the legacy docs.
+    party: client|vendor.
+    """
+    mapping: Dict[str, str] = {}
+    try:
+        crm = _crm()
+        for name in {(n or "").strip() for n in names}:
+            if not name:
+                continue
+            try:
+                account, created = crm.get_or_create_account(
+                    name,
+                    defaults={"account_type": party,
+                              "metadata": {"source": source or f"finance_{party}"}})
+                mapping[name] = account["_id"]
+                if created:
+                    crm.log_activity({
+                        "type": "account_created",
+                        "object_type": "account",
+                        "object_id": account["_id"],
+                        "account_id": account["_id"],
+                        "summary": f"Account mirrored from finance import ({party}: {name})",
+                        "at": datetime.utcnow().isoformat(),
+                    })
+            except Exception:
+                continue
+        return mapping
+    except Exception as e:
+        logger.warning(f"[spine] bulk finance party mirror failed (non-fatal): {e}")
+        return mapping
+
+
+def mirror_invoices_bulk(items: List[Tuple[Dict[str, Any], Optional[str], Optional[str]]]
+                         ) -> int:
+    """
+    Bulk variant of mirror_invoice_to_spine for CSV imports.
+    items = [(invoice_dict, customer_name, source_id)]. One get_or_create per
+    unique customer plus two insert_many calls. Returns count mirrored.
+    """
+    try:
+        if not items:
+            return 0
+        crm = _crm()
+        now = datetime.utcnow()
+        account_cache: Dict[str, str] = {}
+        docs = []
+        for invoice, customer_name, source_id in items:
+            account_id = None
+            cname = (customer_name or "").strip()
+            if cname:
+                ckey = cname.lower()
+                if ckey not in account_cache:
+                    account, _ = crm.get_or_create_account(
+                        cname, defaults={"account_type": "client",
+                                         "metadata": {"source": "finance_invoice"}})
+                    account_cache[ckey] = account["_id"]
+                account_id = account_cache[ckey]
+            docs.append({
+                "invoice_number": invoice.get("invoice_number") or invoice.get("number"),
+                "account_id": account_id,
+                "amount": invoice.get("total") or invoice.get("amount") or 0,
+                "currency": invoice.get("currency") or invoice.get("currency_code") or "USD",
+                "status": invoice.get("status") or "draft",
+                "due_date": invoice.get("due_date"),
+                "metadata": {"source": "finance", "source_id": source_id},
+                "created_at": now,
+                "updated_at": now,
+            })
+        result = crm._col("invoices").insert_many(docs, ordered=False)
+        activities = [{
+            "type": "invoice_created",
+            "object_type": "invoice",
+            "object_id": str(inv_id),
+            "account_id": doc.get("account_id"),
+            "summary": f"Invoice {doc.get('invoice_number') or inv_id} "
+                       f"({doc.get('amount')} {doc.get('currency')})",
+            "at": now.isoformat(),
+            "created_at": now,
+            "updated_at": now,
+        } for inv_id, doc in zip(result.inserted_ids, docs)]
+        if activities:
+            crm._col("activities").insert_many(activities, ordered=False)
+        return len(result.inserted_ids)
+    except Exception as e:
+        logger.warning(f"[spine] bulk invoice mirror failed (non-fatal): {e}")
+        return 0
+
+
+def mirror_email_activity_to_spine(direction: str, email: str,
+                                   name: Optional[str] = None,
+                                   company: Optional[str] = None,
+                                   subject: Optional[str] = None,
+                                   summary: Optional[str] = None,
+                                   source: str = "outreach",
+                                   source_id: Optional[str] = None) -> Optional[str]:
+    """
+    Mirror an outreach email event onto the CRM timeline: dedupe/create the
+    Contact (and Account when the company is known) and log an activity so
+    sends and replies show up on /api/crm timelines.
+    direction: "sent" | "reply_positive" | "reply_negative" | "reply_neutral".
+    """
+    try:
+        email = (email or "").strip().lower()
+        if not email:
+            return None
+        crm = _crm()
+
+        account_id = None
+        if (company or "").strip():
+            account, _ = crm.get_or_create_account(
+                company.strip(), defaults={"metadata": {"source": source}})
+            account_id = account["_id"]
+
+        contact, _ = crm.get_or_create_contact(
+            email, defaults={"name": name, "account_id": account_id,
+                             "metadata": {"source": source}})
+
+        activity_type = "email_sent" if direction == "sent" else f"email_{direction}"
+        crm.log_activity({
+            "type": activity_type,
+            "object_type": "contact",
+            "object_id": contact["_id"],
+            "contact_id": contact["_id"],
+            "account_id": account_id or contact.get("account_id"),
+            "summary": summary or (f"Email sent: {subject}" if direction == "sent"
+                                   else f"Reply received ({direction}): {subject or ''}").strip(),
+            "subject": subject,
+            "metadata": {"source": source, "source_id": source_id},
+            "at": datetime.utcnow().isoformat(),
+        })
+        return contact["_id"]
+    except Exception as e:
+        logger.warning(f"[spine] email activity mirror failed (non-fatal): {e}")
+        return None
+
+
+def mirror_ops_project_to_spine(project: Dict[str, Any],
+                                client_name: Optional[str] = None,
+                                source_id: Optional[str] = None) -> Optional[str]:
+    """
+    Mirror an operations project into crm_db projects, linked to the client's
+    spine account, and log an activity on the account timeline.
+    """
+    try:
+        crm = _crm()
+        account_id = None
+        if (client_name or "").strip():
+            account, _ = crm.get_or_create_account(
+                client_name.strip(),
+                defaults={"account_type": "client",
+                          "metadata": {"source": "operations"}})
+            account_id = account["_id"]
+
+        doc = crm.create("projects", {
+            "name": project.get("name") or project.get("code"),
+            "code": project.get("code"),
+            "account_id": account_id,
+            "status": project.get("status") or "planning",
+            "metadata": {"source": "operations", "source_id": source_id},
+        })
+        crm.log_activity({
+            "type": "project_created",
+            "object_type": "project",
+            "object_id": doc["_id"],
+            "project_id": doc["_id"],
+            "account_id": account_id,
+            "summary": f"Operations project created: {doc.get('name')}",
+            "at": datetime.utcnow().isoformat(),
+        })
+        return doc["_id"]
+    except Exception as e:
+        logger.warning(f"[spine] ops project mirror failed (non-fatal): {e}")
+        return None
+
+
+def update_spine_account(crm_account_id: str,
+                         fields: Dict[str, Any]) -> bool:
+    """
+    Propagate a legacy-module update (e.g. a customer rename) onto the spine
+    account referenced by a stored crm_account_id back-reference.
+    """
+    try:
+        if not crm_account_id or not fields:
+            return False
+        crm = _crm()
+        allowed = {k: v for k, v in fields.items()
+                   if k in ("name", "account_type", "status") and v}
+        if "name" in allowed:
+            allowed["name_normalized"] = crm._normalize_name(allowed["name"])
+        if not allowed:
+            return False
+        return crm.update("accounts", crm_account_id, allowed) is not None
+    except Exception as e:
+        logger.warning(f"[spine] account update failed (non-fatal): {e}")
+        return False
+
+
+def mark_spine_account_deleted(crm_account_id: str, source: str) -> bool:
+    """
+    Flag the spine account as source-deleted when its legacy doc is removed.
+    Spine records are never hard-deleted (they anchor historical activities).
+    """
+    try:
+        if not crm_account_id:
+            return False
+        crm = _crm()
+        updated = crm.update("accounts", crm_account_id, {
+            "metadata.source_deleted": True,
+            "metadata.source_deleted_from": source,
+            "metadata.source_deleted_at": datetime.utcnow().isoformat(),
+        })
+        return updated is not None
+    except Exception as e:
+        logger.warning(f"[spine] account delete-mark failed (non-fatal): {e}")
+        return False
+
+
 def mirror_panelist_registration_to_spine(email: str, name: Optional[str] = None,
                                           country: Optional[str] = None) -> Optional[str]:
     """

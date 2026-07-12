@@ -688,6 +688,21 @@ def analyze_reply(self, lead_id: str, reply_body: str, gmail_message_id: str) ->
             })
             logger.info(f"[Reply] Lead {lead_id} → NEUTRAL → flagged for manual review")
 
+        # Mirror the reply onto the CRM spine timeline (best-effort, non-fatal)
+        try:
+            from app.services.spine_connector import mirror_email_activity_to_spine
+            mirror_email_activity_to_spine(
+                direction=f"reply_{sentiment}",
+                email=lead.get("email", ""),
+                name=lead.get("name"),
+                company=lead.get("company") or lead.get("company_name"),
+                summary=analysis.get("summary") or f"Reply received ({sentiment})",
+                source="outreach_reply",
+                source_id=gmail_message_id,
+            )
+        except Exception:
+            pass
+
         return {
             "status": "analyzed",
             "sentiment": sentiment,

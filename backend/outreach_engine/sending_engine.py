@@ -388,7 +388,24 @@ class SendingEngine:
                 
                 # Update campaign stats
                 self._update_campaign_stats(campaign_id, "sent")
-                
+
+                # Mirror onto the CRM spine timeline (best-effort, non-fatal)
+                try:
+                    from app.services.spine_connector import mirror_email_activity_to_spine
+                    lead_name = (lead.get("name") or lead.get("full_name")
+                                 or f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip())
+                    mirror_email_activity_to_spine(
+                        direction="sent",
+                        email=lead.get("email", ""),
+                        name=lead_name or None,
+                        company=lead.get("company") or lead.get("company_name"),
+                        subject=send_record.subject,
+                        source="outreach",
+                        source_id=message_id,
+                    )
+                except Exception:
+                    pass
+
                 # Log the send
                 self._log_send(
                     send_record=send_record,

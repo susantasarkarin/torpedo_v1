@@ -51,7 +51,25 @@ class ProjectService:
         
         result = self.projects.insert_one(project_doc)
         project_doc["_id"] = result.inserted_id
-        
+
+        # Mirror into the canonical CRM spine (best-effort, non-fatal)
+        try:
+            try:
+                from app.services.spine_connector import mirror_ops_project_to_spine
+            except ImportError:
+                from backend.app.services.spine_connector import mirror_ops_project_to_spine
+            spine_id = mirror_ops_project_to_spine(
+                project_doc,
+                client_name=project_doc.get("client_name"),
+                source_id=str(result.inserted_id))
+            if spine_id:
+                self.projects.update_one(
+                    {"_id": result.inserted_id},
+                    {"$set": {"crm_project_id": spine_id}})
+                project_doc["crm_project_id"] = spine_id
+        except Exception:
+            pass
+
         return self._serialize_project(project_doc)
     
     def get_project(self, project_id: str) -> Optional[Dict[str, Any]]:

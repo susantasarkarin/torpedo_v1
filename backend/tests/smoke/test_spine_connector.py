@@ -100,3 +100,64 @@ def test_mirror_panelist_creates_contact_activity(svc):
 def test_mirror_is_non_fatal_on_bad_input(svc):
     assert connector.mirror_sales_account_to_spine("") is None
     assert connector.mirror_panelist_registration_to_spine("") is None
+
+
+def test_mirror_email_activity_sent_and_reply(svc):
+    contact_id = connector.mirror_email_activity_to_spine(
+        direction="sent", email="prospect@mailco.com", name="Pat Prospect",
+        company="MailCo", subject="Quick question", source="outreach",
+        source_id="<msg1@x>")
+    assert contact_id
+    timeline = svc.timeline("contact", contact_id)
+    assert any(a["type"] == "email_sent" for a in timeline["activities"])
+
+    reply_contact = connector.mirror_email_activity_to_spine(
+        direction="reply_positive", email="prospect@mailco.com",
+        summary="Interested, send a proposal", source="outreach_reply")
+    assert reply_contact == contact_id  # deduped by email
+    timeline = svc.timeline("contact", contact_id)
+    assert any(a["type"] == "email_reply_positive" for a in timeline["activities"])
+
+
+def test_mirror_finance_parties_bulk_returns_mapping(svc):
+    mapping = connector.mirror_finance_parties_bulk(
+        ["BulkCo One", "BulkCo Two", "", "BulkCo One"], "client",
+        source="finance_client_import")
+    assert set(mapping) == {"BulkCo One", "BulkCo Two"}
+    assert svc.get("accounts", mapping["BulkCo One"])["account_type"] == "client"
+
+
+def test_mirror_invoices_bulk(svc):
+    n = connector.mirror_invoices_bulk([
+        ({"invoice_number": "INV-B1", "total": 100, "currency_code": "INR",
+          "status": "draft"}, "BulkBill Ltd", "src1"),
+        ({"invoice_number": "INV-B2", "total": 200, "currency_code": "INR",
+          "status": "sent"}, "BulkBill Ltd", "src2"),
+    ])
+    assert n == 2
+    docs = svc.list_docs("invoices", {"metadata.source_id": "src1"})
+    assert docs and docs[0]["account_id"]
+
+
+def test_mirror_ops_project_links_account(svc):
+    proj_id = connector.mirror_ops_project_to_spine(
+        {"name": "Brand Tracker Wave 3", "code": "PRJ-0042",
+         "status": "planning"},
+        client_name="TrackerClient", source_id="ops42")
+    assert proj_id
+    proj = svc.get("projects", proj_id)
+    assert proj["account_id"]
+    timeline = svc.timeline("account", proj["account_id"])
+    assert any(a["type"] == "project_created" for a in timeline["activities"])
+
+
+def test_update_and_delete_mark_spine_account(svc):
+    acc_id = connector.mirror_finance_party_to_spine("RenameCo", "client",
+                                                     source_id="r1")
+    assert connector.update_spine_account(acc_id, {"name": "RenameCo Global"})
+    assert svc.get("accounts", acc_id)["name"] == "RenameCo Global"
+
+    assert connector.mark_spine_account_deleted(acc_id, "finance_client")
+    meta = svc.get("accounts", acc_id)["metadata"]
+    assert meta["source_deleted"] is True
+    assert meta["source_deleted_from"] == "finance_client"

@@ -12,7 +12,10 @@ from typing import List, Dict, Any, Optional
 import os
 import csv
 import io
+import logging
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # RBAC imports for permission enforcement
 try:
@@ -153,6 +156,27 @@ def _flush_import(collection, docs: list) -> int:
         return 0
     result = collection.insert_many(docs, ordered=False)
     return len(result.inserted_ids)
+
+
+def _mirror_parties_after_import(collection, docs: list, party: str) -> None:
+    """
+    Mirror freshly imported customers/vendors into the canonical CRM spine
+    and stamp crm_account_id back-references onto the legacy docs
+    (best-effort, non-fatal). party: client|vendor.
+    """
+    try:
+        if not docs:
+            return
+        from app.services.spine_connector import mirror_finance_parties_bulk
+        mapping = mirror_finance_parties_bulk(
+            [d.get("name", "") for d in docs], party,
+            source=f"finance_{party}_import")
+        for name, account_id in mapping.items():
+            collection.update_many(
+                {"name": name, "crm_account_id": {"$exists": False}},
+                {"$set": {"crm_account_id": account_id}})
+    except Exception as e:
+        logger.warning(f"[spine] post-import party mirror skipped: {e}")
 
 
 def generate_customer_number(offset: int = 0) -> str:
@@ -530,8 +554,13 @@ async def create_customer(customer_data: Dict[str, Any] = Body(...)):
         # Mirror into the canonical CRM spine (best-effort, non-fatal)
         try:
             from app.services.spine_connector import mirror_finance_party_to_spine
-            mirror_finance_party_to_spine(customer_data.get("name"), "client",
-                                          source_id=customer_data["_id"])
+            spine_id = mirror_finance_party_to_spine(customer_data.get("name"), "client",
+                                                     source_id=customer_data["_id"])
+            if spine_id:
+                customers_collection.update_one(
+                    {"_id": ObjectId(customer_data["_id"])},
+                    {"$set": {"crm_account_id": spine_id}})
+                customer_data["crm_account_id"] = spine_id
         except Exception:
             pass
 
@@ -559,7 +588,18 @@ async def update_customer(customer_id: str, customer_data: Dict[str, Any] = Body
         )
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Customer not found")
-        
+
+        # Propagate a rename to the CRM spine account (best-effort, non-fatal)
+        try:
+            new_name = customer_data.get("name")
+            if new_name and new_name != current_customer.get("name") \
+                    and current_customer.get("crm_account_id"):
+                from app.services.spine_connector import update_spine_account
+                update_spine_account(current_customer["crm_account_id"],
+                                     {"name": new_name})
+        except Exception:
+            pass
+
         return {"message": "Customer updated successfully"}
     except HTTPException:
         raise
@@ -584,7 +624,15 @@ async def delete_customer(customer_id: str):
             raise HTTPException(status_code=404, detail="Customer not found")
         
         customers_collection.delete_one({"_id": ObjectId(customer_id)})
-        
+
+        # Flag the spine account as source-deleted (best-effort, non-fatal)
+        try:
+            if customer.get("crm_account_id"):
+                from app.services.spine_connector import mark_spine_account_deleted
+                mark_spine_account_deleted(customer["crm_account_id"], "finance_client")
+        except Exception:
+            pass
+
         return {"message": "Customer deleted successfully"}
     except HTTPException:
         raise
@@ -753,6 +801,7 @@ async def import_customers_csv(file: UploadFile = File(...)):
                 errors.append(f"Row {idx}: {str(row_error)}")
 
         imported_count = _flush_import(customers_collection, docs_to_insert)
+        _mirror_parties_after_import(customers_collection, docs_to_insert, "client")
 
         return {
             "message": f"Imported {imported_count} customers",
@@ -891,8 +940,13 @@ async def create_vendor(vendor_data: Dict[str, Any] = Body(...)):
         # Mirror into the canonical CRM spine (best-effort, non-fatal)
         try:
             from app.services.spine_connector import mirror_finance_party_to_spine
-            mirror_finance_party_to_spine(vendor_data.get("name"), "vendor",
-                                          source_id=vendor_data["_id"])
+            spine_id = mirror_finance_party_to_spine(vendor_data.get("name"), "vendor",
+                                                     source_id=vendor_data["_id"])
+            if spine_id:
+                vendors_collection.update_one(
+                    {"_id": ObjectId(vendor_data["_id"])},
+                    {"$set": {"crm_account_id": spine_id}})
+                vendor_data["crm_account_id"] = spine_id
         except Exception:
             pass
 
@@ -909,13 +963,26 @@ async def update_vendor(vendor_id: str, vendor_data: Dict[str, Any] = Body(...))
     try:
         vendor_data.pop("_id", None)
         vendor_data["updated_at"] = datetime.utcnow()
-        
+
+        current_vendor = vendors_collection.find_one({"_id": ObjectId(vendor_id)})
         result = vendors_collection.update_one(
             {"_id": ObjectId(vendor_id)},
             {"$set": vendor_data}
         )
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Vendor not found")
+
+        # Propagate a rename to the CRM spine account (best-effort, non-fatal)
+        try:
+            new_name = vendor_data.get("name")
+            if current_vendor and new_name and new_name != current_vendor.get("name") \
+                    and current_vendor.get("crm_account_id"):
+                from app.services.spine_connector import update_spine_account
+                update_spine_account(current_vendor["crm_account_id"],
+                                     {"name": new_name})
+        except Exception:
+            pass
+
         return {"message": "Vendor updated successfully"}
     except HTTPException:
         raise
@@ -986,6 +1053,15 @@ async def delete_vendor(vendor_id: str):
         )
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Vendor not found")
+
+        # Flag the spine account as source-deleted (best-effort, non-fatal)
+        try:
+            if vendor.get("crm_account_id"):
+                from app.services.spine_connector import mark_spine_account_deleted
+                mark_spine_account_deleted(vendor["crm_account_id"], "finance_vendor")
+        except Exception:
+            pass
+
         return {"message": "Vendor deleted successfully (soft delete)"}
     except HTTPException:
         raise
@@ -1249,6 +1325,7 @@ async def import_vendors_csv(file: UploadFile = File(...)):
                 errors.append(f"Row {idx}: {str(row_error)}")
 
         imported_count = _flush_import(vendors_collection, docs_to_insert)
+        _mirror_parties_after_import(vendors_collection, docs_to_insert, "vendor")
 
         return {
             "message": f"Imported {imported_count} vendors",
@@ -2303,6 +2380,17 @@ async def import_invoices_csv(file: UploadFile = File(...)):
                 errors.append(f"Row {idx}: {str(row_error)}")
 
         imported_count = _flush_import(invoices_collection, docs_to_insert)
+
+        # Mirror imported invoices into the CRM spine (best-effort, non-fatal)
+        try:
+            from app.services.spine_connector import mirror_invoices_bulk
+            id_to_name = {v: k for k, v in customer_ids.items()}
+            mirror_invoices_bulk([
+                (d, id_to_name.get(d.get("customer_id")), str(d.get("_id")))
+                for d in docs_to_insert
+            ])
+        except Exception as e:
+            logger.warning(f"[spine] post-import invoice mirror skipped: {e}")
 
         return {
             "message": f"Imported {imported_count} invoices",

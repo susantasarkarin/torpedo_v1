@@ -1030,8 +1030,13 @@ def ingest_lead(
             # Mirror new leads into the canonical CRM spine (best-effort)
             try:
                 from app.services.spine_connector import mirror_lead_to_spine
-                mirror_lead_to_spine(normalized, source=source,
-                                     source_id=result['lead_id'])
+                crm_lead_id = mirror_lead_to_spine(normalized, source=source,
+                                                   source_id=result['lead_id'])
+                if crm_lead_id:
+                    leads_raw.update_one(
+                        {'_id': insert_result.inserted_id},
+                        {'$set': {'crm_lead_id': crm_lead_id}}
+                    )
             except Exception as _spine_err:
                 logger.debug(f"spine mirror skipped: {_spine_err}")
 

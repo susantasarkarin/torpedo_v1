@@ -135,11 +135,16 @@ async def create_sales_account(account: SalesAccountCreate):
         # Mirror into the canonical CRM spine (best-effort, non-fatal)
         try:
             from app.services.spine_connector import mirror_sales_account_to_spine
-            mirror_sales_account_to_spine(
+            spine_id = mirror_sales_account_to_spine(
                 account_data.get("company_name") or account_data.get("account_name"),
                 source_id=account_data["_id"],
                 extra={"industry": account_data.get("industry")},
             )
+            if spine_id:
+                accounts_collection.update_one(
+                    {"_id": ObjectId(account_data["_id"])},
+                    {"$set": {"crm_account_id": spine_id}})
+                account_data["crm_account_id"] = spine_id
         except Exception:
             pass
 
