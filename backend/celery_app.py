@@ -140,7 +140,10 @@ celery_app.conf.update(
             # auto-deactivation can fire for callback-silent surveys.
             'task': 'backend.tasks.yield_tasks.sweep_abandoned_cint_sessions',
             'schedule': 3600.0,
-            'options': {'queue': 'surveys'},
+            # NOTE: no running worker consumes the 'surveys' queue on prod
+            # (only default / linkedin_automation / sales,ai_processing) —
+            # anything routed there never executes. Keep this on 'default'.
+            'options': {'queue': 'default'},
         },
         'crm-spine-nightly-reconcile': {
             # 8:00 AM IST = 02:30 UTC — re-converge crm_db against finance/
