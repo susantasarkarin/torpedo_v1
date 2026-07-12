@@ -901,3 +901,113 @@ async def get_registrations_by_country(
     except Exception as e:
         logger.error(f"Error fetching registrations by country: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── SFW Panel proxy endpoints ────────────────────────────────────────────────
+# Proxies all SFW panel data via HTTPS to panel.surveyfieldwork.com/api/admin/*
+# Requires SFW_INTERNAL_KEY env var on the Torpedo backend, and INTERNAL_API_KEY
+# on sfw-api. auth.js on sfw-api checks the X-Internal-Key header.
+
+import requests as _http
+
+_SFW_API = os.getenv("SFW_PANEL_API_BASE", "https://panel.surveyfieldwork.com/api/admin")
+_SFW_KEY = os.getenv("SFW_INTERNAL_KEY", "")
+
+
+def _sfw_get(path, params=None):
+    r = _http.get(f"{_SFW_API}{path}", headers={"X-Internal-Key": _SFW_KEY}, params=params, timeout=15)
+    r.raise_for_status()
+    return r.json()
+
+
+@router.get("/dashboard/sfwpanel-overview")
+async def get_sfwpanel_overview(request: Request):
+    """SFW panel overview — proxied from panel.surveyfieldwork.com"""
+    verify_admin_session(request)
+    try:
+        data = _sfw_get("/overview")
+        users = data.get("users", {})
+        surveys = data.get("surveys", {})
+        rewards = data.get("rewards", {})
+        return {
+            "users": {
+                "total": users.get("total", 0),
+                "today": users.get("today", 0),
+                "this_week": users.get("thisWeek", 0),
+                "active_week": users.get("activeThisWeek", 0),
+            },
+            "surveys": {
+                "total": surveys.get("completed", 0),
+                "complete": surveys.get("complete", 0),
+                "terminate": surveys.get("terminate", 0),
+                "quotafull": surveys.get("quotafull", 0),
+                "completion_rate": surveys.get("completionRate", 0),
+            },
+            "levels": data.get("levels", {}),
+            "sources": {},
+            "rewards": {"total_paise": rewards.get("totalPaidPaise", 0)},
+        }
+    except Exception as e:
+        logger.error(f"sfwpanel overview error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/dashboard/sfwpanel-countries")
+async def get_sfwpanel_countries(request: Request):
+    """SFW panel country breakdown — proxied from panel.surveyfieldwork.com"""
+    verify_admin_session(request)
+    try:
+        data = _sfw_get("/country-stats")
+        raw = data.get("countries", [])
+        countries = [
+            {
+                "country": c.get("_id", "XX"),
+                "total": c.get("total", 0),
+                "today": c.get("today", 0),
+                "this_week": c.get("thisWeek", 0),
+            }
+            for c in raw
+        ]
+        return {"countries": countries}
+    except Exception as e:
+        logger.error(f"sfwpanel countries error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sfwpanel-panelists")
+async def get_sfwpanel_panelists(
+    request: Request,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    search: str = Query(""),
+    country: str = Query(""),
+    sort_by: str = Query("createdAt"),
+    order: str = Query("desc"),
+):
+    """Paginated SFW panelists with survey stats — proxied from panel.surveyfieldwork.com"""
+    verify_admin_session(request)
+    try:
+        params = {"page": page, "limit": limit, "sortBy": sort_by, "order": order}
+        if search:
+            params["search"] = search
+        if country:
+            params["country"] = country
+        return _sfw_get("/panelists", params=params)
+    except Exception as e:
+        logger.error(f"sfwpanel panelists error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sfwpanel-panelists/{user_id}")
+async def get_sfwpanel_panelist_detail(request: Request, user_id: str):
+    """Detail for a single SFW panelist — proxied from panel.surveyfieldwork.com"""
+    verify_admin_session(request)
+    try:
+        return _sfw_get(f"/panelists/{user_id}")
+    except _http.HTTPError as e:
+        if e.response is not None and e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"sfwpanel panelist detail error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -7,6 +7,19 @@ const PANEL_ADMIN_API_PREFIX = "/api/panel-admin"
 function PanelistManagement() {
   const [activeTab, setActiveTab] = useState("panelist-leads")
 
+  // SFW Panel state
+  const [sfwPanelists, setSfwPanelists] = useState([])
+  const [sfwPage, setSfwPage] = useState(1)
+  const [sfwTotal, setSfwTotal] = useState(0)
+  const [sfwPages, setSfwPages] = useState(1)
+  const [sfwLoading, setSfwLoading] = useState(false)
+  const [sfwSearch, setSfwSearch] = useState("")
+  const [sfwCountry, setSfwCountry] = useState("")
+  const [sfwSortBy, setSfwSortBy] = useState("createdAt")
+  const [sfwOrder, setSfwOrder] = useState("desc")
+  const [sfwDetail, setSfwDetail] = useState(null)
+  const [sfwDetailLoading, setSfwDetailLoading] = useState(false)
+
   // Panelist leads state
   const [panelLeads, setPanelLeads] = useState([])
   const [leadPage, setLeadPage] = useState(1)
@@ -53,7 +66,9 @@ function PanelistManagement() {
   const PAGE_SIZE = 100
 
   useEffect(() => {
-    if (activeTab === "panelist-leads") {
+    if (activeTab === "sfw-panelists") {
+      fetchSfwPanelists()
+    } else if (activeTab === "panelist-leads") {
       fetchPanelLeads()
     } else if (activeTab === "panelist-approved") {
       fetchPanelists()
@@ -380,6 +395,50 @@ function PanelistManagement() {
     fontSize: "0.95rem",
   })
 
+
+  const fetchSfwPanelists = async (overrides = {}) => {
+    setSfwLoading(true)
+    const sessionId = localStorage.getItem("session_id")
+    const pg = overrides.page ?? sfwPage
+    const sb = overrides.sortBy ?? sfwSortBy
+    const od = overrides.order ?? sfwOrder
+    const ct = overrides.country ?? sfwCountry
+    const sr = overrides.search ?? sfwSearch
+    try {
+      const params = new URLSearchParams({ page: pg, limit: 20, sort_by: sb, order: od, ...(ct ? { country: ct } : {}), ...(sr ? { search: sr } : {}) })
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/sfwpanel-panelists?${params}`), { headers: { Authorization: sessionId } })
+      if (res.ok) {
+        const data = await res.json()
+        setSfwPanelists(data.panelists || [])
+        setSfwTotal(data.total || 0)
+        setSfwPages(data.pages || 1)
+      }
+    } catch (err) { console.error("SFW panelists error:", err) }
+    finally { setSfwLoading(false) }
+  }
+
+  const fetchSfwDetail = async (userId) => {
+    setSfwDetailLoading(true)
+    const sessionId = localStorage.getItem("session_id")
+    try {
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/sfwpanel-panelists/${userId}`), { headers: { Authorization: sessionId } })
+      if (res.ok) setSfwDetail(await res.json())
+    } catch (err) { console.error("SFW detail error:", err) }
+    finally { setSfwDetailLoading(false) }
+  }
+
+  const sfwSort = (field) => {
+    const newOrder = sfwSortBy === field && sfwOrder === "desc" ? "asc" : "desc"
+    setSfwSortBy(field); setSfwOrder(newOrder); setSfwPage(1)
+    fetchSfwPanelists({ sortBy: field, order: newOrder, page: 1 })
+  }
+
+  const rupees = (p) => p ? "₹" + (p / 100).toLocaleString("en-IN", { maximumFractionDigits: 0 }) : "₹0"
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"
+  const fmtTime = (d) => d ? new Date(d).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"
+  const CNAMES = { US: "United States", IN: "India", GB: "United Kingdom", AU: "Australia", CA: "Canada", DE: "Germany", SG: "Singapore", AE: "UAE", XX: "Unknown" }
+  const cname = (cc) => CNAMES[cc] || cc || "—"
+
   return (
     <div>
       <div className="card">
@@ -547,6 +606,9 @@ function PanelistManagement() {
           </button>
           <button style={tabStyle("panelist-approved")} onClick={() => setActiveTab("panelist-approved")}>
             Panelist Approved
+          </button>
+          <button style={tabStyle("sfw-panelists")} onClick={() => setActiveTab("sfw-panelists")}>
+            SFW Panelists
           </button>
         </div>
 
@@ -821,6 +883,213 @@ function PanelistManagement() {
             )}
           </div>
         )}
+        {/* SFW Panelists Tab */}
+        {activeTab === "sfw-panelists" && (
+          <div>
+            {/* Filters */}
+            <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem", flexWrap: "wrap", alignItems: "center" }}>
+              <input type="text" placeholder="Search name, email, panelist ID…" value={sfwSearch}
+                onChange={(e) => setSfwSearch(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { setSfwPage(1); fetchSfwPanelists({ page: 1, search: e.target.value }) } }}
+                style={{ flex: 1, minWidth: "220px", padding: "0.5rem 0.75rem", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "0.875rem" }} />
+              <select value={sfwCountry} onChange={(e) => { setSfwCountry(e.target.value); setSfwPage(1); fetchSfwPanelists({ page: 1, country: e.target.value }) }}
+                style={{ padding: "0.5rem 0.75rem", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "0.875rem" }}>
+                <option value="">All Countries</option>
+                {["US","IN","GB","AU","CA","DE","SG","AE"].map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <button onClick={() => { setSfwPage(1); fetchSfwPanelists({ page: 1 }) }}
+                style={{ padding: "0.5rem 1rem", background: "#f97316", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "0.875rem", fontWeight: "600" }}>
+                ↻ Refresh
+              </button>
+            </div>
+
+            <p style={{ fontSize: "0.8rem", color: "#9ca3af", marginBottom: "0.75rem" }}>{sfwTotal} panelists {sfwSearch || sfwCountry ? "(filtered)" : ""}</p>
+
+            {/* Table */}
+            {sfwLoading ? (
+              <p style={{ color: "#6b7280", padding: "2rem 0", textAlign: "center" }}>Loading…</p>
+            ) : sfwPanelists.length === 0 ? (
+              <p style={{ color: "#6b7280", padding: "2rem 0", textAlign: "center" }}>No panelists found</p>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.8rem" }}>
+                  <thead>
+                    <tr style={{ background: "#f9fafb", borderBottom: "2px solid #e5e7eb" }}>
+                      {[
+                        { label: "Panelist", field: null },
+                        { label: "Country", field: null },
+                        { label: "Joined ↕", field: "createdAt" },
+                        { label: "Total", field: null },
+                        { label: "Complete", field: null },
+                        { label: "Terminate", field: null },
+                        { label: "Quota", field: null },
+                        { label: "Rate", field: null },
+                        { label: "Earned ↕", field: "totalEarnedPaise" },
+                        { label: "Balance ↕", field: "balancePaise" },
+                        { label: "Redeemed", field: null },
+                        { label: "Last Active ↕", field: "lastActiveAt" },
+                      ].map(({ label, field }) => (
+                        <th key={label} onClick={field ? () => sfwSort(field) : undefined}
+                          style={{ ...thStyle, cursor: field ? "pointer" : "default", whiteSpace: "nowrap", userSelect: "none",
+                            color: sfwSortBy === field ? "#f97316" : "#6b7280" }}>
+                          {label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sfwPanelists.map((p) => {
+                      const sv = p.surveys || {}
+                      const denom = (sv.complete || 0) + (sv.terminate || 0)
+                      const rate = denom ? Math.round((sv.complete / denom) * 100) + "%" : "—"
+                      const redeemed = (p.totalEarnedPaise || 0) - (p.balancePaise || 0)
+                      return (
+                        <tr key={p._id} onClick={() => fetchSfwDetail(p._id)}
+                          style={{ borderBottom: "1px solid #f3f4f6", cursor: "pointer" }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = "#fff7ed"}
+                          onMouseLeave={(e) => e.currentTarget.style.background = ""}>
+                          <td style={tdStyle}>
+                            <p style={{ fontWeight: "600", color: "#111827" }}>{[p.firstName, p.lastName].filter(Boolean).join(" ") || <span style={{ color: "#9ca3af" }}>unnamed</span>}</p>
+                            <p style={{ color: "#9ca3af", fontSize: "0.75rem" }}>{p.email}</p>
+                            <p style={{ color: "#d1d5db", fontFamily: "monospace", fontSize: "0.7rem" }}>{p.panelistId || "—"}</p>
+                          </td>
+                          <td style={tdStyle}>{cname(p.country)}</td>
+                          <td style={{ ...tdStyle, whiteSpace: "nowrap", color: "#6b7280" }}>{fmtDate(p.createdAt)}</td>
+                          <td style={{ ...tdStyle, textAlign: "center", fontWeight: "600" }}>{sv.total || 0}</td>
+                          <td style={{ ...tdStyle, textAlign: "center", color: "#059669", fontWeight: "600" }}>{sv.complete || 0}</td>
+                          <td style={{ ...tdStyle, textAlign: "center", color: "#dc2626" }}>{sv.terminate || 0}</td>
+                          <td style={{ ...tdStyle, textAlign: "center", color: "#d97706" }}>{sv.quotafull || 0}</td>
+                          <td style={{ ...tdStyle, textAlign: "center", color: "#6b7280" }}>{rate}</td>
+                          <td style={{ ...tdStyle, textAlign: "right", color: "#111827" }}>{rupees(p.totalEarnedPaise)}</td>
+                          <td style={{ ...tdStyle, textAlign: "right", color: "#7c3aed", fontWeight: "600" }}>{rupees(p.balancePaise)}</td>
+                          <td style={{ ...tdStyle, textAlign: "right", color: "#6b7280" }}>{rupees(redeemed > 0 ? redeemed : 0)}</td>
+                          <td style={{ ...tdStyle, whiteSpace: "nowrap", color: "#9ca3af" }}>{fmtDate(p.lastActiveAt)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Pagination */}
+            {sfwPages > 1 && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "1rem", fontSize: "0.875rem", color: "#6b7280" }}>
+                <span>Page {sfwPage} of {sfwPages} · {sfwTotal} panelists</span>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button disabled={sfwPage <= 1} onClick={() => { const p = sfwPage - 1; setSfwPage(p); fetchSfwPanelists({ page: p }) }}
+                    style={{ padding: "0.4rem 0.8rem", border: "1px solid #d1d5db", borderRadius: "6px", cursor: sfwPage <= 1 ? "default" : "pointer", opacity: sfwPage <= 1 ? 0.4 : 1 }}>
+                    ← Prev
+                  </button>
+                  <button disabled={sfwPage >= sfwPages} onClick={() => { const p = sfwPage + 1; setSfwPage(p); fetchSfwPanelists({ page: p }) }}
+                    style={{ padding: "0.4rem 0.8rem", border: "1px solid #d1d5db", borderRadius: "6px", cursor: sfwPage >= sfwPages ? "default" : "pointer", opacity: sfwPage >= sfwPages ? 0.4 : 1 }}>
+                    Next →
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Detail modal */}
+            {(sfwDetail || sfwDetailLoading) && (
+              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem" }}>
+                <div style={{ background: "#fff", borderRadius: "16px", width: "100%", maxWidth: "600px", maxHeight: "85vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+                  <div style={{ padding: "1.25rem 1.5rem", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <h3 style={{ fontWeight: "700", color: "#111827", margin: 0 }}>Panelist Detail</h3>
+                    <button onClick={() => setSfwDetail(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.25rem", color: "#9ca3af" }}>✕</button>
+                  </div>
+                  <div style={{ overflowY: "auto", padding: "1.5rem", flex: 1 }}>
+                    {sfwDetailLoading ? (
+                      <p style={{ textAlign: "center", color: "#6b7280" }}>Loading…</p>
+                    ) : sfwDetail && (
+                      <>
+                        <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start", marginBottom: "1.5rem" }}>
+                          <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "#f3e8ff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "700", fontSize: "1.25rem", color: "#7c3aed", flexShrink: 0 }}>
+                            {(sfwDetail.user?.firstName?.[0] || sfwDetail.user?.email?.[0] || "?").toUpperCase()}
+                          </div>
+                          <div>
+                            <p style={{ fontWeight: "700", color: "#111827", fontSize: "1rem" }}>{[sfwDetail.user?.firstName, sfwDetail.user?.lastName].filter(Boolean).join(" ") || "—"}</p>
+                            <p style={{ color: "#6b7280", fontSize: "0.875rem" }}>{sfwDetail.user?.email}</p>
+                            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem", flexWrap: "wrap" }}>
+                              <span style={{ fontSize: "0.75rem", padding: "0.2rem 0.6rem", background: "#f3f4f6", borderRadius: "99px", fontFamily: "monospace" }}>{sfwDetail.user?.panelistId || "no-id"}</span>
+                              {sfwDetail.user?.country && <span style={{ fontSize: "0.75rem", padding: "0.2rem 0.6rem", background: "#e0f2fe", color: "#0369a1", borderRadius: "99px" }}>{cname(sfwDetail.user.country)}</span>}
+                              <span style={{ fontSize: "0.75rem", padding: "0.2rem 0.6rem", background: "#fef3c7", color: "#92400e", borderRadius: "99px", textTransform: "capitalize" }}>{sfwDetail.user?.level || "bronze"}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.75rem", marginBottom: "1.5rem" }}>
+                          {[
+                            { label: "Balance", value: rupees(sfwDetail.user?.balancePaise) },
+                            { label: "Total Earned", value: rupees(sfwDetail.user?.totalEarnedPaise) },
+                            { label: "Redeemed", value: rupees(Math.max(0, (sfwDetail.user?.totalEarnedPaise || 0) - (sfwDetail.user?.balancePaise || 0))) },
+                            { label: "Referrals", value: sfwDetail.user?.confirmedReferralCount || 0 },
+                            { label: "Profile %", value: `${sfwDetail.user?.profileQuestionCompletion || 0}%` },
+                            { label: "Joined", value: fmtDate(sfwDetail.user?.createdAt) },
+                          ].map(({ label, value }) => (
+                            <div key={label} style={{ background: "#f9fafb", borderRadius: "8px", padding: "0.75rem" }}>
+                              <p style={{ fontSize: "0.7rem", color: "#9ca3af", marginBottom: "0.25rem" }}>{label}</p>
+                              <p style={{ fontWeight: "600", color: "#111827", fontSize: "0.875rem" }}>{value}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        <p style={{ fontWeight: "700", color: "#374151", marginBottom: "0.75rem", fontSize: "0.875rem" }}>Survey Stats</p>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                          {[
+                            { label: "Total", value: sfwDetail.survey_stats?.total || 0, color: "#111827" },
+                            { label: "Complete", value: sfwDetail.survey_stats?.complete || 0, color: "#059669" },
+                            { label: "Terminate", value: sfwDetail.survey_stats?.terminate || 0, color: "#dc2626" },
+                            { label: "Quota", value: sfwDetail.survey_stats?.quotafull || 0, color: "#d97706" },
+                          ].map(({ label, value, color }) => (
+                            <div key={label} style={{ background: "#f9fafb", borderRadius: "8px", padding: "0.75rem", textAlign: "center" }}>
+                              <p style={{ fontSize: "1.25rem", fontWeight: "700", color }}>{value}</p>
+                              <p style={{ fontSize: "0.7rem", color: "#9ca3af" }}>{label}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <p style={{ fontSize: "0.75rem", color: "#9ca3af", marginBottom: "1.5rem" }}>
+                          Points from surveys: {rupees(sfwDetail.survey_stats?.points_earned)}
+                        </p>
+
+                        {sfwDetail.recent_surveys?.length > 0 && (
+                          <>
+                            <p style={{ fontWeight: "700", color: "#374151", marginBottom: "0.75rem", fontSize: "0.875rem" }}>Recent Survey Activity</p>
+                            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.75rem" }}>
+                              <thead>
+                                <tr style={{ background: "#f9fafb" }}>
+                                  {["Survey ID", "Status", "Points", "Date"].map(h => (
+                                    <th key={h} style={{ ...thStyle, fontSize: "0.7rem", padding: "0.5rem 0.75rem" }}>{h}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {sfwDetail.recent_surveys.map((s, i) => (
+                                  <tr key={i} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                                    <td style={{ ...tdStyle, fontFamily: "monospace", fontSize: "0.7rem", color: "#6b7280", padding: "0.5rem 0.75rem" }}>{s.surveyId || s.rid}</td>
+                                    <td style={{ ...tdStyle, padding: "0.5rem 0.75rem" }}>
+                                      <span style={{ padding: "0.15rem 0.5rem", borderRadius: "99px", fontSize: "0.7rem", fontWeight: "600",
+                                        background: s.status === "complete" ? "#d1fae5" : s.status === "terminate" ? "#fee2e2" : "#fef3c7",
+                                        color: s.status === "complete" ? "#065f46" : s.status === "terminate" ? "#991b1b" : "#92400e" }}>
+                                        {s.status}
+                                      </span>
+                                    </td>
+                                    <td style={{ ...tdStyle, textAlign: "right", padding: "0.5rem 0.75rem", color: "#111827" }}>{s.pointsEarned > 0 ? rupees(s.pointsEarned) : "—"}</td>
+                                    <td style={{ ...tdStyle, textAlign: "right", padding: "0.5rem 0.75rem", color: "#9ca3af", whiteSpace: "nowrap" }}>{fmtTime(s.completedAt)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
       </div>
 
       {/* Test Email Modal */}
