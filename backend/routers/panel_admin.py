@@ -27,6 +27,13 @@ from urllib.request import Request as UrlRequest, urlopen
 from urllib.error import URLError, HTTPError
 from urllib.parse import urlparse
 
+# Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated
+# from per-router copies into backend/utils.py.
+try:
+    from ..utils import serialize_doc, serialize_docs
+except ImportError:  # pragma: no cover - flat import when run from backend/
+    from utils import serialize_doc, serialize_docs
+
 logger = logging.getLogger(__name__)
 
 # ============== CONFIGURATION ==============
@@ -64,21 +71,6 @@ def verify_admin_session(request: Request):
     if not session_id:
         raise HTTPException(status_code=401, detail="Missing session token")
     return session_id
-
-
-def serialize_doc(doc):
-    """Convert MongoDB document to JSON-serializable dict"""
-    if doc is None:
-        return None
-    doc = dict(doc)
-    if "_id" in doc:
-        doc["_id"] = str(doc["_id"])
-    for key, val in doc.items():
-        if isinstance(val, datetime):
-            doc[key] = val.isoformat()
-        elif isinstance(val, ObjectId):
-            doc[key] = str(val)
-    return doc
 
 
 def _extract_first_list_payload(payload: Any) -> List[Dict[str, Any]]:

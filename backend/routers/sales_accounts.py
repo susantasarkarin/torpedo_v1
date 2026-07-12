@@ -11,6 +11,13 @@ from datetime import datetime
 from pymongo import MongoClient
 import os
 
+# Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated
+# from per-router copies into backend/utils.py.
+try:
+    from ..utils import serialize_doc, serialize_docs
+except ImportError:  # pragma: no cover - flat import when run from backend/
+    from utils import serialize_doc, serialize_docs
+
 router = APIRouter(prefix="/sales", tags=["Sales Accounts"])
 
 # MongoDB connection
@@ -70,13 +77,6 @@ class SalesAccountUpdate(BaseModel):
     linked_operations_client_id: Optional[str] = None
     linked_finance_customer_id: Optional[str] = None
     contact_ids: Optional[List[str]] = None
-
-def serialize_doc(doc):
-    """Convert MongoDB document to JSON-serializable dict"""
-    if doc is None:
-        return None
-    doc["_id"] = str(doc["_id"])
-    return doc
 
 # ========================
 # Sales Accounts Endpoints

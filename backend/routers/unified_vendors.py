@@ -11,6 +11,13 @@ from pymongo import MongoClient
 from random import randint
 import os
 
+# Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated
+# from per-router copies into backend/utils.py.
+try:
+    from ..utils import serialize_doc, serialize_docs
+except ImportError:  # pragma: no cover - flat import when run from backend/
+    from utils import serialize_doc, serialize_docs
+
 router = APIRouter(prefix="/api/vendors", tags=["Unified Vendors"])
 
 # MongoDB connection
@@ -24,14 +31,6 @@ panel_vendors_collection = operations_db["vendors"]
 # Billing vendors are in finance_db database
 finance_db = client["finance_db"]
 billing_vendors_collection = finance_db["vendors"]
-
-def serialize_doc(doc):
-    """Convert MongoDB document to JSON-serializable dict"""
-    if doc is None:
-        return None
-    doc["_id"] = str(doc["_id"])
-    return doc
-
 
 def _normalize_string(value) -> str:
     return str(value or "").strip()

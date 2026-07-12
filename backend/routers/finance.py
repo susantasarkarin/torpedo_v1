@@ -17,6 +17,13 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
+# Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated from
+# per-router copies into backend/utils.py.
+try:
+    from ..utils import serialize_doc, serialize_docs
+except ImportError:  # pragma: no cover - flat import when run from backend/
+    from utils import serialize_doc, serialize_docs
+
 # RBAC imports for permission enforcement
 try:
     from ..rbac.decorators import require_permission, require_any_permission
@@ -82,19 +89,6 @@ print("✅ Finance collections initialized")
 # ----------------------------
 # Helper Functions
 # ----------------------------
-def serialize_doc(doc: dict) -> dict:
-    """Convert MongoDB document to JSON-serializable format"""
-    if doc is None:
-        return None
-    doc["_id"] = str(doc["_id"])
-    return doc
-
-
-def serialize_docs(docs: list) -> list:
-    """Convert list of MongoDB documents to JSON-serializable format"""
-    return [serialize_doc(doc) for doc in docs]
-
-
 def generate_invoice_number(offset: int = 0) -> str:
     """Generate unique invoice number (offset for batched imports)"""
     count = invoices_collection.estimated_document_count() + 1 + offset
@@ -1760,6 +1754,33 @@ async def update_estimate(estimate_id: str, estimate_data: Dict[str, Any] = Body
         )
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Estimate not found")
+
+        # Estimate <-> opportunity sync (best-effort, non-fatal): sending a
+        # quote moves the linked spine opportunity to 'proposal'; an accepted
+        # quote moves it to 'negotiation' and syncs the amount. Won stays a
+        # human decision.
+        try:
+            new_status = (estimate_data.get("status") or "").lower()
+            if new_status in ("sent", "accepted"):
+                est = estimates_collection.find_one({"_id": ObjectId(estimate_id)})
+                opp_id = (est or {}).get("opportunity_id")
+                if opp_id:
+                    from app.services import crm_service
+                    target_stage = "proposal" if new_status == "sent" else "negotiation"
+                    opp = crm_service.get("opportunities", opp_id)
+                    if opp and opp.get("status") == "open":
+                        if new_status == "accepted" and est.get("total_amount"):
+                            crm_service.update("opportunities", opp_id,
+                                               {"amount": float(est["total_amount"])},
+                                               changed_by="finance_estimate")
+                        current_idx = crm_service.OPPORTUNITY_STAGES.index(
+                            opp.get("stage")) if opp.get("stage") in crm_service.OPPORTUNITY_STAGES else 0
+                        if current_idx < crm_service.OPPORTUNITY_STAGES.index(target_stage):
+                            crm_service.set_opportunity_stage(
+                                opp_id, target_stage, changed_by="finance_estimate")
+        except Exception as _sync_err:
+            logger.warning(f"[spine] estimate->opportunity sync skipped: {_sync_err}")
+
         return {"message": "Estimate updated successfully"}
     except HTTPException:
         raise
@@ -4019,7 +4040,7 @@ async def get_export_file(export_id: str):
     try:
         from backend.db_pools import get_api_collection
         from bson import ObjectId
-        
+
         exports_collection = get_api_collection('export_files')
         export = exports_collection.find_one({'_id': ObjectId(export_id)})
         

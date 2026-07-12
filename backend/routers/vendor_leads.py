@@ -11,6 +11,13 @@ from datetime import datetime
 from pymongo import MongoClient
 import os
 
+# Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated
+# from per-router copies into backend/utils.py.
+try:
+    from ..utils import serialize_doc, serialize_docs
+except ImportError:  # pragma: no cover - flat import when run from backend/
+    from utils import serialize_doc, serialize_docs
+
 router = APIRouter(prefix="/vendor-leads", tags=["Vendor Leads"])
 
 # MongoDB connection
@@ -32,17 +39,6 @@ try:
     print("✅ Vendor leads indexes created")
 except Exception as e:
     print(f"Warning: Could not create vendor_leads indexes: {e}")
-
-
-def serialize_doc(doc):
-    """Convert MongoDB document to JSON-serializable dict"""
-    if doc is None:
-        return None
-    if "_id" in doc:
-        doc["_id"] = str(doc["_id"])
-    if "source_lead_id" in doc and doc["source_lead_id"]:
-        doc["source_lead_id"] = str(doc["source_lead_id"])
-    return doc
 
 
 # ========================

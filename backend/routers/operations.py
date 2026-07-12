@@ -20,6 +20,13 @@ import hashlib
 from dotenv import load_dotenv
 from routers.finance import generate_customer_number
 
+# Shared MongoDB serialization (ObjectId/datetime -> JSON) — consolidated
+# from per-router copies into backend/utils.py.
+try:
+    from ..utils import serialize_doc, serialize_docs
+except ImportError:  # pragma: no cover - flat import when run from backend/
+    from utils import serialize_doc, serialize_docs
+
 load_dotenv()
 
 # ============== CACHING ==============
@@ -87,19 +94,6 @@ print("✅ Operations router initialized with Finance integration")
 # ----------------------------
 # Helper Functions
 # ----------------------------
-def serialize_doc(doc: dict) -> dict:
-    """Convert MongoDB document to JSON-serializable format"""
-    if doc is None:
-        return None
-    doc["_id"] = str(doc["_id"])
-    return doc
-
-
-def serialize_docs(docs: list) -> list:
-    """Convert list of MongoDB documents to JSON-serializable format"""
-    return [serialize_doc(doc) for doc in docs]
-
-
 def generate_account_number() -> str:
     """Generate unique account number"""
     count = accounts_collection.count_documents({}) + 1
