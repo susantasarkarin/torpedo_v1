@@ -381,6 +381,39 @@ class CintService:
                 ]
             }
             
+            # Yield-deactivated surveys (survey_status="inactive" in cint_metrics,
+            # set either manually via PATCH /surveys/{id}/yield-status or by the
+            # low-conversion auto-deactivation in the redirect callback) must
+            # SURVIVE this re-sync. Previously this blanket $set flipped them
+            # back into the pool on every sync cycle, silently undoing every
+            # yield decision. Reactivation happens only through the yield layer
+            # (which clears survey_status), never through the filter sync.
+            yield_deactivated_ids: set = set()
+            try:
+                metrics_collection = \
+                    self.cint_surveys_collection.database["cint_metrics"]
+                yield_deactivated_ids = {
+                    doc["survey_id"]
+                    for doc in metrics_collection.find(
+                        {"survey_status": "inactive"}, {"survey_id": 1})
+                }
+            except Exception as e:
+                logger.warning(f"Could not load yield-deactivated ids: {e}")
+            if yield_deactivated_ids:
+                # survey_id is stored as int in cint_surveys but as str in
+                # cint_metrics on some paths — exclude both representations.
+                excluded: list = []
+                for sid in yield_deactivated_ids:
+                    excluded.append(sid)
+                    if isinstance(sid, str) and sid.isdigit():
+                        excluded.append(int(sid))
+                    elif isinstance(sid, int):
+                        excluded.append(str(sid))
+                active_query = {"$and": [active_query,
+                                         {"survey_id": {"$nin": excluded}}]}
+                logger.info(f"Yield guard: {len(yield_deactivated_ids)} "
+                            f"deactivated surveys excluded from pool re-sync")
+
             # Mark all surveys matching active_query as is_active_in_pool=true
             active_result = self.cint_surveys_collection.update_many(
                 active_query,

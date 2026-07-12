@@ -31,6 +31,9 @@ celery_app = Celery(
         'backend.tasks.linkedin_tasks',
         'backend.tasks.cint_survey_scoring',
         'backend.tasks.panel_tasks',
+        'backend.tasks.crm_spine_tasks',
+        'backend.tasks.yield_tasks',
+        'backend.tasks.mail_pool_ai_tasks',
         'backend.app.tasks.outreach_tasks',
         'backend.campaigns.send_queue',
         'backend.sales.tasks',
@@ -122,6 +125,28 @@ celery_app.conf.update(
             # bounces, or unsubscribes
             'task': 'backend.tasks.panel_tasks.send_daily_panel_invitations',
             'schedule': crontab(hour=3, minute=30),
+            'options': {'queue': 'default'},
+        },
+        'mail-pool-ai-batch': {
+            # Every 30 min: AI-process new mail-pool emails (summary,
+            # contacts, RFQ -> spine + draft estimate, follow-up drafts).
+            'task': 'backend.tasks.mail_pool_ai_tasks.process_mail_pool_batch',
+            'schedule': 1800.0,
+            'options': {'queue': 'ai_processing'},
+        },
+        'yield-abandoned-session-sweep': {
+            # Hourly: count never-returned Cint redirects as abandoned
+            # entrants so conversion reflects wasted clicks and the
+            # auto-deactivation can fire for callback-silent surveys.
+            'task': 'backend.tasks.yield_tasks.sweep_abandoned_cint_sessions',
+            'schedule': 3600.0,
+            'options': {'queue': 'surveys'},
+        },
+        'crm-spine-nightly-reconcile': {
+            # 8:00 AM IST = 02:30 UTC — re-converge crm_db against finance/
+            # sales/QRE source collections (backfills, renames, deletions).
+            'task': 'backend.tasks.crm_spine_tasks.reconcile_crm_spine',
+            'schedule': crontab(hour=2, minute=30),
             'options': {'queue': 'default'},
         },
         'panel-daily-login-invitations': {

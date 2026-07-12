@@ -342,3 +342,86 @@ async def get_extracted_contacts(
     except Exception as e:
         logger.error(f"Error getting contacts: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# AI Mail Desk (Claude-backed pipeline)
+# ============================================
+
+class AIProcessRequest(BaseModel):
+    """Request model for on-demand AI mail processing"""
+    email_id: Optional[str] = Field(None, description="Process one specific email")
+    limit: int = Field(default=50, ge=1, le=200, description="Batch size when no email_id given")
+
+
+@router.post("/ai-process")
+async def ai_process_mail(request: Request, body: AIProcessRequest = Body(default=AIProcessRequest())) -> Dict[str, Any]:
+    """
+    Run the AI mail-desk pipeline (summary, classification, contact
+    extraction, RFQ -> CRM spine + draft finance estimate, follow-up draft).
+
+    - With email_id: process that email synchronously and return its analysis.
+    - Without: enqueue a background batch over unanalyzed emails.
+    """
+    try:
+        from bson import ObjectId
+        try:
+            from sales.mail_pool_ai import process_email, MAIL_DB, MAIL_COLLECTION
+            from db_pools import get_db
+        except ImportError:
+            from backend.sales.mail_pool_ai import process_email, MAIL_DB, MAIL_COLLECTION
+            from backend.db_pools import get_db
+
+        if body.email_id:
+            col = get_db(MAIL_DB)[MAIL_COLLECTION]
+            try:
+                doc = col.find_one({"_id": ObjectId(body.email_id)})
+            except Exception:
+                doc = col.find_one({"_id": body.email_id})
+            if not doc:
+                raise HTTPException(status_code=404, detail="Email not found in mail pool")
+            result = process_email(doc)
+            if not result.get("success"):
+                raise HTTPException(status_code=502, detail=result.get("error", "AI analysis failed"))
+            return {"success": True, "mode": "single", "analysis": result["analysis"]}
+
+        try:
+            from tasks.mail_pool_ai_tasks import process_mail_pool_batch
+        except ImportError:
+            from backend.tasks.mail_pool_ai_tasks import process_mail_pool_batch
+        task = process_mail_pool_batch.delay(limit=body.limit)
+        return {"success": True, "mode": "batch", "task_id": task.id,
+                "message": f"AI processing enqueued for up to {body.limit} emails"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"AI mail processing error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/followup-drafts")
+async def get_followup_drafts(
+    status: Optional[str] = Query("draft", description="Filter by status: draft|sent|dismissed"),
+    limit: int = Query(50, ge=1, le=200),
+    skip: int = Query(0, ge=0),
+) -> Dict[str, Any]:
+    """List AI-generated follow-up drafts awaiting human review."""
+    try:
+        try:
+            from db_pools import get_db
+            from sales.mail_pool_ai import FOLLOWUP_COLLECTION
+        except ImportError:
+            from backend.db_pools import get_db
+            from backend.sales.mail_pool_ai import FOLLOWUP_COLLECTION
+        col = get_db("email_automation")[FOLLOWUP_COLLECTION]
+        query: Dict[str, Any] = {}
+        if status:
+            query["status"] = status
+        drafts = []
+        for d in col.find(query).sort("created_at", -1).skip(skip).limit(limit):
+            d["_id"] = str(d["_id"])
+            drafts.append(d)
+        return {"success": True, "total": col.count_documents(query), "drafts": drafts}
+    except Exception as e:
+        logger.error(f"Error listing follow-up drafts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

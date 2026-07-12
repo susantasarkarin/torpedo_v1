@@ -193,26 +193,36 @@ class CintAllocationExtension:
             return
         
         try:
-            update_doc = {
-                "last_updated": datetime.utcnow(),
-            }
-            
-            # Increment counter for event type
+            # Field names MUST match the canonical writer in routers/traffic.py
+            # (cint redirect callback): completions / terminations / overquota_n
+            # / entrants_n — the yield dashboard and the conversion-based
+            # auto-deactivation read those exact keys. This method previously
+            # wrote a parallel completes_n/terminates_n schema no reader
+            # consumed, and nested $inc inside $set (a Mongo error).
             if event_type == "sent":
-                update_doc["$inc"] = {"sent_n": 1}
+                inc_fields = {"sent_n": 1}
             elif event_type == "started":
-                update_doc["$inc"] = {"entrants_n": 1}
+                inc_fields = {"entrants_n": 1}
             elif event_type == "completed":
-                update_doc["$inc"] = {"completes_n": 1, "entrants_n": 1}
+                inc_fields = {"completions": 1, "entrants_n": 1}
             elif event_type == "terminated":
-                update_doc["$inc"] = {"terminates_n": 1, "entrants_n": 1}
+                inc_fields = {"terminations": 1, "entrants_n": 1}
             elif event_type == "quota_full":
-                update_doc["$inc"] = {"quota_full_n": 1}
-            
+                inc_fields = {"overquota_n": 1, "entrants_n": 1}
+            else:
+                inc_fields = {}
+
+            update_op: Dict[str, Any] = {
+                "$set": {"last_updated": datetime.utcnow()},
+                "$setOnInsert": {"survey_id": survey_id},
+            }
+            if inc_fields:
+                update_op["$inc"] = inc_fields
+
             # Upsert metrics document
             self.cint_metrics_collection.update_one(
                 {"survey_id": survey_id},
-                {"$set": update_doc, "$setOnInsert": {"survey_id": survey_id}},
+                update_op,
                 upsert=True,
             )
             
