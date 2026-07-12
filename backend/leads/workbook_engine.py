@@ -4,11 +4,89 @@ Clay-like spreadsheet interface with independent column execution,
 caching, retries, and manual cell overrides
 """
 
+import ast
 import asyncio
+import operator
 from typing import Dict, List, Any, Optional, Set, Tuple
 from datetime import datetime
 from enum import Enum
 import uuid
+
+
+# ============== SAFE FORMULA EVALUATION ==============
+# Computed columns run a user-supplied formula. The previous implementation used
+# eval(formula, {"__builtins__": {}}, vars) — a well-known escapable sandbox
+# (e.g. ().__class__.__bases__[0].__subclasses__() reaches os/subprocess),
+# which is remote code execution once column configs are attacker-controllable.
+# This AST-walking evaluator instead permits ONLY arithmetic, comparison,
+# boolean and container literals over the supplied variable names — no
+# attribute access, calls, comprehensions, or name resolution beyond the
+# provided inputs.
+
+_SAFE_BINOPS = {
+    ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+    ast.Div: operator.truediv, ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod, ast.Pow: operator.pow,
+}
+_SAFE_UNARYOPS = {ast.UAdd: operator.pos, ast.USub: operator.neg, ast.Not: operator.not_}
+_SAFE_CMPOPS = {
+    ast.Eq: operator.eq, ast.NotEq: operator.ne, ast.Lt: operator.lt,
+    ast.LtE: operator.le, ast.Gt: operator.gt, ast.GtE: operator.ge,
+    ast.In: lambda a, b: a in b, ast.NotIn: lambda a, b: a not in b,
+}
+_MAX_POW = 1000  # bound exponent so a**b can't be used to exhaust memory/CPU
+
+
+class FormulaError(ValueError):
+    """Raised when a computed-column formula is unsafe or invalid."""
+
+
+def safe_eval_formula(expr: str, variables: Dict[str, Any]) -> Any:
+    """Safely evaluate a computed-column formula against `variables`."""
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError as e:
+        raise FormulaError(f"invalid formula syntax: {e}")
+
+    def _eval(node):
+        if isinstance(node, ast.Expression):
+            return _eval(node.body)
+        if isinstance(node, ast.Constant):
+            return node.value
+        if isinstance(node, ast.Name):
+            if node.id in variables:
+                return variables[node.id]
+            raise FormulaError(f"unknown variable: {node.id}")
+        if isinstance(node, ast.BinOp) and type(node.op) in _SAFE_BINOPS:
+            if isinstance(node.op, ast.Pow):
+                exp = _eval(node.right)
+                if isinstance(exp, (int, float)) and exp > _MAX_POW:
+                    raise FormulaError("exponent too large")
+            return _SAFE_BINOPS[type(node.op)](_eval(node.left), _eval(node.right))
+        if isinstance(node, ast.UnaryOp) and type(node.op) in _SAFE_UNARYOPS:
+            return _SAFE_UNARYOPS[type(node.op)](_eval(node.operand))
+        if isinstance(node, ast.BoolOp):
+            vals = [_eval(v) for v in node.values]
+            if isinstance(node.op, ast.And):
+                return all(vals) and vals[-1]
+            return next((v for v in vals if v), vals[-1])
+        if isinstance(node, ast.Compare):
+            left = _eval(node.left)
+            for op, comparator in zip(node.ops, node.comparators):
+                if type(op) not in _SAFE_CMPOPS:
+                    raise FormulaError(f"operator not allowed: {type(op).__name__}")
+                right = _eval(comparator)
+                if not _SAFE_CMPOPS[type(op)](left, right):
+                    return False
+                left = right
+            return True
+        if isinstance(node, ast.IfExp):
+            return _eval(node.body) if _eval(node.test) else _eval(node.orelse)
+        if isinstance(node, (ast.List, ast.Tuple)):
+            return [_eval(e) for e in node.elts]
+        raise FormulaError(f"expression not allowed: {type(node).__name__}")
+
+    return _eval(tree)
 
 from .clay_models import (
     Workbook, Column, ColumnType, ColumnExecutionState,
@@ -300,9 +378,10 @@ class ComputedExecution(ColumnExecutionStrategy):
             row_data = data_source.get(row.row_id, {})
             input_values = {f: row_data.get(f) for f in input_fields}
             
-            # Execute formula
+            # Execute formula through the AST-restricted safe evaluator
+            # (never Python eval — see safe_eval_formula above).
             try:
-                result = eval(formula, {"__builtins__": {}}, input_values)
+                result = safe_eval_formula(formula, input_values)
                 cell.enriched_value = result
                 cell.source = "computed"
                 cell.confidence_score = 1.0
