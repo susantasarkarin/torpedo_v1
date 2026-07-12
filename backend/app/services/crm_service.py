@@ -16,7 +16,7 @@ Design notes:
 
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 
 from bson import ObjectId
@@ -40,7 +40,24 @@ COLLECTIONS = {
     "projects",
     "invoices",
     "ai_decisions",
+    "notifications",
 }
+
+# Collections whose field changes are recorded on the timeline (audit trail).
+# activities/notifications/ai_decisions are event streams — never tracked.
+_TRACKED_COLLECTIONS = {
+    "accounts", "contacts", "leads", "opportunities", "projects",
+    "invoices", "tasks",
+}
+_UNTRACKED_FIELDS = {"updated_at", "created_at", "metadata", "name_normalized"}
+
+# Default win probability per stage (forecast weighting; an opportunity's own
+# `probability` field overrides these when set).
+STAGE_PROBABILITY = {
+    "new": 0.10, "rfq": 0.20, "qualified": 0.40, "proposal": 0.60,
+    "negotiation": 0.80, "won": 1.0, "lost": 0.0,
+}
+OPPORTUNITY_STAGES = list(STAGE_PROBABILITY)
 
 # Activity link field per linkable object type (the central timeline layer).
 _TIMELINE_FIELDS = {
@@ -114,13 +131,60 @@ def list_docs(
     return [serialize(d) for d in cursor]
 
 
-def update(collection: str, id_str: str, data: Dict[str, Any]) -> Optional[dict]:
+def update(collection: str, id_str: str, data: Dict[str, Any],
+           changed_by: Optional[str] = None) -> Optional[dict]:
     update_data = {k: v for k, v in data.items() if v is not None}
     update_data["updated_at"] = datetime.utcnow()
+
+    # Field-change history: diff before/after and put the changes on the
+    # timeline, so amount/stage/owner edits leave an audit trail.
+    old = None
+    if collection in _TRACKED_COLLECTIONS:
+        old = _col(collection).find_one({"_id": _oid(id_str)})
+
     result = _col(collection).update_one({"_id": _oid(id_str)}, {"$set": update_data})
     if result.matched_count == 0:
         return None
+
+    if old is not None:
+        changes = {}
+        for k, v in update_data.items():
+            if k in _UNTRACKED_FIELDS or k.startswith("metadata."):
+                continue
+            before = old.get(k)
+            if before != v:
+                changes[k] = {"from": _jsonable(before), "to": _jsonable(v)}
+        if changes:
+            singular = collection[:-1] if collection.endswith("s") else collection
+            link_field = _TIMELINE_FIELDS.get(singular)
+            activity = {
+                "type": "record_updated",
+                "subject": f"{singular} updated: {', '.join(changes)}",
+                "description": None,
+                "author": changed_by,
+                "object_type": singular,
+                "object_id": id_str,
+                "changes": changes,
+            }
+            if link_field:
+                activity[link_field] = id_str
+            # keep account context on linked objects for the account timeline
+            if old.get("account_id") and singular != "account":
+                activity["account_id"] = old["account_id"]
+            try:
+                log_activity(activity)
+            except Exception:
+                pass  # history must never break the write
+
     return get(collection, id_str)
+
+
+def _jsonable(v):
+    if isinstance(v, datetime):
+        return v.isoformat()
+    if isinstance(v, ObjectId):
+        return str(v)
+    return v
 
 
 def delete(collection: str, id_str: str) -> bool:
@@ -292,3 +356,308 @@ def mark_opportunity_won(opp_id: str) -> Optional[Dict[str, Any]]:
         "project": get("projects", project_id) if project_id else None,
         "invoice": invoice,
     }
+
+
+def set_opportunity_stage(opp_id: str, stage: str,
+                          loss_reason: Optional[str] = None,
+                          changed_by: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """
+    Move an opportunity through the pipeline. "won" delegates to
+    mark_opportunity_won (project activation + invoice stub); "lost" requires
+    a loss_reason so losses stay analyzable. Every move logs a stage_changed
+    activity.
+    """
+    if stage not in STAGE_PROBABILITY:
+        raise ValueError(f"Unknown stage: {stage}. Valid: {OPPORTUNITY_STAGES}")
+    opportunity = get("opportunities", opp_id)
+    if not opportunity:
+        return None
+    old_stage = opportunity.get("stage")
+    if stage == old_stage:
+        return {"opportunity": opportunity}
+
+    if stage == "won":
+        return mark_opportunity_won(opp_id)
+
+    fields: Dict[str, Any] = {"stage": stage}
+    if stage == "lost":
+        if not (loss_reason or "").strip():
+            raise ValueError("loss_reason is required when marking an opportunity lost")
+        fields["status"] = "lost"
+        fields["loss_reason"] = loss_reason.strip()
+    elif opportunity.get("status") in ("won", "lost"):
+        fields["status"] = "open"       # reopening a closed deal
+        fields["loss_reason"] = None
+
+    update("opportunities", opp_id, fields, changed_by=changed_by)
+    log_activity({
+        "type": "stage_changed",
+        "subject": f"{opportunity.get('title')}: {old_stage} → {stage}"
+                   + (f" ({loss_reason})" if stage == "lost" else ""),
+        "author": changed_by,
+        "account_id": opportunity.get("account_id"),
+        "opportunity_id": opp_id,
+    })
+    if stage == "lost":
+        notify("opportunity_lost",
+               f"Opportunity lost: {opportunity.get('title')} — {loss_reason}",
+               link_object_type="opportunity", link_object_id=opp_id)
+    return {"opportunity": get("opportunities", opp_id)}
+
+
+def convert_lead(lead_id: str, opportunity: Optional[Dict[str, Any]] = None,
+                 changed_by: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """
+    Lead conversion: dedupe/create the Account (from company) and Contact
+    (from email), link them back onto the lead, optionally open an
+    Opportunity, and mark the lead converted.
+    """
+    lead = get("leads", lead_id)
+    if not lead:
+        return None
+    if lead.get("status") == "converted":
+        raise ValueError("Lead is already converted")
+
+    name = (lead.get("name")
+            or f"{lead.get('firstName', '')} {lead.get('lastName', '')}".strip()
+            or lead.get("email") or "")
+
+    account_id = lead.get("account_id")
+    if not account_id and (lead.get("company") or "").strip():
+        account, _ = get_or_create_account(
+            lead["company"].strip(),
+            defaults={"owner": lead.get("owner"),
+                      "metadata": {"source": "lead_conversion"}})
+        account_id = account["_id"]
+
+    contact_id = lead.get("contact_id")
+    if not contact_id and (lead.get("email") or "").strip():
+        contact, _ = get_or_create_contact(
+            lead["email"].strip().lower(),
+            defaults={"name": name or None, "title": lead.get("title"),
+                      "phone": lead.get("phone"), "account_id": account_id,
+                      "owner": lead.get("owner"),
+                      "metadata": {"source": "lead_conversion"}})
+        contact_id = contact["_id"]
+
+    opportunity_doc = None
+    if opportunity is not None:
+        opportunity_doc = create("opportunities", {
+            "title": opportunity.get("title") or f"Opportunity: {name or lead.get('company', 'lead')}",
+            "account_id": account_id,
+            "contact_id": contact_id,
+            "amount": float(opportunity.get("amount") or 0),
+            "stage": opportunity.get("stage") or "qualified",
+            "status": "open",
+            "owner": opportunity.get("owner") or lead.get("owner"),
+            "expected_close_date": opportunity.get("expected_close_date"),
+            "metadata": {"source": "lead_conversion", "lead_id": lead_id},
+        })
+
+    update("leads", lead_id, {
+        "status": "converted",
+        "account_id": account_id,
+        "contact_id": contact_id,
+        "converted_at": datetime.utcnow(),
+        "converted_opportunity_id": opportunity_doc["_id"] if opportunity_doc else None,
+    }, changed_by=changed_by)
+
+    log_activity({
+        "type": "lead_converted",
+        "subject": f"Lead converted: {name or lead.get('email') or lead_id}",
+        "author": changed_by,
+        "lead_id": lead_id,
+        "account_id": account_id,
+        "contact_id": contact_id,
+        "opportunity_id": opportunity_doc["_id"] if opportunity_doc else None,
+    })
+    return {
+        "lead": get("leads", lead_id),
+        "account": get("accounts", account_id) if account_id else None,
+        "contact": get("contacts", contact_id) if contact_id else None,
+        "opportunity": opportunity_doc,
+    }
+
+
+# ------------------------- duplicate management ----------------------
+
+_LEGAL_SUFFIXES = re.compile(
+    r"\b(private|pvt|ltd|limited|inc|incorporated|llc|llp|corp|corporation|"
+    r"gmbh|co|company|plc|sa|bv|ag)\b\.?", re.IGNORECASE)
+
+
+def _dedupe_key(name: str) -> str:
+    """Aggressive company-name key: normalized, legal suffixes stripped."""
+    n = _normalize_name(name)
+    n = _LEGAL_SUFFIXES.sub("", n)
+    return re.sub(r"[^a-z0-9]+", "", n)
+
+
+def find_duplicate_accounts() -> List[Dict[str, Any]]:
+    """Group non-merged accounts whose names collapse to the same dedupe key
+    (e.g. 'Acme Corp' / 'Acme Corporation' / 'acme corp.')."""
+    groups: Dict[str, List[dict]] = {}
+    for doc in _col("accounts").find({"status": {"$ne": "merged"}}):
+        key = _dedupe_key(doc.get("name", ""))
+        if not key:
+            continue
+        groups.setdefault(key, []).append(serialize(doc))
+    return [{"key": k, "accounts": v} for k, v in groups.items() if len(v) > 1]
+
+
+_ACCOUNT_REF_COLLECTIONS = ("contacts", "leads", "opportunities",
+                            "activities", "invoices", "projects")
+
+
+def merge_accounts(primary_id: str, duplicate_ids: List[str],
+                   changed_by: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Merge duplicate accounts into a primary: re-point every account_id
+    reference, union tags, fill blank primary fields from the duplicates,
+    then mark the duplicates status='merged' (kept for provenance, hidden
+    from lists). Timelines of the duplicates flow into the primary.
+    """
+    primary = get("accounts", primary_id)
+    if not primary:
+        raise ValueError("Primary account not found")
+    duplicate_ids = [d for d in duplicate_ids if d != primary_id]
+    if not duplicate_ids:
+        raise ValueError("No duplicate ids to merge")
+
+    repointed: Dict[str, int] = {}
+    fill_fields = {}
+    all_tags = set(primary.get("tags") or [])
+    for dup_id in duplicate_ids:
+        dup = get("accounts", dup_id)
+        if not dup:
+            continue
+        for coll in _ACCOUNT_REF_COLLECTIONS:
+            res = _db()[coll].update_many({"account_id": dup_id},
+                                          {"$set": {"account_id": primary_id}})
+            repointed[coll] = repointed.get(coll, 0) + res.modified_count
+        _col("tasks").update_many(
+            {"linked_object_type": "account", "linked_object_id": dup_id},
+            {"$set": {"linked_object_id": primary_id}})
+        all_tags.update(dup.get("tags") or [])
+        for f in ("email", "phone", "website", "owner"):
+            if not primary.get(f) and dup.get(f) and f not in fill_fields:
+                fill_fields[f] = dup[f]
+        _col("accounts").update_one(
+            {"_id": _oid(dup_id)},
+            {"$set": {"status": "merged", "merged_into": primary_id,
+                      "merged_at": datetime.utcnow(),
+                      "updated_at": datetime.utcnow()}})
+
+    if all_tags != set(primary.get("tags") or []):
+        fill_fields["tags"] = sorted(all_tags)
+    if fill_fields:
+        update("accounts", primary_id, fill_fields, changed_by=changed_by)
+
+    log_activity({
+        "type": "accounts_merged",
+        "subject": f"Merged {len(duplicate_ids)} duplicate(s) into {primary.get('name')}",
+        "author": changed_by,
+        "account_id": primary_id,
+        "merged_ids": duplicate_ids,
+        "repointed": repointed,
+    })
+    return {"account": get("accounts", primary_id),
+            "merged": duplicate_ids, "repointed": repointed}
+
+
+# ------------------------------- search ------------------------------
+
+def search(q: str, limit: int = 10) -> Dict[str, List[dict]]:
+    """Global CRM search across accounts, contacts, leads, opportunities."""
+    q = (q or "").strip()
+    if len(q) < 2:
+        return {"accounts": [], "contacts": [], "leads": [], "opportunities": []}
+    rx = {"$regex": re.escape(q), "$options": "i"}
+    return {
+        "accounts": list_docs("accounts",
+                              {"name": rx, "status": {"$ne": "merged"}}, limit=limit),
+        "contacts": list_docs("contacts",
+                              {"$or": [{"name": rx}, {"email": rx}]}, limit=limit),
+        "leads": list_docs("leads",
+                           {"$or": [{"name": rx}, {"email": rx}, {"company": rx}]},
+                           limit=limit),
+        "opportunities": list_docs("opportunities", {"title": rx}, limit=limit),
+    }
+
+
+# ------------------------------ reports ------------------------------
+
+def pipeline_report() -> Dict[str, Any]:
+    """Pipeline value by stage, win rate, weighted forecast, velocity."""
+    stages: Dict[str, Dict[str, Any]] = {
+        s: {"stage": s, "count": 0, "value": 0.0, "weighted": 0.0}
+        for s in OPPORTUNITY_STAGES
+    }
+    won = lost = 0
+    close_days: List[float] = []
+    for o in _col("opportunities").find({}):
+        stage = o.get("stage") or "new"
+        row = stages.setdefault(
+            stage, {"stage": stage, "count": 0, "value": 0.0, "weighted": 0.0})
+        amount = float(o.get("amount") or 0)
+        prob = o.get("probability")
+        prob = float(prob) if prob is not None else STAGE_PROBABILITY.get(stage, 0.1)
+        row["count"] += 1
+        row["value"] += amount
+        if o.get("status") == "open":
+            row["weighted"] += amount * prob
+        if stage == "won":
+            won += 1
+            if o.get("created_at") and o.get("updated_at"):
+                close_days.append((o["updated_at"] - o["created_at"]).total_seconds() / 86400)
+        elif stage == "lost":
+            lost += 1
+
+    open_rows = [r for s, r in stages.items() if s not in ("won", "lost")]
+    return {
+        "stages": [stages[s] for s in OPPORTUNITY_STAGES if s in stages]
+                  + [r for s, r in stages.items() if s not in OPPORTUNITY_STAGES],
+        "open_count": sum(r["count"] for r in open_rows),
+        "open_value": round(sum(r["value"] for r in open_rows), 2),
+        "forecast": round(sum(r["weighted"] for r in stages.values()), 2),
+        "won_count": won,
+        "lost_count": lost,
+        "win_rate": round(won / (won + lost), 3) if (won + lost) else None,
+        "avg_days_to_close": round(sum(close_days) / len(close_days), 1) if close_days else None,
+    }
+
+
+def activity_report(days: int = 30) -> Dict[str, Any]:
+    """Activity volume by type over the trailing window."""
+    since = datetime.utcnow() - timedelta(days=days)
+    counts: Dict[str, int] = {}
+    for doc in _col("activities").aggregate([
+        {"$match": {"created_at": {"$gte": since}}},
+        {"$group": {"_id": "$type", "n": {"$sum": 1}}},
+        {"$sort": {"n": -1}},
+    ]):
+        counts[doc["_id"] or "unknown"] = doc["n"]
+    return {"days": days, "by_type": counts, "total": sum(counts.values())}
+
+
+# --------------------------- notifications ---------------------------
+
+def notify(type_: str, message: str, link_object_type: Optional[str] = None,
+           link_object_id: Optional[str] = None, owner: Optional[str] = None,
+           dedupe_key: Optional[str] = None) -> Optional[dict]:
+    """Create a CRM notification. With dedupe_key, at most one unread
+    notification per key exists (repeat alerts don't pile up)."""
+    try:
+        if dedupe_key:
+            existing = _col("notifications").find_one(
+                {"dedupe_key": dedupe_key, "read": False})
+            if existing:
+                return serialize(existing)
+        return create("notifications", {
+            "type": type_, "message": message,
+            "link_object_type": link_object_type,
+            "link_object_id": link_object_id,
+            "owner": owner, "read": False, "dedupe_key": dedupe_key,
+        })
+    except Exception:
+        return None  # notifications are best-effort

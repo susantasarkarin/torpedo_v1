@@ -230,6 +230,9 @@ def _log_rfq_and_estimate(analysis: Dict[str, Any],
         estimate_doc = {
             "estimate_number": f"EST-{now.strftime('%Y%m')}-{str(count).zfill(4)}",
             "customer_id": customer_id,
+            # Cross-link to the spine opportunity created above, so estimate
+            # status changes can move the deal through the pipeline.
+            "opportunity_id": out.get("opportunity_id"),
             "status": "draft",
             "items": items,
             "subtotal": subtotal,
@@ -248,6 +251,22 @@ def _log_rfq_and_estimate(analysis: Dict[str, Any],
         out["estimate_number"] = estimate_doc["estimate_number"]
     except Exception as e:
         logger.warning(f"[mail-ai] estimate draft failed (non-fatal): {e}")
+
+    # Surface the RFQ in CRM notifications (best-effort)
+    try:
+        try:
+            from app.services import crm_service
+        except ImportError:
+            from backend.app.services import crm_service
+        crm_service.notify(
+            "rfq_received",
+            f"RFQ detected in mail pool: {title}"
+            + (f" (est. {rfq.get('currency') or ''} {budget})" if budget else ""),
+            link_object_type="opportunity",
+            link_object_id=out.get("opportunity_id"),
+            dedupe_key=f"rfq_email_{email_doc.get('_id')}")
+    except Exception:
+        pass
 
     return out
 

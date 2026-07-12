@@ -140,6 +140,9 @@ const AIApprovals = lazy(() => import("./pages/ai/AIApprovals"))
 const CrmDashboard = lazy(() => import("./pages/crm/CrmDashboard"))
 const Pipeline = lazy(() => import("./pages/crm/Pipeline"))
 const AccountTimeline = lazy(() => import("./pages/crm/AccountTimeline"))
+const CrmLeads = lazy(() => import("./pages/crm/CrmLeads"))
+const CrmTasks = lazy(() => import("./pages/crm/CrmTasks"))
+const CrmReports = lazy(() => import("./pages/crm/CrmReports"))
 
 // Surveys
 const SurveyRevenue = lazy(() => import("./pages/surveys/SurveyRevenue"))
@@ -323,6 +326,9 @@ function App() {
         <Route path="crm" element={<LazyPage><CrmDashboard /></LazyPage>} />
         <Route path="crm/pipeline" element={<LazyPage><Pipeline /></LazyPage>} />
         <Route path="crm/accounts" element={<LazyPage><AccountTimeline /></LazyPage>} />
+        <Route path="crm/leads" element={<LazyPage><CrmLeads /></LazyPage>} />
+        <Route path="crm/tasks" element={<LazyPage><CrmTasks /></LazyPage>} />
+        <Route path="crm/reports" element={<LazyPage><CrmReports /></LazyPage>} />
 
         {/* Surveys - revenue intelligence */}
         <Route path="surveys/revenue" element={<LazyPage><SurveyRevenue /></LazyPage>} />

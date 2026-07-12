@@ -73,17 +73,283 @@ async def win_opportunity(opp_id: str, _user: str = Depends(require_write)):
     return result
 
 
+@router.post("/opportunities/{opp_id}/stage")
+async def move_opportunity_stage(
+    opp_id: str,
+    payload: Dict[str, Any] = Body(...),
+    _user: str = Depends(require_write),
+):
+    """Move an opportunity to another stage. 'lost' requires loss_reason;
+    'won' triggers the full win flow."""
+    try:
+        result = crm_service.set_opportunity_stage(
+            opp_id, payload.get("stage", ""),
+            loss_reason=payload.get("loss_reason"),
+            changed_by=str(_user) if _user else None)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if result is None:
+        raise HTTPException(status_code=404, detail="Opportunity not found")
+    return result
+
+
+@router.post("/leads/{lead_id}/convert")
+async def convert_lead(
+    lead_id: str,
+    payload: Dict[str, Any] = Body(default={}),
+    _user: str = Depends(require_write),
+):
+    """Convert a lead into Account + Contact (and optionally an Opportunity
+    when payload.opportunity is provided)."""
+    try:
+        result = crm_service.convert_lead(
+            lead_id, opportunity=payload.get("opportunity"),
+            changed_by=str(_user) if _user else None)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if result is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return result
+
+
+@router.get("/search")
+async def global_search(q: str = Query(..., min_length=2),
+                        limit: int = Query(10, le=50),
+                        _user: str = Depends(require_read)):
+    """Global search across accounts, contacts, leads and opportunities."""
+    return crm_service.search(q, limit=limit)
+
+
+@router.get("/reports/pipeline")
+async def report_pipeline(_user: str = Depends(require_read)):
+    """Pipeline value by stage, weighted forecast, win rate, velocity."""
+    return crm_service.pipeline_report()
+
+
+@router.get("/reports/activity")
+async def report_activity(days: int = Query(30, ge=1, le=365),
+                          _user: str = Depends(require_read)):
+    """Activity volume by type over the trailing window."""
+    return crm_service.activity_report(days=days)
+
+
+@router.get("/duplicates/accounts")
+async def duplicate_accounts(_user: str = Depends(require_read)):
+    """Groups of accounts whose names collapse to the same dedupe key."""
+    return crm_service.find_duplicate_accounts()
+
+
+@router.post("/accounts/merge")
+async def merge_accounts(payload: Dict[str, Any] = Body(...),
+                         _user: str = Depends(require_write)):
+    """Merge duplicate accounts into a primary; re-points all references."""
+    try:
+        return crm_service.merge_accounts(
+            payload.get("primary_id", ""),
+            payload.get("duplicate_ids") or [],
+            changed_by=str(_user) if _user else None)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/notifications/{notif_id}/read")
+async def mark_notification_read(notif_id: str, _user: str = Depends(require_write)):
+    doc = crm_service.update("notifications", notif_id, {"read": True})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return doc
+
+
+@router.post("/contacts/{contact_id}/draft-email")
+async def draft_email_for_contact(
+    contact_id: str,
+    payload: Dict[str, Any] = Body(default={}),
+    _user: str = Depends(require_write),
+):
+    """AI-draft an outbound email to this contact (stored in
+    mail_followup_drafts for review — nothing is sent)."""
+    contact = crm_service.get("contacts", contact_id)
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    if not contact.get("email"):
+        raise HTTPException(status_code=400, detail="Contact has no email address")
+    try:
+        try:
+            from ai_governance.ai_gateway import get_ai_gateway
+            from db_pools import get_db
+        except ImportError:
+            from backend.ai_governance.ai_gateway import get_ai_gateway
+            from backend.db_pools import get_db
+        account = crm_service.get("accounts", contact["account_id"]) \
+            if contact.get("account_id") else None
+        draft = get_ai_gateway().generate_email_draft(
+            system_prompt=(
+                "You draft concise, professional B2B emails for a market-research "
+                "company. Return ONLY JSON: {\"subject\": \"...\", \"body\": \"...\"}. "
+                "No invented prices or commitments."),
+            user_prompt=(
+                f"Draft an email to {contact.get('name') or contact['email']} "
+                f"({contact.get('title') or 'unknown title'}"
+                f"{', ' + account['name'] if account else ''}).\n"
+                f"Goal/context from the sender: "
+                f"{payload.get('context') or 'a friendly business check-in'}"))
+        if not draft:
+            raise HTTPException(status_code=502, detail="AI draft generation failed")
+        from datetime import datetime as _dt
+        ins = get_db("email_automation")["mail_followup_drafts"].insert_one({
+            "source": "crm_contact_page",
+            "contact_id": contact_id,
+            "account_id": contact.get("account_id"),
+            "to_email": contact["email"],
+            "subject": draft.get("subject"),
+            "body": draft.get("body"),
+            "status": "draft",
+            "requested_by": str(_user) if _user else None,
+            "created_at": _dt.utcnow(),
+        })
+        crm_service.log_activity({
+            "type": "email_drafted",
+            "subject": f"AI draft prepared: {draft.get('subject')}",
+            "author": str(_user) if _user else None,
+            "contact_id": contact_id,
+            "account_id": contact.get("account_id"),
+        })
+        return {"draft_id": str(ins.inserted_id), **draft,
+                "to_email": contact["email"], "status": "draft"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/web-to-lead")
+async def web_to_lead(payload: Dict[str, Any] = Body(...)):
+    """
+    Public inbound lead capture for website forms. Honeypot field `website_hp`
+    must be empty; optional WEB_LEAD_TOKEN env enforces a shared secret.
+    """
+    import os as _os
+    if (payload.get("website_hp") or "").strip():
+        return {"ok": True}  # bot fell in the honeypot; pretend success
+    expected = _os.getenv("WEB_LEAD_TOKEN", "")
+    if expected and payload.get("token") != expected:
+        raise HTTPException(status_code=403, detail="Invalid token")
+    email = (payload.get("email") or "").strip().lower()
+    name = (payload.get("name") or "").strip()
+    if not email and not name:
+        raise HTTPException(status_code=422, detail="name or email required")
+    lead = crm_service.create("leads", {
+        "email": email or None,
+        "name": name or None,
+        "company": (payload.get("company") or "").strip() or None,
+        "phone": (payload.get("phone") or "").strip() or None,
+        "source": "webform",
+        "status": "new",
+        "metadata": {"source": "web_to_lead",
+                     "message": (payload.get("message") or "")[:2000]},
+    })
+    crm_service.log_activity({
+        "type": "lead_ingested",
+        "subject": f"Web form lead: {name or email}",
+        "lead_id": lead["_id"],
+    })
+    crm_service.notify(
+        "web_lead_received",
+        f"New website lead: {name or email}"
+        + (f" ({payload.get('company')})" if payload.get("company") else ""),
+        link_object_type="lead", link_object_id=lead["_id"])
+    return {"ok": True, "lead_id": lead["_id"]}
+
+
 # ------------------------------- generic CRUD -------------------------------
+
+def _build_list_query(resource: str, account_id, contact_id, owner, stage,
+                      status, unread, linked_object_type, linked_object_id,
+                      q) -> Dict[str, Any]:
+    import re as _re
+    query: Dict[str, Any] = {}
+    if account_id:
+        query["account_id"] = account_id
+    if contact_id:
+        query["contact_id"] = contact_id
+    if owner:
+        query["$or"] = [{"owner": owner}, {"owner_id": owner}]
+    if stage:
+        query["stage"] = stage
+    if status:
+        query["status"] = status
+    elif resource == "accounts":
+        query["status"] = {"$ne": "merged"}   # hide merged dupes by default
+    if unread is not None and resource == "notifications":
+        query["read"] = not unread
+    if linked_object_type:
+        query["linked_object_type"] = linked_object_type
+    if linked_object_id:
+        query["linked_object_id"] = linked_object_id
+    if q:
+        rx = {"$regex": _re.escape(q), "$options": "i"}
+        text_or = [{"name": rx}, {"title": rx}, {"email": rx}, {"company": rx}]
+        if "$or" in query:
+            query = {"$and": [{"$or": query.pop("$or")}, {**query, "$or": text_or}]}
+        else:
+            query["$or"] = text_or
+    return query
+
+
+@router.get("/{resource}/export.csv")
+async def export_resource_csv(resource: str, _user: str = Depends(require_read)):
+    """Export a canonical collection as CSV (flat top-level fields)."""
+    import csv
+    import io
+    import re as _re
+    from fastapi.responses import StreamingResponse
+    _check_resource(resource)
+    docs = crm_service.list_docs(resource, limit=100000)
+    # Union of scalar top-level fields, stable order (common fields first).
+    preferred = ["_id", "name", "title", "email", "company", "stage", "status",
+                 "amount", "owner", "account_id", "contact_id", "created_at"]
+    keys: list = []
+    for d in docs:
+        for k, v in d.items():
+            if isinstance(v, (dict, list)):
+                continue
+            if k not in keys:
+                keys.append(k)
+    keys.sort(key=lambda k: preferred.index(k) if k in preferred else 999)
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=keys, extrasaction="ignore")
+    writer.writeheader()
+    for d in docs:
+        writer.writerow({k: v for k, v in d.items()
+                         if not isinstance(v, (dict, list))})
+    out.seek(0)
+    fname = _re.sub(r"[^A-Za-z0-9_-]", "", resource) or "export"
+    return StreamingResponse(
+        iter([out.getvalue()]), media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=crm_{fname}.csv"})
+
 
 @router.get("/{resource}")
 async def list_resource(
     resource: str,
     limit: int = Query(200, le=1000),
     skip: int = Query(0, ge=0),
+    account_id: Optional[str] = Query(None),
+    contact_id: Optional[str] = Query(None),
+    owner: Optional[str] = Query(None),
+    stage: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    unread: Optional[bool] = Query(None),
+    linked_object_type: Optional[str] = Query(None),
+    linked_object_id: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
     _user: str = Depends(require_read),
 ):
     _check_resource(resource)
-    return crm_service.list_docs(resource, limit=limit, skip=skip)
+    query = _build_list_query(resource, account_id, contact_id, owner, stage,
+                              status, unread, linked_object_type,
+                              linked_object_id, q)
+    return crm_service.list_docs(resource, query=query, limit=limit, skip=skip)
 
 
 @router.post("/{resource}")
@@ -123,7 +389,8 @@ async def update_resource(
 ):
     _check_resource(resource)
     try:
-        doc = crm_service.update(resource, doc_id, payload)
+        doc = crm_service.update(resource, doc_id, payload,
+                                 changed_by=str(_user) if _user else None)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not doc:

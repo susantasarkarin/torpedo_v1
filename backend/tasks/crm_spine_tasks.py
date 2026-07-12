@@ -163,6 +163,40 @@ def reconcile_crm_spine(self):
         except Exception as qre_err:
             logger.warning(f"[spine-reconcile] QRE bridge skipped: {qre_err}")
 
+        # CRM notifications: overdue tasks and stale open opportunities.
+        # dedupe_key keeps at most one UNREAD notification per record, so the
+        # nightly run never piles up repeats.
+        try:
+            now = datetime.utcnow()
+            for task_doc in crm_service._col("tasks").find(
+                    {"status": {"$ne": "done"},
+                     "due_date": {"$lt": now}}).limit(500):
+                tid = str(task_doc["_id"])
+                crm_service.notify(
+                    "task_overdue",
+                    f"Task overdue: {task_doc.get('title', tid)}",
+                    link_object_type="task", link_object_id=tid,
+                    owner=task_doc.get("owner_id"),
+                    dedupe_key=f"task_overdue_{tid}")
+                stats["notifications"] = stats.get("notifications", 0) + 1
+
+            from datetime import timedelta as _td
+            stale_cutoff = now - _td(days=14)
+            for opp in crm_service._col("opportunities").find(
+                    {"status": "open",
+                     "updated_at": {"$lt": stale_cutoff}}).limit(500):
+                oid = str(opp["_id"])
+                crm_service.notify(
+                    "opportunity_stale",
+                    f"Opportunity idle 14+ days: {opp.get('title', oid)} "
+                    f"(stage: {opp.get('stage')})",
+                    link_object_type="opportunity", link_object_id=oid,
+                    owner=opp.get("owner"),
+                    dedupe_key=f"opp_stale_{oid}")
+                stats["notifications"] = stats.get("notifications", 0) + 1
+        except Exception as notif_err:
+            logger.warning(f"[spine-reconcile] notifications skipped: {notif_err}")
+
         logger.info(f"[spine-reconcile] done: {stats}")
         return {"status": "ok", **stats}
     except Exception as e:
