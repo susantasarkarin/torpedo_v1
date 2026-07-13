@@ -62,6 +62,9 @@ PANEL_LOGO_URL = os.getenv(
 PANEL_TEMPLATE_VERSION = os.getenv("PANEL_TEMPLATE_VERSION", "panel-invite-v3")
 PANEL_SEND_TIMEZONE = os.getenv("PANEL_SEND_TIMEZONE", "Asia/Kolkata")
 PANEL_DAILY_SEND_CAP = int(os.getenv("PANEL_DAILY_SEND_CAP", "50000"))  # 50K daily SES limit
+# Daily-quota headroom kept free for the SFW panel's transactional mail
+# (signup verification, password reset), which shares this SES account.
+PANEL_SES_RESERVE = int(os.getenv("PANEL_SES_RESERVE", "2000"))
 
 # Rate limiting: SES sandbox = 1/sec, production = 14/sec
 SES_SEND_RATE = float(os.getenv("PANEL_SES_SEND_RATE", "1"))  # emails per second
@@ -74,6 +77,40 @@ def _get_ses_client():
         kwargs["aws_access_key_id"] = AWS_ACCESS_KEY_ID
         kwargs["aws_secret_access_key"] = AWS_SECRET_ACCESS_KEY
     return boto3.client("ses", **kwargs)
+
+
+def ses_budget_for_bulk() -> int:
+    """How many bulk emails this run may send without starving transactional mail.
+
+    The SFW panel app shares this SES account for signup verification and
+    password-reset mail. A bulk invite run that drains the daily quota takes
+    those down with it — SES then rejects them with TooManyRequestsException
+    and users simply never receive a reset link. Hold PANEL_SES_RESERVE emails
+    back for that traffic. Returns the remaining allowance (0 = send nothing).
+
+    On any error, fall back to the configured cap rather than blocking the run.
+    """
+    try:
+        quota = _get_ses_client().get_send_quota()
+        max_24h = int(quota.get("Max24HourSend") or 0)
+        sent_24h = int(quota.get("SentLast24Hours") or 0)
+    except Exception as e:
+        logger.warning(f"[panel] could not read SES quota ({e}); using configured cap")
+        return PANEL_DAILY_SEND_CAP
+
+    if max_24h <= 0:  # -1 means unlimited
+        return PANEL_DAILY_SEND_CAP
+
+    budget = max_24h - sent_24h - PANEL_SES_RESERVE
+    if budget <= 0:
+        logger.error(
+            f"[panel] SES daily quota nearly exhausted ({sent_24h}/{max_24h}); "
+            f"skipping bulk send to protect the {PANEL_SES_RESERVE} reserved for "
+            f"verification/password-reset mail"
+        )
+        return 0
+
+    return min(budget, PANEL_DAILY_SEND_CAP)
 
 
 # ============== HTML INVITATION TEMPLATE ==============
@@ -607,12 +644,15 @@ def send_bulk_invitations(
     failed = 0
     send_interval = 1.0 / SES_SEND_RATE if SES_SEND_RATE > 0 else 1.0
 
-    cap_value = daily_cap if daily_cap is not None else PANEL_DAILY_SEND_CAP
+    # The SES budget bounds every bulk run, manual or cron — a hand-triggered
+    # blast drains the shared daily quota just as effectively as the cron did.
+    budget = ses_budget_for_bulk()
+    cap_value = min(daily_cap, budget) if daily_cap is not None else budget
     capped = 0
 
     truncated = False
     for panelist in eligible:
-        if daily_mode and sent >= cap_value:
+        if sent >= cap_value:
             capped += 1
             continue
 
@@ -794,7 +834,8 @@ def send_bulk_login_invitations(
     failed = 0
     send_interval = 1.0 / SES_SEND_RATE if SES_SEND_RATE > 0 else 1.0
 
-    cap_value = daily_cap if daily_cap is not None else PANEL_DAILY_SEND_CAP
+    budget = ses_budget_for_bulk()
+    cap_value = min(daily_cap, budget) if daily_cap is not None else budget
     capped = 0
 
     truncated = False
