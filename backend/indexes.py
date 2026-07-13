@@ -530,6 +530,13 @@ def setup_indexes(db_manager=None):
     create_index_safe(panelists, "double_opt_in_completed")
     create_index_safe(panelists, [("status", ASCENDING), ("created_at", DESCENDING)],
                       name="panelists_status_date")
+    # Rotation sort for the daily invite crons (send_bulk_invitations /
+    # send_bulk_login_invitations) — without this, sorting 189K+ docs by
+    # invite recency runs unindexed on every run.
+    create_index_safe(panelists, [("status", ASCENDING), ("last_invited_at", ASCENDING)],
+                      name="panelists_status_last_invited")
+    create_index_safe(panelists, [("double_opt_in_completed", ASCENDING), ("last_login_invite_sent_at", ASCENDING)],
+                      name="panelists_optin_last_login_invite")
 
     # Panel invitation log - critical for panelists/with-email-status lookup
     invitation_log = campaign_db["panel_invitation_log"]

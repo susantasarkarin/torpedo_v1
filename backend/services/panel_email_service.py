@@ -531,11 +531,16 @@ def send_bulk_invitations(
     if country:
         query["country"] = {"$regex": f"^{country}$", "$options": "i"}
 
-    # Bulk pre-fetch all panelists
+    # Bulk pre-fetch all panelists, oldest-invited-or-never-invited first. Without
+    # this sort, Mongo returns natural order every run; combined with the SES rate
+    # limit truncating each daily batch partway through, the same leads near the
+    # front got re-invited every day while everyone past the truncation point was
+    # never reached. Missing last_invited_at sorts first, so untouched leads win.
     all_panelists = list(panelists_collection.find(
         query,
-        {"email": 1, "first_name": 1, "_id": 1, "double_opt_in_completed": 1, "email_verified": 1},
-    ))
+        {"email": 1, "first_name": 1, "_id": 1, "double_opt_in_completed": 1,
+         "email_verified": 1, "last_invited_at": 1},
+    ).sort([("last_invited_at", 1)]))
 
     # Deduplicate and build email→doc map
     email_map: Dict[str, Any] = {}
@@ -649,6 +654,14 @@ def send_bulk_invitations(
             )
             failed += 1
 
+        # Push this lead to the back of tomorrow's queue regardless of outcome,
+        # so a bad address can't get permanently stuck at the front and block
+        # everyone behind it.
+        panelists_collection.update_one(
+            {"_id": panelist["_id"]},
+            {"$set": {"last_invited_at": datetime.utcnow()}},
+        )
+
         # Rate limiting
         time.sleep(send_interval)
 
@@ -731,11 +744,13 @@ def send_bulk_login_invitations(
     if country:
         query["country"] = {"$regex": f"^{country}$", "$options": "i"}
 
-    # Bulk pre-fetch all registered panelists
+    # Bulk pre-fetch all registered panelists, oldest-invited-or-never-invited
+    # first — same rotation fix as send_bulk_invitations, tracked in its own
+    # field so the two invite types don't clobber each other's ordering.
     all_panelists = list(panelists_collection.find(
         query,
-        {"email": 1, "first_name": 1, "_id": 1},
-    ))
+        {"email": 1, "first_name": 1, "_id": 1, "last_login_invite_sent_at": 1},
+    ).sort([("last_login_invite_sent_at", 1)]))
 
     # Deduplicate and build email→doc map
     email_map: Dict[str, Any] = {}
@@ -824,6 +839,11 @@ def send_bulk_login_invitations(
                 type="login",
             )
             failed += 1
+
+        panelists_collection.update_one(
+            {"_id": panelist["_id"]},
+            {"$set": {"last_login_invite_sent_at": datetime.utcnow()}},
+        )
 
         # Rate limiting
         time.sleep(send_interval)
