@@ -740,6 +740,26 @@ async def run_web_search_job(job_id: str):
             })
             continue
         
+        # Google CSE 24h cooldown: while paused, every search returns [] —
+        # which must NOT be mistaken for "query has no more results". Spinning
+        # through queries here would advance ledger depths and mark queries
+        # exhausted for result windows that were never actually fetched. Idle
+        # instead, re-checking every minute.
+        try:
+            from .ingestion import _is_cse_paused
+            if _is_cse_paused():
+                update_job(job_id, {"status": JobStatus.QUOTA_EXCEEDED})
+                print(f"[WebSearch:{job_id}] Google CSE in 429 cooldown — idling (no ledger writes)")
+                while _is_cse_paused():
+                    job = get_job(job_id)
+                    if not job or job["status"] == JobStatus.STOPPED:
+                        return
+                    await asyncio.sleep(60)
+                update_job(job_id, {"status": JobStatus.RUNNING})
+                continue
+        except ImportError:
+            pass
+
         # Get next query. When the whole list is cycled, reshuffle but DO NOT
         # clear exhaustion — clearing just re-runs the same finite queries that
         # already returned their entire ~100-result pool (the root cause of
@@ -780,12 +800,13 @@ async def run_web_search_job(job_id: str):
         start_index = max(1, int(ledger.get("next_start", 1) or 1))
         consecutive_empty = 0
         batch_leads = []
-        
+        cse_paused_mid_visit = False
+
         while consecutive_empty < 3 and start_index <= 100:
             job = get_job(job_id)
             if not job or job["status"] == JobStatus.STOPPED:
                 return
-            
+
             try:
                 results = await search_linkedin_leads(
                     query=query,
@@ -794,8 +815,18 @@ async def run_web_search_job(job_id: str):
                     skip_cache=True,   # Always fetch fresh results; cached ones are already imported
                     deduplicate=False  # Dedup handled by ingest_lead; skip_cache makes cache useless here
                 )
-                
+
                 if not results:
+                    # A 429 mid-visit trips the 24h cooldown and makes every
+                    # later page empty. That emptiness is "CSE unavailable",
+                    # not "no more results" — stop without advancing depth.
+                    try:
+                        from .ingestion import _is_cse_paused
+                        if _is_cse_paused():
+                            cse_paused_mid_visit = True
+                            break
+                    except ImportError:
+                        pass
                     consecutive_empty += 1
                     start_index += batch_size
                     continue
@@ -859,8 +890,10 @@ async def run_web_search_job(job_id: str):
         # Persist pagination depth NOW, before import: even if the import (or
         # the process) dies, these result windows were fetched and must never
         # be fetched again. start_index > 100 means the whole CSE window for
-        # this query has been consumed.
-        window_consumed = start_index > 100
+        # this query has been consumed. During a CSE pause, start_index only
+        # advanced past pages that really returned results, so persisting it
+        # is safe — but exhaustion must not be judged from unavailability.
+        window_consumed = (not cse_paused_mid_visit) and start_index > 100
         save_query_ledger(query, next_start=start_index, exhausted=window_consumed or bool(ledger.get("exhausted")))
         if window_consumed:
             print(f"[WebSearch:{job_id}] Query window fully consumed (start>100): '{query[:60]}'")
@@ -900,9 +933,10 @@ async def run_web_search_job(job_id: str):
 
             except Exception as e:
                 add_job_error(job_id, f"Import error: {str(e)}")
-        else:
+        elif not cse_paused_mid_visit:
             # batch_leads empty → CSE returned nothing new at this depth →
-            # push the query toward exhaustion faster
+            # push the query toward exhaustion faster. (Skipped when the
+            # emptiness came from a CSE cooldown, not from the query.)
             streak = ledger.get("dupe_streak", 0) + 1
             save_query_ledger(query, dupe_streak=streak,
                               exhausted=window_consumed or streak >= EXHAUSTED_THRESHOLD)
