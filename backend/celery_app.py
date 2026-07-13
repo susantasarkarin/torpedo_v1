@@ -127,15 +127,15 @@ celery_app.conf.update(
             'schedule': crontab(hour=3, minute=30),
             'options': {'queue': 'default'},
         },
-        'mail-pool-ai-batch': {
-            # Every 10 min: AI-process new mail-pool emails (summary,
-            # contacts, RFQ -> spine + draft estimate, follow-up drafts).
-            # 200 emails/run on Haiku ≈ 28.8K/day max — clears the 361K
-            # backlog in ~2 weeks. A 200-email run finishes in ~4-7 min,
-            # inside the 10-min window.
-            'task': 'backend.tasks.mail_pool_ai_tasks.process_mail_pool_batch',
+        'mail-pool-ai-sender-batch': {
+            # Every 10 min: AI-process mail-pool SENDERS (summary, contacts,
+            # RFQ -> spine + draft estimate, follow-up drafts). One Haiku call
+            # per sender covers ALL their emails — the 361K-email pool has
+            # only ~6.3K unique senders, so the whole backlog costs ~$50 and
+            # clears in about a day at 50 senders/run.
+            'task': 'backend.tasks.mail_pool_ai_tasks.process_mail_pool_sender_batch',
             'schedule': 600.0,
-            'kwargs': {'limit': 200},
+            'kwargs': {'limit': 50},
             'options': {'queue': 'ai_processing'},
         },
         'yield-abandoned-session-sweep': {

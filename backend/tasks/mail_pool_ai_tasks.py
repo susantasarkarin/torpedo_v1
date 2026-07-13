@@ -25,7 +25,11 @@ logger = logging.getLogger(__name__)
     rate_limit="2/m",
 )
 def process_mail_pool_batch(self, limit: int = 50):
-    """Analyze up to `limit` new mail-pool emails with the AI pipeline."""
+    """Analyze up to `limit` new mail-pool emails with the AI pipeline.
+
+    Kept for manual/per-email use; the scheduled path is the sender-level
+    task below (one AI call per sender instead of per email).
+    """
     try:
         try:
             from sales.mail_pool_ai import process_batch
@@ -36,4 +40,32 @@ def process_mail_pool_batch(self, limit: int = 50):
         return result
     except Exception as e:
         logger.error(f"[mail-ai] batch failed: {e}", exc_info=True)
+        raise self.retry(exc=e)
+
+
+@celery_app.task(
+    name="backend.tasks.mail_pool_ai_tasks.process_mail_pool_sender_batch",
+    bind=True,
+    queue="ai_processing",
+    max_retries=1,
+    default_retry_delay=600,
+    rate_limit="2/m",
+)
+def process_mail_pool_sender_batch(self, limit: int = 50):
+    """Analyze up to `limit` SENDERS with unanalyzed mail-pool emails.
+
+    One AI call per sender (sampling their newest emails) stamps every email
+    from that sender — ~6.3K calls cover the whole 361K-email pool, vs 361K
+    calls for per-email analysis.
+    """
+    try:
+        try:
+            from sales.mail_pool_ai import process_sender_batch
+        except ImportError:
+            from backend.sales.mail_pool_ai import process_sender_batch
+        result = process_sender_batch(limit=limit)
+        logger.info(f"[mail-ai] sender batch done: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"[mail-ai] sender batch failed: {e}", exc_info=True)
         raise self.retry(exc=e)
