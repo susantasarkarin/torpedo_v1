@@ -21,6 +21,7 @@ when AI is unavailable.
 """
 
 import logging
+import os
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -28,6 +29,10 @@ logger = logging.getLogger(__name__)
 
 MAIL_DB = "torpedo_gmail"
 MAIL_COLLECTION = "email_metadata"
+
+# Per-email summarize/extract is simple, high-volume JSON work — Haiku-tier.
+# At $1/$5 per MTok vs Opus's $5/$25, the 361K-email backlog costs ~5x less.
+MAIL_POOL_AI_MODEL = os.getenv("MAIL_POOL_AI_MODEL", "claude-haiku-4-5")
 FOLLOWUP_COLLECTION = "mail_followup_drafts"  # stored in email_automation
 
 _ANALYSIS_PROMPT = """You are the mail-desk analyst for a market-research company (surveys, panels, fieldwork).
@@ -98,7 +103,10 @@ def analyze_email(email_doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         subject=subject,
         body=str(body)[:4000],
     )
-    result = _gateway().generate_json(prompt)
+    result = _gateway().generate_json(
+        prompt, model=MAIL_POOL_AI_MODEL, max_tokens=4000,
+        task_type="mail_pool_analysis", caller="sales.mail_pool_ai",
+    )
     if not isinstance(result, dict) or "summary" not in result:
         return None
     result["analyzed_at"] = datetime.utcnow().isoformat()
