@@ -339,13 +339,32 @@ def process_email(email_doc: Dict[str, Any]) -> Dict[str, Any]:
     return {"success": True, "analysis": analysis}
 
 
+MAX_FAILED_ATTEMPTS = 3   # skip an email after this many failed analyses
+SYSTEMIC_FAIL_PROBE = 5   # abort the run if this many items fail before any succeeds
+
+
 def process_batch(limit: int = 50) -> Dict[str, Any]:
-    """Process up to `limit` unanalyzed mail-pool emails (oldest first)."""
+    """Process up to `limit` unanalyzed mail-pool emails (newest first).
+
+    Failure handling — both directions matter:
+    - Per-email: a failed doc gets ai_failed_attempts incremented and is
+      skipped once it reaches MAX_FAILED_ATTEMPTS, so one poison message
+      can't wedge the head of the queue. (Before this, failed docs were
+      never marked; with the newest-first sort, every 30-min run re-failed
+      the exact same 50 emails forever.)
+    - Systemic: when every item fails before a single success (bad API key,
+      provider quota/outage), abort the run early and mark NOTHING failed —
+      otherwise an outage would burn attempt-budget across the whole pool
+      and permanently skip perfectly good emails.
+    """
     col = _get_db(MAIL_DB)[MAIL_COLLECTION]
     processed = failed = rfqs = 0
+    failed_ids = []
+    aborted = False
     cursor = col.find(
         {"ai_analysis": {"$exists": False},
-         "internal": {"$ne": True}},          # skip internal/own-domain mail
+         "internal": {"$ne": True},           # skip internal/own-domain mail
+         "ai_failed_attempts": {"$not": {"$gte": MAX_FAILED_ATTEMPTS}}},
     ).sort("date", -1).limit(limit)
     for doc in cursor:
         try:
@@ -356,7 +375,26 @@ def process_batch(limit: int = 50) -> Dict[str, Any]:
                     rfqs += 1
             else:
                 failed += 1
+                failed_ids.append(doc["_id"])
         except Exception as e:
             failed += 1
+            failed_ids.append(doc["_id"])
             logger.warning(f"[mail-ai] batch item failed: {e}")
-    return {"processed": processed, "failed": failed, "rfqs_detected": rfqs}
+        if processed == 0 and failed >= SYSTEMIC_FAIL_PROBE:
+            aborted = True
+            logger.error(
+                f"[mail-ai] first {failed} items all failed — treating as a "
+                f"systemic outage (API key/quota?), aborting batch without "
+                f"marking emails failed"
+            )
+            break
+    if processed > 0 and failed_ids:
+        try:
+            col.update_many(
+                {"_id": {"$in": failed_ids}},
+                {"$inc": {"ai_failed_attempts": 1},
+                 "$set": {"ai_last_failed_at": datetime.utcnow()}})
+        except Exception as e:
+            logger.warning(f"[mail-ai] could not mark failed emails: {e}")
+    return {"processed": processed, "failed": failed,
+            "rfqs_detected": rfqs, "aborted_systemic": aborted}
