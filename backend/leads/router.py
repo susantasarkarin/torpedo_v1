@@ -8,6 +8,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 import asyncio
+import hashlib
 import random
 import os
 import uuid
@@ -63,6 +64,57 @@ try:
     web_search_jobs_collection.create_index("created_at")
 except Exception as e:
     print(f"Warning: Could not create job indexes: {e}")
+
+# ============== PERSISTENT CSE QUERY LEDGER ==============
+# One document per unique query string, shared by ALL jobs and surviving
+# restarts. Tracks how deep into Google's ~100-result window each query has
+# been fetched (next_start) and whether it's tapped out (exhausted). Before
+# this ledger, pagination state lived only in local variables: every job
+# revisit and every backend restart re-fetched the same result pages from
+# start=1, burning CSE quota on results we had already imported.
+cse_query_ledger = _jobs_db['cse_query_ledger']
+try:
+    cse_query_ledger.create_index("updated_at")
+except Exception as e:
+    print(f"Warning: Could not create cse_query_ledger index: {e}")
+
+# Google's result pool for a query drifts over time (new profiles enter the
+# top-100), so an exhausted query becomes worth one fresh pass after this many
+# days. Within the window, an exhausted query is never re-fetched.
+CSE_EXHAUSTED_REVISIT_DAYS = int(os.getenv("CSE_EXHAUSTED_REVISIT_DAYS", "30"))
+
+
+def _query_ledger_key(query: str) -> str:
+    return hashlib.md5(query.strip().lower().encode("utf-8")).hexdigest()
+
+
+def get_query_ledger(query: str) -> dict:
+    """Fetch (or initialize) the persistent fetch-state for a query string."""
+    doc = cse_query_ledger.find_one({"_id": _query_ledger_key(query)})
+    if not doc:
+        return {"query": query, "next_start": 1, "dupe_streak": 0, "wave": 0, "exhausted": False}
+
+    # Re-open exhausted queries after the revisit window: Google's pool has
+    # likely drifted enough to contain results we have never seen.
+    if doc.get("exhausted"):
+        updated_at = doc.get("updated_at")
+        if updated_at and (datetime.utcnow() - updated_at).days >= CSE_EXHAUSTED_REVISIT_DAYS:
+            doc.update({"next_start": 1, "dupe_streak": 0, "exhausted": False})
+            save_query_ledger(query, next_start=1, dupe_streak=0, exhausted=False)
+    return doc
+
+
+def save_query_ledger(query: str, **fields):
+    """Upsert fetch-state fields for a query string."""
+    fields["query"] = query
+    fields["updated_at"] = datetime.utcnow()
+    try:
+        cse_query_ledger.update_one(
+            {"_id": _query_ledger_key(query)}, {"$set": fields}, upsert=True
+        )
+    except Exception as e:
+        # Ledger persistence must never kill a running search job.
+        print(f"Warning: could not persist query ledger: {e}")
 
 # ============== AI COMPANY DATABASE ==============
 ai_companies_collection = _jobs_db['ai_discovered_companies']
@@ -619,13 +671,11 @@ async def run_web_search_job(job_id: str):
     seen_urls = set(job.get("seen_urls", []))
     batch_size = 10
     query_index = 0
-    # Track queries that consistently return 0 new leads (all duplicates)
-    # key=query, value=consecutive all-dupe count; reset when new leads found
-    exhausted_queries: dict = {}
-    EXHAUSTED_THRESHOLD = 3  # skip a query after this many all-dupe runs
-    # Query deepening state: how many expansion waves each base query has spent,
-    # and every query ever queued (dedupe guard for generated variants).
-    query_waves: dict = {}
+    # Per-query fetch state (pagination depth, dupe streak, exhaustion, wave)
+    # lives in the persistent cse_query_ledger — shared across jobs and
+    # restarts — so no result window is ever fetched twice.
+    EXHAUSTED_THRESHOLD = 3  # exhaust a query after this many all-dupe runs
+    # Every query ever queued (dedupe guard for generated variants).
     all_queries_set: set = set(query_combinations)
     search_countries = config.get("countries", []) or []
 
@@ -702,17 +752,18 @@ async def run_web_search_job(job_id: str):
         query = query_combinations[query_index]
         query_index += 1
 
-        # A query that keeps returning only duplicates is tapped out. Before
-        # skipping it for good, DEEPEN it into novel variants (city-scoped,
-        # then require/exclude-shifted) that surface result windows Google
-        # didn't return for the base query — this is what keeps new leads
-        # flowing past the per-query cap.
-        if exhausted_queries.get(query, 0) >= EXHAUSTED_THRESHOLD:
-            wave = query_waves.get(query, 0)
+        # A query that keeps returning only duplicates, or whose entire ~100
+        # result window has been fetched, is tapped out. Before skipping it,
+        # DEEPEN it into novel variants (city-scoped, then require/exclude-
+        # shifted) that surface result windows Google didn't return for the
+        # base — this is what keeps new leads flowing past the per-query cap.
+        ledger = get_query_ledger(query)
+        if ledger.get("exhausted") or ledger.get("dupe_streak", 0) >= EXHAUSTED_THRESHOLD:
+            wave = ledger.get("wave", 0)
             if wave < MAX_EXPANSION_WAVES:
                 variants = [q for q in _expand_query(query, wave, search_countries)
                             if q not in all_queries_set]
-                query_waves[query] = wave + 1
+                save_query_ledger(query, wave=wave + 1, exhausted=True)
                 if variants:
                     query_combinations.extend(variants)
                     all_queries_set.update(variants)
@@ -721,11 +772,12 @@ async def run_web_search_job(job_id: str):
                           f"{len(variants)} new variants (wave {wave + 1}): '{query[:50]}'")
             await asyncio.sleep(0.2)
             continue
-        
+
         update_job(job_id, {"current_query": query[:100]})
-        
-        # Search with pagination
-        start_index = 1
+
+        # Resume pagination where this query last left off — across every job
+        # and restart — instead of re-fetching the same pages from start=1.
+        start_index = max(1, int(ledger.get("next_start", 1) or 1))
         consecutive_empty = 0
         batch_leads = []
         
@@ -804,42 +856,56 @@ async def run_web_search_job(job_id: str):
                     increment_error_count(error_msg)
                 break
         
+        # Persist pagination depth NOW, before import: even if the import (or
+        # the process) dies, these result windows were fetched and must never
+        # be fetched again. start_index > 100 means the whole CSE window for
+        # this query has been consumed.
+        window_consumed = start_index > 100
+        save_query_ledger(query, next_start=start_index, exhausted=window_consumed or bool(ledger.get("exhausted")))
+        if window_consumed:
+            print(f"[WebSearch:{job_id}] Query window fully consumed (start>100): '{query[:60]}'")
+
         # Reset error count on successful batch
         if batch_leads:
             reset_error_count()
-        
+
         # Import batch leads
         if batch_leads:
             try:
                 lead_inputs = [LeadInput(**lead) for lead in batch_leads]
                 result = import_leads(lead_inputs, icp_segment=icp_id)
-                
+
                 increment_job_counters(
                     job_id,
                     found=len(batch_leads),
                     imported=result.imported,
                     duplicates=result.duplicates
                 )
-                
+
                 print(f"[WebSearch:{job_id}] Query: '{query[:40]}...' - Found: {len(batch_leads)}, Imported: {result.imported}")
-                
+
                 # Track queries that yield no new leads
                 if result.imported == 0:
-                    exhausted_queries[query] = exhausted_queries.get(query, 0) + 1
-                    if exhausted_queries[query] >= EXHAUSTED_THRESHOLD:
+                    streak = ledger.get("dupe_streak", 0) + 1
+                    save_query_ledger(query, dupe_streak=streak,
+                                      exhausted=window_consumed or streak >= EXHAUSTED_THRESHOLD)
+                    if streak >= EXHAUSTED_THRESHOLD:
                         print(f"[WebSearch:{job_id}] Query marked exhausted (all dupes): '{query[:60]}'")
                 else:
-                    exhausted_queries.pop(query, None)  # Reset on any new import
+                    save_query_ledger(query, dupe_streak=0)  # Reset on any new import
 
                 # Save seen URLs periodically (every 100 new ones)
                 if len(seen_urls) % 100 < batch_size:
                     update_job(job_id, {"seen_urls": list(seen_urls)})
-                
+
             except Exception as e:
                 add_job_error(job_id, f"Import error: {str(e)}")
         else:
-            # batch_leads empty → CSE returned nothing new → mark query as exhausted faster
-            exhausted_queries[query] = exhausted_queries.get(query, 0) + 1
+            # batch_leads empty → CSE returned nothing new at this depth →
+            # push the query toward exhaustion faster
+            streak = ledger.get("dupe_streak", 0) + 1
+            save_query_ledger(query, dupe_streak=streak,
+                              exhausted=window_consumed or streak >= EXHAUSTED_THRESHOLD)
         
         # Auto-classify after each batch
         try:

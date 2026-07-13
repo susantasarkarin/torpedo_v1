@@ -189,7 +189,7 @@ def _pause_cse_for_24h():
 
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def perform_google_search(query: str, num_results: int = 10) -> List[dict]:
+async def perform_google_search(query: str, num_results: int = 10, start: int = 1) -> List[dict]:
     """
     Perform a Google Custom Search.
     Automatically pauses for 24 hours on consecutive 429 errors.
@@ -197,6 +197,10 @@ async def perform_google_search(query: str, num_results: int = 10) -> List[dict]
     Args:
         query: Search query
         num_results: Number of results to fetch
+        start: 1-based result offset to begin at (CSE serves offsets 1-100).
+               Previously ignored — every call re-fetched from offset 1, so
+               paginating callers burned quota re-downloading the same top
+               results and could never reach past them.
 
     Returns:
         List of Google Search result items
@@ -218,8 +222,8 @@ async def perform_google_search(query: str, num_results: int = 10) -> List[dict]
 
     async with httpx.AsyncClient() as http_client:
         for i in range(pages):
-            start = i * 10 + 1
-            if start > 100:
+            page_start = start + i * 10
+            if page_start > 100:
                 break
 
             try:
@@ -229,7 +233,7 @@ async def perform_google_search(query: str, num_results: int = 10) -> List[dict]
                     "key": api_key,
                     "cx": cse_id,
                     "num": min(10, num_results - len(results)),
-                    "start": start,
+                    "start": page_start,
                 }
 
                 response = await http_client.get(url, params=params, timeout=15.0)
@@ -303,7 +307,7 @@ async def search_linkedin_leads(
     # Search broadly — no site: restriction so all countries are covered
     search_query = clean_query
     logger.info(f"[Google CSE] Searching: {search_query[:80]}...")
-    search_results = await perform_google_search(search_query, num_results)
+    search_results = await perform_google_search(search_query, num_results, start=start)
     
     if not search_results:
         logger.warning(f"No results found for query: {clean_query}")
