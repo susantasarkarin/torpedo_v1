@@ -1,4 +1,4 @@
-    """
+"""
 GOOGLE CSE RATE LIMITER
 =======================
 Proactive rate limiting for Google Custom Search API to stay within free tier.
