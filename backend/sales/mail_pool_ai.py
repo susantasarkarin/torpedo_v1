@@ -359,6 +359,15 @@ SYSTEMIC_FAIL_PROBE = 5   # abort the run if this many items fail before any suc
 SENDER_ANALYSIS_COLLECTION = "mail_sender_analysis"   # in email_automation
 MAX_SAMPLE_EMAILS_PER_SENDER = int(os.getenv("MAIL_POOL_SENDER_SAMPLE", "3"))
 
+# Deep RFQ scan: senders classified as real correspondents get ALL their mail
+# read chronologically in chunks, so every RFQ in the history is found and
+# followed to its outcome (quoted / won / lost). Automated/newsletter/spam
+# senders are excluded — that's where the bulk of the volume (and none of the
+# RFQs) lives.
+RFQ_SCAN_CHUNK = int(os.getenv("MAIL_POOL_RFQ_SCAN_CHUNK", "10"))
+MAX_SCAN_EMAILS_PER_SENDER = int(os.getenv("MAIL_POOL_MAX_SCAN_EMAILS", "1000"))
+_HUMAN_SENDER_TYPES = {"client", "prospect", "vendor", "other"}
+
 _SENDER_ANALYSIS_PROMPT = """You are the mail-desk analyst for a market-research company (surveys, panels, fieldwork).
 Analyze this SENDER based on their recent emails to us and return ONLY valid JSON, no markdown.
 
@@ -432,6 +441,174 @@ def analyze_sender(from_email: str, from_name: str, total_count: int,
     return result
 
 
+_RFQ_SCAN_PROMPT = """You are the RFQ auditor for a market-research company (surveys, panels, fieldwork).
+You are reading through ALL emails from one sender in chronological order, in chunks.
+Identify every RFQ (request for quotation/proposal/pricing for research work) and
+track each one's outcome across the thread. Return ONLY valid JSON, no markdown.
+
+Sender: {from_line}
+
+RFQs already identified in earlier chunks (still open):
+{open_ledger}
+
+Emails in this chunk (oldest first):
+{emails}
+
+Return exactly this JSON shape:
+{{
+  "new_rfqs": [
+    {{"ref": "<short-unique-slug-you-invent>",
+      "title": "<short title>", "description": "<what is requested>",
+      "budget": <number or null>, "currency": "<ISO code or null>",
+      "items": [{{"description": "<line item>", "quantity": <number>, "rate": <number or 0>}}],
+      "deadline": "<ISO date or null>", "email_date": "<date of the email>",
+      "status": "open|quoted|won|lost",
+      "evidence": "<one sentence quoting/paraphrasing the deciding email>"}}
+  ],
+  "rfq_updates": [
+    {{"ref": "<ref of a previously identified RFQ>",
+      "status": "quoted|won|lost",
+      "evidence": "<one sentence: what in this chunk changed the status>"}}
+  ]
+}}
+
+Rules:
+- An RFQ is the SENDER asking US for pricing/proposal/feasibility on research
+  work (sample, surveys, panel, fieldwork, translation, coding etc.).
+  Promotional mail SELLING to us is never an RFQ.
+- "won": the sender awarded/confirmed the work to us (PO, "please proceed",
+  "you are awarded", cost approval). "lost": explicitly went elsewhere or
+  cancelled. "quoted": we sent pricing and they acknowledged, no decision yet.
+- Use rfq_updates when a chunk email resolves an RFQ from the open ledger.
+- [] for both lists when the chunk has no RFQ activity."""
+
+
+def _scan_chunk(from_line: str, open_ledger, chunk_docs) -> Optional[Dict[str, Any]]:
+    """One AI call over a chronological chunk of a sender's emails."""
+    ledger_lines = [
+        f"- ref={r['ref']} | {r.get('title')} | status={r.get('status')}"
+        for r in open_ledger if r.get("status") not in ("won", "lost")
+    ][:20] or ["(none)"]
+    email_parts = []
+    for d in chunk_docs:
+        body = (d.get("body_plain") or d.get("body") or d.get("snippet") or "")
+        email_parts.append(
+            f"--- {d.get('date', 'unknown')} | Subject: {d.get('subject') or '(no subject)'} ---\n"
+            f"{str(body)[:1500]}")
+    prompt = _RFQ_SCAN_PROMPT.format(
+        from_line=from_line,
+        open_ledger="\n".join(ledger_lines),
+        emails="\n\n".join(email_parts),
+    )
+    return _gateway().generate_json(
+        prompt, model=MAIL_POOL_AI_MODEL, max_tokens=8000,
+        task_type="mail_pool_rfq_scan", caller="sales.mail_pool_ai",
+    )
+
+
+_STATUS_TO_STAGE = {"quoted": "proposal", "won": "won", "lost": "lost"}
+
+
+def _apply_rfq_stage(entry: Dict[str, Any]) -> None:
+    """Move the logged opportunity to the stage matching the scanned status."""
+    stage = _STATUS_TO_STAGE.get(entry.get("status"))
+    opp_id = entry.get("opportunity_id")
+    if not stage or not opp_id:
+        return
+    try:
+        try:
+            from app.services import crm_service
+        except ImportError:
+            from backend.app.services import crm_service
+        crm_service.set_opportunity_stage(
+            opp_id, stage,
+            loss_reason=(entry.get("evidence") or "per email thread")
+            if stage == "lost" else None,
+            changed_by="mail_pool_ai")
+    except Exception as e:
+        logger.warning(f"[mail-ai] stage update failed for {opp_id}: {e}")
+
+
+def deep_scan_sender_rfqs(from_email: str, from_name: str, col,
+                          sender_col) -> Dict[str, Any]:
+    """Read ALL of a sender's emails chronologically, log every RFQ on the
+    CRM spine (+ draft estimate), and set won/lost/quoted stages.
+
+    Incremental and resumable: scan position (last email date) and the RFQ
+    ledger persist on the sender's mail_sender_analysis doc, so new mail
+    only scans the delta and a mid-scan failure resumes where it stopped."""
+    state = (sender_col.find_one({"_id": from_email}) or {}).get("rfq_scan", {})
+    ledger = state.get("ledger", [])
+    last_date = state.get("last_scanned_date")
+
+    query: Dict[str, Any] = {"from_email": from_email}
+    if last_date:
+        query["date"] = {"$gt": last_date}
+    docs = list(col.find(
+        query, {"subject": 1, "date": 1, "body_plain": 1, "body": 1,
+                "snippet": 1, "from_name": 1}
+    ).sort("date", 1).limit(MAX_SCAN_EMAILS_PER_SENDER))
+    if not docs:
+        return {"scanned": 0, "rfqs_logged": 0, "rfqs_won": 0}
+
+    from_line = f"{from_name} <{from_email}>".strip()
+    newest_doc = docs[-1]
+    scanned = 0
+    by_ref = {r["ref"]: r for r in ledger if r.get("ref")}
+
+    for i in range(0, len(docs), RFQ_SCAN_CHUNK):
+        chunk = docs[i:i + RFQ_SCAN_CHUNK]
+        result = _scan_chunk(from_line, ledger, chunk)
+        if not isinstance(result, dict):
+            logger.warning(f"[mail-ai] RFQ scan chunk failed for {from_email} "
+                           f"— stopping; resume point persisted")
+            break
+        for rfq in (result.get("new_rfqs") or []):
+            if not rfq.get("ref") or rfq["ref"] in by_ref:
+                continue
+            rfq.setdefault("status", "open")
+            ledger.append(rfq)
+            by_ref[rfq["ref"]] = rfq
+        for upd in (result.get("rfq_updates") or []):
+            entry = by_ref.get(upd.get("ref"))
+            if entry and upd.get("status"):
+                entry["status"] = upd["status"]
+                entry["evidence"] = upd.get("evidence") or entry.get("evidence")
+        scanned += len(chunk)
+        # Persist progress after every chunk — a crash or credit outage
+        # resumes from here instead of re-reading (and re-paying for) mail.
+        sender_col.update_one(
+            {"_id": from_email},
+            {"$set": {"rfq_scan.ledger": ledger,
+                      "rfq_scan.last_scanned_date": chunk[-1].get("date"),
+                      "rfq_scan.scanned_at": datetime.utcnow()}},
+            upsert=True)
+
+    # Log every RFQ not yet on the spine, then apply its current stage.
+    logged = won = 0
+    for entry in ledger:
+        if not entry.get("opportunity_id"):
+            synth = {"rfq": {**entry, "is_rfq": True}, "contacts": [],
+                     "summary": entry.get("evidence") or entry.get("description")}
+            out = _log_rfq_and_estimate(synth, newest_doc)
+            if out.get("opportunity_id"):
+                entry["opportunity_id"] = out["opportunity_id"]
+                entry["estimate_id"] = out.get("estimate_id")
+                entry["stage_applied"] = None
+                logged += 1
+        if entry.get("opportunity_id") and \
+                entry.get("stage_applied") != entry.get("status"):
+            _apply_rfq_stage(entry)
+            entry["stage_applied"] = entry.get("status")
+        if entry.get("status") == "won":
+            won += 1
+    sender_col.update_one(
+        {"_id": from_email}, {"$set": {"rfq_scan.ledger": ledger}}, upsert=True)
+
+    return {"scanned": scanned, "rfqs_logged": logged, "rfqs_won": won,
+            "rfqs_total": len(ledger)}
+
+
 def process_sender(from_email: str, col) -> Dict[str, Any]:
     """Full AI pipeline for one sender: analyze a sample of their newest
     emails, run downstream actions once, then stamp ALL their unanalyzed
@@ -454,14 +631,25 @@ def process_sender(from_email: str, col) -> Dict[str, Any]:
     # Downstream actions run once per sender, anchored on their newest email.
     actions: Dict[str, Any] = {}
     actions["contacts_ingested"] = _ingest_contacts(analysis, newest)
-    actions.update(_log_rfq_and_estimate(analysis, newest))
+    sender_col = _get_db("email_automation")[SENDER_ANALYSIS_COLLECTION]
+    if analysis.get("sender_type") in _HUMAN_SENDER_TYPES:
+        # Real correspondent: read their FULL history for RFQs and outcomes.
+        # This supersedes the sample-based rfq field (which would only
+        # double-log the newest request).
+        try:
+            scan = deep_scan_sender_rfqs(
+                from_email, newest.get("from_name") or "", col, sender_col)
+            actions["rfq_scan"] = scan
+        except Exception as e:
+            logger.warning(f"[mail-ai] deep RFQ scan failed for {from_email}: {e}")
+    else:
+        actions.update(_log_rfq_and_estimate(analysis, newest))
     followup_id = _draft_follow_up(analysis, newest)
     if followup_id:
         actions["followup_draft_id"] = followup_id
     analysis["actions"] = actions
 
     # Full analysis lives in one doc per sender ...
-    sender_col = _get_db("email_automation")[SENDER_ANALYSIS_COLLECTION]
     sender_col.update_one(
         {"_id": from_email},
         {"$set": {"analysis": analysis, "status": "analyzed",
@@ -509,7 +697,7 @@ def process_sender_batch(limit: int = 50) -> Dict[str, Any]:
         {"$limit": limit + len(skip_senders)},
     ], allowDiskUse=True)
 
-    processed = failed = rfqs = emails_covered = 0
+    processed = failed = rfqs = rfqs_won = emails_covered = 0
     failed_senders = []
     aborted = False
     for cand in candidates:
@@ -523,7 +711,11 @@ def process_sender_batch(limit: int = 50) -> Dict[str, Any]:
             if r.get("success"):
                 processed += 1
                 emails_covered += r.get("emails_marked", 0)
-                if (r["analysis"].get("rfq") or {}).get("is_rfq"):
+                scan = (r["analysis"].get("actions") or {}).get("rfq_scan") or {}
+                if scan:
+                    rfqs += scan.get("rfqs_logged", 0)
+                    rfqs_won += scan.get("rfqs_won", 0)
+                elif (r["analysis"].get("rfq") or {}).get("is_rfq"):
                     rfqs += 1
             else:
                 failed += 1
@@ -551,7 +743,7 @@ def process_sender_batch(limit: int = 50) -> Dict[str, Any]:
             logger.warning(f"[mail-ai] could not mark failed senders: {e}")
     return {"senders_processed": processed, "failed": failed,
             "emails_covered": emails_covered, "rfqs_detected": rfqs,
-            "aborted_systemic": aborted}
+            "rfqs_won": rfqs_won, "aborted_systemic": aborted}
 
 
 def process_batch(limit: int = 50) -> Dict[str, Any]:
