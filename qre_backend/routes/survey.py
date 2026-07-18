@@ -168,6 +168,24 @@ def _first_mc_question(respondent: dict) -> str:
     return f"Q25_{active[0]}" if active else "Q36"
 
 
+def _fill_rid(raw_url: str, vendor_rid: str) -> str:
+    """Interpolate the vendor RID into a redirect URL.
+
+    Supports [RID]/{RID} placeholders (either case). If the URL was saved
+    without any placeholder (e.g. '...?rid='), the rid is appended to the
+    query string so panel platforms don't reject the return as missing_id.
+    """
+    url = (raw_url
+           .replace("[RID]", vendor_rid).replace("[rid]", vendor_rid)
+           .replace("{RID}", vendor_rid).replace("{rid}", vendor_rid))
+    if vendor_rid and vendor_rid not in url:
+        if re.search(r"[?&]rid=$", url):
+            url += vendor_rid
+        else:
+            url += ("&" if "?" in url else "?") + "rid=" + vendor_rid
+    return url
+
+
 async def _terminate(db, rid: str, reason: str, respondent: dict = None) -> RoutingDecision:
     """Mark respondent terminated, release quota claims, resolve redirect URL.
 
@@ -219,13 +237,7 @@ async def _terminate(db, rid: str, reason: str, respondent: dict = None) -> Rout
         url_key = "overquota_url" if "quota_full" in reason else "terminate_url"
         raw_url = study.get("redirects", {}).get(url_key, "")
         if raw_url:
-            redirect_url = (
-                raw_url
-                .replace("[RID]", vendor_rid)
-                .replace("[rid]", vendor_rid)
-                .replace("{RID}", vendor_rid)
-                .replace("{rid}", vendor_rid)
-            )
+            redirect_url = _fill_rid(raw_url, vendor_rid)
 
     return RoutingDecision(action="terminate", reason=reason, redirect_url=redirect_url)
 
@@ -240,8 +252,7 @@ async def _resolve_redirect(db, study_id: str, url_key: str, vendor_rid: str):
     raw_url = study.get("redirects", {}).get(url_key, "")
     if not raw_url:
         return None
-    return (raw_url.replace("[RID]", vendor_rid).replace("[rid]", vendor_rid)
-            .replace("{RID}", vendor_rid).replace("{rid}", vendor_rid))
+    return _fill_rid(raw_url, vendor_rid)
 
 
 async def _cx_submit_answer(db, rid, qid, answer, respondent, engine=cx_survey) -> RoutingDecision:
@@ -709,13 +720,7 @@ async def submit_answer(payload: AnswerPayload):
                 )
                 raw_oq_url = oq_study.get("redirects", {}).get("overquota_url", "") if oq_study else ""
                 if raw_oq_url:
-                    oq_redirect_url = (
-                        raw_oq_url
-                        .replace("[RID]", vendor_rid_oq)
-                        .replace("[rid]", vendor_rid_oq)
-                        .replace("{RID}", vendor_rid_oq)
-                        .replace("{rid}", vendor_rid_oq)
-                    )
+                    oq_redirect_url = _fill_rid(raw_oq_url, vendor_rid_oq)
             else:
                 await oq_update
             return RoutingDecision(action="terminate", reason=oq_reason, redirect_url=oq_redirect_url)
@@ -739,13 +744,7 @@ async def submit_answer(payload: AnswerPayload):
         if study:
             raw_url = study.get("redirects", {}).get("complete_url", "")
             if raw_url:
-                redirect_url = (
-                    raw_url
-                    .replace("[RID]", vendor_rid)
-                    .replace("[rid]", vendor_rid)
-                    .replace("{RID}", vendor_rid)
-                    .replace("{rid}", vendor_rid)
-                )
+                redirect_url = _fill_rid(raw_url, vendor_rid)
         return RoutingDecision(action="complete", redirect_url=redirect_url)
 
     # Fallback — unknown question_id; should never be reached in a correctly sequenced survey
