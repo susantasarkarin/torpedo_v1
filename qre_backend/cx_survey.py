@@ -1,6 +1,6 @@
 """
 CX survey definition + routing engine — IDFC FIRST Bank Customer Experience &
-Sales Process Evaluation (Quantitative QRE, Rev. 2).
+Sales Process Evaluation (Quantitative QRE, Rev. 3 / v3.3 — PII after S3).
 
 This module is fully self-contained and data-driven. It does NOT touch the
 existing (health-syndicate) survey flow in routes/survey.py; the survey routes
@@ -21,6 +21,8 @@ Design
 All question IDs use the QRE's native codes (S1, A4, B3, …, I3).
 """
 from __future__ import annotations
+
+import re
 
 # ---------------------------------------------------------------------------
 # Answer helpers
@@ -116,6 +118,13 @@ def _f_personal_channel(responses) -> bool:
 
 # Per-question ask_if predicates. Absent ⇒ always askable (subject to section gate).
 ASK_IF = {
+    # ---- v3.3 additions: PII match-back module (P0–P3, after S3) ----
+    # P0 only when the respondent holds an IDFC FIRST Bank account at S3
+    # (whether or not it turns out to be primary at S4).
+    "P0": lambda r: IDFC_BANK_CODE in _as_codes(r.get("S3")),
+    "P1": lambda r: _one(r.get("P0")) == 1,
+    "P2": lambda r: _one(r.get("P0")) == 1,
+    "P3": lambda r: _one(r.get("P0")) == 1,
     "B4": lambda r: _one(r.get("B3")) == 1,
     "B5": lambda r: _one(r.get("B3")) == 1,
     "B6": lambda r: _one(r.get("B3")) == 2,
@@ -163,6 +172,18 @@ SECTION_GATE = {
 def terminate_reason(qid, answer) -> str | None:
     if qid == "S1" and any(c in (1, 2, 3, 4, 5) for c in _as_codes(answer)):
         return "S1_industry_disqualified"
+    # ---- v3.3 PII module (P0–P3) ----
+    # P0: not comfortable sharing match-back details → terminate.
+    if qid == "P0" and _one(answer) != 1:
+        return "P0_pii_consent_refused"
+    # P1: name is a hard requirement — refusal / blank terminates.
+    if qid == "P1" and not str(answer or "").strip():
+        return "P1_name_refused"
+    # P2: mobile number, 10 digits after stripping separators — refused or
+    # invalid terminates (per QRE: VALIDATE FORMAT).
+    if qid == "P2" and not re.fullmatch(r"\d{10}", re.sub(r"[\s\-+()]", "", str(answer or ""))):
+        return "P2_mobile_refused_or_invalid"
+    # P3 never terminates ('Don't know' is an accepted answer).
     if qid == "S2" and _one(answer) == 1:
         return "S2_recent_research_participation"
     if qid == "S6" and _one(answer) in (3, 4):
@@ -212,6 +233,21 @@ QUESTION_BANK = [
      "options": _opts((1, "Yes"), (2, "No"))},
     {"id": "S3", "section": "S", "type": "multi", "text": "Which banks do you currently hold an account or product with?",
      "instruction": "RECORD ALL. SHOW LIST + OTHER (SPECIFY).", "options": BANKS},
+    # NEW — v3.3 (P0–P3): PII match-back module, asked directly after S3 and only
+    # when S3 includes IDFC FIRST Bank (whether or not it is primary at S4).
+    {"id": "P0", "section": "P", "type": "single",
+     "text": "IDFC FIRST Bank, who this study is being conducted for, has asked us to also record your name, mobile number, and customer ID or account number, so they can match your feedback to their own service records. This is used only for internal service-improvement purposes, not for marketing or sales. Are you comfortable sharing these details?",
+     "instruction": "READ VERBATIM — DO NOT PARAPHRASE. ASK ONLY IF S3 INCLUDES IDFC FIRST BANK.",
+     "options": _opts((1, "Yes, willing to share"), (2, "No, prefer not to share"))},
+    {"id": "P1", "section": "P", "type": "open", "pii": True,
+     "text": "May I take your full name, please?",
+     "instruction": "RECORD VERBATIM. ASK ONLY IF P0 = 1. IF REFUSED, TERMINATE."},
+    {"id": "P2", "section": "P", "type": "open", "pii": True, "validation": "mobile_in_10",
+     "text": "And your mobile number?",
+     "instruction": "NUMERIC, 10 DIGITS. VALIDATE FORMAT. ASK ONLY IF P0 = 1. IF REFUSED OR INVALID, TERMINATE."},
+    {"id": "P3", "section": "P", "type": "open", "pii": True, "optional": True,
+     "text": "And could I take your IDFC FIRST Bank customer ID or account number, if you have it to hand?",
+     "instruction": "RECORD VERBATIM. ASK ONLY IF P0 = 1. IF NOT KNOWN OR NOT TO HAND, CODE 'DON'T KNOW' — DO NOT PROBE OR ASK THE RESPONDENT TO LOOK IT UP; DOES NOT TERMINATE."},
     {"id": "S4", "section": "S", "type": "single", "text": "And which of these would you consider your MAIN or PRIMARY bank — the one you use most?",
      "instruction": "All following questions refer to this bank.", "options": BANKS},
     {"id": "S5", "section": "S", "type": "single", "text": "How long have you been a customer of [PRIMARY BANK]?",
@@ -562,7 +598,9 @@ QUESTION_BANK = [
 # (hence stored response keys and the dispatcher's quota hooks) are unchanged.
 # ---------------------------------------------------------------------------
 _FRONT_ORDER = [
-    "S1", "S2", "S3", "S4", "S6", "S7",   # S1/S2/S6/S7 terminate; S3/S4 give S6 its bank context
+    # P0–P3 (v3.3 PII module) sit directly after S3, before S4, as in the QRE.
+    "S1", "S2", "S3", "P0", "P1", "P2", "P3",
+    "S4", "S6", "S7",                     # S1/S2/S6/S7 terminate; S3/S4 give S6 its bank context
     "S10", "S11", "I1", "I2", "I3",       # profile: gender, age, occupation, income, city (I3 also terminates on 'Other')
     "S5", "S8", "S9", "S12",              # remaining screener items
 ]

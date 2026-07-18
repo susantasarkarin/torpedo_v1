@@ -1,4 +1,8 @@
 """Routing tests for cx_survey — run: python test_cx_survey.py"""
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 import cx_survey as cx
 
 
@@ -62,6 +66,7 @@ check("S7 non-decision-maker terminates", e == "terminate:S7_not_decision_maker"
 # 2. Full path, no loan, RM=yes, branch+app used → all sections except E
 base = {
     "S1": [6], "S2": 2, "S6": 1, "S7": 1,
+    "S11": 2,                         # valid age (default option is Under 18 → would terminate)
     "S9": [10],                       # no loan → skip Section E
     "B1": {"branch": 1, "app": 1, "internet": 5, "atm": 1, "phone": 1, "rm": 1},
     "B3": 1,                          # has RM → B4,B5,B7 ; B6 skipped
@@ -83,7 +88,8 @@ check("D section present (app used)", "D1" in v)
 check("F3-F7 asked (personal channel + purchased)", all(x in v for x in ["F3", "F4", "F5", "F6", "F7"]))
 check("G3/G4 asked, G2 skipped", "G3" in v and "G4" in v and "G2" not in v)
 check("H2 + H4 asked", "H2" in v and "H4" in v)
-check("ends on I3", v[-1] == "I3")
+check("ends on I4", v[-1] == "I4")
+check("P0-P3 skipped when S3 has no IDFC account", not any(x.startswith("P") for x in v))
 
 # 3. No RM → B6 asked, B4/B5/B7/B8 skipped
 v, e = walk({**base, "B3": 2})
@@ -122,6 +128,28 @@ check("G1=2 → G2 asked, G3/G4 skipped", "G2" in v and "G3" not in v and "G4" n
 v, e = walk({**base, "H1": 3, "H3": "IDFC FIRST Bank", "S4": "IDFC FIRST Bank"})
 check("H1=No → H2 skipped", "H2" not in v)
 check("H3==primary → H4 skipped", "H4" not in v)
+
+# 11. v3.3 PII module (P0–P3) — asked only when S3 includes IDFC FIRST Bank
+IDFC = cx.IDFC_BANK_CODE
+pii_ok = {**base, "S3": [1, IDFC], "P0": 1, "P1": "Ravi Kumar",
+          "P2": "98765 43210", "P3": "Don't know"}
+v, e = walk(pii_ok)
+check("P0-P3 asked when S3 includes IDFC, valid PII path completes",
+      e == "complete" and all(x in v for x in ["P0", "P1", "P2", "P3"]))
+check("P0-P3 sit between S3 and S4",
+      v.index("S3") < v.index("P0") < v.index("P3") < v.index("S4"))
+
+v, e = walk({**pii_ok, "P0": 2})
+check("P0 refusal terminates", e == "terminate:P0_pii_consent_refused" and v[-1] == "P0")
+
+v, e = walk({**pii_ok, "P1": "   "})
+check("P1 blank/refused terminates", e == "terminate:P1_name_refused")
+
+v, e = walk({**pii_ok, "P2": "12345"})
+check("P2 invalid mobile terminates", e == "terminate:P2_mobile_refused_or_invalid")
+
+v, e = walk({**pii_ok, "P2": "+91-98765-43210"})
+check("P2 with country code fails 10-digit validation", e == "terminate:P2_mobile_refused_or_invalid")
 
 print()
 print("ALL PASS" if check.failed == 0 else f"{check.failed} FAILURE(S)")
