@@ -313,10 +313,12 @@ async def start_survey(request: Request, study_id: str = "default", rid: str = "
 
     # --- IP deduplication -------------------------------------------------
     # Skip check when IP is unknown (misconfigured proxy); otherwise enforce
-    # one completed/locked entry per IP, and surface in-progress sessions.
+    # one completed/locked entry per IP PER STUDY, and surface in-progress
+    # sessions. Scoped by study_id so a stale session in one study can never
+    # block a respondent from starting a different study.
     if ip != "unknown":
         existing = await db.respondents.find_one(
-            {"ip_address": ip},
+            {"ip_address": ip, "study_id": study_id},
             {"_id": 1, "status": 1, "ip_locked": 1},
         )
         if existing:
