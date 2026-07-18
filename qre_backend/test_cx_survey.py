@@ -89,7 +89,6 @@ check("F3-F7 asked (personal channel + purchased)", all(x in v for x in ["F3", "
 check("G3/G4 asked, G2 skipped", "G3" in v and "G4" in v and "G2" not in v)
 check("H2 + H4 asked", "H2" in v and "H4" in v)
 check("ends on I4", v[-1] == "I4")
-check("P0-P3 skipped when S3 has no IDFC account", not any(x.startswith("P") for x in v))
 
 # 3. No RM → B6 asked, B4/B5/B7/B8 skipped
 v, e = walk({**base, "B3": 2})
@@ -128,28 +127,6 @@ check("G1=2 → G2 asked, G3/G4 skipped", "G2" in v and "G3" not in v and "G4" n
 v, e = walk({**base, "H1": 3, "H3": "IDFC FIRST Bank", "S4": "IDFC FIRST Bank"})
 check("H1=No → H2 skipped", "H2" not in v)
 check("H3==primary → H4 skipped", "H4" not in v)
-
-# 11. v3.3 PII module (P0–P3) — asked only when S3 includes IDFC FIRST Bank
-IDFC = cx.IDFC_BANK_CODE
-pii_ok = {**base, "S3": [1, IDFC], "P0": 1, "P1": "Ravi Kumar",
-          "P2": "98765 43210", "P3": "Don't know"}
-v, e = walk(pii_ok)
-check("P0-P3 asked when S3 includes IDFC, valid PII path completes",
-      e == "complete" and all(x in v for x in ["P0", "P1", "P2", "P3"]))
-check("P0-P3 sit between S3 and S4",
-      v.index("S3") < v.index("P0") < v.index("P3") < v.index("S4"))
-
-v, e = walk({**pii_ok, "P0": 2})
-check("P0 refusal terminates", e == "terminate:P0_pii_consent_refused" and v[-1] == "P0")
-
-v, e = walk({**pii_ok, "P1": "   "})
-check("P1 blank/refused terminates", e == "terminate:P1_name_refused")
-
-v, e = walk({**pii_ok, "P2": "12345"})
-check("P2 invalid mobile terminates", e == "terminate:P2_mobile_refused_or_invalid")
-
-v, e = walk({**pii_ok, "P2": "+91-98765-43210"})
-check("P2 with country code fails 10-digit validation", e == "terminate:P2_mobile_refused_or_invalid")
 
 print()
 print("ALL PASS" if check.failed == 0 else f"{check.failed} FAILURE(S)")

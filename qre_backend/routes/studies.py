@@ -11,8 +11,12 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 import cx_survey
+import cx_survey_v33
 
 router = APIRouter(prefix="/api/studies", tags=["studies"])
+
+# CX questionnaire engines by study type (v3.3 = Rev 3 + PII module after S3).
+CX_ENGINES = {"cx_survey": cx_survey, "cx_survey_v33": cx_survey_v33}
 
 
 def _db():
@@ -104,7 +108,9 @@ class StudyCreate(BaseModel):
     client_name: str
     description: str = ""
     # "qre" = existing health-syndicate questionnaire (default, unchanged behaviour);
-    # "cx_survey" = IDFC FIRST Bank CX & Sales Process QRE (cx_survey module).
+    # "cx_survey" = IDFC FIRST Bank CX & Sales Process QRE Rev 2/3 (cx_survey module);
+    # "cx_survey_v33" = same QRE, Revision 3 / v3.3 with PII module after S3
+    #                   (cx_survey_v33 module).
     type: str = "qre"
 
 class WaveCreate(BaseModel):
@@ -146,10 +152,10 @@ async def create_study(payload: StudyCreate):
     now = datetime.now(timezone.utc)
 
     stype = (payload.type or "qre").strip() or "qre"
-    is_cx = stype == "cx_survey"
+    is_cx = stype in CX_ENGINES
 
     # CX surveys use their own quota frame and carry no brand/ad modules.
-    quotas = dict(cx_survey.CX_QUOTAS) if is_cx else dict(DEFAULT_QUOTAS)
+    quotas = dict(CX_ENGINES[stype].CX_QUOTAS) if is_cx else dict(DEFAULT_QUOTAS)
     modules = [] if is_cx else [dict(m) for m in DEFAULT_MODULES]
 
     wave_1 = {
@@ -209,9 +215,10 @@ async def get_cx_config(study_id: str):
     )
     if not study:
         raise HTTPException(status_code=404, detail="Study not found")
-    if study.get("type") != "cx_survey":
+    engine = CX_ENGINES.get(study.get("type"))
+    if not engine:
         raise HTTPException(status_code=400, detail="Study is not a CX survey")
-    payload = cx_survey.config_payload()
+    payload = engine.config_payload()
     payload.update({
         "study_id": study_id,
         "study_name": study["name"],

@@ -28,8 +28,13 @@ from config import (
     MIN_COMPLETE_SECONDS, STRAIGHT_LINE_FLAGS_TO_TERMINATE,
 )
 import cx_survey
+import cx_survey_v33
 
 router = APIRouter(prefix="/api/survey", tags=["survey"])
+
+# CX engine per study type. v3.3 (PII after S3) is a separate engine so the
+# original Rev-2/3 study keeps running unchanged.
+CX_ENGINES = {"cx_survey": cx_survey, "cx_survey_v33": cx_survey_v33}
 
 
 def _db():
@@ -239,8 +244,9 @@ async def _resolve_redirect(db, study_id: str, url_key: str, vendor_rid: str):
             .replace("{RID}", vendor_rid).replace("{rid}", vendor_rid))
 
 
-async def _cx_submit_answer(db, rid, qid, answer, respondent) -> RoutingDecision:
+async def _cx_submit_answer(db, rid, qid, answer, respondent, engine=cx_survey) -> RoutingDecision:
     """Routing for cx_survey-type studies (IDFC FIRST Bank CX QRE).
+    `engine` is the questionnaire engine module (cx_survey or cx_survey_v33).
 
     Self-contained and independent of the health-syndicate flow above. Persists
     the answer, applies screener terminations, claims the age quota at S10, then
@@ -258,8 +264,8 @@ async def _cx_submit_answer(db, rid, qid, answer, respondent) -> RoutingDecision
     )
     responses = {**respondent.get("responses", {}), qid: answer}
 
-    # Screener terminations (S1/S2/S6/S7)
-    reason = cx_survey.terminate_reason(qid, answer)
+    # Screener terminations (S1/S2/S6/S7, plus P0–P2 on v3.3)
+    reason = engine.terminate_reason(qid, answer)
     if reason:
         return await _terminate(db, rid, reason, respondent=respondent)
 
@@ -271,8 +277,8 @@ async def _cx_submit_answer(db, rid, qid, answer, respondent) -> RoutingDecision
     # Gender (S10) and age (S11) are no longer tracked as quota cells — those
     # questions remain in the questionnaire (S11 still screens out under-18).
     if qid == "I3":
-        cell = cx_survey.cross_quota_key(
-            cx_survey._one(answer), cx_survey._one(responses.get("S4"))
+        cell = engine.cross_quota_key(
+            engine._one(answer), engine._one(responses.get("S4"))
         )
         if cell:
             if await cx_cell_is_full(db, study_id, cell):
@@ -281,7 +287,7 @@ async def _cx_submit_answer(db, rid, qid, answer, respondent) -> RoutingDecision
             # Record which cell this respondent belongs to (for reporting/export).
             await db.respondents.update_one({"_id": rid}, {"$push": {"quota_claims": cell}})
 
-    nxt = cx_survey.next_question(qid, responses)
+    nxt = engine.next_question(qid, responses)
     if nxt:
         return RoutingDecision(action="next", next_question_id=nxt)
 
@@ -342,7 +348,8 @@ async def start_survey(request: Request, study_id: str = "default", rid: str = "
         wave_id = study.get("active_wave_id")
         survey_type = study.get("type", "qre")
 
-    first_qid = cx_survey.FIRST_QUESTION_ID if survey_type == "cx_survey" else "Q1"
+    cx_engine = CX_ENGINES.get(survey_type)
+    first_qid = cx_engine.FIRST_QUESTION_ID if cx_engine else "Q1"
 
     if study_id and study_id != "default":
         await ensure_study_quota_doc(db, study_id)
@@ -386,8 +393,9 @@ async def submit_answer(payload: AnswerPayload):
         )
 
     # CX-survey studies use their own self-contained routing engine.
-    if respondent.get("survey_type") == "cx_survey":
-        return await _cx_submit_answer(db, rid, qid, answer, respondent)
+    cx_engine = CX_ENGINES.get(respondent.get("survey_type"))
+    if cx_engine:
+        return await _cx_submit_answer(db, rid, qid, answer, respondent, engine=cx_engine)
 
     # Persist the answer
     await db.respondents.update_one(
