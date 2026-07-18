@@ -909,7 +909,7 @@ function QuotasTab({ studyId }) {
 }
 
 // ── Redirects Tab ─────────────────────────────────────────────────────────────
-function RedirectsTab({ studyId }) {
+function RedirectsTab({ studyId, studyType }) {
   const [redirects, setRedirects] = useState({ complete_url: "", terminate_url: "", overquota_url: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -935,7 +935,10 @@ function RedirectsTab({ studyId }) {
 
   if (loading) return <div className="qre-loading">Loading redirects…</div>;
 
-  const entryLink = `${window.location.origin}/survey/?study_id=${studyId}&rid=[RID]`;
+  // CX-type studies are served by the /cx-survey/ respondent UI; the classic
+  // health-syndicate QRE stays on /survey/.
+  const surveyPath = (studyType || "").startsWith("cx_survey") ? "/cx-survey/" : "/survey/";
+  const entryLink = `${window.location.origin}${surveyPath}?study_id=${studyId}&rid=[RID]`;
 
   return (
     <>
@@ -1137,7 +1140,7 @@ export default function QREPage() {
         </div>
         {activeTab === "Overview"   && <OverviewTab   studyId={selectedStudy.id} />}
         {activeTab === "Quotas"     && <QuotasTab     studyId={selectedStudy.id} />}
-        {activeTab === "Redirects"  && <RedirectsTab  studyId={selectedStudy.id} />}
+        {activeTab === "Redirects"  && <RedirectsTab  studyId={selectedStudy.id} studyType={selectedStudy.type} />}
         {activeTab === "Export"     && <ExportTab     studyId={selectedStudy.id} />}
       </div>
     );
