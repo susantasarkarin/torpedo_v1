@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
     bind=True,
     max_retries=2,
     default_retry_delay=300,
+    # Override the app-wide 55-min soft / 60-min hard limit (celery_app.py):
+    # at the default SES_SEND_RATE this job needs ~2 hours to work through a
+    # full day's SES budget instead of being killed after ~3,300 sends. The
+    # per-address SES budget check inside send_bulk_invitations still stops
+    # the loop on its own once the quota is used, so this is just headroom.
+    soft_time_limit=10800,  # 3h
+    time_limit=11100,       # 3h5m
 )
 def send_daily_panel_invitations(self):
     """Send one invitation email per eligible lead per day."""
@@ -75,6 +82,9 @@ def sync_panel_registrations(self):
     bind=True,
     max_retries=2,
     default_retry_delay=300,
+    # See send_daily_panel_invitations above — same fix, same reasoning.
+    soft_time_limit=10800,  # 3h
+    time_limit=11100,       # 3h5m
 )
 def send_daily_panel_login_invitations(self):
     """Send one login reminder email per registered panelist per day."""

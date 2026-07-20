@@ -66,8 +66,13 @@ PANEL_DAILY_SEND_CAP = int(os.getenv("PANEL_DAILY_SEND_CAP", "50000"))  # 50K da
 # (signup verification, password reset), which shares this SES account.
 PANEL_SES_RESERVE = int(os.getenv("PANEL_SES_RESERVE", "2000"))
 
-# Rate limiting: SES sandbox = 1/sec, production = 14/sec
-SES_SEND_RATE = float(os.getenv("PANEL_SES_SEND_RATE", "1"))  # emails per second
+# Rate limiting: SES sandbox = 1/sec; production accounts are typically 14/sec
+# (check "Maximum send rate" on the SES account dashboard and raise this to
+# match). The old default of 1/sec combined with the Celery task's 55-minute
+# soft time limit (see celery_app.py) capped every daily run at ~3,300 sends
+# regardless of the account's real ~50K/day quota — most of the day's budget
+# was never touched.
+SES_SEND_RATE = float(os.getenv("PANEL_SES_SEND_RATE", "10"))  # emails per second
 
 
 def _get_ses_client():
