@@ -9,6 +9,7 @@ import os
 import time
 import uuid
 import logging
+import threading
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -79,13 +80,31 @@ PANEL_SES_RESERVE = int(os.getenv("PANEL_SES_RESERVE", "2000"))
 SES_SEND_RATE = float(os.getenv("PANEL_SES_SEND_RATE", "14"))  # emails per second
 
 
+_ses_client = None
+_ses_client_lock = threading.Lock()
+
+
 def _get_ses_client():
-    """Create a boto3 SES client."""
-    kwargs = {"region_name": AWS_SES_REGION}
-    if AWS_ACCESS_KEY_ID:
-        kwargs["aws_access_key_id"] = AWS_ACCESS_KEY_ID
-        kwargs["aws_secret_access_key"] = AWS_SECRET_ACCESS_KEY
-    return boto3.client("ses", **kwargs)
+    """Return a process-wide cached boto3 SES client.
+
+    Building a boto3 client (botocore session/service-model load + a fresh
+    HTTPS connection) costs tens to hundreds of ms. The bulk-send loop used
+    to call this once PER EMAIL, which dwarfed the 1/SES_SEND_RATE sleep and
+    silently throttled real throughput to ~1-2/sec regardless of the rate
+    setting — a 65K/day run couldn't finish inside the task's time limit.
+    Reusing one client (boto3 clients are thread-safe for concurrent calls)
+    keeps every send to just the actual SES API round trip.
+    """
+    global _ses_client
+    if _ses_client is None:
+        with _ses_client_lock:
+            if _ses_client is None:
+                kwargs = {"region_name": AWS_SES_REGION}
+                if AWS_ACCESS_KEY_ID:
+                    kwargs["aws_access_key_id"] = AWS_ACCESS_KEY_ID
+                    kwargs["aws_secret_access_key"] = AWS_SECRET_ACCESS_KEY
+                _ses_client = boto3.client("ses", **kwargs)
+    return _ses_client
 
 
 def ses_budget_for_bulk() -> int:
