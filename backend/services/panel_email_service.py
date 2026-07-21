@@ -10,6 +10,7 @@ import time
 import uuid
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -79,6 +80,13 @@ PANEL_SES_RESERVE = int(os.getenv("PANEL_SES_RESERVE", "2000"))
 # touched.
 SES_SEND_RATE = float(os.getenv("PANEL_SES_SEND_RATE", "14"))  # emails per second
 
+# Sends were still ~2.2/sec even after caching the SES client (see
+# _get_ses_client below), because a single-threaded loop is bound by each
+# send's real network round trip (SES API call + Mongo log write), not by
+# the SES_SEND_RATE sleep. Fan sends out across a small thread pool so the
+# account can actually be driven close to its confirmed 14/sec ceiling.
+SES_CONCURRENCY = int(os.getenv("PANEL_SES_CONCURRENCY", "8"))
+
 
 _ses_client = None
 _ses_client_lock = threading.Lock()
@@ -105,6 +113,78 @@ def _get_ses_client():
                     kwargs["aws_secret_access_key"] = AWS_SECRET_ACCESS_KEY
                 _ses_client = boto3.client("ses", **kwargs)
     return _ses_client
+
+
+class _RateGate:
+    """Thread-safe leaky-bucket limiter shared across a pool of concurrent
+    senders. Admits callers at up to `rate` calls/sec in AGGREGATE (not per
+    thread) by handing out reserved time slots under a lock, then sleeping
+    outside the lock so the actual SES calls overlap across threads."""
+
+    def __init__(self, rate: float):
+        self._interval = 1.0 / rate if rate > 0 else 0.0
+        self._lock = threading.Lock()
+        self._next_time = time.monotonic()
+
+    def wait(self):
+        with self._lock:
+            now = time.monotonic()
+            start = max(now, self._next_time)
+            self._next_time = start + self._interval
+        delay = start - now
+        if delay > 0:
+            time.sleep(delay)
+
+
+def _send_batch_concurrently(to_send: list, send_one) -> Tuple[int, int, bool]:
+    """Run `send_one(panelist) -> bool` over `to_send` with up to
+    SES_CONCURRENCY workers, paced in aggregate to SES_SEND_RATE. `send_one`
+    owns its own logging/state writes; this only tallies sent/failed and
+    detects a Celery soft-time-limit truncation.
+
+    SoftTimeLimitExceeded is delivered by Celery as a signal, which Python
+    only ever raises on the process's MAIN thread — so it surfaces here (in
+    as_completed's wait loop), never inside a worker thread. On catching it
+    we flip stop_event so in-flight/queued workers return immediately, then
+    drop any not-yet-started work rather than waiting for it to run.
+
+    Returns (sent, failed, truncated).
+    """
+    rate_gate = _RateGate(SES_SEND_RATE)
+    stop_event = threading.Event()
+    counts_lock = threading.Lock()
+    sent = failed = 0
+
+    def _worker(panelist):
+        nonlocal sent, failed
+        if stop_event.is_set():
+            return
+        rate_gate.wait()
+        if stop_event.is_set():
+            return
+        try:
+            ok = bool(send_one(panelist))
+        except Exception as exc:
+            logger.error(f"[panel] send_one failed for a queued panelist: {exc}")
+            ok = False
+        with counts_lock:
+            if ok:
+                sent += 1
+            else:
+                failed += 1
+
+    truncated = False
+    pool = ThreadPoolExecutor(max_workers=SES_CONCURRENCY)
+    futures = [pool.submit(_worker, p) for p in to_send]
+    try:
+        for f in as_completed(futures):
+            f.result()
+        pool.shutdown(wait=True)
+    except SoftTimeLimitExceeded:
+        truncated = True
+        stop_event.set()
+        pool.shutdown(wait=True, cancel_futures=True)
+    return sent, failed, truncated
 
 
 def ses_budget_for_bulk() -> int:
@@ -667,61 +747,29 @@ def send_bulk_invitations(
             continue
         eligible.append(panelist)
 
-    sent = 0
     skipped = len(email_map) - len(eligible)
-    failed = 0
-    send_interval = 1.0 / SES_SEND_RATE if SES_SEND_RATE > 0 else 1.0
 
     # The SES budget bounds every bulk run, manual or cron — a hand-triggered
     # blast drains the shared daily quota just as effectively as the cron did.
     budget = ses_budget_for_bulk()
     cap_value = min(daily_cap, budget) if daily_cap is not None else budget
-    capped = 0
+    to_send = eligible[:cap_value] if cap_value >= 0 else []
+    capped = max(0, len(eligible) - len(to_send))
 
-    truncated = False
-    for panelist in eligible:
-        if sent >= cap_value:
-            capped += 1
-            continue
-
+    def _send_one(panelist) -> bool:
         email = (panelist.get("email") or "").lower().strip()
-
-        # Send
         first_name = panelist.get("first_name", "")
         invite_token = uuid.uuid4().hex
-        try:
-            success, details = send_invitation_email(email, first_name, invite_token=invite_token)
-        except SoftTimeLimitExceeded:
-            truncated = True
-            logger.warning(
-                f"[panel] invite batch {batch_id} hit the worker time limit "
-                f"after {sent} sends — stopping cleanly; the rest go out on the "
-                f"next daily run. Raise PANEL_SES_SEND_RATE to send more per day."
-            )
-            break
-
-        if success:
-            log_invitation(
-                email=email,
-                panelist_id=str(panelist["_id"]),
-                batch_id=batch_id,
-                ses_message_id=details.get("ses_message_id", ""),
-                status="sent",
-                invite_token=invite_token,
-                template_version=PANEL_TEMPLATE_VERSION,
-            )
-            sent += 1
-        else:
-            log_invitation(
-                email=email,
-                panelist_id=str(panelist["_id"]),
-                batch_id=batch_id,
-                status="failed",
-                invite_token=invite_token,
-                template_version=PANEL_TEMPLATE_VERSION,
-            )
-            failed += 1
-
+        success, details = send_invitation_email(email, first_name, invite_token=invite_token)
+        log_invitation(
+            email=email,
+            panelist_id=str(panelist["_id"]),
+            batch_id=batch_id,
+            ses_message_id=details.get("ses_message_id", "") if success else "",
+            status="sent" if success else "failed",
+            invite_token=invite_token,
+            template_version=PANEL_TEMPLATE_VERSION,
+        )
         # Push this lead to the back of tomorrow's queue regardless of outcome,
         # so a bad address can't get permanently stuck at the front and block
         # everyone behind it.
@@ -729,9 +777,15 @@ def send_bulk_invitations(
             {"_id": panelist["_id"]},
             {"$set": {"last_invited_at": datetime.utcnow()}},
         )
+        return success
 
-        # Rate limiting
-        time.sleep(send_interval)
+    sent, failed, truncated = _send_batch_concurrently(to_send, _send_one)
+    if truncated:
+        logger.warning(
+            f"[panel] invite batch {batch_id} hit the worker time limit "
+            f"after {sent} sends — stopping cleanly; the rest go out on the "
+            f"next daily run."
+        )
 
     logger.info(f"Bulk invitation complete batch={batch_id}: sent={sent} skipped={skipped} failed={failed} truncated={truncated}")
     return {
@@ -857,65 +911,39 @@ def send_bulk_login_invitations(
             continue
         eligible.append(panelist)
 
-    sent = 0
     skipped = len(email_map) - len(eligible)
-    failed = 0
-    send_interval = 1.0 / SES_SEND_RATE if SES_SEND_RATE > 0 else 1.0
 
     budget = ses_budget_for_bulk()
     cap_value = min(daily_cap, budget) if daily_cap is not None else budget
-    capped = 0
+    to_send = eligible[:cap_value] if cap_value >= 0 else []
+    capped = max(0, len(eligible) - len(to_send))
 
-    truncated = False
-    for panelist in eligible:
-        if sent >= cap_value:
-            capped += 1
-            continue
-
+    def _send_one(panelist) -> bool:
         email = (panelist.get("email") or "").lower().strip()
-
-        # Send
         first_name = panelist.get("first_name", "")
-        try:
-            success, details = send_login_invitation_email(email, first_name)
-        except SoftTimeLimitExceeded:
-            truncated = True
-            logger.warning(
-                f"[panel] login batch {batch_id} hit the worker time limit "
-                f"after {sent} sends — stopping cleanly; the rest go out on the "
-                f"next daily run."
-            )
-            break
-
-        if success:
-            log_invitation(
-                email=email,
-                panelist_id=str(panelist["_id"]),
-                batch_id=batch_id,
-                ses_message_id=details.get("ses_message_id", ""),
-                status="sent",
-                template_version="panel-login-v1",
-                type="login",
-            )
-            sent += 1
-        else:
-            log_invitation(
-                email=email,
-                panelist_id=str(panelist["_id"]),
-                batch_id=batch_id,
-                status="failed",
-                template_version="panel-login-v1",
-                type="login",
-            )
-            failed += 1
-
+        success, details = send_login_invitation_email(email, first_name)
+        log_invitation(
+            email=email,
+            panelist_id=str(panelist["_id"]),
+            batch_id=batch_id,
+            ses_message_id=details.get("ses_message_id", "") if success else "",
+            status="sent" if success else "failed",
+            template_version="panel-login-v1",
+            type="login",
+        )
         panelists_collection.update_one(
             {"_id": panelist["_id"]},
             {"$set": {"last_login_invite_sent_at": datetime.utcnow()}},
         )
+        return success
 
-        # Rate limiting
-        time.sleep(send_interval)
+    sent, failed, truncated = _send_batch_concurrently(to_send, _send_one)
+    if truncated:
+        logger.warning(
+            f"[panel] login batch {batch_id} hit the worker time limit "
+            f"after {sent} sends — stopping cleanly; the rest go out on the "
+            f"next daily run."
+        )
 
     logger.info(f"Bulk login invitation complete batch={batch_id}: sent={sent} skipped={skipped} failed={failed} truncated={truncated}")
     return {
