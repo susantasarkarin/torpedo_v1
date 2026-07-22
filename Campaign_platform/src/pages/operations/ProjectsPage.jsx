@@ -671,7 +671,7 @@ function ProjectsPage() {
                 <td className="pp-td-date">{p.projectCloseDate || "—"}</td>
                 <td className="pp-td-vendor">{p.vendorName || "—"}</td>
                 <td>{p.qreStudyId && qreStatsMap[p.qreStudyId]?.completed != null ? qreStatsMap[p.qreStudyId].completed : (p.totalCompletes || "—")}</td>
-                <td>{p.qreStudyId && qreStatsMap[p.qreStudyId]?.median_loi != null ? `${qreStatsMap[p.qreStudyId].median_loi} min` : "—"}</td>
+                <td>{p.qreStudyId && qreStatsMap[p.qreStudyId]?.median_loi != null ? `${qreStatsMap[p.qreStudyId].median_loi} min` : (p.loi ? `${p.loi} min` : "—")}</td>
                 <td>{p.qreStudyId && qreStatsMap[p.qreStudyId]?.incidence_rate != null ? `${qreStatsMap[p.qreStudyId].incidence_rate}%` : (p.actualIR ? `${p.actualIR}%` : "—")}</td>
                 <td>
                   <div className="pp-actions">
