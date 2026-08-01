@@ -1,23 +1,27 @@
 """
-CLAUDE GATEWAY - Governed generic LLM access (Anthropic Claude ONLY)
+BEDROCK GATEWAY - Governed generic LLM access (AWS Bedrock Mantle)
 ====================================================================
-Claude is the ONLY AI provider in this codebase.
+AWS Bedrock Mantle (OpenAI-compatible, serverless, per-token billed) is the
+AI provider in this codebase. Billed through the same AWS account as SES.
 
 `ai_gateway.AIGateway` keeps the task-specific operations (classify /
 summarize / extract / draft). This module adds:
 
 - generate():      governed generic text/JSON generation for everything else
-- web_search():    Claude server-side web search (replaces the old OpenAI
-                   web-search gateway)
+- web_search():    server-side web search via a Claude model also hosted on
+                   Bedrock Mantle (open-weight models don't support this tool)
 - claude_chat_client() / async_claude_chat_client():
                    drop-in replacements for openai.OpenAI / AsyncOpenAI
-                   exposing .chat.completions.create(...)
+                   exposing .chat.completions.create(...) — now a thin
+                   pass-through since Bedrock Mantle speaks that shape natively
 - ClaudeGenerativeModel: drop-in replacement for
                    google.generativeai.GenerativeModel(...).generate_content()
 
 Every call goes through the same governance checks (daily hard limit) and is
 recorded in the `ai_governance_log` collection with caller + task_type, so
 usage is auditable in one place.
+
+Names kept as "Claude*"/"claude_*" throughout for compat with existing callers.
 """
 
 import os
@@ -29,22 +33,27 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 import anthropic
+import openai
 
 from .governance_checks import (
     check_ai_daily_limit,
     increment_ai_daily_usage,
     AIDailyLimitExceeded,
 )
-from .ai_gateway import _get_anthropic_api_key, _get_mongo_client, KIMI_BASE_URL
+from .ai_gateway import _get_anthropic_api_key, _get_mongo_client, BEDROCK_BASE_URL
 
 logger = logging.getLogger(__name__)
 
+# Anthropic-route base_url for the same Bedrock Mantle deployment — only used
+# by web_search(), since server-side web search is Anthropic-specific and
+# open-weight models (GLM/DeepSeek) don't support it.
+BEDROCK_ANTHROPIC_BASE_URL = os.getenv(
+    "BEDROCK_MANTLE_ANTHROPIC_BASE_URL", "https://bedrock-mantle.us-east-1.api.aws/anthropic")
+WEB_SEARCH_MODEL = os.getenv("BEDROCK_MODEL_WEB_SEARCH", "anthropic.claude-haiku-4-5")
+
 # Default for generic generation. High-volume cheap tasks (classification)
 # keep using ai_gateway's cheap tier; override per-call or via env.
-DEFAULT_MODEL = os.getenv("KIMI_MODEL_PREMIUM", "kimi-k3")
-# Claude-specific sampling restriction — Kimi accepts temperature/top_p normally,
-# so this stays empty unless a future Kimi tier needs the same workaround.
-_NO_SAMPLING_PREFIXES = ()
+DEFAULT_MODEL = os.getenv("BEDROCK_MODEL_PREMIUM", "deepseek.v3.2")
 
 
 def _strip_markdown_json(text: str) -> str:
@@ -59,12 +68,12 @@ def _log_usage(task_type: str, model: str, usage: Any, caller: str = "") -> None
     try:
         db = _get_mongo_client()["torpedo_settings"]
         db["ai_governance_log"].insert_one({
-            "provider": "anthropic",
+            "provider": "bedrock",
             "model": model,
             "task_type": task_type,
             "caller": caller,
-            "input_tokens": getattr(usage, "input_tokens", None),
-            "output_tokens": getattr(usage, "output_tokens", None),
+            "input_tokens": getattr(usage, "input_tokens", None) or getattr(usage, "prompt_tokens", None),
+            "output_tokens": getattr(usage, "output_tokens", None) or getattr(usage, "completion_tokens", None),
             "at": datetime.utcnow(),
         })
     except Exception as e:  # pragma: no cover - logging must never break callers
@@ -77,15 +86,19 @@ def _governance_gate() -> None:
     increment_ai_daily_usage()
 
 
+def _bedrock_client() -> openai.OpenAI:
+    return openai.OpenAI(api_key=_get_anthropic_api_key(), base_url=BEDROCK_BASE_URL)
+
+
 class ClaudeGateway:
-    """Governed generic Claude access. Singleton via get_claude_gateway()."""
+    """Governed generic Bedrock access. Singleton via get_claude_gateway()."""
 
     def __init__(self):
-        self._client: Optional[anthropic.Anthropic] = None
+        self._client: Optional[openai.OpenAI] = None
 
-    def _client_or_create(self) -> anthropic.Anthropic:
+    def _client_or_create(self) -> openai.OpenAI:
         if self._client is None:
-            self._client = anthropic.Anthropic(auth_token=_get_anthropic_api_key(), base_url=KIMI_BASE_URL)
+            self._client = _bedrock_client()
         return self._client
 
     def generate(self, prompt: str, system: Optional[str] = None,
@@ -98,17 +111,15 @@ class ClaudeGateway:
         if json_only:
             suffix = "\n\nReturn ONLY valid JSON. No preamble. No markdown."
             prompt = prompt + suffix
-        kwargs: Dict[str, Any] = dict(
-            model=model,
-            max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        messages = []
         if system:
-            kwargs["system"] = system
-        response = self._client_or_create().messages.create(**kwargs)
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        response = self._client_or_create().chat.completions.create(
+            model=model, max_tokens=max_tokens, messages=messages)
         _log_usage(task_type, model, response.usage, caller)
-        text = next((b.text for b in response.content if b.type == "text"), "")
-        return _strip_markdown_json(text) if json_only else text.strip()
+        text = (response.choices[0].message.content or "").strip()
+        return _strip_markdown_json(text) if json_only else text
 
     def generate_json(self, prompt: str, **kw) -> Optional[Dict[str, Any]]:
         """generate() + json.loads, returning None on parse failure."""
@@ -123,12 +134,13 @@ class ClaudeGateway:
     def web_search(self, query: str, num_results: int = 10,
                    model: Optional[str] = None, caller: str = "") -> Dict[str, Any]:
         """
-        Web search via Claude's server-side web_search tool.
-        Replaces the old OpenAI web-search gateway.
+        Web search via a Claude model's server-side web_search tool, hosted on
+        the same Bedrock Mantle deployment (Anthropic Messages route).
         """
         _governance_gate()
-        model = model or DEFAULT_MODEL
-        response = self._client_or_create().messages.create(
+        model = model or WEB_SEARCH_MODEL
+        client = anthropic.Anthropic(auth_token=_get_anthropic_api_key(), base_url=BEDROCK_ANTHROPIC_BASE_URL)
+        response = client.messages.create(
             model=model,
             max_tokens=16000,
             tools=[{"type": "web_search_20260209", "name": "web_search",
@@ -152,11 +164,57 @@ def get_claude_gateway() -> ClaudeGateway:
 
 
 # ======================================================================
-# OpenAI chat.completions drop-in compatibility (Claude-backed)
+# OpenAI chat.completions drop-in compatibility (Bedrock-backed)
 # ======================================================================
+# Bedrock Mantle speaks the OpenAI Chat Completions shape natively, so these
+# are now thin pass-throughs — only the model name is overridden (call sites
+# pass placeholder gpt-*/gemini-* strings that get ignored).
+
+class _Completions:
+    def create(self, **kwargs) -> Any:
+        _governance_gate()
+        client = _bedrock_client()
+        kwargs = dict(kwargs)
+        kwargs["model"] = DEFAULT_MODEL
+        kwargs.pop("response_format", None)  # not guaranteed supported across models
+        response = client.chat.completions.create(**kwargs)
+        _log_usage("chat_compat", kwargs["model"], response.usage)
+        return response
+
+
+class _AsyncCompletions:
+    async def create(self, **kwargs) -> Any:
+        _governance_gate()
+        client = openai.AsyncOpenAI(api_key=_get_anthropic_api_key(), base_url=BEDROCK_BASE_URL)
+        kwargs = dict(kwargs)
+        kwargs["model"] = DEFAULT_MODEL
+        kwargs.pop("response_format", None)
+        response = await client.chat.completions.create(**kwargs)
+        _log_usage("chat_compat", kwargs["model"], response.usage)
+        return response
+
+
+class _WebSearchCompletions:
+    def create(self, **kwargs) -> Any:
+        _governance_gate()
+        client = anthropic.Anthropic(auth_token=_get_anthropic_api_key(), base_url=BEDROCK_ANTHROPIC_BASE_URL)
+        system, turns = _split_messages(kwargs.get("messages") or [])
+        ck: Dict[str, Any] = dict(
+            model=WEB_SEARCH_MODEL,
+            max_tokens=kwargs.get("max_tokens") or kwargs.get("max_completion_tokens") or 16000,
+            messages=turns,
+            tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 8}],
+        )
+        if system:
+            ck["system"] = system
+        response = client.messages.create(**ck)
+        _log_usage("web_search_chat", ck["model"], response.usage)
+        return _to_openai_shape(response)
+
 
 def _split_messages(messages: List[Dict[str, Any]]):
-    """Extract system text; pass through user/assistant turns."""
+    """Extract system text; pass through user/assistant turns. Only used by
+    the Anthropic-route web-search shim above."""
     system_parts, turns = [], []
     for m in messages:
         if m.get("role") == "system":
@@ -166,11 +224,6 @@ def _split_messages(messages: List[Dict[str, Any]]):
     if not turns:
         turns = [{"role": "user", "content": system_parts.pop() if system_parts else ""}]
     return ("\n\n".join(p for p in system_parts if p) or None), turns
-
-
-def _wants_json(kwargs: Dict[str, Any]) -> bool:
-    rf = kwargs.get("response_format")
-    return bool(rf) and (rf.get("type") in ("json_object", "json_schema"))
 
 
 def _to_openai_shape(response) -> SimpleNamespace:
@@ -188,60 +241,6 @@ def _to_openai_shape(response) -> SimpleNamespace:
                            choices=[choice], usage=usage)
 
 
-def _build_claude_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
-    model = DEFAULT_MODEL  # requested gpt-*/gemini-* model strings are ignored
-    system, turns = _split_messages(kwargs.get("messages") or [])
-    if _wants_json(kwargs) and turns:
-        last = dict(turns[-1])
-        last["content"] = str(last["content"]) + \
-            "\n\nReturn ONLY valid JSON. No preamble. No markdown."
-        turns[-1] = last
-    out: Dict[str, Any] = dict(
-        model=model,
-        max_tokens=kwargs.get("max_tokens") or kwargs.get("max_completion_tokens") or 16000,
-        messages=turns,
-    )
-    if system:
-        out["system"] = system
-    # temperature/top_p are rejected by current Opus models — only forward
-    # temperature to models that still accept it.
-    if not model.startswith(_NO_SAMPLING_PREFIXES) and kwargs.get("temperature") is not None:
-        out["temperature"] = kwargs["temperature"]
-    return out
-
-
-class _Completions:
-    def create(self, **kwargs) -> SimpleNamespace:
-        _governance_gate()
-        client = anthropic.Anthropic(auth_token=_get_anthropic_api_key(), base_url=KIMI_BASE_URL)
-        ck = _build_claude_kwargs(kwargs)
-        response = client.messages.create(**ck)
-        _log_usage("chat_compat", ck["model"], response.usage)
-        return _to_openai_shape(response)
-
-
-class _AsyncCompletions:
-    async def create(self, **kwargs) -> SimpleNamespace:
-        _governance_gate()
-        client = anthropic.AsyncAnthropic(auth_token=_get_anthropic_api_key(), base_url=KIMI_BASE_URL)
-        ck = _build_claude_kwargs(kwargs)
-        response = await client.messages.create(**ck)
-        _log_usage("chat_compat", ck["model"], response.usage)
-        return _to_openai_shape(response)
-
-
-class _WebSearchCompletions:
-    def create(self, **kwargs) -> SimpleNamespace:
-        _governance_gate()
-        client = anthropic.Anthropic(auth_token=_get_anthropic_api_key(), base_url=KIMI_BASE_URL)
-        ck = _build_claude_kwargs(kwargs)
-        ck["tools"] = [{"type": "web_search_20260209", "name": "web_search",
-                        "max_uses": 8}]
-        response = client.messages.create(**ck)
-        _log_usage("web_search_chat", ck["model"], response.usage)
-        return _to_openai_shape(response)
-
-
 class ClaudeChatClient:
     """Drop-in for openai.OpenAI(): exposes .chat.completions.create(...)."""
 
@@ -250,7 +249,7 @@ class ClaudeChatClient:
 
 
 class ClaudeWebSearchChatClient:
-    """Same interface, but Claude can use its server-side web_search tool —
+    """Same interface, but backed by Claude's server-side web_search tool —
     for call sites whose prompts say "search the web for ..."."""
 
     def __init__(self, *args, **kwargs):
@@ -273,11 +272,11 @@ def async_claude_chat_client(*args, **kwargs) -> AsyncClaudeChatClient:
 
 
 # ======================================================================
-# Retired leads.openai_wrapper replacements (Claude-backed)
+# Retired leads.openai_wrapper replacements (Bedrock-backed)
 # ======================================================================
 
-PREMIUM_MODEL = os.getenv("KIMI_MODEL_PREMIUM", "kimi-k3")
-CHEAP_MODEL = os.getenv("KIMI_MODEL_CHEAP", "kimi-k2.6")
+PREMIUM_MODEL = os.getenv("BEDROCK_MODEL_PREMIUM", "deepseek.v3.2")
+CHEAP_MODEL = os.getenv("BEDROCK_MODEL_CHEAP", "zai.glm-4.7-flash")
 # High-volume email classification default (name kept from the retired wrapper)
 ANTHROPIC_DEFAULT_MODEL = CHEAP_MODEL
 
@@ -288,32 +287,30 @@ def chat_completion(messages: List[Dict[str, Any]], model: Optional[str] = None,
                     source: str = "", endpoint: str = "",
                     **_ignored) -> Dict[str, Any]:
     """
-    Claude-backed replacement for the retired leads.openai_wrapper.chat_completion.
+    Bedrock-backed replacement for the retired leads.openai_wrapper.chat_completion.
     Returns {"success", "content", "model", "provider", "escalated", "error"}.
     """
     try:
         _governance_gate()
-        client = anthropic.Anthropic(auth_token=_get_anthropic_api_key(), base_url=KIMI_BASE_URL)
-        system, turns = _split_messages(messages)
+        client = _bedrock_client()
+        turns = list(messages)
         if response_format and response_format.get("type") in ("json_object", "json_schema") and turns:
             last = dict(turns[-1])
             last["content"] = str(last["content"]) + \
                 "\n\nReturn ONLY valid JSON. No preamble. No markdown."
             turns[-1] = last
-        kwargs: Dict[str, Any] = dict(model=model or CHEAP_MODEL,
-                                      max_tokens=max_output_tokens, messages=turns)
-        if system:
-            kwargs["system"] = system
-        response = client.messages.create(**kwargs)
-        _log_usage(endpoint or "chat_completion", kwargs["model"], response.usage, caller=source)
-        text = "\n".join(b.text for b in response.content if b.type == "text").strip()
+        use_model = model or CHEAP_MODEL
+        response = client.chat.completions.create(
+            model=use_model, max_tokens=max_output_tokens, messages=turns)
+        _log_usage(endpoint or "chat_completion", use_model, response.usage, caller=source)
+        text = (response.choices[0].message.content or "").strip()
         return {"success": True, "content": _strip_markdown_json(text),
-                "model": kwargs["model"], "provider": "anthropic",
+                "model": use_model, "provider": "bedrock",
                 "escalated": False, "error": None}
     except Exception as e:
         logger.error(f"chat_completion failed: {e}")
         return {"success": False, "content": None, "model": None,
-                "provider": "anthropic", "escalated": False, "error": str(e)}
+                "provider": "bedrock", "escalated": False, "error": str(e)}
 
 
 def chat_completion_with_escalation(messages: List[Dict[str, Any]],
@@ -321,7 +318,7 @@ def chat_completion_with_escalation(messages: List[Dict[str, Any]],
                                     confidence_threshold: float = 0.7,
                                     **kw) -> Dict[str, Any]:
     """
-    Two-tier classification: claude-haiku first, escalate to claude-opus when
+    Two-tier classification: cheap model first, escalate to premium when
     the parsed confidence is below threshold. Replaces the retired
     leads.openai_wrapper.chat_completion_with_escalation.
     """
@@ -341,7 +338,7 @@ def chat_completion_with_escalation(messages: List[Dict[str, Any]],
 
 
 # ======================================================================
-# google.generativeai drop-in compatibility (Claude-backed)
+# google.generativeai drop-in compatibility (Bedrock-backed)
 # ======================================================================
 
 class _GenerateContentResponse(SimpleNamespace):

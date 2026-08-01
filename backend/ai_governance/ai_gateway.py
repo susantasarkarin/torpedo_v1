@@ -1,10 +1,11 @@
 """
-AI GATEWAY - Single Entry Point for All AI Operations (Anthropic Claude)
-========================================================================
+AI GATEWAY - Single Entry Point for All AI Operations (AWS Bedrock Mantle)
+============================================================================
 Task-specific LLM operations live here; generic generation and web search
-live in claude_gateway.py. Claude is the ONLY AI provider in this codebase.
+live in claude_gateway.py. AWS Bedrock Mantle (OpenAI-compatible, serverless,
+per-token billed) is the AI provider in this codebase.
 
-Uses claude-haiku-4-5 (fast, cheap) for high-volume classification /
+Uses zai.glm-4.7-flash (fast, cheap) for high-volume classification /
 summarization / extraction tasks.
 
 Constraints (MANDATORY):
@@ -25,7 +26,7 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict
 from dotenv import load_dotenv
 
-import anthropic
+import openai
 from pymongo import MongoClient
 
 # Load backend environment variables from the backend/.env file
@@ -54,13 +55,13 @@ def _strip_markdown_json(text: str) -> str:
 
 # ============== CONFIGURATION ==============
 #
-# Primary provider is Moonshot's Kimi, accessed via its Anthropic-compatible
-# endpoint (same request/response shape as the Anthropic Messages API, so the
-# `anthropic` SDK works unmodified — just a different base_url + bearer token).
-# Requires a Moonshot account funded with at least $1 at platform.moonshot.ai.
+# Primary provider is AWS Bedrock Mantle — a serverless, per-token-billed
+# OpenAI-compatible endpoint that fronts open-weight models (GLM, DeepSeek,
+# Kimi, etc). Billed through the AWS account already used for SES, no
+# separate prepaid wallet. Auth is a Bedrock API key (bearer token).
 
-KIMI_BASE_URL = os.getenv("KIMI_BASE_URL", "https://api.moonshot.ai/anthropic")
-ANTHROPIC_MODEL = os.getenv("KIMI_MODEL_CHEAP", "kimi-k2.6")   # fast + cheap for classification / enrichment
+BEDROCK_BASE_URL = os.getenv("BEDROCK_MANTLE_BASE_URL", "https://bedrock-mantle.us-east-1.api.aws/v1")
+ANTHROPIC_MODEL = os.getenv("BEDROCK_MODEL_CHEAP", "zai.glm-4.7-flash")   # fast + cheap for classification / enrichment
 
 _mongo_client: Optional[MongoClient] = None
 
@@ -75,22 +76,22 @@ def _get_mongo_client() -> MongoClient:
 
 def _get_anthropic_api_key() -> str:
     """
-    Get the Kimi (Moonshot) API key from MongoDB settings first, then env var
+    Get the Bedrock API key from MongoDB settings first, then env var
     fallback. Name kept for compat with existing callers/imports.
     """
     try:
         client = _get_mongo_client()
         settings = client['torpedo_settings']['app_settings'].find_one({'_id': 'app_config'})
         if settings:
-            key = settings.get('kimi_api_key', '') or settings.get('anthropic_api_key', '')
+            key = settings.get('bedrock_api_key', '') or settings.get('anthropic_api_key', '')
             if key:
                 return key
     except Exception as e:
-        logger.warning(f"Could not read Kimi key from MongoDB: {e}")
-    env_key = os.getenv("KIMI_API_KEY", "") or os.getenv("ANTHROPIC_API_KEY", "")
+        logger.warning(f"Could not read Bedrock key from MongoDB: {e}")
+    env_key = os.getenv("AWS_BEARER_TOKEN_BEDROCK", "") or os.getenv("ANTHROPIC_API_KEY", "")
     if env_key:
         return env_key
-    raise ValueError("No Kimi API key configured — save it in Settings or set KIMI_API_KEY env var")
+    raise ValueError("No Bedrock API key configured — save it in Settings or set AWS_BEARER_TOKEN_BEDROCK env var")
 
 
 # ============== DATA CLASSES ==============
@@ -127,17 +128,17 @@ class AIGateway:
     """
 
     def __init__(self):
-        self._client: Optional[anthropic.Anthropic] = None
+        self._client: Optional[openai.OpenAI] = None
 
-    def _get_client(self) -> anthropic.Anthropic:
+    def _get_client(self) -> openai.OpenAI:
         api_key = _get_anthropic_api_key()
-        self._client = anthropic.Anthropic(auth_token=api_key, base_url=KIMI_BASE_URL)
+        self._client = openai.OpenAI(api_key=api_key, base_url=BEDROCK_BASE_URL)
         return self._client
 
     def _call_llm(self, prompt: str, model: str = None, max_tokens: int = 1024,
                   temperature: float = 0.3) -> str:
         """
-        Internal method — call Anthropic Claude API. Enforces daily limit.
+        Internal method — call the Bedrock Mantle chat-completions API. Enforces daily limit.
         """
         if not check_ai_daily_limit():
             raise AIDailyLimitExceeded(
@@ -147,15 +148,15 @@ class AIGateway:
 
         try:
             client = self._get_client()
-            response = client.messages.create(
+            response = client.chat.completions.create(
                 model=model or ANTHROPIC_MODEL,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 messages=[{"role": "user", "content": prompt}],
             )
-            return response.content[0].text.strip()
+            return response.choices[0].message.content.strip()
         except Exception as e:
-            logger.error(f"Anthropic API call failed: {e}. NO AUTOMATIC RETRY.")
+            logger.error(f"Bedrock API call failed: {e}. NO AUTOMATIC RETRY.")
             raise
 
     # ------------------------------------------------------------------
@@ -288,14 +289,14 @@ No preamble. No markdown. Only JSON."""
     def generate_email_draft(self, system_prompt: str, user_prompt: str) -> Optional[Dict[str, str]]:
         try:
             client = self._get_client()
-            response = client.messages.create(
+            response = client.chat.completions.create(
                 model=ANTHROPIC_MODEL,
                 max_tokens=600,
                 temperature=0.7,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
+                messages=[{"role": "system", "content": system_prompt},
+                          {"role": "user", "content": user_prompt}],
             )
-            raw = response.content[0].text.strip()
+            raw = response.choices[0].message.content.strip()
             clean = _strip_markdown_json(raw)
             result = json.loads(clean)
             if "subject" in result and "body" in result:
@@ -450,14 +451,14 @@ Return JSON only:
 No preamble. No markdown. Only JSON."""
         try:
             client = self._get_client()
-            response = client.messages.create(
+            response = client.chat.completions.create(
                 model=ANTHROPIC_MODEL,
                 max_tokens=600,
                 temperature=0.7,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
+                messages=[{"role": "system", "content": system_prompt},
+                          {"role": "user", "content": user_prompt}],
             )
-            raw = response.content[0].text.strip()
+            raw = response.choices[0].message.content.strip()
             clean = _strip_markdown_json(raw)
             return json.loads(clean)
         except Exception as e:
