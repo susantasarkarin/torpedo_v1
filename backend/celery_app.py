@@ -112,6 +112,17 @@ celery_app.conf.update(
             'schedule': 604800.0,  # Every 7 days
             'options': {'queue': 'linkedin_automation', 'kwargs': {'days': 30}}
         },
+        'panel-sync-ses-suppression': {
+            # 8:15 AM IST = 02:45 UTC — mirror SES's account-level suppression
+            # list into panel_email_suppression BEFORE the invite crons, so the
+            # day's send skips addresses SES already knows are dead. Without
+            # this the local suppression list stays empty (the SNS bounce
+            # webhook has no BounceTopic wired to it) and every run re-bounces
+            # the same addresses.
+            'task': 'backend.tasks.panel_tasks.sync_ses_suppression',
+            'schedule': crontab(hour=2, minute=45),
+            'options': {'queue': 'default'},
+        },
         'panel-sync-registrations': {
             # 8:30 AM IST = 03:00 UTC — pull SFW-panel signups and mark them
             # registered BEFORE the invite cron, so they drop out of the invite

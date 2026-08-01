@@ -377,3 +377,76 @@ def handle_ses_notification(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"type": "complaint", "processed": len(results), "details": results}
 
     return {"type": notification_type, "processed": 0, "details": "unhandled_type"}
+
+
+def sync_ses_suppression_list(page_size: int = 1000, max_pages: int = 500) -> Dict[str, Any]:
+    """Mirror SES's account-level suppression list into panel_email_suppression.
+
+    The SNS bounce/complaint webhook (handle_ses_notification) is the intended
+    feed for this collection, but it only fires if the SES identity has a
+    BounceTopic/ComplaintTopic wired to it. Until that is configured, nothing
+    ever populates the list and every bulk run re-sends to known-dead
+    addresses — the account-level bounce rate is what pays for it.
+
+    SES maintains its own suppression list (hard bounces + complaints) whether
+    or not SNS is set up, so pull that and mirror it locally. This is additive:
+    it never removes entries the webhook added, and re-running is idempotent.
+    """
+    import boto3
+
+    kwargs = {"region_name": os.getenv("AWS_SES_REGION", "us-east-1")}
+    if os.getenv("AWS_ACCESS_KEY_ID"):
+        kwargs["aws_access_key_id"] = os.getenv("AWS_ACCESS_KEY_ID")
+        kwargs["aws_secret_access_key"] = os.getenv("AWS_SECRET_ACCESS_KEY")
+    client = boto3.client("sesv2", **kwargs)
+
+    seen = 0
+    added = 0
+    pages = 0
+    next_token = None
+
+    while pages < max_pages:
+        params: Dict[str, Any] = {"PageSize": page_size}
+        if next_token:
+            params["NextToken"] = next_token
+        resp = client.list_suppressed_destinations(**params)
+
+        for entry in resp.get("SuppressedDestinationSummaries", []):
+            email = (entry.get("EmailAddress") or "").lower().strip()
+            if not email:
+                continue
+            seen += 1
+            # upsert=True with $setOnInsert keeps the original suppressed_at
+            # and any richer webhook-sourced reason already on the doc.
+            result = suppression_collection.update_one(
+                {"email": email},
+                {
+                    "$setOnInsert": {
+                        "reason": (entry.get("Reason") or "bounce").lower(),
+                        "source": "ses_account_suppression",
+                        "suppressed_at": entry.get("LastUpdateTime") or datetime.utcnow(),
+                        "metadata": {"synced_from": "ses_account_suppression"},
+                    }
+                },
+                upsert=True,
+            )
+            if result.upserted_id is not None:
+                added += 1
+
+        pages += 1
+        next_token = resp.get("NextToken")
+        if not next_token:
+            break
+
+    truncated = bool(next_token)
+    if truncated:
+        logger.warning(
+            f"[panel-suppression] stopped at max_pages={max_pages}; "
+            f"more entries remain — raise max_pages or run again"
+        )
+
+    logger.info(
+        f"[panel-suppression] SES sync complete: seen={seen} newly_added={added} "
+        f"pages={pages} truncated={truncated}"
+    )
+    return {"seen": seen, "added": added, "pages": pages, "truncated": truncated}

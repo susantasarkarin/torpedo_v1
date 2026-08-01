@@ -48,6 +48,39 @@ def send_daily_panel_invitations(self):
 
 
 @celery_app.task(
+    name="backend.tasks.panel_tasks.sync_ses_suppression",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+    soft_time_limit=1800,  # 30m — the list can run to hundreds of pages
+    time_limit=1900,
+)
+def sync_ses_suppression(self):
+    """Mirror SES's account-level suppression list into panel_email_suppression.
+
+    Runs before the invite crons so that day's send skips addresses SES has
+    already marked dead, instead of re-bouncing them and pushing the account
+    bounce rate toward the 5% review threshold.
+    """
+    try:
+        try:
+            from services.panel_bounce_handler import sync_ses_suppression_list
+        except ImportError:
+            from backend.services.panel_bounce_handler import sync_ses_suppression_list
+
+        result = sync_ses_suppression_list()
+        logger.info(
+            f"[panel-suppression-sync] seen={result.get('seen')} "
+            f"added={result.get('added')} pages={result.get('pages')} "
+            f"truncated={result.get('truncated')}"
+        )
+        return result
+    except Exception as exc:
+        logger.error(f"[panel-suppression-sync] error: {exc}", exc_info=True)
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
     name="backend.tasks.panel_tasks.sync_panel_registrations",
     bind=True,
     max_retries=2,
