@@ -598,7 +598,10 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
         query["$or"] = [
             {"name": {"$regex": filters.search, "$options": "i"}},
             {"title": {"$regex": filters.search, "$options": "i"}},
-            {"industry": {"$regex": filters.search, "$options": "i"}}
+            {"industry": {"$regex": filters.search, "$options": "i"}},
+            {"company_name": {"$regex": filters.search, "$options": "i"}},
+            {"company_domain": {"$regex": filters.search, "$options": "i"}},
+            {"email": {"$regex": filters.search, "$options": "i"}},
         ]
 
     if getattr(filters, "lead_status", None):
