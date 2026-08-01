@@ -12,29 +12,29 @@ function Campaign() {
           <div className="card">
             <h3 className="card-title">Contact Lists</h3>
             <p className="card-description mb-4">Create and manage contact lists for your campaigns.</p>
-            <Link to="/sales/campaign/list" className="btn btn-primary">
+            <Link to="/admin/sales/campaign/list" className="btn btn-primary">
               Manage Lists
             </Link>
           </div>
           <div className="card">
-            <h3 className="card-title">Email Templates</h3>
-            <p className="card-description mb-4">Design and manage reusable email templates for your campaigns.</p>
-            <Link to="/sales/campaign/templates" className="btn btn-primary">
-              Manage Templates
+            <h3 className="card-title">AI Leads</h3>
+            <p className="card-description mb-4">Discover, enrich, and qualify leads for your campaigns.</p>
+            <Link to="/admin/sales/campaign/ai-leads" className="btn btn-primary">
+              Manage Leads
             </Link>
           </div>
           <div className="card">
             <h3 className="card-title">Campaign Workflows</h3>
             <p className="card-description mb-4">Set up automated workflows and email sequences.</p>
-            <Link to="/sales/campaign/workflow" className="btn btn-primary">
+            <Link to="/admin/sales/campaign/workflow" className="btn btn-primary">
               Manage Workflows
             </Link>
           </div>
           <div className="card">
-            <h3 className="card-title">Campaign Reports</h3>
-            <p className="card-description mb-4">View detailed analytics and performance reports.</p>
-            <Link to="/sales/campaign/reports" className="btn btn-primary">
-              View Reports
+            <h3 className="card-title">Email Patterns</h3>
+            <p className="card-description mb-4">Analyse and build verified email address patterns by domain.</p>
+            <Link to="/admin/sales/campaign/email-patterns" className="btn btn-primary">
+              View Patterns
             </Link>
           </div>
         </div>

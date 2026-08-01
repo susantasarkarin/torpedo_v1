@@ -158,11 +158,19 @@ useEffect(() => {
       return;
     }
 
-    if (!response.ok) throw new Error("Failed to save list");
+    if (!response.ok) throw new Error(`Failed to save list (HTTP ${response.status})`);
+
+    // Guard against the API path not reaching the backend (nginx serving index.html)
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      throw new Error("Backend did not respond with JSON — check the API proxy configuration");
+    }
+
     const data = await response.json();
     setLists((prev) => [...prev, data.list]);
   } catch (error) {
     console.error("Error saving list to database:", error);
+    alert(`Could not create list: ${error.message}`);
   }
 };
 
