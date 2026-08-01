@@ -35,15 +35,16 @@ from .governance_checks import (
     increment_ai_daily_usage,
     AIDailyLimitExceeded,
 )
-from .ai_gateway import _get_anthropic_api_key, _get_mongo_client
+from .ai_gateway import _get_anthropic_api_key, _get_mongo_client, KIMI_BASE_URL
 
 logger = logging.getLogger(__name__)
 
 # Default for generic generation. High-volume cheap tasks (classification)
-# keep using ai_gateway's claude-haiku-4-5; override per-call or via env.
-DEFAULT_MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-4-8")
-# Models where the API rejects sampling params (temperature/top_p/top_k).
-_NO_SAMPLING_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8", "claude-fable")
+# keep using ai_gateway's cheap tier; override per-call or via env.
+DEFAULT_MODEL = os.getenv("KIMI_MODEL_PREMIUM", "kimi-k3")
+# Claude-specific sampling restriction — Kimi accepts temperature/top_p normally,
+# so this stays empty unless a future Kimi tier needs the same workaround.
+_NO_SAMPLING_PREFIXES = ()
 
 
 def _strip_markdown_json(text: str) -> str:
@@ -84,7 +85,7 @@ class ClaudeGateway:
 
     def _client_or_create(self) -> anthropic.Anthropic:
         if self._client is None:
-            self._client = anthropic.Anthropic(api_key=_get_anthropic_api_key())
+            self._client = anthropic.Anthropic(auth_token=_get_anthropic_api_key(), base_url=KIMI_BASE_URL)
         return self._client
 
     def generate(self, prompt: str, system: Optional[str] = None,
@@ -212,7 +213,7 @@ def _build_claude_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
 class _Completions:
     def create(self, **kwargs) -> SimpleNamespace:
         _governance_gate()
-        client = anthropic.Anthropic(api_key=_get_anthropic_api_key())
+        client = anthropic.Anthropic(auth_token=_get_anthropic_api_key(), base_url=KIMI_BASE_URL)
         ck = _build_claude_kwargs(kwargs)
         response = client.messages.create(**ck)
         _log_usage("chat_compat", ck["model"], response.usage)
@@ -222,7 +223,7 @@ class _Completions:
 class _AsyncCompletions:
     async def create(self, **kwargs) -> SimpleNamespace:
         _governance_gate()
-        client = anthropic.AsyncAnthropic(api_key=_get_anthropic_api_key())
+        client = anthropic.AsyncAnthropic(auth_token=_get_anthropic_api_key(), base_url=KIMI_BASE_URL)
         ck = _build_claude_kwargs(kwargs)
         response = await client.messages.create(**ck)
         _log_usage("chat_compat", ck["model"], response.usage)
@@ -232,7 +233,7 @@ class _AsyncCompletions:
 class _WebSearchCompletions:
     def create(self, **kwargs) -> SimpleNamespace:
         _governance_gate()
-        client = anthropic.Anthropic(api_key=_get_anthropic_api_key())
+        client = anthropic.Anthropic(auth_token=_get_anthropic_api_key(), base_url=KIMI_BASE_URL)
         ck = _build_claude_kwargs(kwargs)
         ck["tools"] = [{"type": "web_search_20260209", "name": "web_search",
                         "max_uses": 8}]
@@ -275,8 +276,8 @@ def async_claude_chat_client(*args, **kwargs) -> AsyncClaudeChatClient:
 # Retired leads.openai_wrapper replacements (Claude-backed)
 # ======================================================================
 
-PREMIUM_MODEL = "claude-opus-4-8"
-CHEAP_MODEL = "claude-haiku-4-5"
+PREMIUM_MODEL = os.getenv("KIMI_MODEL_PREMIUM", "kimi-k3")
+CHEAP_MODEL = os.getenv("KIMI_MODEL_CHEAP", "kimi-k2.6")
 # High-volume email classification default (name kept from the retired wrapper)
 ANTHROPIC_DEFAULT_MODEL = CHEAP_MODEL
 
@@ -292,7 +293,7 @@ def chat_completion(messages: List[Dict[str, Any]], model: Optional[str] = None,
     """
     try:
         _governance_gate()
-        client = anthropic.Anthropic(api_key=_get_anthropic_api_key())
+        client = anthropic.Anthropic(auth_token=_get_anthropic_api_key(), base_url=KIMI_BASE_URL)
         system, turns = _split_messages(messages)
         if response_format and response_format.get("type") in ("json_object", "json_schema") and turns:
             last = dict(turns[-1])

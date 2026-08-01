@@ -53,8 +53,14 @@ def _strip_markdown_json(text: str) -> str:
 
 
 # ============== CONFIGURATION ==============
+#
+# Primary provider is Moonshot's Kimi, accessed via its Anthropic-compatible
+# endpoint (same request/response shape as the Anthropic Messages API, so the
+# `anthropic` SDK works unmodified — just a different base_url + bearer token).
+# Requires a Moonshot account funded with at least $1 at platform.moonshot.ai.
 
-ANTHROPIC_MODEL = "claude-haiku-4-5"   # fast + cheap for classification / enrichment
+KIMI_BASE_URL = os.getenv("KIMI_BASE_URL", "https://api.moonshot.ai/anthropic")
+ANTHROPIC_MODEL = os.getenv("KIMI_MODEL_CHEAP", "kimi-k2.6")   # fast + cheap for classification / enrichment
 
 _mongo_client: Optional[MongoClient] = None
 
@@ -69,21 +75,22 @@ def _get_mongo_client() -> MongoClient:
 
 def _get_anthropic_api_key() -> str:
     """
-    Get the Anthropic API key from MongoDB settings first, then env var fallback.
+    Get the Kimi (Moonshot) API key from MongoDB settings first, then env var
+    fallback. Name kept for compat with existing callers/imports.
     """
     try:
         client = _get_mongo_client()
         settings = client['torpedo_settings']['app_settings'].find_one({'_id': 'app_config'})
         if settings:
-            key = settings.get('anthropic_api_key', '')
+            key = settings.get('kimi_api_key', '') or settings.get('anthropic_api_key', '')
             if key:
                 return key
     except Exception as e:
-        logger.warning(f"Could not read Anthropic key from MongoDB: {e}")
-    env_key = os.getenv("ANTHROPIC_API_KEY", "")
+        logger.warning(f"Could not read Kimi key from MongoDB: {e}")
+    env_key = os.getenv("KIMI_API_KEY", "") or os.getenv("ANTHROPIC_API_KEY", "")
     if env_key:
         return env_key
-    raise ValueError("No Anthropic API key configured — save it in Settings or set ANTHROPIC_API_KEY env var")
+    raise ValueError("No Kimi API key configured — save it in Settings or set KIMI_API_KEY env var")
 
 
 # ============== DATA CLASSES ==============
@@ -124,7 +131,7 @@ class AIGateway:
 
     def _get_client(self) -> anthropic.Anthropic:
         api_key = _get_anthropic_api_key()
-        self._client = anthropic.Anthropic(api_key=api_key)
+        self._client = anthropic.Anthropic(auth_token=api_key, base_url=KIMI_BASE_URL)
         return self._client
 
     def _call_llm(self, prompt: str, model: str = None, max_tokens: int = 1024,
