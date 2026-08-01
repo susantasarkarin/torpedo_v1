@@ -69,8 +69,11 @@ PANEL_SEND_TIMEZONE = os.getenv("PANEL_SEND_TIMEZONE", "Asia/Kolkata")
 # still reads the real quota from AWS each run and takes whichever is lower.
 PANEL_DAILY_SEND_CAP = int(os.getenv("PANEL_DAILY_SEND_CAP", "65000"))
 # Daily-quota headroom kept free for the SFW panel's transactional mail
-# (signup verification, password reset), which shares this SES account.
-PANEL_SES_RESERVE = int(os.getenv("PANEL_SES_RESERVE", "2000"))
+# (double opt-in verification, password reset, survey-available notices),
+# which shares this SES account. Everything else bulk (cold outreach /
+# panel invitations) is bounded to whatever's left of the account's
+# Max24HourSend after this reserve.
+PANEL_SES_RESERVE = int(os.getenv("PANEL_SES_RESERVE", "3000"))
 
 # Rate limiting: confirmed max send rate for this account is 14/sec (SES
 # console -> Account dashboard). The old default of 1/sec (SES sandbox rate)
