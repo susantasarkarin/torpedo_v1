@@ -924,7 +924,8 @@ def initialize_scheduler(loop=None):
             from leads.canonical_ingestion import sync_to_enriched, compute_icp_basket
             from database import get_async_collection
 
-            async def _run_lead_classification():
+            def _classify_leads_sync():
+                _client = None
                 try:
                     import pymongo as _pymongo
                     import datetime as _dt
@@ -988,6 +989,14 @@ def initialize_scheduler(loop=None):
                             logger.warning(f"[Scheduler/LeadClassifier] Enrollment sync skipped: {_enroll_err}")
                 except Exception as _e:
                     logger.error(f"[Scheduler/LeadClassifier] Error: {_e}")
+                finally:
+                    if _client is not None:
+                        _client.close()
+
+            async def _run_lead_classification():
+                # Blocking pymongo work must stay off the event loop,
+                # otherwise HTTP requests starve while leads are processed.
+                await asyncio.to_thread(_classify_leads_sync)
 
             scheduler.add_job(
                 _run_lead_classification,
@@ -1024,51 +1033,17 @@ def initialize_scheduler(loop=None):
         except Exception as e:
             logger.warning(f"[Scheduler] Could not add mail pool stats job: {e}")
 
-        # Panel invitation jobs
-        try:
-            from services.panel_email_service import send_bulk_invitations, send_bulk_login_invitations
-
-            async def _run_panel_daily_invitations():
-                """Send invitations to unregistered panelists daily at 9 AM UTC"""
-                try:
-                    import threading
-                    def _send():
-                        result = send_bulk_invitations(daily_mode=True)
-                        logger.info(f"[Scheduler/Panel] Daily invitations sent: {result}")
-                    threading.Thread(target=_send, daemon=True).start()
-                except Exception as _e:
-                    logger.error(f"[Scheduler/Panel] Error in daily invitations: {_e}")
-
-            async def _run_panel_daily_login_invitations():
-                """Send login reminders to registered panelists daily at 10 AM UTC"""
-                try:
-                    import threading
-                    def _send():
-                        result = send_bulk_login_invitations()
-                        logger.info(f"[Scheduler/Panel] Daily login invitations sent: {result}")
-                    threading.Thread(target=_send, daemon=True).start()
-                except Exception as _e:
-                    logger.error(f"[Scheduler/Panel] Error in daily login invitations: {_e}")
-
-            scheduler.add_job(
-                _run_panel_daily_invitations,
-                CronTrigger(hour=9, minute=0, timezone=pytz.UTC),
-                id="panel_daily_invitations",
-                name="Panel Daily Signups Invitations (9 AM UTC)",
-                max_instances=1,
-            )
-            logger.info("[Scheduler] Added panel daily invitations job (9 AM UTC)")
-
-            scheduler.add_job(
-                _run_panel_daily_login_invitations,
-                CronTrigger(hour=10, minute=0, timezone=pytz.UTC),
-                id="panel_daily_login_invitations",
-                name="Panel Daily Login Reminders (10 AM UTC)",
-                max_instances=1,
-            )
-            logger.info("[Scheduler] Added panel daily login invitations job (10 AM UTC)")
-        except Exception as e:
-            logger.warning(f"[Scheduler] Could not add panel invitation jobs: {e}")
+        # Panel invitation jobs are NOT registered here. They are owned by
+        # Celery beat (see celery_app.py: 'panel-daily-invitations' at 03:30
+        # UTC and 'panel-daily-login-invitations' at 04:30 UTC, i.e. 9/10 AM
+        # in the panel's Asia/Kolkata send timezone).
+        #
+        # This module used to register a second copy of both at 9/10 AM *UTC*.
+        # Two schedulers ran the same batches ~5.5h apart each day; only the
+        # same-day dedupe in send_bulk_invitations kept it from double-sending,
+        # and the redundant afternoon run was doing the full eligibility scan
+        # again for nothing. Removed 2026-08-02 — Celery beat is the single
+        # owner, and it is timezone-anchored correctly.
 
         # Start scheduler
         if not scheduler.running:

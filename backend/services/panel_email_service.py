@@ -63,11 +63,13 @@ PANEL_LOGO_URL = os.getenv(
 )
 PANEL_TEMPLATE_VERSION = os.getenv("PANEL_TEMPLATE_VERSION", "panel-invite-v3")
 PANEL_SEND_TIMEZONE = os.getenv("PANEL_SEND_TIMEZONE", "Asia/Kolkata")
-# Confirmed via SES console (Account dashboard -> Get set up): production
-# access granted, 69,000 emails/24h, max send rate 14/sec. Cap set a shade
-# below the live quota as a manual safety ceiling — ses_budget_for_bulk()
-# still reads the real quota from AWS each run and takes whichever is lower.
-PANEL_DAILY_SEND_CAP = int(os.getenv("PANEL_DAILY_SEND_CAP", "65000"))
+# Manual safety ceiling only. ses_budget_for_bulk() reads the real quota from
+# AWS each run and takes whichever is lower, so this exists to stop a runaway
+# blast, not to size the daily batch. Held above the live Max24HourSend
+# (119,300 as of 2026-08-02) so the AWS quota is the binding limit — the
+# previous 65,000 was pinned to a long-superseded 69,000/day quota and was
+# silently discarding ~33K/day of available send.
+PANEL_DAILY_SEND_CAP = int(os.getenv("PANEL_DAILY_SEND_CAP", "140000"))
 # Daily-quota headroom kept free for the SFW panel's transactional mail
 # (double opt-in verification, password reset, survey-available notices),
 # which shares this SES account. Everything else bulk (cold outreach /
@@ -81,7 +83,10 @@ PANEL_SES_RESERVE = int(os.getenv("PANEL_SES_RESERVE", "3000"))
 # celery_app.py) capped every daily run at ~3,300 sends regardless of the
 # account's real ~65-69K/day quota — most of the day's budget was never
 # touched.
-SES_SEND_RATE = float(os.getenv("PANEL_SES_SEND_RATE", "14"))  # emails per second
+# MaxSendRate is 18/sec as of 2026-08-02; hold just under it so a burst can't
+# trip SES throttling. At 17/sec a full ~119K day needs ~2h of send time, so
+# the run has to survive that long — see _collect_eligible for why it didn't.
+SES_SEND_RATE = float(os.getenv("PANEL_SES_SEND_RATE", "17"))  # emails per second
 
 # Sends were still ~2.2/sec even after caching the SES client (see
 # _get_ses_client below), because a single-threaded loop is bound by each
@@ -137,6 +142,78 @@ class _RateGate:
         delay = start - now
         if delay > 0:
             time.sleep(delay)
+
+
+def _collect_eligible(
+    query: Dict[str, Any],
+    projection: Dict[str, Any],
+    sort_field: str,
+    limit: int,
+    filter_chunk,
+    chunk_size: int = 2000,
+) -> Tuple[list, int, bool]:
+    """Stream panelists in `sort_field` order and collect up to `limit`
+    eligible docs, stopping as soon as the batch is full.
+
+    Both bulk senders used to do `list(panelists_collection.find(...))` over
+    the whole table (~190K docs) and build several parallel dicts/sets on top
+    of it. That allocation alone pushed the backend past its 1000M cgroup cap
+    and got it OOM-killed mid-send, so a run could never finish. Peak memory
+    here is bounded by one chunk plus the dedupe set and the result list,
+    none of which scale with the untouched tail of the table.
+
+    `filter_chunk(pairs) -> list[doc]` receives a list of (email, doc) for one
+    chunk and returns the eligible subset; it owns the per-chunk suppression
+    and already-invited lookups so those queries stay scoped to the chunk
+    rather than to every email in the collection.
+
+    Returns (eligible, examined, scan_complete). `scan_complete` is False when
+    the scan stopped early on `limit`, meaning more eligible rows remain
+    beyond the ones returned.
+    """
+    if limit <= 0:
+        return [], 0, True
+
+    cursor = (
+        panelists_collection.find(query, projection)
+        .sort([(sort_field, 1)])
+        .batch_size(chunk_size)
+    )
+
+    seen: set = set()
+    eligible: list = []
+    examined = 0
+    scan_complete = True
+    pending: list = []
+
+    def _drain() -> bool:
+        """Filter one chunk into `eligible`. Returns True when full."""
+        nonlocal pending
+        if pending:
+            eligible.extend(filter_chunk(pending))
+            pending = []
+        return len(eligible) >= limit
+
+    try:
+        for doc in cursor:
+            email = (doc.get("email") or "").lower().strip()
+            if not email or email in seen:
+                continue
+            seen.add(email)
+            examined += 1
+            pending.append((email, doc))
+            if len(pending) >= chunk_size and _drain():
+                scan_complete = False
+                break
+        else:
+            _drain()
+    finally:
+        cursor.close()
+
+    if len(eligible) > limit:
+        eligible = eligible[:limit]
+
+    return eligible, examined, scan_complete
 
 
 def _send_batch_concurrently(to_send: list, send_one) -> Tuple[int, int, bool]:
@@ -679,33 +756,13 @@ def send_bulk_invitations(
     if country:
         query["country"] = {"$regex": f"^{country}$", "$options": "i"}
 
-    # Bulk pre-fetch all panelists, oldest-invited-or-never-invited first. Without
-    # this sort, Mongo returns natural order every run; combined with the SES rate
-    # limit truncating each daily batch partway through, the same leads near the
-    # front got re-invited every day while everyone past the truncation point was
-    # never reached. Missing last_invited_at sorts first, so untouched leads win.
-    all_panelists = list(panelists_collection.find(
-        query,
-        {"email": 1, "first_name": 1, "_id": 1, "double_opt_in_completed": 1,
-         "email_verified": 1, "last_invited_at": 1},
-    ).sort([("last_invited_at", 1)]))
+    # The SES budget bounds every bulk run, manual or cron — a hand-triggered
+    # blast drains the shared daily quota just as effectively as the cron did.
+    # Computed up front so the eligibility scan below knows when to stop.
+    budget = ses_budget_for_bulk()
+    cap_value = min(daily_cap, budget) if daily_cap is not None else budget
 
-    # Deduplicate and build email→doc map
-    email_map: Dict[str, Any] = {}
-    for p in all_panelists:
-        email = (p.get("email") or "").lower().strip()
-        if email and email not in email_map:
-            email_map[email] = p
-
-    email_list = list(email_map.keys())
-
-    # Bulk fetch suppressed emails
-    suppressed_set: set = {
-        doc["email"].lower().strip()
-        for doc in suppression_collection.find({"email": {"$in": email_list}}, {"email": 1})
-    }
-
-    # Bulk fetch already-invited / invited-today emails
+    # Window for "already invited today", in the panel's local send timezone.
     if daily_mode:
         from datetime import timezone as _tz
         from zoneinfo import ZoneInfo
@@ -717,47 +774,69 @@ def send_bulk_invitations(
         now_local = _dt.now(tz)
         day_start_utc = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(_tz.utc).replace(tzinfo=None)
         next_day_utc = day_start_utc + _td(days=1)
-        invited_set: set = {
+
+    def _filter_chunk(pairs):
+        """Suppression / already-invited lookups scoped to one chunk."""
+        emails = [e for e, _ in pairs]
+
+        suppressed_set = {
             doc["email"].lower().strip()
-            for doc in invitation_log_collection.find(
-                {"email": {"$in": email_list}, "status": "sent",
-                 "sent_at": {"$gte": day_start_utc, "$lt": next_day_utc}},
-                {"email": 1}
-            )
+            for doc in suppression_collection.find({"email": {"$in": emails}}, {"email": 1})
         }
-    elif not force_resend:
-        invited_set = {
-            doc["email"].lower().strip()
-            for doc in invitation_log_collection.find(
-                {"email": {"$in": email_list}, "status": "sent"}, {"email": 1}
-            )
-        }
-    else:
-        invited_set = set()
 
-    # Build eligible list
-    eligible = []
-    for email, panelist in email_map.items():
-        doc_status = str(panelist.get("status") or "").strip().lower()
-        # Skip double opted-in
-        if panelist.get("double_opt_in_completed"):
-            continue
-        if panelist.get("email_verified") and doc_status in {"active", "confirmed", "double_opted_in"}:
-            continue
-        if email in suppressed_set:
-            continue
-        if email in invited_set:
-            continue
-        eligible.append(panelist)
+        if daily_mode:
+            invited_set = {
+                doc["email"].lower().strip()
+                for doc in invitation_log_collection.find(
+                    {"email": {"$in": emails}, "status": "sent",
+                     "sent_at": {"$gte": day_start_utc, "$lt": next_day_utc}},
+                    {"email": 1}
+                )
+            }
+        elif not force_resend:
+            invited_set = {
+                doc["email"].lower().strip()
+                for doc in invitation_log_collection.find(
+                    {"email": {"$in": emails}, "status": "sent"}, {"email": 1}
+                )
+            }
+        else:
+            invited_set = set()
 
-    skipped = len(email_map) - len(eligible)
+        out = []
+        for email, panelist in pairs:
+            doc_status = str(panelist.get("status") or "").strip().lower()
+            # Skip double opted-in
+            if panelist.get("double_opt_in_completed"):
+                continue
+            if panelist.get("email_verified") and doc_status in {"active", "confirmed", "double_opted_in"}:
+                continue
+            if email in suppressed_set:
+                continue
+            if email in invited_set:
+                continue
+            out.append(panelist)
+        return out
 
-    # The SES budget bounds every bulk run, manual or cron — a hand-triggered
-    # blast drains the shared daily quota just as effectively as the cron did.
-    budget = ses_budget_for_bulk()
-    cap_value = min(daily_cap, budget) if daily_cap is not None else budget
-    to_send = eligible[:cap_value] if cap_value >= 0 else []
-    capped = max(0, len(eligible) - len(to_send))
+    # Oldest-invited-or-never-invited first. Without this sort, Mongo returns
+    # natural order every run; combined with each daily batch being truncated
+    # partway through, the same leads near the front got re-invited every day
+    # while everyone past the truncation point was never reached. Missing
+    # last_invited_at sorts first, so untouched leads win.
+    to_send, examined, scan_complete = _collect_eligible(
+        query,
+        {"email": 1, "first_name": 1, "_id": 1, "double_opt_in_completed": 1,
+         "email_verified": 1, "status": 1, "last_invited_at": 1},
+        "last_invited_at",
+        cap_value,
+        _filter_chunk,
+    )
+    skipped = examined - len(to_send)
+    # Candidates the scan never reached because it filled up on cap_value.
+    # An upper bound on what's left rather than an exact eligible count —
+    # establishing the exact figure would mean the full-table scan this
+    # streaming path exists to avoid. 0 means nothing was left behind.
+    capped = 0 if scan_complete else max(0, panelists_collection.count_documents(query) - examined)
 
     def _send_one(panelist) -> bool:
         email = (panelist.get("email") or "").lower().strip()
@@ -869,24 +948,11 @@ def send_bulk_login_invitations(
     if country:
         query["country"] = {"$regex": f"^{country}$", "$options": "i"}
 
-    # Bulk pre-fetch all registered panelists, oldest-invited-or-never-invited
-    # first — same rotation fix as send_bulk_invitations, tracked in its own
-    # field so the two invite types don't clobber each other's ordering.
-    all_panelists = list(panelists_collection.find(
-        query,
-        {"email": 1, "first_name": 1, "_id": 1, "last_login_invite_sent_at": 1},
-    ).sort([("last_login_invite_sent_at", 1)]))
+    budget = ses_budget_for_bulk()
+    cap_value = min(daily_cap, budget) if daily_cap is not None else budget
 
-    # Deduplicate and build email→doc map
-    email_map: Dict[str, Any] = {}
-    for p in all_panelists:
-        email = (p.get("email") or "").lower().strip()
-        if email and email not in email_map:
-            email_map[email] = p
-
-    email_list = list(email_map.keys())
-
-    # Check if already sent login email today
+    # Window for "already sent a login reminder today", in the panel's local
+    # send timezone.
     from datetime import timezone as _tz
     from zoneinfo import ZoneInfo
     try:
@@ -898,28 +964,31 @@ def send_bulk_login_invitations(
     day_start_utc = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(_tz.utc).replace(tzinfo=None)
     next_day_utc = day_start_utc + _td(days=1)
 
-    already_sent_today: set = {
-        doc["email"].lower().strip()
-        for doc in invitation_log_collection.find(
-            {"email": {"$in": email_list}, "status": "sent", "type": "login",
-             "sent_at": {"$gte": day_start_utc, "$lt": next_day_utc}},
-            {"email": 1}
-        )
-    }
+    def _filter_chunk(pairs):
+        emails = [e for e, _ in pairs]
+        already_sent_today = {
+            doc["email"].lower().strip()
+            for doc in invitation_log_collection.find(
+                {"email": {"$in": emails}, "status": "sent", "type": "login",
+                 "sent_at": {"$gte": day_start_utc, "$lt": next_day_utc}},
+                {"email": 1}
+            )
+        }
+        return [p for e, p in pairs if e not in already_sent_today]
 
-    # Build eligible list (not sent today)
-    eligible = []
-    for email, panelist in email_map.items():
-        if email in already_sent_today:
-            continue
-        eligible.append(panelist)
-
-    skipped = len(email_map) - len(eligible)
-
-    budget = ses_budget_for_bulk()
-    cap_value = min(daily_cap, budget) if daily_cap is not None else budget
-    to_send = eligible[:cap_value] if cap_value >= 0 else []
-    capped = max(0, len(eligible) - len(to_send))
+    # Oldest-invited-or-never-invited first — same rotation fix as
+    # send_bulk_invitations, tracked in its own field so the two invite types
+    # don't clobber each other's ordering. Streamed for the same reason: see
+    # _collect_eligible.
+    to_send, examined, scan_complete = _collect_eligible(
+        query,
+        {"email": 1, "first_name": 1, "_id": 1, "last_login_invite_sent_at": 1},
+        "last_login_invite_sent_at",
+        cap_value,
+        _filter_chunk,
+    )
+    skipped = examined - len(to_send)
+    capped = 0 if scan_complete else max(0, panelists_collection.count_documents(query) - examined)
 
     def _send_one(panelist) -> bool:
         email = (panelist.get("email") or "").lower().strip()
@@ -968,36 +1037,18 @@ def get_eligible_count(
     daily_mode: bool = False,
 ) -> int:
     """
-    Count panelists eligible for an invitation using bulk set queries
-    (3 DB round-trips total instead of N×3).
+    Count panelists eligible for an invitation.
+
+    Streamed in chunks rather than loading every active panelist at once: this
+    is reachable from the dashboard, and at ~190K panelists the old version
+    both held the whole table in memory and issued an `$in` over every address
+    on the collection, which was enough on its own to push the backend past
+    its memory cap. Same eligibility rules as send_bulk_invitations.
     """
     query = {"status": "active"}
     if country:
         query["country"] = {"$regex": f"^{country}$", "$options": "i"}
 
-    # 1. Fetch all active panelists with fields needed for double-opt-in check
-    panelist_docs = list(panelists_collection.find(
-        query, {"email": 1, "double_opt_in_completed": 1, "email_verified": 1, "status": 1}
-    ))
-
-    email_map: dict = {}
-    for doc in panelist_docs:
-        email = (doc.get("email") or "").lower().strip()
-        if email:
-            email_map[email] = doc
-
-    if not email_map:
-        return 0
-
-    email_list = list(email_map.keys())
-
-    # 2. Bulk fetch suppressed emails
-    suppressed: set = {
-        doc["email"].lower().strip()
-        for doc in suppression_collection.find({"email": {"$in": email_list}}, {"email": 1})
-    }
-
-    # 3. Bulk fetch already-invited emails
     if daily_mode:
         from datetime import timezone as _tz
         from zoneinfo import ZoneInfo
@@ -1009,36 +1060,69 @@ def get_eligible_count(
         now_local = _dt.now(tz)
         day_start_utc = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(_tz.utc).replace(tzinfo=None)
         next_day_utc = (day_start_utc + _td(days=1))
-        invited: set = {
+
+    def _filter_chunk(pairs):
+        emails = [e for e, _ in pairs]
+
+        suppressed = {
             doc["email"].lower().strip()
-            for doc in invitation_log_collection.find(
-                {"email": {"$in": email_list}, "status": "sent",
-                 "sent_at": {"$gte": day_start_utc, "$lt": next_day_utc}},
-                {"email": 1}
-            )
+            for doc in suppression_collection.find({"email": {"$in": emails}}, {"email": 1})
         }
-    elif not force_resend:
-        invited = {
-            doc["email"].lower().strip()
-            for doc in invitation_log_collection.find(
-                {"email": {"$in": email_list}, "status": "sent"}, {"email": 1}
-            )
-        }
-    else:
-        invited = set()
+
+        if daily_mode:
+            invited = {
+                doc["email"].lower().strip()
+                for doc in invitation_log_collection.find(
+                    {"email": {"$in": emails}, "status": "sent",
+                     "sent_at": {"$gte": day_start_utc, "$lt": next_day_utc}},
+                    {"email": 1}
+                )
+            }
+        elif not force_resend:
+            invited = {
+                doc["email"].lower().strip()
+                for doc in invitation_log_collection.find(
+                    {"email": {"$in": emails}, "status": "sent"}, {"email": 1}
+                )
+            }
+        else:
+            invited = set()
+
+        out = []
+        for email, doc in pairs:
+            # Skip double opted-in (mirrors is_double_opted_in logic)
+            if doc.get("double_opt_in_completed"):
+                continue
+            status = str(doc.get("status") or "").strip().lower()
+            if doc.get("email_verified") and status in {"active", "confirmed", "double_opted_in"}:
+                continue
+            if email in suppressed:
+                continue
+            if email in invited:
+                continue
+            out.append(doc)
+        return out
 
     count = 0
-    for email, doc in email_map.items():
-        # Skip double opted-in (mirrors is_double_opted_in logic)
-        if doc.get("double_opt_in_completed"):
-            continue
-        status = str(doc.get("status") or "").strip().lower()
-        if doc.get("email_verified") and status in {"active", "confirmed", "double_opted_in"}:
-            continue
-        if email in suppressed:
-            continue
-        if email in invited:
-            continue
-        count += 1
+    seen: set = set()
+    pending: list = []
+    cursor = panelists_collection.find(
+        query, {"email": 1, "double_opt_in_completed": 1, "email_verified": 1, "status": 1}
+    ).batch_size(2000)
+
+    try:
+        for doc in cursor:
+            email = (doc.get("email") or "").lower().strip()
+            if not email or email in seen:
+                continue
+            seen.add(email)
+            pending.append((email, doc))
+            if len(pending) >= 2000:
+                count += len(_filter_chunk(pending))
+                pending = []
+        if pending:
+            count += len(_filter_chunk(pending))
+    finally:
+        cursor.close()
 
     return count

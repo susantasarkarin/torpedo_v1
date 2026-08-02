@@ -1502,6 +1502,11 @@ _DAILY_SEND_LIMIT_PER_MAILBOX = 2000
 # {sender_email: datetime_when_cooldown_expires}  â€” in-memory, resets on restart
 _MAILBOX_COOLDOWN: Dict[str, datetime] = {}
 _COOLDOWN_SECONDS = 900  # 15 minutes after a 429 error
+# Backoff for leads whose send failed for a non-429, non-permanent reason.
+# Delay doubles per attempt (5, 10, 20, 40, 80 min), then the lead is parked
+# in workflow_status "error" rather than retried indefinitely.
+_RETRY_BACKOFF_MINUTES = 5
+_MAX_SEND_ATTEMPTS = 5
 
 # Periodic catch-up enrollment interval for active campaigns.
 _LAST_ENROLL_SYNC_AT: Optional[datetime] = None
@@ -1903,6 +1908,44 @@ def _send_via_smtp(
     return {"message_id": "", "thread_id": ""}
 
 
+_OUTREACH_EMAIL_RE = _re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
+
+
+def _address_reject_reason(email: str) -> str:
+    """Return a short reason why `email` can't be sent to, or "" if it's fine.
+
+    Format-matching alone isn't enough. Addresses scraped out of LinkedIn bio
+    text produce domains like
+    `mariotricocisincejuneof2014istarted...promotedtoteamlead.com` — those
+    satisfy the regex but blow past the RFC 1035 63-character DNS label limit,
+    so Gmail rejects them with "Invalid To header" on every attempt. Catching
+    the length limits here means they're marked bounced once rather than
+    retried forever.
+    """
+    if not email:
+        return "empty address"
+    try:
+        email.encode("ascii")
+    except UnicodeEncodeError:
+        return "non-ASCII characters"
+    if not _OUTREACH_EMAIL_RE.match(email):
+        return "malformed address"
+    if len(email) > 254:  # RFC 5321 forward-path limit
+        return f"address too long ({len(email)} > 254)"
+
+    local, _, domain = email.rpartition("@")
+    if len(local) > 64:  # RFC 5321 local-part limit
+        return f"local part too long ({len(local)} > 64)"
+    if len(domain) > 253:
+        return f"domain too long ({len(domain)} > 253)"
+    for label in domain.split("."):
+        if not label:
+            return "empty domain label"
+        if len(label) > 63:  # RFC 1035 label limit — what Gmail rejects on
+            return f"domain label too long ({len(label)} > 63)"
+    return ""
+
+
 def _process_one_outreach_lead(db, lead_record: dict) -> bool:
     """
     For one outreach_leads_v2 record:
@@ -1957,20 +2000,14 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             return False
 
         # Reject emails that are not RFC-valid (non-ASCII, apostrophes in domain, etc.)
-        import re as _re
-        _EMAIL_RE = _re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
-        _is_ascii = True
-        try:
-            email.encode("ascii")
-        except UnicodeEncodeError:
-            _is_ascii = False
-        if not _is_ascii or not _EMAIL_RE.match(email):
-            logger.warning(f"[Outreach] Skipping invalid email address: {email}")
+        _addr_error = _address_reject_reason(email)
+        if _addr_error:
+            logger.warning(f"[Outreach] Skipping invalid email address ({_addr_error}): {email}")
             db["outreach_leads_v2"].update_one(
                 {"_id": lead_record["_id"]},
                 {"$set": {
                     "workflow_status": "bounced",
-                    "last_send_error": "Invalid email address format",
+                    "last_send_error": f"Invalid email address: {_addr_error}",
                     "last_send_error_at": datetime.utcnow(),
                     "updated_at": datetime.utcnow(),
                 }}
@@ -2234,13 +2271,42 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             )
             raise  # Re-raise so outer send loop can track failed senders
         else:
+            # Anything else: record the error AND move the lead out of the way.
+            # This branch used to only write last_send_error, leaving
+            # next_send_at and workflow_status untouched — so a lead whose
+            # every attempt fails stayed permanently due and was retried on
+            # every 60s cycle, burning the campaign's send slots forever.
+            _now = datetime.utcnow()
+            _permanent = any(
+                s in err_str.lower() for s in (
+                    "invalid to header",
+                    "invalid header",
+                    "recipient address rejected",
+                    "does not exist",
+                    "no such user",
+                )
+            )
+            _attempts = int(lead_record.get("send_attempts") or 0) + 1
+            _update = {
+                "last_send_error": err_str[:300],
+                "last_send_error_at": _now,
+                "send_attempts": _attempts,
+                "updated_at": _now,
+            }
+            if _permanent or _attempts >= _MAX_SEND_ATTEMPTS:
+                _update["workflow_status"] = "error"
+                logger.warning(
+                    f"[Outreach] Giving up on {lead_record.get('email')} after "
+                    f"{_attempts} attempt(s): "
+                    f"{'permanent rejection' if _permanent else 'retry limit reached'}"
+                )
+            else:
+                # Exponential backoff so a transient fault doesn't spin.
+                _update["next_send_at"] = _now + timedelta(
+                    minutes=_RETRY_BACKOFF_MINUTES * (2 ** (_attempts - 1))
+                )
             db["outreach_leads_v2"].update_one(
-                {"_id": lead_record["_id"]},
-                {"$set": {
-                    "last_send_error": err_str[:300],
-                    "last_send_error_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow(),
-                }}
+                {"_id": lead_record["_id"]}, {"$set": _update}
             )
         return False
 
