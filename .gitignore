@@ -146,6 +146,9 @@ test-results/
 e2e_artifacts/
 
 # Mailpool email lists (PII - kept local only)
+# Glob rather than one line per file: mailpool_emails.csv (47K addresses) was
+# missing from the explicit list and got staged for commit.
+mailpool_*.csv
 mailpool_accounts.csv
 mailpool_from_emails.csv
 mailpool_gmail_api_emails.csv

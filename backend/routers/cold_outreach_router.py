@@ -24,6 +24,8 @@ import base64 as _b64_module
 import logging
 import os
 import re as _re
+import threading
+import time
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -1509,10 +1511,36 @@ _RETRY_BACKOFF_MINUTES = 5
 _MAX_SEND_ATTEMPTS = 5
 
 # Periodic catch-up enrollment interval for active campaigns.
-_LAST_ENROLL_SYNC_AT: Optional[datetime] = None
 _ENROLL_SYNC_INTERVAL_SECONDS = int(
     os.getenv("OUTREACH_ENROLL_SYNC_INTERVAL_SECONDS", "300")
 )
+# Enrollment is triggered from two places — its own scheduled job and the
+# lead classifier, after it classifies a batch. The scan is slow enough to
+# overlap itself, so serialise it: whoever holds the lock is already doing
+# the work, and a second concurrent pass would only redo it.
+_ENROLL_SYNC_LOCK = threading.Lock()
+
+
+def run_enrollment_sync(trigger: str = "scheduled") -> dict:
+    """Run catch-up enrollment for all active campaigns.
+
+    Skips (rather than queues) if a sync is already in flight. Returns a
+    small summary so callers can log the outcome.
+    """
+    if not _ENROLL_SYNC_LOCK.acquire(blocking=False):
+        logger.info(f"[Outreach] Enrollment sync ({trigger}) skipped — already running")
+        return {"ran": False, "reason": "already_running"}
+    started = time.time()
+    try:
+        _sync_active_campaign_enrollment(get_db())
+        elapsed = time.time() - started
+        logger.info(f"[Outreach] Enrollment sync ({trigger}) finished in {elapsed:.1f}s")
+        return {"ran": True, "seconds": round(elapsed, 1)}
+    except Exception as e:
+        logger.error(f"[Outreach] Enrollment sync ({trigger}) failed: {e}", exc_info=True)
+        return {"ran": False, "reason": str(e)}
+    finally:
+        _ENROLL_SYNC_LOCK.release()
 
 
 def _resolve_sender_for_campaign(db, campaign: dict) -> Optional[Dict[str, Any]]:
@@ -2320,20 +2348,18 @@ def process_due_outreach_sends() -> dict:
     Returns a summary dict.
     """
     try:
-        global _LAST_ENROLL_SYNC_AT
         now = datetime.utcnow()
         db = get_db()
 
-        # Periodic catch-up enrollment keeps active campaigns synced with new AI leads.
-        if (
-            _LAST_ENROLL_SYNC_AT is None
-            or (now - _LAST_ENROLL_SYNC_AT).total_seconds() >= _ENROLL_SYNC_INTERVAL_SECONDS
-        ):
-            try:
-                _sync_active_campaign_enrollment(db)
-                _LAST_ENROLL_SYNC_AT = now
-            except Exception as enroll_sync_err:
-                logger.error(f"[Outreach] Enrollment catch-up sync failed: {enroll_sync_err}")
+        # NOTE: catch-up enrollment deliberately does NOT run here. It used to,
+        # and because it scans every basket's leads_enriched rows plus the full
+        # suppression and already-enrolled sets for each active campaign, a
+        # single cycle could take ~8 minutes — far longer than this job's 60s
+        # interval. APScheduler caps the job at one running instance, so every
+        # subsequent tick was dropped with "maximum number of running instances
+        # reached" and sends stalled for minutes at a time. Enrollment now has
+        # its own job (run_enrollment_sync, registered in main.py) so a slow
+        # scan can never block sending.
 
         # Get active campaigns (campaigns use is_active flag, not status)
         active_campaigns = list(db["outreach_campaigns_v2"].find(

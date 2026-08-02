@@ -1910,11 +1910,42 @@ async def startup_event():
                 IntervalTrigger(seconds=60),
                 id="outreach_send_processor",
                 name="Cold Outreach Send Processor",
+                max_instances=1,
                 replace_existing=True
             )
             print("✅ Cold outreach send processor scheduled (every 60 seconds)")
     except Exception as e:
         print(f"⚠️ Could not schedule outreach send processor: {e}")
+
+    # ----------------------------
+    # Cold Outreach Enrollment Sync (every 5 minutes)
+    # Split out of the 60s send processor: the basket scan can run for minutes
+    # and was starving sends, which APScheduler then dropped as overlapping
+    # executions. Separate job means a slow enrollment delays only itself.
+    # ----------------------------
+    try:
+        if scheduler.running:
+            def _outreach_enrollment_job():
+                try:
+                    try:
+                        from .routers.cold_outreach_router import run_enrollment_sync
+                    except ImportError:
+                        from routers.cold_outreach_router import run_enrollment_sync
+                    run_enrollment_sync("scheduled")
+                except Exception as e:
+                    print(f"[OutreachEnroll] Error: {e}")
+
+            scheduler.add_job(
+                _outreach_enrollment_job,
+                IntervalTrigger(seconds=300),
+                id="outreach_enrollment_sync",
+                name="Cold Outreach Enrollment Sync",
+                max_instances=1,
+                replace_existing=True
+            )
+            print("✅ Cold outreach enrollment sync scheduled (every 5 minutes)")
+    except Exception as e:
+        print(f"⚠️ Could not schedule outreach enrollment sync: {e}")
 
     # ----------------------------
     # Cold Outreach Bounce & Reply Scanner (every 5 minutes)
