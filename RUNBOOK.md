@@ -139,6 +139,69 @@ bounces (mailbox full) are deliberately **not** — those leads stay live.
 
 ---
 
+## 5. Mail Pool AI (Bedrock mail-desk)
+
+The Gmail mail pool (`torpedo_gmail.email_metadata`) is processed by a
+two-stage pipeline. **Stage 1** is the free rule classifier
+(`agents/mail_segregation_agent.py`); **Stage 2** is the Bedrock mail-desk
+(`sales/mail_pool_ai.py`) — but only for mail worth paying for.
+
+**Roles:** per-email/sender analysis runs on `role="cheap"` (Qwen); follow-up
+reply drafts and RFQ line-item parsing run on `role="smart"` (DeepSeek).
+
+### Env
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MAIL_AI_PREFILTER_ENABLED` | `true` | Stage-1 rule prefilter on/off |
+| `MAIL_AI_PREFILTER_MIN_CONFIDENCE` | `0.5` | min rule confidence to skip noise |
+| `MAIL_AI_MAX_PER_RUN` | `200` | per-beat cap on emails processed |
+| `MAIL_AI_PREFILTER_AUDIT_SAMPLE` | `20` | nightly re-check sample size |
+| `MAIL_AI_ANALYSIS_ROLE` | `cheap` | role for analysis calls |
+| `MAIL_AI_WRITER_ROLE` | `smart` | role for drafts + RFQ items |
+
+Uses the same `BEDROCK_*` / `AWS_REGION` model access as §0–1. No extra AWS
+setup beyond enabling the two models in ap-south-1.
+
+### Cost control (the prefilter)
+
+Rules run first. Only segments `Internal / Client / Vendor / GST-IT-Govt /
+Others` reach Bedrock. `Bank / Promotion / Transactional` at confidence ≥ 0.5
+are marked `ai_analysis = {skipped: true, reason: "rule_prefilter"}` and never
+cost a model call. The nightly `audit_prefiltered_mail` task re-checks 20
+random skipped emails with the cheap model and records any disagreements to
+`email_automation.mail_ai_prefilter_audit` — watch this for the rule filter
+silently eating real client mail.
+
+### Segment source of truth + backfill
+
+After Stage 2 the AI `category` maps onto the `segment` field the MailPool UI
+reads (`rfq/client_inquiry/reply → Client`, `vendor → Vendor`, etc.);
+`Internal/Bank/Govt` stay rule-decided. Both opinions are kept
+(`rule_classification`, `segment`, `segment_source`). To re-derive segments for
+already-processed mail **without new model calls**:
+
+```bash
+python -m sales.backfill_mail_segments --dry-run     # inspect, no writes
+python -m sales.backfill_mail_segments               # live; idempotent
+```
+
+Then let the beats take over: `process_mail_pool_sender_batch` (every 10 min),
+`process_mail_pool_batch` (per-email, manual/`POST /api/mail/ai-process`), and
+`audit_prefiltered_mail` (nightly 02:00 UTC). Restart the worker + beat after
+deploy.
+
+### Ops
+
+- `GET /api/mail/ai-stats` — processed / prefiltered / pending counts, rule↔AI
+  disagreement rate (7d), and Bedrock token usage by model (7d).
+- On Bedrock throttling/outage the run stops and leaves emails **unmarked**
+  (no partial `ai_analysis`, no burned attempt); the next beat retries.
+- Mail-sourced leads run through `bucket_classifier` + outreach qualification.
+  **Inbound senders are never cold-outreach targets** — anyone who has emailed
+  us is `cold_outreach_blocked` and routed to
+  `email_automation.warm_outreach_queue` for human follow-up.
+
 ## Tests
 
 ```bash
@@ -149,6 +212,7 @@ python -m pytest backend/tests/test_bedrock_client.py \
                  backend/tests/test_bucket_classifier.py \
                  backend/tests/test_outreach_qualification.py \
                  backend/tests/test_outreach_mailer.py \
+                 backend/tests/test_mail_pool_ai.py \
                  backend/tests/test_batch_and_sns.py -q
 ```
 

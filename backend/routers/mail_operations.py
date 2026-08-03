@@ -425,3 +425,21 @@ async def get_followup_drafts(
     except Exception as e:
         logger.error(f"Error listing follow-up drafts: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/ai-stats")
+async def get_mail_ai_stats() -> Dict[str, Any]:
+    """
+    Mail-desk operational stats: processed / prefiltered / pending counts, the
+    rule-vs-AI prefilter disagreement rate (last 7 days), and cumulative
+    Bedrock token usage by model (last 7 days) for cost auditing.
+    """
+    try:
+        try:
+            from sales.mail_pool_ai import ai_stats
+        except ImportError:
+            from backend.sales.mail_pool_ai import ai_stats
+        return {"success": True, **ai_stats()}
+    except Exception as e:
+        logger.error(f"Error computing mail AI stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

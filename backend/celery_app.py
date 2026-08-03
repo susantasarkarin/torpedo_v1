@@ -149,6 +149,14 @@ celery_app.conf.update(
             'kwargs': {'limit': 50},
             'options': {'queue': 'ai_processing'},
         },
+        'mail-pool-ai-prefilter-audit': {
+            # Nightly (02:00 UTC): re-check a random sample of rule-prefiltered
+            # -out emails with the cheap model; records disagreements so a
+            # too-aggressive rule filter eating real client mail is caught.
+            'task': 'backend.tasks.mail_pool_ai_tasks.audit_prefiltered_mail',
+            'schedule': crontab(hour=2, minute=0),
+            'options': {'queue': 'ai_processing'},
+        },
         'yield-abandoned-session-sweep': {
             # Hourly: count never-returned Cint redirects as abandoned
             # entrants so conversion reflects wasted clicks and the

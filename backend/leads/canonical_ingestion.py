@@ -773,6 +773,12 @@ def _auto_enroll_in_outreach(lead_data: Dict[str, Any], enriched_id: str) -> Non
     if not basket or basket == 'E' or not email:
         return
 
+    # Inbound correspondents (anyone who has emailed us) are never cold-outreach
+    # targets — cold-templating an existing correspondent is worse than silence.
+    # The mail-desk sets this flag; such leads go to the warm/ queue instead.
+    if lead_data.get('cold_outreach_blocked'):
+        return
+
     try:
         _torpedo_db = _get_torpedo_db()
         campaigns_col = _torpedo_db['outreach_campaigns_v2']

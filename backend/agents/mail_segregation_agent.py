@@ -31,7 +31,30 @@ mongo_client = MongoClient(MONGO_URI)
 
 # Email source collection - stores all incoming emails from Gmail
 torpedo_gmail_db = mongo_client["torpedo_gmail"]
-mail_pool_emails = torpedo_gmail_db["email_metadata"]  # Uses existing field: ai_classification_status
+mail_pool_emails = torpedo_gmail_db["email_metadata"]
+
+# HONEST NAMING: this layer is rule-based, not AI. Its per-email verdict is
+# stored under `rule_classification_status`. The old field name
+# `ai_classification_status` was misleading (nothing here is a model) and is
+# read as a fallback during migration — writes go only to the new field, and
+# `backfill_mail_segments.py` / a one-off copy can retire the legacy field.
+RULE_STATUS_FIELD = "rule_classification_status"
+LEGACY_RULE_STATUS_FIELD = "ai_classification_status"
+
+
+def _classified_filter(exists: bool = True) -> Dict[str, Any]:
+    """Match docs already (or not yet) rule-classified under either field name."""
+    if exists:
+        return {"$or": [{RULE_STATUS_FIELD: {"$exists": True}},
+                        {LEGACY_RULE_STATUS_FIELD: {"$exists": True}}]}
+    return {RULE_STATUS_FIELD: {"$exists": False},
+            LEGACY_RULE_STATUS_FIELD: {"$exists": False}}
+
+
+def _segment_expr():
+    """Aggregation expression for the segment across both field names (new wins)."""
+    return {"$ifNull": [f"${RULE_STATUS_FIELD}.segment",
+                        f"${LEGACY_RULE_STATUS_FIELD}.segment"]}
 
 # Email automation database - where classification results are stored
 email_automation_db = mongo_client["email_automation"]
@@ -436,6 +459,20 @@ class MailSegregationAgent:
                             "No category rules matched",
                             is_promotional=False, requires_response=False, priority="low")
 
+    def classify(self, email: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Public rule-based classification (wraps _classify_email). Used as the
+        Stage-1 prefilter by the AI mail-desk (sales/mail_pool_ai.py): its
+        cheap, deterministic segment decides whether an email is worth a paid
+        Bedrock call. Returns {segment, category, confidence, reasoning,
+        metadata}.
+
+        NOTE: there is deliberately no RFQ rule here. RFQ detection is semantic
+        and lives ONLY in the AI layer — do not add keyword RFQ rules, they
+        would silently disagree with the model's classification.
+        """
+        return self._classify_email(email)
+
     @staticmethod
     def _result(segment: str, category: str, confidence: float, reasoning: str,
                 is_promotional: bool, requires_response: bool, priority: str) -> Dict[str, Any]:
@@ -469,9 +506,11 @@ class MailSegregationAgent:
 
             if force_rescan:
                 total_emails = mail_pool_emails.count_documents({})
-                mail_pool_emails.update_many({}, {"$unset": {"ai_classification_status": ""}})
+                # Clear BOTH the new and legacy fields on a forced rescan.
+                mail_pool_emails.update_many(
+                    {}, {"$unset": {RULE_STATUS_FIELD: "", LEGACY_RULE_STATUS_FIELD: ""}})
             else:
-                total_emails = mail_pool_emails.count_documents({"ai_classification_status": {"$exists": False}})
+                total_emails = mail_pool_emails.count_documents(_classified_filter(exists=False))
 
             logger.info(f"Found {total_emails} emails to segregate")
 
@@ -480,7 +519,7 @@ class MailSegregationAgent:
 
             while True:
                 batch = list(mail_pool_emails.find(
-                    {"ai_classification_status": {"$exists": False}} if not force_rescan else {}
+                    _classified_filter(exists=False) if not force_rescan else {}
                 ).limit(batch_size))
 
                 if not batch:
@@ -506,7 +545,7 @@ class MailSegregationAgent:
 
                         pool_ops.append(UpdateOne(
                             {"_id": email["_id"]},
-                            {"$set": {"ai_classification_status": classification_data}}
+                            {"$set": {RULE_STATUS_FIELD: classification_data}}
                         ))
 
                         classified_ops.append(UpdateOne(
@@ -680,7 +719,11 @@ class MailSegregationAgent:
         try:
             query: Dict[str, Any] = {}
             if segment_name:
-                query["ai_classification_status.segment"] = segment_name
+                # Read-compat: match the segment under either field name.
+                query["$or"] = [
+                    {f"{RULE_STATUS_FIELD}.segment": segment_name},
+                    {f"{LEGACY_RULE_STATUS_FIELD}.segment": segment_name},
+                ]
 
             if date_from or date_to:
                 date_query: Dict[str, Any] = {}
@@ -745,8 +788,8 @@ class MailSegregationAgent:
         """Generate summaries for all classified segments."""
         try:
             segments = mail_pool_emails.aggregate([
-                {"$match": {"ai_classification_status": {"$exists": True}}},
-                {"$group": {"_id": "$ai_classification_status.segment", "count": {"$sum": 1}}},
+                {"$match": _classified_filter(exists=True)},
+                {"$group": {"_id": _segment_expr(), "count": {"$sum": 1}}},
                 {"$sort": {"count": -1}}
             ])
 
@@ -988,11 +1031,11 @@ class MailSegregationAgent:
     def get_segregation_stats(self) -> Dict[str, Any]:
         try:
             total = mail_pool_emails.count_documents({})
-            classified = mail_pool_emails.count_documents({"ai_classification_status": {"$exists": True}})
+            classified = mail_pool_emails.count_documents(_classified_filter(exists=True))
 
             segment_breakdown = list(mail_pool_emails.aggregate([
-                {"$match": {"ai_classification_status": {"$exists": True}}},
-                {"$group": {"_id": "$ai_classification_status.segment", "count": {"$sum": 1}}},
+                {"$match": _classified_filter(exists=True)},
+                {"$group": {"_id": _segment_expr(), "count": {"$sum": 1}}},
                 {"$sort": {"count": -1}}
             ]))
 
