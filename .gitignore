@@ -172,3 +172,6 @@ backend/celerybeat-schedule
 backend/leads/.backfill_checkpoint.json
 backend/leads/.backfill_batch_preview.jsonl
 outreach/preview/
+
+# Local copies of VM-only work pulled down before a deploy
+vm-backups/

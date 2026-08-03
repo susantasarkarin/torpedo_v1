@@ -27,8 +27,33 @@ jobs:
           script: |
             set -e
             cd /var/www/campaign_platform
+
+            # This VM carries edits that exist in no git history (the QRE
+            # routes are maintained directly on the box). `git reset --hard`
+            # below would silently destroy them, so snapshot first and
+            # re-apply after. Backups are kept, never overwritten.
+            mkdir -p /root/backups
+            BACKUP="/root/backups/predeploy-$(date +%Y%m%d-%H%M%S).patch"
+            git diff > "$BACKUP"
+            if [ -s "$BACKUP" ]; then
+              echo "Saved VM-local changes -> $BACKUP"
+            else
+              rm -f "$BACKUP"
+            fi
+
             git fetch origin main
             git reset --hard origin/main
+
+            # Re-apply VM-local edits. A conflict must warn, not fail the
+            # deploy: the snapshot above is the recovery path.
+            if [ -n "$BACKUP" ] && [ -s "$BACKUP" ]; then
+              if git apply --3way "$BACKUP"; then
+                echo "Re-applied VM-local changes"
+              else
+                echo "WARNING: could not re-apply $BACKUP - restore manually" >&2
+              fi
+            fi
+
             source /var/www/campaign_platform/backend/venv/bin/activate
             pip install -r /var/www/campaign_platform/backend/requirements-outreach.txt
             sudo systemctl restart torpedo-backend torpedo-sales-worker
