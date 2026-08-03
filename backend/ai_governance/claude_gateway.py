@@ -104,7 +104,7 @@ class ClaudeGateway:
     def generate(self, prompt: str, system: Optional[str] = None,
                  model: Optional[str] = None, max_tokens: int = 16000,
                  json_only: bool = False, task_type: str = "generate",
-                 caller: str = "") -> str:
+                 caller: str = "", temperature: Optional[float] = None) -> str:
         """Governed single-turn generation. Returns the text response."""
         _governance_gate()
         model = model or DEFAULT_MODEL
@@ -115,8 +115,11 @@ class ClaudeGateway:
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        response = self._client_or_create().chat.completions.create(
+        kwargs: Dict[str, Any] = dict(
             model=model, max_tokens=max_tokens, messages=messages)
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        response = self._client_or_create().chat.completions.create(**kwargs)
         _log_usage(task_type, model, response.usage, caller)
         text = (response.choices[0].message.content or "").strip()
         return _strip_markdown_json(text) if json_only else text

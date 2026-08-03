@@ -77,8 +77,14 @@ class LeadSchedulerState:
     """Persistent scheduler state stored in MongoDB"""
     
     def __init__(self):
-        self.load_state()
-    
+        try:
+            self.load_state()
+        except Exception as e:
+            # MongoDB unreachable at import time — boot with in-memory
+            # defaults so the API can start; state persists once DB is back.
+            print(f"[scheduler] Could not load state from DB, using defaults: {e}")
+            self._set_defaults()
+
     def load_state(self):
         """Load state from database"""
         state = scheduler_state_collection.find_one({"_id": "lead_scheduler"})
@@ -99,7 +105,12 @@ class LeadSchedulerState:
             self.reset_state()
     
     def reset_state(self):
-        """Reset to default state"""
+        """Reset to default state and persist"""
+        self._set_defaults()
+        self.save_state()
+
+    def _set_defaults(self):
+        """Set default state in memory only (no DB write)"""
         self.is_running = False
         self.started_at = None
         self.last_run_at = None
@@ -112,8 +123,7 @@ class LeadSchedulerState:
         self.leads_per_icp = {}
         self.error_count = 0
         self.last_error = None
-        self.save_state()
-    
+
     def save_state(self):
         """Persist state to database"""
         scheduler_state_collection.update_one(
@@ -170,20 +180,11 @@ scheduler_thread: Optional[Thread] = None
 
 # ============== SEARCH QUERY GENERATOR ==============
 
-# Industry modifiers for query variety
-INDUSTRIES = [
-    "Technology", "Software", "SaaS", "IT", "Finance", "Banking", "FinTech",
-    "Healthcare", "HealthTech", "Biotech", "Pharmaceuticals", "Manufacturing",
-    "Retail", "E-commerce", "Marketing", "Digital Marketing", "Advertising",
-    "Consulting", "Management Consulting", "Telecommunications", "Insurance",
-    "Real Estate", "PropTech", "Automotive", "Energy", "CleanTech", "Education",
-    "EdTech", "Media", "Entertainment", "Logistics", "Supply Chain", "FMCG",
-    "Consumer Goods", "B2B", "Enterprise", "Startup", "Venture Capital",
-    "Private Equity", "Investment Banking", "Wealth Management", "HR", "HRTech",
-    "Legal", "LegalTech", "Construction", "Architecture", "Design", "Gaming",
-    "Cybersecurity", "Cloud", "AI", "Machine Learning", "Data Science",
-    "Analytics", "IoT", "Blockchain", "Crypto", "Web3"
-]
+# NOTE: There is deliberately no global INDUSTRIES list here any more.
+# Industry terms MUST come from the caller's own ICP config (icp_config.py),
+# otherwise queries drift outside the ICP — e.g. the BIM ICP was emitting
+# '"BIM Manager" Crypto India' because a generic 60-industry list was sampled
+# instead of the ICP's own `industries`.
 
 # Seniority variations for different queries
 SENIORITY_KEYWORDS = {
@@ -210,20 +211,26 @@ def generate_search_queries(config: dict, count: int = 10) -> List[str]:
     """
     Generate diverse search queries based on configuration.
     
+    Industry terms are drawn ONLY from config["industries"] (the active ICP's
+    own list). If the config defines no industries, the industry term is
+    omitted entirely — never substituted from a generic global list.
+
     Args:
-        config: Search configuration with designations, countries, seniorities
+        config: Search configuration with designations, countries, seniorities,
+                industries
         count: Number of queries to generate
-        
+
     Returns:
         List of search query strings
     """
     queries = []
-    
+
     designations = config.get("designations", [])
     countries = config.get("countries", [])
     seniorities = config.get("seniorities", [])
+    industries = config.get("industries", []) or []
     custom_query = config.get("custom_query", "")
-    
+
     # If no config provided, use defaults
     if not designations and not seniorities:
         designations = ["CEO", "CTO", "Founder", "VP", "Director", "Manager"]
@@ -244,10 +251,11 @@ def generate_search_queries(config: dict, count: int = 10) -> List[str]:
             keywords = SENIORITY_KEYWORDS.get(seniority, [seniority])
             parts.append(f'"{random.choice(keywords)}"')
         
-        # Random industry
-        if random.random() > 0.3:  # 70% chance to add industry
-            parts.append(random.choice(INDUSTRIES))
-        
+        # Random industry — ICP-scoped only. No industries configured means
+        # no industry term (rather than drifting outside the ICP).
+        if industries and random.random() > 0.3:  # 70% chance to add industry
+            parts.append(random.choice(industries))
+
         # Random country/region
         if countries:
             parts.append(random.choice(countries))
@@ -913,8 +921,11 @@ async def scheduler_loop():
                 active_icps = []
 
             if active_icps:
-                # Round-robin over ICPs to generate queries and run searches
+                # Round-robin over ICPs to generate queries and run searches.
+                # Names are collected alongside tasks so result labels can never
+                # drift out of alignment with the gather() results.
                 icp_search_tasks = []
+                icp_names = []
                 for icp in active_icps:
                     icp_slug = icp["slug"]
                     icp_budget = icp.get("daily_budget", DAILY_TARGET // max(len(active_icps), 1))
@@ -922,27 +933,31 @@ async def scheduler_loop():
                     if already_today >= icp_budget:
                         print(f"[Scheduler] ICP '{icp_slug}' budget reached ({already_today}/{icp_budget}), skipping")
                         continue
-                    # Build config for query generation from ICP fields
-                    icp_config = {
-                        "designations": icp.get("designations", []),
-                        "countries": icp.get("countries", []),
-                        "seniorities": icp.get("seniority_levels", []),
-                        "custom_query": icp.get("custom_context", ""),
-                        "industries": icp.get("industries", []),
-                    }
-                    queries = generate_search_queries(icp_config, QUERIES_PER_BATCH)
+                    # AI-generated queries via Bedrock, with automatic fallback
+                    # to the template builder. Budget is enforced inside.
+                    from .icp_query_ai import generate_icp_queries
+                    queries = generate_icp_queries(
+                        icp,
+                        QUERIES_PER_BATCH,
+                        leads_per_icp=scheduler_state.leads_per_icp,
+                    )
+                    if not queries:
+                        continue
                     icp_search_tasks.append(
                         run_search_batch(queries, scheduler_state, icp_segment=icp_slug)
                     )
+                    icp_names.append(f"Search[{icp_slug}]")
 
                 if not icp_search_tasks:
                     # All ICPs hit their daily budget — fall through to generic search for remaining budget
                     queries = generate_search_queries(scheduler_state.search_config, QUERIES_PER_BATCH)
                     icp_search_tasks = [run_search_batch(queries, scheduler_state)]
+                    icp_names = ["Search"]
             else:
                 # No ICPs configured — use generic query generation (backwards-compatible)
                 queries = generate_search_queries(scheduler_state.search_config, QUERIES_PER_BATCH)
                 icp_search_tasks = [run_search_batch(queries, scheduler_state)]
+                icp_names = ["Search"]
             
             # ================================================================
             # RUN ALL 6 TASKS IN PARALLEL using asyncio.gather
@@ -967,11 +982,10 @@ async def scheduler_loop():
                 return_exceptions=True
             )
 
-            # Rebuild task names dynamically to match gather results
-            icp_names = [f"Search[{icp['slug']}]" for icp in active_icps if scheduler_state.leads_per_icp.get(icp['slug'], 0) < icp.get('daily_budget', DAILY_TARGET)] if active_icps else ["Search"]
-            if not icp_names:
-                icp_names = ["Search"]
-            
+            # icp_names was built alongside icp_search_tasks above, so the two
+            # stay aligned by construction (previously they were derived
+            # independently and could silently mislabel results).
+
             # ================================================================
             # PROCESS ALL RESULTS (ICP search tasks + 5 fixed tasks)
             # ================================================================

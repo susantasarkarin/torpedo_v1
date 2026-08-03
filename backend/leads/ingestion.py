@@ -449,28 +449,15 @@ def normalize_lead_data(item: dict) -> dict:
     }
 
 
-async def extract_leads_from_google_results(search_results: List[dict], query: str) -> List[dict]:
-    """
-    Extract leads from Google search results using Claude (Anthropic).
-    Falls back to regex parsing if Anthropic key is unavailable.
-    """
-    import os
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
-    if not anthropic_key:
-        # Try to load from torpedo_settings
-        try:
-            settings_db = client["torpedo_settings"]
-            stored = settings_db["app_settings"].find_one({"_id": "app_config"})
-            if stored:
-                anthropic_key = stored.get("anthropic_api_key", "")
-        except Exception:
-            pass
+EXTRACTION_SYSTEM_PROMPT = "You extract structured lead data. You return only valid JSON."
 
-    if not anthropic_key:
-        # Fallback to regex parsing
-        leads = [parse_google_search_result(item) for item in search_results]
-        return [l for l in leads if l]
 
+def build_extraction_prompt(search_results: List[dict], query: str) -> str:
+    """
+    The extraction prompt, shared by the on-demand path below and by
+    backfill_enrich --batch (which submits the same prompts as a Bedrock
+    batch job). Keep the two paths on one prompt so results are comparable.
+    """
     search_context = []
     for item in search_results:
         search_context.append({
@@ -479,7 +466,7 @@ async def extract_leads_from_google_results(search_results: List[dict], query: s
             "snippet": item.get("snippet", "")
         })
 
-    extraction_prompt = f"""Extract LinkedIn profile information from these Google search results.
+    return f"""Extract LinkedIn profile information from these Google search results.
 
 Query: {query}
 
@@ -501,40 +488,56 @@ Return a JSON object with a "leads" array. Each lead must have:
 Only include profiles with a valid linkedin.com/in/ URL. Skip company pages, group pages, or directories.
 Return ONLY the JSON object, no markdown."""
 
-    try:
-        import anthropic
-        client_ai = anthropic.Anthropic(api_key=anthropic_key)
-        response = client_ai.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=2048,
-            messages=[{"role": "user", "content": extraction_prompt}]
-        )
-        content = response.content[0].text.strip()
-        # Strip markdown code fences if present
-        if content.startswith("```"):
-            content = re.sub(r"^```[a-z]*\n?", "", content)
-            content = re.sub(r"\n?```$", "", content)
-        data = json.loads(content)
-        parsed_leads = data.get("leads", [])
-        if not isinstance(parsed_leads, list):
-            parsed_leads = []
 
-        leads = []
-        for item in parsed_leads:
-            lead = normalize_lead_data(item)
-            # Add email_candidate if present
-            email_candidate = str(item.get("email_candidate", "")).strip()
-            if email_candidate and "@" in email_candidate:
-                lead["email_candidate"] = email_candidate
-            if lead.get("name") and lead.get("linkedin_url"):
-                leads.append(lead)
+def parse_extracted_leads(data: Optional[dict]) -> List[dict]:
+    """
+    Turn a parsed extraction response into normalized, filtered leads.
+    Shared by the on-demand path and backfill --batch result ingestion, so the
+    name/linkedin_url discard rule applies identically in both.
+    """
+    parsed_leads = (data or {}).get("leads", [])
+    if not isinstance(parsed_leads, list):
+        parsed_leads = []
+
+    leads = []
+    for item in parsed_leads:
+        if not isinstance(item, dict):
+            continue
+        lead = normalize_lead_data(item)
+        email_candidate = str(item.get("email_candidate", "")).strip()
+        if email_candidate and "@" in email_candidate:
+            lead["email_candidate"] = email_candidate
+        if lead.get("name") and lead.get("linkedin_url"):
+            leads.append(lead)
+    return leads
+
+
+async def extract_leads_from_google_results(search_results: List[dict], query: str) -> List[dict]:
+    """
+    Extract leads from Google search results via Bedrock (role="cheap").
+    Falls back to regex parsing if the model call fails or will not parse.
+    """
+    extraction_prompt = build_extraction_prompt(search_results, query)
+
+    try:
+        from .bedrock_client import converse_json_object
+
+        data = converse_json_object(
+            role="cheap",
+            system=EXTRACTION_SYSTEM_PROMPT,
+            user=extraction_prompt,
+            max_tokens=2048,
+            temperature=0.0,
+        )
+        leads = parse_extracted_leads(data)
 
         if leads:
-            logger.info(f"[Claude extraction] Extracted {len(leads)} leads from {len(search_results)} results")
+            logger.info(f"[Bedrock extraction] Extracted {len(leads)} leads from {len(search_results)} results")
             return leads
+        logger.warning("[Bedrock extraction] No usable leads parsed — falling back to regex")
 
     except Exception as e:
-        logger.warning(f"[Claude extraction] Failed: {e} — falling back to regex")
+        logger.warning(f"[Bedrock extraction] Failed: {e} — falling back to regex")
 
     # Regex fallback
     leads = [parse_google_search_result(item) for item in search_results]

@@ -78,9 +78,5 @@ from .batch_enrichment import (
     get_batch_stats
 )
 
-# Optimized Scheduler
-from .scheduler_optimized import (
-    start_optimized_scheduler,
-    stop_optimized_scheduler,
-    get_optimized_status
-)
+# NOTE: scheduler_optimized was removed — it was never wired to any route and
+# its search call used a signature that does not exist. See RUNBOOK/git history.

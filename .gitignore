@@ -167,3 +167,8 @@ build-output.txt
 *_recovery.csv
 lead_gen_venv/
 backend/celerybeat-schedule
+
+# Lead-pipeline runtime artifacts
+backend/leads/.backfill_checkpoint.json
+backend/leads/.backfill_batch_preview.jsonl
+outreach/preview/

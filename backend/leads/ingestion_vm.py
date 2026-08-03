@@ -378,13 +378,14 @@ def normalize_lead_data(item: dict) -> dict:
 
 
 async def extract_leads_from_google_results(search_results: List[dict], query: str) -> List[dict]:
-    """Extract structured leads from Google CSE results using Claude, with regex fallback."""
-    anthropic_key = get_anthropic_api_key()
-    if not anthropic_key:
-        logger.warning("No Anthropic key, using regex parsing for Google search results")
-        leads = [parse_google_search_result(item) for item in search_results]
-        return [lead for lead in leads if lead]
+    """
+    Extract structured leads from Google CSE results using Claude on AWS
+    Bedrock, routed through the governed gateway (daily spend cap + cost
+    logging), with regex fallback.
 
+    Previously called anthropic.Anthropic() directly with no base_url, which
+    went to Anthropic's public API and bypassed both Bedrock and governance.
+    """
     search_context = []
     for item in search_results:
         search_context.append({
@@ -416,21 +417,16 @@ Only include real people with a valid linkedin.com/in/ URL. Exclude company page
 Return only valid JSON. No markdown fences."""
 
     try:
-        import anthropic
+        from .bedrock_client import converse_json_object
 
-        client_ai = anthropic.Anthropic(api_key=anthropic_key)
-        response = client_ai.messages.create(
-            model="claude-haiku-4-5",
+        data = converse_json_object(
+            role="cheap",
+            system="You extract structured lead data. You return only valid JSON.",
+            user=extraction_prompt,
             max_tokens=2048,
-            messages=[{"role": "user", "content": extraction_prompt}]
+            temperature=0.0,
         )
-        content = response.content[0].text.strip()
-        if content.startswith("```"):
-            content = re.sub(r"^```[a-zA-Z0-9_-]*\n?", "", content)
-            content = re.sub(r"\n?```$", "", content)
-
-        data = json.loads(content)
-        parsed_leads = data.get("leads", [])
+        parsed_leads = (data or {}).get("leads", [])
         if not isinstance(parsed_leads, list):
             parsed_leads = []
 
@@ -441,10 +437,11 @@ Return only valid JSON. No markdown fences."""
                 leads.append(lead)
 
         if leads:
-            logger.info(f"[Claude extraction] Extracted {len(leads)} leads from {len(search_results)} results")
+            logger.info(f"[Bedrock extraction] Extracted {len(leads)} leads from {len(search_results)} results")
             return leads
+        logger.warning("[Bedrock extraction] No usable leads parsed - falling back to regex")
     except Exception as e:
-        logger.warning(f"[Claude extraction] Failed: {e} - falling back to regex")
+        logger.warning(f"[Bedrock extraction] Failed: {e} - falling back to regex")
 
     leads = [parse_google_search_result(item) for item in search_results]
     return [lead for lead in leads if lead]
