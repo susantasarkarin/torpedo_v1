@@ -1,4 +1,4 @@
-name: Deploy to Google Cloud VM
+name: Deploy to production VM
 
 on:
   push:
@@ -21,9 +21,14 @@ jobs:
       - name: SSH into VM and deploy
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.GCP_VM_IP }}
+          # Host-neutral names: prod is the DigitalOcean droplet 139.59.32.72,
+          # NOT a GCP host. Set repo secrets DEPLOY_HOST + DEPLOY_SSH_KEY.
+          # (Renamed from GCP_VM_IP/GCP_SSH_KEY; deploy.yml was the only
+          # consumer, and this workflow has never executed, so nothing else
+          # breaks. The concrete host lives in the secret, not here.)
+          host: ${{ secrets.DEPLOY_HOST }}
           username: root
-          key: ${{ secrets.GCP_SSH_KEY }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             set -e
             cd /var/www/campaign_platform
@@ -48,14 +53,22 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-            # Re-apply VM-local edits. A conflict must warn, not fail the
-            # deploy: the snapshot above is the recovery path.
+            # Re-apply VM-local edits. A conflict must ABORT before any service
+            # restart: git apply --3way leaves conflict markers in the working
+            # tree on failure, and continuing would `systemctl restart` those
+            # markers straight into a running .py/.js file — shipping a syntax
+            # error into prod. Fail here instead; the services keep running the
+            # OLD (working) code, and the snapshot is the manual recovery path.
             if [ -n "$BACKUP" ] && [ -s "$BACKUP" ]; then
               if git apply --3way "$BACKUP"; then
                 git reset -q  # unstage what --3way staged; keep worktree edits
                 echo "Re-applied VM-local changes"
               else
-                echo "WARNING: could not re-apply $BACKUP - restore manually" >&2
+                echo "ERROR: could not cleanly re-apply VM-local changes." >&2
+                echo "Conflict markers are in the working tree; services were" >&2
+                echo "NOT restarted (still on previous code). Resolve manually" >&2
+                echo "against $BACKUP, then restart. Aborting deploy." >&2
+                exit 1
               fi
             fi
 
