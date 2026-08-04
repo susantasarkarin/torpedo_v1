@@ -28,7 +28,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote as _url_quote, unquote as _url_unquote
 
 from bson import ObjectId
@@ -36,6 +36,7 @@ from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, Requ
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, EmailStr
 from pymongo import MongoClient
+from pymongo import ReturnDocument as _ReturnDocument
 
 logger = logging.getLogger(__name__)
 
@@ -1497,8 +1498,45 @@ _BUSINESS_DISPLAY_NAME: Dict[str, str] = {
     "bimwave": "Susanta Sarkar",
 }
 
-# Daily send cap per sender email (AWS SES mailboxes are exempt)
-_DAILY_SEND_LIMIT_PER_MAILBOX = 2000
+# ── Daily send cap per sender email (AWS SES mailboxes are exempt) ──────────
+# Google Workspace hard-caps external recipients at 2,000/day/account. Sending
+# *at* that ceiling leaves no headroom for replies, manual mail or panel
+# invites from the same mailbox, and Gmail starts deferring well before it.
+# For cold outreach the reputation-safe working range is a few hundred a day,
+# so the default is deliberately far below the hard cap.
+_GMAIL_HARD_CAP = 2000
+
+try:
+    _DAILY_SEND_LIMIT_PER_MAILBOX = int(
+        os.getenv("OUTREACH_DAILY_LIMIT_PER_MAILBOX", "") or 500)
+except (TypeError, ValueError):
+    _DAILY_SEND_LIMIT_PER_MAILBOX = 500
+
+# Never allow the configured limit to reach Gmail's hard cap.
+_SAFETY_CEILING = int(_GMAIL_HARD_CAP * 0.9)  # 1800
+if _DAILY_SEND_LIMIT_PER_MAILBOX > _SAFETY_CEILING:
+    logger.warning(
+        "OUTREACH_DAILY_LIMIT_PER_MAILBOX=%s exceeds the safety ceiling %s "
+        "(Gmail hard cap %s) — clamping.",
+        _DAILY_SEND_LIMIT_PER_MAILBOX, _SAFETY_CEILING, _GMAIL_HARD_CAP)
+    _DAILY_SEND_LIMIT_PER_MAILBOX = _SAFETY_CEILING
+
+try:
+    _HOURLY_SEND_LIMIT_PER_MAILBOX = int(
+        os.getenv("OUTREACH_HOURLY_LIMIT_PER_MAILBOX", "") or 60)
+except (TypeError, ValueError):
+    _HOURLY_SEND_LIMIT_PER_MAILBOX = 60
+
+# Per-mailbox override, e.g. OUTREACH_DAILY_LIMIT__indira_at_surveyfieldwork_com=300
+def _daily_limit_for(from_email: str) -> int:
+    key = ("OUTREACH_DAILY_LIMIT__"
+           + from_email.replace("@", "_at_").replace(".", "_").replace("-", "_"))
+    try:
+        override = int(os.getenv(key, "") or 0)
+    except (TypeError, ValueError):
+        override = 0
+    limit = override or _DAILY_SEND_LIMIT_PER_MAILBOX
+    return min(limit, _SAFETY_CEILING)
 
 # â”€â”€ Per-mailbox 429 cooldown tracking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # {sender_email: datetime_when_cooldown_expires}  â€” in-memory, resets on restart
@@ -1652,18 +1690,206 @@ def _set_mailbox_cooldown(sender_email: str, retry_after_str: str = ""):
     logger.warning(f"[Outreach] Mailbox {sender_email} in cooldown until {cooldown_until.isoformat()}")
 
 
-def _sender_at_daily_limit(db, from_email: str) -> bool:
-    """Return True if this sender has hit the daily send cap.
-    AWS SES mailboxes are exempt (no limit)."""
+def _is_ses_mailbox(db, from_email: str) -> bool:
     mailbox = db["outreach_mailboxes"].find_one({"email_address": from_email})
-    if mailbox and mailbox.get("provider") == "ses":
+    return bool(mailbox and mailbox.get("provider") == "ses")
+
+
+def _sender_at_daily_limit(db, from_email: str) -> bool:
+    """Read-only check: has this sender hit its daily cap?
+    Used for reporting. The send path uses _reserve_daily_send_slot()."""
+    if _is_ses_mailbox(db, from_email):
         return False
+    return _sends_today(db, from_email) >= _daily_limit_for(from_email)
+
+
+def _sends_today(db, from_email: str) -> int:
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    sent_today = db["outreach_sends_v2"].count_documents({
+    return db["outreach_sends_v2"].count_documents({
         "from_email": from_email,
         "sent_at": {"$gte": today_start},
     })
-    return sent_today >= _DAILY_SEND_LIMIT_PER_MAILBOX
+
+
+def _quota_id(from_email: str) -> str:
+    return f"{from_email}:{datetime.utcnow().strftime('%Y-%m-%d')}"
+
+
+def _reserve_daily_send_slot(db, from_email: str) -> bool:
+    """
+    Atomically claim one send slot for today. Returns False when the mailbox is
+    already at its cap.
+
+    The previous implementation counted sends and then sent, which is not
+    atomic — concurrent workers each saw a count below the limit and all sent,
+    overshooting the cap (observed: 2,004 sends against a 2,000 limit, i.e.
+    past Gmail's hard ceiling). A single $inc is race-free.
+    """
+    if _is_ses_mailbox(db, from_email):
+        return True
+
+    limit = _daily_limit_for(from_email)
+    quota = db["outreach_daily_quota"]
+    qid = _quota_id(from_email)
+
+    # Seed today's counter from real send history the first time it is touched,
+    # so a mid-day deploy cannot hand out a fresh allowance.
+    if quota.count_documents({"_id": qid}, limit=1) == 0:
+        try:
+            quota.insert_one({
+                "_id": qid,
+                "from_email": from_email,
+                "day": datetime.utcnow().strftime("%Y-%m-%d"),
+                "count": _sends_today(db, from_email),
+                "limit": limit,
+                "created_at": datetime.utcnow(),
+            })
+        except Exception:
+            pass  # another worker inserted it first
+
+    doc = quota.find_one_and_update(
+        {"_id": qid},
+        {"$inc": {"count": 1}, "$set": {"limit": limit, "updated_at": datetime.utcnow()}},
+        return_document=_ReturnDocument.AFTER,
+    )
+    if not doc:
+        return False
+
+    if doc.get("count", 0) > limit:
+        # Over cap — hand the slot back so the counter stays truthful.
+        quota.update_one({"_id": qid}, {"$inc": {"count": -1}})
+        return False
+    return True
+
+
+def _release_daily_send_slot(db, from_email: str) -> None:
+    """Return a reserved slot after a send that never left the building."""
+    if _is_ses_mailbox(db, from_email):
+        return
+    try:
+        db["outreach_daily_quota"].update_one(
+            {"_id": _quota_id(from_email), "count": {"$gt": 0}},
+            {"$inc": {"count": -1}},
+        )
+    except Exception as e:
+        logger.debug(f"[Outreach] could not release quota slot: {e}")
+
+
+_AI_PERSONALISATION_ENABLED = (
+    os.getenv("OUTREACH_AI_PERSONALISATION", "true").lower() != "false")
+
+
+def _generate_personalised_email(
+    lead: Dict[str, Any],
+    campaign_ctx: Dict[str, Any],
+    business_label: str,
+    sender_name: str,
+    step_number: int,
+    fallback_subject: str = "",
+) -> Tuple[str, str]:
+    """
+    Write one email against this specific lead's profile, via Bedrock
+    (role="smart"). Returns ("", "") when the result is unusable so the caller
+    keeps the campaign template.
+
+    Only facts we actually hold about the lead are supplied; the prompt forbids
+    inventing anything else.
+    """
+    import html as _html
+
+    first_name = (
+        lead.get("first_name")
+        or (((lead.get("name") or "").split() or [""])[0])
+        or "there"
+    )
+    profile_lines = []
+    for label, value in (
+        ("Name", lead.get("name")),
+        ("Job title", lead.get("title")),
+        ("Company", lead.get("company_name") or lead.get("company")),
+        ("Industry", lead.get("company_industry") or lead.get("industry")),
+        ("Seniority", lead.get("seniority_level")),
+        ("Location", lead.get("location") or lead.get("country")),
+    ):
+        if value:
+            profile_lines.append(f"{label}: {value}")
+    profile = "\n".join(profile_lines) or "(only their email address is known)"
+
+    system = (
+        "You are a B2B cold-email copywriter. You write short, specific emails "
+        "grounded only in the facts given. You never invent details about the "
+        "recipient or their company. You return only valid JSON."
+    )
+    user = f"""Write ONE cold email, personalised to this specific person.
+
+--- OUR BUSINESS ---
+Company: {business_label}
+Value proposition: {campaign_ctx.get("value_proposition", "")}
+Ideal customer: {campaign_ctx.get("target_customer", "")}
+Sender: {sender_name} ({campaign_ctx.get("sender_title", "")})
+
+--- THIS RECIPIENT ---
+{profile}
+
+--- STEP ---
+{_STEP_INSTRUCTIONS.get(step_number, _STEP_INSTRUCTIONS[1])}
+
+--- RULES ---
+- Open by addressing them as "{first_name}".
+- Make the opening line specific to THEIR job title or industry above. This is
+  the line that must differ from every other email we send.
+- Do NOT claim knowledge of their projects, results, funding, headcount or
+  announcements. You know only the fields listed above.
+- No markdown, no bullet points, no HTML, no signature block.
+- Plain paragraphs separated by blank lines.
+
+Return JSON exactly: {{"subject": "...", "body": "..."}}"""
+
+    try:
+        from leads.bedrock_client import JSONParseError, converse_json_object
+    except ImportError:
+        from backend.leads.bedrock_client import JSONParseError, converse_json_object
+
+    try:
+        data = converse_json_object(
+            role="smart",
+            system=system,
+            user=user,
+            max_tokens=700,
+            temperature=0.7,
+        )
+    except JSONParseError as e:
+        # converse_json already retried once with a JSON reminder.
+        logger.warning("[Outreach] AI output was not parseable JSON: %s", e)
+        return "", ""
+
+    if not data:
+        return "", ""
+
+    subject = str(data.get("subject") or "").strip()
+    body = str(data.get("body") or "").strip()
+    if not subject or not body:
+        return "", ""
+
+    # Guardrails: reject output that is obviously unusable rather than mail it.
+    lowered = f"{subject}\n{body}".lower()
+    if any(bad in lowered for bad in ("[", "{{", "todo", "lorem ipsum",
+                                      "as an ai", "i cannot")):
+        logger.warning("[Outreach] AI output rejected (placeholder/refusal text)")
+        return "", ""
+    if first_name.lower() not in body.lower() and first_name != "there":
+        logger.warning("[Outreach] AI output rejected (recipient name missing)")
+        return "", ""
+    if len(body.split()) < 40:
+        logger.warning("[Outreach] AI output rejected (too short)")
+        return "", ""
+    if len(subject) > 90:
+        subject = fallback_subject or subject[:88]
+
+    paragraphs = [p.strip() for p in body.split("\n\n") if p.strip()]
+    body_html = "".join(
+        f"<p>{_html.escape(p).replace(chr(10), '<br>')}</p>" for p in paragraphs)
+    return subject, body_html
 
 
 # Per-business step context for AI generation
@@ -2063,15 +2289,19 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         business_label = BUSINESS_LABEL.get(business, business)
         campaign_ctx = campaign.get("business_context") or {}
 
-        # Daily send cap per mailbox (SES exempt)
-        if _sender_at_daily_limit(db, from_email):
+        # Daily send cap per mailbox (SES exempt). Atomically reserved so
+        # concurrent workers cannot collectively overshoot the cap.
+        if not _reserve_daily_send_slot(db, from_email):
             tomorrow = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
             db["outreach_leads_v2"].update_one(
                 {"_id": lead_record["_id"]},
                 {"$set": {"next_send_at": tomorrow, "updated_at": datetime.utcnow()}}
             )
-            logger.info(f"[Outreach] Daily limit reached for {from_email} â€” rescheduling {email} to tomorrow")
+            logger.info(
+                f"[Outreach] Daily cap {_daily_limit_for(from_email)} reached for "
+                f"{from_email} — rescheduling {email} to tomorrow")
             return False
+        _slot_reserved = True
 
         # â”€â”€ Pre-send bounce-risk guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         # For pattern-derived / guessed emails, check the domain's bounce history.
@@ -2111,6 +2341,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
                                 "updated_at": datetime.utcnow(),
                             }},
                         )
+                        _release_daily_send_slot(db, from_email)
                         return False
                     if _risk.get("high_bounce_risk") and _risk.get("confidence", 1.0) < 0.55:
                         skip_reason = (
@@ -2128,6 +2359,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
                                 "updated_at": datetime.utcnow(),
                             }},
                         )
+                        _release_daily_send_slot(db, from_email)
                         return False
             except Exception as _guard_err:
                 logger.debug(f"[Outreach] bounce-risk guard skipped: {_guard_err}")
@@ -2151,6 +2383,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
                     "updated_at": datetime.utcnow(),
                 }}
             )
+            _release_daily_send_slot(db, from_email)
             return False
 
         first_name = (
@@ -2173,8 +2406,36 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
                 text = text.replace(token, val)
             return text
 
+        # ── Content: AI-personalised per lead, template as fallback ─────────
+        # The template path only swaps {{tokens}}, so every recipient on a
+        # given campaign+step received a near-identical email. Generate against
+        # this lead's actual profile instead, and fall back to the template if
+        # generation fails or looks unusable.
         subject = _replace_tokens(step_template.get("subject", "(no subject)"))
         body_html = _replace_tokens(step_template.get("body_html", ""))
+        content_source = "template"
+
+        if _AI_PERSONALISATION_ENABLED:
+            try:
+                ai_subject, ai_body_html = _generate_personalised_email(
+                    lead=lead_record,
+                    campaign_ctx=campaign_ctx,
+                    business_label=business_label,
+                    sender_name=display_name,
+                    step_number=next_step_number,
+                    fallback_subject=subject,
+                )
+                if ai_subject and ai_body_html:
+                    subject, body_html = ai_subject, ai_body_html
+                    content_source = "ai"
+            except Exception as _ai_err:
+                logger.warning(
+                    "[Outreach] AI personalisation failed for %s (step %s): %s "
+                    "— falling back to template",
+                    email, next_step_number, _ai_err)
+
+        logger.info("[Outreach] content_source=%s lead=%s step=%s",
+                    content_source, lead_record.get("lead_id") or email, next_step_number)
 
         # Collect step attachments (CSV files, etc.) if any
         step_attachments = step_template.get("attachments") or []
@@ -2226,6 +2487,7 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             "click_count": 0,
             "clicks": [],
             "unsubscribed": False,
+            "content_source": content_source,
             "sent_at": now,
             "created_at": now,
         })
@@ -2283,6 +2545,10 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
             exc_info=True
         )
         _from = locals().get("from_email", "")
+        # The send never completed, so give the reserved quota slot back —
+        # otherwise repeated failures silently eat the day's allowance.
+        if _from and locals().get("_slot_reserved"):
+            _release_daily_send_slot(db, _from)
         # On Gmail 429, set mailbox cooldown, push lead out, and RE-RAISE
         # so the outer loop can skip remaining leads for this sender
         if '429' in err_str and 'rate' in err_str.lower():
