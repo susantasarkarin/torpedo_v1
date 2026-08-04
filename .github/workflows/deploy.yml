@@ -56,7 +56,12 @@ jobs:
 
             source /var/www/campaign_platform/backend/venv/bin/activate
             pip install -r /var/www/campaign_platform/backend/requirements-outreach.txt
-            sudo systemctl restart torpedo-backend torpedo-sales-worker
+            # Restart EVERY service that imports repo code. Restarting only
+            # backend+sales left celery workers from Jul 26 running pre-fix
+            # send code for days (found via content_source=None on all sends).
+            sudo systemctl restart torpedo-backend torpedo-sales-worker \
+              torpedo-linkedin-worker torpedo-linkedin-beat \
+              torpedo-panel-worker torpedo-lead-gen-mcp
             # Backend takes ~10-15s to bind :8000 — poll instead of a fixed sleep
             for i in $(seq 1 30); do
               if curl -sf -o /dev/null http://127.0.0.1:8000/docs; then

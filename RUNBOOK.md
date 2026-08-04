@@ -202,6 +202,29 @@ deploy.
   us is `cold_outreach_blocked` and routed to
   `email_automation.warm_outreach_queue` for human follow-up.
 
+## 6. Deployment (CI/CD)
+
+**The only deploy path is GitHub Actions** (`.github/workflows/deploy.yml`),
+triggered by every push to `main`: CI gate (smoke + lead-pipeline tests +
+frontend build) → SSH to the VM → snapshot VM-local edits to `/root/backups/`
+→ `git reset --hard origin/main` → re-apply the snapshot (`git apply --3way`)
+→ pip install → restart `torpedo-backend` + `torpedo-sales-worker` → health
+poll on `:8000/docs` → `npm run build` → nginx reload.
+
+- Secrets: `GCP_VM_IP` (=139.59.32.72 — DigitalOcean despite the name) and
+  `GCP_SSH_KEY` (dedicated key, comment `github-actions-deploy@campaign_platform`,
+  in the VM's `authorized_keys`). Rotate by generating a new keypair, appending
+  the pubkey on the VM, and updating the secret.
+- History: every run before 2026-08-04 failed at the SSH step — the old secrets
+  held an unparseable key and a dead GCP IP. A `*/5min` cron calling a deleted
+  `auto_pull.sh` was ALSO dead (removed; crontab backup at
+  `/root/backups/crontab-20260804.bak`). Do not reintroduce a second deployer.
+- The QRE files (`qre_backend/routes/studies.py`,
+  `Campaign_platform/src/services/qreApi.js`) exist only on the VM; the
+  snapshot/re-apply step is what keeps them alive through deploys.
+- Manual fallback (workflow down): run the same steps over SSH — snapshot
+  `git diff` first, always.
+
 ## Tests
 
 ```bash
@@ -213,7 +236,8 @@ python -m pytest backend/tests/test_bedrock_client.py \
                  backend/tests/test_outreach_qualification.py \
                  backend/tests/test_outreach_mailer.py \
                  backend/tests/test_mail_pool_ai.py \
-                 backend/tests/test_batch_and_sns.py -q
+                 backend/tests/test_batch_and_sns.py \
+                 backend/tests/test_outreach_send_caps.py -q
 ```
 
 (Name the files explicitly — three legacy test files in the same directory hang
