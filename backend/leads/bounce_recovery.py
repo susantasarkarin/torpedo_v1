@@ -48,6 +48,11 @@ from pymongo import MongoClient
 
 logger = logging.getLogger(__name__)
 
+# Attempt-2 alt-format guessing. Off by default — see the note at its call
+# site for the bounce-rate data that motivated this.
+_ALT_FORMAT_ENABLED = (
+    os.getenv("OUTREACH_BOUNCE_RECOVERY_ALT", "false").lower() == "true")
+
 # ---------------------------------------------------------------------------
 # Common email format templates (rules-based, attempt 2)
 # Placeholders: {first}, {last}, {f} (first initial), {l} (last initial)
@@ -251,6 +256,23 @@ def attempt_recovery(outreach_lead_id: str, bounced_email: str) -> Dict[str, Any
         # ----------------------------------------------------------------
         # Attempt 2 — rules-based format guessing
         # ----------------------------------------------------------------
+        # DISABLED BY DEFAULT. Measured 2026-08-03: this path enrolled 1,216
+        # guessed addresses in 24h and drove indira@ to 45.6% and meera@ to
+        # 44.2% bounce rates (susanta@, which this path does not feed, sat at
+        # 0.6%). Guessing up to 6 formats per contact manufactures bounces
+        # faster than the >60% domain blacklist can catch them, and mailbox
+        # providers suspend senders well below that.
+        # Set OUTREACH_BOUNCE_RECOVERY_ALT=true to re-enable once addresses
+        # come from a verified source rather than pattern guesses.
+        if recovery_attempt < 1 and not _ALT_FORMAT_ENABLED:
+            logger.info(
+                f"[BounceRecovery] alt-format guessing disabled — routing "
+                f"{outreach_lead_id} to human intervention instead"
+            )
+            _flag_human_intervention(db, leads_db, oid, lead_id, emails_tried,
+                                     "alt_format_disabled")
+            return {"action": "human_intervention", "reason": "alt_format_disabled"}
+
         if recovery_attempt < 1:
             new_email = _attempt_alt_format(first, last, domain, emails_tried)
             if new_email:
