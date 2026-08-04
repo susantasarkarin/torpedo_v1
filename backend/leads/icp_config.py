@@ -263,7 +263,9 @@ def score_lead_against_icp(lead: Dict[str, Any], icp: Dict[str, Any]) -> int:
     - Country/region match     → 2 pts
     - Seniority match          → 1 pt
 
-    Returns total score (0–8). Minimum threshold for assignment = 2.
+    Returns total score (0–8). Assignment threshold is enforced by
+    classify_lead_by_icp(), which requires score >= 4 (see below) — NOT 2, as
+    this docstring previously claimed.
     """
     score = 0
     matches = _collect_feature_matches(lead, icp)
@@ -283,7 +285,12 @@ def score_lead_against_icp(lead: Dict[str, Any], icp: Dict[str, Any]) -> int:
 def classify_lead_by_icp(lead: Dict[str, Any], active_icps: Optional[List[Dict[str, Any]]] = None) -> str:
     """
     Assign icp_segment to a lead using filter-based scoring.
-    Returns the slug of the best-matching ICP, or 'unknown' if none scores >= 2.
+    Returns the slug of the best-matching ICP, or 'unknown' if none scores >= 4.
+
+    The threshold is implemented below as `best_score = 3` plus a strict
+    `s > best_score` comparison, i.e. a lead must score at least 4 of a
+    possible 8. Practical consequence: a title match alone (3) is NOT enough,
+    and neither is location + seniority (3).
     """
     if active_icps is None:
         active_icps = get_active_icps()
