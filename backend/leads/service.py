@@ -443,12 +443,17 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
             logger.debug(f"Post-Gemini email pattern step failed (non-fatal): {_pat_err}")
         # ── END S3 GATE ─────────────────────────────────────────────────────
 
-        # Update raw lead status
+        # Update raw lead status. Clearing last_error matters for diagnosis:
+        # without it, a lead that failed and later succeeded keeps a stale
+        # error, and any "why did June fail" query counts leads that have
+        # since recovered. Same clear-on-success convention as
+        # background_job_scheduler.py:958.
         leads_raw_collection.update_one(
             {"_id": ObjectId(raw_lead_id)},
             {"$set": {
                 "classification_status": ClassificationStatus.CLASSIFIED.value,
-                "enriched_lead_id": enriched_id
+                "enriched_lead_id": enriched_id,
+                "last_error": None,
             }}
         )
         
@@ -473,10 +478,19 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
         
         return True, None
     else:
-        # Mark as failed
+        # Mark as failed, and PERSIST THE REASON. This previously wrote only the
+        # status and returned log.error_message to the caller, which discarded
+        # it — leaving 7,497 failed leads (77% from a single June 2026 cluster)
+        # with no recorded cause and no way to tell whether a replay would help.
+        # `last_error` matches the two existing writers on this same collection:
+        # service.py:290 (LeadRaw build error) and
+        # background_job_scheduler.py:970 (rule-based classifier).
         leads_raw_collection.update_one(
             {"_id": ObjectId(raw_lead_id)},
-            {"$set": {"classification_status": ClassificationStatus.FAILED.value}}
+            {"$set": {
+                "classification_status": ClassificationStatus.FAILED.value,
+                "last_error": (log.error_message or "unknown classification failure")[:300],
+            }}
         )
         return False, log.error_message
 
