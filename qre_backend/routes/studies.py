@@ -743,9 +743,70 @@ async def study_stats(study_id: str):
     }
 
 
+def _qid_sort_key(x):
+    """Natural sort: leading letters, then trailing number (S10, I3, Q41, A6...)."""
+    m = re.match(r'^([A-Za-z_]+)(\d+)$', x)
+    if m:
+        return (m.group(1), int(m.group(2)))
+    return (x, 0)
+
+
+def _build_study_export_rows(docs, meta_builder):
+    """
+    Convert respondent docs into export rows with MCQ expansion.
+    Multi-select questions (list values) are split into binary indicator
+    columns: Q6__c1, Q6__c2, ... = 1 if code selected, 0 otherwise.
+    Grid/dict questions are kept as JSON strings. Scalars pass through.
+    Returns (rows, meta_fields, q_col_order).
+    """
+    raw_rows = []
+    mcq_codes: dict = {}
+    scalar_qids = set()
+    dict_qids = set()
+
+    for doc in docs:
+        resp = doc.get("responses", {})
+        row_base = meta_builder(doc)
+        for qid, val in resp.items():
+            if isinstance(val, list):
+                mcq_codes.setdefault(qid, set()).update(str(v) for v in val)
+                row_base[qid] = val
+            elif isinstance(val, dict):
+                dict_qids.add(qid)
+                row_base[qid] = str(val)
+            else:
+                scalar_qids.add(qid)
+                row_base[qid] = str(val) if val is not None else ""
+        raw_rows.append(row_base)
+
+    all_qids = sorted(scalar_qids | set(mcq_codes) | dict_qids, key=_qid_sort_key)
+
+    q_columns = []
+    for qid in all_qids:
+        if qid in mcq_codes:
+            for code in sorted(mcq_codes[qid], key=lambda c: (len(c), c)):
+                q_columns.append((qid, code))
+        else:
+            q_columns.append((qid, None))
+
+    rows = []
+    for raw in raw_rows:
+        row = {k: v for k, v in raw.items() if not isinstance(v, list)}
+        for qid, code in q_columns:
+            if code is not None:
+                raw_val = raw.get(qid, [])
+                row[f"{qid}__c{code}"] = 1 if isinstance(raw_val, list) and code in [str(v) for v in raw_val] else 0
+            else:
+                row[qid] = raw.get(qid, "")
+        rows.append(row)
+
+    q_col_order = [f"{qid}__c{code}" if code is not None else qid for qid, code in q_columns]
+    return rows, q_col_order
+
+
 @router.get("/{study_id}/export")
 async def export_study_csv(study_id: str, status_filter: str = "completed"):
-    """Export study responses as CSV. status_filter: completed | all"""
+    """Export study responses as CSV. status_filter: completed | all. MCQs are expanded into separate binary columns."""
     import io, csv
     from fastapi.responses import StreamingResponse
 
@@ -754,13 +815,11 @@ async def export_study_csv(study_id: str, status_filter: str = "completed"):
     if status_filter == "completed":
         query["status"] = "completed"
 
-    cursor = db.respondents.find(query)
-    rows = []
-    all_q_ids = set()
-    async for doc in cursor:
-        resp = doc.get("responses", {})
-        all_q_ids.update(resp.keys())
-        row = {
+    meta = ["respondent_id", "study_id", "wave_id", "status", "termination_reason",
+            "nccs_grade", "nccs_band", "assigned_modules", "started_at", "completed_at"]
+
+    def _meta(doc):
+        return {
             "respondent_id": doc["_id"],
             "study_id": doc.get("study_id", ""),
             "wave_id": doc.get("wave_id", ""),
@@ -772,18 +831,14 @@ async def export_study_csv(study_id: str, status_filter: str = "completed"):
             "started_at": str(doc.get("started_at", "")),
             "completed_at": str(doc.get("completed_at", "")),
         }
-        for qid, val in resp.items():
-            row[qid] = ";".join(str(v) for v in val) if isinstance(val, list) else str(val)
-        rows.append(row)
 
-    if not rows:
+    docs = [doc async for doc in db.respondents.find(query)]
+    if not docs:
         return {"message": "No responses to export"}
 
-    sorted_q_ids = sorted(all_q_ids, key=lambda x: int(x.replace("Q", "")) if x.replace("Q", "").isdigit() else 0)
+    rows, q_col_order = _build_study_export_rows(docs, _meta)
     output = io.StringIO()
-    meta = ["respondent_id", "study_id", "wave_id", "status", "termination_reason",
-            "nccs_grade", "nccs_band", "assigned_modules", "started_at", "completed_at"]
-    writer = csv.DictWriter(output, fieldnames=meta + sorted_q_ids, extrasaction="ignore")
+    writer = csv.DictWriter(output, fieldnames=meta + q_col_order, extrasaction="ignore")
     writer.writeheader()
     for row in rows:
         writer.writerow(row)
@@ -798,6 +853,64 @@ async def export_study_csv(study_id: str, status_filter: str = "completed"):
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={fname}_{status_filter}.csv"},
     )
+
+
+@router.get("/{study_id}/export/spss")
+async def export_study_spss(study_id: str, status_filter: str = "completed"):
+    """Export study responses as an SPSS .sav file, scoped to this study. MCQs are expanded into separate binary columns."""
+    import tempfile, os as _os
+    import pandas as pd
+    import pyreadstat
+    from fastapi.responses import FileResponse
+
+    db = _db()
+    query = {"study_id": study_id}
+    if status_filter == "completed":
+        query["status"] = "completed"
+
+    meta = ["respondent_id", "study_id", "wave_id", "status", "termination_reason",
+            "nccs_grade", "nccs_band", "assigned_modules", "started_at", "completed_at"]
+
+    def _meta(doc):
+        return {
+            "respondent_id": doc["_id"],
+            "study_id": doc.get("study_id", ""),
+            "wave_id": doc.get("wave_id", ""),
+            "status": doc.get("status"),
+            "termination_reason": doc.get("termination_reason", ""),
+            "nccs_grade": doc.get("nccs_grade", ""),
+            "nccs_band": doc.get("nccs_band", ""),
+            "assigned_modules": ";".join(str(m) for m in doc.get("assigned_modules", [])),
+            "started_at": str(doc.get("started_at", "")),
+            "completed_at": str(doc.get("completed_at", "")),
+        }
+
+    docs = [doc async for doc in db.respondents.find(query)]
+    if not docs:
+        return {"message": "No responses to export"}
+
+    rows, q_col_order = _build_study_export_rows(docs, _meta)
+    all_cols = meta + q_col_order
+    df = pd.DataFrame(rows, columns=all_cols).fillna("")
+
+    study = await db.studies.find_one({"_id": study_id}, {"name": 1})
+    raw_name = (study["name"] if study else study_id).replace(" ", "_").lower()
+    fname_slug = re.sub(r"[^A-Za-z0-9_-]", "", raw_name) or study_id
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".sav", delete=False)
+    tmp.close()
+    try:
+        pyreadstat.write_sav(df, tmp.name, column_labels=all_cols)
+        fname = f"{fname_slug}_{status_filter}.sav"
+        return FileResponse(
+            tmp.name,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename={fname}"},
+            background=None,
+        )
+    except Exception:
+        _os.unlink(tmp.name)
+        raise
 
 
 # ---------- Client Dashboard (scoped) ----------

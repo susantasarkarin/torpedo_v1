@@ -82,11 +82,12 @@ export const qreApi = {
   // --- Export ---
   exportUrl: (type, studyId) => {
     const adminBase = `${QRE_API_BASE}/api/admin`;
-    if (type === "spss") return `${adminBase}/export/spss`;
     if (studyId) {
-      const statusFilter = type === "completed" ? "completed" : "all";
-      return `${QRE_API_BASE}/api/studies/${studyId}/export?status_filter=${statusFilter}`;
+      const statusFilter = type === "all" ? "all" : "completed";
+      const path = type === "spss" ? "export/spss" : "export";
+      return `${QRE_API_BASE}/api/studies/${studyId}/${path}?status_filter=${statusFilter}`;
     }
+    if (type === "spss") return `${adminBase}/export/spss`;
     if (type === "completed") return `${adminBase}/export`;
     return `${adminBase}/export/all`;
   },
@@ -95,11 +96,12 @@ export const qreApi = {
   downloadExport: async (type, studyId, filename) => {
     const adminBase = `${QRE_API_BASE}/api/admin`;
     let url;
-    if (type === "spss") {
+    if (studyId) {
+      const statusFilter = type === "all" ? "all" : "completed";
+      const path = type === "spss" ? "export/spss" : "export";
+      url = `${QRE_API_BASE}/api/studies/${studyId}/${path}?status_filter=${statusFilter}`;
+    } else if (type === "spss") {
       url = `${adminBase}/export/spss`;
-    } else if (studyId) {
-      const statusFilter = type === "completed" ? "completed" : "all";
-      url = `${QRE_API_BASE}/api/studies/${studyId}/export?status_filter=${statusFilter}`;
     } else if (type === "completed") {
       url = `${adminBase}/export`;
     } else {
