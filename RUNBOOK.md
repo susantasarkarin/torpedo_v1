@@ -230,9 +230,15 @@ poll on `:8000/docs` → `npm run build` → nginx reload.
   later. Check for live sessions first: recent `started_at`/`completed_at` in
   `qre_health_survey.respondents`.
 - Not restarted, intentionally: `sfw-api` (pm2, serves `/var/www/sfw_panel`,
-  a different repo) and `enrichment-runner` (pm2, stopped since ~May 2026;
-  enrichment now runs under celery `backend.tasks.enrichment_tasks` — starting
-  it would double-process).
+  a different repo). The `enrichment-runner` pm2 entry was **removed**
+  2026-08-04 — stopped since ~May, 3,269 restarts; lead classification is
+  driven by the leads scheduler inside `torpedo-backend` (verified: 59 leads
+  classified in the preceding 24h). Recoverable from
+  `/root/backups/pm2-processes-*.json`; the script remains at
+  `backend/scripts/run_enrichment.py` and can still be run by hand.
+- Note `backend.tasks.enrichment_tasks` appears in celery's `include` list but
+  is **not** in `beat_schedule` — nothing schedules it. Being importable is not
+  the same as running.
 - The QRE export work is now committed (`ea4a7e6`). The snapshot/re-apply step
   remains for any future VM-local edits — but prefer committing them.
 - Manual fallback (workflow down): run the same steps over SSH — snapshot
