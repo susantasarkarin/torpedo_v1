@@ -142,6 +142,9 @@ class SeniorityLevel(str, Enum):
     DIRECTOR = "Director"
     MANAGER = "Manager"
     IC = "IC"
+    # The model returns "Intern" for interns; without a member the whole
+    # classification was rejected (1 of 6 canary failures).
+    INTERN = "Intern"
     UNKNOWN = "Unknown"
 
 
@@ -196,6 +199,10 @@ class CompanySize(str, Enum):
     SMB = "SMB"
     MID_MARKET = "Mid-Market"
     ENTERPRISE = "Enterprise"
+    # Every sibling enum already had an Unknown/Other escape hatch; this one
+    # did not, so a model that honestly answered "Unknown" (it cannot always
+    # tell) had its ENTIRE classification rejected. 5 of 6 canary failures.
+    UNKNOWN = "Unknown"
 
 
 class Region(str, Enum):
@@ -530,6 +537,11 @@ class AIClassificationLog(BaseModel):
     success: bool
     error_message: Optional[str] = None
     confidence_score: Optional[float] = None
+
+    # Enum values the model returned that the schema did not recognise, e.g.
+    # ["company_size='Unknown'->Unknown"]. Populated by ai_classifier._coerce_enum.
+    # Queryable so model drift is measurable rather than only greppable in logs.
+    enum_drift: Optional[List[str]] = None
     
     # Performance
     tokens_used: int = 0

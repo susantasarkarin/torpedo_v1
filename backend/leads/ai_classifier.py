@@ -18,6 +18,7 @@ import os
 import re
 import json
 import time
+import logging
 import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, Tuple, List, Dict, Any
@@ -42,6 +43,47 @@ except ImportError:
     from backend.ai_governance.ai_gateway import get_ai_gateway
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+
+# ============== ENUM DRIFT TOLERANCE ==============
+
+def _coerce_enum(enum_cls, value, default, field_name: str,
+                 drift_sink: Optional[List[str]] = None):
+    """
+    Convert a model-supplied string into `enum_cls`, falling back to `default`
+    when the value is unrecognised — and LOGGING every fallback.
+
+    Why here and not a Pydantic validator: the enums are constructed by direct
+    call (`CompanySize(parsed.get(...))`) while building the arguments to
+    AIClassificationOutput. That ValueError is raised BEFORE pydantic ever sees
+    the data, so a field_validator on the model would never fire. The coercion
+    has to sit at the construction site.
+
+    Why fall back rather than reject: one unrecognised value used to discard an
+    otherwise-complete classification. In production that silently accumulated
+    7,497 failed leads, 5 of 6 sampled purely because CompanySize had no
+    "Unknown" member while every sibling enum did.
+
+    The WARNING is deliberately not optional. Silent coercion turns a loud
+    failure into invisible model drift, and invisible is exactly how the June
+    2026 cluster went undiagnosed for two months. If this line starts firing
+    often, the prompt and the enum have diverged and someone must look.
+    """
+    if value is None or value == "":
+        return default
+    try:
+        return enum_cls(value)
+    except ValueError:
+        logger.warning(
+            "enum drift: %s=%r is not a valid %s — coercing to %r. "
+            "Prompt and schema have diverged; widen the enum or fix the prompt.",
+            field_name, value, enum_cls.__name__, default.value,
+        )
+        if drift_sink is not None:
+            drift_sink.append(f"{field_name}={value!r}->{default.value}")
+        return default
 
 
 # ============== CONFIGURATION ==============
@@ -215,18 +257,29 @@ def classify_lead(lead: LeadRaw, source: str = "api",
             clean_content = re.sub(r"\s*```$", "", clean_content)
         parsed = json.loads(clean_content)
         
-        # Validate and create output with all company fields
+        # Validate and create output with all company fields.
+        # Enum values go through _coerce_enum so a single unrecognised value
+        # degrades that ONE field instead of rejecting the whole record —
+        # see the helper's docstring for why this is not a Pydantic validator.
+        _drift: List[str] = []
         result = AIClassificationOutput(
             first_name=parsed.get("first_name", ""),
             last_name=parsed.get("last_name", ""),
             predicted_email=parsed.get("predicted_email"),
-            seniority_level=SeniorityLevel(parsed.get("seniority_level", "Unknown")),
-            department=Department(parsed.get("department", "Other")),
-            persona=Persona(parsed.get("persona", "Practitioner")),
-            buying_role=BuyingRole(parsed.get("buying_role", "Unknown")),
-            gender=Gender(parsed.get("gender", "Unknown")),
-            company_size=CompanySize(parsed.get("company_size", "SMB")),
-            region=Region(parsed.get("region", "Other")),
+            seniority_level=_coerce_enum(SeniorityLevel, parsed.get("seniority_level"),
+                                         SeniorityLevel.UNKNOWN, "seniority_level", _drift),
+            department=_coerce_enum(Department, parsed.get("department"),
+                                    Department.OTHER, "department", _drift),
+            persona=_coerce_enum(Persona, parsed.get("persona"),
+                                 Persona.PRACTITIONER, "persona", _drift),
+            buying_role=_coerce_enum(BuyingRole, parsed.get("buying_role"),
+                                     BuyingRole.UNKNOWN, "buying_role", _drift),
+            gender=_coerce_enum(Gender, parsed.get("gender"),
+                                Gender.UNKNOWN, "gender", _drift),
+            company_size=_coerce_enum(CompanySize, parsed.get("company_size"),
+                                      CompanySize.UNKNOWN, "company_size", _drift),
+            region=_coerce_enum(Region, parsed.get("region"),
+                                Region.OTHER, "region", _drift),
             inferred_location=parsed.get("inferred_location"),
             company_name=parsed.get("company_name"),
             company_domain=parsed.get("company_domain"),
@@ -242,6 +295,10 @@ def classify_lead(lead: LeadRaw, source: str = "api",
             confidence_score=float(parsed.get("confidence_score", 0.5))
         )
         
+        if _drift:
+            # Record on the log doc so drift is queryable, not just greppable.
+            log.enum_drift = _drift
+
         log.parsed_output = result.model_dump()
         log.success = True
         log.confidence_score = result.confidence_score

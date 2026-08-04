@@ -270,6 +270,14 @@ Return all {len(leads_formatted)} leads with scores in the specified JSON format
                 
                 # 2. Company size scoring
                 company_size = str(lead.get("company_size", lead.get("company_employee_count", "")))
+                # "Unknown" is the classifier saying it could not tell — it is the
+                # ABSENCE of data, not data. Treat it like an empty string so it
+                # cannot earn the "some data > no data" credit below. This matters
+                # now that CompanySize.UNKNOWN exists (models.py): before it was
+                # added, such leads failed classification outright and never
+                # reached the scorer, so the truthiness check was harmless.
+                if company_size.strip() in ("Unknown", ""):
+                    company_size = ""
                 size_score = 0.0
                 if company_size and config.ideal_company_sizes:
                     if company_size in config.ideal_company_sizes:
