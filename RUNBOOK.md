@@ -219,9 +219,22 @@ poll on `:8000/docs` → `npm run build` → nginx reload.
   held an unparseable key and a dead GCP IP. A `*/5min` cron calling a deleted
   `auto_pull.sh` was ALSO dead (removed; crontab backup at
   `/root/backups/crontab-20260804.bak`). Do not reintroduce a second deployer.
-- The QRE files (`qre_backend/routes/studies.py`,
-  `Campaign_platform/src/services/qreApi.js`) exist only on the VM; the
-  snapshot/re-apply step is what keeps them alive through deploys.
+- **Processes, not just services.** Six systemd units run repo code
+  (`torpedo-backend`, `-sales-worker`, `-linkedin-worker`, `-linkedin-beat`,
+  `-panel-worker`, `-lead-gen-mcp`) plus `qre-backend` under **pm2**. All are
+  restarted by the deploy. A deploy that misses one ships nothing for that
+  process — celery workers once ran 8-day-old send code this way. Detect it
+  with `ps -eo lstart,cmd | grep -E 'celery|uvicorn'` after a deploy.
+- `qre-backend` is a survey backend: its restart drops in-flight respondents.
+  During active fielding, set `SKIP_QRE_RESTART=true` and restart manually
+  later. Check for live sessions first: recent `started_at`/`completed_at` in
+  `qre_health_survey.respondents`.
+- Not restarted, intentionally: `sfw-api` (pm2, serves `/var/www/sfw_panel`,
+  a different repo) and `enrichment-runner` (pm2, stopped since ~May 2026;
+  enrichment now runs under celery `backend.tasks.enrichment_tasks` — starting
+  it would double-process).
+- The QRE export work is now committed (`ea4a7e6`). The snapshot/re-apply step
+  remains for any future VM-local edits — but prefer committing them.
 - Manual fallback (workflow down): run the same steps over SSH — snapshot
   `git diff` first, always.
 

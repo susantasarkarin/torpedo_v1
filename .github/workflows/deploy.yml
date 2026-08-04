@@ -67,6 +67,20 @@ jobs:
             sudo systemctl restart torpedo-backend torpedo-sales-worker \
               torpedo-linkedin-worker torpedo-linkedin-beat \
               torpedo-panel-worker torpedo-lead-gen-mcp
+
+            # qre-backend runs under pm2, NOT systemd, so it never picked up
+            # deploys — its process had served Jul-26 code for 8 days. It is
+            # a survey backend: a restart drops any in-flight respondent, so
+            # skip it during active fielding by pushing with SKIP_QRE_RESTART
+            # set on the runner, or restart manually at a quiet moment.
+            # (sfw-api is also pm2 but serves /var/www/sfw_panel — not this
+            # repo — so it is deliberately left alone.)
+            if [ "${SKIP_QRE_RESTART:-}" = "true" ]; then
+              echo "SKIP_QRE_RESTART set - leaving qre-backend on old code"
+            elif pm2 describe qre-backend > /dev/null 2>&1; then
+              pm2 restart qre-backend --update-env
+              echo "qre-backend restarted"
+            fi
             # Backend takes ~10-15s to bind :8000 — poll instead of a fixed sleep
             for i in $(seq 1 30); do
               if curl -sf -o /dev/null http://127.0.0.1:8000/docs; then
