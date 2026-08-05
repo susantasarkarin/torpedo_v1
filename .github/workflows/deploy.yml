@@ -1,6 +1,11 @@
 name: Deploy to production VM
 
 on:
+  # Manual trigger so the FIRST run of this never-executed workflow is a
+  # deliberate, repeatable action from the Actions tab — not a side effect of
+  # a push to main. Test with a throwaway commit (D2), then the failure path
+  # (D3), before relying on the push trigger below.
+  workflow_dispatch:
   push:
     branches:
       - main
