@@ -793,14 +793,50 @@ def _auto_enroll_in_outreach(lead_data: Dict[str, Any], enriched_id: str) -> Non
 
         BASKET_BUSINESS_MAP = {'A': 'sfw', 'B': 'cogentix', 'C': 'bimwave'}
 
+        # ── ONE PERSON, ONE BRAND ────────────────────────────────────────────
+        # The dedup below used to be per-campaign ({email, campaign_id}), which
+        # never blocked the SAME person being enrolled into a DIFFERENT brand.
+        # A lead's basket is not stable across runs — it is recomputed as
+        # enrichment fills in industry/department/seniority — so a lead
+        # classified A today and B tomorrow accumulated an enrollment in each,
+        # and nothing ever removed the first. Measured 2026-08-06 in prod:
+        # 41,746 enrollment rows across 18,682 distinct people (2.2 each);
+        # 9,747 people enrolled in all three campaigns, of which 8,037 (82%)
+        # came from this drift rather than the dual-fit path. 2,402 addresses
+        # had already received cold email from all three brands.
+        #
+        # Rule: if this person is already enrolled in ANY active campaign, do
+        # not add another brand. The first enrollment wins; re-classification
+        # does not get to introduce a second sender.
+        existing = outreach_leads.find_one({
+            'email': email_lower,
+            'campaign_id': {'$in': [c['campaign_id'] for c in
+                                    campaigns_col.find({'is_active': True},
+                                                       {'campaign_id': 1})]},
+        })
+        if existing:
+            logger.info(
+                "Enrollment skipped for %s: already enrolled in campaign %s "
+                "(basket %s); not adding basket %s as a second brand.",
+                email_lower, existing.get('campaign_id'),
+                existing.get('classification_basket'), basket)
+            return
+
         if basket == 'D':
-            # Dual Fit: enroll into all 3 active campaigns with staggered starts
+            # Dual Fit means SFW + Cogentix — the two market-research lines.
+            # See the basket's own name: "Dual Fit: SFW + Cogentix"
+            # (compute_icp_basket, and icp_config SEG_TO_BASKET['dual_fit']).
+            # This list previously included 'bimwave', so a market-research
+            # dual fit also received BIM/AEC outsourcing pitches. Basket D is
+            # 11,291 of 20,639 classified leads (55%), so that single wrong
+            # list entry was the largest single source of off-target sends.
+            # A genuine AEC fit is basket C and is reached by the path below.
             SEQUENCE_DURATION_DAYS = 12
             DUAL_FIT_GAP_DAYS = 21
             sequence_window = SEQUENCE_DURATION_DAYS + DUAL_FIT_GAP_DAYS
             now = datetime.utcnow()
             campaigns_found = []
-            for biz in ['sfw', 'cogentix', 'bimwave']:
+            for biz in ['sfw', 'cogentix']:
                 c = campaigns_col.find_one({'business': biz, 'is_active': True})
                 if c:
                     campaigns_found.append((biz, c))
@@ -847,7 +883,8 @@ def _auto_enroll_in_outreach(lead_data: Dict[str, Any], enriched_id: str) -> Non
             return
         cid = campaign['campaign_id']
 
-        # Already enrolled?
+        # Already enrolled in THIS campaign? (the cross-campaign guard above
+        # already covers the other-brand case)
         if outreach_leads.find_one({'email': email_lower, 'campaign_id': cid}):
             return
 
