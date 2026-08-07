@@ -482,6 +482,24 @@ function Contacts() {
                           🔗 Client
                         </span>
                       )}
+                      {!contact.linked_customer && contact.pending_customer_company && (
+                        <span
+                          className="client-link-badge client-link-badge--pending"
+                          title={`${contact.pending_customer_company} is not a client yet — no linked client record`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '2px 6px',
+                            fontSize: '10px',
+                            background: '#e5e7eb',
+                            color: '#6b7280',
+                            borderRadius: '4px',
+                            fontWeight: '500'
+                          }}
+                        >
+                          ○ Prospect
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td>{contact.companyIndustry || contact.company_industry || '-'}</td>

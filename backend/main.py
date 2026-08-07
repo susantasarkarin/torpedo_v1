@@ -3363,12 +3363,15 @@ async def create_contact(contact_data: Dict[str, Any] = Body(...)):
         contact_data["createdAt"] = datetime.utcnow()
         contact_data["updatedAt"] = datetime.utcnow()
         
-        # Auto-sync to Customers (finance_db): create/update customer with company info
+        # Link to an existing Customer (finance_db) when the company already is a
+        # client. A contact is a sales lead, NOT a client, so we never mint a new
+        # customer here — that flooded Operations > Clients with lead companies.
+        # If there's no client yet we keep the company name as a placeholder, so the
+        # sales module can still show/promote the relationship later.
         linked_customer_id = None
         if contact_data.get("companyName"):
-            # Check if customer already exists for this company
             existing_customer = finance_customers_collection.find_one({"company_name": contact_data["companyName"]})
-            
+
             if existing_customer:
                 # Update existing customer with latest company info
                 linked_customer_id = str(existing_customer["_id"])
@@ -3378,53 +3381,16 @@ async def create_contact(contact_data: Dict[str, Any] = Body(...)):
                 if contact_data.get("companyHeadquarters"):
                     update_fields["billing_address.line1"] = contact_data["companyHeadquarters"]
                     update_fields["shipping_address.line1"] = contact_data["companyHeadquarters"]
-                
+
                 finance_customers_collection.update_one(
                     {"_id": existing_customer["_id"]},
                     {"$set": update_fields}
                 )
-            else:
-                # Create new customer for this company
-                customer_data = {
-                    "name": contact_data["companyName"],
-                    "customer_type": "business",
-                    "company_name": contact_data["companyName"],
-                    "email": contact_data.get("companyEmail", ""),
-                    "phone": "",
-                    "gst_treatment": "unregistered",
-                    "gstin": "",
-                    "pan": "",
-                    "billing_address": {
-                        "line1": contact_data.get("companyHeadquarters", ""),
-                        "line2": "",
-                        "city": "",
-                        "state": "",
-                        "pincode": "",
-                        "country": "India",
-                    },
-                    "shipping_address": {
-                        "line1": contact_data.get("companyHeadquarters", ""),
-                        "line2": "",
-                        "city": "",
-                        "state": "",
-                        "pincode": "",
-                        "country": "India",
-                    },
-                    "same_as_billing": True,
-                    "payment_terms": 30,
-                    "credit_limit": 0,
-                    "currency": "INR",
-                    "opening_balance": 0,
-                    "notes": "",
-                    "status": "active",
-                    "created_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow(),
-                }
-                result_customer = finance_customers_collection.insert_one(customer_data)
-                linked_customer_id = str(result_customer.inserted_id)
-        
-        # Store the linked customer ID in the contact
+
+        # Store the linked customer ID in the contact (None = not a client yet)
         contact_data["linked_customer_id"] = linked_customer_id
+        if not linked_customer_id and contact_data.get("companyName"):
+            contact_data["pending_customer_company"] = contact_data["companyName"]
         result = contacts_collection.insert_one(contact_data)
         contact_data["_id"] = str(result.inserted_id)
         
@@ -3525,9 +3491,16 @@ async def update_contact(contact_id: str, contact_data: Dict[str, Any] = Body(..
                 # Update the contact with the linked_customer_id
                 contacts_collection.update_one(
                     {"_id": ObjectId(contact_id)},
-                    {"$set": {"linked_customer_id": linked_customer_id}}
+                    {"$set": {"linked_customer_id": linked_customer_id},
+                     "$unset": {"pending_customer_company": ""}}
                 )
-        
+            else:
+                # No client for this company yet — keep the placeholder only.
+                contacts_collection.update_one(
+                    {"_id": ObjectId(contact_id)},
+                    {"$set": {"pending_customer_company": contact_data["companyName"]}}
+                )
+
         return {"message": "Contact updated successfully"}
     except HTTPException:
         raise

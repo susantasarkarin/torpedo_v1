@@ -7,7 +7,7 @@ import { buildApiUrl } from "../../config"
 // Helper functions to map between client UI format and customer API format
 const customerToClient = (customer) => ({
   _id: customer._id,
-  clientNo: customer._id?.substring(0, 7) || 'N/A',  // Use first 7 chars of _id as clientNo
+  clientNo: customer.customer_number || customer._id?.substring(0, 7) || 'N/A',
   name: customer.company_name || customer.name || "",
   contactPerson: customer.phone || "",
   email: customer.email || "",
@@ -89,26 +89,42 @@ function ClientsPage() {
       return;
     }
 
+    // origin=clients keeps lead companies auto-mirrored from sales contacts out of
+    // this list; the API paginates at 200 max, so walk the pages to get them all.
+    const PAGE_SIZE = 200;
     try {
-      const res = await fetch(buildApiUrl(`/finance/customers/`), {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: sessionId,
-        },
-      });
+      const collected = [];
+      let page = 1;
+      let pages = 1;
 
-      if (res.status === 401) {
-        alert("Session expired. Please login again.");
-        localStorage.removeItem("session_id");
-        navigate("/login");
-        return;
-      }
+      do {
+        const res = await fetch(
+          buildApiUrl(`/finance/customers/?origin=clients&page=${page}&page_size=${PAGE_SIZE}`),
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: sessionId,
+            },
+          }
+        );
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to load clients");
-      // Map customers to client format for UI
-      const mappedClients = (Array.isArray(data) ? data : data.customers || []).map(customerToClient);
-      setClients(mappedClients);
+        if (res.status === 401) {
+          alert("Session expired. Please login again.");
+          localStorage.removeItem("session_id");
+          navigate("/login");
+          return;
+        }
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Failed to load clients");
+
+        collected.push(...(Array.isArray(data) ? data : data.customers || []));
+        pages = data.pages || 1;
+        page += 1;
+      } while (page <= pages);
+
+      setClients(collected.map(customerToClient));
+      setError("");
     } catch (e) {
       setError(e.message || "Failed to load clients");
     }

@@ -79,6 +79,11 @@ expenses_collection = finance_db["expenses"]
 payments_received_collection = finance_db["payments_received"]
 payments_made_collection = finance_db["payments_made"]
 
+# Marks customer records that were mirrored from a sales contact rather than
+# created as a real client. Kept (never deleted) so contact linkage survives,
+# but filtered out of the Operations > Clients list via ?origin=clients.
+CONTACT_AUTOSYNC_SOURCE = "contact_autosync"
+
 # email_automation DB for contacts linking
 email_automation_db = client["email_automation"]
 contacts_collection = email_automation_db["contacts"]
@@ -427,12 +432,22 @@ async def get_customers(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(100, ge=1, le=200, description="Records per page"),
     search: Optional[str] = Query(None, description="Search by name, email, phone, or GSTIN"),
+    origin: str = Query("all", description="'all' (default) or 'clients' for real clients only"),
 ):
-    """Get customers with linked contacts (paginated)"""
+    """Get customers with linked contacts (paginated).
+
+    `origin=clients` excludes records auto-mirrored from sales contacts (tagged
+    `source: contact_autosync`) so lead companies don't drown the Operations >
+    Clients list. Exclusion is tag-driven rather than inferred, so an untagged
+    record is always treated as a real client. Those records are still returned
+    by the default `origin=all` for finance/CRM lookups.
+    """
     import asyncio as _asyncio
     try:
         def _fetch():
             query = {}
+            if origin == "clients":
+                query["source"] = {"$ne": CONTACT_AUTOSYNC_SOURCE}
             if search:
                 query["$or"] = [
                     {"name": {"$regex": search, "$options": "i"}},
