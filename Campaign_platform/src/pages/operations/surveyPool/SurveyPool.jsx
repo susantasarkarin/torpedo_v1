@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../../hooks/useAuth';
 import { API_BASE_URL } from '../../../config';
 import { buildApiUrl } from "../../../config"
+import { fetchAllClients } from "../../../utils/api"
 // Temporarily disabled for debugging
 // import useSurveyWebSocket from '../../../hooks/useSurveyWebSocket';
 import './SurveyPool.css';
@@ -272,17 +273,7 @@ export default function SurveyPool() {
   // Fetch clients for client name lookup
   const fetchClients = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/customers/`), {
-        headers: {
-          'Authorization': token,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setClients(Array.isArray(data) ? data : data.customers || []);
-      }
+      setClients(await fetchAllClients());
     } catch (err) {
       console.error('Error fetching clients:', err);
     }

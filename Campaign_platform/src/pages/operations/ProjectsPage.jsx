@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import "./ProjectsPage.css";
 import { buildApiUrl } from "../../config";
+import { fetchAllClients } from "../../utils/api"
 import { qreApi } from "../../services/qreApi";
 
 function ProjectsPage() {
@@ -258,28 +259,18 @@ function ProjectsPage() {
 
     const fetchClients = async () => {
       try {
-        const res = await fetch(buildApiUrl(`/finance/customers/`), {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: sessionId,
-          },
-        });
-
-        if (res.status === 401) {
-          alert("Session expired. Please login again.");
-          localStorage.removeItem("session_id");
-          navigate("/login");
-          return;
-        }
-
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "Failed to load clients");
-        const customerList = Array.isArray(data) ? data : (data.customers || []);
+        const customerList = await fetchAllClients();
         const activeClients = customerList.filter(
           (c) => !c.status || String(c.status).toLowerCase() === "active"
         );
         setClients(activeClients);
       } catch (err) {
+        if (err.status === 401) {
+          alert("Session expired. Please login again.");
+          localStorage.removeItem("session_id");
+          navigate("/login");
+          return;
+        }
         console.error("❌ Clients fetch failed:", err.message);
       }
     };

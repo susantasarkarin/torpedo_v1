@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { buildApiUrl } from "../../config";
+import { fetchAllClients } from "../../utils/api"
 import "./PotentialClients.css";
 
 const STORAGE_KEY = "potential_clients_v1";
@@ -165,17 +166,7 @@ function PotentialClients() {
 
   const fetchClients = async () => {
     try {
-      const response = await fetch(buildApiUrl("/finance/customers/"), {
-        headers: {
-          Authorization: token,
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setClients(Array.isArray(data) ? data : data.customers || []);
-      }
+      setClients(await fetchAllClients());
     } catch (err) {
       console.error("Error fetching clients:", err);
     }

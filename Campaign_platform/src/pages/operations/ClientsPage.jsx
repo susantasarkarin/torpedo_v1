@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
+import { fetchAllClients } from "../../utils/api"
 import { buildApiUrl } from "../../config"
 
 // Helper functions to map between client UI format and customer API format
@@ -89,43 +90,17 @@ function ClientsPage() {
       return;
     }
 
-    // origin=clients keeps lead companies auto-mirrored from sales contacts out of
-    // this list; the API paginates at 200 max, so walk the pages to get them all.
-    const PAGE_SIZE = 200;
     try {
-      const collected = [];
-      let page = 1;
-      let pages = 1;
-
-      do {
-        const res = await fetch(
-          buildApiUrl(`/finance/customers/?origin=clients&page=${page}&page_size=${PAGE_SIZE}`),
-          {
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: sessionId,
-            },
-          }
-        );
-
-        if (res.status === 401) {
-          alert("Session expired. Please login again.");
-          localStorage.removeItem("session_id");
-          navigate("/login");
-          return;
-        }
-
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "Failed to load clients");
-
-        collected.push(...(Array.isArray(data) ? data : data.customers || []));
-        pages = data.pages || 1;
-        page += 1;
-      } while (page <= pages);
-
+      const collected = await fetchAllClients();
       setClients(collected.map(customerToClient));
       setError("");
     } catch (e) {
+      if (e.status === 401) {
+        alert("Session expired. Please login again.");
+        localStorage.removeItem("session_id");
+        navigate("/login");
+        return;
+      }
       setError(e.message || "Failed to load clients");
     }
   };

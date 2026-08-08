@@ -245,6 +245,47 @@ export const authFetch = (url, options = {}) => {
 };
 
 /**
+ * Fetch every real client, following pagination. The single source of truth for
+ * "what counts as a client" — three pages each rolled their own and each got it
+ * wrong the same two ways:
+ *
+ *  1. `/finance/customers/` defaults to page_size=100 sorted by name, so a bare
+ *     call returns only the first 100 alphabetically. Against 2,317 records the
+ *     list stopped inside the letter A, which is why a client like Hansa simply
+ *     could not be selected in the project dropdown.
+ *  2. Without `origin=clients` the response is overwhelmingly auto-imported lead
+ *     names (mail_pool_ai, rfq_auto_import, mail_segregation_auto_import) rather
+ *     than actual clients.
+ *
+ * Throws on failure with `.status` set, so callers can keep their own 401
+ * handling.
+ */
+export const fetchAllClients = async () => {
+  const PAGE_SIZE = 200; // API maximum
+  const all = [];
+  let page = 1;
+  let pages = 1;
+
+  do {
+    const res = await authFetch(
+      buildApiUrl(`/finance/customers/?origin=clients&page=${page}&page_size=${PAGE_SIZE}`)
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const err = new Error(body.detail || "Failed to load clients");
+      err.status = res.status;
+      throw err;
+    }
+    const data = await res.json();
+    all.push(...(Array.isArray(data) ? data : data.customers || []));
+    pages = data.pages || 1;
+    page += 1;
+  } while (page <= pages);
+
+  return all;
+};
+
+/**
  * Sleep helper for retry delays
  */
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
