@@ -3157,15 +3157,26 @@ async def cpx_redirect(request: Request, id: str = Query(..., description="Traff
         # Validate redirect URL for safety while allowing CPX, CINT, and project links.
         parsed_entry_link = urlparse(entry_link)
 
-        # Entry links are sometimes stored without a scheme
-        # ("offers.cpx-research.com/?app_id=..."). urlparse then reports
-        # hostname=None and treats the whole string as a path, so every check below
-        # fails with a generic 400. Supply the missing scheme and re-parse.
-        # Validation still runs on the result, including the CPX host allowlist -
-        # this only fills in "https://", it never skips a check.
-        if not parsed_entry_link.scheme and not entry_link.startswith("/"):
-            entry_link = f"https://{entry_link}"
-            parsed_entry_link = urlparse(entry_link)
+        # Entry links are stored in three shapes and only one of them parses cleanly.
+        # Supply the missing scheme and re-parse; validation still runs on the result,
+        # including the CPX host allowlist, so this never skips a check.
+        #
+        #   "//host/path"  protocol-relative. urlparse finds the host but leaves the
+        #                  scheme empty, so it CLEARS the host check and then fails
+        #                  the validator with "URL must use HTTP or HTTPS". This is
+        #                  what was 400ing live traffic.
+        #   "host/path"    no scheme at all. urlparse reports hostname=None and treats
+        #                  the whole string as a path, failing the host check.
+        #   "/path"        a path on our own host, not a survey link. Deliberately
+        #                  left alone so it fails the host check with a message
+        #                  saying the stored value is relative.
+        if not parsed_entry_link.scheme:
+            if entry_link.startswith("//"):
+                entry_link = f"https:{entry_link}"
+                parsed_entry_link = urlparse(entry_link)
+            elif not entry_link.startswith("/"):
+                entry_link = f"https://{entry_link}"
+                parsed_entry_link = urlparse(entry_link)
 
         entry_host = (parsed_entry_link.hostname or "").lower()
         survey_source = str(record.get("surveySource") or "").upper()
@@ -3192,8 +3203,12 @@ async def cpx_redirect(request: Request, id: str = Query(..., description="Traff
                 raise HTTPException(status_code=400, detail=f"Invalid survey entry link: {error_msg}")
 
         # CPX allocations must always redirect to a CPX-owned HTTPS host.
+        # Match the apex or a true subdomain, NOT a bare suffix: endswith(
+        # "cpx-research.com") alone also accepts "evilcpx-research.com", a
+        # registrable domain an attacker could own and use to capture the 302.
+        is_cpx_host = entry_host == "cpx-research.com" or entry_host.endswith(".cpx-research.com")
         if survey_source == "CPX":
-            if parsed_entry_link.scheme != "https" or not entry_host.endswith("cpx-research.com"):
+            if parsed_entry_link.scheme != "https" or not is_cpx_host:
                 print(
                     f"âŒ CPX Redirect: Invalid CPX host '{entry_host}' "
                     f"(source={survey_source}, id={id})"
