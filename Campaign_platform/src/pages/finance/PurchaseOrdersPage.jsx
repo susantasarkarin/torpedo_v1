@@ -26,7 +26,7 @@
         ...(search ? { search } : {}),
         ...(status && status !== "all" ? { status } : {}),
       })
-      const response = await fetch(buildApiUrl(`/finance/purchase-orders/?${params}`))
+      const response = await authFetch(buildApiUrl(`/finance/purchase-orders/?${params}`))
       if (response.ok) {
         const data = await response.json()
         setPurchaseOrders(data.items || [])
@@ -54,6 +54,7 @@ import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { Package, Plus, Search, Eye, FileText, CheckCircle, X, Loader2, Trash2, Upload, Download } from "lucide-react"
 import { buildApiUrl } from "../../config"
+import { authFetch } from "../../utils/api"
 
 function PurchaseOrdersPage() {
   const navigate = useNavigate()
@@ -87,7 +88,7 @@ function PurchaseOrdersPage() {
 
   const fetchPurchaseOrders = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/purchase-orders/`))
+      const response = await authFetch(buildApiUrl(`/finance/purchase-orders/`))
       if (response.ok) {
         const data = await response.json()
         setPurchaseOrders(data)
@@ -101,7 +102,7 @@ function PurchaseOrdersPage() {
 
   const fetchVendors = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/vendors/`))
+      const response = await authFetch(buildApiUrl(`/finance/vendors/`))
       if (response.ok) {
         const data = await response.json()
         setVendors(data)
@@ -113,7 +114,7 @@ function PurchaseOrdersPage() {
 
   const fetchItems = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/items/`))
+      const response = await authFetch(buildApiUrl(`/finance/items/`))
       if (response.ok) {
         const data = await response.json()
         setItems(data)
@@ -135,7 +136,7 @@ function PurchaseOrdersPage() {
         })),
       }
 
-      const response = await fetch(buildApiUrl(`/finance/purchase-orders/`), {
+      const response = await authFetch(buildApiUrl(`/finance/purchase-orders/`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(poData),
@@ -262,7 +263,7 @@ function PurchaseOrdersPage() {
   const handleExportCSV = async () => {
     setExporting(true)
     try {
-      const response = await fetch(buildApiUrl(`/finance/purchase-orders/export/csv`))
+      const response = await authFetch(buildApiUrl(`/finance/purchase-orders/export/csv`))
       if (response.ok) {
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
@@ -292,7 +293,7 @@ function PurchaseOrdersPage() {
     formDataUpload.append("file", file)
 
     try {
-      const response = await fetch(buildApiUrl(`/finance/purchase-orders/import/csv`), {
+      const response = await authFetch(buildApiUrl(`/finance/purchase-orders/import/csv`), {
         method: "POST",
         body: formDataUpload,
       })

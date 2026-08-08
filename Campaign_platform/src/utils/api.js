@@ -223,6 +223,28 @@ const getHeaders = (customHeaders = {}) => {
 };
 
 /**
+ * Drop-in replacement for `fetch` that attaches the session token.
+ *
+ * The full `api` client below parses the body and throws APIError, which is a
+ * different contract from raw fetch. Pages that already branch on
+ * `response.ok` / `await response.json()` can adopt this by changing the call
+ * name alone, with no change to their error handling — which is what the
+ * finance pages need, since several of them send no Authorization header at
+ * all and would 401 the moment FINANCE_AUTH_ENABLED is turned on.
+ *
+ * Returns the untouched Response. Existing Authorization headers win, so a
+ * call site that already sets one keeps its behaviour.
+ */
+export const authFetch = (url, options = {}) => {
+  const token = getSessionToken();
+  if (!token) return fetch(url, options);
+
+  const headers = new Headers(options.headers || {});
+  if (!headers.has("Authorization")) headers.set("Authorization", token);
+  return fetch(url, { ...options, headers });
+};
+
+/**
  * Sleep helper for retry delays
  */
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

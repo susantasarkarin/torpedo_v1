@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { buildApiUrl } from "../../config"
+import { authFetch } from "../../utils/api"
 import { formatCurrency } from "../../utils/currency"
 import { ArrowLeft, FileText, Loader2 } from "lucide-react"
 
@@ -39,7 +40,7 @@ export default function BillDetailPage() {
 
   useEffect(() => {
     const sessionId = localStorage.getItem("session_id")
-    fetch(buildApiUrl(`/finance/bills/${id}`), { headers: { Authorization: sessionId || "" } })
+    authFetch(buildApiUrl(`/finance/bills/${id}`), { headers: { Authorization: sessionId || "" } })
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(setBill)
       .catch(e => setError(e === 404 ? "Bill not found." : "Failed to load bill."))

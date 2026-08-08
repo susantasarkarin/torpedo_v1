@@ -6,6 +6,7 @@ import { API_BASE_URL } from "../../config"
 import Papa from "papaparse"
 import { ArrowLeft, Upload, Download, CheckCircle, AlertCircle, ArrowRight, FileSpreadsheet } from "lucide-react"
 import { buildApiUrl } from "../../config"
+import { authFetch } from "../../utils/api"
 
 // Database fields for bills
 const DB_FIELDS = [
@@ -385,7 +386,7 @@ function BillsImport() {
       const formDataUpload = new FormData()
       formDataUpload.append("file", blob, "import.csv")
       
-      const response = await fetch(buildApiUrl(`/finance/bills/import/csv`), {
+      const response = await authFetch(buildApiUrl(`/finance/bills/import/csv`), {
         method: "POST",
         headers: {
           Authorization: sessionId,

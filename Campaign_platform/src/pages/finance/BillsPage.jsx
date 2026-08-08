@@ -6,6 +6,7 @@ import { API_BASE_URL } from "../../config"
 import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "../../utils/currency"
 import { FileText, Plus, Search, Eye, Camera, X, Loader2, Trash2, CreditCard, Upload, Download } from "lucide-react"
 import { buildApiUrl } from "../../config"
+import { authFetch } from "../../utils/api"
 import Pagination from "../../components/ui/Pagination"
 
 function BillsPage() {
@@ -66,7 +67,7 @@ function BillsPage() {
         ...(status && status !== "all" ? { status } : {}),
       })
       const sessionId = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/finance/bills/?${params}`), {
+      const response = await authFetch(buildApiUrl(`/finance/bills/?${params}`), {
         headers: { Authorization: sessionId || "" },
       })
       if (response.ok) {
@@ -84,7 +85,7 @@ function BillsPage() {
   const fetchVendors = async () => {
     try {
       const sessionId = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/finance/vendors/`), {
+      const response = await authFetch(buildApiUrl(`/finance/vendors/`), {
         headers: { Authorization: sessionId || "" },
       })
       if (response.ok) {
@@ -132,7 +133,7 @@ function BillsPage() {
       }
 
       const sessionId = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/finance/bills/`), {
+      const response = await authFetch(buildApiUrl(`/finance/bills/`), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: sessionId || "" },
         body: JSON.stringify(billData),
@@ -156,7 +157,7 @@ function BillsPage() {
 
     try {
       const sessionId = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/finance/bills/${id}`), {
+      const response = await authFetch(buildApiUrl(`/finance/bills/${id}`), {
         method: "DELETE",
         headers: { Authorization: sessionId || "" },
       })
@@ -181,7 +182,7 @@ function BillsPage() {
     setExporting(true)
     try {
       const sessionId = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/finance/bills/export/csv`), {
+      const response = await authFetch(buildApiUrl(`/finance/bills/export/csv`), {
         headers: { Authorization: sessionId || "" },
       })
       if (response.ok) {
@@ -214,7 +215,7 @@ function BillsPage() {
 
     try {
       const sessionId = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/finance/bills/import/csv`), {
+      const response = await authFetch(buildApiUrl(`/finance/bills/import/csv`), {
         method: "POST",
         headers: { Authorization: sessionId || "" },
         body: formDataUpload,

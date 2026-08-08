@@ -6,6 +6,7 @@ import { CreditCard, Plus, Search, X, Loader2, ArrowDownCircle, ArrowUpCircle, T
 import { API_BASE_URL } from "../../config"
 import { DEFAULT_CURRENCY, formatCurrency as formatCurrencyUtil } from "../../utils/currency"
 import { buildApiUrl } from "../../config"
+import { authFetch } from "../../utils/api"
 import Pagination from "../../components/ui/Pagination"
 
 function PaymentsPage() {
@@ -57,7 +58,7 @@ function PaymentsPage() {
         ...(search ? { search } : {}),
       })
       const endpoint = activeTab === "received" ? "/finance/payments/received/" : "/finance/payments/made/"
-      const response = await fetch(buildApiUrl(`${endpoint}?${params}`))
+      const response = await authFetch(buildApiUrl(`${endpoint}?${params}`))
       if (response.ok) {
         const data = await response.json()
         if (activeTab === "received") {
@@ -77,7 +78,7 @@ function PaymentsPage() {
 
   const fetchPaymentsReceived = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/payments/received/`))
+      const response = await authFetch(buildApiUrl(`/finance/payments/received/`))
       if (response.ok) {
         const data = await response.json()
         setPaymentsReceived(data)
@@ -89,7 +90,7 @@ function PaymentsPage() {
 
   const fetchPaymentsMade = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/payments/made/`))
+      const response = await authFetch(buildApiUrl(`/finance/payments/made/`))
       if (response.ok) {
         const data = await response.json()
         setPaymentsMade(data)
@@ -101,7 +102,7 @@ function PaymentsPage() {
 
   const fetchCustomers = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/customers/`))
+      const response = await authFetch(buildApiUrl(`/finance/customers/`))
       if (response.ok) {
         const data = await response.json()
         setCustomers(data)
@@ -113,7 +114,7 @@ function PaymentsPage() {
 
   const fetchVendors = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/vendors/`))
+      const response = await authFetch(buildApiUrl(`/finance/vendors/`))
       if (response.ok) {
         const data = await response.json()
         setVendors(data)
@@ -125,7 +126,7 @@ function PaymentsPage() {
 
   const fetchInvoices = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/invoices/`))
+      const response = await authFetch(buildApiUrl(`/finance/invoices/`))
       if (response.ok) {
         const data = await response.json()
         // Only show unpaid invoices
@@ -138,7 +139,7 @@ function PaymentsPage() {
 
   const fetchBills = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/bills/`))
+      const response = await authFetch(buildApiUrl(`/finance/bills/`))
       if (response.ok) {
         const data = await response.json()
         // Only show unpaid bills
@@ -160,7 +161,7 @@ function PaymentsPage() {
         amount: parseFloat(formData.amount) || 0,
       }
 
-      const response = await fetch(endpoint, {
+      const response = await authFetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(paymentData),
@@ -265,7 +266,7 @@ function PaymentsPage() {
     setExporting(true)
     try {
       const endpoint = activeTab === "received" ? "received" : "made"
-      const response = await fetch(buildApiUrl(`/finance/payments/${endpoint}/export/csv`))
+      const response = await authFetch(buildApiUrl(`/finance/payments/${endpoint}/export/csv`))
       if (response.ok) {
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
@@ -296,7 +297,7 @@ function PaymentsPage() {
 
     try {
       const endpoint = activeTab === "received" ? "received" : "made"
-      const response = await fetch(buildApiUrl(`/finance/payments/${endpoint}/import/csv`), {
+      const response = await authFetch(buildApiUrl(`/finance/payments/${endpoint}/import/csv`), {
         method: "POST",
         body: formDataUpload,
       })

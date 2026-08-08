@@ -14,6 +14,7 @@ import { API_BASE_URL } from "../../config"
 import { DEFAULT_CURRENCY } from "../../utils/currency"
 import { Receipt, Search, Paperclip, Trash2, Loader2, Sparkles, Upload, Download } from "lucide-react"
 import { buildApiUrl } from "../../config"
+import { authFetch } from "../../utils/api"
 
 function ExpensesPage() {
   const [expenses, setExpenses] = useState([])
@@ -61,7 +62,7 @@ function ExpensesPage() {
 
   const fetchExpenses = async () => {
     try {
-      const response = await fetch(buildApiUrl(`/finance/expenses/`))
+      const response = await authFetch(buildApiUrl(`/finance/expenses/`))
       if (response.ok) {
         const data = await response.json()
         setExpenses(data)
@@ -76,7 +77,7 @@ function ExpensesPage() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     try {
-      const response = await fetch(buildApiUrl(`/finance/expenses/`), {
+      const response = await authFetch(buildApiUrl(`/finance/expenses/`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
@@ -95,7 +96,7 @@ function ExpensesPage() {
     if (!formData.description) return
 
     try {
-      const response = await fetch(buildApiUrl(`/finance/expenses/auto-categorize`), {
+      const response = await authFetch(buildApiUrl(`/finance/expenses/auto-categorize`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -119,7 +120,7 @@ function ExpensesPage() {
     if (!window.confirm("Are you sure you want to delete this expense?")) return
 
     try {
-      const response = await fetch(buildApiUrl(`/finance/expenses/${id}`), {
+      const response = await authFetch(buildApiUrl(`/finance/expenses/${id}`), {
         method: "DELETE",
       })
       if (response.ok) {
@@ -181,7 +182,7 @@ function ExpensesPage() {
   const handleExportCSV = async () => {
     setExporting(true)
     try {
-      const response = await fetch(buildApiUrl(`/finance/expenses/export/csv`))
+      const response = await authFetch(buildApiUrl(`/finance/expenses/export/csv`))
       if (response.ok) {
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
@@ -211,7 +212,7 @@ function ExpensesPage() {
     formDataUpload.append("file", file)
 
     try {
-      const response = await fetch(buildApiUrl(`/finance/expenses/import/csv`), {
+      const response = await authFetch(buildApiUrl(`/finance/expenses/import/csv`), {
         method: "POST",
         body: formDataUpload,
       })

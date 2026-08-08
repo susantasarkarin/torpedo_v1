@@ -3,7 +3,7 @@ Finance Router - Complete CRUD endpoints for the Finance Module
 Handles: Customers, Vendors, Items, Invoices, Bills, Purchase Orders, Expenses, Payments
 """
 
-from fastapi import APIRouter, HTTPException, Body, Path, Query, UploadFile, File, Request
+from fastapi import APIRouter, Depends, HTTPException, Body, Path, Query, UploadFile, File, Request
 from fastapi.responses import StreamingResponse
 from pymongo import MongoClient
 from bson import ObjectId
@@ -58,7 +58,32 @@ load_dotenv()
 # ----------------------------
 # Router Setup
 # ----------------------------
-router = APIRouter(prefix="/finance", tags=["Finance"])
+# SAFE-BY-DEFAULT session gate, same opt-in shape as RBAC_ENABLED in
+# app/security.py. This router has always been unauthenticated: every finance
+# endpoint (customers, vendors, invoices, estimates, payments) is world-readable,
+# so customer PII can be pulled with a plain unauthenticated GET.
+#
+# It cannot simply be switched on: several finance pages send no Authorization
+# header at all (PaymentsPage 12 calls/0, VendorsPage 9/0, PurchaseOrdersPage
+# 8/0, ItemsPage 6/0, ExpensesPage 6/0), so enabling this before they are
+# migrated onto the shared api.js client would 401 most of the finance UI.
+#
+# Sequence: ship this OFF -> migrate the pages -> set FINANCE_AUTH_ENABLED=true.
+# Flipping it back is an env change plus a restart, not a redeploy.
+FINANCE_AUTH_ENABLED = os.getenv("FINANCE_AUTH_ENABLED", "false").lower() in ("1", "true", "yes")
+
+_finance_deps = []
+if FINANCE_AUTH_ENABLED:
+    from session_state import verify_session
+    _finance_deps.append(Depends(verify_session))
+    logger.warning("[finance] session auth ENABLED on /finance/*")
+else:
+    logger.warning(
+        "[finance] session auth DISABLED - /finance/* is publicly readable. "
+        "Set FINANCE_AUTH_ENABLED=true once all finance pages send a session token."
+    )
+
+router = APIRouter(prefix="/finance", tags=["Finance"], dependencies=_finance_deps)
 
 # ----------------------------
 # MongoDB Connection

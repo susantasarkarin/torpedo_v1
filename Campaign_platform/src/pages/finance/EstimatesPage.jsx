@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import { FileText, Search, Pencil, Trash2, Loader2, Upload, Download, Plus, Eye } from "lucide-react"
 import { buildApiUrl } from "../../config"
+import { authFetch } from "../../utils/api"
 
 // Estimate status options
 const ESTIMATE_STATUS_OPTIONS = [
@@ -64,7 +65,7 @@ function EstimatesPage() {
 
     try {
       setError(null)
-      const response = await fetch(buildApiUrl(`/finance/estimates/`), {
+      const response = await authFetch(buildApiUrl(`/finance/estimates/`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -96,7 +97,7 @@ function EstimatesPage() {
   const fetchCustomers = async () => {
     try {
       const sessionId = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/finance/customers/`), {
+      const response = await authFetch(buildApiUrl(`/finance/customers/`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -114,7 +115,7 @@ function EstimatesPage() {
   const fetchItems = async () => {
     try {
       const sessionId = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/finance/items/`), {
+      const response = await authFetch(buildApiUrl(`/finance/items/`), {
         headers: {
           "Content-Type": "application/json",
           Authorization: sessionId,
@@ -183,7 +184,7 @@ function EstimatesPage() {
 
       const method = editingEstimate ? "PUT" : "POST"
 
-      const response = await fetch(url, {
+      const response = await authFetch(url, {
         method,
         headers: {
           "Content-Type": "application/json",
@@ -223,7 +224,7 @@ function EstimatesPage() {
 
     try {
       setError(null)
-      const response = await fetch(buildApiUrl(`/finance/estimates/${id}`), {
+      const response = await authFetch(buildApiUrl(`/finance/estimates/${id}`), {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
@@ -414,7 +415,7 @@ function EstimatesPage() {
 
     setExporting(true)
     try {
-      const response = await fetch(buildApiUrl(`/finance/estimates/export/csv`), {
+      const response = await authFetch(buildApiUrl(`/finance/estimates/export/csv`), {
         headers: {
           Authorization: sessionId,
         },
@@ -462,7 +463,7 @@ function EstimatesPage() {
     formDataUpload.append("file", file)
 
     try {
-      const response = await fetch(buildApiUrl(`/finance/estimates/import/csv`), {
+      const response = await authFetch(buildApiUrl(`/finance/estimates/import/csv`), {
         method: "POST",
         headers: {
           Authorization: sessionId,

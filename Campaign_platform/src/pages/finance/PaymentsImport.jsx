@@ -6,6 +6,7 @@ import { API_BASE_URL } from "../../config"
 import Papa from "papaparse"
 import { ArrowLeft, Upload, Download, CheckCircle, AlertCircle, ArrowRight, FileSpreadsheet } from "lucide-react"
 import { buildApiUrl } from "../../config"
+import { authFetch } from "../../utils/api"
 
 // Database fields for payments received
 const DB_FIELDS_RECEIVED = [
@@ -444,7 +445,7 @@ function PaymentsImport() {
         ? buildApiUrl(`/finance/payments/received/import/csv`)
         : buildApiUrl(`/finance/payments/made/import/csv`)
       
-      const response = await fetch(endpoint, {
+      const response = await authFetch(endpoint, {
         method: "POST",
         headers: {
           Authorization: sessionId,
