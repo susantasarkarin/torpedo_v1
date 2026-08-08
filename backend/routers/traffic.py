@@ -3156,23 +3156,40 @@ async def cpx_redirect(request: Request, id: str = Query(..., description="Traff
         
         # Validate redirect URL for safety while allowing CPX, CINT, and project links.
         parsed_entry_link = urlparse(entry_link)
+
+        # Entry links are sometimes stored without a scheme
+        # ("offers.cpx-research.com/?app_id=..."). urlparse then reports
+        # hostname=None and treats the whole string as a path, so every check below
+        # fails with a generic 400. Supply the missing scheme and re-parse.
+        # Validation still runs on the result, including the CPX host allowlist -
+        # this only fills in "https://", it never skips a check.
+        if not parsed_entry_link.scheme and not entry_link.startswith("/"):
+            entry_link = f"https://{entry_link}"
+            parsed_entry_link = urlparse(entry_link)
+
         entry_host = (parsed_entry_link.hostname or "").lower()
         survey_source = str(record.get("surveySource") or "").upper()
 
         if not entry_host:
             print(f"âŒ CPX Redirect: Invalid entry link host for traffic record {id}: {entry_link[:80]}...")
-            raise HTTPException(status_code=400, detail="Invalid survey entry link")
+            raise HTTPException(
+                status_code=400,
+                detail="Survey entry link has no host (stored value is relative or malformed)",
+            )
 
         is_local_dev = entry_host in {"localhost", "127.0.0.1", "::1"}
         if is_local_dev:
             if parsed_entry_link.scheme not in ("http", "https"):
                 print(f"âŒ CPX Redirect: Invalid localhost scheme: {parsed_entry_link.scheme}")
-                raise HTTPException(status_code=400, detail="Invalid survey entry link")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Survey entry link uses unsupported scheme '{parsed_entry_link.scheme}'",
+                )
         else:
             is_valid, error_msg = validate_redirect_url(entry_link, require_https=False)
             if not is_valid:
                 print(f"âŒ CPX Redirect: Invalid entry link ({error_msg}): {entry_link[:80]}...")
-                raise HTTPException(status_code=400, detail="Invalid survey entry link")
+                raise HTTPException(status_code=400, detail=f"Invalid survey entry link: {error_msg}")
 
         # CPX allocations must always redirect to a CPX-owned HTTPS host.
         if survey_source == "CPX":
