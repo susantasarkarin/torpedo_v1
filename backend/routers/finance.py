@@ -79,10 +79,24 @@ expenses_collection = finance_db["expenses"]
 payments_received_collection = finance_db["payments_received"]
 payments_made_collection = finance_db["payments_made"]
 
-# Marks customer records that were mirrored from a sales contact rather than
-# created as a real client. Kept (never deleted) so contact linkage survives,
-# but filtered out of the Operations > Clients list via ?origin=clients.
-CONTACT_AUTOSYNC_SOURCE = "contact_autosync"
+# Sources that mark a customer record as auto-imported rather than a real
+# client. Several pipelines mine mailboxes and RFQs for company/person names
+# and write them straight into finance_db.customers, which is what filled the
+# Operations > Clients list with lead names. Counts observed on prod
+# 2026-08-08 (2,317 customers total, of which only 55 carry no source):
+#   mail_pool_ai ................. 1,404
+#   rfq_auto_import ................ 477   (crm_promote.py RFQ-sender promotion)
+#   mail_segregation_auto_import ... 381
+#   contact_autosync ................. 0   (legacy POST /contacts/ path, removed)
+# Records are kept, never deleted, and remain visible under the default
+# ?origin=all for finance and CRM lookups. `$nin` also matches documents with
+# no `source` field at all, so genuine clients are always included.
+NON_CLIENT_SOURCES = [
+    "mail_pool_ai",
+    "rfq_auto_import",
+    "mail_segregation_auto_import",
+    "contact_autosync",
+]
 
 # email_automation DB for contacts linking
 email_automation_db = client["email_automation"]
@@ -436,18 +450,18 @@ async def get_customers(
 ):
     """Get customers with linked contacts (paginated).
 
-    `origin=clients` excludes records auto-mirrored from sales contacts (tagged
-    `source: contact_autosync`) so lead companies don't drown the Operations >
-    Clients list. Exclusion is tag-driven rather than inferred, so an untagged
-    record is always treated as a real client. Those records are still returned
-    by the default `origin=all` for finance/CRM lookups.
+    `origin=clients` excludes auto-imported records (see NON_CLIENT_SOURCES) so
+    lead names don't drown the Operations > Clients list. Exclusion is driven by
+    the `source` each importer already stamps, so it needs no data migration and
+    an unsourced record is always treated as a real client. Those records are
+    still returned by the default `origin=all` for finance/CRM lookups.
     """
     import asyncio as _asyncio
     try:
         def _fetch():
             query = {}
             if origin == "clients":
-                query["source"] = {"$ne": CONTACT_AUTOSYNC_SOURCE}
+                query["source"] = {"$nin": NON_CLIENT_SOURCES}
             if search:
                 query["$or"] = [
                     {"name": {"$regex": search, "$options": "i"}},
