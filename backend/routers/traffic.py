@@ -3035,7 +3035,18 @@ async def store_url_params(request: Request, data: Dict[str, Any] = Body(...)):
         # ===============================================================================
         # EXECUTE ALLOCATION STRATEGY
         # ===============================================================================
-        if not allocation_success and vendor_id and country_code and traffic_id:
+        # api=false&pid=<n> is an explicit request for ONE named project. If that
+        # project could not be allocated, the correct outcome is an error - never a
+        # CPX/CINT survey. This guard previously omitted is_project_adhoc_flow, so a
+        # project that was missing, not live, or had no liveLink silently diverted the
+        # respondent into CPX: the client's project lost the complete and the traffic
+        # was attributed to the wrong source.
+        if is_project_adhoc_flow and not allocation_success:
+            print(
+                f"âŒ PROJECT flow failed for pid={project_number}; NOT falling back to "
+                f"CPX/CINT. Reason: {allocation_error}"
+            )
+        elif not allocation_success and vendor_id and country_code and traffic_id:
             async def _run_allocation():
                 nonlocal allocation_success, allocation_error
                 # Try CPX allocation first (with 8s timeout)
