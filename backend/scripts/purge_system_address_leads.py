@@ -27,7 +27,11 @@ from pymongo import MongoClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from leads.system_addresses import is_role_address, is_system_address  # noqa: E402
+from leads.system_addresses import (  # noqa: E402
+    is_malformed_address,
+    is_role_address,
+    is_system_address,
+)
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 
@@ -68,10 +72,18 @@ def main() -> int:
         doomed_ids = []
         reasons = Counter()
         samples = []
+        malformed = 0
 
         for doc in coll.find({}, {"email": 1, "name": 1, "company_name": 1}):
             email = (doc.get("email") or "").strip()
             if not email:
+                continue
+            # Never deleted. A record whose email is an unresolved enrichment
+            # placeholder ("firstname.lastname") still belongs to a real named
+            # person at a real company — it is a data-quality problem to fix,
+            # not junk to throw away.
+            if is_malformed_address(email):
+                malformed += 1
                 continue
             if is_system_address(email):
                 reason = "system"
@@ -85,11 +97,14 @@ def main() -> int:
                 samples.append(f"{doc.get('name') or '(no name)'} <{email}> "
                                f"[{doc.get('company_name') or '-'}]")
 
+        malformed_note = f"  [{malformed:,} malformed emails left alone]" if malformed else ""
+
         if not doomed_ids:
-            print(f"{db_name}.{coll_name}: clean ({total_docs:,} docs)")
+            print(f"{db_name}.{coll_name}: clean ({total_docs:,} docs){malformed_note}")
             continue
 
-        print(f"\n{db_name}.{coll_name}: {len(doomed_ids):,} of {total_docs:,} to remove {dict(reasons)}")
+        print(f"\n{db_name}.{coll_name}: {len(doomed_ids):,} of {total_docs:,} to remove "
+              f"{dict(reasons)}{malformed_note}")
         for s in samples:
             print(f"   {s}")
         if len(doomed_ids) > len(samples):

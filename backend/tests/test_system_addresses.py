@@ -3,6 +3,8 @@
 import pytest
 
 from leads.system_addresses import (
+    is_mailable,
+    is_malformed_address,
     is_promotable_lead_address,
     is_role_address,
     is_system_address,
@@ -44,7 +46,6 @@ def test_production_bounce_addresses_are_rejected(email):
     "notifications@example.com",
     "alerts@example.com",
     "auto-reply@example.com",
-    "root@example.com",
     "abuse@example.com",
     "delivery-status@example.com",
 ])
@@ -73,10 +74,20 @@ def test_bounce_subdomains(email):
     assert is_system_address(email) is True
 
 
-@pytest.mark.parametrize("email", ["", None, "not-an-email", "two@@at.com", "no-at-sign"])
-def test_unparseable_counts_as_system(email):
-    """An address we cannot read is not one we should be mailing."""
-    assert is_system_address(email) is True
+@pytest.mark.parametrize("email", ["", None, "not-an-email", "two@@at.com", "no-at-sign",
+                                   "firstname.lastname", "firstnamelastname"])
+def test_malformed_is_unmailable_but_not_system(email):
+    """Placeholder emails belong to real people and must not read as daemons.
+
+    Enrichment leaves `firstname.lastname` on records for named contacts at
+    real companies. Classing those as system addresses made a purge propose
+    deleting a Kantar contact alongside the mailer-daemons.
+    """
+    assert is_malformed_address(email) is True
+    assert is_system_address(email) is False   # not a daemon — just broken
+    assert is_mailable(email) is False         # still never send to it
+    assert is_promotable_lead_address(email) is False
+    assert rejection_reason(email) == "malformed_address"
 
 
 @pytest.mark.parametrize("email", [
@@ -105,6 +116,9 @@ def test_real_people_are_not_rejected(email):
     "account.services@example.com",
     "customerservice@example.com",
     "careers@example.com",
+    # Read like infrastructure, routinely a real company's main contact.
+    "mail@mafo-institut.com",
+    "root@f1-solutions.net",
 ])
 def test_role_mailboxes(email):
     assert is_role_address(email) is True
@@ -112,8 +126,10 @@ def test_role_mailboxes(email):
     # Excluded from promotion by default...
     assert is_promotable_lead_address(email) is False
     assert rejection_reason(email) == "role_address"
-    # ...but available to callers that deliberately want them.
+    # ...but available to callers that deliberately want them, and always
+    # mailable: a shared mailbox is a real, reachable destination.
     assert is_promotable_lead_address(email, allow_role=True) is True
+    assert is_mailable(email) is True
 
 
 def test_role_opt_in_never_admits_system_addresses():
@@ -128,3 +144,8 @@ def test_split_address_handles_display_name_form():
 
 def test_case_and_whitespace_insensitive():
     assert is_system_address("  POSTMASTER@Example.COM  ") is True
+
+
+@pytest.mark.parametrize("email", REGRESSION_ADDRESSES)
+def test_system_addresses_are_never_mailable(email):
+    assert is_mailable(email) is False

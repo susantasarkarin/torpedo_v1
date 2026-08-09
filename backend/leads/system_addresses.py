@@ -33,7 +33,7 @@ from typing import Optional
 # Exact local parts. Anything here is infrastructure.
 SYSTEM_LOCALPARTS = frozenset({
     "postmaster", "mailer-daemon", "mailerdaemon", "mail-daemon", "maildaemon",
-    "daemon", "mailer", "mail", "smtp", "root", "abuse", "spam",
+    "daemon", "mailer", "smtp", "abuse", "spam",
     "noreply", "no-reply", "no_reply", "nreply",
     "donotreply", "do-not-reply", "do_not_reply", "dontreply",
     "notification", "notifications", "notify",
@@ -87,7 +87,13 @@ VERP_PATTERN = re.compile(
 # Shared human mailboxes — real people, but not a person.
 ROLE_LOCALPARTS = frozenset({
     "info", "information", "contact", "contactus", "hello", "hi", "enquiry",
-    "enquiries", "inquiry", "inquiries", "office", "team", "mail", "general",
+    "enquiries", "inquiry", "inquiries", "office", "team", "general",
+    # `mail@` and `root@` read like infrastructure but are routinely a real
+    # company's primary contact address — mail@ especially in German-speaking
+    # markets. Classing them as system deleted live prospects
+    # (mail@mafo-institut.com, root@f1-solutions.net) in a purge dry run, so
+    # they are role mailboxes: not promotable as named leads, still reachable.
+    "mail", "root",
     "sales", "marketing", "business", "bd", "partnerships", "press", "media",
     "support", "help", "helpdesk", "service", "services", "customerservice",
     "customercare", "care", "feedback",
@@ -115,15 +121,30 @@ def split_address(email: str) -> tuple[str, str]:
     return local.strip(), domain.strip()
 
 
+def is_malformed_address(email: str) -> bool:
+    """True when the value is not a parseable address at all.
+
+    Distinct from `is_system_address` on purpose. Enrichment leaves literal
+    placeholders behind — `firstname.lastname`, `firstnamelastname` — on lead
+    records belonging to real, named people at real companies. Folding those
+    into "system address" made a cleanup script propose deleting a Kantar
+    contact as though it were a mailer-daemon. Unmailable and not-a-person are
+    different problems and want different handling.
+    """
+    local, domain = split_address(email)
+    return not local or not domain
+
+
 def is_system_address(email: str) -> bool:
     """True for automated infrastructure — bounce notifiers, daemons, no-reply.
 
-    Never a lead and never mailable. Unparseable input counts as system: an
-    address we cannot read is not one we should be mailing either.
+    Never a lead and never mailable. A positive identification only: malformed
+    input is NOT system (see is_malformed_address), so callers that delete on
+    this predicate cannot destroy a real person carrying a broken address.
     """
     local, domain = split_address(email)
     if not local or not domain:
-        return True
+        return False
 
     if local in SYSTEM_LOCALPARTS:
         return True
@@ -158,19 +179,26 @@ def is_promotable_lead_address(email: str, allow_role: bool = False) -> bool:
 
     `allow_role=True` keeps shared mailboxes, for callers that deliberately
     want them (an inbound enquiry from info@ is a real prospect even though it
-    is not a named person). System addresses are never allowed.
+    is not a named person). System and malformed addresses are never allowed.
     """
-    if is_system_address(email):
-        return False
-    if not allow_role and is_role_address(email):
-        return False
-    return True
+    return rejection_reason(email, allow_role=allow_role) is None
 
 
 def rejection_reason(email: str, allow_role: bool = False) -> Optional[str]:
     """Why the address was rejected, for logging. None if acceptable."""
+    if is_malformed_address(email):
+        return "malformed_address"
     if is_system_address(email):
         return "system_address"
     if not allow_role and is_role_address(email):
         return "role_address"
     return None
+
+
+def is_mailable(email: str) -> bool:
+    """Whether we may send to this address at all.
+
+    Broader than promotion: role mailboxes are perfectly mailable, malformed
+    and system addresses are not. This is the send-time question.
+    """
+    return not is_malformed_address(email) and not is_system_address(email)

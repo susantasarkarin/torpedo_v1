@@ -9,7 +9,7 @@ from typing import Optional, List, Dict, Literal, Union
 from pydantic import BaseModel, EmailStr, Field
 from pymongo.database import Database
 
-from leads.system_addresses import is_system_address
+from leads.system_addresses import is_mailable
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,7 @@ class SuppressionListManager:
         send list some other way — the stored list only knows what has already
         gone wrong once.
         """
-        if is_system_address(email):
+        if not is_mailable(email):
             return True
         email_lower = email.lower().strip()
         result = self.collection.find_one({"email": email_lower})
@@ -131,7 +131,7 @@ class SuppressionListManager:
         suppressed_set = {doc["email"] for doc in cursor}
 
         return {
-            email: (email in suppressed_set or is_system_address(email))
+            email: (email in suppressed_set or not is_mailable(email))
             for email in emails_lower
         }
     
