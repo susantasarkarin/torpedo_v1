@@ -46,14 +46,20 @@ export const isPanelAuthenticated = () => {
 
 const panelRequest = async (endpoint, options = {}) => {
   const sessionId = getPanelSessionId();
-  
+
   const headers = {
     'Content-Type': 'application/json',
     ...(sessionId && { 'X-Panel-Session-Id': sessionId }),
     ...options.headers,
   };
 
-  const response = await fetch(buildApiUrl(endpoint), {
+  // Panel API calls go to /api/panel/*, never the bare /panel/* path. nginx
+  // used to proxy every /panel/* request to the backend, which meant the
+  // SPA's own /panel/login, /panel/signup and /panel/dashboard pages were
+  // unreachable by direct navigation — the backend answered GET /panel/login
+  // with 405 and GET /panel/dashboard with 404. Now that /panel/* belongs to
+  // the SPA, the API has to be addressed explicitly.
+  const response = await fetch(buildApiUrl(`/api${endpoint}`), {
     ...options,
     headers,
   });
