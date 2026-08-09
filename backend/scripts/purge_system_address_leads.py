@@ -31,13 +31,17 @@ from leads.system_addresses import is_role_address, is_system_address  # noqa: E
 
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 
-# Every collection reply-promotion writes a lead into. Kept explicit rather
-# than discovered, so this never wanders into a collection it should not touch.
+# Every collection reply-promotion writes a lead into, verified against prod by
+# counting postmaster/mailer-daemon rows in each. Kept explicit rather than
+# discovered by scanning for "lead" in the name, so this can never wander into
+# a collection it should not touch.
 TARGETS = [
-    ("leads_db", "leads"),
-    ("leads_db", "leads_enriched"),
-    ("leads_db", "leads_raw"),
-    ("campaign_platform", "outreach_leads_v2"),
+    ("email_automation", "leads_enriched"),
+    ("email_automation", "leads_raw"),
+    ("email_automation", "leads"),
+    ("torpedo", "outreach_leads_v2"),
+    ("crm_db", "leads"),
+    ("campaign_platform", "leads"),
 ]
 
 
