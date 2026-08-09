@@ -477,20 +477,29 @@ def compute_icp_basket(lead: Dict[str, Any]) -> Dict[str, Any]:
         brand_s = _score_brand()
         aec_s   = _score_aec()
 
-        q_sfw   = sfw_s   >= THRESHOLD
-        q_brand = brand_s >= THRESHOLD
-        q_aec   = aec_s   >= THRESHOLD
+        # ── ONE PERSON, ONE ICP, ONE BASKET ──────────────────────────────
+        # This used to emit basket D ("Dual Fit") whenever a lead cleared the
+        # threshold for BOTH survey-fieldwork and brand. That is not a rare
+        # edge case here: the two keyword sets overlap structurally (e.g.
+        # "consumer insights" is an MR industry AND a brand department, and
+        # _match_ind matches bidirectionally), so D became 11,291 of 20,639
+        # classified leads — 55%. A "dual fit" that describes the majority of
+        # the database is not a classification, it is a tie nobody resolved.
+        #
+        # Now: score all three and take the single best. A person belongs to
+        # one ICP and receives from one brand. Ties are broken deterministically
+        # by the order below (AEC first — it is the most specific signal and
+        # the least likely to be a false positive from generic MR/brand
+        # vocabulary), so the same lead always lands in the same basket.
+        scores = [("C", aec_s, "BIMwave", ["bimwave"]),
+                  ("A", sfw_s, "Survey Fieldwork", ["survey_fieldwork"]),
+                  ("B", brand_s, "Cogentix Research", ["cogentix"])]
+        best_code, best_score, best_name, best_tags = max(scores, key=lambda s: s[1])
 
-        if not q_sfw and not q_brand and not q_aec:
+        if best_score < THRESHOLD:
             basket_code, basket_name, icp_tags = "E", "Nurture / Unqualified", ["nurture"]
-        elif q_sfw and q_brand:
-            basket_code, basket_name, icp_tags = "D", "Dual Fit: SFW + Cogentix", ["survey_fieldwork", "cogentix"]
-        elif q_aec:
-            basket_code, basket_name, icp_tags = "C", "BIMwave", ["bimwave"]
-        elif q_sfw:
-            basket_code, basket_name, icp_tags = "A", "Survey Fieldwork", ["survey_fieldwork"]
         else:
-            basket_code, basket_name, icp_tags = "B", "Cogentix Research", ["cogentix"]
+            basket_code, basket_name, icp_tags = best_code, best_name, best_tags
 
     # â”€â”€ FIT TIER: seniority + persona signals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     high = _is_high()

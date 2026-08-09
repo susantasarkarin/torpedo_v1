@@ -537,6 +537,15 @@ def setup_indexes(db_manager=None):
                       name="panelists_status_last_invited")
     create_index_safe(panelists, [("double_opt_in_completed", ASCENDING), ("last_login_invite_sent_at", ASCENDING)],
                       name="panelists_optin_last_login_invite")
+    # State mirrored from the SFW panel (services/panel_sync_service.py) plus
+    # the click mirror — the funnel stages and stalled segments filter on these.
+    create_index_safe(panelists, "sfw_profile_complete", sparse=True)
+    create_index_safe(panelists, "sfw_last_login", sparse=True)
+    create_index_safe(panelists, "sfw_country", sparse=True)
+    create_index_safe(panelists, "invite_clicked_at", sparse=True)
+    # "Invited at least once" in the funnel, and the people_invited denominator
+    # behind the dashboard's conversion rate.
+    create_index_safe(panelists, "last_invited_at", sparse=True)
 
     # Panel invitation log - critical for panelists/with-email-status lookup
     invitation_log = campaign_db["panel_invitation_log"]

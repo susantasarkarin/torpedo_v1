@@ -47,6 +47,7 @@ cp_db = client["campaign_platform"]
 panelists_collection = cp_db["panelists"]
 rewards_collection = cp_db["panel_rewards"]
 invitation_log_collection = cp_db["panel_invitation_log"]
+suppression_collection = cp_db["panel_email_suppression"]
 
 # email is the dedupe key for bulk CSV upserts — without this index every
 # upsert filter collection-scans and large uploads take minutes (HTTP 524)
@@ -874,12 +875,18 @@ async def get_daily_email_stats(
         now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
         start_date = now_utc - timedelta(days=days)
         
-        # Aggregation pipeline to group by date
+        # `status` on an invitation-log row is mutated in place as the row's
+        # fate resolves (sent -> soft_bounced/bounced/complained/confirmed), so
+        # it is NOT a marker of "was this delivered". Matching status=="sent"
+        # and then counting bounced/confirmed inside that same match — which is
+        # what this pipeline used to do — can never yield anything but zero.
+        # "Was sent" is `sent_at` being present; the outcome is the status.
+        BOUNCE_STATUSES = ["bounced", "soft_bounced"]
+
         pipeline = [
             {
                 "$match": {
                     "sent_at": {"$gte": start_date, "$lte": now_utc},
-                    "status": "sent"
                 }
             },
             {
@@ -893,7 +900,7 @@ async def get_daily_email_stats(
                     "count": {"$sum": 1},
                     "bounced": {
                         "$sum": {
-                            "$cond": [{"$eq": ["$status", "bounced"]}, 1, 0]
+                            "$cond": [{"$in": ["$status", BOUNCE_STATUSES]}, 1, 0]
                         }
                     },
                     "complained": {
@@ -910,19 +917,48 @@ async def get_daily_email_stats(
             },
             {"$sort": {"_id": 1}}
         ]
-        
+
         daily_stats = list(invitation_log_collection.aggregate(pipeline))
-        
-        # Also get overall stats
-        total_sent_count = invitation_log_collection.count_documents({"status": "sent"})
-        total_bounced_count = invitation_log_collection.count_documents({"status": "bounced"})
-        total_confirmed_count = invitation_log_collection.count_documents({"status": "confirmed"})
-        
+
+        sent_filter = {"sent_at": {"$exists": True, "$ne": None}}
+        total_sent_count = invitation_log_collection.count_documents(sent_filter)
+        total_bounced_count = invitation_log_collection.count_documents(
+            {"status": {"$in": BOUNCE_STATUSES}}
+        )
+
+        # People, not log rows. A registered panelist has every one of their
+        # invitation rows flipped to "confirmed" by the SFW sync, so counting
+        # rows reported ~10x the real number of registrations. Both the invited
+        # and confirmed people counts come off `panelists`, matching the funnel.
+        people_invited = panelists_collection.count_documents(
+            {"last_invited_at": {"$exists": True, "$ne": None}}
+        )
+        people_confirmed = panelists_collection.count_documents(
+            {"double_opt_in_completed": True}
+        )
+
+        # Addresses SES already knows are dead. Until a BounceTopic is wired to
+        # the SNS webhook this is the only honest bounce signal we have — the
+        # log rows only carry a bounce status once the suppression sync
+        # back-fills them.
+        try:
+            total_suppressed = suppression_collection.count_documents({})
+        except Exception:
+            total_suppressed = 0
+
         return {
             "daily_stats": daily_stats,
             "total_sent": total_sent_count,
             "total_bounced": total_bounced_count,
-            "total_confirmed": total_confirmed_count,
+            "total_suppressed": total_suppressed,
+            # Kept for compatibility: the raw row count, which is not a
+            # people count. Clients should prefer people_confirmed.
+            "total_confirmed": people_confirmed,
+            "confirmed_log_rows": invitation_log_collection.count_documents(
+                {"status": "confirmed"}
+            ),
+            "people_invited": people_invited,
+            "people_confirmed": people_confirmed,
             "days_requested": days,
         }
     except Exception as e:
@@ -1029,6 +1065,11 @@ async def get_registrations_by_country(
     verify_admin_session(request)
 
     try:
+        # `country` is only populated for records that came in with a country
+        # on the CSV import; SFW-sourced registrations carry theirs in the
+        # mirrored `sfw_country` (see services/panel_sync_service.py). Grouping
+        # on `country` alone put 100% of registrations in "Unknown" while the
+        # SFW panel section on the same page showed the real split.
         pipeline = [
             {
                 "$match": {
@@ -1037,7 +1078,7 @@ async def get_registrations_by_country(
             },
             {
                 "$group": {
-                    "_id": "$country",
+                    "_id": {"$ifNull": ["$sfw_country", "$country"]},
                     "count": {"$sum": 1}
                 }
             },
@@ -1106,7 +1147,9 @@ async def get_sfwpanel_overview(request: Request):
                 "completion_rate": surveys.get("completionRate", 0),
             },
             "levels": data.get("levels", {}),
-            "sources": {},
+            # Was hardcoded to {}, which rendered the Signup Source card as a
+            # permanently blank box. Accept either spelling from the Node API.
+            "sources": data.get("sources") or data.get("signupSources") or {},
             "rewards": {"total_paise": rewards.get("totalPaidPaise", 0)},
         }
     except Exception as e:

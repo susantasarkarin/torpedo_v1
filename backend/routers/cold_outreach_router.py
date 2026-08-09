@@ -1104,8 +1104,16 @@ def _enroll_basket_leads(campaign_id: str, basket: str):
         }
 
         if basket == "D":
-            # Dual Fit: enroll into all 3 business campaigns in score order
-            _enroll_dual_fit_leads(db, leads_db, suppressed_emails)
+            # DISABLED. Basket D ("Dual Fit") is no longer produced —
+            # compute_icp_basket now assigns exactly one basket per lead, because
+            # D had grown to 11,291 of 20,639 classified leads (55%) and fanned
+            # each of them into all three brands. Legacy D rows may still exist
+            # in leads_enriched until the backfill re-derives them; this path
+            # must not sweep them back into a 3-brand enrollment.
+            logger.info(
+                "Basket D bulk enrollment is disabled (one person, one brand). "
+                "Legacy D leads are re-derived by "
+                "scripts/rederive_dual_fit_baskets.py; skipping.")
             return
 
         # Regular basket: single campaign enrollment

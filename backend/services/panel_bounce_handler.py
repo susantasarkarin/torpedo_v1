@@ -9,7 +9,7 @@ import os
 import logging
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from pymongo import MongoClient
@@ -211,6 +211,16 @@ def mark_invite_clicked(invite_token: str) -> Optional[Dict[str, Any]]:
         invitation_log_collection.update_one(
             {"_id": doc["_id"]},
             {"$set": {"clicked_at": now}},
+        )
+
+    # Mirror the click onto the panelist. The funnel's stalled segments are
+    # plain queries over `panelists` (the drip sender reuses them verbatim), so
+    # a signal that lives only on the invitation log is invisible to them.
+    email = (doc.get("email") or "").lower().strip()
+    if email:
+        panelists_collection.update_one(
+            {"email": email, "invite_clicked_at": {"$exists": False}},
+            {"$set": {"invite_clicked_at": now}},
         )
 
     return {
@@ -416,6 +426,39 @@ def sync_ses_suppression_list(page_size: int = 1000, max_pages: int = 500) -> Di
     added = 0
     pages = 0
     next_token = None
+    log_marked = 0
+    panelists_marked = 0
+    page_emails: List[str] = []
+
+    def _reflect(emails: List[str]) -> None:
+        """Mirror a page of suppressed addresses onto the log and panelists.
+
+        Suppression alone is invisible to the dashboard: the "Bounced" card
+        counts panel_invitation_log rows with a bounce status, and nothing was
+        writing that status because the SNS BounceTopic is not wired up. The
+        result was a hard 0 against 1.29M sends. SES's suppression list is
+        authoritative about a dead address, so treat an entry here as the
+        bounce record the webhook never delivered.
+        """
+        nonlocal log_marked, panelists_marked
+        if not emails:
+            return
+        log_res = invitation_log_collection.update_many(
+            {"email": {"$in": emails}, "status": {"$in": ["sent", "soft_bounced"]}},
+            {"$set": {"status": "bounced", "bounced_at": datetime.utcnow(),
+                      "bounce_source": "ses_account_suppression"}},
+        )
+        log_marked += log_res.modified_count
+        # Never overwrite someone who actually registered — a suppressed
+        # address that later confirmed is a deliverability quirk, not a reason
+        # to drop a real panelist out of the funnel.
+        p_res = panelists_collection.update_many(
+            {"email": {"$in": emails},
+             "double_opt_in_completed": {"$ne": True},
+             "status": {"$nin": ["bounced", "unsubscribed", "dnd"]}},
+            {"$set": {"status": "bounced", "updated_at": datetime.utcnow()}},
+        )
+        panelists_marked += p_res.modified_count
 
     while pages < max_pages:
         params: Dict[str, Any] = {"PageSize": page_size}
@@ -444,6 +487,10 @@ def sync_ses_suppression_list(page_size: int = 1000, max_pages: int = 500) -> Di
             )
             if result.upserted_id is not None:
                 added += 1
+            page_emails.append(email)
+
+        _reflect(page_emails)
+        page_emails = []
 
         pages += 1
         next_token = resp.get("NextToken")
@@ -459,6 +506,14 @@ def sync_ses_suppression_list(page_size: int = 1000, max_pages: int = 500) -> Di
 
     logger.info(
         f"[panel-suppression] SES sync complete: seen={seen} newly_added={added} "
-        f"pages={pages} truncated={truncated}"
+        f"pages={pages} truncated={truncated} log_marked={log_marked} "
+        f"panelists_marked={panelists_marked}"
     )
-    return {"seen": seen, "added": added, "pages": pages, "truncated": truncated}
+    return {
+        "seen": seen,
+        "added": added,
+        "pages": pages,
+        "truncated": truncated,
+        "log_marked_bounced": log_marked,
+        "panelists_marked_bounced": panelists_marked,
+    }

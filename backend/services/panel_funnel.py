@@ -33,6 +33,14 @@ invitation_log_collection = _db["panel_invitation_log"]
 # means all of these are present — matching the intent of
 # routers/panel.py::calculate_profile_completion without recomputing a
 # percentage per document (which would mean reading all ~190K records).
+#
+# These are only ever written by Torpedo's own profile route, which is not the
+# path anyone actually takes: registration, profile and login all happen on the
+# SFW panel. services/panel_sync_service.py mirrors SFW's answer into
+# `sfw_profile_complete` / `sfw_last_login`, and the queries below prefer that
+# mirror, falling back to the local fields for the handful of Torpedo-native
+# records. Reading the local fields alone pinned "Profile complete" and
+# "Logged in / active" at 0 regardless of the real numbers.
 PROFILE_CORE_FIELDS = ["date_of_birth", "gender", "country", "city", "occupation"]
 
 # A panelist counts as active once they have actually logged in since
@@ -54,23 +62,44 @@ def _absent(field: str) -> Dict[str, Any]:
 # conditions on top, so these stay purely about funnel position.
 
 def q_profile_complete() -> Dict[str, Any]:
-    return {"$and": [_present(f) for f in PROFILE_CORE_FIELDS]}
+    """Complete per SFW, or per the local fields for Torpedo-native records."""
+    return {
+        "$or": [
+            {"sfw_profile_complete": True},
+            {"$and": [_present(f) for f in PROFILE_CORE_FIELDS]},
+        ]
+    }
 
 
 def q_profile_incomplete() -> Dict[str, Any]:
-    return {"$or": [_absent(f) for f in PROFILE_CORE_FIELDS]}
+    return {"$nor": [q_profile_complete()]}
+
+
+def q_has_login() -> Dict[str, Any]:
+    return {
+        "$or": [
+            {"sfw_last_login": {"$exists": True, "$ne": None}},
+            {"last_login": {"$exists": True, "$ne": None}},
+        ]
+    }
 
 
 def q_signed_up_unverified() -> Dict[str, Any]:
-    """Created an account but never completed double opt-in.
+    """Was invited and started, but never completed double opt-in.
 
-    `password_hash` is what separates a real self-signup from an imported
-    lead: imported rows have no password and were never asked to verify, so
-    counting them here would put ~190K cold addresses in a segment meant for
-    people who actually tried to join.
+    This used to require `password_hash`, on the reasoning that a password is
+    what separates a real self-signup from an imported lead. That is true of
+    Torpedo-native signups, but nobody signs up on Torpedo — SFW owns
+    registration and no password ever lands here, so the segment sat at ~1
+    against a 190K pool and its reminder sequence never sent. Having clicked
+    an invite is the equivalent signal of genuine intent, and it is recorded
+    on the Torpedo side.
     """
     return {
-        "password_hash": {"$exists": True, "$ne": ""},
+        "$or": [
+            {"password_hash": {"$exists": True, "$ne": ""}},
+            {"invite_clicked_at": {"$exists": True, "$ne": None}},
+        ],
         "double_opt_in_completed": {"$ne": True},
         "status": {"$nin": ["dnd", "unsubscribed", "bounced"]},
     }
@@ -95,11 +124,12 @@ def q_profile_no_activity() -> Dict[str, Any]:
             {"double_opt_in_completed": True},
             {"status": {"$nin": ["dnd", "unsubscribed", "bounced"]}},
             q_profile_complete(),
-            {"$or": [
-                {"last_login": {"$exists": False}},
-                {"last_login": None},
-                {"last_login": {"$lt": stale_before}},
-            ]},
+            {"$nor": [{
+                "$or": [
+                    {"sfw_last_login": {"$gte": stale_before}},
+                    {"last_login": {"$gte": stale_before}},
+                ]
+            }]},
         ]
     }
 
@@ -167,15 +197,21 @@ def compute_funnel(force: bool = False) -> Dict[str, Any]:
         "$and": [{"double_opt_in_completed": True}, q_profile_complete()]
     })
     active = panelists_collection.count_documents({
-        "$and": [
-            {"double_opt_in_completed": True},
-            {"last_login": {"$exists": True, "$ne": None}},
-        ]
+        "$and": [{"double_opt_in_completed": True}, q_has_login()]
     })
+
+    # Sends, not people: the same address is re-invited every few days, so this
+    # is ~7x `invited`. It is the number that makes the send volume legible
+    # next to a 190K pool, and the denominator nothing should divide by.
+    total_sends = invitation_log_collection.count_documents(
+        {"sent_at": {"$exists": True, "$ne": None}}
+    )
+    bounced = panelists_collection.count_documents({"status": "bounced"})
 
     raw_stages = [
         ("pool", "In panelist pool", pool),
         ("invited", "Invited at least once", invited),
+        ("deliverable", "Deliverable (not bounced/suppressed)", max(invited - bounced, 0)),
         ("clicked", "Clicked the invite", clicked),
         ("opted_in", "Completed double opt-in", opted_in),
         ("profiled", "Profile complete", profiled),
@@ -211,6 +247,9 @@ def compute_funnel(force: bool = False) -> Dict[str, Any]:
     data = {
         "stages": stages,
         "segments": segments,
+        "total_sends": total_sends,
+        "sends_per_person": round(total_sends / invited, 1) if invited else 0.0,
+        "bounced": bounced,
         "generated_at": datetime.utcnow().isoformat(),
         "compute_seconds": round(time.time() - started, 2),
         "cached": False,

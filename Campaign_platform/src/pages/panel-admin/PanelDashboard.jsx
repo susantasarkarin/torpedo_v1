@@ -28,6 +28,8 @@ function PanelDashboard() {
   const [totalSent, setTotalSent] = useState(0)
   const [totalBounced, setTotalBounced] = useState(0)
   const [totalConfirmed, setTotalConfirmed] = useState(0)
+  const [totalSuppressed, setTotalSuppressed] = useState(0)
+  const [peopleInvited, setPeopleInvited] = useState(0)
   const [days, setDays] = useState(30)
 
   // SFW Panel
@@ -126,7 +128,9 @@ function PanelDashboard() {
         setDailyStats(data.daily_stats || [])
         setTotalSent(data.total_sent || 0)
         setTotalBounced(data.total_bounced || 0)
-        setTotalConfirmed(data.total_confirmed || 0)
+        setTotalConfirmed(data.people_confirmed ?? data.total_confirmed ?? 0)
+        setTotalSuppressed(data.total_suppressed || 0)
+        setPeopleInvited(data.people_invited || 0)
       }
     } catch (err) {
       console.error("Failed to fetch daily stats:", err)
@@ -187,10 +191,30 @@ function PanelDashboard() {
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "1rem", marginBottom: "2rem" }}>
-          <StatCard label="Total Sent" value={totalSent.toLocaleString()} sub="All-time invitations sent" color="#059669" />
-          <StatCard label="Confirmed" value={totalConfirmed.toLocaleString()} sub="Double opt-in completed" color="#0284c7" />
-          <StatCard label="Bounced" value={totalBounced.toLocaleString()} sub="Failed delivery" color="#dc2626" />
-          <StatCard label="Conversion Rate" value={`${totalSent > 0 ? ((totalConfirmed / totalSent) * 100).toFixed(1) : 0}%`} sub="Confirmed / Total sent" color="#7c3aed" />
+          <StatCard
+            label="Total Sent"
+            value={totalSent.toLocaleString()}
+            sub={peopleInvited > 0
+              ? `${peopleInvited.toLocaleString()} people · ${(totalSent / peopleInvited).toFixed(1)}x each`
+              : "All-time invitations sent"}
+            color="#059669"
+          />
+          <StatCard label="Confirmed" value={totalConfirmed.toLocaleString()} sub="People with double opt-in" color="#0284c7" />
+          <StatCard
+            label="Bounced"
+            value={totalBounced.toLocaleString()}
+            sub={`Failed delivery · ${totalSuppressed.toLocaleString()} suppressed`}
+            color="#dc2626"
+          />
+          {/* Confirmed / people invited. Dividing by total SENDS made this
+              number meaningless — the same person is mailed ~7 times, so the
+              denominator was 7x the audience. */}
+          <StatCard
+            label="Conversion Rate"
+            value={`${peopleInvited > 0 ? ((totalConfirmed / peopleInvited) * 100).toFixed(2) : 0}%`}
+            sub="Confirmed / people invited"
+            color="#7c3aed"
+          />
         </div>
 
         <div style={{ marginBottom: "2rem" }}>
@@ -440,6 +464,9 @@ function PanelDashboard() {
 
               <div style={{ border: "1px solid #e5e7eb", borderRadius: "10px", padding: "1.25rem" }}>
                 <p style={{ fontWeight: "700", color: "#111827", marginBottom: "1rem" }}>Signup Source</p>
+                {Object.keys(sfwOverview.sources || {}).length === 0 && (
+                  <p style={{ color: "#6b7280", fontSize: "0.85rem" }}>Not reported by the SFW panel API.</p>
+                )}
                 {Object.entries(sfwOverview.sources || {}).map(([src, count]) => {
                   const total = Object.values(sfwOverview.sources || {}).reduce((s, n) => s + n, 0)
                   const pct = total ? Math.round((count / total) * 100) : 0

@@ -20,6 +20,8 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import requests
+from pymongo import UpdateOne
+from pymongo.errors import BulkWriteError
 
 from services.panel_bounce_handler import (
     panelists_collection,
@@ -58,6 +60,61 @@ def _fetch_registered_emails(since: Optional[str] = None) -> List[Dict[str, Any]
     return data.get("registrants", []) if isinstance(data, dict) else []
 
 
+def _parse_dt(value: Any) -> Optional[datetime]:
+    """Accept the ISO strings / epoch millis the SFW API may hand back."""
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, (int, float)):
+        return datetime.utcfromtimestamp(value / 1000 if value > 1e11 else value)
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+# SFW is a Node service and hands back camelCase; accept snake_case too so this
+# keeps working if the admin API is ever normalised.
+_COUNTRY_KEYS = ("country", "countryCode", "country_code")
+_PROFILE_KEYS = ("profileComplete", "profile_complete", "isProfileComplete")
+_LOGIN_KEYS = ("lastLogin", "last_login", "lastLoginAt", "last_login_at")
+
+
+def _first(row: Dict[str, Any], keys) -> Any:
+    for k in keys:
+        if row.get(k) not in (None, ""):
+            return row[k]
+    return None
+
+
+def _sfw_state_fields(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Map one SFW registrant into the mirrored `sfw_*` fields on a panelist.
+
+    Namespaced rather than written onto `country` / `last_login` directly so a
+    value that came from SFW is always distinguishable from one a panelist
+    entered on Torpedo itself, and so a missing field in the API response can
+    never blank out local data.
+    """
+    fields: Dict[str, Any] = {}
+
+    country = _first(row, _COUNTRY_KEYS)
+    if country:
+        fields["sfw_country"] = str(country).strip().upper()[:2] if len(str(country).strip()) == 2 else str(country).strip()
+
+    profile_complete = _first(row, _PROFILE_KEYS)
+    if profile_complete is not None:
+        fields["sfw_profile_complete"] = bool(profile_complete)
+
+    last_login = _parse_dt(_first(row, _LOGIN_KEYS))
+    if last_login:
+        fields["sfw_last_login"] = last_login
+
+    if fields:
+        fields["sfw_state_synced_at"] = datetime.utcnow()
+    return fields
+
+
 def sync_registrations_from_sfw(
     since: Optional[str] = None,
     update_invitation_log: bool = True,
@@ -75,6 +132,17 @@ def sync_registrations_from_sfw(
         if (r.get("email") or "").strip()
     })
 
+    # Per-email state carried over from SFW. Profile and login live only in the
+    # SFW database, so without this the funnel's "Profile complete" and
+    # "Logged in / active" stages — and the registrations-by-country table —
+    # read against Torpedo-local fields nothing ever writes, and are pinned at
+    # zero / "Unknown" no matter how the panel actually performs.
+    by_email = {}
+    for r in registrants:
+        email = (r.get("email") or "").strip().lower()
+        if email:
+            by_email[email] = r
+
     if not emails:
         logger.info("[panel-sync] no registrants returned from SFW panel")
         return {
@@ -82,12 +150,33 @@ def sync_registrations_from_sfw(
             "unique_emails": 0,
             "newly_marked": 0,
             "log_confirmed": 0,
+            "state_updated": 0,
             "since": since,
         }
 
     now = datetime.utcnow()
     newly_marked = 0
     log_confirmed = 0
+    state_updated = 0
+
+    # SFW state is per-person, so it goes out as one bulk write rather than the
+    # batched update_many the opt-in flag uses.
+    state_ops = []
+    for email, r in by_email.items():
+        state = _sfw_state_fields(r)
+        if state:
+            state_ops.append(UpdateOne({"email": email}, {"$set": state}))
+
+    for start in range(0, len(state_ops), _MARK_BATCH_SIZE):
+        chunk = state_ops[start:start + _MARK_BATCH_SIZE]
+        try:
+            res = panelists_collection.bulk_write(chunk, ordered=False)
+            state_updated += res.modified_count
+        except BulkWriteError as exc:
+            # A partial failure still applies the rest; losing a few profile
+            # mirrors is not worth failing the opt-in sync over.
+            state_updated += exc.details.get("nModified", 0)
+            logger.warning(f"[panel-sync] state bulk_write partial failure: {exc.details.get('writeErrors', [])[:3]}")
 
     for start in range(0, len(emails), _MARK_BATCH_SIZE):
         batch = emails[start:start + _MARK_BATCH_SIZE]
@@ -122,10 +211,12 @@ def sync_registrations_from_sfw(
         "unique_emails": len(emails),
         "newly_marked": newly_marked,
         "log_confirmed": log_confirmed,
+        "state_updated": state_updated,
         "since": since,
     }
     logger.info(
         f"[panel-sync] fetched={summary['fetched']} unique={summary['unique_emails']} "
-        f"newly_marked={summary['newly_marked']} log_confirmed={summary['log_confirmed']}"
+        f"newly_marked={summary['newly_marked']} log_confirmed={summary['log_confirmed']} "
+        f"state_updated={summary['state_updated']}"
     )
     return summary
