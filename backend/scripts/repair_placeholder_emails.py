@@ -69,6 +69,11 @@ def main() -> int:
             email = (doc.get("email") or "").strip()
             if not email:
                 continue
+            # `.invalid` is reserved for deliberate test data (RFC 2606). Smoke
+            # fixtures live there on purpose; they are not enrichment failures
+            # and blanking them would break the tests that look them up.
+            if email.lower().split("@")[-1].startswith("test.invalid"):
+                continue
             if is_placeholder_address(email):
                 kind = "template"
             elif is_malformed_address(email):
