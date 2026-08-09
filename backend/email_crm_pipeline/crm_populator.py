@@ -238,6 +238,15 @@ def upsert_rfq(
     dry_run: bool = False,
 ) -> Optional[str]:
     """
+    DEPRECATED — no longer called by run_crm_population.
+
+    RFQs are owned by backend/sales/mail_pool_ai.py, which logs them onto the
+    CRM spine (crm_db.opportunities). Kept only for the one-off migration in
+    backend/scripts/backfill_spine_rfqs.py, which reads rows this function wrote
+    historically. Do not wire it back into the pipeline: its dedup key
+    (account + subject + month) disagrees with the spine's per-email key, and
+    two keys over one collection is how the duplicate RFQs happened.
+
     Upsert an RFQ record.  Dedup key: (contact_email, subject_key, received_month).
     Returns the rfq_id string, or None if this email is not an RFQ.
     """
@@ -488,7 +497,8 @@ def run_crm_population(
         "total": total,
         "contacts_upserted": 0,
         "accounts_upserted": 0,
-        "rfqs_upserted": 0,
+        "rfqs_upserted": 0,   # always 0 now; the spine owns RFQs
+        "rfqs_skipped_owned_by_spine": 0,
         "job_changes_recorded": 0,
         "skipped": 0,
     }
@@ -522,10 +532,15 @@ def run_crm_population(
         if account_id:
             counts["accounts_upserted"] += 1
 
-        # 3 — Upsert RFQ (only for rfq-type emails)
-        rfq_id = upsert_rfq(extraction, contact_id, account_id, rfqs_col, dry_run)
-        if rfq_id:
-            counts["rfqs_upserted"] += 1
+        # 3 — RFQ creation is NOT done here any more.
+        #
+        # RFQs are owned by backend/sales/mail_pool_ai.py, which runs every 10
+        # minutes and logs them onto the CRM spine (crm_db.opportunities). This
+        # module used to also write email_automation.rfqs with a different dedup
+        # key (account+subject+month vs the spine's per-email key), so the same
+        # RFQ could exist twice with two different statuses. Contacts and
+        # accounts are still populated here — only the RFQ write was duplicated.
+        counts["rfqs_skipped_owned_by_spine"] += 1
 
         # 4 — Record job change if detected
         if contact_id:

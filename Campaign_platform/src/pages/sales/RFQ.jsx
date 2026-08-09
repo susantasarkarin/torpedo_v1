@@ -33,7 +33,8 @@ function RFQ() {
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState(null)
   const [filters, setFilters] = useState({
-    status: "",
+    state: "",      // open | won | lost | closed
+    status: "",     // detailed pipeline stage
     priority: "",
     search: ""
   })
@@ -86,6 +87,7 @@ function RFQ() {
       const token = localStorage.getItem("session_id")
       const params = new URLSearchParams({ page: String(currentPage), limit: "25" })
       
+      if (filters.state) params.append("state", filters.state)
       if (filters.status) params.append("status", filters.status)
       if (filters.priority) params.append("priority", filters.priority)
       if (filters.search) params.append("search", filters.search)
@@ -246,24 +248,46 @@ function RFQ() {
   }
 
   const updateRFQStatus = async (rfqId, newStatus) => {
+    // The CRM spine refuses a "lost" transition without a reason, so losses
+    // stay analyzable. Collect it here rather than letting the PUT 400.
+    let lossReason = null
+    if (newStatus === "lost") {
+      lossReason = window.prompt("Why was this RFQ lost? (required)")
+      if (!lossReason || !lossReason.trim()) {
+        setMessage({ type: "error", text: "A reason is required to mark an RFQ lost" })
+        return
+      }
+    }
+
     try {
       const token = localStorage.getItem("session_id")
       const response = await fetch(buildApiUrl(`/api/rfq/${rfqId}`), {
         method: "PUT",
-        headers: { 
+        headers: {
           Authorization: token,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify({
+          status: newStatus,
+          ...(lossReason ? { loss_reason: lossReason.trim() } : {})
+        })
       })
-      
+
       if (response.ok) {
-        setMessage({ type: "success", text: "Status updated" })
+        const data = await response.json()
+        setMessage({ type: "success", text: data.message || "Status updated" })
         loadRFQs()
         loadStats()
+      } else {
+        const err = await response.json().catch(() => ({}))
+        setMessage({
+          type: "error",
+          text: err.detail || `Could not update status (${response.status})`
+        })
       }
     } catch (error) {
       console.error("Error updating status:", error)
+      setMessage({ type: "error", text: "Could not update status" })
     }
   }
 
@@ -464,19 +488,31 @@ function RFQ() {
             onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
             className="rfq-search"
           />
+          {/* Coarse state, the way the deal is actually talked about. */}
+          <select
+            value={filters.state}
+            onChange={(e) => setFilters(prev => ({ ...prev, state: e.target.value }))}
+            className="rfq-filter-select"
+          >
+            <option value="">All States</option>
+            <option value="open">Open</option>
+            <option value="won">Won</option>
+            <option value="lost">Lost</option>
+            <option value="closed">Closed</option>
+          </select>
+          {/* Detailed pipeline stage. "detected" and "cancelled" are gone: the
+              spine has no such stages, so filtering by them returned nothing. */}
           <select
             value={filters.status}
             onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
             className="rfq-filter-select"
           >
-            <option value="">All Status</option>
-            <option value="detected">Detected</option>
+            <option value="">All Stages</option>
             <option value="pending">Pending</option>
             <option value="quoted">Quoted</option>
             <option value="negotiating">Negotiating</option>
             <option value="won">Won</option>
             <option value="lost">Lost</option>
-            <option value="cancelled">Cancelled</option>
           </select>
           <select
             value={filters.priority}
@@ -491,7 +527,7 @@ function RFQ() {
           </select>
           <button 
             className="btn btn-secondary"
-            onClick={() => setFilters({ status: "", priority: "", search: "" })}
+            onClick={() => setFilters({ state: "", status: "", priority: "", search: "" })}
           >
             Clear Filters
           </button>
@@ -531,6 +567,7 @@ function RFQ() {
                   </th>
                   <th>Title / Subject</th>
                   <th>Lead</th>
+                  <th>Account</th>
                   <th>Country</th>
                   <th>LOI</th>
                   <th>IR</th>
@@ -569,6 +606,19 @@ function RFQ() {
                           <div className="rfq-company">{rfq.sender_company}</div>
                         )}
                       </div>
+                    </td>
+                    <td>
+                      {rfq.account_name ? (
+                        <Link
+                          to="/admin/sales/account"
+                          className="lead-link"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {rfq.account_name}
+                        </Link>
+                      ) : (
+                        <span style={{ color: '#9ca3af' }}>—</span>
+                      )}
                     </td>
                     <td>
                       <span style={{ fontSize: '0.85rem' }}>{rfq.country || "—"}</span>
@@ -639,14 +689,19 @@ function RFQ() {
                           color: getStatusColor(rfq.status).color
                         }}
                       >
-                        <option value="detected">Detected</option>
+                        {/* Only stages the CRM spine actually has. "detected"
+                            and "cancelled" were never valid spine stages. */}
                         <option value="pending">Pending</option>
                         <option value="quoted">Quoted</option>
                         <option value="negotiating">Negotiating</option>
                         <option value="won">Won</option>
                         <option value="lost">Lost</option>
-                        <option value="cancelled">Cancelled</option>
                       </select>
+                      {rfq.state && (
+                        <span className={`rfq-state-badge state-${rfq.state}`}>
+                          {rfq.state}
+                        </span>
+                      )}
                     </td>
                     <td className="rfq-date">{formatDate(rfq.received_date || rfq.created_at)}</td>
                     <td onClick={(e) => e.stopPropagation()}>

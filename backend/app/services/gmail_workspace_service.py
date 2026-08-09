@@ -76,6 +76,35 @@ def _serialize_doc(doc: Dict) -> Dict:
     return result
 
 
+def _trigger_mail_ai(new_count: int, mailbox_email: Optional[str] = None) -> None:
+    """
+    Queue an AI analysis pass immediately after new mail lands.
+
+    See the twin in app/services/gmail_service.py — both sync paths write into
+    torpedo_gmail.email_metadata, so both need the trigger. The scheduled beat
+    remains the safety net: it picks up any sender this pass misses, and it is
+    what covers the case where the broker is unreachable here.
+    """
+    try:
+        from tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
+    except ImportError:  # pragma: no cover
+        try:
+            from backend.tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
+        except ImportError:
+            logger.debug("[mail-ai] task module unavailable; leaving mail to the beat")
+            return
+
+    limit = max(1, min(50, -(-new_count // 4)))
+    try:
+        process_mail_pool_sender_batch.delay(limit=limit)
+        logger.info(
+            "[mail-ai] %d new emails from %s — queued AI pass for up to %d senders",
+            new_count, mailbox_email or "mailbox", limit,
+        )
+    except Exception as e:
+        logger.warning(f"[mail-ai] could not queue AI pass (beat will cover it): {e}")
+
+
 class GmailWorkspaceService:
     """
     Gmail API service using Service Account with Domain-Wide Delegation.
@@ -541,9 +570,14 @@ class GmailWorkspaceService:
                 }
             )
             
+            # New mail landed — kick the AI analysis now rather than letting it
+            # sit until the next 10-minute beat.
+            if stats.get("new_emails"):
+                _trigger_mail_ai(stats["new_emails"], email)
+
             stats["success"] = True
             return stats
-            
+
         except Exception as e:
             logger.error(f"Sync error for {email}: {e}")
             

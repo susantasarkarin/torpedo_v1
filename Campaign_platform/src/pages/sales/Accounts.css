@@ -1,0 +1,275 @@
+/* Accounts — sales account list and 360 detail view */
+
+.accounts-page {
+  padding: 24px 28px;
+}
+
+.accounts-filters {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.accounts-search {
+  min-width: 280px;
+  padding: 8px 12px;
+  border: 1px solid #d8dbe3;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.accounts-filters select {
+  padding: 8px 12px;
+  border: 1px solid #d8dbe3;
+  border-radius: 6px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.accounts-error {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border-radius: 6px;
+  background: #fdecec;
+  color: #b3261e;
+  border: 1px solid #f5c2c0;
+}
+
+.accounts-empty {
+  padding: 48px 24px;
+  text-align: center;
+  color: #6b7280;
+}
+
+.accounts-empty-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #8b93a1;
+  max-width: 620px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.6;
+}
+
+/* ---- tables ---- */
+
+.accounts-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #e6e8ee;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.accounts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.accounts-table th {
+  text-align: left;
+  padding: 12px 16px;
+  background: #f7f8fa;
+  color: #4b5563;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-bottom: 1px solid #e6e8ee;
+  white-space: nowrap;
+}
+
+.accounts-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f1f5;
+  color: #1f2937;
+  vertical-align: middle;
+}
+
+.accounts-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.accounts-row {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.accounts-row:hover {
+  background: #f8f9fc;
+}
+
+.accounts-name {
+  display: block;
+  font-weight: 600;
+  color: #111827;
+}
+
+.accounts-website {
+  display: block;
+  font-size: 12px;
+  color: #8b93a1;
+  margin-top: 2px;
+}
+
+.accounts-source {
+  font-size: 12px;
+  color: #8b93a1;
+}
+
+/* ---- badges and chips ---- */
+
+.accounts-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+  background: #eef0f4;
+  color: #4b5563;
+}
+
+.accounts-badge.status-active,
+.accounts-badge.status-paid,
+.accounts-badge.state-won {
+  background: #e6f6ec;
+  color: #17703b;
+}
+
+.accounts-badge.status-prospect,
+.accounts-badge.status-draft,
+.accounts-badge.state-open {
+  background: #e8f0fe;
+  color: #1a56b8;
+}
+
+.accounts-badge.status-inactive,
+.accounts-badge.state-closed {
+  background: #eef0f4;
+  color: #6b7280;
+}
+
+.accounts-badge.status-overdue,
+.accounts-badge.state-lost {
+  background: #fdecec;
+  color: #b3261e;
+}
+
+.accounts-links {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.accounts-chip {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.chip-finance { background: #fff3e0; color: #a55a00; }
+.chip-ops     { background: #ede7f6; color: #5330a8; }
+.chip-spine   { background: #e0f2f1; color: #00695c; }
+
+/* ---- detail view ---- */
+
+.accounts-back {
+  background: none;
+  border: none;
+  color: #4b5563;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 0;
+  margin-bottom: 8px;
+}
+
+.accounts-back:hover {
+  color: #111827;
+}
+
+.accounts-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 20px 0 24px;
+}
+
+.accounts-stat {
+  padding: 14px 16px;
+  border: 1px solid #e6e8ee;
+  border-radius: 8px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.accounts-stat-label {
+  font-size: 12px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.accounts-stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.accounts-stat-warn {
+  color: #b3261e;
+}
+
+.accounts-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid #e6e8ee;
+  margin-bottom: 20px;
+}
+
+.accounts-tab {
+  padding: 10px 18px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #6b7280;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.accounts-tab:hover {
+  color: #111827;
+}
+
+.accounts-tab.active {
+  color: #1a56b8;
+  border-bottom-color: #1a56b8;
+  font-weight: 600;
+}
+
+.accounts-panel {
+  border: 1px solid #e6e8ee;
+  border-radius: 8px;
+  background: #fff;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.accounts-panel .accounts-empty-hint {
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.accounts-subhead {
+  margin: 20px 16px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #4b5563;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}

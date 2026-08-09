@@ -11,6 +11,7 @@ Provides endpoints for:
 """
 
 import os
+import re
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
@@ -52,179 +53,12 @@ invoices_collection = finance_db["invoices"]
 # Contacts collection for CRM
 contacts_collection = db["contacts"]
 
-
-# ============== RFQ STATE MACHINE ==============
-
-# P1.3: Valid status transitions
-VALID_STATUS_TRANSITIONS = {
-    "pending": ["quoted", "lost"],
-    "quoted": ["negotiating", "won", "lost"],
-    "negotiating": ["quoted", "won", "lost"],
-    "won": [],  # Terminal state
-    "lost": ["pending"],  # Can reopen lost RFQs
-}
-
-def validate_status_transition(current_status: str, new_status: str) -> tuple[bool, str]:
-    """
-    P1.3: Validate RFQ status transition.
-    Returns (is_valid, error_message).
-    """
-    if current_status == new_status:
-        return True, ""
-    
-    allowed = VALID_STATUS_TRANSITIONS.get(current_status, [])
-    if new_status in allowed:
-        return True, ""
-    
-    return False, f"Cannot transition from '{current_status}' to '{new_status}'. Allowed: {allowed}"
-
-
-def create_or_update_contact_on_win(rfq: Dict[str, Any]) -> Optional[str]:
-    """
-    P1.2: Auto-create or update contact when RFQ is won.
-    Returns contact_id if created/updated, None on error.
-    """
-    try:
-        email = rfq.get("contact_email", "").lower().strip()
-        if not email:
-            logger.warning(f"RFQ {rfq.get('rfq_id')} won but no contact_email")
-            return None
-        
-        # Check if contact already exists
-        existing = contacts_collection.find_one({"email": email})
-        
-        # Extract sender info from RFQ
-        sender_name = rfq.get("sender_name", "")
-        sender_company = rfq.get("sender_company", "")
-        
-        # Parse first/last name
-        first_name, last_name = "", ""
-        if sender_name:
-            parts = sender_name.strip().split(" ", 1)
-            first_name = parts[0]
-            last_name = parts[1] if len(parts) > 1 else ""
-        
-        now = datetime.utcnow()
-        
-        if existing:
-            # Update existing contact with won RFQ info
-            update_data = {
-                "updated_at": now,
-                "last_won_rfq_id": rfq.get("rfq_id"),
-                "last_won_rfq_date": now,
-            }
-            # Only update fields if they're empty
-            if not existing.get("firstName") and first_name:
-                update_data["firstName"] = first_name
-            if not existing.get("lastName") and last_name:
-                update_data["lastName"] = last_name
-            if not existing.get("company") and sender_company:
-                update_data["company"] = sender_company
-            
-            # Add 'won-rfq' tag if not present
-            existing_tags = existing.get("tags", [])
-            if "won-rfq" not in existing_tags:
-                update_data["tags"] = existing_tags + ["won-rfq"]
-            
-            contacts_collection.update_one(
-                {"_id": existing["_id"]},
-                {"$set": update_data}
-            )
-            logger.info(f"Updated contact {email} with won RFQ {rfq.get('rfq_id')}")
-            return str(existing["_id"])
-        else:
-            # Create new contact
-            contact_data = {
-                "email": email,
-                "firstName": first_name,
-                "lastName": last_name,
-                "company": sender_company,
-                "phone": "",
-                "tags": ["won-rfq", "auto-created"],
-                "customFields": {
-                    "source": "rfq-win",
-                    "source_rfq_id": rfq.get("rfq_id")
-                },
-                "last_won_rfq_id": rfq.get("rfq_id"),
-                "last_won_rfq_date": now,
-                "created_at": now,
-                "updated_at": now,
-            }
-            result = contacts_collection.insert_one(contact_data)
-            logger.info(f"Created contact {email} from won RFQ {rfq.get('rfq_id')}")
-            return str(result.inserted_id)
-    except Exception as e:
-        logger.error(f"Error creating/updating contact on RFQ win: {e}")
-        return None
-
-
-def promote_lead_to_contacts_on_quoted(rfq: Dict[str, Any]) -> Optional[str]:
-    """
-    Auto-promote lead to Contacts stage when RFQ status changes to 'quoted'.
-    This moves the lead into the active sales pipeline in Contacts section.
-    Returns lead_id if updated, None on error.
-    """
-    try:
-        email = rfq.get("contact_email", "").lower().strip()
-        lead_id = rfq.get("lead_id")
-        
-        lead = None
-        
-        # Try to find lead by lead_id first
-        if lead_id:
-            try:
-                lead = email_leads_collection.find_one({"_id": ObjectId(lead_id)})
-            except:
-                pass
-        
-        # Fallback to contact_email
-        if not lead and email:
-            lead = email_leads_collection.find_one({"email": {"$regex": f"^{email}$", "$options": "i"}})
-        
-        if not lead:
-            logger.warning(f"RFQ {rfq.get('rfq_id')} quoted but no linked lead found for {email}")
-            return None
-        
-        now = datetime.utcnow()
-        
-        # Only promote if not already in contacts or a more advanced stage
-        current_stage = lead.get("lead_stage", "leads")
-        if current_stage == "contacts":
-            # Already in contacts, just add tag
-            existing_tags = lead.get("tags", [])
-            if "rfq-quoted" not in existing_tags:
-                email_leads_collection.update_one(
-                    {"_id": lead["_id"]},
-                    {"$addToSet": {"tags": "rfq-quoted"}, "$set": {"updated_at": now}}
-                )
-            logger.info(f"Lead {lead['_id']} already in contacts, added rfq-quoted tag")
-            return str(lead["_id"])
-        
-        # Promote to contacts stage
-        update_data = {
-            "lead_stage": "contacts",
-            "stage": "discovery_call",  # Default contact stage
-            "updated_at": now,
-            "promoted_to_contacts_at": now,
-            "promoted_from_rfq": rfq.get("rfq_id"),
-        }
-        
-        # Add rfq-quoted tag
-        existing_tags = lead.get("tags", [])
-        if "rfq-quoted" not in existing_tags:
-            update_data["tags"] = existing_tags + ["rfq-quoted"]
-        
-        email_leads_collection.update_one(
-            {"_id": lead["_id"]},
-            {"$set": update_data}
-        )
-        
-        logger.info(f"Promoted lead {lead['_id']} to contacts from RFQ {rfq.get('rfq_id')} quote")
-        return str(lead["_id"])
-        
-    except Exception as e:
-        logger.error(f"Error promoting lead to contacts on RFQ quoted: {e}")
-        return None
+# CRM spine read model. RFQs live in crm_db.opportunities — mail_pool_ai writes
+# them there every 10 min; email_automation.rfqs is legacy and read-only now.
+try:
+    from ..app.services import spine_rfq
+except ImportError:  # pragma: no cover - flat import when run from backend/
+    from app.services import spine_rfq
 
 
 # ============== PYDANTIC MODELS ==============
@@ -256,6 +90,8 @@ class RFQUpdate(BaseModel):
     status: Optional[str] = None
     priority: Optional[str] = None
     due_date: Optional[str] = None
+    # Required by the spine when moving an RFQ to "lost", so losses stay analyzable.
+    loss_reason: Optional[str] = None
     # New fields for enhanced RFQ
     methodology: Optional[str] = None
     loi: Optional[int] = None
@@ -314,308 +150,123 @@ class RFQResponse(BaseModel):
 # ============== HELPER FUNCTIONS ==============
 
 def generate_rfq_id() -> str:
-    """Generate a unique RFQ ID in format RFQ-YYYY-NNNN"""
-    year = datetime.utcnow().year
-    
-    # Find the highest RFQ number for this year
-    latest = rfqs_collection.find_one(
-        {"rfq_id": {"$regex": f"^RFQ-{year}-"}},
-        sort=[("rfq_id", DESCENDING)]
-    )
-    
-    if latest:
-        try:
-            last_num = int(latest["rfq_id"].split("-")[-1])
-            new_num = last_num + 1
-        except:
-            new_num = 1
-    else:
-        new_num = 1
-    
-    return f"RFQ-{year}-{new_num:04d}"
-
-
-def rfq_to_response(rfq: Dict[str, Any], leads_cache: Optional[Dict] = None) -> Dict[str, Any]:
-    """Convert MongoDB RFQ document to response format.
-    
-    Args:
-        rfq: The RFQ document from MongoDB
-        leads_cache: Optional pre-fetched leads dict with keys:
-            - "by_id": {str(lead_id): lead_doc, ...}
-            - "by_email": {email_lower: lead_doc, ...}
-            If provided, skips per-RFQ DB queries (batch optimization).
     """
-    # Calculate final value
-    final_value = rfq.get("manual_value") if rfq.get("manual_value") is not None else rfq.get("extracted_value")
-    final_currency = rfq.get("manual_currency") if rfq.get("manual_currency") else rfq.get("extracted_currency", "USD")
-    
-    # Get lead_id and lead_name - ensure lead_id is always populated if possible
-    lead_id = rfq.get("lead_id")
-    lead_name = None
-    lead = None
-    
-    if leads_cache is not None:
-        # Use pre-fetched leads (batch mode - no DB queries)
-        by_id = leads_cache.get("by_id", {})
-        by_email = leads_cache.get("by_email", {})
-        
-        if lead_id and str(lead_id) in by_id:
-            lead = by_id[str(lead_id)]
-            lead_name = lead.get("name") or ((lead.get("first_name", "") + " " + lead.get("last_name", "")).strip()) or lead.get("email")
-            lead_name = lead_name.strip() if lead_name else None
-        
-        if not lead and rfq.get("contact_email"):
-            contact_email = rfq.get("contact_email", "").lower().strip()
-            lead = by_email.get(contact_email)
-            if lead:
-                lead_id = str(lead["_id"])
-                lead_name = lead.get("name") or ((lead.get("first_name", "") + " " + lead.get("last_name", "")).strip()) or lead.get("email")
-                lead_name = lead_name.strip() if lead_name else None
-        
-        if not lead and rfq.get("sender_email") and rfq.get("sender_email") != rfq.get("contact_email"):
-            sender_email = rfq.get("sender_email", "").lower().strip()
-            lead = by_email.get(sender_email)
-            if lead:
-                lead_id = str(lead["_id"])
-                lead_name = lead.get("name") or ((lead.get("first_name", "") + " " + lead.get("last_name", "")).strip()) or lead.get("email")
-                lead_name = lead_name.strip() if lead_name else None
-    else:
-        # Original per-RFQ DB lookup (used for single-RFQ endpoints)
-        if lead_id:
-            try:
-                lead = email_leads_collection.find_one({"_id": ObjectId(lead_id)})
-                if lead:
-                    lead_name = lead.get("name") or lead.get("first_name", "") + " " + lead.get("last_name", "") or lead.get("email")
-                    lead_name = lead_name.strip() if lead_name else None
-            except:
-                pass
-        
-        if not lead and rfq.get("contact_email"):
-            contact_email = rfq.get("contact_email", "").lower().strip()
-            lead = email_leads_collection.find_one({"email": {"$regex": f"^{contact_email}$", "$options": "i"}})
-            if lead:
-                lead_id = str(lead["_id"])
-                lead_name = lead.get("name") or lead.get("first_name", "") + " " + lead.get("last_name", "") or lead.get("email")
-                lead_name = lead_name.strip() if lead_name else None
-                try:
-                    rfqs_collection.update_one({"_id": rfq["_id"]}, {"$set": {"lead_id": lead_id}})
-                except Exception as e:
-                    logger.warning(f"Failed to backfill lead_id for RFQ {rfq.get('rfq_id')}: {e}")
-        
-        if not lead and rfq.get("sender_email") and rfq.get("sender_email") != rfq.get("contact_email"):
-            sender_email = rfq.get("sender_email", "").lower().strip()
-            lead = email_leads_collection.find_one({"email": {"$regex": f"^{sender_email}$", "$options": "i"}})
-            if lead:
-                lead_id = str(lead["_id"])
-                lead_name = lead.get("name") or lead.get("first_name", "") + " " + lead.get("last_name", "") or lead.get("email")
-                lead_name = lead_name.strip() if lead_name else None
-    
-    return {
-        "_id": str(rfq["_id"]),
-        "rfq_id": rfq.get("rfq_id", ""),
-        "contact_email": rfq.get("contact_email", ""),
-        "lead_id": lead_id,
-        "lead_name": lead_name or rfq.get("sender_name") or rfq.get("contact_email"),
-        "title": rfq.get("title", ""),
-        "description": rfq.get("description", ""),
-        "extracted_value": rfq.get("extracted_value"),
-        "extracted_currency": rfq.get("extracted_currency", "USD"),
-        "manual_value": rfq.get("manual_value"),
-        "manual_currency": rfq.get("manual_currency"),
-        "final_value": final_value,
-        "final_currency": final_currency,
-        "source_emails": rfq.get("source_emails", []),
-        "source_emails_count": len(rfq.get("source_emails", [])),
-        "status": rfq.get("status", "pending"),
-        "priority": rfq.get("priority", "medium"),
-        "received_date": rfq.get("received_date").isoformat() if rfq.get("received_date") else None,
-        "due_date": rfq.get("due_date").isoformat() if rfq.get("due_date") else None,
-        "quoted_date": rfq.get("quoted_date").isoformat() if rfq.get("quoted_date") else None,
-        "closed_date": rfq.get("closed_date").isoformat() if rfq.get("closed_date") else None,
-        "summary": rfq.get("summary", ""),
-        "created_at": rfq.get("created_at").isoformat() if rfq.get("created_at") else None,
-        "updated_at": rfq.get("updated_at").isoformat() if rfq.get("updated_at") else None,
-        "created_by": rfq.get("created_by", "auto"),
-        # New enhanced RFQ fields from AI extraction
-        "methodology": rfq.get("methodology"),
-        "loi": rfq.get("loi"),
-        "ir": rfq.get("ir"),
-        "country": rfq.get("country"),
-        "sample_size": rfq.get("sample_size"),
-        "target_audience": rfq.get("target_audience"),
-        "timeline": rfq.get("timeline"),
-        "study_type": rfq.get("study_type"),
-        "budget": rfq.get("budget"),
-        "additional_requirements": rfq.get("additional_requirements"),
-        "ai_summary": rfq.get("ai_summary"),
-        # Email body and sender details (for RFQ detail view)
-        "email_body": rfq.get("email_body"),
-        "sender_name": rfq.get("sender_name"),
-        "sender_email": rfq.get("sender_email") or rfq.get("contact_email"),
-        "sender_company": rfq.get("sender_company"),
-        "sender_title": rfq.get("sender_title")
-    }
+    Generate the next RFQ-YYYY-NNNN id.
 
+    Counts against the spine (crm_db.opportunities), which is where RFQs live
+    now — numbering off the legacy collection would restart at 0001 and collide
+    with every migrated RFQ.
+    """
+    try:
+        from ..app.services import crm_service
+    except ImportError:  # pragma: no cover
+        from app.services import crm_service
 
-# ============== ENDPOINTS ==============
+    year = datetime.utcnow().year
+    prefix = f"RFQ-{year}-"
+
+    latest = crm_service._col("opportunities").find_one(
+        {"metadata.rfq.rfq_id": {"$regex": f"^{prefix}"}},
+        sort=[("metadata.rfq.rfq_id", DESCENDING)],
+    )
+
+    new_num = 1
+    if latest:
+        existing = (latest.get("metadata") or {}).get("rfq", {}).get("rfq_id", "")
+        try:
+            new_num = int(existing.split("-")[-1]) + 1
+        except (ValueError, IndexError):
+            new_num = 1
+
+    return f"{prefix}{new_num:04d}"
+
 
 @router.get("/")
 async def list_rfqs(
-    status: Optional[str] = Query(None, description="Filter by status"),
+    state: Optional[str] = Query(None, description="Coarse state: open | won | lost | closed"),
+    status: Optional[str] = Query(None, description="Detailed status: pending/quoted/negotiating/won/lost"),
+    account_id: Optional[str] = Query(None, description="Filter to one spine account"),
     priority: Optional[str] = Query(None, description="Filter by priority"),
-    search: Optional[str] = Query(None, description="Search in title, contact_email"),
+    search: Optional[str] = Query(None, description="Search in title/description"),
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(50, ge=1, le=200, description="Items per page")
 ) -> Dict[str, Any]:
     """
-    List all RFQs with optional filters and pagination.
-    Excludes soft-deleted RFQs.
+    List RFQs, read from crm_db.opportunities (the CRM spine).
+
+    The spine is the single source of truth: backend/sales/mail_pool_ai.py logs
+    every mailbox-detected RFQ there every 10 minutes. This endpoint used to read
+    email_automation.rfqs, which that pipeline never wrote to — which is why
+    mailbox RFQs never showed up on the Sales page.
     """
-    # P0.18: Exclude soft-deleted RFQs
-    query = {"is_deleted": {"$ne": True}}
-    
-    if status:
-        query["status"] = status
-    
-    if priority:
-        query["priority"] = priority
-    
-    if search:
-        query["$or"] = [
-            {"title": {"$regex": search, "$options": "i"}},
-            {"contact_email": {"$regex": search, "$options": "i"}},
-            {"rfq_id": {"$regex": search, "$options": "i"}}
-        ]
-    
-    # Get total count
-    total = rfqs_collection.count_documents(query)
-    
-    # Get paginated results
-    skip = (page - 1) * limit
-    rfqs = list(
-        rfqs_collection.find(query)
-        .sort("created_at", DESCENDING)
-        .skip(skip)
-        .limit(limit)
+    result = spine_rfq.list_rfqs(
+        state=state,
+        status=status,
+        account_id=account_id,
+        search=search,
+        page=page,
+        limit=limit,
     )
-    
-    # PERF: Batch-fetch all referenced leads in 2 queries instead of N+1
-    lead_ids = []
-    emails = set()
-    for r in rfqs:
-        if r.get("lead_id"):
-            try:
-                lead_ids.append(ObjectId(r["lead_id"]))
-            except Exception:
-                pass
-        if r.get("contact_email"):
-            emails.add(r["contact_email"].lower().strip())
-        if r.get("sender_email"):
-            emails.add(r["sender_email"].lower().strip())
-    
-    leads_by_id = {}
-    leads_by_email = {}
-    if lead_ids:
-        for lead in email_leads_collection.find({"_id": {"$in": lead_ids}}):
-            leads_by_id[str(lead["_id"])] = lead
-            if lead.get("email"):
-                leads_by_email[lead["email"].lower().strip()] = lead
-    if emails:
-        remaining_emails = [e for e in emails if e not in leads_by_email]
-        if remaining_emails:
-            for lead in email_leads_collection.find({"email": {"$in": remaining_emails}}):
-                leads_by_email[lead["email"].lower().strip()] = lead
-                leads_by_id[str(lead["_id"])] = lead
-    
-    leads_cache = {"by_id": leads_by_id, "by_email": leads_by_email}
-    
-    return {
-        "success": True,
-        "rfqs": [rfq_to_response(rfq, leads_cache) for rfq in rfqs],
-        "total": total,
-        "page": page,
-        "limit": limit,
-        "pages": (total + limit - 1) // limit
-    }
+
+    # `priority` is not a spine field; filter the page in memory rather than
+    # pretending the query engine handled it.
+    if priority:
+        result["rfqs"] = [r for r in result["rfqs"] if r.get("priority") == priority]
+
+    return result
 
 
 @router.get("/stats")
 async def get_rfq_stats() -> Dict[str, Any]:
     """
-    Get RFQ statistics by status.
-    Excludes soft-deleted RFQs.
+    RFQ counts and pipeline value, grouped by both the coarse open/won/lost/closed
+    state and the detailed pipeline stage.
     """
-    pipeline = [
-        # P0.18: Exclude soft-deleted RFQs
-        {"$match": {"is_deleted": {"$ne": True}}},
-        {
-            "$group": {
-                "_id": "$status",
-                "count": {"$sum": 1},
-                "total_value": {
-                    "$sum": {
-                        "$ifNull": ["$manual_value", {"$ifNull": ["$extracted_value", 0]}]
-                    }
-                }
-            }
-        }
-    ]
-    
-    results = list(rfqs_collection.aggregate(pipeline))
-    
-    stats = {
+    spine_stats = spine_rfq.get_stats()
+
+    # Keep the legacy per-status shape the existing RFQ page renders, alongside
+    # the new state rollup.
+    legacy = {
         "pending": {"count": 0, "total_value": 0},
         "quoted": {"count": 0, "total_value": 0},
         "negotiating": {"count": 0, "total_value": 0},
         "won": {"count": 0, "total_value": 0},
-        "lost": {"count": 0, "total_value": 0}
+        "lost": {"count": 0, "total_value": 0},
     }
-    
-    for result in results:
-        status = result["_id"]
-        if status in stats:
-            stats[status] = {
-                "count": result["count"],
-                "total_value": result["total_value"]
-            }
-    
-    # Calculate totals
-    total_count = sum(s["count"] for s in stats.values())
-    total_value = sum(s["total_value"] for s in stats.values())
-    
+    stage_to_status = {
+        "new": "pending", "rfq": "pending", "qualified": "pending",
+        "proposal": "quoted", "negotiation": "negotiating",
+        "won": "won", "lost": "lost",
+    }
+    for stage, count in spine_stats["by_stage"].items():
+        status = stage_to_status.get(stage)
+        if status:
+            legacy[status]["count"] += count
+
     return {
         "success": True,
-        "stats": stats,
-        "total_count": total_count,
-        "total_value": total_value
+        "stats": legacy,
+        "by_state": spine_stats["by_state"],
+        "by_stage": spine_stats["by_stage"],
+        "pipeline_value": spine_stats["pipeline_value"],
+        "won_value": spine_stats["won_value"],
+        "total_count": spine_stats["total"],
+        "total_value": spine_stats["pipeline_value"] + spine_stats["won_value"],
     }
 
 
 @router.get("/{rfq_id}")
 async def get_rfq(rfq_id: str) -> Dict[str, Any]:
     """
-    Get a single RFQ by ID (either rfq_id like RFQ-2025-0001 or MongoDB _id).
-    Excludes soft-deleted RFQs.
+    Get a single RFQ by spine opportunity _id or by its RFQ-YYYY-XXXXXX id.
     """
-    # P0.18: Exclude soft-deleted RFQs
-    base_filter = {"is_deleted": {"$ne": True}}
-    
-    # Try to find by rfq_id first
-    rfq = rfqs_collection.find_one({**base_filter, "rfq_id": rfq_id})
-    
-    # If not found, try by _id
-    if not rfq:
-        try:
-            rfq = rfqs_collection.find_one({**base_filter, "_id": ObjectId(rfq_id)})
-        except:
-            pass
-    
+    rfq = spine_rfq.get_rfq(rfq_id)
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
-    
+
     return {
         "success": True,
-        "rfq": rfq_to_response(rfq)
+        "rfq": rfq
     }
 
 
@@ -657,365 +308,370 @@ def mirror_rfq_to_spine(rfq_id: str, contact_email: Optional[str], title: Option
 @router.post("/")
 async def create_rfq(rfq_data: RFQCreate) -> Dict[str, Any]:
     """
-    Create a new RFQ manually.
+    Create an RFQ manually, directly on the CRM spine.
 
-    Also mirrors the RFQ into the canonical CRM spine (Opportunity + Project stub).
+    This used to insert into email_automation.rfqs and then best-effort mirror
+    to the spine. Now that the list reads the spine, writing the legacy row
+    first would just recreate the drift this refactor removed — so the spine
+    opportunity IS the RFQ, and there is no second copy to keep in step.
     """
-    # Generate RFQ ID
+    try:
+        from ..app.services import crm_service
+    except ImportError:  # pragma: no cover
+        from app.services import crm_service
+
     rfq_id = generate_rfq_id()
-    
-    # Parse due date if provided
+
     due_date = None
     if rfq_data.due_date:
         try:
             due_date = datetime.fromisoformat(rfq_data.due_date.replace("Z", "+00:00"))
-        except:
-            pass
-    
-    rfq_doc = {
-        "rfq_id": rfq_id,
-        "contact_email": rfq_data.contact_email,
-        "lead_id": rfq_data.lead_id,
+        except ValueError:
+            logger.warning(f"RFQ {rfq_id}: unparseable due_date {rfq_data.due_date!r}")
+
+    # Resolve (or create) the account and contact this RFQ belongs to, so it
+    # lands on the Account 360 page rather than floating unattached.
+    account_id = None
+    contact_id = None
+    contact_email = (rfq_data.contact_email or "").strip().lower()
+
+    if contact_email:
+        contact, _ = crm_service.get_or_create_contact(
+            contact_email,
+            defaults={"metadata": {"source": "manual_rfq"}},
+        )
+        contact_id = contact["_id"]
+        account_id = contact.get("account_id")
+
+    spine = crm_service.create_rfq({
         "title": rfq_data.title,
+        "account_id": account_id,
+        "contact_id": contact_id,
+        "budget": rfq_data.manual_value or 0,
         "description": rfq_data.description,
-        "extracted_value": None,
-        "extracted_currency": "USD",
-        "manual_value": rfq_data.manual_value,
-        "manual_currency": rfq_data.manual_currency,
-        "source_emails": [],
-        "status": "pending",
+        "deadline": due_date,
+        # Everything spine_rfq surfaces from metadata.rfq.
+        "rfq_id": rfq_id,
+        "currency": rfq_data.manual_currency,
         "priority": rfq_data.priority,
-        "received_date": datetime.utcnow(),
-        "due_date": due_date,
-        "quoted_date": None,
-        "closed_date": None,
-        "summary": "",
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
-        "created_by": "manual",
-        # New enhanced RFQ fields
         "methodology": rfq_data.methodology,
         "loi": rfq_data.loi,
         "ir": rfq_data.ir,
         "country": rfq_data.country,
-        "sample_size": rfq_data.sample_size
-    }
-    
-    result = rfqs_collection.insert_one(rfq_doc)
-    
-    # Link RFQ to lead if contact_email exists
-    if rfq_data.contact_email:
+        "sample_size": rfq_data.sample_size,
+        "created_by": "manual",
+    })
+
+    opportunity_id = spine["opportunity"]["_id"]
+
+    # Keep the lead's rfq_ids back-reference working for the Leads page.
+    if contact_email:
         email_leads_collection.update_one(
-            {"email": rfq_data.contact_email},
+            {"email": contact_email},
             {"$addToSet": {"rfq_ids": rfq_id}}
         )
-
-    # Mirror into the canonical CRM spine (best-effort; never blocks RFQ creation).
-    try:
-        mirror = mirror_rfq_to_spine(
-            rfq_id=rfq_id,
-            contact_email=rfq_data.contact_email,
-            title=rfq_data.title,
-            budget=rfq_data.manual_value,
-        )
-        if mirror:
-            rfqs_collection.update_one(
-                {"_id": result.inserted_id},
-                {"$set": {
-                    "crm_opportunity_id": mirror["opportunity_id"],
-                    "crm_project_id": mirror["project_id"],
-                }},
-            )
-            rfq_doc["crm_opportunity_id"] = mirror["opportunity_id"]
-            rfq_doc["crm_project_id"] = mirror["project_id"]
-    except Exception as e:
-        logger.warning(f"RFQ {rfq_id}: CRM spine mirror failed (non-fatal): {e}")
-
-    rfq_doc["_id"] = result.inserted_id
 
     return {
         "success": True,
         "message": f"RFQ {rfq_id} created successfully",
-        "rfq": rfq_to_response(rfq_doc)
+        "rfq": spine_rfq.get_rfq(opportunity_id),
+        "opportunity_id": opportunity_id,
+        "project_id": spine["project"]["_id"],
     }
 
 
 @router.put("/{rfq_id}")
 async def update_rfq(rfq_id: str, rfq_data: RFQUpdate) -> Dict[str, Any]:
     """
-    Update an existing RFQ.
-    
-    P1.3: Validates status transitions via state machine.
-    P1.2: Auto-creates/updates contact when status changes to 'won'.
+    Update an RFQ on the CRM spine.
+
+    Status changes go through crm_service.set_opportunity_stage, so the spine's
+    own rules apply: "won" activates the linked project and opens an invoice
+    stub, "lost" requires a loss_reason, and every move lands on the account
+    timeline. The old local VALID_STATUS_TRANSITIONS table is no longer the
+    authority — the spine is.
     """
-    # Find the RFQ
-    rfq = rfqs_collection.find_one({"rfq_id": rfq_id})
-    if not rfq:
-        try:
-            rfq = rfqs_collection.find_one({"_id": ObjectId(rfq_id)})
-        except:
-            pass
-    
-    if not rfq:
+    try:
+        from ..app.services import crm_service
+    except ImportError:  # pragma: no cover
+        from app.services import crm_service
+
+    existing = spine_rfq.get_rfq(rfq_id)
+    if not existing:
         raise HTTPException(status_code=404, detail="RFQ not found")
-    
-    current_status = rfq.get("status", "pending")
-    
-    # P1.3: Validate status transition
-    if rfq_data.status is not None and rfq_data.status != current_status:
-        is_valid, error_msg = validate_status_transition(current_status, rfq_data.status)
-        if not is_valid:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid status transition: {error_msg}"
-            )
-    
-    # Build update document
-    update_doc = {"updated_at": datetime.utcnow()}
-    
+
+    opportunity_id = existing["opportunity_id"]
+    current_status = existing.get("status", "pending")
+
+    # --- scalar fields live on the opportunity -----------------------------
+    update_doc: Dict[str, Any] = {}
     if rfq_data.title is not None:
         update_doc["title"] = rfq_data.title
     if rfq_data.description is not None:
         update_doc["description"] = rfq_data.description
     if rfq_data.manual_value is not None:
-        update_doc["manual_value"] = rfq_data.manual_value
+        update_doc["amount"] = rfq_data.manual_value
     if rfq_data.manual_currency is not None:
-        update_doc["manual_currency"] = rfq_data.manual_currency
+        update_doc["currency"] = rfq_data.manual_currency
     if rfq_data.priority is not None:
         update_doc["priority"] = rfq_data.priority
-    # New enhanced RFQ fields
-    if rfq_data.methodology is not None:
-        update_doc["methodology"] = rfq_data.methodology
-    if rfq_data.loi is not None:
-        update_doc["loi"] = rfq_data.loi
-    if rfq_data.ir is not None:
-        update_doc["ir"] = rfq_data.ir
-    if rfq_data.country is not None:
-        update_doc["country"] = rfq_data.country
-    if rfq_data.sample_size is not None:
-        update_doc["sample_size"] = rfq_data.sample_size
-    if rfq_data.target_audience is not None:
-        update_doc["target_audience"] = rfq_data.target_audience
-    if rfq_data.timeline is not None:
-        update_doc["timeline"] = rfq_data.timeline
-    if rfq_data.study_type is not None:
-        update_doc["study_type"] = rfq_data.study_type
-    if rfq_data.budget is not None:
-        update_doc["budget"] = rfq_data.budget
-    if rfq_data.additional_requirements is not None:
-        update_doc["additional_requirements"] = rfq_data.additional_requirements
-    
-    if rfq_data.status is not None:
-        update_doc["status"] = rfq_data.status
-        # Set closed_date if status is won or lost
-        if rfq_data.status in ["won", "lost"]:
-            update_doc["closed_date"] = datetime.utcnow()
-        elif rfq_data.status == "quoted":
-            update_doc["quoted_date"] = datetime.utcnow()
-    
     if rfq_data.due_date is not None:
         try:
-            update_doc["due_date"] = datetime.fromisoformat(rfq_data.due_date.replace("Z", "+00:00"))
-        except:
-            pass
-    
-    rfqs_collection.update_one(
-        {"_id": rfq["_id"]},
-        {"$set": update_doc}
-    )
-    
-    # Get updated document
-    updated_rfq = rfqs_collection.find_one({"_id": rfq["_id"]})
-    
-    # P1.2: Auto-create/update contact when RFQ is won
-    contact_id = None
-    promoted_lead_id = None
-    
-    if rfq_data.status == "won" and current_status != "won":
-        contact_id = create_or_update_contact_on_win(updated_rfq)
-    
-    # Auto-promote lead to Contacts when RFQ is quoted
-    # This moves the lead into the active sales pipeline for follow-up
-    if rfq_data.status == "quoted" and current_status != "quoted":
-        promoted_lead_id = promote_lead_to_contacts_on_quoted(updated_rfq)
-    
-    response = {
+            update_doc["due_date"] = datetime.fromisoformat(
+                rfq_data.due_date.replace("Z", "+00:00")
+            )
+        except ValueError:
+            logger.warning(f"RFQ {rfq_id}: unparseable due_date {rfq_data.due_date!r}")
+
+    # --- research-brief fields live under metadata.rfq ---------------------
+    brief_fields = {
+        "methodology": rfq_data.methodology,
+        "loi": rfq_data.loi,
+        "ir": rfq_data.ir,
+        "country": rfq_data.country,
+        "sample_size": rfq_data.sample_size,
+        "target_audience": rfq_data.target_audience,
+        "timeline": rfq_data.timeline,
+        "study_type": rfq_data.study_type,
+        "budget": rfq_data.budget,
+        "additional_requirements": rfq_data.additional_requirements,
+    }
+    brief_updates = {
+        f"metadata.rfq.{k}": v for k, v in brief_fields.items() if v is not None
+    }
+
+    if update_doc or brief_updates:
+        crm_service._col("opportunities").update_one(
+            {"_id": ObjectId(opportunity_id)},
+            {"$set": {**update_doc, **brief_updates, "updated_at": datetime.utcnow()}},
+        )
+
+    # --- status change goes through the spine state machine ----------------
+    stage_result = None
+    if rfq_data.status is not None and rfq_data.status != current_status:
+        stage = spine_rfq.legacy_status_to_stage(rfq_data.status)
+        if not stage:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown status '{rfq_data.status}'. "
+                       f"Valid: pending, quoted, negotiating, won, lost",
+            )
+        try:
+            stage_result = crm_service.set_opportunity_stage(
+                opportunity_id,
+                stage,
+                loss_reason=rfq_data.loss_reason,
+            )
+        except ValueError as e:
+            # Raised for an unknown stage or a "lost" move with no reason given.
+            raise HTTPException(status_code=400, detail=str(e))
+
+    updated = spine_rfq.get_rfq(opportunity_id)
+
+    response: Dict[str, Any] = {
         "success": True,
         "message": "RFQ updated successfully",
-        "rfq": rfq_to_response(updated_rfq)
+        "rfq": updated,
     }
-    
-    if contact_id:
-        response["contact_created"] = True
-        response["contact_id"] = contact_id
-    
-    if promoted_lead_id:
-        response["lead_promoted_to_contacts"] = True
-        response["promoted_lead_id"] = promoted_lead_id
-        response["message"] = "RFQ updated and lead promoted to Contacts"
-    
+
+    # mark_opportunity_won activates the project and opens an invoice stub;
+    # surface those ids so the UI can link straight to them.
+    if stage_result and rfq_data.status == "won":
+        if stage_result.get("project"):
+            response["project_activated"] = True
+            response["project_id"] = stage_result["project"].get("_id")
+        if stage_result.get("invoice"):
+            response["invoice_created"] = True
+            response["invoice_id"] = stage_result["invoice"].get("_id")
+        response["message"] = "RFQ won — project activated"
+
     return response
 
 
 @router.delete("/{rfq_id}")
 async def delete_rfq(rfq_id: str) -> Dict[str, Any]:
     """
-    Soft delete an RFQ.
-    P0.18: Guards against deletion if linked estimates or invoices exist.
+    Soft delete an RFQ (spine opportunity).
+
+    Guards against deletion when the RFQ has already produced an estimate or an
+    invoice — those are financial records, and orphaning them loses the audit
+    trail. Deletion is always soft: the opportunity anchors historical
+    activities on the account timeline.
     """
-    # P0.18: Exclude already soft-deleted RFQs
-    base_filter = {"is_deleted": {"$ne": True}}
-    
-    # Find the RFQ
-    rfq = rfqs_collection.find_one({**base_filter, "rfq_id": rfq_id})
-    if not rfq:
-        try:
-            rfq = rfqs_collection.find_one({**base_filter, "_id": ObjectId(rfq_id)})
-        except:
-            pass
-    
+    try:
+        from ..app.services import crm_service
+    except ImportError:  # pragma: no cover
+        from app.services import crm_service
+
+    rfq = spine_rfq.get_rfq(rfq_id)
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
-    
-    # P0.18: Guard - Check for linked estimates
-    if rfq.get("estimate_id"):
-        linked_estimate = estimates_collection.find_one({"_id": ObjectId(rfq["estimate_id"])})
-        if linked_estimate:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot delete RFQ: linked to estimate {linked_estimate.get('estimate_number', rfq['estimate_id'])}. Delete the estimate first."
-            )
-    
-    # P0.18: Guard - Check for linked invoices
-    if rfq.get("invoice_id"):
-        linked_invoice = invoices_collection.find_one({"_id": ObjectId(rfq["invoice_id"])})
-        if linked_invoice:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot delete RFQ: linked to invoice {linked_invoice.get('invoice_number', rfq['invoice_id'])}. Delete the invoice first."
-            )
-    
-    # Remove RFQ ID from lead (keep this for data consistency)
+
+    blocker = _deletion_blocker(rfq)
+    if blocker:
+        raise HTTPException(status_code=400, detail=blocker)
+
     if rfq.get("contact_email"):
         email_leads_collection.update_one(
             {"email": rfq["contact_email"]},
             {"$pull": {"rfq_ids": rfq["rfq_id"]}}
         )
-    
-    # P0.18: Soft delete instead of hard delete
-    rfqs_collection.update_one(
-        {"_id": rfq["_id"]},
+
+    crm_service._col("opportunities").update_one(
+        {"_id": ObjectId(rfq["opportunity_id"])},
         {"$set": {
             "is_deleted": True,
             "deleted_at": datetime.utcnow(),
-            "deleted_by": "api_user"  # TODO: Replace with actual user from auth
+            "deleted_by": "api_user",  # TODO: Replace with actual user from auth
         }}
     )
-    
-    logger.info(f"Soft deleted RFQ {rfq.get('rfq_id')}")
-    
+
+    logger.info(f"Soft deleted RFQ {rfq['rfq_id']} (opportunity {rfq['opportunity_id']})")
+
     return {
         "success": True,
-        "message": f"RFQ {rfq.get('rfq_id')} deleted successfully"
+        "message": f"RFQ {rfq['rfq_id']} deleted successfully"
     }
+
+
+def _deletion_blocker(rfq: Dict[str, Any]) -> Optional[str]:
+    """Return a human-readable reason this RFQ must not be deleted, or None."""
+    estimate_id = rfq.get("estimate_id")
+    if estimate_id:
+        try:
+            linked = estimates_collection.find_one({"_id": ObjectId(estimate_id)})
+        except Exception:
+            linked = None
+        if linked:
+            return (
+                f"Cannot delete RFQ: linked to estimate "
+                f"{linked.get('estimate_number', estimate_id)}. Delete the estimate first."
+            )
+
+    invoice_id = rfq.get("invoice_id")
+    if invoice_id:
+        try:
+            linked = invoices_collection.find_one({"_id": ObjectId(invoice_id)})
+        except Exception:
+            linked = None
+        if linked:
+            return (
+                f"Cannot delete RFQ: linked to invoice "
+                f"{linked.get('invoice_number', invoice_id)}. Delete the invoice first."
+            )
+
+    return None
 
 
 @router.post("/bulk-delete")
 async def bulk_delete_rfqs(data: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
-    """
-    Soft delete multiple RFQs by their IDs.
-    P0.18: Guards against deletion if linked estimates or invoices exist.
-    """
+    """Soft delete multiple RFQs, skipping any with linked estimates or invoices."""
+    try:
+        from ..app.services import crm_service
+    except ImportError:  # pragma: no cover
+        from app.services import crm_service
+
     ids = data.get("ids", [])
     if not ids:
         raise HTTPException(status_code=400, detail="No IDs provided")
-    
-    # P0.18: Exclude already soft-deleted RFQs
-    base_filter = {"is_deleted": {"$ne": True}}
-    
+
     deleted_count = 0
-    skipped = []  # Track RFQs that couldn't be deleted
-    
-    for rfq_id in ids:
-        # Find the RFQ
-        rfq = rfqs_collection.find_one({**base_filter, "rfq_id": rfq_id})
+    skipped = []
+
+    for rfq_ref in ids:
+        rfq = spine_rfq.get_rfq(rfq_ref)
         if not rfq:
-            try:
-                rfq = rfqs_collection.find_one({**base_filter, "_id": ObjectId(rfq_id)})
-            except:
-                continue
-        
-        if rfq:
-            # P0.18: Guard - Check for linked estimates
-            if rfq.get("estimate_id"):
-                skipped.append({"rfq_id": rfq.get("rfq_id", rfq_id), "reason": "linked to estimate"})
-                continue
-            
-            # P0.18: Guard - Check for linked invoices
-            if rfq.get("invoice_id"):
-                skipped.append({"rfq_id": rfq.get("rfq_id", rfq_id), "reason": "linked to invoice"})
-                continue
-            
-            # Remove RFQ ID from lead
-            if rfq.get("contact_email"):
-                email_leads_collection.update_one(
-                    {"email": rfq["contact_email"]},
-                    {"$pull": {"rfq_ids": rfq.get("rfq_id")}}
-                )
-            
-            # P0.18: Soft delete instead of hard delete
-            rfqs_collection.update_one(
-                {"_id": rfq["_id"]},
-                {"$set": {
-                    "is_deleted": True,
-                    "deleted_at": datetime.utcnow(),
-                    "deleted_by": "api_user"  # TODO: Replace with actual user from auth
-                }}
+            skipped.append({"rfq_id": rfq_ref, "reason": "not found"})
+            continue
+
+        blocker = _deletion_blocker(rfq)
+        if blocker:
+            skipped.append({"rfq_id": rfq["rfq_id"], "reason": blocker})
+            continue
+
+        if rfq.get("contact_email"):
+            email_leads_collection.update_one(
+                {"email": rfq["contact_email"]},
+                {"$pull": {"rfq_ids": rfq["rfq_id"]}}
             )
-            deleted_count += 1
-    
+
+        crm_service._col("opportunities").update_one(
+            {"_id": ObjectId(rfq["opportunity_id"])},
+            {"$set": {
+                "is_deleted": True,
+                "deleted_at": datetime.utcnow(),
+                "deleted_by": "api_user",
+            }}
+        )
+        deleted_count += 1
+
     response = {
         "success": True,
         "message": f"Successfully deleted {deleted_count} RFQs",
-        "deleted_count": deleted_count
+        "deleted_count": deleted_count,
     }
-    
     if skipped:
         response["skipped"] = skipped
-        response["message"] += f", skipped {len(skipped)} with linked documents"
-    
+        response["message"] += f" ({len(skipped)} skipped)"
+
     return response
 
 
 @router.get("/by-lead/{lead_id}")
 async def get_rfqs_by_lead(lead_id: str) -> Dict[str, Any]:
     """
-    Get all RFQs for a specific lead.
-    Excludes soft-deleted RFQs.
+    Get all RFQs for a lead, by spine contact id or by email address.
+
+    Reads the spine: opportunities carry contact_id, so resolve the lead to a
+    canonical contact and query on that.
     """
-    # P0.18: Exclude soft-deleted RFQs
-    base_filter = {"is_deleted": {"$ne": True}}
-    
-    # First try to find by lead_id
-    rfqs = list(rfqs_collection.find({**base_filter, "lead_id": lead_id}).sort("created_at", DESCENDING))
-    
-    # If no results, try to find by contact_email
-    if not rfqs:
-        # Check if lead_id is actually an email
-        if "@" in lead_id:
-            rfqs = list(rfqs_collection.find({**base_filter, "contact_email": lead_id}).sort("created_at", DESCENDING))
+    try:
+        from ..app.services import crm_service
+    except ImportError:  # pragma: no cover
+        from app.services import crm_service
+
+    contact_id = None
+    email = lead_id if "@" in lead_id else None
+
+    if not email:
+        # Could already be a spine contact id...
+        contact = crm_service.get("contacts", lead_id) if len(lead_id) == 24 else None
+        if contact:
+            contact_id = contact["_id"]
         else:
-            # Try to get the lead's email first
+            # ...otherwise a legacy lead id; resolve it to an email.
             try:
                 lead = email_leads_collection.find_one({"_id": ObjectId(lead_id)})
-                if lead and lead.get("email"):
-                    rfqs = list(rfqs_collection.find({**base_filter, "contact_email": lead["email"]}).sort("created_at", DESCENDING))
-            except:
+                if lead:
+                    email = lead.get("email")
+            except Exception:
                 pass
-    
+
+    if not contact_id and email:
+        contact = crm_service.find_contact_by_email(email)
+        if contact:
+            contact_id = contact["_id"]
+
+    if not contact_id:
+        return {"success": True, "rfqs": [], "count": 0}
+
+    opportunities = list(
+        crm_service._col("opportunities").find({
+            "contact_id": contact_id,
+            "is_deleted": {"$ne": True},
+            "$or": [
+                {"stage": "rfq"},
+                {"metadata.source": "rfq"},
+                {"metadata.rfq": {"$exists": True}},
+            ],
+        }).sort("created_at", DESCENDING)
+    )
+
+    rfqs = [spine_rfq.opportunity_to_rfq(o) for o in opportunities]
+
     return {
         "success": True,
-        "rfqs": [rfq_to_response(rfq) for rfq in rfqs],
+        "rfqs": rfqs,
         "count": len(rfqs)
     }
 
@@ -1030,18 +686,15 @@ async def link_email_to_rfq(
     """
     Link an email to an existing RFQ.
     """
-    # Find the RFQ
-    rfq = rfqs_collection.find_one({"rfq_id": rfq_id})
-    if not rfq:
-        try:
-            rfq = rfqs_collection.find_one({"_id": ObjectId(rfq_id)})
-        except:
-            pass
-    
+    try:
+        from ..app.services import crm_service
+    except ImportError:  # pragma: no cover
+        from app.services import crm_service
+
+    rfq = spine_rfq.get_rfq(rfq_id)
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
-    
-    # Add email to source_emails
+
     source_email = {
         "message_id": message_id,
         "subject": subject,
@@ -1049,15 +702,16 @@ async def link_email_to_rfq(
         "date": datetime.utcnow(),
         "extracted_amount": None
     }
-    
-    rfqs_collection.update_one(
-        {"_id": rfq["_id"]},
+
+    # Provenance lives under metadata.rfq alongside the AI-extracted brief.
+    crm_service._col("opportunities").update_one(
+        {"_id": ObjectId(rfq["opportunity_id"])},
         {
-            "$push": {"source_emails": source_email},
+            "$push": {"metadata.rfq.source_emails": source_email},
             "$set": {"updated_at": datetime.utcnow()}
         }
     )
-    
+
     return {
         "success": True,
         "message": "Email linked to RFQ successfully"
@@ -1129,25 +783,34 @@ def _generate_line_items_from_rfq(rfq: Dict[str, Any], unit_price: Optional[floa
 
 
 def _find_or_create_customer(rfq: Dict[str, Any]) -> Optional[str]:
-    """Find existing customer or return None."""
-    client_name = rfq.get("client_name", "").strip()
-    client_email = rfq.get("client_email", "").strip()
-    
-    if not client_name and not client_email:
+    """
+    Resolve the finance customer for an RFQ, or None if there is no match.
+
+    Reads account_name/contact_email — the fields the spine adapter actually
+    populates. It previously read client_name/client_email, which no RFQ
+    document has ever carried, so it always returned None and every conversion
+    without an explicit customer_id failed with "Customer not found".
+    """
+    account_name = (rfq.get("account_name") or rfq.get("sender_company") or "").strip()
+    contact_email = (rfq.get("contact_email") or "").strip()
+
+    if not account_name and not contact_email:
         return None
-    
-    # Try to find by email first
-    if client_email:
-        customer = customers_collection.find_one({"email": {"$regex": client_email, "$options": "i"}})
+
+    if contact_email:
+        customer = customers_collection.find_one(
+            {"email": {"$regex": f"^{re.escape(contact_email)}$", "$options": "i"}}
+        )
         if customer:
             return str(customer["_id"])
-    
-    # Try to find by name
-    if client_name:
-        customer = customers_collection.find_one({"name": {"$regex": f"^{client_name}$", "$options": "i"}})
+
+    if account_name:
+        customer = customers_collection.find_one(
+            {"name": {"$regex": f"^{re.escape(account_name)}$", "$options": "i"}}
+        )
         if customer:
             return str(customer["_id"])
-    
+
     return None
 
 
@@ -1186,17 +849,10 @@ async def convert_rfq_to_estimate(
     This creates an estimate document in the finance system based on the RFQ details.
     The RFQ status is updated to 'quoted'.
     """
-    # Find the RFQ
-    rfq = rfqs_collection.find_one({"rfq_id": rfq_id})
-    if not rfq:
-        try:
-            rfq = rfqs_collection.find_one({"_id": ObjectId(rfq_id)})
-        except:
-            pass
-    
+    rfq = spine_rfq.get_rfq(rfq_id)
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
-    
+
     # Determine customer
     customer_id = request.customer_id
     if not customer_id:
@@ -1239,8 +895,9 @@ async def convert_rfq_to_estimate(
         "estimate_number": estimate_number,
         "customer_id": customer_id,
         "customer_name": customer.get("name", ""),
-        "rfq_id": rfq.get("rfq_id") or str(rfq["_id"]),
-        "rfq_object_id": str(rfq["_id"]),
+        "rfq_id": rfq["rfq_id"],
+        "rfq_object_id": rfq["opportunity_id"],
+        "opportunity_id": rfq["opportunity_id"],
         "project_name": rfq.get("project_name", ""),
         "status": "draft",
         "date": now,
@@ -1261,17 +918,22 @@ async def convert_rfq_to_estimate(
     result = estimates_collection.insert_one(estimate)
     estimate_id = str(result.inserted_id)
     
-    # Update RFQ status and link
-    rfqs_collection.update_one(
-        {"_id": rfq["_id"]},
+    # Move the spine opportunity to "proposal" and cross-link the estimate.
+    try:
+        from ..app.services import crm_service
+    except ImportError:  # pragma: no cover
+        from app.services import crm_service
+
+    crm_service._col("opportunities").update_one(
+        {"_id": ObjectId(rfq["opportunity_id"])},
         {
             "$set": {
-                "status": "quoted",
-                "estimate_id": estimate_id,
-                "estimate_number": estimate_number,
+                "stage": "proposal",
+                "amount": round(total, 2),
                 "quoted_at": now,
-                "quoted_value": total,
-                "updated_at": now
+                "updated_at": now,
+                "metadata.rfq.estimate_id": estimate_id,
+                "metadata.rfq.estimate_number": estimate_number,
             }
         }
     )
@@ -1284,7 +946,7 @@ async def convert_rfq_to_estimate(
         document_type="estimate",
         document_id=estimate_id,
         document_number=estimate_number,
-        rfq_id=rfq.get("rfq_id") or str(rfq["_id"]),
+        rfq_id=rfq["rfq_id"],
         total_amount=round(total, 2)
     )
 
@@ -1301,17 +963,10 @@ async def convert_rfq_to_invoice(
     The RFQ status is updated to 'won'.
     Use this when a deal is confirmed and you want to skip the estimate stage.
     """
-    # Find the RFQ
-    rfq = rfqs_collection.find_one({"rfq_id": rfq_id})
-    if not rfq:
-        try:
-            rfq = rfqs_collection.find_one({"_id": ObjectId(rfq_id)})
-        except:
-            pass
-    
+    rfq = spine_rfq.get_rfq(rfq_id)
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
-    
+
     # Determine customer
     customer_id = request.customer_id
     if not customer_id:
@@ -1353,8 +1008,9 @@ async def convert_rfq_to_invoice(
         "invoice_number": invoice_number,
         "customer_id": customer_id,
         "customer_name": customer.get("name", ""),
-        "rfq_id": rfq.get("rfq_id") or str(rfq["_id"]),
-        "rfq_object_id": str(rfq["_id"]),
+        "rfq_id": rfq["rfq_id"],
+        "rfq_object_id": rfq["opportunity_id"],
+        "opportunity_id": rfq["opportunity_id"],
         "project_name": rfq.get("project_name", ""),
         "project_id": rfq.get("project_id"),  # Link to project if exists
         "status": "pending",
@@ -1387,18 +1043,31 @@ async def convert_rfq_to_invoice(
         }
     )
     
-    # Update RFQ status and link
-    rfqs_collection.update_one(
-        {"_id": rfq["_id"]},
+    # Invoicing an RFQ means the deal is won. Go through the spine so the linked
+    # project is activated and the win lands on the account timeline, then
+    # cross-link the finance invoice.
+    try:
+        from ..app.services import crm_service
+    except ImportError:  # pragma: no cover
+        from app.services import crm_service
+
+    try:
+        crm_service.set_opportunity_stage(rfq["opportunity_id"], "won")
+    except Exception as e:
+        logger.warning(
+            f"RFQ {rfq_id}: invoice created but spine win transition failed: {e}"
+        )
+
+    crm_service._col("opportunities").update_one(
+        {"_id": ObjectId(rfq["opportunity_id"])},
         {
             "$set": {
-                "status": "won",
+                "amount": round(total, 2),
                 "invoice_id": invoice_id,
-                "invoice_number": invoice_number,
                 "invoiced_at": now,
-                "invoiced_value": total,
-                "won_at": now,
-                "updated_at": now
+                "updated_at": now,
+                "metadata.rfq.invoice_id": invoice_id,
+                "metadata.rfq.invoice_number": invoice_number,
             }
         }
     )
@@ -1411,7 +1080,7 @@ async def convert_rfq_to_invoice(
         document_type="invoice",
         document_id=invoice_id,
         document_number=invoice_number,
-        rfq_id=rfq.get("rfq_id") or str(rfq["_id"]),
+        rfq_id=rfq["rfq_id"],
         total_amount=round(total, 2)
     )
 
@@ -1500,27 +1169,37 @@ async def convert_estimate_to_invoice(
         except:
             pass
     
-    # Update linked RFQ if exists
-    rfq_object_id = estimate.get("rfq_object_id")
-    if rfq_object_id:
+    # Estimate -> invoice means the deal is won. rfq_object_id now holds the
+    # spine opportunity id (older estimates hold a legacy rfqs _id, which no
+    # longer resolves — those simply skip the transition rather than erroring).
+    opportunity_id = estimate.get("opportunity_id") or estimate.get("rfq_object_id")
+    if opportunity_id:
         try:
-            rfqs_collection.update_one(
-                {"_id": ObjectId(rfq_object_id)},
+            from ..app.services import crm_service
+        except ImportError:  # pragma: no cover
+            from app.services import crm_service
+
+        try:
+            crm_service.set_opportunity_stage(opportunity_id, "won")
+            crm_service._col("opportunities").update_one(
+                {"_id": ObjectId(opportunity_id)},
                 {
                     "$set": {
-                        "status": "won",
+                        "amount": round(total, 2),
                         "invoice_id": invoice_id,
-                        "invoice_number": invoice_number,
                         "invoiced_at": now,
-                        "invoiced_value": total,
-                        "won_at": now,
-                        "updated_at": now
+                        "updated_at": now,
+                        "metadata.rfq.invoice_id": invoice_id,
+                        "metadata.rfq.invoice_number": invoice_number,
                     }
                 }
             )
-        except:
-            pass
-    
+        except Exception as e:
+            logger.warning(
+                f"Estimate {estimate.get('estimate_number')}: invoice created but "
+                f"spine opportunity {opportunity_id} not updated: {e}"
+            )
+
     logger.info(f"Converted Estimate {estimate_id} to Invoice {invoice_number}")
     
     return ConversionResponse(
@@ -1537,28 +1216,6 @@ async def convert_estimate_to_invoice(
 # =============================================================================
 # Gmail Email to RFQ Sync - Convert classified Gmail emails to RFQs
 # =============================================================================
-
-def generate_rfq_id_for_sync() -> str:
-    """Generate a unique RFQ ID in format RFQ-YYYY-NNNN"""
-    year = datetime.utcnow().year
-    
-    # Find the highest RFQ number for this year
-    latest = rfqs_collection.find_one(
-        {"rfq_id": {"$regex": f"^RFQ-{year}-"}},
-        sort=[("rfq_id", DESCENDING)]
-    )
-    
-    if latest:
-        try:
-            last_num = int(latest["rfq_id"].split("-")[-1])
-            new_num = last_num + 1
-        except:
-            new_num = 1
-    else:
-        new_num = 1
-    
-    return f"RFQ-{year}-{new_num:04d}"
-
 
 def extract_rfq_details_from_summary(summary: str, subject: str) -> Dict[str, Any]:
     """Extract RFQ details from AI summary and subject"""
@@ -1640,216 +1297,108 @@ def extract_rfq_details_from_summary(summary: str, subject: str) -> Dict[str, An
 
 @router.post("/sync-from-gmail")
 async def sync_rfqs_from_gmail(
-    limit: int = Query(100, description="Maximum emails to process"),
-    categories: List[str] = Query(["client", "rfq"], description="AI categories to include")
+    limit: int = Query(100, description="Unused; kept so old clients still parse"),
+    categories: List[str] = Query(["client", "rfq"], description="Unused")
 ) -> Dict[str, Any]:
     """
-    Sync classified Gmail emails to RFQs.
-    
-    Converts emails with ai_category='client' or 'rfq' from torpedo_gmail.email_metadata
-    to RFQs in email_automation.rfqs collection.
+    RETIRED. RFQ creation from mail is owned by backend/sales/mail_pool_ai.py.
+
+    This endpoint used to scan torpedo_gmail.email_metadata and write into
+    email_automation.rfqs. It was one of three competing RFQ writers with three
+    different dedup keys, and it wrote to a collection the live pipeline never
+    reads. mail_pool_ai runs every 10 minutes over the same mailbox, does real
+    AI extraction, and logs RFQs onto the CRM spine — that is the only writer now.
+
+    Kept as a 410 rather than deleted so any scheduled caller fails loudly with
+    a pointer instead of silently doing nothing.
+    """
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "Retired. RFQs are created from mail by the mail_pool_ai pipeline "
+            "(celery beat 'mail-pool-ai-sender-batch', every 10 min) and stored "
+            "on the CRM spine. Use POST /rfq/resync to force a pass."
+        ),
+    )
+
+
+@router.post("/resync")
+async def resync_rfqs_from_mail(
+    limit: int = Query(50, ge=1, le=500, description="Senders to process this pass")
+) -> Dict[str, Any]:
+    """
+    Force an immediate mail-pool AI pass instead of waiting for the 10-minute beat.
+
+    Queues the same Celery task the scheduler runs, so there is exactly one code
+    path that turns mail into RFQs.
     """
     try:
-        # Find classified emails that haven't been synced to RFQs yet
-        query = {
-            "ai_category": {"$in": categories},
-            "rfq_synced": {"$ne": True}  # Not already synced
-        }
-        
-        emails = list(email_metadata_collection.find(query).limit(limit))
-        
-        if not emails:
-            return {
-                "success": True,
-                "message": "No new emails to sync",
-                "synced": 0,
-                "skipped": 0
-            }
-        
-        synced = 0
-        skipped = 0
-        errors = []
-        
-        for email in emails:
-            try:
-                # Get sender email (external party)
-                from_email = email.get("from_email", "")
-                to_emails = email.get("to_emails", [])
-                
-                # Determine the client email (the external party)
-                # If from_email is internal, use to_email as contact
-                internal_domains = ["cogentixresearch.com", "surveyfieldwork.com"]
-                from_domain = from_email.split("@")[-1].lower() if "@" in from_email else ""
-                
-                if from_domain in internal_domains:
-                    # Outbound email - find external recipient
-                    contact_email = None
-                    for to_email in to_emails:
-                        to_domain = to_email.split("@")[-1].lower() if "@" in to_email else ""
-                        if to_domain not in internal_domains:
-                            contact_email = to_email
-                            break
-                    if not contact_email:
-                        skipped += 1
-                        continue
-                else:
-                    # Inbound email - sender is the client
-                    contact_email = from_email
-                
-                if not contact_email:
-                    skipped += 1
-                    continue
-                
-                # Skip noreply, bounce, etc.
-                skip_patterns = ["noreply", "no-reply", "mailer-daemon", "postmaster", "bounce"]
-                if any(p in contact_email.lower() for p in skip_patterns):
-                    skipped += 1
-                    continue
-                
-                # Check if RFQ already exists for this thread
-                thread_id = email.get("gmail_thread_id", "")
-                if thread_id:
-                    existing = rfqs_collection.find_one({"gmail_thread_id": thread_id})
-                    if existing:
-                        # Mark as synced but skip
-                        email_metadata_collection.update_one(
-                            {"_id": email["_id"]},
-                            {"$set": {"rfq_synced": True, "rfq_id": existing["rfq_id"]}}
-                        )
-                        skipped += 1
-                        continue
-                
-                # Extract RFQ details from AI summary
-                summary = email.get("ai_summary", "")
-                subject = email.get("subject", "")
-                rfq_details = extract_rfq_details_from_summary(summary, subject)
-                
-                # Get sender info
-                sender_info = email.get("sender_info", {})
-                
-                # Generate RFQ ID
-                rfq_id = generate_rfq_id_for_sync()
-                
-                # Create RFQ document
-                rfq_doc = {
-                    "rfq_id": rfq_id,
-                    "contact_email": contact_email,
-                    "title": subject or "RFQ Request",
-                    "description": summary[:2000] if summary else "",
-                    "extracted_value": None,
-                    "extracted_currency": "USD",
-                    "manual_value": None,
-                    "manual_currency": None,
-                    # AI-extracted fields
-                    "methodology": rfq_details.get("methodology"),
-                    "loi": rfq_details.get("loi"),
-                    "ir": rfq_details.get("ir"),
-                    "sample_size": rfq_details.get("sample_size"),
-                    "country": rfq_details.get("country"),
-                    "study_type": rfq_details.get("study_type"),
-                    "target_audience": None,
-                    "timeline": None,
-                    # Sender info
-                    "sender_name": sender_info.get("name", email.get("from_name", "")),
-                    "sender_company": sender_info.get("company_name", ""),
-                    "sender_title": sender_info.get("title", ""),
-                    # AI summary
-                    "ai_summary": summary,
-                    # Source tracking
-                    "gmail_thread_id": thread_id,
-                    "gmail_message_id": email.get("gmail_message_id", ""),
-                    "source_emails": [{
-                        "message_id": email.get("gmail_message_id", ""),
-                        "subject": subject,
-                        "date": email.get("timestamp"),
-                        "from": from_email
-                    }],
-                    # Standard fields
-                    "status": "pending",
-                    "priority": "high" if email.get("ai_urgency") == "high" else "medium",
-                    "received_date": email.get("timestamp", datetime.utcnow()),
-                    "due_date": None,
-                    "summary": "",
-                    "created_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow(),
-                    "created_by": "gmail_sync"
-                }
-                
-                rfqs_collection.insert_one(rfq_doc)
-                
-                # Mark email as synced
-                email_metadata_collection.update_one(
-                    {"_id": email["_id"]},
-                    {"$set": {"rfq_synced": True, "rfq_id": rfq_id}}
-                )
-                
-                synced += 1
-                logger.info(f"Created RFQ {rfq_id} from Gmail thread {thread_id}")
-                
-            except Exception as e:
-                errors.append(str(e))
-                logger.error(f"Error syncing email {email.get('_id')}: {e}")
-        
+        from ..tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
+    except ImportError:  # pragma: no cover
+        from tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
+
+    try:
+        task = process_mail_pool_sender_batch.delay(limit=limit)
         return {
             "success": True,
-            "message": f"Synced {synced} emails to RFQs, skipped {skipped}",
-            "synced": synced,
-            "skipped": skipped,
-            "errors": errors[:10] if errors else None
+            "message": f"Mail-pool AI pass queued for {limit} senders",
+            "task_id": task.id,
         }
-        
     except Exception as e:
-        logger.error(f"Error syncing Gmail to RFQs: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Failed to queue mail-pool AI pass: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Could not queue the sync task (is the Celery worker up?): {e}",
+        )
 
 
 @router.get("/sync-status")
 async def get_sync_status() -> Dict[str, Any]:
-    """Get Gmail to RFQ sync status"""
+    """
+    Mail-pool -> RFQ ingestion status.
+
+    Reports how much of the Gmail pool the AI pipeline has chewed through and
+    how many RFQs that has produced on the spine, so an empty RFQ list can be
+    told apart from a stalled worker.
+    """
     try:
-        # Count emails by category
-        pipeline = [
-            {"$match": {"ai_category": {"$in": ["client", "rfq"]}}},
-            {"$group": {
-                "_id": {
-                    "category": "$ai_category",
-                    "synced": {"$ifNull": ["$rfq_synced", False]}
-                },
-                "count": {"$sum": 1}
-            }}
-        ]
-        
-        results = list(email_metadata_collection.aggregate(pipeline))
-        
-        stats = {
-            "client_total": 0,
-            "client_synced": 0,
-            "rfq_total": 0,
-            "rfq_synced": 0,
-            "total_rfqs": rfqs_collection.count_documents({"is_deleted": {"$ne": True}})
-        }
-        
-        for r in results:
-            cat = r["_id"]["category"]
-            synced = r["_id"]["synced"]
-            count = r["count"]
-            
-            if cat == "client":
-                stats["client_total"] += count
-                if synced:
-                    stats["client_synced"] = count
-            elif cat == "rfq":
-                stats["rfq_total"] += count
-                if synced:
-                    stats["rfq_synced"] = count
-        
-        stats["pending_sync"] = (stats["client_total"] - stats["client_synced"]) + (stats["rfq_total"] - stats["rfq_synced"])
-        
+        from ..app.services import crm_service
+    except ImportError:  # pragma: no cover
+        from app.services import crm_service
+
+    try:
+        total_emails = email_metadata_collection.estimated_document_count()
+        processed = email_metadata_collection.count_documents(
+            {"ai_processed": True}
+        )
+        rfq_flagged = email_metadata_collection.count_documents(
+            {"ai_category": "rfq"}
+        )
+
+        opportunities = crm_service._col("opportunities")
+        spine_rfqs = opportunities.count_documents({
+            "$or": [
+                {"stage": "rfq"},
+                {"metadata.source": "rfq"},
+                {"metadata.rfq": {"$exists": True}},
+            ]
+        })
+
+        legacy_rfqs = rfqs_collection.count_documents({"is_deleted": {"$ne": True}})
+
         return {
             "success": True,
-            "stats": stats
+            "stats": {
+                "mail_pool_total": total_emails,
+                "mail_pool_ai_processed": processed,
+                "mail_pool_pending": max(total_emails - processed, 0),
+                "emails_classified_rfq": rfq_flagged,
+                "rfqs_on_spine": spine_rfqs,
+                "legacy_rfqs_unmigrated": legacy_rfqs,
+            },
+            "source": "crm_db.opportunities via backend/sales/mail_pool_ai.py",
         }
-        
+
     except Exception as e:
         logger.error(f"Error getting sync status: {e}")
         raise HTTPException(status_code=500, detail=str(e))

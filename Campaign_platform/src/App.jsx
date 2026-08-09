@@ -57,6 +57,7 @@ const Contacts = lazy(() => import("./pages/sales/Contacts"))
 const ContactsImport = lazy(() => import("./pages/sales/ContactsImport"))
 const CompanyDetail = lazy(() => import("./pages/sales/CompanyDetail"))
 const RFQ = lazy(() => import("./pages/sales/RFQ"))
+const Accounts = lazy(() => import("./pages/sales/Accounts"))
 const List = lazy(() => import("./pages/sales/campaign/List"))
 const EmailPatterns = lazy(() => import("./pages/sales/campaign/EmailPatterns"))
 const ColdOutreach = lazy(() => import("./pages/sales/Outreach"))
@@ -224,6 +225,10 @@ function App() {
         <Route path="sales/contacts/import" element={<LazyPage><ContactsImport /></LazyPage>} />
         <Route path="sales/companies/:companyName" element={<LazyPage><CompanyDetail /></LazyPage>} />
         <Route path="sales/rfq" element={<LazyPage><RFQ /></LazyPage>} />
+        {/* RightSidebar has linked to /admin/sales/account since it was written;
+            this route was never registered, so the nav item was a dead link. */}
+        <Route path="sales/account" element={<LazyPage><Accounts /></LazyPage>} />
+        <Route path="sales/accounts" element={<LazyPage><Accounts /></LazyPage>} />
         <Route path="sales/campaign/list" element={<LazyPage><List /></LazyPage>} />
         <Route path="sales/campaign/ai-leads" element={<LazyPage><AILeads /></LazyPage>} />
         <Route path="sales/campaign/ai-leads/:leadId" element={<LazyPage><AILeadDetail /></LazyPage>} />

@@ -521,3 +521,22 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Coarse open/won/lost/closed state, shown alongside the detailed stage
+   dropdown. The stage says where in the pipeline; the state says whether the
+   deal is still live. */
+.rfq-state-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  vertical-align: middle;
+}
+
+.rfq-state-badge.state-open   { background: #e8f0fe; color: #1a56b8; }
+.rfq-state-badge.state-won    { background: #e6f6ec; color: #17703b; }
+.rfq-state-badge.state-lost   { background: #fdecec; color: #b3261e; }
+.rfq-state-badge.state-closed { background: #eef0f4; color: #6b7280; }

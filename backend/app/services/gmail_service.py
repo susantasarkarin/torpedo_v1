@@ -91,6 +91,44 @@ class GmailMailbox:
     sync_error: Optional[str] = None
 
 
+def _trigger_mail_ai(new_count: int, mailbox_email: Optional[str] = None) -> None:
+    """
+    Queue an AI analysis pass immediately after new mail lands.
+
+    The scheduled beat already picks up only unanalyzed senders, so this does
+    not add work — it removes latency. Without it a mail arriving just after a
+    beat waits the full 10 minutes before its RFQ appears on the Sales page.
+
+    Sizing: the AI batches by SENDER, and a sync usually brings in mail from
+    far fewer senders than emails, so ceil(new_count / 4) capped at 50 is a
+    generous upper bound on senders touched. The task itself re-queries for
+    unanalyzed senders, so an over- or under-estimate only affects how much of
+    the backlog this particular pass clears.
+
+    Fully best-effort: a missing broker or a down worker must never fail a mail
+    sync, because the beat will still catch the mail on its next run.
+    """
+    try:
+        from tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
+    except ImportError:  # pragma: no cover
+        try:
+            from backend.tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
+        except ImportError:
+            logger.debug("[mail-ai] task module unavailable; leaving mail to the beat")
+            return
+
+    limit = max(1, min(50, -(-new_count // 4)))
+    try:
+        process_mail_pool_sender_batch.delay(limit=limit)
+        logger.info(
+            "[mail-ai] %d new emails from %s — queued AI pass for up to %d senders",
+            new_count, mailbox_email or "mailbox", limit,
+        )
+    except Exception as e:
+        # Broker down, or Celery not configured in this process.
+        logger.warning(f"[mail-ai] could not queue AI pass (beat will cover it): {e}")
+
+
 class GmailService:
     """
     Gmail API service for email operations.
@@ -257,7 +295,7 @@ class GmailService:
     # =========================================================================
     # EMAIL SYNC
     # =========================================================================
-    
+
     def sync_mailbox(
         self,
         mailbox_id: str,
@@ -309,7 +347,12 @@ class GmailService:
                     }
                 }
             )
-            
+
+            # New mail landed — kick the AI analysis now instead of waiting for
+            # the next 10-minute beat.
+            if new_count:
+                _trigger_mail_ai(new_count, mailbox.get("email"))
+
             return new_count, updated_count
             
         except Exception as e:

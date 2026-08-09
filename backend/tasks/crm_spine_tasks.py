@@ -21,6 +21,7 @@ the source-of-truth collections and re-converges crm_db:
 
 import logging
 import os
+import re as _re
 from datetime import datetime
 
 try:
@@ -41,6 +42,79 @@ def _imports():
         from backend.db_pools import get_db
         from backend.app.services import crm_service, spine_connector
     return get_db, crm_service, spine_connector
+
+
+def _adopt_spine_accounts_into_sales(sales_accounts, crm_service, stats):
+    """
+    Reverse direction: spine accounts -> email_automation.sales_accounts.
+
+    Everything else in this task pushes legacy collections INTO the spine. But
+    mail_pool_ai creates spine accounts directly from mailbox traffic
+    (crm_service.get_or_create_account), and those had no way back — so a
+    company that only ever appeared over email was invisible on the Sales
+    Account page. This adopts them.
+
+    Only client-type accounts are adopted; vendor/panel accounts on the spine
+    are not sales accounts and would pollute the list. Idempotent on
+    crm_account_id.
+    """
+    accounts = crm_service._col("accounts")
+
+    existing_ids = set(
+        doc["crm_account_id"]
+        for doc in sales_accounts.find(
+            {"crm_account_id": {"$exists": True}}, {"crm_account_id": 1}
+        )
+        if doc.get("crm_account_id")
+    )
+
+    query = {
+        "$or": [
+            {"account_type": "client"},
+            {"account_type": {"$exists": False}},
+        ],
+        "metadata.source_deleted": {"$ne": True},
+    }
+
+    for account in accounts.find(query).limit(5000):
+        spine_id = str(account["_id"])
+        if spine_id in existing_ids:
+            continue
+
+        name = (account.get("name") or "").strip()
+        if not name:
+            continue
+
+        # Guard against creating a duplicate of a sales account that exists but
+        # was never stamped with its crm_account_id.
+        already = sales_accounts.find_one(
+            {"account_name": {"$regex": f"^{_re.escape(name)}$", "$options": "i"}},
+            {"_id": 1},
+        )
+        now = datetime.utcnow()
+        if already:
+            sales_accounts.update_one(
+                {"_id": already["_id"]},
+                {"$set": {"crm_account_id": spine_id, "updated_at": now}},
+            )
+            stats["sales_accounts_relinked"] = stats.get("sales_accounts_relinked", 0) + 1
+            continue
+
+        metadata = account.get("metadata") or {}
+        sales_accounts.insert_one({
+            "account_name": name,
+            "company_name": name,
+            "crm_account_id": spine_id,
+            "industry": account.get("industry"),
+            "website": account.get("website"),
+            "country": account.get("country"),
+            "status": "prospect",
+            # Where this account came from — mail_pool_ai, qre, finance, etc.
+            "source": metadata.get("source") or "crm_spine",
+            "created_at": account.get("created_at") or now,
+            "updated_at": now,
+        })
+        stats["sales_accounts_adopted"] = stats.get("sales_accounts_adopted", 0) + 1
 
 
 def _reconcile_party_collection(collection, party, crm_service, spine_connector,
@@ -109,6 +183,10 @@ def reconcile_crm_spine(self):
                 sales_accounts.update_one({"_id": doc["_id"]},
                                           {"$set": {"crm_account_id": spine_id}})
                 stats["backfilled"] += 1
+
+        # ...and the reverse, so accounts the mail pipeline discovered show up
+        # on the Sales Account page instead of only on the spine.
+        _adopt_spine_accounts_into_sales(sales_accounts, crm_service, stats)
 
         # Operations projects: backfill ones that predate the inline mirror.
         ops_projects = get_db("torpedo_settings")["projects"]
