@@ -55,6 +55,9 @@ FREE_EMAIL_PROVIDERS = {
     "live.com", "aol.com", "icloud.com", "mail.com", "protonmail.com",
     "zoho.com", "yandex.com", "gmx.com", "rediffmail.com", "googlemail.com",
 }
+# Kept as the historical list only so nothing importing it breaks; the actual
+# rule now lives in leads/system_addresses.py. This list missed postmaster@ and
+# mailer-daemon@ entirely, which is how bounce notifiers became leads.
 SYSTEM_SENDER_PREFIXES = ("noreply@", "no-reply@", "donotreply@", "do-not-reply@", "notification@", "alerts@", "alert@")
 
 
@@ -69,8 +72,9 @@ def company_from_domain(domain: str) -> str:
 
 
 def is_system_sender(email: str) -> bool:
-    e = email.lower()
-    return any(e.startswith(p) for p in SYSTEM_SENDER_PREFIXES)
+    """Delegates to the shared filter — see leads/system_addresses.py."""
+    from leads.system_addresses import is_system_address
+    return is_system_address(email)
 
 
 def sanitize_phone(raw: str) -> str:
@@ -107,12 +111,27 @@ def find_repliers(segments=("vendor", "client")):
             "$filter": {"input": "$inbound_senders", "cond": {"$ne": ["$$this", None]}}
         }}},
     ]
+    # A bounce arrives *inside the thread we created* — we mail
+    # lead@company.com and the MTA answers from postmaster@company.com — so the
+    # thread satisfies the inbound+outbound test above and the notifier looks
+    # like a replier. Filtering here, at the only place inbound senders become
+    # candidates, is what stops that.
+    from leads.system_addresses import is_promotable_lead_address, rejection_reason
+
     contacts = set()
+    rejected = Counter()
     for row in email_metadata.aggregate(pipeline, allowDiskUse=True):
         for fe in row.get("inbound_senders", []):
             fe = (fe or "").lower()
-            if fe and domain_of(fe) not in OWN_DOMAINS and not is_system_sender(fe):
-                contacts.add(fe)
+            if not fe or domain_of(fe) in OWN_DOMAINS:
+                continue
+            if not is_promotable_lead_address(fe):
+                rejected[rejection_reason(fe)] += 1
+                continue
+            contacts.add(fe)
+
+    if rejected:
+        print(f"[find-repliers] skipped non-human senders: {dict(rejected)}")
     return contacts
 
 

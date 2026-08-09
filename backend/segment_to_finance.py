@@ -41,8 +41,13 @@ SYSTEM_SENDER_PREFIXES = (
 
 
 def is_system_sender(email: str) -> bool:
-    e = email.lower()
-    return any(e.startswith(p) for p in SYSTEM_SENDER_PREFIXES)
+    """Delegates to the shared filter — see leads/system_addresses.py.
+
+    Was a second copy of the same short prefix list as crm_promote.py, with the
+    same blind spot for postmaster@ and mailer-daemon@.
+    """
+    from leads.system_addresses import is_system_address
+    return is_system_address(email)
 
 
 def domain_of(email: str) -> str:

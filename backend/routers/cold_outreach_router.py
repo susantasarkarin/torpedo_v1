@@ -3124,7 +3124,18 @@ def process_outreach_bounces_and_replies() -> dict:
                             try:
                                 leads_db = get_leads_db()
                                 reply_email = (outreach_lead.get("email") or "").lower().strip()
-                                if reply_email:
+                                # Second gate. _BOUNCE_FROM_PATTERN above should
+                                # have routed bounces away from this branch, but
+                                # a bounce whose From and Subject both slip the
+                                # patterns would otherwise be written straight
+                                # into the Leads table. Promotion is the point
+                                # of no return, so it gets its own check.
+                                from leads.system_addresses import is_promotable_lead_address
+                                if reply_email and not is_promotable_lead_address(reply_email, allow_role=True):
+                                    logger.info(
+                                        f"[reply-promote] skipped non-human sender {reply_email}"
+                                    )
+                                elif reply_email:
                                     leads_db["leads"].update_one(
                                         {"email": reply_email},
                                         {

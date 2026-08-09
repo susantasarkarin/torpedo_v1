@@ -9,6 +9,8 @@ from typing import Optional, List, Dict, Literal, Union
 from pydantic import BaseModel, EmailStr, Field
 from pymongo.database import Database
 
+from leads.system_addresses import is_system_address
+
 logger = logging.getLogger(__name__)
 
 class SuppressionEntry(BaseModel):
@@ -99,11 +101,20 @@ class SuppressionListManager:
         return False
     
     def is_suppressed(self, email: str) -> bool:
-        """Check if an email is suppressed."""
+        """Check if an email is suppressed.
+
+        System addresses are suppressed implicitly, without needing a row.
+        Mailing postmaster@ or a mailer-daemon achieves nothing and the reply
+        is another bounce, so this holds even for an address that reached the
+        send list some other way — the stored list only knows what has already
+        gone wrong once.
+        """
+        if is_system_address(email):
+            return True
         email_lower = email.lower().strip()
         result = self.collection.find_one({"email": email_lower})
         return result is not None
-    
+
     def bulk_check(self, emails: List[str]) -> Dict[str, bool]:
         """
         Check multiple emails for suppression status.
@@ -111,15 +122,18 @@ class SuppressionListManager:
         Optimized for batch operations.
         """
         emails_lower = [e.lower().strip() for e in emails]
-        
+
         # Find all suppressed emails in one query
         cursor = self.collection.find(
             {"email": {"$in": emails_lower}},
             {"email": 1}
         )
         suppressed_set = {doc["email"] for doc in cursor}
-        
-        return {email: email in suppressed_set for email in emails_lower}
+
+        return {
+            email: (email in suppressed_set or is_system_address(email))
+            for email in emails_lower
+        }
     
     def get_reason(self, email: str) -> Optional[str]:
         """Get the suppression reason for an email."""
