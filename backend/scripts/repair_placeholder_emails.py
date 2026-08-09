@@ -45,6 +45,33 @@ TARGETS = [
 ]
 
 
+def _ensure_email_index_allows_blanks(coll) -> None:
+    """Convert a plain unique index on `email` into a partial unique index.
+
+    A non-sparse unique index treats a missing field as null, so only ONE
+    document in the collection may have no email — blanking the second raises
+    E11000. That constraint is wrong for a field that is legitimately absent
+    while a lead waits for pattern discovery, and it is what stopped this
+    repair halfway through leads_enriched.
+
+    The partial form keeps uniqueness where it matters (real string addresses)
+    and stops claiming that "has no email yet" is a value that can collide.
+    """
+    for name, spec in coll.index_information().items():
+        keys = spec.get("key", [])
+        if [k for k, _ in keys] != ["email"] or not spec.get("unique"):
+            continue
+        if spec.get("partialFilterExpression") or spec.get("sparse"):
+            return  # already tolerant of blanks
+        print(f"   converting unique index {coll.name}.{name} to partial (email is a string)")
+        coll.drop_index(name)
+        coll.create_index(
+            "email", unique=True, name=name,
+            partialFilterExpression={"email": {"$type": "string"}},
+        )
+        return
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
@@ -95,20 +122,29 @@ def main() -> int:
             print(f"   {s}")
 
         if not args.dry_run:
+            _ensure_email_index_allows_blanks(coll)
             fixed = 0
+            failed = 0
             for i in range(0, len(repairs), 500):
                 chunk = repairs[i:i + 500]
                 for doc in coll.find({"_id": {"$in": chunk}}, {"email": 1}):
-                    coll.update_one(
-                        {"_id": doc["_id"]},
-                        {"$set": {
-                            "guessed_email": doc.get("email"),
-                            "email": None,
-                            "email_status": "pending_pattern",
-                        }},
-                    )
-                    fixed += 1
-            print(f"   repaired {fixed:,}")
+                    try:
+                        coll.update_one(
+                            {"_id": doc["_id"]},
+                            {"$set": {
+                                "guessed_email": doc.get("email"),
+                                "email": None,
+                                "email_status": "pending_pattern",
+                            }},
+                        )
+                        fixed += 1
+                    except Exception as exc:
+                        # One stubborn document must not abandon the rest
+                        # half-repaired, as an unhandled E11000 did.
+                        failed += 1
+                        if failed <= 3:
+                            print(f"   [warn] {doc.get('_id')}: {exc}")
+            print(f"   repaired {fixed:,}" + (f", {failed:,} failed" if failed else ""))
             grand_total += fixed
         else:
             grand_total += len(repairs)
