@@ -1123,6 +1123,73 @@ def _sfw_get(path, params=None):
     return r.json()
 
 
+def _sfw_write(method, path, payload=None):
+    """POST/PATCH through to the SFW admin API.
+
+    Errors are surfaced with the SFW status and body rather than collapsed into
+    a 500, so the admin UI can show "slug already exists" instead of a generic
+    failure on a duplicate.
+    """
+    r = _http.request(
+        method,
+        f"{_SFW_API}{path}",
+        headers={"X-Internal-Key": _SFW_KEY, "Content-Type": "application/json"},
+        json=payload or {},
+        timeout=15,
+    )
+    if not r.ok:
+        try:
+            detail = r.json().get("error") or r.text
+        except ValueError:
+            detail = r.text
+        raise HTTPException(status_code=r.status_code, detail=detail)
+    return r.json()
+
+
+# ─── Traffic suppliers ────────────────────────────────────────────────────────
+# Suppliers (Facebook, Google, Quora, panel vendors) are defined on the SFW
+# panel, which owns signup and therefore attribution. Torpedo proxies the admin
+# CRUD so suppliers are managed from the same place as the rest of the panel,
+# rather than by curling the SFW API by hand.
+
+@router.get("/suppliers")
+async def list_suppliers(request: Request):
+    """Suppliers with their signup/conversion counts and tracked links."""
+    verify_admin_session(request)
+    try:
+        data = _sfw_get("/suppliers")
+        # SFW returns the dashboard as a path; it is only useful to an admin as
+        # something they can copy and send, so resolve it against the panel
+        # origin here rather than rebuilding the host in the browser.
+        origin = _SFW_API.split("/api/admin")[0]
+        for s in data.get("suppliers", []):
+            if s.get("dashboardPath"):
+                s["dashboardUrl"] = f"{origin}{s['dashboardPath']}"
+        return data
+    except Exception as e:
+        logger.error(f"suppliers list error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/suppliers")
+async def create_supplier(request: Request, payload: Dict[str, Any] = Body(...)):
+    verify_admin_session(request)
+    return _sfw_write("POST", "/suppliers", payload)
+
+
+@router.patch("/suppliers/{slug}")
+async def update_supplier(request: Request, slug: str, payload: Dict[str, Any] = Body(...)):
+    verify_admin_session(request)
+    return _sfw_write("PATCH", f"/suppliers/{slug}", payload)
+
+
+@router.post("/suppliers/{slug}/rotate-token")
+async def rotate_supplier_token(request: Request, slug: str):
+    """Invalidate a supplier's dashboard link and issue a new one."""
+    verify_admin_session(request)
+    return _sfw_write("POST", f"/suppliers/{slug}/rotate-token")
+
+
 @router.get("/dashboard/sfwpanel-overview")
 async def get_sfwpanel_overview(request: Request):
     """SFW panel overview — proxied from panel.surveyfieldwork.com"""
