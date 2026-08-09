@@ -5,6 +5,7 @@ import pytest
 from leads.system_addresses import (
     is_mailable,
     is_malformed_address,
+    is_placeholder_address,
     is_promotable_lead_address,
     is_role_address,
     is_system_address,
@@ -108,14 +109,14 @@ def test_real_people_are_not_rejected(email):
 
 
 @pytest.mark.parametrize("email", [
-    "info@example.com",
-    "sales@example.com",
-    "support@example.com",
-    "billing@example.com",
-    "account-services@example.com",
-    "account.services@example.com",
-    "customerservice@example.com",
-    "careers@example.com",
+    "info@acme-research.com",
+    "sales@acme-research.com",
+    "support@acme-research.com",
+    "billing@acme-research.com",
+    "account-services@acme-research.com",
+    "account.services@acme-research.com",
+    "customerservice@acme-research.com",
+    "careers@acme-research.com",
     # Read like infrastructure, routinely a real company's main contact.
     "mail@mafo-institut.com",
     "root@f1-solutions.net",
@@ -133,7 +134,7 @@ def test_role_mailboxes(email):
 
 
 def test_role_opt_in_never_admits_system_addresses():
-    assert is_promotable_lead_address("postmaster@example.com", allow_role=True) is False
+    assert is_promotable_lead_address("postmaster@acme-research.com", allow_role=True) is False
 
 
 def test_split_address_handles_display_name_form():
@@ -149,3 +150,45 @@ def test_case_and_whitespace_insensitive():
 @pytest.mark.parametrize("email", REGRESSION_ADDRESSES)
 def test_system_addresses_are_never_mailable(email):
     assert is_mailable(email) is False
+
+
+# ── Enrichment placeholders ────────────────────────────────────────────────
+# The enrichment prompts tell the model to produce "firstname.lastname@domain",
+# and it sometimes returns the instruction instead of applying it. 192 prod
+# leads carried one of these in the email field.
+
+@pytest.mark.parametrize("email", [
+    "firstname.lastname@domain.com",
+    "firstnamelastname@example.com",
+    "first_name.last_name@company.com",
+    "yourname@yourcompany.com",
+])
+def test_templates_that_parse_are_still_placeholders(email):
+    """These pass any shape check — they are nobody's address."""
+    assert is_placeholder_address(email) is True
+    assert is_malformed_address(email) is False
+    assert is_mailable(email) is False
+
+
+@pytest.mark.parametrize("email", ["firstname.lastname", "firstnamelastname"])
+def test_bare_templates_are_both_malformed_and_placeholder(email):
+    assert is_malformed_address(email) is True
+    assert is_placeholder_address(email) is True
+    assert is_mailable(email) is False
+
+
+@pytest.mark.parametrize("email", ["hunter.evans", "roy.restivo", "pam_kaufman", "lmohmand"])
+def test_local_part_only_is_unmailable(email):
+    """The model dropped the domain. Real person, unusable address."""
+    assert is_malformed_address(email) is True
+    assert is_mailable(email) is False
+
+
+@pytest.mark.parametrize("email", [
+    "erin@greenbook.com",
+    "marina.deiana@fieldcare.it",
+    # A real surname that merely contains a template token.
+    "john.firstnamer@realco.com",
+])
+def test_real_addresses_are_mailable(email):
+    assert is_mailable(email) is True

@@ -448,7 +448,21 @@ def compute_icp_basket(lead: Dict[str, Any]) -> Dict[str, Any]:
                     "civil engineering", "structural", "mechanical engineering"]
 
         def _match_ind(ind_val, kw_list):
-            """Bidirectional match: keyword in industry OR industry in keyword."""
+            """Bidirectional match: keyword in industry OR industry in keyword.
+
+            Both sides must be substantial. `"" in kw` is always True in
+            Python, so an empty industry used to match every keyword in every
+            list — a lead with no industry scored the full +4 on ALL THREE
+            ICPs at once, tied, and fell to whichever came first in the
+            tie-break. That is the entire explanation for basket D: 99.8% of
+            the 11.3K "Dual Fit" leads have no industry and no department, so
+            "fits survey-fieldwork AND brand" only ever meant "we know nothing
+            about this person". With this guard they score 0 and land in E,
+            which is what unqualified is for.
+            """
+            ind_val = (ind_val or "").strip()
+            if len(ind_val) < 4:
+                return False
             return any((kw in ind_val or ind_val in kw) for kw in kw_list if len(kw) >= 4)
 
         def _score_sfw():
@@ -487,19 +501,25 @@ def compute_icp_basket(lead: Dict[str, Any]) -> Dict[str, Any]:
         # the database is not a classification, it is a tie nobody resolved.
         #
         # Now: score all three and take the single best. A person belongs to
-        # one ICP and receives from one brand. Ties are broken deterministically
-        # by the order below (AEC first — it is the most specific signal and
-        # the least likely to be a false positive from generic MR/brand
-        # vocabulary), so the same lead always lands in the same basket.
+        # one ICP and receives from one brand.
+        #
+        # A tie between two ICPs that BOTH clear the threshold is not something
+        # to break by list order — picking one at random-but-deterministic is
+        # how a dry run proposed moving 10,790 leads into BIMwave on the
+        # strength of no evidence at all. If the scoring genuinely cannot
+        # separate two ICPs, the honest answer is that this lead is not
+        # classified, so it goes to Nurture where a human or better data can
+        # resolve it. Ties below the threshold were never qualified anyway.
         scores = [("C", aec_s, "BIMwave", ["bimwave"]),
                   ("A", sfw_s, "Survey Fieldwork", ["survey_fieldwork"]),
                   ("B", brand_s, "Cogentix Research", ["cogentix"])]
-        best_code, best_score, best_name, best_tags = max(scores, key=lambda s: s[1])
+        best_score = max(s[1] for s in scores)
+        winners = [s for s in scores if s[1] == best_score]
 
-        if best_score < THRESHOLD:
+        if best_score < THRESHOLD or len(winners) > 1:
             basket_code, basket_name, icp_tags = "E", "Nurture / Unqualified", ["nurture"]
         else:
-            basket_code, basket_name, icp_tags = best_code, best_name, best_tags
+            basket_code, _, basket_name, icp_tags = winners[0]
 
     # â”€â”€ FIT TIER: seniority + persona signals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     high = _is_high()
@@ -639,9 +659,22 @@ def _strip_guessed_email_if_unverified(normalized: Dict[str, Any]) -> None:
     if not email:
         return
 
-    domain = email.split('@')[1] if '@' in email else ''
-    if not domain:
+    # An unparseable or template value is strictly worse than an unverified
+    # guess, but this used to `return` on it — "no domain" was read as "nothing
+    # to check" rather than "this is not an email", so the guard that exists to
+    # strip guesses waved through the most broken values of all. That is how
+    # 192 leads ended up with a literal `firstname.lastname` or a bare local
+    # part like `hunter.evans` in the email field.
+    from .system_addresses import is_malformed_address, is_placeholder_address
+
+    if is_malformed_address(email) or is_placeholder_address(email):
+        logger.info(f"Stripping non-address email {email!r} (unusable value)")
+        normalized['email'] = None
+        normalized['email_status'] = 'pending_pattern'
+        normalized['guessed_email'] = email
         return
+
+    domain = email.split('@')[1]
 
     try:
         from .email_pattern_system import get_pattern_system

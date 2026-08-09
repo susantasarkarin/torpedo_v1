@@ -195,10 +195,46 @@ def rejection_reason(email: str, allow_role: bool = False) -> Optional[str]:
     return None
 
 
+# An unsubstituted template. The enrichment prompts instruct the model to
+# produce "firstname.lastname@domain.com"; sometimes it returns the instruction
+# instead of applying it.
+#
+# The name tokens need letter boundaries — `firstname` is a substring of the
+# real surname `firstnamer`, and rejecting a genuine prospect to catch a
+# template is the wrong trade. The domain half needs no boundary because
+# example.com/domain.com are RFC 2606 reserved names that are never anybody's
+# real address.
+PLACEHOLDER_PATTERN = re.compile(
+    r"(?<![a-z])(?:firstname|lastname|first_name|last_name|fname|lname|"
+    r"yourname|your_name|yourcompany)(?![a-z])"
+    # The run-together forms have no internal boundary to anchor against, so
+    # they are matched as a whole local part instead.
+    r"|^(?:firstnamelastname|firstnamelast|fnamelname)(?:@|$)"
+    r"|@(?:domain|example|company|yourcompany|yourdomain|test)\."
+    r"|(?:domain|example)\.(?:com|org|net)$",
+    re.IGNORECASE,
+)
+
+
+def is_placeholder_address(email: str) -> bool:
+    """True when the value is a template the model never filled in.
+
+    Distinct from malformed: `firstname.lastname@domain.com` parses perfectly
+    well and would pass any shape check, but it is nobody's address.
+    """
+    if not email:
+        return False
+    return bool(PLACEHOLDER_PATTERN.search(str(email).strip().lower()))
+
+
 def is_mailable(email: str) -> bool:
     """Whether we may send to this address at all.
 
-    Broader than promotion: role mailboxes are perfectly mailable, malformed
-    and system addresses are not. This is the send-time question.
+    Broader than promotion: role mailboxes are perfectly mailable, malformed,
+    placeholder and system addresses are not. This is the send-time question.
     """
-    return not is_malformed_address(email) and not is_system_address(email)
+    return (
+        not is_malformed_address(email)
+        and not is_placeholder_address(email)
+        and not is_system_address(email)
+    )
