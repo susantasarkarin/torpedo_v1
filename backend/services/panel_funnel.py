@@ -214,8 +214,13 @@ def compute_funnel(force: bool = False) -> Dict[str, Any]:
         ("deliverable", "Deliverable (not bounced/suppressed)", max(invited - bounced, 0)),
         ("clicked", "Clicked the invite", clicked),
         ("opted_in", "Completed double opt-in", opted_in),
-        ("profiled", "Profile complete", profiled),
+        # Login comes BEFORE profile completion: confirming the email leads to a
+        # first login, and the profile is filled in from inside the account.
+        # Ordering profile first made the step conversion read 300% — more
+        # people logged in than had finished a profile, which is normal and not
+        # something a funnel should render as a gain.
         ("active", "Logged in / active", active),
+        ("profiled", "Profile complete", profiled),
     ]
 
     stages: List[Dict[str, Any]] = []
