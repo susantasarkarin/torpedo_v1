@@ -5,7 +5,12 @@ send_daily_panel_invitations runs once per day (via Celery Beat) and sends
 invitation emails to every eligible panelist lead.  Per-address it stops when:
   - the panelist completes double opt-in (signed up)
   - their address bounces or they unsubscribe (suppression list)
-  - they were already invited today (daily_mode dedup)
+  - they are still inside their invite cooldown (daily_mode enforces
+    PANEL_INVITE_MIN_GAP_DAYS, default 3 — i.e. mailed Monday, next eligible
+    Thursday)
+
+The cron stays daily on purpose: each run mails whoever is due that day, so
+the SES budget is spread evenly instead of arriving in every-third-day spikes.
 """
 
 import logging
@@ -107,6 +112,71 @@ def sync_panel_registrations(self):
         return result
     except Exception as exc:
         logger.error(f"[panel-sync-registrations] error: {exc}", exc_info=True)
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="backend.tasks.panel_tasks.promote_panelist_leads",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+    soft_time_limit=3600,  # 1h — the dedup aggregation spans the traffic table
+    time_limit=3700,
+)
+def promote_panelist_leads(self, lookback_days: int = 7):
+    """Upsert parsing-page email captures into `panelists` so they get invited.
+
+    Runs before the invite cron. A 7-day lookback keeps the daily aggregation
+    cheap; the initial full backfill is triggered once by hand via
+    POST /panel-admin/panelist-leads/promote with no `lookback_days`.
+    """
+    try:
+        from datetime import datetime, timedelta
+        try:
+            from services.panel_lead_promotion import promote_traffic_leads_to_panelists
+        except ImportError:
+            from backend.services.panel_lead_promotion import promote_traffic_leads_to_panelists
+
+        since = datetime.utcnow() - timedelta(days=lookback_days) if lookback_days else None
+        result = promote_traffic_leads_to_panelists(since=since)
+        logger.info(
+            f"[panel-lead-promotion] scanned={result.get('scanned')} "
+            f"inserted={result.get('inserted')} "
+            f"already_present={result.get('already_present')}"
+        )
+        return result
+    except Exception as exc:
+        logger.error(f"[panel-lead-promotion] error: {exc}", exc_info=True)
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="backend.tasks.panel_tasks.run_panel_reengagement_drips",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+    soft_time_limit=3600,  # 1h — drip batches are capped well below an SES day
+    time_limit=3700,
+)
+def run_panel_reengagement_drips(self):
+    """Nudge the three stalled funnel segments once per day.
+
+    Per-stage caps (2-3 sends) and cooldowns (3-7 days) live in
+    panel_drip_service.STAGES, so a daily cron does NOT mean daily mail: an
+    individual receives at most a handful of reminders ever, then the sequence
+    ends permanently.
+    """
+    try:
+        try:
+            from services.panel_drip_service import run_all_drip_stages
+        except ImportError:
+            from backend.services.panel_drip_service import run_all_drip_stages
+
+        result = run_all_drip_stages()
+        logger.info(f"[panel-drips] total_sent={result.get('total_sent')} stages={result.get('stages')}")
+        return result
+    except Exception as exc:
+        logger.error(f"[panel-drips] error: {exc}", exc_info=True)
         raise self.retry(exc=exc)
 
 

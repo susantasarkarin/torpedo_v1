@@ -4,10 +4,18 @@
  */
 
 import { useState } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { usePanelAuth } from '../context/PanelAuthContext';
+import { resendVerification } from '../services/panelApi';
 import PrivacyModal from '../components/PrivacyModal';
 import '../styles/panel.css';
+
+// Outcomes of GET /api/panel/verify-email, which redirects here with ?verified=
+const VERIFY_MESSAGES = {
+  '1': { tone: 'success', text: 'Your email is confirmed — you can sign in now.' },
+  expired: { tone: 'error', text: 'That confirmation link has expired. Sign in and we\'ll send a new one.' },
+  invalid: { tone: 'error', text: 'That confirmation link is not valid, or it has already been used.' },
+};
 
 export default function PanelLogin() {
   const [email, setEmail] = useState('');
@@ -15,7 +23,29 @@ export default function PanelLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [privacyOpen, setPrivacyOpen] = useState(false);
-  
+  const [resendNote, setResendNote] = useState('');
+
+  const [searchParams] = useSearchParams();
+  // ?resend=1 is the CTA target of the "confirm your email" reminder drip —
+  // the original token may be long expired, so offer a fresh one directly.
+  const verifyNotice = searchParams.get('resend')
+    ? { tone: 'error', text: 'Enter your email address below and we\'ll send a fresh confirmation link.' }
+    : VERIFY_MESSAGES[searchParams.get('verified')] || null;
+
+  const handleResendVerification = async () => {
+    if (!email) {
+      setResendNote('Enter your email address above first.');
+      return;
+    }
+    try {
+      await resendVerification(email);
+    } catch {
+      // The endpoint is deliberately non-committal; a failure here still must
+      // not reveal whether the address exists.
+    }
+    setResendNote('If that account exists and is unconfirmed, a new confirmation email is on its way.');
+  };
+
   const { login } = usePanelAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -55,6 +85,38 @@ export default function PanelLogin() {
           {/* Form Header */}
           <h1 className="text-2xl font-bold text-gray-800 mb-2">Welcome Back!</h1>
           <p className="text-gray-600 mb-6">Sign in to continue taking surveys and earning rewards.</p>
+
+          {/* Double opt-in outcome, passed back by the verify-email redirect */}
+          {verifyNotice && (
+            <div
+              className={`mb-4 p-3 rounded-lg text-sm border ${
+                verifyNotice.tone === 'success'
+                  ? 'bg-green-50 border-green-200 text-green-700'
+                  : 'bg-amber-50 border-amber-200 text-amber-700'
+              }`}
+            >
+              {verifyNotice.text}
+              {verifyNotice.tone === 'error' && (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    onClick={handleResendVerification}
+                    className="underline font-medium"
+                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                  >
+                    Resend confirmation email
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {resendNote && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg text-sm">
+              {resendNote}
+            </div>
+          )}
 
           {/* Error Message */}
           {error && (

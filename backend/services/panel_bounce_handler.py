@@ -33,6 +33,18 @@ try:
     invitation_log_collection.create_index([("ses_message_id", 1)], sparse=True)
     invitation_log_collection.create_index([("invite_token", 1)], unique=True, sparse=True)
     invitation_log_collection.create_index([("sent_at", -1)])
+    # The cooldown lookup is always (email IN chunk) + (status, sent_at window);
+    # the email-only index made every such probe re-scan an address's whole
+    # send history. Compound covers it in one seek per address.
+    invitation_log_collection.create_index([("email", 1), ("status", 1), ("sent_at", -1)])
+    # Drives the invite rotation: send_bulk_invitations both filters on and
+    # sorts by last_invited_at. Without it the daily run does a 190K-doc
+    # collection scan plus an in-memory sort before it can send anything.
+    panelists_collection.create_index([("last_invited_at", 1)], sparse=True)
+    panelists_collection.create_index([("last_login_invite_sent_at", 1)], sparse=True)
+    # Funnel/segment queries and the admin list's default ordering.
+    panelists_collection.create_index([("double_opt_in_completed", 1)], sparse=True)
+    panelists_collection.create_index([("created_at", -1)])
 except Exception as e:
     logger.warning(f"Index creation warning (panel bounce): {e}")
 

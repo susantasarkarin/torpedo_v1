@@ -64,7 +64,8 @@ async def send_invitations(
     Body (optional):
     - country: str — filter by country
     - force_resend: bool — re-send to already invited panelists (default false)
-    - daily_mode: bool — enforce one invite per local day and continue until confirmed
+    - daily_mode: bool — enforce the per-address invite cooldown
+      (PANEL_INVITE_MIN_GAP_DAYS, default 3 days) and continue until confirmed
     - daily_cap: int — max sends in this run when daily_mode=true
     """
     verify_admin_session(request)
@@ -181,6 +182,41 @@ async def invitation_status(request: Request):
         }
     except Exception as e:
         logger.error(f"Error getting invitation status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/ses-quota")
+async def ses_quota(request: Request):
+    """Live SES send quota and the headroom reserved for transactional mail.
+
+    Exists to answer "why didn't the verification / password-reset email
+    arrive?" — if sent_last_24h is at max_24h, SES is throttling and the bulk
+    invite run has eaten the reserve.
+    """
+    verify_admin_session(request)
+
+    try:
+        from services.panel_email_service import (
+            _get_ses_client, PANEL_SES_RESERVE, PANEL_DAILY_SEND_CAP,
+        )
+
+        quota = await asyncio.to_thread(lambda: _get_ses_client().get_send_quota())
+        max_24h = int(quota.get("Max24HourSend") or 0)
+        sent_24h = int(quota.get("SentLast24Hours") or 0)
+        remaining = max(0, max_24h - sent_24h) if max_24h > 0 else None
+
+        return {
+            "max_24h": max_24h,
+            "sent_last_24h": sent_24h,
+            "remaining": remaining,
+            "max_send_rate": quota.get("MaxSendRate"),
+            "transactional_reserve": PANEL_SES_RESERVE,
+            "bulk_daily_cap": PANEL_DAILY_SEND_CAP,
+            "bulk_budget_now": max(0, max_24h - sent_24h - PANEL_SES_RESERVE) if max_24h > 0 else None,
+            "transactional_at_risk": remaining is not None and remaining < PANEL_SES_RESERVE,
+        }
+    except Exception as e:
+        logger.error(f"Error reading SES quota: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

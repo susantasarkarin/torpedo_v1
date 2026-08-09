@@ -25,6 +25,7 @@ import PanelProtectedRoute from "./panel/components/PanelProtectedRoute"
 const PanelLogin = lazy(() => import("./panel/pages/PanelLogin"))
 const PanelSignup = lazy(() => import("./panel/pages/PanelSignup"))
 const PanelForgotPassword = lazy(() => import("./panel/pages/PanelForgotPassword"))
+const PanelResetPassword = lazy(() => import("./panel/pages/PanelResetPassword"))
 const PanelLayout = lazy(() => import("./panel/components/layout/PanelLayout"))
 const PanelDashboard = lazy(() => import("./panel/pages/PanelDashboard"))
 const PanelProfile = lazy(() => import("./panel/pages/PanelProfile"))
@@ -175,6 +176,8 @@ function App() {
       <Route path="/panel/login" element={<LazyPage><PanelLogin /></LazyPage>} />
       <Route path="/panel/signup" element={<LazyPage><PanelSignup /></LazyPage>} />
       <Route path="/panel/forgot-password" element={<LazyPage><PanelForgotPassword /></LazyPage>} />
+      {/* Landing page for the ?token=... link in the password-reset email */}
+      <Route path="/panel/reset-password" element={<LazyPage><PanelResetPassword /></LazyPage>} />
       <Route path="/panel/why-join" element={<LazyPage><WhyJoin /></LazyPage>} />
       <Route path="/panel/rewards-info" element={<LazyPage><RewardsInfo /></LazyPage>} />
       <Route path="/panel/terms" element={<LazyPage><Terms /></LazyPage>} />

@@ -63,7 +63,24 @@ function PanelistManagement() {
   const [testEmailLoading, setTestEmailLoading] = useState(false)
   const [testEmailResult, setTestEmailResult] = useState(null)
 
-  const PAGE_SIZE = 100
+  // Lead promotion state — parsing-page leads only receive invitations once
+  // they have been merged into the `panelists` collection.
+  const [promotionStatus, setPromotionStatus] = useState(null)
+  const [promoting, setPromoting] = useState(false)
+  const [promoteResult, setPromoteResult] = useState(null)
+
+  // Records loaded per request. Fetching 100 rows of a 190K-row collection on
+  // every page click was the bulk of the wait, so this is user-controlled and
+  // defaults low; the table always loads one batch at a time from the server.
+  const PAGE_SIZE_OPTIONS = [25, 50, 100, 250, 500]
+  const [pageSize, setPageSize] = useState(25)
+
+  const handlePageSizeChange = (e) => {
+    setPageSize(parseInt(e.target.value))
+    setLeadPage(1)
+    setPanelistPage(1)
+    setSfwPage(1)
+  }
 
   useEffect(() => {
     if (activeTab === "sfw-panelists") {
@@ -73,13 +90,54 @@ function PanelistManagement() {
     } else if (activeTab === "panelist-approved") {
       fetchPanelists()
     }
-  }, [activeTab, leadPage, panelistPage, countryFilter])
+  }, [activeTab, leadPage, panelistPage, countryFilter, pageSize])
 
   // Fetch distinct countries on mount
   useEffect(() => {
     fetchCountries()
     fetchLeadCountries()
+    fetchPromotionStatus()
   }, [])
+
+  const fetchPromotionStatus = async () => {
+    const sessionId = localStorage.getItem("session_id")
+    try {
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelist-leads/promotion-status`), {
+        headers: { Authorization: sessionId },
+      })
+      if (res.ok) setPromotionStatus(await res.json())
+    } catch (err) {
+      console.error("Failed to fetch lead promotion status:", err)
+    }
+  }
+
+  const handlePromoteLeads = async () => {
+    setPromoting(true)
+    setPromoteResult(null)
+    const sessionId = localStorage.getItem("session_id")
+    try {
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/panelist-leads/promote`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: sessionId },
+        body: JSON.stringify({}),
+      })
+      const data = await parseApiResponse(res)
+      if (res.ok) {
+        setPromoteResult({
+          success: true,
+          message: `Merged ${data.inserted || 0} new leads into the panelist list (${data.already_present || 0} were already there). They enter the invite rotation on the next run.`,
+        })
+        fetchPromotionStatus()
+        fetchPanelists()
+      } else {
+        setPromoteResult({ success: false, message: data.detail || "Merge failed" })
+      }
+    } catch (err) {
+      setPromoteResult({ success: false, message: "Network error: " + err.message })
+    } finally {
+      setPromoting(false)
+    }
+  }
 
   const fetchCountries = async () => {
     const sessionId = localStorage.getItem("session_id")
@@ -117,7 +175,7 @@ function PanelistManagement() {
     try {
       const params = new URLSearchParams({
         page: leadPage,
-        page_size: PAGE_SIZE,
+        page_size: pageSize,
       })
       if (leadSearch) params.append("search", leadSearch)
       if (countryFilter) params.append("country", countryFilter)
@@ -143,7 +201,7 @@ function PanelistManagement() {
     try {
       const params = new URLSearchParams({
         page: panelistPage,
-        page_size: PAGE_SIZE,
+        page_size: pageSize,
       })
       if (panelistSearch) params.append("search", panelistSearch)
       if (countryFilter) params.append("country", countryFilter)
@@ -381,8 +439,8 @@ function PanelistManagement() {
     }
   }
 
-  const totalLeadPages = Math.ceil(leadTotal / PAGE_SIZE)
-  const totalPanelistPages = Math.ceil(panelistTotal / PAGE_SIZE)
+  const totalLeadPages = Math.ceil(leadTotal / pageSize)
+  const totalPanelistPages = Math.ceil(panelistTotal / pageSize)
 
   const tabStyle = (tab) => ({
     padding: "0.75rem 1.5rem",
@@ -405,7 +463,7 @@ function PanelistManagement() {
     const ct = overrides.country ?? sfwCountry
     const sr = overrides.search ?? sfwSearch
     try {
-      const params = new URLSearchParams({ page: pg, limit: 20, sort_by: sb, order: od, ...(ct ? { country: ct } : {}), ...(sr ? { search: sr } : {}) })
+      const params = new URLSearchParams({ page: pg, limit: Math.min(pageSize, 100), sort_by: sb, order: od, ...(ct ? { country: ct } : {}), ...(sr ? { search: sr } : {}) })
       const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/sfwpanel-panelists?${params}`), { headers: { Authorization: sessionId } })
       if (res.ok) {
         const data = await res.json()
@@ -600,21 +658,78 @@ function PanelistManagement() {
         )}
 
         {/* Tabs */}
-        <div style={{ borderBottom: "1px solid #e5e7eb", marginBottom: "1.5rem" }}>
-          <button style={tabStyle("panelist-leads")} onClick={() => setActiveTab("panelist-leads")}>
-            Panelist Lead
-          </button>
-          <button style={tabStyle("panelist-approved")} onClick={() => setActiveTab("panelist-approved")}>
-            Panelist Approved
-          </button>
-          <button style={tabStyle("sfw-panelists")} onClick={() => setActiveTab("sfw-panelists")}>
-            SFW Panelists
-          </button>
+        <div style={{ borderBottom: "1px solid #e5e7eb", marginBottom: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
+          <div>
+            <button style={tabStyle("panelist-leads")} onClick={() => setActiveTab("panelist-leads")}>
+              Panelist Lead
+            </button>
+            <button style={tabStyle("panelist-approved")} onClick={() => setActiveTab("panelist-approved")}>
+              Panelist Approved
+            </button>
+            <button style={tabStyle("sfw-panelists")} onClick={() => setActiveTab("sfw-panelists")}>
+              SFW Panelists
+            </button>
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem", color: "#6b7280", paddingBottom: "0.5rem" }}>
+            Rows per batch
+            <select
+              value={pageSize}
+              onChange={handlePageSizeChange}
+              style={{ padding: "0.35rem 0.5rem", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "0.8rem", backgroundColor: "#fff" }}
+            >
+              {PAGE_SIZE_OPTIONS.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </label>
         </div>
 
         {/* Panelist Lead Tab */}
         {activeTab === "panelist-leads" && (
           <div>
+            {/* Leads live in the traffic collection; the invite senders only
+                read `panelists`. Until a lead is merged across, it is visible
+                here but receives no mail at all. */}
+            <div style={{
+              marginBottom: "1rem", padding: "0.9rem 1.1rem", borderRadius: "10px",
+              border: "1px solid #fcd34d", backgroundColor: "#fffbeb",
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              gap: "1rem", flexWrap: "wrap",
+            }}>
+              <div style={{ fontSize: "0.85rem", color: "#92400e", lineHeight: "1.5" }}>
+                <strong>These leads are only mailed once merged into the panelist list.</strong>
+                <br />
+                {promotionStatus
+                  ? promotionStatus.not_yet_promoted > 0
+                    ? `${promotionStatus.not_yet_promoted.toLocaleString()} of the ${promotionStatus.sampled.toLocaleString()} most recent leads are not in the panelist list yet, so they are receiving no invitations.`
+                    : `All ${promotionStatus.sampled.toLocaleString()} recent leads are already merged and in the invite rotation.`
+                  : "Checking how many leads are still unmerged…"}
+                <br />
+                <span style={{ color: "#b45309" }}>
+                  Runs automatically each day at 08:20 IST; use the button for an immediate full backfill.
+                </span>
+              </div>
+              <button
+                className="btn btn-primary"
+                onClick={handlePromoteLeads}
+                disabled={promoting}
+                style={{ background: "#d97706", borderColor: "#d97706", opacity: promoting ? 0.5 : 1, whiteSpace: "nowrap" }}
+              >
+                {promoting ? "Merging…" : "Merge Leads into Panelists"}
+              </button>
+            </div>
+
+            {promoteResult && (
+              <div style={{
+                marginBottom: "1rem", padding: "0.75rem", borderRadius: "6px",
+                backgroundColor: promoteResult.success ? "#d1fae5" : "#fee2e2",
+                color: promoteResult.success ? "#065f46" : "#991b1b",
+                fontSize: "0.875rem",
+              }}>
+                {promoteResult.message}
+              </div>
+            )}
+
             <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem", flexWrap: "wrap" }}>
               <form onSubmit={handleSearchLeads} style={{ display: "flex", gap: "0.75rem", flex: 1, minWidth: "250px" }}>
                 <input

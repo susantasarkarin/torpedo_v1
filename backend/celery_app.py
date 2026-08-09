@@ -123,6 +123,16 @@ celery_app.conf.update(
             'schedule': crontab(hour=2, minute=45),
             'options': {'queue': 'default'},
         },
+        'panel-promote-traffic-leads': {
+            # 8:20 AM IST = 02:50 UTC — fold parsing-page email captures into
+            # `panelists` BEFORE the invite cron. Until this existed the
+            # "Panelist Lead" tab was a dead end: those addresses lived only in
+            # traffic_flow_db and were never mailed.
+            'task': 'backend.tasks.panel_tasks.promote_panelist_leads',
+            'schedule': crontab(hour=2, minute=50),
+            'kwargs': {'lookback_days': 7},
+            'options': {'queue': 'default'},
+        },
         'panel-sync-registrations': {
             # 8:30 AM IST = 03:00 UTC — pull SFW-panel signups and mark them
             # registered BEFORE the invite cron, so they drop out of the invite
@@ -179,6 +189,16 @@ celery_app.conf.update(
             # 10:00 AM IST = 04:30 UTC — daily login reminder to registered panelists
             'task': 'backend.tasks.panel_tasks.send_daily_panel_login_invitations',
             'schedule': crontab(hour=4, minute=30),
+            'options': {'queue': 'default'},
+        },
+        'panel-reengagement-drips': {
+            # 11:30 AM IST = 06:00 UTC — after the invite crons have finished,
+            # so the drips take what's left of the SES budget rather than
+            # competing with acquisition mail. Per-stage caps and cooldowns
+            # inside panel_drip_service mean a daily cron sends an individual
+            # at most 2-3 reminders in total.
+            'task': 'backend.tasks.panel_tasks.run_panel_reengagement_drips',
+            'schedule': crontab(hour=6, minute=0),
             'options': {'queue': 'default'},
         },
     },

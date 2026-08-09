@@ -6,7 +6,9 @@ Endpoints:
 - POST /panel/signup - Register new panelist
 - POST /panel/login - Authenticate panelist
 - POST /panel/logout - Invalidate session
-- POST /panel/forgot-password - Request password reset
+- GET  /panel/verify-email - Complete double opt-in from the emailed link
+- POST /panel/resend-verification - Re-send the double opt-in email
+- POST /panel/forgot-password - Request password reset (sends the email)
 - POST /panel/reset-password - Reset password with token
 - GET /panel/profile - Get panelist profile
 - PUT /panel/profile - Update panelist profile
@@ -22,7 +24,8 @@ import re
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, Query
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, Field, validator
 from bson import ObjectId
 from pymongo import MongoClient
@@ -58,8 +61,56 @@ panel_sessions_collection = db["panel_sessions"]
 surveys_collection = db["surveys"]
 rewards_collection = db["panel_rewards"]
 
+# Token lookups happen on every verification / reset click; without these the
+# lookup is a full scan of the ~190K panelists collection.
+try:
+    panelists_collection.create_index("verification_token", sparse=True)
+    panelists_collection.create_index("reset_token", sparse=True)
+except Exception as _idx_err:  # pragma: no cover
+    logger.warning(f"panel token index creation failed: {_idx_err}")
+
 # Session settings
 PANEL_SESSION_TTL = 60 * 60 * 24 * 7  # 7 days
+
+# Where to land the user after they click a verification link. Kept on the
+# public SPA host, not the API host.
+PANEL_PUBLIC_BASE_URL = os.getenv(
+    "PANEL_PUBLIC_BASE_URL", "https://torpedo.cogentixresearch.com"
+).rstrip("/")
+
+
+def _send_verification(panelist_id: str, email: str, first_name: str) -> bool:
+    """Issue a fresh verification token and email it. Never raises.
+
+    Signup must still succeed if SES is down — the user can request a resend
+    from the login screen — so failures are logged, not surfaced as a 500.
+    """
+    try:
+        try:
+            from ..services.panel_transactional_email import (
+                new_token, verification_expiry, send_verification_email,
+            )
+        except ImportError:
+            from services.panel_transactional_email import (
+                new_token, verification_expiry, send_verification_email,
+            )
+
+        token = new_token()
+        panelists_collection.update_one(
+            {"_id": ObjectId(panelist_id)},
+            {"$set": {
+                "verification_token": token,
+                "verification_token_expires": verification_expiry(),
+                "verification_sent_at": datetime.utcnow(),
+            }},
+        )
+        ok, details = send_verification_email(email, first_name, token)
+        if not ok:
+            logger.error(f"Verification email failed for {email[:3]}***: {details}")
+        return ok
+    except Exception as e:
+        logger.error(f"Verification email error for {email[:3]}***: {e}")
+        return False
 
 # ============== SCHEMAS ==============
 
@@ -267,7 +318,7 @@ async def signup(request: Request, data: PanelistSignupRequest):
     
     result = panelists_collection.insert_one(panelist)
     panelist_id = str(result.inserted_id)
-    
+
     # Create session
     session_id = generate_session_id()
     panel_sessions_collection.insert_one({
@@ -276,16 +327,92 @@ async def signup(request: Request, data: PanelistSignupRequest):
         "created_at": datetime.utcnow(),
         "expires_at": datetime.utcnow() + timedelta(seconds=PANEL_SESSION_TTL)
     })
-    
+
+    # Double opt-in: signup previously created a fully usable account and never
+    # asked the user to confirm the address, so email_verified stayed False
+    # forever and nobody ever received a confirmation mail.
+    verification_sent = _send_verification(panelist_id, panelist["email"], data.first_name)
+
     return {
-        "message": "Account created successfully",
+        "message": "Account created successfully. Check your inbox to confirm your email address.",
         "panelist_id": panelist_id,
         "email": data.email,
         "first_name": data.first_name,
         "last_name": data.last_name,
         "panel_session_id": session_id,
-        "rewards_balance": 0.0
+        "rewards_balance": 0.0,
+        "email_verified": False,
+        "verification_email_sent": verification_sent,
     }
+
+
+@router.get("/verify-email")
+async def verify_email(token: str = Query("", min_length=1)):
+    """Complete double opt-in from the emailed link, then bounce to the panel.
+
+    A GET that redirects (rather than a JSON POST) so the link works straight
+    from any mail client. The token is single-use: it is cleared on success,
+    so a second click lands on already_verified rather than an error.
+    """
+    landing = f"{PANEL_PUBLIC_BASE_URL}/panel/login"
+
+    panelist = panelists_collection.find_one({"verification_token": token})
+    if not panelist:
+        # Either never valid, or already consumed by an earlier click.
+        return RedirectResponse(url=f"{landing}?verified=invalid", status_code=302)
+
+    expires = panelist.get("verification_token_expires")
+    if expires and expires < datetime.utcnow():
+        return RedirectResponse(url=f"{landing}?verified=expired", status_code=302)
+
+    now = datetime.utcnow()
+    panelists_collection.update_one(
+        {"_id": panelist["_id"]},
+        {
+            "$set": {
+                "email_verified": True,
+                "double_opt_in_completed": True,
+                "double_opt_in_completed_at": now,
+                "status": "confirmed",
+                "updated_at": now,
+            },
+            "$unset": {"verification_token": "", "verification_token_expires": ""},
+        },
+    )
+
+    # Stop the invite cron chasing someone who has now confirmed, and let the
+    # funnel report the conversion.
+    try:
+        try:
+            from ..services.panel_bounce_handler import mark_double_opt_in_completed
+        except ImportError:
+            from services.panel_bounce_handler import mark_double_opt_in_completed
+        mark_double_opt_in_completed(
+            email=panelist.get("email", ""),
+            invite_token="",
+            metadata={"source": "panel_verify_email"},
+        )
+    except Exception as e:
+        logger.warning(f"Post-verification bookkeeping failed: {e}")
+
+    return RedirectResponse(url=f"{landing}?verified=1", status_code=302)
+
+
+@router.post("/resend-verification")
+@limiter.limit("3/hour")
+async def resend_verification(request: Request, data: ForgotPasswordRequest):
+    """Re-send the double opt-in email. Rate limited to 3/hour per IP."""
+    panelist = panelists_collection.find_one({"email": data.email.lower()})
+
+    # Same non-committal response either way — this must not reveal whether an
+    # address is registered.
+    generic = {"message": "If the account exists and is unconfirmed, a new confirmation email has been sent"}
+
+    if not panelist or panelist.get("email_verified"):
+        return generic
+
+    _send_verification(str(panelist["_id"]), panelist["email"], panelist.get("first_name", ""))
+    return generic
 
 
 @router.post("/login", response_model=PanelistLoginResponse)
@@ -304,7 +431,11 @@ async def login(request: Request, data: PanelistLoginRequest):
     if not verify_password(data.password, panelist.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
-    if panelist.get("status") != "active":
+    # "confirmed" is what verify-email / mark_double_opt_in_completed /
+    # the SFW registration sync all set on a fully opted-in panelist, so it
+    # has to count as active here — checking `!= "active"` alone locked out
+    # exactly the users who had completed double opt-in.
+    if str(panelist.get("status") or "").lower() not in {"active", "confirmed", "double_opted_in"}:
         raise HTTPException(status_code=403, detail="Account is not active")
     
     # Create new session
@@ -397,24 +528,37 @@ async def forgot_password(request: Request, data: ForgotPasswordRequest):
     if not panelist:
         return {"message": "If the email exists, a password reset link will be sent"}
     
-    # Generate reset token
-    reset_token = secrets.token_urlsafe(32)
-    
+    try:
+        from ..services.panel_transactional_email import (
+            new_token, reset_expiry, send_password_reset_email,
+        )
+    except ImportError:
+        from services.panel_transactional_email import (
+            new_token, reset_expiry, send_password_reset_email,
+        )
+
+    reset_token = new_token()
+
     panelists_collection.update_one(
         {"_id": panelist["_id"]},
         {"$set": {
             "reset_token": reset_token,
-            "reset_token_expires": datetime.utcnow() + timedelta(hours=1)
+            "reset_token_expires": reset_expiry(),
+            "reset_requested_at": datetime.utcnow(),
         }}
     )
-    
-    # TODO: Send email with reset link
-    # In production, integrate with email service (SendGrid, AWS SES, etc.)
-    # SECURITY: Never log tokens in production
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"Password reset requested for email: {data.email[:3]}***")
-    
+
+    # This used to stop at a `# TODO: Send email` comment — the token was
+    # stored and the user was told a link was on its way that never existed.
+    # SECURITY: never log the token itself.
+    ok, details = send_password_reset_email(
+        panelist["email"], panelist.get("first_name", ""), reset_token
+    )
+    if ok:
+        logger.info(f"Password reset link sent for email: {data.email[:3]}***")
+    else:
+        logger.error(f"Password reset email FAILED for {data.email[:3]}***: {details}")
+
     return {"message": "If the email exists, a password reset link will be sent"}
 
 

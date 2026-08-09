@@ -35,6 +35,13 @@ function PanelDashboard() {
   const [sfwCountries, setSfwCountries] = useState([])
   const [sfwLoading, setSfwLoading] = useState(false)
 
+  // Conversion funnel + re-engagement drips
+  const [funnel, setFunnel] = useState(null)
+  const [funnelLoading, setFunnelLoading] = useState(false)
+  const [dripStatus, setDripStatus] = useState(null)
+  const [dripRunning, setDripRunning] = useState(false)
+  const [dripMessage, setDripMessage] = useState("")
+
   useEffect(() => {
     fetchDailyStats()
     fetchRegistrationStats()
@@ -42,7 +49,70 @@ function PanelDashboard() {
 
   useEffect(() => {
     fetchSfwPanelData()
+    fetchFunnel()
+    fetchDripStatus()
   }, [])
+
+  const fetchFunnel = async (refresh = false) => {
+    setFunnelLoading(true)
+    const sessionId = localStorage.getItem("session_id")
+    try {
+      const res = await fetch(
+        buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/dashboard/funnel${refresh ? "?refresh=true" : ""}`),
+        { headers: { Authorization: sessionId } },
+      )
+      if (res.ok) setFunnel(await res.json())
+    } catch (err) {
+      console.error("Failed to fetch funnel:", err)
+    } finally {
+      setFunnelLoading(false)
+    }
+  }
+
+  const fetchDripStatus = async () => {
+    const sessionId = localStorage.getItem("session_id")
+    try {
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/dashboard/drip-status?days=30`), {
+        headers: { Authorization: sessionId },
+      })
+      if (res.ok) setDripStatus(await res.json())
+    } catch (err) {
+      console.error("Failed to fetch drip status:", err)
+    }
+  }
+
+  // Preview first: a dry run reports who WOULD be mailed without sending, so
+  // a mis-scoped segment can't turn into a blast.
+  const runDrips = async (dryRun) => {
+    setDripRunning(true)
+    setDripMessage("")
+    const sessionId = localStorage.getItem("session_id")
+    try {
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/drips/run`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: sessionId },
+        body: JSON.stringify({ dry_run: dryRun }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        const perStage = (data.stages || [])
+          .map((s) => `${s.stage}: ${dryRun ? (s.would_send ?? 0) : (s.sent ?? 0)}`)
+          .join(" · ")
+        setDripMessage(
+          dryRun
+            ? `Dry run — would send ${perStage || "nothing"}.`
+            : `Sent ${data.total_sent || 0} reminder emails (${perStage || "none"}).`,
+        )
+        if (!dryRun) fetchDripStatus()
+      } else {
+        setDripMessage(data.detail || "Drip run failed")
+      }
+    } catch (err) {
+      setDripMessage("Network error: " + err.message)
+    } finally {
+      setDripRunning(false)
+    }
+  }
 
   const fetchDailyStats = async () => {
     setDailyLoading(true)
@@ -200,6 +270,115 @@ function PanelDashboard() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* ── Conversion funnel ──────────────────────────────────────────────── */}
+      <div className="card" style={{ marginTop: "1.5rem" }}>
+        <div className="card-header">
+          <div>
+            <h2 className="card-title">Conversion Funnel</h2>
+            <p className="card-description">
+              Where panelists drop off between being emailed and actually earning.
+              The <strong>Step conversion</strong> column is the leak indicator.
+            </p>
+          </div>
+          <button onClick={() => fetchFunnel(true)} disabled={funnelLoading}
+            style={{ padding: "0.5rem 1rem", background: funnelLoading ? "#e5e7eb" : "#7c3aed", color: funnelLoading ? "#9ca3af" : "#fff", border: "none", borderRadius: "8px", cursor: funnelLoading ? "default" : "pointer", fontSize: "0.875rem", fontWeight: "600" }}>
+            {funnelLoading ? "Loading…" : "↻ Recalculate"}
+          </button>
+        </div>
+
+        {funnelLoading && !funnel ? (
+          <p style={{ color: "#6b7280", textAlign: "center", padding: "2rem 0" }}>Computing funnel…</p>
+        ) : !funnel ? (
+          <p style={{ color: "#6b7280", textAlign: "center", padding: "2rem 0" }}>Funnel data unavailable.</p>
+        ) : (
+          <>
+            <div style={{ overflowX: "auto", marginBottom: "2rem" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
+                <thead>
+                  <tr style={{ borderBottom: "2px solid #e5e7eb", background: "#f9fafb" }}>
+                    {["Stage", "People", "Step conversion", "Lost at this step", "% of pool"].map((h, i) => (
+                      <th key={h} style={{ padding: "0.75rem 1rem", textAlign: i === 0 ? "left" : "right", fontWeight: "700", color: "#374151" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {funnel.stages.map((s) => {
+                    // Anything under 25% step conversion is flagged: that is a
+                    // broken step, not normal attrition.
+                    const weak = s.pct_of_previous !== null && s.pct_of_previous < 25
+                    return (
+                      <tr key={s.key} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                        <td style={{ padding: "0.75rem 1rem", fontWeight: "600", color: "#1f2937" }}>{s.label}</td>
+                        <td style={{ padding: "0.75rem 1rem", textAlign: "right", fontWeight: "700", color: "#111827" }}>{s.count.toLocaleString()}</td>
+                        <td style={{ padding: "0.75rem 1rem", textAlign: "right", fontWeight: "700", color: s.pct_of_previous === null ? "#9ca3af" : weak ? "#dc2626" : "#059669" }}>
+                          {s.pct_of_previous === null ? "—" : `${s.pct_of_previous}%`}
+                        </td>
+                        <td style={{ padding: "0.75rem 1rem", textAlign: "right", color: "#6b7280" }}>
+                          {s.dropped_from_previous === null ? "—" : s.dropped_from_previous.toLocaleString()}
+                        </td>
+                        <td style={{ padding: "0.75rem 1rem", textAlign: "right", color: "#6b7280" }}>{s.pct_of_pool}%</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <h3 style={{ fontSize: "1rem", fontWeight: "700", color: "#111827", marginBottom: "0.5rem" }}>
+              Stalled Segments &amp; Re-engagement
+            </h3>
+            <p style={{ fontSize: "0.85rem", color: "#6b7280", marginBottom: "1rem" }}>
+              Each segment has its own reminder sequence, capped at 2–3 emails ever with a
+              multi-day gap. Sequences stop automatically when someone converts, unsubscribes or bounces.
+            </p>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1rem", marginBottom: "1.25rem" }}>
+              {Object.entries(funnel.segments).map(([key, seg]) => {
+                const stageKey = { signed_up_unverified: "verify", opted_in_no_profile: "profile", profile_no_activity: "activate" }[key]
+                const drip = dripStatus?.stages?.[stageKey]
+                return (
+                  <div key={key} style={{ border: "1px solid #e5e7eb", borderRadius: "10px", padding: "1.1rem", background: "#fafafa" }}>
+                    <p style={{ fontSize: "0.8rem", color: "#6b7280", fontWeight: "600", marginBottom: "0.35rem" }}>{seg.label}</p>
+                    <p style={{ fontSize: "1.75rem", fontWeight: "700", color: "#d97706", marginBottom: "0.4rem" }}>{seg.count.toLocaleString()}</p>
+                    <p style={{ fontSize: "0.75rem", color: "#9ca3af", lineHeight: "1.5", marginBottom: "0.6rem" }}>{seg.description}</p>
+                    {drip && (
+                      <p style={{ fontSize: "0.72rem", color: "#6b7280", borderTop: "1px solid #e5e7eb", paddingTop: "0.5rem" }}>
+                        Reminders: max {drip.max_sends}, {drip.gap_days}-day gap · {drip.sent_in_window.toLocaleString()} sent in 30d
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+              <button onClick={() => runDrips(true)} disabled={dripRunning}
+                style={{ padding: "0.5rem 1rem", background: "#fff", color: "#7c3aed", border: "1px solid #7c3aed", borderRadius: "8px", cursor: dripRunning ? "default" : "pointer", fontSize: "0.875rem", fontWeight: "600", opacity: dripRunning ? 0.5 : 1 }}>
+                Preview (dry run)
+              </button>
+              <button onClick={() => runDrips(false)} disabled={dripRunning}
+                style={{ padding: "0.5rem 1rem", background: "#7c3aed", color: "#fff", border: "none", borderRadius: "8px", cursor: dripRunning ? "default" : "pointer", fontSize: "0.875rem", fontWeight: "600", opacity: dripRunning ? 0.5 : 1 }}>
+                {dripRunning ? "Working…" : "Send reminders now"}
+              </button>
+              <span style={{ fontSize: "0.78rem", color: "#9ca3af" }}>
+                Runs automatically every day at 11:30 IST.
+              </span>
+            </div>
+
+            {dripMessage && (
+              <div style={{ marginTop: "0.9rem", padding: "0.75rem", borderRadius: "6px", background: "#f3f4f6", color: "#374151", fontSize: "0.85rem" }}>
+                {dripMessage}
+              </div>
+            )}
+
+            <p style={{ marginTop: "1rem", fontSize: "0.72rem", color: "#9ca3af" }}>
+              Computed {funnel.generated_at ? new Date(funnel.generated_at).toLocaleString() : "—"}
+              {funnel.cached ? " (cached)" : ` in ${funnel.compute_seconds}s`}
+            </p>
+          </>
+        )}
       </div>
 
       {/* ── SFW Panel section ──────────────────────────────────────────────── */}

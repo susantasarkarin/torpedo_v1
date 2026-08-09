@@ -63,6 +63,13 @@ PANEL_LOGO_URL = os.getenv(
 )
 PANEL_TEMPLATE_VERSION = os.getenv("PANEL_TEMPLATE_VERSION", "panel-invite-v3")
 PANEL_SEND_TIMEZONE = os.getenv("PANEL_SEND_TIMEZONE", "Asia/Kolkata")
+# Minimum whole days between two "join the panel" invites to the SAME address.
+# The cron still runs daily (so the day's SES budget is always spent on whoever
+# IS due), but an individual lead is only re-invited every Nth day. 3 = mailed
+# Monday, next eligible Thursday — a two-full-day gap. Previously this was a
+# same-day dedup only, which meant a lead near the front of the rotation could
+# be mailed on consecutive days.
+PANEL_INVITE_MIN_GAP_DAYS = int(os.getenv("PANEL_INVITE_MIN_GAP_DAYS", "3"))
 # Manual safety ceiling only. ses_budget_for_bulk() reads the real quota from
 # AWS each run and takes whichever is lower, so this exists to stop a runaway
 # blast, not to size the daily batch. Held above the live Max24HourSend
@@ -70,12 +77,18 @@ PANEL_SEND_TIMEZONE = os.getenv("PANEL_SEND_TIMEZONE", "Asia/Kolkata")
 # previous 65,000 was pinned to a long-superseded 69,000/day quota and was
 # silently discarding ~33K/day of available send.
 PANEL_DAILY_SEND_CAP = int(os.getenv("PANEL_DAILY_SEND_CAP", "140000"))
-# Daily-quota headroom kept free for the SFW panel's transactional mail
-# (double opt-in verification, password reset, survey-available notices),
-# which shares this SES account. Everything else bulk (cold outreach /
-# panel invitations) is bounded to whatever's left of the account's
-# Max24HourSend after this reserve.
-PANEL_SES_RESERVE = int(os.getenv("PANEL_SES_RESERVE", "3000"))
+# Daily-quota headroom kept free for transactional mail — double opt-in
+# verification, password reset and survey-available notices, sent both by this
+# backend (services/panel_transactional_email.py) and by the SFW panel app,
+# which shares this SES account. Everything bulk (cold outreach / panel
+# invitations) is bounded to whatever's left of Max24HourSend after this.
+#
+# Raised from 3,000 after users reported verification and password-reset mail
+# not arriving: 3,000 was under 3% of a ~119K/day quota, so a bulk run that
+# started before the transactional traffic did could leave SES throttling the
+# mail people are actively waiting on. This is cheap insurance — the bulk send
+# gives up 7K of a 119K budget, transactional mail gives up nothing.
+PANEL_SES_RESERVE = int(os.getenv("PANEL_SES_RESERVE", "10000"))
 
 # Rate limiting: confirmed max send rate for this account is 14/sec (SES
 # console -> Account dashboard). The old default of 1/sec (SES sandbox rate)
@@ -142,6 +155,48 @@ class _RateGate:
         delay = start - now
         if delay > 0:
             time.sleep(delay)
+
+
+def _local_day_start_utc(days_back: int = 0) -> datetime:
+    """Midnight of (today - days_back) in the panel's send timezone, as naive UTC.
+
+    Everything in panel_invitation_log / panelists is stored as naive UTC, so
+    the comparison values have to be naive UTC too.
+    """
+    from datetime import timezone as _tz, timedelta as _td
+    from zoneinfo import ZoneInfo
+    try:
+        tz = ZoneInfo(PANEL_SEND_TIMEZONE)
+    except Exception:
+        tz = ZoneInfo("UTC")
+    now_local = datetime.now(tz)
+    day_start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_start_local -= _td(days=days_back)
+    return day_start_local.astimezone(_tz.utc).replace(tzinfo=None)
+
+
+def invite_gap_cutoff() -> datetime:
+    """Anyone invited at or after this instant is still inside their gap.
+
+    With PANEL_INVITE_MIN_GAP_DAYS=3 the cutoff is the start of the day two
+    days ago, so a lead mailed Monday is skipped Tuesday and Wednesday and
+    becomes eligible again on Thursday.
+    """
+    return _local_day_start_utc(max(0, PANEL_INVITE_MIN_GAP_DAYS - 1))
+
+
+def _apply_gap_prefilter(query: Dict[str, Any], cutoff: datetime) -> Dict[str, Any]:
+    """Exclude leads whose last invite is newer than `cutoff` at the query level."""
+    return {
+        "$and": [
+            query,
+            {"$or": [
+                {"last_invited_at": {"$exists": False}},
+                {"last_invited_at": None},
+                {"last_invited_at": {"$lt": cutoff}},
+            ]},
+        ]
+    }
 
 
 def _collect_eligible(
@@ -290,6 +345,12 @@ def ses_budget_for_bulk() -> int:
         return PANEL_DAILY_SEND_CAP
 
     budget = max_24h - sent_24h - PANEL_SES_RESERVE
+    # Logged every run so "the reset email never arrived" can be checked
+    # against the actual headroom at the time instead of guessed at.
+    logger.info(
+        f"[panel] SES quota check: sent_24h={sent_24h}/{max_24h} "
+        f"reserve={PANEL_SES_RESERVE} bulk_budget={max(0, budget)}"
+    )
     if budget <= 0:
         logger.error(
             f"[panel] SES daily quota nearly exhausted ({sent_24h}/{max_24h}); "
@@ -762,18 +823,15 @@ def send_bulk_invitations(
     budget = ses_budget_for_bulk()
     cap_value = min(daily_cap, budget) if daily_cap is not None else budget
 
-    # Window for "already invited today", in the panel's local send timezone.
+    # Everyone invited at or after this instant is still serving their
+    # PANEL_INVITE_MIN_GAP_DAYS cooldown and must be skipped this run.
     if daily_mode:
-        from datetime import timezone as _tz
-        from zoneinfo import ZoneInfo
-        try:
-            tz = ZoneInfo(PANEL_SEND_TIMEZONE)
-        except Exception:
-            tz = ZoneInfo("UTC")
-        from datetime import datetime as _dt, timedelta as _td
-        now_local = _dt.now(tz)
-        day_start_utc = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(_tz.utc).replace(tzinfo=None)
-        next_day_utc = day_start_utc + _td(days=1)
+        gap_cutoff_utc = invite_gap_cutoff()
+        # Prefilter in the query itself so leads still in their cooldown are
+        # never even fetched. Without this the scan burns its whole chunk
+        # budget on recently-mailed leads (they sort first once last_invited_at
+        # is set) and the batch fills far short of the SES budget.
+        query = _apply_gap_prefilter(query, gap_cutoff_utc)
 
     def _filter_chunk(pairs):
         """Suppression / already-invited lookups scoped to one chunk."""
@@ -785,11 +843,13 @@ def send_bulk_invitations(
         }
 
         if daily_mode:
+            # Backstop for the query-level prefilter above: records predating
+            # last_invited_at only prove their cooldown through the send log.
             invited_set = {
                 doc["email"].lower().strip()
                 for doc in invitation_log_collection.find(
                     {"email": {"$in": emails}, "status": "sent",
-                     "sent_at": {"$gte": day_start_utc, "$lt": next_day_utc}},
+                     "sent_at": {"$gte": gap_cutoff_utc}},
                     {"email": 1}
                 )
             }
@@ -1050,16 +1110,8 @@ def get_eligible_count(
         query["country"] = {"$regex": f"^{country}$", "$options": "i"}
 
     if daily_mode:
-        from datetime import timezone as _tz
-        from zoneinfo import ZoneInfo
-        try:
-            tz = ZoneInfo(PANEL_SEND_TIMEZONE)
-        except Exception:
-            tz = ZoneInfo("UTC")
-        from datetime import datetime as _dt, timedelta as _td
-        now_local = _dt.now(tz)
-        day_start_utc = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(_tz.utc).replace(tzinfo=None)
-        next_day_utc = (day_start_utc + _td(days=1))
+        gap_cutoff_utc = invite_gap_cutoff()
+        query = _apply_gap_prefilter(query, gap_cutoff_utc)
 
     def _filter_chunk(pairs):
         emails = [e for e, _ in pairs]
@@ -1070,11 +1122,12 @@ def get_eligible_count(
         }
 
         if daily_mode:
+            # Mirrors send_bulk_invitations: still inside the invite cooldown.
             invited = {
                 doc["email"].lower().strip()
                 for doc in invitation_log_collection.find(
                     {"email": {"$in": emails}, "status": "sent",
-                     "sent_at": {"$gte": day_start_utc, "$lt": next_day_utc}},
+                     "sent_at": {"$gte": gap_cutoff_utc}},
                     {"email": 1}
                 )
             }

@@ -16,6 +16,7 @@ import logging
 import csv
 import json
 import io
+import re
 import time
 from datetime import datetime
 from typing import Optional, List, Dict, Any
@@ -317,7 +318,10 @@ def _panel_lead_group_stages() -> List[Dict[str, Any]]:
     ]
 
 
-# Cache the expensive lead dedup-count so it isn't recomputed on every page.
+# Cache expensive total-row counts so they aren't recomputed on every page.
+# Paging through 190K panelists re-ran count_documents on each click, which
+# dominated the request; the total only has to be fresh enough to size the
+# pager.
 _lead_total_cache: Dict[str, Any] = {}
 _LEAD_TOTAL_TTL = 180  # seconds
 
@@ -330,6 +334,49 @@ def _cached_lead_total(cache_key: str, compute):
     total = compute()
     _lead_total_cache[cache_key] = (now, total)
     return total
+
+
+def _exact_or_regex(value: str) -> Any:
+    """Match `value` exactly when it is a plain token, else fall back to regex.
+
+    The country and status filters used an anchored case-insensitive regex,
+    which no index can serve — every filtered page did a full collection scan.
+    Both filter values come from the collection's own distinct list, so an
+    exact match is equivalent for real data and index-eligible. Anything
+    containing regex metacharacters keeps the old case-insensitive behaviour.
+    """
+    if value and re.fullmatch(r"[A-Za-z0-9 _\-\.]+", value):
+        return value
+    return {"$regex": f"^{re.escape(value)}$", "$options": "i"}
+
+
+def _build_panelist_query(
+    search: Optional[str] = None,
+    country: Optional[str] = None,
+    status: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Shared filter builder for the two panelist listing endpoints."""
+    conditions: List[Dict[str, Any]] = []
+
+    if search:
+        conditions.append({
+            "$or": [
+                {"first_name": {"$regex": search, "$options": "i"}},
+                {"last_name": {"$regex": search, "$options": "i"}},
+                {"email": {"$regex": search, "$options": "i"}},
+                {"country": {"$regex": search, "$options": "i"}},
+            ]
+        })
+
+    if country:
+        conditions.append({"country": _exact_or_regex(country)})
+
+    if status:
+        conditions.append({"status": _exact_or_regex(status)})
+
+    if not conditions:
+        return {}
+    return {"$and": conditions} if len(conditions) > 1 else conditions[0]
 
 
 # ============== STATS ==============
@@ -395,7 +442,7 @@ async def list_panelist_countries(request: Request):
 async def list_panelists(
     request: Request,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
     search: Optional[str] = Query(None),
     country: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
@@ -404,29 +451,12 @@ async def list_panelists(
     verify_admin_session(request)
 
     try:
-        query = {}
-        conditions = []
+        query = _build_panelist_query(search, country, status)
 
-        if search:
-            conditions.append({
-                "$or": [
-                    {"first_name": {"$regex": search, "$options": "i"}},
-                    {"last_name": {"$regex": search, "$options": "i"}},
-                    {"email": {"$regex": search, "$options": "i"}},
-                    {"country": {"$regex": search, "$options": "i"}},
-                ]
-            })
-
-        if country:
-            conditions.append({"country": {"$regex": f"^{country}$", "$options": "i"}})
-
-        if status:
-            conditions.append({"status": {"$regex": f"^{status}$", "$options": "i"}})
-
-        if conditions:
-            query = {"$and": conditions} if len(conditions) > 1 else conditions[0]
-
-        total = panelists_collection.count_documents(query)
+        total = _cached_lead_total(
+            f"panelists|{search or ''}|{country or ''}|{status or ''}",
+            lambda: panelists_collection.count_documents(query),
+        )
         skip = (page - 1) * page_size
 
         panelists = panelists_collection.find(
@@ -450,7 +480,7 @@ async def list_panelists(
 async def list_panelists_with_email_status(
     request: Request,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
     search: Optional[str] = Query(None),
     country: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
@@ -459,29 +489,12 @@ async def list_panelists_with_email_status(
     verify_admin_session(request)
 
     try:
-        query = {}
-        conditions = []
+        query = _build_panelist_query(search, country, status)
 
-        if search:
-            conditions.append({
-                "$or": [
-                    {"first_name": {"$regex": search, "$options": "i"}},
-                    {"last_name": {"$regex": search, "$options": "i"}},
-                    {"email": {"$regex": search, "$options": "i"}},
-                    {"country": {"$regex": search, "$options": "i"}},
-                ]
-            })
-
-        if country:
-            conditions.append({"country": {"$regex": f"^{country}$", "$options": "i"}})
-
-        if status:
-            conditions.append({"status": {"$regex": f"^{status}$", "$options": "i"}})
-
-        if conditions:
-            query = {"$and": conditions} if len(conditions) > 1 else conditions[0]
-
-        total = panelists_collection.count_documents(query)
+        total = _cached_lead_total(
+            f"panelists|{search or ''}|{country or ''}|{status or ''}",
+            lambda: panelists_collection.count_documents(query),
+        )
         skip = (page - 1) * page_size
 
         # Use optimized aggregation to get latest invitation
@@ -549,7 +562,7 @@ async def list_panelists_with_email_status(
 async def list_panelist_leads(
     request: Request,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
     search: Optional[str] = Query(None),
     country: Optional[str] = Query(None),
 ):
@@ -613,6 +626,64 @@ async def list_panelist_lead_countries(request: Request):
         return {"countries": countries}
     except Exception as e:
         logger.error(f"Error fetching panel lead countries: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/panelist-leads/promotion-status")
+async def panelist_lead_promotion_status(request: Request):
+    """How many parsing-page leads are still missing from `panelists`.
+
+    A non-zero count means those addresses are visible in the Panelist Lead
+    tab but are NOT receiving invitation emails, because the senders only read
+    the `panelists` collection.
+    """
+    verify_admin_session(request)
+
+    try:
+        from services.panel_lead_promotion import count_unpromoted_leads
+        result = await asyncio.to_thread(count_unpromoted_leads)
+        return result
+    except Exception as e:
+        logger.error(f"Error counting unpromoted panelist leads: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/panelist-leads/promote")
+async def promote_panelist_leads(
+    request: Request,
+    data: Dict[str, Any] = Body(default={}),
+):
+    """Merge parsing-page leads into `panelists` so the invite cron reaches them.
+
+    Body (optional):
+    - lookback_days: int — only promote leads captured in the last N days.
+      Omit for a full backfill (use once; it scans the whole traffic table).
+    - dry_run: bool — report what would be inserted without writing.
+
+    Existing panelists are never modified: the upsert is $setOnInsert on email,
+    so a CSV-sourced record keeps its own name, country and invite history.
+    """
+    verify_admin_session(request)
+
+    lookback_days = data.get("lookback_days")
+    dry_run = bool(data.get("dry_run", False))
+
+    try:
+        from services.panel_lead_promotion import promote_traffic_leads_to_panelists
+        from datetime import timedelta
+
+        since = None
+        if lookback_days:
+            since = datetime.utcnow() - timedelta(days=int(lookback_days))
+
+        result = await asyncio.to_thread(
+            promote_traffic_leads_to_panelists, since, dry_run
+        )
+        # The panelist totals are cached for 3 min; promotion just changed them.
+        _lead_total_cache.clear()
+        return {"status": "completed", **result}
+    except Exception as e:
+        logger.error(f"Error promoting panelist leads: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -856,6 +927,97 @@ async def get_daily_email_stats(
         }
     except Exception as e:
         logger.error(f"Error fetching daily email stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/dashboard/funnel")
+async def get_conversion_funnel(
+    request: Request,
+    refresh: bool = Query(False, description="Bypass the 10-minute cache"),
+):
+    """Conversion funnel plus the size of each stalled segment.
+
+    Stages: in pool -> invited -> clicked -> double opt-in -> profile complete
+    -> active. `pct_of_previous` on each stage is the conversion from the one
+    above it, which is where the leak shows up.
+    """
+    verify_admin_session(request)
+
+    try:
+        from services.panel_funnel import compute_funnel
+        return await asyncio.to_thread(compute_funnel, refresh)
+    except Exception as e:
+        logger.error(f"Error computing panel funnel: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/dashboard/drip-status")
+async def get_drip_status(request: Request, days: int = Query(30, ge=1, le=365)):
+    """Per-stage re-engagement send volume over the last N days."""
+    verify_admin_session(request)
+
+    try:
+        from datetime import timedelta
+        from services.panel_drip_service import STAGES
+
+        since = datetime.utcnow() - timedelta(days=days)
+        out = {}
+        for stage_key, stage in STAGES.items():
+            log_type = f"drip_{stage_key}"
+            out[stage_key] = {
+                "segment": stage["segment"],
+                "max_sends": stage["max_sends"],
+                "gap_days": stage["gap_days"],
+                "sent_in_window": invitation_log_collection.count_documents(
+                    {"type": log_type, "status": "sent", "sent_at": {"$gte": since}}
+                ),
+                "sent_all_time": invitation_log_collection.count_documents(
+                    {"type": log_type, "status": "sent"}
+                ),
+            }
+        return {"days": days, "stages": out}
+    except Exception as e:
+        logger.error(f"Error fetching drip status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/drips/run")
+async def run_drips(
+    request: Request,
+    data: Dict[str, Any] = Body(default={}),
+):
+    """Trigger the re-engagement drips on demand.
+
+    Body (optional):
+    - stage: "verify" | "profile" | "activate" — omit to run all three
+    - dry_run: bool — report who would be mailed without sending
+    - limit: int — cap this run (also bounded by PANEL_DRIP_RUN_CAP and the
+      SES bulk budget)
+
+    Normally runs daily via Celery; per-stage caps and cooldowns apply either
+    way, so triggering this repeatedly cannot re-mail the same person.
+    """
+    verify_admin_session(request)
+
+    stage = data.get("stage")
+    dry_run = bool(data.get("dry_run", False))
+    limit = data.get("limit")
+
+    try:
+        from services.panel_drip_service import run_drip_stage, run_all_drip_stages, STAGES
+
+        if stage:
+            if stage not in STAGES:
+                raise HTTPException(status_code=422, detail=f"unknown stage: {stage}")
+            result = await asyncio.to_thread(run_drip_stage, stage, limit, dry_run)
+        else:
+            result = await asyncio.to_thread(run_all_drip_stages, dry_run)
+
+        return {"status": "completed", **result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running panel drips: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

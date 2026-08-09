@@ -946,7 +946,14 @@ except Exception as e:
 # Panel (Survey Panel User Portal) router
 try:
     app.include_router(panel_router.router)
-    print("✅ Panel (Survey Panel) router included")
+    # Also mounted under /api, matching panel_join (PANEL_INVITE_JOIN_URL is
+    # /api/panel/invite/join). The bare /panel/* paths collide with the SPA's
+    # own /panel/* client routes, which is harmless for the XHR calls the app
+    # makes but not for GET /panel/verify-email — that link is opened directly
+    # from an email client, and on the bare path the SPA would answer with
+    # index.html instead of the backend confirming the address.
+    app.include_router(panel_router.router, prefix="/api")
+    print("✅ Panel (Survey Panel) router included (/panel and /api/panel)")
 except Exception as e:
     print(f"⚠️ Panel router not included: {e}")
 

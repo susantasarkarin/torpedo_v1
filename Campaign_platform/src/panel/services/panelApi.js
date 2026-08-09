@@ -134,6 +134,15 @@ export const resetPassword = async (token, newPassword) => {
   });
 };
 
+// Re-sends the double opt-in email. The server answers identically whether or
+// not the address exists, so callers can only show a generic confirmation.
+export const resendVerification = async (email) => {
+  return panelRequest('/panel/resend-verification', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+};
+
 // ============== PROFILE ENDPOINTS ==============
 
 export const getProfile = async () => {
@@ -180,7 +189,8 @@ export default {
   panelLogout,
   forgotPassword,
   resetPassword,
-  
+  resendVerification,
+
   // Session
   getPanelSessionId,
   isPanelAuthenticated,
