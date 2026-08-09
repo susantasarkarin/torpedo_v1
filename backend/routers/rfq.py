@@ -255,6 +255,115 @@ async def get_rfq_stats() -> Dict[str, Any]:
     }
 
 
+@router.post("/sync-from-gmail")
+async def sync_rfqs_from_gmail(
+    limit: int = Query(100, description="Unused; kept so old clients still parse"),
+    categories: List[str] = Query(["client", "rfq"], description="Unused")
+) -> Dict[str, Any]:
+    """
+    RETIRED. RFQ creation from mail is owned by backend/sales/mail_pool_ai.py.
+
+    This endpoint used to scan torpedo_gmail.email_metadata and write into
+    email_automation.rfqs. It was one of three competing RFQ writers with three
+    different dedup keys, and it wrote to a collection the live pipeline never
+    reads. mail_pool_ai runs every 10 minutes over the same mailbox, does real
+    AI extraction, and logs RFQs onto the CRM spine — that is the only writer now.
+
+    Kept as a 410 rather than deleted so any scheduled caller fails loudly with
+    a pointer instead of silently doing nothing.
+    """
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "Retired. RFQs are created from mail by the mail_pool_ai pipeline "
+            "(celery beat 'mail-pool-ai-sender-batch', every 10 min) and stored "
+            "on the CRM spine. Use POST /rfq/resync to force a pass."
+        ),
+    )
+
+
+@router.post("/resync")
+async def resync_rfqs_from_mail(
+    limit: int = Query(50, ge=1, le=500, description="Senders to process this pass")
+) -> Dict[str, Any]:
+    """
+    Force an immediate mail-pool AI pass instead of waiting for the 10-minute beat.
+
+    Queues the same Celery task the scheduler runs, so there is exactly one code
+    path that turns mail into RFQs.
+    """
+    try:
+        from ..tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
+    except ImportError:  # pragma: no cover
+        from tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
+
+    try:
+        task = process_mail_pool_sender_batch.delay(limit=limit)
+        return {
+            "success": True,
+            "message": f"Mail-pool AI pass queued for {limit} senders",
+            "task_id": task.id,
+        }
+    except Exception as e:
+        logger.error(f"Failed to queue mail-pool AI pass: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Could not queue the sync task (is the Celery worker up?): {e}",
+        )
+
+
+@router.get("/sync-status")
+async def get_sync_status() -> Dict[str, Any]:
+    """
+    Mail-pool -> RFQ ingestion status.
+
+    Reports how much of the Gmail pool the AI pipeline has chewed through and
+    how many RFQs that has produced on the spine, so an empty RFQ list can be
+    told apart from a stalled worker.
+    """
+    try:
+        from ..app.services import crm_service
+    except ImportError:  # pragma: no cover
+        from app.services import crm_service
+
+    try:
+        total_emails = email_metadata_collection.estimated_document_count()
+        processed = email_metadata_collection.count_documents(
+            {"ai_processed": True}
+        )
+        rfq_flagged = email_metadata_collection.count_documents(
+            {"ai_category": "rfq"}
+        )
+
+        opportunities = crm_service._col("opportunities")
+        spine_rfqs = opportunities.count_documents({
+            "$or": [
+                {"stage": "rfq"},
+                {"metadata.source": "rfq"},
+                {"metadata.rfq": {"$exists": True}},
+            ]
+        })
+
+        legacy_rfqs = rfqs_collection.count_documents({"is_deleted": {"$ne": True}})
+
+        return {
+            "success": True,
+            "stats": {
+                "mail_pool_total": total_emails,
+                "mail_pool_ai_processed": processed,
+                "mail_pool_pending": max(total_emails - processed, 0),
+                "emails_classified_rfq": rfq_flagged,
+                "rfqs_on_spine": spine_rfqs,
+                "legacy_rfqs_unmigrated": legacy_rfqs,
+            },
+            "source": "crm_db.opportunities via backend/sales/mail_pool_ai.py",
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting sync status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{rfq_id}")
 async def get_rfq(rfq_id: str) -> Dict[str, Any]:
     """
@@ -1293,112 +1402,3 @@ def extract_rfq_details_from_summary(summary: str, subject: str) -> Dict[str, An
         details["study_type"] = "Consumer"
     
     return details
-
-
-@router.post("/sync-from-gmail")
-async def sync_rfqs_from_gmail(
-    limit: int = Query(100, description="Unused; kept so old clients still parse"),
-    categories: List[str] = Query(["client", "rfq"], description="Unused")
-) -> Dict[str, Any]:
-    """
-    RETIRED. RFQ creation from mail is owned by backend/sales/mail_pool_ai.py.
-
-    This endpoint used to scan torpedo_gmail.email_metadata and write into
-    email_automation.rfqs. It was one of three competing RFQ writers with three
-    different dedup keys, and it wrote to a collection the live pipeline never
-    reads. mail_pool_ai runs every 10 minutes over the same mailbox, does real
-    AI extraction, and logs RFQs onto the CRM spine — that is the only writer now.
-
-    Kept as a 410 rather than deleted so any scheduled caller fails loudly with
-    a pointer instead of silently doing nothing.
-    """
-    raise HTTPException(
-        status_code=410,
-        detail=(
-            "Retired. RFQs are created from mail by the mail_pool_ai pipeline "
-            "(celery beat 'mail-pool-ai-sender-batch', every 10 min) and stored "
-            "on the CRM spine. Use POST /rfq/resync to force a pass."
-        ),
-    )
-
-
-@router.post("/resync")
-async def resync_rfqs_from_mail(
-    limit: int = Query(50, ge=1, le=500, description="Senders to process this pass")
-) -> Dict[str, Any]:
-    """
-    Force an immediate mail-pool AI pass instead of waiting for the 10-minute beat.
-
-    Queues the same Celery task the scheduler runs, so there is exactly one code
-    path that turns mail into RFQs.
-    """
-    try:
-        from ..tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
-    except ImportError:  # pragma: no cover
-        from tasks.mail_pool_ai_tasks import process_mail_pool_sender_batch
-
-    try:
-        task = process_mail_pool_sender_batch.delay(limit=limit)
-        return {
-            "success": True,
-            "message": f"Mail-pool AI pass queued for {limit} senders",
-            "task_id": task.id,
-        }
-    except Exception as e:
-        logger.error(f"Failed to queue mail-pool AI pass: {e}")
-        raise HTTPException(
-            status_code=503,
-            detail=f"Could not queue the sync task (is the Celery worker up?): {e}",
-        )
-
-
-@router.get("/sync-status")
-async def get_sync_status() -> Dict[str, Any]:
-    """
-    Mail-pool -> RFQ ingestion status.
-
-    Reports how much of the Gmail pool the AI pipeline has chewed through and
-    how many RFQs that has produced on the spine, so an empty RFQ list can be
-    told apart from a stalled worker.
-    """
-    try:
-        from ..app.services import crm_service
-    except ImportError:  # pragma: no cover
-        from app.services import crm_service
-
-    try:
-        total_emails = email_metadata_collection.estimated_document_count()
-        processed = email_metadata_collection.count_documents(
-            {"ai_processed": True}
-        )
-        rfq_flagged = email_metadata_collection.count_documents(
-            {"ai_category": "rfq"}
-        )
-
-        opportunities = crm_service._col("opportunities")
-        spine_rfqs = opportunities.count_documents({
-            "$or": [
-                {"stage": "rfq"},
-                {"metadata.source": "rfq"},
-                {"metadata.rfq": {"$exists": True}},
-            ]
-        })
-
-        legacy_rfqs = rfqs_collection.count_documents({"is_deleted": {"$ne": True}})
-
-        return {
-            "success": True,
-            "stats": {
-                "mail_pool_total": total_emails,
-                "mail_pool_ai_processed": processed,
-                "mail_pool_pending": max(total_emails - processed, 0),
-                "emails_classified_rfq": rfq_flagged,
-                "rfqs_on_spine": spine_rfqs,
-                "legacy_rfqs_unmigrated": legacy_rfqs,
-            },
-            "source": "crm_db.opportunities via backend/sales/mail_pool_ai.py",
-        }
-
-    except Exception as e:
-        logger.error(f"Error getting sync status: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
