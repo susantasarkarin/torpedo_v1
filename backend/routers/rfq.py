@@ -328,9 +328,18 @@ async def get_sync_status() -> Dict[str, Any]:
 
     try:
         total_emails = email_metadata_collection.estimated_document_count()
+        # mail_pool_ai stamps each analyzed email with `ai_analysis` — that is
+        # the field its own sender query filters on, so count the same one.
         processed = email_metadata_collection.count_documents(
-            {"ai_processed": True}
+            {"ai_analysis": {"$exists": True}}
         )
+        # Internal mail is skipped by design and can never become an RFQ, so
+        # excluding it keeps "pending" from permanently overstating the backlog.
+        pending = email_metadata_collection.count_documents({
+            "ai_analysis": {"$exists": False},
+            "internal": {"$ne": True},
+            "from_email": {"$exists": True, "$nin": [None, ""]},
+        })
         rfq_flagged = email_metadata_collection.count_documents(
             {"ai_category": "rfq"}
         )
@@ -351,7 +360,7 @@ async def get_sync_status() -> Dict[str, Any]:
             "stats": {
                 "mail_pool_total": total_emails,
                 "mail_pool_ai_processed": processed,
-                "mail_pool_pending": max(total_emails - processed, 0),
+                "mail_pool_pending": pending,
                 "emails_classified_rfq": rfq_flagged,
                 "rfqs_on_spine": spine_rfqs,
                 "legacy_rfqs_unmigrated": legacy_rfqs,
