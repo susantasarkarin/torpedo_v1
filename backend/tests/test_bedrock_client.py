@@ -235,7 +235,10 @@ def test_retries_on_throttling_then_succeeds():
 
 
 def test_raises_after_exhausting_retries(monkeypatch):
+    """Throttles retry on the same model; with no fallbacks the chain ends there."""
     monkeypatch.setenv("BEDROCK_MAX_RETRIES", "3")
+    monkeypatch.setenv("BEDROCK_FALLBACKS_CHEAP", "")   # single-model chain
+    bc._demoted.clear()
     client = MagicMock()
     client.converse.side_effect = [_throttle(), _throttle(), _throttle()]
     with patch.object(bc, "_get_runtime_client", return_value=client), \
@@ -245,7 +248,13 @@ def test_raises_after_exhausting_retries(monkeypatch):
     assert client.converse.call_count == 3
 
 
-def test_non_retryable_error_fails_immediately():
+def test_non_retryable_error_does_not_retry_same_model(monkeypatch):
+    """
+    A non-retryable error must not burn the retry budget on the same model.
+    With fallbacks disabled the chain is one model, so exactly one call.
+    """
+    monkeypatch.setenv("BEDROCK_FALLBACKS_CHEAP", "")
+    bc._demoted.clear()
     err = Exception("denied")
     err.response = {"Error": {"Code": "AccessDeniedException"}}
     client = MagicMock()
@@ -254,6 +263,64 @@ def test_non_retryable_error_fails_immediately():
         with pytest.raises(BedrockError):
             converse("cheap", "s", "u")
     assert client.converse.call_count == 1
+
+
+def test_falls_over_to_next_model_on_unusable_error(monkeypatch):
+    """An unusable primary hands off to the fallback, which answers."""
+    monkeypatch.setenv("BEDROCK_MODEL_CHEAP", "primary-model")
+    monkeypatch.setenv("BEDROCK_FALLBACKS_CHEAP", "fallback-model")
+    bc._demoted.clear()
+
+    err = Exception("Operation not allowed")
+    err.response = {"Error": {"Code": "ValidationException"}}
+    client = MagicMock()
+    client.converse.side_effect = [err, _response("hello")]
+
+    with patch.object(bc, "_get_runtime_client", return_value=client):
+        text, meta = bc.converse_meta("cheap", "s", "u")
+
+    assert text == "hello"
+    assert meta["model_id"] == "fallback-model"
+    assert meta["is_fallback"] is True
+    assert meta["fallback_position"] == 1
+    assert client.converse.call_count == 2
+
+
+def test_all_models_failing_names_every_one(monkeypatch):
+    """
+    When the whole chain fails the error lists each model — the signature of a
+    credential/account problem rather than a model problem.
+    """
+    monkeypatch.setenv("BEDROCK_MODEL_CHEAP", "m1")
+    monkeypatch.setenv("BEDROCK_FALLBACKS_CHEAP", "m2,m3")
+    bc._demoted.clear()
+
+    err = Exception("Operation not allowed")
+    err.response = {"Error": {"Code": "ValidationException"}}
+    client = MagicMock()
+    client.converse.side_effect = err
+
+    with patch.object(bc, "_get_runtime_client", return_value=client):
+        with pytest.raises(BedrockError) as excinfo:
+            converse("cheap", "s", "u")
+
+    message = str(excinfo.value)
+    assert "all 3 models failed" in message
+    for model_id in ("m1", "m2", "m3"):
+        assert model_id in message
+    assert client.converse.call_count == 3
+
+
+def test_demoted_model_moves_to_back_of_chain(monkeypatch):
+    """After failing over, the dead primary is tried last, not first."""
+    monkeypatch.setenv("BEDROCK_MODEL_CHEAP", "primary-model")
+    monkeypatch.setenv("BEDROCK_FALLBACKS_CHEAP", "fallback-model")
+    bc._demoted.clear()
+
+    assert bc.models_for_role("cheap")[0] == "primary-model"
+    bc._demote("primary-model")
+    assert bc.models_for_role("cheap") == ["fallback-model", "primary-model"]
+    bc._demoted.clear()
 
 
 # ============================================

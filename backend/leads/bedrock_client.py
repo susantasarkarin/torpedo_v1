@@ -18,11 +18,31 @@ Roles, not model names, are what callers choose:
 Swapping either model to e.g. Nova Lite or Claude Haiku requires changing only
 the environment variable.
 
+Each role has a FALLBACK CHAIN, not a single model. A model that returns a
+"not usable" error (validation, access denied, not found) is skipped and the
+next model in the chain answers, so one model going away degrades quality
+instead of failing the run. Throttles still retry on the same model first.
+
+    cheap:  qwen  ->  deepseek  ->  claude haiku 4.5
+    smart:  deepseek           ->  claude haiku 4.5
+
+Note this cannot rescue an ACCOUNT-level failure: if the caller's IAM identity
+lacks bedrock:InvokeModel, every model in the chain fails identically and the
+raised error lists them all — that shape in the logs means credentials, not
+models.
+
 Configuration (env only — no credentials in code, standard chain applies):
-    BEDROCK_MODEL_CHEAP   default qwen.qwen3-32b-v1:0
-    BEDROCK_MODEL_SMART   default deepseek.v3-v1:0
-    AWS_REGION            default ap-south-1  (Mumbai)
-    BEDROCK_MAX_RETRIES   default 3
+    BEDROCK_MODEL_CHEAP       default qwen.qwen3-32b-v1:0
+    BEDROCK_MODEL_SMART       default deepseek.v3-v1:0
+    BEDROCK_FALLBACKS_CHEAP   comma-separated; default deepseek, haiku
+    BEDROCK_FALLBACKS_SMART   comma-separated; default haiku
+    AWS_REGION                default ap-south-1  (Mumbai)
+    BEDROCK_MAX_RETRIES       default 3
+    BEDROCK_FAILOVER_MEMORY_SECONDS  default 300
+
+Anthropic models on Bedrock are INFERENCE_PROFILE-only — they must be invoked
+through a cross-region profile ID (`global.anthropic...`), never the bare
+foundation-model ID, which returns ValidationException.
 
 DeepSeek note: we deliberately do NOT enable reasoning/thinking. Reasoning
 tokens bill as output tokens and are wasted on short classification and email
@@ -46,27 +66,114 @@ DEFAULT_MODEL_CHEAP = "qwen.qwen3-32b-v1:0"
 DEFAULT_MODEL_SMART = "deepseek.v3-v1:0"
 DEFAULT_REGION = "ap-south-1"
 
+# Fallback chains. Each role tries its primary first, then these in order, so a
+# single model being unavailable degrades quality instead of failing the run.
+#
+# Model IDs verified against list_foundation_models in ap-south-1. Note the
+# `global.` prefix on the Claude entry: Anthropic models on Bedrock are
+# INFERENCE_PROFILE-only — the bare `anthropic.claude-haiku-4-5-20251001-v1:0`
+# is not directly invokable, it must be reached through a cross-region
+# inference profile. ap-south-1 has no `apac.` profile for Haiku 4.5, so the
+# `global.` profile is the one that resolves.
+DEFAULT_FALLBACKS_CHEAP = (
+    "deepseek.v3-v1:0",
+    "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+)
+DEFAULT_FALLBACKS_SMART = (
+    "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+)
+
 VALID_ROLES = ("cheap", "smart")
 
-# Throttling / transient error codes worth retrying.
+# Throttling / transient error codes worth retrying on the SAME model.
 _RETRYABLE_CODES = {
     "ThrottlingException", "TooManyRequestsException",
     "ServiceQuotaExceededException", "ModelTimeoutException",
     "InternalServerException", "ServiceUnavailableException",
 }
 
+# Errors meaning "this model is not usable" — fail over to the next model
+# immediately rather than burning the retry budget on a model that will keep
+# rejecting us. ValidationException covers both "model needs an inference
+# profile" and the account-level "Operation not allowed".
+_FAILOVER_CODES = {
+    "ValidationException", "AccessDeniedException",
+    "ResourceNotFoundException", "ModelNotReadyException",
+}
+
+# How long to keep using a fallback after the primary fails, before probing the
+# primary again. Without this, every single call re-tries a dead primary first
+# and pays its latency — meaningful when draining thousands of senders.
+FAILOVER_MEMORY_SECONDS = int(os.getenv("BEDROCK_FAILOVER_MEMORY_SECONDS", "300"))
+
+# role -> (model_id, monotonic_deadline). Set when a model fails over.
+_demoted: Dict[str, float] = {}
+
 
 def get_region() -> str:
     return os.getenv("AWS_REGION") or DEFAULT_REGION
 
 
+def _env_chain(var: str, default: Tuple[str, ...]) -> List[str]:
+    """
+    Read a comma-separated model list from the environment.
+
+    Unset falls back to the built-in default; explicitly set-but-empty means
+    "no fallbacks" and must be honoured. Testing truthiness would conflate the
+    two and silently re-enable the defaults for an operator who deliberately
+    turned fallbacks off.
+    """
+    raw = os.getenv(var)
+    if raw is None:
+        return list(default)
+    return [m.strip() for m in raw.split(",") if m.strip()]
+
+
 def model_for_role(role: str) -> str:
-    """Resolve a role to a concrete model ID. The only place IDs are read."""
+    """
+    Resolve a role to its primary model ID.
+
+    Kept for callers and tests that want the configured primary. The runtime
+    path uses models_for_role(), which returns the whole fallback chain.
+    """
     if role == "cheap":
         return os.getenv("BEDROCK_MODEL_CHEAP") or DEFAULT_MODEL_CHEAP
     if role == "smart":
         return os.getenv("BEDROCK_MODEL_SMART") or DEFAULT_MODEL_SMART
     raise ValueError(f"unknown role {role!r}; expected one of {VALID_ROLES}")
+
+
+def models_for_role(role: str) -> List[str]:
+    """
+    Ordered model chain for a role: primary first, then fallbacks.
+
+    Configure with BEDROCK_MODEL_CHEAP / BEDROCK_MODEL_SMART for the primary
+    and BEDROCK_FALLBACKS_CHEAP / BEDROCK_FALLBACKS_SMART (comma-separated) for
+    the rest. Duplicates are dropped so a fallback that equals the primary
+    doesn't get tried twice.
+    """
+    primary = model_for_role(role)
+    if role == "cheap":
+        fallbacks = _env_chain("BEDROCK_FALLBACKS_CHEAP", DEFAULT_FALLBACKS_CHEAP)
+    else:
+        fallbacks = _env_chain("BEDROCK_FALLBACKS_SMART", DEFAULT_FALLBACKS_SMART)
+
+    chain: List[str] = []
+    for model_id in [primary, *fallbacks]:
+        if model_id and model_id not in chain:
+            chain.append(model_id)
+
+    # A model that recently failed over goes to the back of the chain until its
+    # cooldown expires — we still keep it as a candidate rather than dropping
+    # it, so a fully-broken chain degrades to "try everything" not "try nothing".
+    now = time.monotonic()
+    healthy = [m for m in chain if _demoted.get(m, 0.0) <= now]
+    demoted = [m for m in chain if _demoted.get(m, 0.0) > now]
+    return healthy + demoted
+
+
+def _demote(model_id: str) -> None:
+    _demoted[model_id] = time.monotonic() + FAILOVER_MEMORY_SECONDS
 
 
 def max_retries() -> int:
@@ -81,7 +188,10 @@ def config_summary() -> Dict[str, Any]:
         "region": get_region(),
         "model_cheap": model_for_role("cheap"),
         "model_smart": model_for_role("smart"),
+        "chain_cheap": models_for_role("cheap"),
+        "chain_smart": models_for_role("smart"),
         "max_retries": max_retries(),
+        "failover_memory_seconds": FAILOVER_MEMORY_SECONDS,
     }
 
 
@@ -269,55 +379,75 @@ def converse_meta(role: str, system: str, user: str,
     and drops the meta so existing callers are unchanged.
     Raises BedrockError when all retries are exhausted.
     """
-    model_id = model_for_role(role)
+    chain = models_for_role(role)
     attempts = max_retries()
-    last_error: Optional[Exception] = None
+    failures: List[str] = []
 
-    for attempt in range(1, attempts + 1):
-        try:
-            text, usage, latency = _call_converse(
-                model_id, system, user, max_tokens, temperature)
+    for position, model_id in enumerate(chain):
+        last_error: Optional[Exception] = None
 
-            # Cost audit trail — every call, at INFO.
-            logger.info(
-                "bedrock call role=%s model=%s latency=%.2fs "
-                "input_tokens=%s output_tokens=%s total_tokens=%s attempt=%d",
-                role, model_id, latency,
-                usage.get("inputTokens"), usage.get("outputTokens"),
-                usage.get("totalTokens"), attempt,
-            )
+        for attempt in range(1, attempts + 1):
+            try:
+                text, usage, latency = _call_converse(
+                    model_id, system, user, max_tokens, temperature)
 
-            if not text:
-                raise BedrockError(f"empty response from {model_id}")
+                if not text:
+                    raise BedrockError(f"empty response from {model_id}")
 
-            meta = {
-                "model_id": model_id,
-                "role": role,
-                "input_tokens": usage.get("inputTokens"),
-                "output_tokens": usage.get("outputTokens"),
-                "total_tokens": usage.get("totalTokens"),
-                "latency_s": round(latency, 3),
-            }
-            return text, meta
+                # Cost audit trail — every call, at INFO. `position` makes a
+                # silent quality downgrade visible in the logs: anything above 0
+                # means the primary was unavailable and a fallback answered.
+                logger.info(
+                    "bedrock call role=%s model=%s position=%d latency=%.2fs "
+                    "input_tokens=%s output_tokens=%s total_tokens=%s attempt=%d",
+                    role, model_id, position, latency,
+                    usage.get("inputTokens"), usage.get("outputTokens"),
+                    usage.get("totalTokens"), attempt,
+                )
 
-        except Exception as e:
-            code = _error_code(e)
-            if code in _RETRYABLE_CODES and attempt < attempts:
-                backoff = 2 ** (attempt - 1)
-                logger.warning(
-                    "bedrock %s on %s (attempt %d/%d), retrying in %ds",
-                    code, model_id, attempt, attempts, backoff)
-                time.sleep(backoff)
+                meta = {
+                    "model_id": model_id,
+                    "role": role,
+                    "fallback_position": position,
+                    "is_fallback": position > 0,
+                    "input_tokens": usage.get("inputTokens"),
+                    "output_tokens": usage.get("outputTokens"),
+                    "total_tokens": usage.get("totalTokens"),
+                    "latency_s": round(latency, 3),
+                }
+                return text, meta
+
+            except Exception as e:
+                code = _error_code(e)
+
+                # Transient — same model, backoff, try again.
+                if code in _RETRYABLE_CODES and attempt < attempts:
+                    backoff = 2 ** (attempt - 1)
+                    logger.warning(
+                        "bedrock %s on %s (attempt %d/%d), retrying in %ds",
+                        code, model_id, attempt, attempts, backoff)
+                    time.sleep(backoff)
+                    last_error = e
+                    continue
+
+                # Model unusable — stop retrying it and move down the chain.
                 last_error = e
-                continue
-            if isinstance(e, BedrockError):
-                raise
-            raise BedrockError(
-                f"bedrock converse failed (role={role}, model={model_id}): {e}") from e
+                break
 
+        _demote(model_id)
+        failures.append(f"{model_id}: {_error_code(last_error)}")
+        remaining = len(chain) - position - 1
+        if remaining:
+            logger.warning(
+                "bedrock model %s unavailable (%s) — falling back to %s",
+                model_id, _error_code(last_error), chain[position + 1])
+
+    # Every model in the chain failed. When they all fail the same way this is
+    # almost always credentials or account-level access, not the models — the
+    # joined error list makes that pattern obvious at a glance.
     raise BedrockError(
-        f"bedrock throttled after {attempts} attempts "
-        f"(role={role}, model={model_id}): {last_error}")
+        f"all {len(chain)} models failed for role={role} — [{'; '.join(failures)}]"
+    )
 
 
 def converse(role: str, system: str, user: str,
