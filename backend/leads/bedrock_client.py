@@ -18,27 +18,42 @@ Roles, not model names, are what callers choose:
 Swapping either model to e.g. Nova Lite or Claude Haiku requires changing only
 the environment variable.
 
-Each role has a FALLBACK CHAIN, not a single model. A model that returns a
-"not usable" error (validation, access denied, not found) is skipped and the
-next model in the chain answers, so one model going away degrades quality
-instead of failing the run. Throttles still retry on the same model first.
+Each role fails over ACROSS PROVIDERS: AWS Bedrock primary, DigitalOcean
+serverless inference (GradientAI) as the fallback. A model returning a "not
+usable" error (validation, access denied, not found, bad key) is skipped and
+the next entry answers. Throttles still retry on the same model first.
 
-    cheap:  qwen  ->  deepseek  ->  claude haiku 4.5
-    smart:  deepseek           ->  claude haiku 4.5
+    cheap:  bedrock qwen3-32b  ->  do:alibaba-qwen3-32b
+    smart:  bedrock deepseek-v3 ->  do:deepseek-r1-distill-llama-70b
 
-Note this cannot rescue an ACCOUNT-level failure: if the caller's IAM identity
-lacks bedrock:InvokeModel, every model in the chain fails identically and the
-raised error lists them all — that shape in the logs means credentials, not
-models.
+Chain entries prefixed `do:` are routed to do_inference_client; everything else
+goes to Bedrock. This module still owns every model ID either way.
+
+This replaced a three-deep Bedrock-only chain (qwen -> deepseek -> haiku), which
+protected nothing: all Bedrock models share one account credential, so when the
+Bedrock API key expired on 2026-08-09 the entire chain failed with the same
+error in under a second and lead classification stopped silently for a day.
+Failover only buys anything across a failure boundary — hence a second provider
+rather than a third model.
 
 Configuration (env only — no credentials in code, standard chain applies):
     BEDROCK_MODEL_CHEAP       default qwen.qwen3-32b-v1:0
     BEDROCK_MODEL_SMART       default deepseek.v3-v1:0
-    BEDROCK_FALLBACKS_CHEAP   comma-separated; default deepseek, haiku
-    BEDROCK_FALLBACKS_SMART   comma-separated; default haiku
+    BEDROCK_FALLBACKS_CHEAP   comma-separated; default do:alibaba-qwen3-32b
+    BEDROCK_FALLBACKS_SMART   comma-separated; default do:deepseek-r1-distill-llama-70b
     AWS_REGION                default ap-south-1  (Mumbai)
     BEDROCK_MAX_RETRIES       default 3
     BEDROCK_FAILOVER_MEMORY_SECONDS  default 300
+    DO_INFERENCE_API_KEY      DigitalOcean model access key (fallback; required
+                              for the fallback to be usable at all)
+    DO_INFERENCE_BASE_URL     default https://inference.do-ai.run/v1
+
+Bedrock auth note: Bedrock here authenticates via AWS_BEARER_TOKEN_BEDROCK (a
+Bedrock API key) when present, falling back to the standard SigV4 credential
+chain. Bedrock API keys EXPIRE; the IAM user currently in AWS_ACCESS_KEY_ID
+(ses-api-mailer) has no Bedrock permissions, so when the key lapses there is no
+SigV4 path behind it. That is exactly the failure the DigitalOcean fallback now
+covers.
 
 Anthropic models on Bedrock are INFERENCE_PROFILE-only — they must be invoked
 through a cross-region profile ID (`global.anthropic...`), never the bare
@@ -66,22 +81,30 @@ DEFAULT_MODEL_CHEAP = "qwen.qwen3-32b-v1:0"
 DEFAULT_MODEL_SMART = "deepseek.v3-v1:0"
 DEFAULT_REGION = "ap-south-1"
 
-# Fallback chains. Each role tries its primary first, then these in order, so a
-# single model being unavailable degrades quality instead of failing the run.
+# Fallback chain: AWS Bedrock primary, DigitalOcean serverless inference as the
+# fallback. Entries prefixed `do:` are routed to do_inference_client instead of
+# Bedrock (see _call_converse).
 #
-# Model IDs verified against list_foundation_models in ap-south-1. Note the
-# `global.` prefix on the Claude entry: Anthropic models on Bedrock are
-# INFERENCE_PROFILE-only — the bare `anthropic.claude-haiku-4-5-20251001-v1:0`
-# is not directly invokable, it must be reached through a cross-region
-# inference profile. ap-south-1 has no `apac.` profile for Haiku 4.5, so the
-# `global.` profile is the one that resolves.
-DEFAULT_FALLBACKS_CHEAP = (
-    "deepseek.v3-v1:0",
-    "global.anthropic.claude-haiku-4-5-20251001-v1:0",
-)
-DEFAULT_FALLBACKS_SMART = (
-    "global.anthropic.claude-haiku-4-5-20251001-v1:0",
-)
+# This used to be three Bedrock models deep (qwen -> deepseek -> haiku) and that
+# protected nothing. Every Bedrock model authenticates with the same account
+# credential, so when the Bedrock API key expired on 2026-08-09 all three failed
+# with the identical error inside 0.6s and lead classification stopped dead for a
+# day. Failover is only meaningful across a failure boundary; one model per
+# provider, two providers, is strictly stronger than three models on one account.
+#
+# The DO slugs below are the closest available matches to the Bedrock primaries
+# (qwen3-32b / deepseek). DO's catalogue is account-specific, so confirm them
+# against a real key with `do_inference_client.list_models()` — the health check
+# at BEDROCK/DO startup reports them — and override via
+# BEDROCK_FALLBACKS_CHEAP / BEDROCK_FALLBACKS_SMART if they differ.
+DO_MODEL_CHEAP = "do:alibaba-qwen3-32b"
+DO_MODEL_SMART = "do:deepseek-r1-distill-llama-70b"
+
+DEFAULT_FALLBACKS_CHEAP = (DO_MODEL_CHEAP,)
+DEFAULT_FALLBACKS_SMART = (DO_MODEL_SMART,)
+
+# Marks a chain entry as belonging to the DigitalOcean provider.
+DO_PREFIX = "do:"
 
 VALID_ROLES = ("cheap", "smart")
 
@@ -90,6 +113,8 @@ _RETRYABLE_CODES = {
     "ThrottlingException", "TooManyRequestsException",
     "ServiceQuotaExceededException", "ModelTimeoutException",
     "InternalServerException", "ServiceUnavailableException",
+    # DigitalOcean equivalents (429 / 5xx / timeout) — same treatment.
+    "DOThrottled",
 }
 
 # Errors meaning "this model is not usable" — fail over to the next model
@@ -99,6 +124,10 @@ _RETRYABLE_CODES = {
 _FAILOVER_CODES = {
     "ValidationException", "AccessDeniedException",
     "ResourceNotFoundException", "ModelNotReadyException",
+    # DigitalOcean: bad key, wrong model slug, or an unclassified failure.
+    # Nothing to gain from retrying any of these on the same model.
+    "DOAuthError", "DOModelNotFound", "DOInferenceError",
+    "DOFallbackNotConfigured",
 }
 
 # How long to keep using a fallback after the primary fails, before probing the
@@ -184,12 +213,27 @@ def max_retries() -> int:
 
 
 def config_summary() -> Dict[str, Any]:
+    """Effective routing config. Includes whether the DigitalOcean fallback is
+    actually usable — a chain that lists a fallback with no key configured is
+    the same as having no fallback, and that should be visible here rather than
+    discovered when the primary fails."""
+    try:
+        from .do_inference_client import is_configured as _do_configured
+    except ImportError:  # pragma: no cover - flat import when run from backend/
+        try:
+            from leads.do_inference_client import is_configured as _do_configured
+        except ImportError:
+            _do_configured = lambda: False  # noqa: E731
+
     return {
+        "primary_provider": "bedrock",
+        "fallback_provider": "digitalocean",
         "region": get_region(),
         "model_cheap": model_for_role("cheap"),
         "model_smart": model_for_role("smart"),
         "chain_cheap": models_for_role("cheap"),
         "chain_smart": models_for_role("smart"),
+        "do_fallback_configured": bool(_do_configured()),
         "max_retries": max_retries(),
         "failover_memory_seconds": FAILOVER_MEMORY_SECONDS,
     }
@@ -205,6 +249,10 @@ class BedrockError(RuntimeError):
 
 class ModelAccessError(BedrockError):
     """A configured model is not accessible in the configured region."""
+
+
+class DOFallbackNotConfigured(BedrockError):
+    """The DigitalOcean fallback was reached but has no API key set."""
 
 
 class JSONParseError(ValueError):
@@ -257,12 +305,30 @@ def validate_model_access(roles: Tuple[str, ...] = VALID_ROLES) -> Dict[str, str
     region = get_region()
     wanted = {role: model_for_role(role) for role in roles}
 
+    def _fallback_can_serve() -> bool:
+        try:
+            from .do_inference_client import is_configured
+        except ImportError:  # pragma: no cover - flat import when run from backend/
+            from leads.do_inference_client import is_configured
+        return is_configured()
+
     try:
         response = _get_control_client().list_foundation_models()
     except Exception as e:
+        # Bedrock being unreachable is no longer fatal IF DigitalOcean can take
+        # the traffic — that is the entire point of a cross-provider fallback.
+        # Warn loudly (running entirely on the fallback is a degraded state
+        # someone needs to fix) but let the run proceed.
+        if _fallback_can_serve():
+            logger.warning(
+                "Bedrock unavailable in %s (%s) — continuing on the DigitalOcean "
+                "fallback. Primary is DEGRADED; fix Bedrock access.", region, e)
+            return wanted
         raise ModelAccessError(
             f"Could not list Bedrock foundation models in {region}: {e}. "
-            f"Check AWS credentials and that Bedrock is available in this region."
+            f"Check AWS credentials and that Bedrock is available in this region. "
+            f"The DigitalOcean fallback is also unconfigured (set DO_INFERENCE_API_KEY), "
+            f"so there is no path to a model at all."
         ) from e
 
     available = set()
@@ -277,6 +343,11 @@ def validate_model_access(roles: Tuple[str, ...] = VALID_ROLES) -> Dict[str, str
         role: model for role, model in wanted.items()
         if model not in available and model.split(":")[0] not in available
     }
+    if missing and _fallback_can_serve():
+        logger.warning(
+            "Bedrock model(s) not accessible in %s: %s — continuing on the "
+            "DigitalOcean fallback. Primary is DEGRADED.", region, missing)
+        return wanted
     if missing:
         raise ModelAccessError(
             "Model(s) not accessible in region "
@@ -340,9 +411,43 @@ JSON_REMINDER = (
 # CONVERSE
 # ============================================================
 
+def is_do_model(model_id: str) -> bool:
+    return str(model_id or "").startswith(DO_PREFIX)
+
+
+def provider_of(model_id: str) -> str:
+    return "digitalocean" if is_do_model(model_id) else "bedrock"
+
+
+def _call_do(model_id: str, system: str, user: str,
+             max_tokens: int, temperature: float) -> Tuple[str, Dict[str, int], float]:
+    """Route a `do:`-prefixed chain entry to DigitalOcean."""
+    try:
+        from .do_inference_client import chat, is_configured
+    except ImportError:  # pragma: no cover - flat import when run from backend/
+        from leads.do_inference_client import chat, is_configured
+
+    if not is_configured():
+        # Distinct from an auth failure: nothing is misconfigured upstream,
+        # the fallback simply has no key yet. Its own type so the code shows up
+        # verbatim in the "all N models failed" summary.
+        raise DOFallbackNotConfigured(
+            "DO_INFERENCE_API_KEY not set — DigitalOcean fallback unavailable")
+
+    return chat(model_id[len(DO_PREFIX):], system, user, max_tokens, temperature)
+
+
 def _call_converse(model_id: str, system: str, user: str,
                    max_tokens: int, temperature: float) -> Tuple[str, Dict[str, int], float]:
-    """One raw Converse call. Returns (text, usage, latency_seconds)."""
+    """One raw model call, routed to whichever provider owns `model_id`.
+
+    Returns (text, usage, latency_seconds) in Bedrock's shape regardless of
+    provider, so the retry loop and cost-audit logging above stay
+    provider-agnostic.
+    """
+    if is_do_model(model_id):
+        return _call_do(model_id, system, user, max_tokens, temperature)
+
     client = _get_runtime_client()
 
     kwargs: Dict[str, Any] = {
@@ -398,15 +503,16 @@ def converse_meta(role: str, system: str, user: str,
                 # silent quality downgrade visible in the logs: anything above 0
                 # means the primary was unavailable and a fallback answered.
                 logger.info(
-                    "bedrock call role=%s model=%s position=%d latency=%.2fs "
+                    "llm call provider=%s role=%s model=%s position=%d latency=%.2fs "
                     "input_tokens=%s output_tokens=%s total_tokens=%s attempt=%d",
-                    role, model_id, position, latency,
+                    provider_of(model_id), role, model_id, position, latency,
                     usage.get("inputTokens"), usage.get("outputTokens"),
                     usage.get("totalTokens"), attempt,
                 )
 
                 meta = {
                     "model_id": model_id,
+                    "provider": provider_of(model_id),
                     "role": role,
                     "fallback_position": position,
                     "is_fallback": position > 0,
