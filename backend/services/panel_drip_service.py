@@ -38,8 +38,8 @@ try:
         log_invitation, panelists_collection, suppression_collection,
     )
     from services.panel_email_service import (
-        _get_ses_client, _send_batch_concurrently, ses_budget_for_bulk,
-        PANEL_LOGO_URL, SES_FROM_EMAIL, SES_FROM_NAME,
+        _apply_unsubscribe, _get_ses_client, _send_batch_concurrently,
+        ses_budget_for_bulk, PANEL_LOGO_URL, SES_FROM_EMAIL, SES_FROM_NAME,
     )
     from services.panel_funnel import SEGMENTS
 except ImportError:  # pragma: no cover - flat import when run from backend/
@@ -47,8 +47,8 @@ except ImportError:  # pragma: no cover - flat import when run from backend/
         log_invitation, panelists_collection, suppression_collection,
     )
     from backend.services.panel_email_service import (
-        _get_ses_client, _send_batch_concurrently, ses_budget_for_bulk,
-        PANEL_LOGO_URL, SES_FROM_EMAIL, SES_FROM_NAME,
+        _apply_unsubscribe, _get_ses_client, _send_batch_concurrently,
+        ses_budget_for_bulk, PANEL_LOGO_URL, SES_FROM_EMAIL, SES_FROM_NAME,
     )
     from backend.services.panel_funnel import SEGMENTS
 
@@ -118,11 +118,10 @@ STAGES: Dict[str, Dict[str, Any]] = {
 
 # ============== TEMPLATE ==============
 
-def _render(stage: Dict[str, Any], first_name: str) -> Tuple[str, str]:
+def _render(stage: Dict[str, Any], first_name: str, unsubscribe: str) -> Tuple[str, str]:
     """(html, plain) for one drip stage."""
     greeting = f"Hi {first_name}," if first_name else "Hello,"
     link = f"{PANEL_PUBLIC_BASE_URL}{stage['cta_path']}"
-    unsubscribe = f"{PANEL_PUBLIC_BASE_URL}/panel/unsubscribe"
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -190,7 +189,6 @@ Unsubscribe: {unsubscribe}
 
 def _send_one_drip(stage_key: str, to_email: str, first_name: str) -> Tuple[bool, Dict[str, Any]]:
     stage = STAGES[stage_key]
-    html, plain = _render(stage, first_name)
 
     try:
         msg = MIMEMultipart("alternative")
@@ -198,7 +196,10 @@ def _send_one_drip(stage_key: str, to_email: str, first_name: str) -> Tuple[bool
         msg["From"] = f"{SES_FROM_NAME} <{SES_FROM_EMAIL}>"
         msg["Subject"] = stage["subject"]
         msg["Message-ID"] = f"<panel-drip-{stage_key}-{uuid.uuid4()}@surveyfieldwork.com>"
-        msg["List-Unsubscribe"] = f"<{PANEL_PUBLIC_BASE_URL}/panel/unsubscribe>"
+        # Per-recipient signed opt-out, so the header control and the footer
+        # link resolve to the same address without a lookup.
+        unsub_link = _apply_unsubscribe(msg, to_email)
+        html, plain = _render(stage, first_name, unsub_link)
 
         msg.attach(MIMEText(plain, "plain", "utf-8"))
         msg.attach(MIMEText(html, "html", "utf-8"))

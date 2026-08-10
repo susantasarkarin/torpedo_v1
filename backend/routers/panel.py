@@ -475,44 +475,91 @@ async def logout(request: Request):
     return {"message": "Logged out successfully"}
 
 
+async def _resolve_unsubscribe_email(request: Request) -> Optional[str]:
+    """Find the address to opt out, from a signed token, body, query or session."""
+    try:
+        from ..services.panel_unsubscribe import read_token
+    except ImportError:
+        from services.panel_unsubscribe import read_token
+
+    token = request.query_params.get("token")
+    email = request.query_params.get("email")
+
+    if not (token or email):
+        try:
+            payload = await request.json()
+            token = payload.get("token")
+            email = payload.get("email")
+        except Exception:
+            pass
+
+    if token:
+        resolved = read_token(token)
+        if resolved:
+            return resolved
+
+    if email:
+        return email.strip().lower()
+
+    session_id = (
+        request.headers.get("X-Panel-Session-Id")
+        or request.headers.get("Authorization", "").replace("Bearer ", "")
+    )
+    if session_id:
+        panelist = get_panelist_from_session(session_id)
+        if panelist:
+            return (panelist.get("email") or "").lower()
+
+    return None
+
+
 @router.post("/unsubscribe")
 async def unsubscribe(request: Request):
-    """Mark the current panelist as DND/unsubscribed."""
-    email = None
-    payload = {}
+    """Record an opt-out.
+
+    Previously this only flipped the panelist's status to "dnd" and never
+    touched `panel_email_suppression`, which is the list the bulk senders
+    actually consult — and no email ever linked here anyway, so in practice it
+    had never run. It now writes the suppression entry too.
+    """
+    try:
+        from ..services.panel_unsubscribe import unsubscribe_email
+    except ImportError:
+        from services.panel_unsubscribe import unsubscribe_email
+
+    email = await _resolve_unsubscribe_email(request)
+    if email:
+        unsubscribe_email(email, source="unsubscribe_page")
+
+    # Deliberately identical whether or not the address was found — this
+    # endpoint is public and must not confirm who is on the list.
+    return {"message": "Your unsubscribe request has been recorded."}
+
+
+@router.post("/unsubscribe/one-click")
+async def unsubscribe_one_click(request: Request):
+    """RFC 8058 one-click target named by the List-Unsubscribe-Post header.
+
+    Gmail and Yahoo POST here directly when the user hits their native
+    unsubscribe button; there is no browser session and no confirmation step,
+    so this must opt the address out on the first request and always answer
+    200 — a non-200 makes the mailbox provider treat the unsubscribe as broken.
+    """
+    try:
+        from ..services.panel_unsubscribe import unsubscribe_email
+    except ImportError:
+        from services.panel_unsubscribe import unsubscribe_email
 
     try:
-        payload = await request.json()
-        email = payload.get("email")
-    except Exception:
-        pass
+        email = await _resolve_unsubscribe_email(request)
+        if email:
+            unsubscribe_email(email, source="one_click")
+        else:
+            logger.warning("[panel-unsub] one-click request carried no resolvable address")
+    except Exception as e:
+        logger.error(f"[panel-unsub] one-click failed: {e}")
 
-    if not email:
-        email = request.query_params.get("email")
-
-    panelist = None
-    if email:
-        panelist = panelists_collection.find_one({"email": email.lower()})
-
-    if not panelist:
-        session_id = request.headers.get("X-Panel-Session-Id") or request.headers.get("Authorization", "").replace("Bearer ", "")
-        if session_id:
-            panelist = get_panelist_from_session(session_id)
-
-    if panelist:
-        panelists_collection.update_one(
-            {"_id": panelist["_id"]},
-            {
-                "$set": {
-                    "status": "dnd",
-                    "unsubscribed": True,
-                    "dnd": True,
-                    "updated_at": datetime.utcnow()
-                }
-            }
-        )
-
-    return {"message": "Your unsubscribe request has been recorded."}
+    return {"status": "unsubscribed"}
 
 
 @router.post("/forgot-password")

@@ -369,10 +369,11 @@ def _build_join_link(invite_token: str) -> str:
   return f"{PANEL_INVITE_JOIN_URL}?token={token}"
 
 
-def _build_invitation_html(first_name: str = "", join_link: str = "") -> str:
+def _build_invitation_html(first_name: str = "", join_link: str = "", unsub_link: str = "") -> str:
     """Build a beautiful, responsive HTML invitation email."""
     greeting = f"Hi {first_name}," if first_name else "Hello,"
     cta_link = join_link or PANEL_SIGNUP_URL
+    unsubscribe = unsub_link or f"{PANEL_SIGNUP_URL.rsplit('/', 1)[0]}/unsubscribe"
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -516,7 +517,7 @@ def _build_invitation_html(first_name: str = "", join_link: str = "") -> str:
                     </p>
                     <p style="margin:0;color:#9ca3af;font-size:11px;line-height:1.5;">
                       You're receiving this because you signed up as a panelist.<br>
-                      <a href="https://panel.surveyfieldwork.com/unsubscribe" style="color:#0284c7;text-decoration:underline;">Unsubscribe</a>
+                      <a href="{unsubscribe}" style="color:#0284c7;text-decoration:underline;">Unsubscribe</a>
                       &nbsp;|&nbsp;
                       <a href="https://panel.surveyfieldwork.com/privacy" style="color:#0284c7;text-decoration:underline;">Privacy Policy</a>
                     </p>
@@ -534,10 +535,11 @@ def _build_invitation_html(first_name: str = "", join_link: str = "") -> str:
 </html>"""
 
 
-def _build_invitation_plain(first_name: str = "", join_link: str = "") -> str:
+def _build_invitation_plain(first_name: str = "", join_link: str = "", unsub_link: str = "") -> str:
     """Build plain-text version of the invitation."""
     greeting = f"Hi {first_name}," if first_name else "Hello,"
     cta_link = join_link or PANEL_SIGNUP_URL
+    unsubscribe = unsub_link or f"{PANEL_SIGNUP_URL.rsplit('/', 1)[0]}/unsubscribe"
     return f"""{greeting}
 
 You're invited to join the SurveyFieldwork Panel.
@@ -556,17 +558,18 @@ Note: this link is unique to your invitation.
 
 ---
 SurveyFieldwork
-Unsubscribe: https://panel.surveyfieldwork.com/unsubscribe
+Unsubscribe: {unsubscribe}
 Privacy: https://panel.surveyfieldwork.com/privacy
 """
 
 
 # ============== LOGIN INVITATION EMAIL TEMPLATES ==============
 
-def _build_login_invitation_html(first_name: str = "", login_url: str = "") -> str:
+def _build_login_invitation_html(first_name: str = "", login_url: str = "", unsub_link: str = "") -> str:
     """Build a responsive HTML email inviting registered users to log in and take surveys."""
     greeting = f"Hi {first_name}," if first_name else "Hello,"
     cta_link = login_url or "https://panel.surveyfieldwork.com/login"
+    unsubscribe = unsub_link or "https://panel.surveyfieldwork.com/unsubscribe"
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -703,7 +706,7 @@ def _build_login_invitation_html(first_name: str = "", login_url: str = "") -> s
                     </p>
                     <p style="margin:0;color:#9ca3af;font-size:11px;line-height:1.5;">
                       This is a courtesy reminder — you're receiving this because you're an active panel member.<br>
-                      <a href="https://panel.surveyfieldwork.com/unsubscribe" style="color:#0284c7;text-decoration:underline;">Unsubscribe</a>
+                      <a href="{unsubscribe}" style="color:#0284c7;text-decoration:underline;">Unsubscribe</a>
                       &nbsp;|&nbsp;
                       <a href="https://panel.surveyfieldwork.com/privacy" style="color:#0284c7;text-decoration:underline;">Privacy Policy</a>
                     </p>
@@ -721,10 +724,11 @@ def _build_login_invitation_html(first_name: str = "", login_url: str = "") -> s
 </html>"""
 
 
-def _build_login_invitation_plain(first_name: str = "", login_url: str = "") -> str:
+def _build_login_invitation_plain(first_name: str = "", login_url: str = "", unsub_link: str = "") -> str:
     """Build plain-text version of login invitation."""
     greeting = f"Hi {first_name}," if first_name else "Hello,"
     cta_link = login_url or "https://panel.surveyfieldwork.com/login"
+    unsubscribe = unsub_link or "https://panel.surveyfieldwork.com/unsubscribe"
     return f"""{greeting}
 
 You're all set! Your panel account is active and ready to go.
@@ -741,12 +745,34 @@ Log in now: {cta_link}
 
 ---
 SurveyFieldwork
-Unsubscribe: https://panel.surveyfieldwork.com/unsubscribe
+Unsubscribe: {unsubscribe}
 Privacy: https://panel.surveyfieldwork.com/privacy
 """
 
 
 # ============== SEND FUNCTIONS ==============
+
+def _apply_unsubscribe(msg, to_email: str) -> str:
+    """Attach one-click unsubscribe headers and return the footer opt-out link.
+
+    Gmail and Yahoo have required List-Unsubscribe / List-Unsubscribe-Post of
+    bulk senders since Feb 2024. This mail carried neither, which at ~161K
+    messages a day is on its own enough to get the whole programme filtered.
+    Returns the per-recipient link so the footer matches the header.
+    """
+    try:
+        try:
+            from services.panel_unsubscribe import list_unsubscribe_headers, unsubscribe_url
+        except ImportError:
+            from backend.services.panel_unsubscribe import list_unsubscribe_headers, unsubscribe_url
+
+        for header, value in list_unsubscribe_headers(to_email).items():
+            msg[header] = value
+        return unsubscribe_url(to_email)
+    except Exception as e:
+        # Never let opt-out plumbing block a send; fall back to the generic page.
+        logger.warning(f"[panel] could not build unsubscribe link for {to_email}: {e}")
+        return "https://panel.surveyfieldwork.com/unsubscribe"
 
 def send_invitation_email(
     to_email: str,
@@ -765,11 +791,12 @@ def send_invitation_email(
         msg["From"] = f"{SES_FROM_NAME} <{SES_FROM_EMAIL}>"
         msg["Subject"] = "Complete your panel signup and start earning rewards"
         msg["Message-ID"] = f"<panel-{uuid.uuid4()}@surveyfieldwork.com>"
+        unsub_link = _apply_unsubscribe(msg, to_email)
 
         join_link = _build_join_link(invite_token) if invite_token else PANEL_SIGNUP_URL
 
-        msg.attach(MIMEText(_build_invitation_plain(first_name, join_link), "plain", "utf-8"))
-        msg.attach(MIMEText(_build_invitation_html(first_name, join_link), "html", "utf-8"))
+        msg.attach(MIMEText(_build_invitation_plain(first_name, join_link, unsub_link), "plain", "utf-8"))
+        msg.attach(MIMEText(_build_invitation_html(first_name, join_link, unsub_link), "html", "utf-8"))
 
         response = client.send_raw_email(
             Source=f"{SES_FROM_NAME} <{SES_FROM_EMAIL}>",
@@ -960,11 +987,12 @@ def send_login_invitation_email(
         msg["From"] = f"{SES_FROM_NAME} <{SES_FROM_EMAIL}>"
         msg["Subject"] = "Ready to earn? New surveys waiting for you"
         msg["Message-ID"] = f"<panel-login-{uuid.uuid4()}@surveyfieldwork.com>"
+        unsub_link = _apply_unsubscribe(msg, to_email)
 
         login_url = "https://panel.surveyfieldwork.com/login"
 
-        msg.attach(MIMEText(_build_login_invitation_plain(first_name, login_url), "plain", "utf-8"))
-        msg.attach(MIMEText(_build_login_invitation_html(first_name, login_url), "html", "utf-8"))
+        msg.attach(MIMEText(_build_login_invitation_plain(first_name, login_url, unsub_link), "plain", "utf-8"))
+        msg.attach(MIMEText(_build_login_invitation_html(first_name, login_url, unsub_link), "html", "utf-8"))
 
         response = client.send_raw_email(
             Source=f"{SES_FROM_NAME} <{SES_FROM_EMAIL}>",
@@ -1003,8 +1031,15 @@ def send_bulk_login_invitations(
     """
     batch_id = f"login-batch-{uuid.uuid4().hex[:12]}"
 
-    # Build query for registered users
-    query = {"double_opt_in_completed": True}
+    # Build query for registered users.
+    # The status exclusion is not optional: unlike send_bulk_invitations (which
+    # filters on status "active") this sender had no status condition at all,
+    # so an address that had unsubscribed or hard-bounced stayed in scope
+    # forever as long as it was double-opted-in.
+    query = {
+        "double_opt_in_completed": True,
+        "status": {"$nin": ["dnd", "unsubscribed", "bounced", "complained"]},
+    }
     if country:
         query["country"] = {"$regex": f"^{country}$", "$options": "i"}
 
@@ -1026,6 +1061,15 @@ def send_bulk_login_invitations(
 
     def _filter_chunk(pairs):
         emails = [e for e, _ in pairs]
+
+        # This sender never consulted the suppression list. Bounced,
+        # complained and unsubscribed addresses were mailed a login reminder
+        # every single day for as long as they stayed double-opted-in.
+        suppressed_set = {
+            doc["email"].lower().strip()
+            for doc in suppression_collection.find({"email": {"$in": emails}}, {"email": 1})
+        }
+
         already_sent_today = {
             doc["email"].lower().strip()
             for doc in invitation_log_collection.find(
@@ -1034,7 +1078,10 @@ def send_bulk_login_invitations(
                 {"email": 1}
             )
         }
-        return [p for e, p in pairs if e not in already_sent_today]
+        return [
+            p for e, p in pairs
+            if e not in already_sent_today and e not in suppressed_set
+        ]
 
     # Oldest-invited-or-never-invited first — same rotation fix as
     # send_bulk_invitations, tracked in its own field so the two invite types
