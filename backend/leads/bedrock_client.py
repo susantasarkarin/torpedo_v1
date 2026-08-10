@@ -12,7 +12,7 @@ Roles, not model names, are what callers choose:
     role="cheap"  -> BEDROCK_MODEL_CHEAP   (default qwen.qwen3-32b-v1:0)
                      query generation, search-result extraction, enrichment,
                      first-pass bucket classification
-    role="smart"  -> BEDROCK_MODEL_SMART   (default deepseek.v3-v1:0)
+    role="smart"  -> BEDROCK_MODEL_SMART   (default qwen.qwen3-32b-v1:0)
                      email writing, second-opinion classification
 
 Swapping either model to e.g. Nova Lite or Claude Haiku requires changing only
@@ -24,7 +24,7 @@ usable" error (validation, access denied, not found, bad key) is skipped and
 the next entry answers. Throttles still retry on the same model first.
 
     cheap:  bedrock qwen3-32b  ->  do:alibaba-qwen3-32b
-    smart:  bedrock deepseek-v3 ->  do:deepseek-r1-distill-llama-70b
+    smart:  bedrock qwen3-32b  ->  do:alibaba-qwen3-32b
 
 Chain entries prefixed `do:` are routed to do_inference_client; everything else
 goes to Bedrock. This module still owns every model ID either way.
@@ -38,9 +38,9 @@ rather than a third model.
 
 Configuration (env only — no credentials in code, standard chain applies):
     BEDROCK_MODEL_CHEAP       default qwen.qwen3-32b-v1:0
-    BEDROCK_MODEL_SMART       default deepseek.v3-v1:0
+    BEDROCK_MODEL_SMART       default qwen.qwen3-32b-v1:0
     BEDROCK_FALLBACKS_CHEAP   comma-separated; default do:alibaba-qwen3-32b
-    BEDROCK_FALLBACKS_SMART   comma-separated; default do:deepseek-r1-distill-llama-70b
+    BEDROCK_FALLBACKS_SMART   comma-separated; default do:alibaba-qwen3-32b
     AWS_REGION                default ap-south-1  (Mumbai)
     BEDROCK_MAX_RETRIES       default 3
     BEDROCK_FAILOVER_MEMORY_SECONDS  default 300
@@ -55,13 +55,16 @@ chain. Bedrock API keys EXPIRE; the IAM user currently in AWS_ACCESS_KEY_ID
 SigV4 path behind it. That is exactly the failure the DigitalOcean fallback now
 covers.
 
-Anthropic models on Bedrock are INFERENCE_PROFILE-only — they must be invoked
-through a cross-region profile ID (`global.anthropic...`), never the bare
-foundation-model ID, which returns ValidationException.
+Single-model policy: Qwen serves BOTH roles on BOTH providers. The cheap/smart
+split is kept as an interface so callers never name a model and the two can be
+pointed at different models later via env, but today they resolve to the same
+one. Note this weakens the confidence-based escalation in bucket_classifier —
+escalating "cheap" to "smart" now re-asks the same model rather than a stronger
+one (see that module's note).
 
-DeepSeek note: we deliberately do NOT enable reasoning/thinking. Reasoning
-tokens bill as output tokens and are wasted on short classification and email
-tasks, so no `additionalModelRequestFields` reasoning config is sent.
+Thinking mode is deliberately NOT enabled. Qwen3 supports a reasoning mode whose
+tokens bill as output and are wasted on short classification and email tasks, so
+no `additionalModelRequestFields` reasoning config is ever sent.
 """
 
 import json
@@ -78,7 +81,7 @@ logger = logging.getLogger("bedrock_client")
 # ============================================================
 
 DEFAULT_MODEL_CHEAP = "qwen.qwen3-32b-v1:0"
-DEFAULT_MODEL_SMART = "deepseek.v3-v1:0"
+DEFAULT_MODEL_SMART = "qwen.qwen3-32b-v1:0"
 DEFAULT_REGION = "ap-south-1"
 
 # Fallback chain: AWS Bedrock primary, DigitalOcean serverless inference as the
@@ -92,13 +95,13 @@ DEFAULT_REGION = "ap-south-1"
 # day. Failover is only meaningful across a failure boundary; one model per
 # provider, two providers, is strictly stronger than three models on one account.
 #
-# The DO slugs below are the closest available matches to the Bedrock primaries
-# (qwen3-32b / deepseek). DO's catalogue is account-specific, so confirm them
-# against a real key with `do_inference_client.list_models()` — the health check
-# at BEDROCK/DO startup reports them — and override via
-# BEDROCK_FALLBACKS_CHEAP / BEDROCK_FALLBACKS_SMART if they differ.
+# Qwen only, by policy — both roles, both providers. The DO slug below is the
+# closest Qwen match to the Bedrock primary. DO's catalogue is account-specific,
+# so confirm it against a real key with `do_inference_client.list_models()` (see
+# health()) and override via BEDROCK_FALLBACKS_CHEAP / BEDROCK_FALLBACKS_SMART
+# if the slug differs.
 DO_MODEL_CHEAP = "do:alibaba-qwen3-32b"
-DO_MODEL_SMART = "do:deepseek-r1-distill-llama-70b"
+DO_MODEL_SMART = "do:alibaba-qwen3-32b"
 
 DEFAULT_FALLBACKS_CHEAP = (DO_MODEL_CHEAP,)
 DEFAULT_FALLBACKS_SMART = (DO_MODEL_SMART,)
@@ -666,8 +669,8 @@ def batch_config() -> Dict[str, str]:
 def _native_body(role: str, system: str, user: str,
                  max_tokens: int, temperature: float) -> Dict[str, Any]:
     """
-    Native request body for a batch record. Qwen and DeepSeek on Bedrock both
-    take an OpenAI-chat-style schema. UNVERIFIED against the live service —
+    Native request body for a batch record. Qwen on Bedrock takes an
+    OpenAI-chat-style schema. UNVERIFIED against the live service —
     submit a 2-record job first (see RUNBOOK) before trusting a big run.
     """
     messages = []

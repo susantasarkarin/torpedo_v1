@@ -231,7 +231,22 @@ def test_high_confidence_assigns_bucket_without_escalating():
         mock.call_args.args[0] == "cheap"
 
 
-def test_low_confidence_escalates_to_smart_model():
+
+@pytest.fixture
+def distinct_role_models(monkeypatch):
+    """Point the two classifier roles at different models.
+
+    Escalation only runs when the smart role is a genuinely different model —
+    under the Qwen-only default both roles are the same and the second pass is
+    skipped (it would re-ask one model the same prompt at temperature 0). The
+    tests below are about the escalation path itself, so they opt in here.
+    """
+    monkeypatch.setenv("BEDROCK_MODEL_CHEAP", "qwen.qwen3-32b-v1:0")
+    monkeypatch.setenv("BEDROCK_MODEL_SMART", "qwen.qwen3-235b-v1:0")
+    return None
+
+
+def test_low_confidence_escalates_to_smart_model(distinct_role_models):
     """Below threshold on cheap -> one retry on smart, which resolves it."""
     cheap = '{"bucket": "BIM", "confidence": 0.55, "reason": "thin"}'
     smart = '{"bucket": "BIM", "confidence": 0.88, "reason": "confirmed"}'
@@ -243,7 +258,7 @@ def test_low_confidence_escalates_to_smart_model():
     assert result["confidence"] == 0.88
 
 
-def test_escalation_can_change_the_bucket():
+def test_escalation_can_change_the_bucket(distinct_role_models):
     cheap = '{"bucket": "BIM", "confidence": 0.4, "reason": "unsure"}'
     smart = '{"bucket": "SFW", "confidence": 0.91, "reason": "research buyer"}'
     with patch.object(bedrock_client, "converse", side_effect=[cheap, smart]):
@@ -251,7 +266,7 @@ def test_escalation_can_change_the_bucket():
     assert result["bucket"] == "SFW"
 
 
-def test_escalation_can_reject():
+def test_escalation_can_reject(distinct_role_models):
     cheap = '{"bucket": "BIM", "confidence": 0.3, "reason": "unsure"}'
     smart = '{"bucket": "REJECT", "confidence": 0.95, "reason": "vendor sales"}'
     with patch.object(bedrock_client, "converse", side_effect=[cheap, smart]):
@@ -268,7 +283,7 @@ def test_reject_on_cheap_pass_does_not_escalate():
     assert mock.call_count == 1
 
 
-def test_escalation_failure_routes_to_review():
+def test_escalation_failure_routes_to_review(distinct_role_models):
     cheap = '{"bucket": "BIM", "confidence": 0.5, "reason": "thin"}'
     with patch.object(bedrock_client, "converse",
                       side_effect=[cheap, RuntimeError("throttled out")]):
@@ -277,7 +292,7 @@ def test_escalation_failure_routes_to_review():
     assert result["method"] == "escalation_error"
 
 
-def test_low_confidence_on_both_passes_routes_to_review():
+def test_low_confidence_on_both_passes_routes_to_review(distinct_role_models):
     """Still below threshold after escalation -> review folder, not a bucket."""
     payload = '{"bucket": "BIM", "confidence": 0.55, "reason": "thin"}'
     with patch.object(bedrock_client, "converse", return_value=payload) as mock:
@@ -367,3 +382,20 @@ def test_every_bucket_has_a_definition():
         assert "TODO" not in cfg["description"]
         assert "TODO" not in cfg["ideal_buyer"]
 
+
+
+def test_escalation_skipped_when_both_roles_are_the_same_model(monkeypatch):
+    """Qwen-only policy: there is no stronger model to escalate to, so a
+    borderline lead goes straight to review on ONE call instead of paying for a
+    second identical one."""
+    monkeypatch.setenv("BEDROCK_MODEL_CHEAP", "qwen.qwen3-32b-v1:0")
+    monkeypatch.setenv("BEDROCK_MODEL_SMART", "qwen.qwen3-32b-v1:0")
+
+    payload = '{"bucket": "BIM", "confidence": 0.4, "reason": "thin"}'
+    with patch.object(bedrock_client, "converse", return_value=payload) as mock:
+        result = classify_lead(QUALIFIED, threshold=0.7)
+
+    assert mock.call_count == 1
+    assert result["bucket"] == REVIEW_BUCKET
+    assert result["method"] == "low_confidence_no_escalation"
+    assert result["proposed_bucket"] == "BIM"

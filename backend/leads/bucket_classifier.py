@@ -319,6 +319,20 @@ def classify_lead(lead: Dict[str, Any],
                 "reason": reason, "method": "cheap"}
 
     # --- Step 3: escalate borderline leads to the smart model ----------
+    # Unless both roles resolve to the same model, which they do under the
+    # Qwen-only policy. Re-asking one model the same prompt at temperature 0
+    # returns the same answer, so the escalation would burn a second call and
+    # land on exactly this REVIEW outcome anyway. Skip straight to it.
+    if _roles_share_a_model():
+        logger.info(
+            "lead=%s bucket=REVIEW (proposed=%s confidence=%.2f threshold=%.2f) "
+            "— escalation skipped, cheap and smart resolve to the same model",
+            lead_id, bucket, confidence, threshold)
+        return {"bucket": REVIEW_BUCKET, "confidence": confidence,
+                "reason": f"low confidence, no stronger model to escalate to: {reason}",
+                "method": "low_confidence_no_escalation",
+                "proposed_bucket": bucket}
+
     logger.info("lead=%s cheap pass inconclusive (bucket=%s confidence=%.2f) "
                 "— escalating to smart model", lead_id, bucket, confidence)
 
@@ -350,6 +364,22 @@ def classify_lead(lead: Dict[str, Any],
             "reason": f"low confidence after escalation: {smart_reason}",
             "method": "low_confidence_after_escalation",
             "proposed_bucket": smart_bucket}
+
+
+def _roles_share_a_model() -> bool:
+    """True when the escalation role resolves to the same model as the first
+    pass, making escalation a no-op. Resolved at call time, not import time, so
+    pointing the roles at different models via env re-enables escalation without
+    a code change."""
+    try:
+        from .bedrock_client import model_for_role
+    except ImportError:
+        from leads.bedrock_client import model_for_role
+    try:
+        return model_for_role(CLASSIFIER_ROLE_FIRST_PASS) == model_for_role(
+            CLASSIFIER_ROLE_ESCALATION)
+    except Exception:
+        return False
 
 
 def _classify_with(role: str, prompt: str, lead_id: str

@@ -53,6 +53,14 @@ def test_default_chain_is_one_model_per_provider():
     assert bc.provider_of(smart[1]) == "digitalocean"
 
 
+def test_every_default_chain_entry_is_qwen():
+    """Qwen-only policy holds across the provider boundary too."""
+    for role in ("cheap", "smart"):
+        for model_id in bc.models_for_role(role):
+            assert "qwen" in model_id.lower(), (
+                f"non-Qwen model {model_id!r} in the {role} chain")
+
+
 def test_do_entries_are_recognised_by_prefix():
     assert bc.is_do_model("do:alibaba-qwen3-32b")
     assert not bc.is_do_model("qwen.qwen3-32b-v1:0")

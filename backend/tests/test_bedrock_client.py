@@ -128,11 +128,26 @@ def test_error_message_includes_a_snippet():
 # ROLE -> MODEL RESOLUTION
 # ============================================
 
-def test_defaults_are_qwen_and_deepseek(monkeypatch):
+def test_both_roles_default_to_qwen(monkeypatch):
+    """Qwen-only policy: no model other than Qwen may be reachable by default,
+    on either role."""
     monkeypatch.delenv("BEDROCK_MODEL_CHEAP", raising=False)
     monkeypatch.delenv("BEDROCK_MODEL_SMART", raising=False)
     assert model_for_role("cheap") == DEFAULT_MODEL_CHEAP == "qwen.qwen3-32b-v1:0"
-    assert model_for_role("smart") == DEFAULT_MODEL_SMART == "deepseek.v3-v1:0"
+    assert model_for_role("smart") == DEFAULT_MODEL_SMART == "qwen.qwen3-32b-v1:0"
+
+
+def test_no_non_qwen_model_appears_in_any_default_chain(monkeypatch):
+    """Guards the policy against a stray fallback creeping back in."""
+    for var in ("BEDROCK_MODEL_CHEAP", "BEDROCK_MODEL_SMART",
+                "BEDROCK_FALLBACKS_CHEAP", "BEDROCK_FALLBACKS_SMART"):
+        monkeypatch.delenv(var, raising=False)
+    bc._demoted.clear()
+
+    for role in ("cheap", "smart"):
+        for model_id in bc.models_for_role(role):
+            assert "qwen" in model_id.lower(), (
+                f"non-Qwen model {model_id!r} in the default {role} chain")
 
 
 def test_default_region_is_mumbai(monkeypatch):
@@ -183,7 +198,7 @@ def test_system_omitted_when_empty():
 
 
 def test_no_reasoning_config_sent():
-    """DeepSeek must run in non-thinking mode — reasoning bills as output."""
+    """Qwen must run in non-thinking mode — reasoning bills as output."""
     client = MagicMock()
     client.converse.return_value = _response("hi")
     with patch.object(bc, "_get_runtime_client", return_value=client):
