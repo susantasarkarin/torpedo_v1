@@ -43,7 +43,10 @@ try:
     panelists_collection.create_index([("last_invited_at", 1)], sparse=True)
     panelists_collection.create_index([("last_login_invite_sent_at", 1)], sparse=True)
     # Funnel/segment queries and the admin list's default ordering.
-    panelists_collection.create_index([("double_opt_in_completed", 1)], sparse=True)
+    # Not sparse: a non-sparse index of this name already exists in production,
+    # and Mongo rejects a same-name index with different options (IndexKeySpecsConflict),
+    # which logged a wall of error text on every worker start.
+    panelists_collection.create_index([("double_opt_in_completed", 1)])
     panelists_collection.create_index([("created_at", -1)])
 except Exception as e:
     logger.warning(f"Index creation warning (panel bounce): {e}")
