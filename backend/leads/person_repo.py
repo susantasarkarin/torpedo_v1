@@ -158,6 +158,15 @@ def resolve_person(db, lead: Dict[str, Any]) -> Tuple[Optional[str], bool]:
     }
     set_on_insert = {k: v for k, v in set_on_insert.items() if v is not None}
 
+    # known_emails: DEAD FOR SENDING, LIVE FOR SUPPRESSION.
+    #
+    # Every address this human has ever been known by, including ones that are
+    # now stale (employer change: @celonis -> @chainalysis, one person). Never
+    # select a send address from this field — persons.email is the current one.
+    # DO read it when checking suppression: an unsubscribe or bounce recorded
+    # against a former mailbox must keep suppressing the human, not just that
+    # string. The whole class of bug in this workstream is a value being read
+    # by a path that should not have it, so the two uses are named apart.
     add_to_set: Dict[str, Any] = {}
     if email:
         add_to_set["known_emails"] = email

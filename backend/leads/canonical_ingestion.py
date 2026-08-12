@@ -880,6 +880,63 @@ def _get_torpedo_db():
     return _torpedo_db_cached
 
 
+def _record_person_and_interest(lead_data: Dict[str, Any]) -> Optional[str]:
+    """
+    Resolve this lead to a person and record the ICP's interest in them.
+
+    Returns the person_id, or None when the lead carries no usable identifier.
+
+    THE SPLIT THIS ENFORCES
+    -----------------------
+    A person is a human. A lead_interest is one ICP wanting to talk to that
+    human. Several ICPs legitimately wanting the same person is signal worth
+    keeping — it is only SENDING that must be exclusive, and that is
+    arbitration's job downstream, not ingestion's.
+
+    Conflating the two is the root cause of the cross-entity sends: with no
+    person, campaign multiplicity became person multiplicity, and one human
+    got three cold emails.
+
+    Best-effort by design. persons is additive and arrives via migration 003;
+    if it is not present yet this returns None and ingestion proceeds exactly
+    as before rather than failing a lead over a collection that has not landed.
+    """
+    try:
+        from .person_repo import resolve_person
+        person_id, _created = resolve_person(_db, lead_data)
+        if not person_id:
+            return None
+
+        icp = lead_data.get('icp_segment')
+        _db['lead_interests'].update_one(
+            {'person_id': person_id, 'icp_id': icp},
+            {
+                '$setOnInsert': {
+                    'person_id': person_id,
+                    'icp_id': icp,
+                    'discovered_at': datetime.utcnow(),
+                    'discovery_query': lead_data.get('source_detail'),
+                },
+                '$set': {
+                    # bucket comes from the CLASSIFIER only. classification_basket
+                    # is the rule-based value that is recomputed as enrichment
+                    # lands, and treating it as a bucket is precisely how one
+                    # person ended up enrolled with three brands. It is carried
+                    # for audit under a name that cannot be mistaken for one.
+                    'bucket': lead_data.get('outreach_bucket'),
+                    'bucket_confidence': lead_data.get('outreach_bucket_confidence'),
+                    'legacy_classification_basket': lead_data.get('classification_basket'),
+                    'updated_at': datetime.utcnow(),
+                },
+            },
+            upsert=True,
+        )
+        return person_id
+    except Exception as exc:
+        logger.debug("person/interest recording skipped: %s", exc)
+        return None
+
+
 def _auto_enroll_in_outreach(lead_data: Dict[str, Any], enriched_id: str) -> None:
     """
     Auto-enroll a newly classified lead into the matching active cold-outreach
@@ -1112,6 +1169,26 @@ def ingest_lead(
         return result
     
     try:
+        # Step 2c: Resolve the HUMAN before touching leads at all.
+        #
+        # This is the atomic step. leads_raw dedup below is still a
+        # find_one/insert_one with no unique constraint on email (the intended
+        # UNIQUE(email) index is absent in the live database — its creation
+        # failure was swallowed by a logger.warning), so under scheduler.py's
+        # asyncio.gather fan-out several ICP tasks can still race into
+        # duplicate lead rows. They cannot race into duplicate PEOPLE:
+        # resolve_person is a single upsert on a unique fingerprint, and
+        # losers resolve to the winner.
+        #
+        # So a duplicate lead row is now a cosmetic accounting artifact rather
+        # than a second human, and suppression, contact history and the
+        # cross-entity cooldown all key on the person. Fixing leads_raw's own
+        # constraint is still worth doing and is tracked separately; it is no
+        # longer load-bearing for the invariant.
+        person_id = _record_person_and_interest(normalized)
+        if person_id:
+            normalized['person_id'] = person_id
+
         # Step 3: Check for existing lead (dedup by email, or linkedin_url for no-email leads)
         if normalized['email']:
             existing = leads_raw.find_one({'email': normalized['email']})

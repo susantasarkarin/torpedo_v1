@@ -107,6 +107,18 @@ def test_concurrent_ingest_of_one_profile_creates_exactly_one_person(db):
 
     ids = {pid for pid, _ in results}
     assert len(ids) == 1, f"callers resolved to {len(ids)} different person_ids"
+
+    # created= MUST come from update_one().upserted_id — the database's own
+    # report of what it did — never from comparing a round-tripped created_at
+    # against the timestamp we sent. Mongo stores datetimes at millisecond
+    # precision and python's are microsecond, so the read-back value is
+    # truncated and never compares equal.
+    #
+    # Do not "simplify" this back to a timestamp comparison. That version
+    # reported created=False for all 24 racers, which is EXACTLY what a real
+    # TOCTOU loss looks like — the bug counterfeits the signal this test
+    # exists to detect, so it reads as a genuine failure and gets debugged in
+    # the wrong place.
     assert sum(1 for _, created in results if created) == 1, (
         "exactly one caller should report created=True")
 
@@ -187,6 +199,53 @@ def test_suppression_follows_the_human_across_address_changes(db):
     assert person_repo.is_suppressed(db, "m.chassot@celonis.com"), (
         "unsubscribe against the former address stopped suppressing the human")
     assert person_repo.is_suppressed(db, "m.chassot@chainalysis.com")
+
+
+# ===========================================================================
+# The ingestion wiring — several ICPs may want one person
+# ===========================================================================
+
+def test_multiple_icps_interested_in_one_person_yield_one_person_many_interests(db, monkeypatch):
+    """
+    Interest is plural, sending is singular.
+
+    Three ICPs finding the same human must produce ONE person and THREE
+    lead_interests. Collapsing the interests would discard real signal;
+    collapsing the person is the bug this workstream exists to fix.
+    """
+    import leads.canonical_ingestion as ci
+    monkeypatch.setattr(ci, "_db", db)
+
+    for icp, url in zip(("bimwave", "sfw", "cogentix"), ERIC_VARIANTS):
+        lead = _lead(url, email="eric@globalleader.com")
+        lead["icp_segment"] = icp
+        ci._record_person_and_interest(lead)
+
+    assert db.persons.count_documents({}) == 1, "three ICPs created three people"
+    assert db.lead_interests.count_documents({}) == 3, (
+        "interest from three ICPs was collapsed; that is real signal and "
+        "arbitration needs it")
+
+
+def test_interest_records_classifier_bucket_not_the_drifting_basket(db, monkeypatch):
+    """
+    lead_interests.bucket must come from the CLASSIFIER. classification_basket
+    is recomputed as enrichment lands, and treating it as a bucket is how one
+    person ended up enrolled with three brands.
+    """
+    import leads.canonical_ingestion as ci
+    monkeypatch.setattr(ci, "_db", db)
+
+    lead = _lead(ERIC_VARIANTS[0], email="eric@globalleader.com")
+    lead.update({"icp_segment": "sfw", "outreach_bucket": "SFW",
+                 "outreach_bucket_confidence": 0.91,
+                 "classification_basket": "D"})
+    ci._record_person_and_interest(lead)
+
+    interest = db.lead_interests.find_one({})
+    assert interest["bucket"] == "SFW"
+    assert interest["bucket_confidence"] == 0.91
+    assert interest["legacy_classification_basket"] == "D"
 
 
 def test_index_assertion_fires_when_uniqueness_is_missing(db):
