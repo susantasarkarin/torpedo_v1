@@ -133,7 +133,7 @@ def test_cross_bucket_tie_is_ambiguity_not_a_tie_break():
         _interest("SFW", 0.80, score=3),
         _interest("BIM", 0.80, score=9),
     ], now=NOW)
-    assert r.outcome == "blocked_review_capacity", (
+    assert r.outcome == "review_branch_disabled", (
         "an exact cross-bucket confidence tie must be treated as ambiguous, "
         "not silently resolved on ICP score")
     assert not r.may_send
@@ -217,7 +217,7 @@ def test_review_branch_is_disabled_by_default():
 def test_ambiguous_leads_are_blocked_while_the_branch_is_off():
     r = arb.arbitrate([_interest("SFW", 0.72), _interest("COGENTIX_RESEARCH", 0.70)],
                       now=NOW)
-    assert r.outcome == "blocked_review_capacity"
+    assert r.outcome == "review_branch_disabled"
     assert not r.may_send
     assert r.runner_up == "COGENTIX_RESEARCH"
     assert "no named owner" in r.detail
@@ -252,14 +252,38 @@ def test_blocked_review_capacity_is_distinct_from_lost_arbitration():
     per-entity funnel where someone would act on it, instead of the leads
     vanishing from reporting.
     """
-    blocked = arb.arbitrate(
+    disabled = arb.arbitrate(
         [_interest("SFW", 0.72), _interest("COGENTIX_RESEARCH", 0.70)], now=NOW)
     lost = arb.arbitrate(
         [_interest("SFW", 0.95), _interest("COGENTIX_RESEARCH", 0.20)], now=NOW)
 
-    assert blocked.outcome == "blocked_review_capacity"
+    assert disabled.outcome == "review_branch_disabled"
     assert lost.outcome == "arbitrated"
     assert lost.losers[0]["reason"] == "lost_arbitration"
+
+
+def test_disabled_branch_and_full_queue_are_different_reasons(monkeypatch):
+    """
+    Three distinct states, three distinct remedies, three distinct owners:
+
+        review_branch_disabled   nobody owns the queue    -> name a human
+        blocked_review_capacity  queue is full            -> work it / fix the
+                                                             classifier
+        lost_arbitration         a winner was chosen      -> nothing, working
+
+    Collapsing the first two would point whoever reads the funnel at raising
+    a cap that is not the problem.
+    """
+    off = arb.arbitrate(
+        [_interest("SFW", 0.72), _interest("COGENTIX_RESEARCH", 0.70)], now=NOW)
+    assert off.outcome == "review_branch_disabled"
+
+    monkeypatch.setattr(arb, "REVIEW_BRANCH_ENABLED", True)
+    full = arb.arbitrate(
+        [_interest("SFW", 0.72), _interest("COGENTIX_RESEARCH", 0.70)],
+        now=NOW, review_queue_depth=arb.REVIEW_QUEUE_CAP)
+    assert full.outcome == "blocked_review_capacity"
+    assert off.outcome != full.outcome
 
 
 def test_clear_winner_is_not_sent_to_review():

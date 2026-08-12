@@ -18,7 +18,13 @@ OUTCOMES
                              'lost_arbitration' with winner AND runner-up
     ambiguous_review         top two within ARBITRATION_AMBIGUITY_MARGIN;
                              a human decides (branch gated, see below)
-    blocked_review_capacity  ambiguous, but the review queue is at its cap
+    review_branch_disabled   ambiguous, but nobody owns the queue so nothing
+                             was routed. Remedy: name a human.
+    blocked_review_capacity  ambiguous, routed, and the queue is at its cap.
+                             Remedy: work the queue, or fix the classifier.
+                             Kept apart from review_branch_disabled because
+                             "capacity" would point at raising a cap that is
+                             not the problem, and at the wrong person.
     cooldown_block           another entity contacted this person recently
     no_bucket                no interest carries a classifier bucket
 
@@ -258,8 +264,15 @@ def arbitrate(
     # such lead to review and make the ordering knob unusable.
     if margin is not None and 0 <= margin < ARBITRATION_AMBIGUITY_MARGIN:
         if not REVIEW_BRANCH_ENABLED:
+            # DISTINCT from blocked_review_capacity, deliberately.
+            #
+            # "capacity" implies the remedy is raising the cap. The actual
+            # state here is that nobody owns the queue, so nothing was routed
+            # at all — the remedy is naming a human. Collapsing the two would
+            # point whoever reads the funnel at the wrong lever, and at a
+            # different person than the one who can act.
             return ArbitrationResult(
-                "blocked_review_capacity", winner=None,
+                "review_branch_disabled", winner=None,
                 runner_up=runner["bucket"], margin=margin,
                 detail="review branch disabled: no named owner for the queue")
         if review_queue_depth is not None and review_queue_depth >= REVIEW_QUEUE_CAP:
