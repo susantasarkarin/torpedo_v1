@@ -5,6 +5,40 @@ Single entry point for ALL lead sources.
 Every lead from Gmail, CSV, or Web Search MUST pass through ingest_lead().
 
 NO EXCEPTIONS. NO BYPASSES.
+
+
+IDENTITY IS NOT DELIVERY
+------------------------
+Two questions that look like one, and must never share a function:
+
+    "which human is this?"          -> identity_email / identity_linkedin_url
+    "what do I put in To:?"         -> normalize_email
+
+They pull in opposite directions, and each fold is wrong for the other:
+
+    asha+news@fastmail.com
+        identity: same human as asha@fastmail.com
+        delivery: a DIFFERENT mailbox. Folding invents an address the
+                  recipient never gave us, which may not exist at all.
+
+    a.sha@gmail.com
+        identity: same human as asha@gmail.com
+        delivery: reaches the same mailbox HERE, but the same fold applied
+                  to any non-Gmail domain would misdeliver. Dots are
+                  significant nearly everywhere else.
+
+So the fingerprint merges both pairs and the To: header preserves whatever
+the source gave us. A dedup fix that quietly rewrites the send address is a
+deliverability regression wearing a correctness costume — and this pipeline's
+bounce rate is the thing the surrounding work is trying to protect.
+
+The same split applies to linkedin_url: identity_linkedin_url folds host,
+locale suffix, trailing slash, query and fragment; the stored URL is left
+alone so it still resolves in a browser.
+
+test_delivery_address_is_never_folded pins this. If someone later proposes
+collapsing the two on the reasonable-sounding grounds that two normalizers
+are a smell, that test is the argument against it.
 """
 
 import os

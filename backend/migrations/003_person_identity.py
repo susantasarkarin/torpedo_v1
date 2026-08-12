@@ -173,6 +173,17 @@ def merge_rows(rows: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], Dict[str, Li
         if len(distinct) > 1:
             conflicts["email"] = sorted(distinct)
 
+        # EVERY address this human has ever been known by, not just the winner.
+        # The employer-change case (@celonis -> @chainalysis, one person, two
+        # jobs) means the losing address is stale for SENDING but still live
+        # for SUPPRESSION: an unsubscribe or bounce recorded against the old
+        # mailbox has to keep suppressing the human, not just that address.
+        # Dropping it here would silently un-suppress people on merge, which
+        # is the exact failure this whole workstream exists to close.
+        merged["known_emails"] = sorted(distinct)
+        merged["known_email_identities"] = sorted(
+            {e for e in (identity_email(d) for d in distinct) if e})
+
     # linkedin_url — same rule; a URL we actually fetched beats one we inferred
     url_rows = [r for r in by_recency if r.get("linkedin_url")]
     if url_rows:
@@ -233,14 +244,10 @@ class Report:
         self.true_dupe_histogram: Counter = Counter()
 
     @property
-    def collapse_ratio(self) -> float:
+    def rows_scanned_per_person_across_stages(self) -> float:
         """
-        MISLEADING ON ITS OWN — see true_duplicates.
-
-        leads_raw and leads_enriched hold the same lead, so every healthy lead
-        contributes 2 scanned rows and lands in one group. That alone drives
-        this toward 2.0 with zero real duplication. Use true_duplicates for
-        the number that actually means something.
+        Rows scanned per person across BOTH pipeline stages. This measures a
+        join, not duplication — see the module docstring. Not reported.
         """
         return (self.scanned / self.persons) if self.persons else 0.0
 
@@ -254,29 +261,20 @@ class Report:
             f"  source rows scanned      {self.scanned:>8}",
             f"  unresolvable (no id)     {self.unresolvable:>8}",
             f"  persons created          {self.persons:>8}",
-            f"  rows collapsed (gross)   {self.collapsed:>8}",
-            f"  collapse ratio (gross)   {self.collapse_ratio:>8.3f}  rows per person",
             "",
-            f"  TRUE duplicates          {self.true_duplicates:>8}  <- the real number",
+            f"  DUPLICATES collapsed     {self.true_duplicates:>8}",
             f"  persons affected         {self.persons_with_true_dupes:>8}",
-            "",
-            "    Gross counts every leads_raw row against its leads_enriched",
-            "    twin, so they trend to 2.0x with zero real duplication. TRUE",
-            "    counts only extra rows WITHIN one collection.",
             "",
             f"  lead_interests preserved {self.interests:>8}",
             f"  sends reconstructed      {self.sends:>8}",
             f"  suppressions merged      {self.suppressions_merged:>8}",
             "",
-            "  collapse distribution",
+            "  duplicate distribution",
         ]
-        for size, count in sorted(self.collapse_histogram.items()):
-            if size > 1:
-                lines.append(f"    {size} rows -> 1 person       {count:>8}")
-        if self.true_dupe_histogram:
-            lines += ["", "  true duplication (within one collection)"]
-            for size, count in sorted(self.true_dupe_histogram.items()):
-                lines.append(f"    {size} rows -> 1 person       {count:>8}")
+        if not self.true_dupe_histogram:
+            lines.append("    none")
+        for size, count in sorted(self.true_dupe_histogram.items()):
+            lines.append(f"    {size} rows -> 1 person       {count:>8}")
         lines += ["", "  field-level conflicts among collapsed rows"]
         if not self.conflict_counts:
             lines.append("    none")
