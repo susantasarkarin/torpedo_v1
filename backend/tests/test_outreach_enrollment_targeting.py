@@ -109,16 +109,65 @@ def _businesses(db):
 # CAUSE 2 — basket D scope
 # ============================================
 
-def test_dual_fit_enrolls_sfw_and_cogentix_only(db):
-    """D means 'Dual Fit: SFW + Cogentix'. BIMwave is AEC and must not appear."""
+def test_dual_fit_enrolls_nobody(db):
+    """
+    INVERTED 2026-08-12. Was test_dual_fit_enrolls_sfw_and_cogentix_only,
+    asserting D -> ['cogentix', 'sfw'].
+
+    Its original point still stands historically and is preserved here: D
+    means "Dual Fit: SFW + Cogentix", and BIMwave is AEC, so the pre-6c97319
+    loop over ['sfw','cogentix','bimwave'] was wrong. That fix was correct as
+    far as it went.
+
+    It did not go far enough. Two brands 33 days apart still breaches a 90-day
+    cross-entity cooldown, so D now enrolls NOBODY and leads.arbitration owns
+    the decision. See test_dual_fit_no_longer_creates_two_rows for the full
+    reasoning.
+    """
     ci._auto_enroll_in_outreach(_lead("D"), "enr-1")
-    assert _businesses(db) == ["cogentix", "sfw"]
-    assert "bimwave" not in _businesses(db)
+    assert _businesses(db) == [], "basket D must no longer enroll anyone directly"
 
 
-def test_dual_fit_creates_exactly_two_rows(db):
+def test_dual_fit_no_longer_creates_two_rows(db):
+    """
+    INVERTED 2026-08-12. This test previously asserted len(...) == 2 — that
+    basket D correctly enrolled one person into BOTH SFW and Cogentix. That
+    behaviour is now killed, and the test is inverted rather than deleted so
+    the decision survives in the place someone will look for it.
+
+    WHY DUAL-FIT WAS KILLED
+
+    D scheduled SFW at T+0 and Cogentix at T+33d (12-day sequence + 21-day
+    gap). The cross-entity cooldown is 90 days, so 33 days put two brands in
+    front of one human inside the window.
+
+    The gap was never a contact policy — it is a scheduling artifact, derived
+    from sequence length plus padding, and nothing in it refers to the
+    recipient's experience.
+
+    More decisively: basket D is assigned by compute_icp_basket, a rule-based
+    function recomputed as enrichment fills industry/department/seniority. A
+    person's dual-fit status is therefore not stable, so "we intended to
+    contact this human twice" describes no decision anyone ever made about
+    them. What existed was a rule that recomputed.
+
+    And D was 11,291 of 20,639 classified leads (55%). A classifier placing
+    the majority of leads in "fits two of our three businesses" is not
+    describing the market, it is failing to separate SFW from Cogentix. That
+    is now tracked as its own problem, with review-queue depth as its metric:
+    a fixable classifier converges as it improves, a genuine market overlap
+    does not.
+
+    Contact for a dual-fit person is decided by leads.arbitration, which picks
+    one winner and records the loser with reason='lost_arbitration' plus the
+    runner-up. dual_fit is retained as a recorded flag on lead_interests — it
+    no longer drives enrollment, but if the real SFW+Cogentix pair count comes
+    back large it is the evidence for reopening the question.
+    """
     ci._auto_enroll_in_outreach(_lead("D"), "enr-1")
-    assert len(db.leads.docs) == 2
+    assert len(db.leads.docs) <= 1, (
+        "basket D fanned out to a second brand; dual-fit enrollment was "
+        "removed and arbitration owns this decision now")
 
 
 # ============================================
@@ -149,11 +198,28 @@ def test_dual_fit_after_single_does_not_add(db):
     assert len(db.leads.docs) == 1
 
 
-def test_single_after_dual_fit_does_not_add(db):
+def test_single_after_dual_fit_enrolls_at_most_one_brand(db):
+    """
+    INVERTED 2026-08-12. Was test_single_after_dual_fit_does_not_add, which
+    asserted that a D enrollment (2 rows) blocked a later C from adding a
+    third.
+
+    D now enrolls nobody, so a later C is the FIRST enrollment and is allowed.
+    The invariant that actually matters is unchanged and is what this asserts:
+    at most one brand ends up in front of the person.
+
+    This is a deliberate loosening in one narrow respect — a lead classified D
+    then reclassified C now reaches BIMwave, where before it was blocked by
+    the SFW/Cogentix rows D had already created. That is correct: the block
+    was a side effect of an enrollment that should never have existed, and C
+    is a genuine AEC fit reached on its own merits.
+    """
     ci._auto_enroll_in_outreach(_lead("D"), "enr-1")
-    assert len(db.leads.docs) == 2
+    assert len(db.leads.docs) == 0, "D should have enrolled nobody"
+
     ci._auto_enroll_in_outreach(_lead("C"), "enr-1")
-    assert len(db.leads.docs) == 2, "bimwave was added on top of a dual fit"
+    assert len(db.leads.docs) <= 1, "more than one brand reached the person"
+    assert _businesses(db) == ["bimwave"]
 
 
 def test_different_people_are_unaffected(db):

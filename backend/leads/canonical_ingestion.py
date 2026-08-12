@@ -997,54 +997,37 @@ def _auto_enroll_in_outreach(lead_data: Dict[str, Any], enriched_id: str) -> Non
             return
 
         if basket == 'D':
-            # Dual Fit means SFW + Cogentix — the two market-research lines.
-            # See the basket's own name: "Dual Fit: SFW + Cogentix"
-            # (compute_icp_basket, and icp_config SEG_TO_BASKET['dual_fit']).
-            # This list previously included 'bimwave', so a market-research
-            # dual fit also received BIM/AEC outsourcing pitches. Basket D is
-            # 11,291 of 20,639 classified leads (55%), so that single wrong
-            # list entry was the largest single source of off-target sends.
-            # A genuine AEC fit is basket C and is reached by the path below.
-            SEQUENCE_DURATION_DAYS = 12
-            DUAL_FIT_GAP_DAYS = 21
-            sequence_window = SEQUENCE_DURATION_DAYS + DUAL_FIT_GAP_DAYS
-            now = datetime.utcnow()
-            campaigns_found = []
-            for biz in ['sfw', 'cogentix']:
-                c = campaigns_col.find_one({'business': biz, 'is_active': True})
-                if c:
-                    campaigns_found.append((biz, c))
-            for seq_idx, (biz, campaign) in enumerate(campaigns_found):
-                cid = campaign['campaign_id']
-                if outreach_leads.find_one({'email': email_lower, 'campaign_id': cid}):
-                    continue
-                from datetime import timedelta
-                start_offset = timedelta(days=seq_idx * sequence_window)
-                _basket = {'sfw': 'A', 'cogentix': 'B', 'bimwave': 'C'}.get(biz, 'A')
-                outreach_leads.insert_one({
-                    'lead_id': enriched_id,
-                    'campaign_id': cid,
-                    'email': email_lower,
-                    'name': lead_data.get('name', ''),
-                    'first_name': lead_data.get('first_name') or (lead_data.get('name') or '').split()[0] if lead_data.get('name') else '',
-                    'company_name': lead_data.get('company_name') or lead_data.get('company', ''),
-                    'title': lead_data.get('title', ''),
-                    'company_industry': lead_data.get('company_industry', ''),
-                    'seniority_level': lead_data.get('seniority_level', ''),
-                    'classification_basket': 'D',
-                    'lead_service_type': {'sfw': 'data_services', 'cogentix': 'consumer_insights', 'bimwave': 'bimwave'}.get(biz, 'data_services'),
-                    'personalization_level': 'medium',
-                    'workflow_status': 'not_started' if seq_idx == 0 else 'pending_scheduled',
-                    'current_step': 0,
-                    'next_send_at': now + start_offset,
-                    'dual_fit': True,
-                    'dual_fit_sequence_index': seq_idx + 1,
-                    'enrolled_at': now,
-                    'created_at': now,
-                    'updated_at': now,
-                    # Carry forward for pre-send bounce-risk guard
-                    'email_source': lead_data.get('email_source'),
-                })
+            # DUAL-FIT ENROLLMENT REMOVED 2026-08-12.
+            #
+            # This branch used to enroll one person into SFW at T+0 and
+            # Cogentix at T+33d. The cross-entity cooldown is 90 days, so 33
+            # put two brands in front of one human inside the window. The gap
+            # was a scheduling artifact (12-day sequence + 21-day pad), not a
+            # contact policy — nothing in it referred to the recipient.
+            #
+            # Decisively: basket D comes from compute_icp_basket, which is
+            # recomputed as enrichment fills industry/department/seniority. A
+            # person's dual-fit status is not stable, so "we meant to contact
+            # them twice" describes no decision anyone made about that human.
+            # And D is 11,291 of 20,639 classified leads (55%) — a classifier
+            # putting the majority of leads in "fits two of our three
+            # businesses" is failing to separate SFW from Cogentix, not
+            # describing the market.
+            #
+            # FAILS CLOSED, deliberately. D no longer enrolls anywhere. We do
+            # not know which entity should own this person, and contacting
+            # them anyway is guessing with someone's inbox — the same
+            # reasoning that makes the review-queue cap block rather than
+            # queue. leads.arbitration owns this decision and is wired into
+            # the send path separately; until then these people accumulate as
+            # lead_interests and are contacted by nobody.
+            #
+            # Consequence to watch: this stops enrollment for ~55% of
+            # classified leads. That is intended while the three entities are
+            # paused, and it is the conservative direction of the two.
+            logger.info(
+                "Enrollment deferred for %s: basket D awaiting arbitration "
+                "(dual-fit enrollment removed)", email_lower)
             return
 
         # Regular basket (A/B/C)
@@ -1180,11 +1163,18 @@ def ingest_lead(
         # resolve_person is a single upsert on a unique fingerprint, and
         # losers resolve to the winner.
         #
-        # So a duplicate lead row is now a cosmetic accounting artifact rather
-        # than a second human, and suppression, contact history and the
-        # cross-entity cooldown all key on the person. Fixing leads_raw's own
-        # constraint is still worth doing and is tracked separately; it is no
-        # longer load-bearing for the invariant.
+        # So a duplicate lead row is no longer a second HUMAN — suppression,
+        # contact history and the cross-entity cooldown all key on the person,
+        # and that is the load-bearing part.
+        #
+        # It is not harmless, though. Duplicate rows inflate per-ICP yield
+        # counts, which feed the coverage matrix and its exhaustion rule: a
+        # dimension cell that keeps re-finding the same human looks productive
+        # while it is actually dry, so the query agent keeps spending budget
+        # there instead of rotating away. Out of scope here (the coverage
+        # matrix is explicitly excluded), but repairing leads_raw's absent
+        # UNIQUE(email) is tracked separately and is worth doing on its own
+        # merits rather than being written off as cosmetic.
         person_id = _record_person_and_interest(normalized)
         if person_id:
             normalized['person_id'] = person_id
