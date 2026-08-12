@@ -75,26 +75,74 @@ def normalize_linkedin_url(url: str) -> str:
     """
     if not url:
         return ""
-    
+
     # Lowercase
     url = url.lower().strip()
-    
+
     # Remove protocol
     url = re.sub(r'^https?://', '', url)
-    
+
     # Remove www. and country subdomains (in., uk., au., ca., de., fr., etc.)
     url = re.sub(r'^www\.', '', url)
     url = re.sub(r'^[a-z]{2}\.(?=linkedin\.com)', '', url)
-    
-    # Remove trailing slash
-    url = url.rstrip('/')
-    
-    # Remove query parameters
-    url = url.split('?')[0]
-    
-    # Remove tracking parameters
+
+    # Order matters: fragment, then query, then trailing slash.
+    #
+    # This used to rstrip('/') FIRST, which left the slash on any URL that
+    # carried one ahead of a ? or #. ".../in/asha/#experience" normalized to
+    # ".../in/asha/" and never matched ".../in/asha" — two identities for one
+    # profile, from a normalizer whose whole job is to prevent that.
     url = url.split('#')[0]
-    
+    url = url.split('?')[0]
+    url = url.rstrip('/')
+
+    # Locale suffix: linkedin serves the same profile under a trailing
+    # interface-language segment (/in/asha/es, /in/asha/de, /in/asha/fi).
+    # Observed live in leads_enriched as three rows for one human.
+    #
+    # Stripped ONLY when the path is exactly /in/{slug}/{code} and {code} is a
+    # locale linkedin actually serves. A blanket "drop a short last segment"
+    # rule would merge distinct humans, and over-merging is the one failure
+    # mode here worse than the duplication being fixed — same principle as
+    # keeping dots significant outside the gmail family in normalize_email().
+    url = _strip_linkedin_locale_suffix(url)
+
+    return url
+
+
+# Interface locales linkedin serves profile URLs under. Explicit allowlist:
+# anything not on this list is treated as part of the profile slug and kept.
+# Note "in" is Indonesian here — it collides with the /in/ path segment, which
+# is why the pattern below anchors on the full three-segment path rather than
+# matching the code anywhere.
+_LINKEDIN_LOCALES = frozenset({
+    "ar", "cs", "da", "de", "el", "en", "es", "fi", "fr", "hi", "hu", "in",
+    "it", "iw", "ja", "ko", "ms", "nl", "no", "pl", "pt", "ro", "ru", "sv",
+    "th", "tl", "tr", "uk", "vi", "zh",
+})
+
+_LINKEDIN_PROFILE_PATH = re.compile(
+    r'^(?P<base>linkedin\.com/in/[^/]+)/(?P<code>[a-z]{2})$'
+)
+
+
+def _strip_linkedin_locale_suffix(url: str) -> str:
+    """
+    Drop a trailing locale segment from a linkedin profile URL.
+
+    Conservative by construction: the path must be exactly
+    linkedin.com/in/{slug}/{code} — no deeper paths, no /company/, no /pub/ —
+    and {code} must be in _LINKEDIN_LOCALES. Everything else is returned
+    untouched, because a wrong strip merges two people.
+
+        linkedin.com/in/asha-rao/es  -> linkedin.com/in/asha-rao
+        linkedin.com/in/asha-rao/dr  -> unchanged ("dr" is not a locale)
+        linkedin.com/in/asha/es/more -> unchanged (too deep)
+        linkedin.com/company/acme/es -> unchanged (not a profile)
+    """
+    m = _LINKEDIN_PROFILE_PATH.match(url)
+    if m and m.group("code") in _LINKEDIN_LOCALES:
+        return m.group("base")
     return url
 
 

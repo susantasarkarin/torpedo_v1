@@ -111,19 +111,60 @@ def determine_lead_bracket(lead_data: Dict[str, Any]) -> str:
 
 def normalize_email(email: str) -> Optional[str]:
     """
-    Normalize email: lowercase, trim, validate format.
+    The DELIVERABLE address: lowercase, trim, validate format.
     Returns None if invalid.
+
+    Deliberately does NOT fold plus-tags or dots. This value is what we put in
+    the To: header, and those transforms are not safe there:
+
+      - "asha+news@fastmail.com" -> "asha@fastmail.com" is a DIFFERENT mailbox
+        on most providers, and may not exist at all.
+      - dots are significant outside the gmail family.
+
+    For matching two rows to one human use identity_email() instead. The two
+    are different questions and conflating them is how you either miss
+    duplicates or send mail to an address nobody owns.
     """
     if not email:
         return None
-    
+
     email = email.lower().strip()
-    
+
     # Basic email validation
     if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email):
         return None
-    
+
     return email
+
+
+def identity_email(email: str) -> Optional[str]:
+    """
+    The IDENTITY key: which human is this, regardless of address spelling.
+
+    Folds plus-tags everywhere and dots within the gmail family, so
+    Asha.Rao@Gmail.com / asharao@gmail.com / asha.rao+news@googlemail.com all
+    resolve to one person. Never sent to — see normalize_email().
+
+    Delegates to deduplication.normalize_email, which has implemented this
+    correctly since it was written and has never been called by the ingestion
+    path it was written for.
+    """
+    deliverable = normalize_email(email)
+    if not deliverable:
+        return None
+    from .deduplication import normalize_email as _identity
+    return _identity(deliverable) or None
+
+
+def identity_linkedin_url(url: str) -> Optional[str]:
+    """
+    The IDENTITY key for a linkedin profile. Folds host, locale suffix,
+    trailing slash, query and fragment. See deduplication.normalize_linkedin_url.
+    """
+    if not url:
+        return None
+    from .deduplication import normalize_linkedin_url as _identity
+    return _identity(url) or None
 
 
 def normalize_payload(payload: Dict[str, Any], source: str, source_detail: str, icp_segment: Optional[str] = None) -> Dict[str, Any]:

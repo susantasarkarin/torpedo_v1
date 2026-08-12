@@ -270,16 +270,31 @@ EMAIL_VARIANTS = [
 
 def test_email_variants_collapse_at_the_canonical_door():
     """
-    EXPECTED FAIL: canonical_ingestion.normalize_email only lowercases.
+    One mailbox must resolve to one identity at the ingestion door.
 
-    The correct implementation is deduplication.normalize_email, which folds
-    plus-tags and Gmail dots. ingest_lead does not call it. This asserts on
-    the normalizer the ingestion path actually uses.
+    Asserts on identity_email(), not normalize_email(). The first draft of
+    this test asserted on normalize_email and was wrong: that function returns
+    the address we put in the To: header, and folding plus-tags into it would
+    have made the pipeline send to mailboxes that may not exist. Identity and
+    deliverability are two questions; see test_delivery_address_is_never_folded.
     """
-    normalized = {ci.normalize_email(e) for e in EMAIL_VARIANTS}
+    normalized = {ci.identity_email(e) for e in EMAIL_VARIANTS}
     assert len(normalized) == 1, (
         f"{len(EMAIL_VARIANTS)} variants of one mailbox produced "
         f"{len(normalized)} identities: {sorted(normalized)}")
+
+
+def test_delivery_address_is_never_folded():
+    """
+    The deliverable address must survive normalization intact. Folding a
+    plus-tag here would send mail to an address the recipient never gave us —
+    a correctness bug dressed as a dedup fix.
+    """
+    assert ci.normalize_email("Asha.Rao+news@Fastmail.com") == "asha.rao+news@fastmail.com"
+    assert ci.normalize_email("A.B@Gmail.com") == "a.b@gmail.com"
+
+    # ...while identity still collapses the gmail pair
+    assert ci.identity_email("A.B@Gmail.com") == ci.identity_email("ab@gmail.com")
 
 
 def test_dots_are_preserved_outside_gmail_family():
