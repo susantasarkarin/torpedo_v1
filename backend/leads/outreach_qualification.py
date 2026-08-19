@@ -166,6 +166,68 @@ def check_suppression(email: str) -> Optional[str]:
 # QUALIFICATION
 # ============================================================
 
+# ---------------------------------------------------------------------------
+# Constructed-email gate (Phase 4)
+# ---------------------------------------------------------------------------
+
+# Strict by default. Flip to "0" only with a deliberate decision recorded.
+REQUIRE_VERIFIED_EMAIL = (
+    os.getenv("OUTREACH_REQUIRE_VERIFIED_EMAIL", "1").strip().lower()
+    in ("1", "true", "yes", "on")
+)
+
+# email_status values meaning "we made this address up from a domain pattern".
+# Case-insensitive; leads_enriched uses title case ("Predicted").
+CONSTRUCTED_EMAIL_STATUSES = frozenset({
+    "constructed", "predicted", "guessed", "pattern", "inferred",
+})
+
+# ...and the ones meaning a third party confirmed the mailbox exists.
+VERIFIED_EMAIL_STATUSES = frozenset({
+    "verified", "valid", "deliverable", "re_enriched_verified",
+})
+
+
+def check_email_verification(lead: Dict[str, Any]) -> Optional[str]:
+    """
+    Reject addresses we invented but never confirmed.
+
+    This module's own docstring has always claimed it requires an email that is
+    "not an AI guess". It did not deliver that: the enricher constructs
+    addresses from cached Hunter domain patterns, labels them 'constructed'
+    (or 'Predicted' in leads_enriched), and they passed every gate. That is why
+    bounce_recovery.py has to exist.
+
+    THE TRADE BEING CORRECTED. The cost ladder was ordered around the cheap
+    resource: a $0.034 lookup was avoided by guessing, and the guesses bounced.
+    Domain reputation is the expensive resource and it is unrecoverable — hard
+    bounce rates above ~2% trigger throttling at the major providers, which
+    costs far more than verification ever would.
+
+    NOT SATISFIED BY THE SMTP PROBE. bounce_handler._smtp_verify is a useful
+    NEGATIVE filter and nothing more. It produces false positives on catch-all
+    domains and on Google Workspace / M365 accept-then-bounce configurations —
+    precisely the enterprise targets that matter most — and repeated RCPT TO
+    probing from one IP is a recognised greylisting trigger. A "no" is
+    informative; a "yes" is not, and must never be recorded as verification.
+    """
+    if not REQUIRE_VERIFIED_EMAIL:
+        return None
+
+    status = (lead.get("email_status") or "").strip().lower()
+
+    if status in CONSTRUCTED_EMAIL_STATUSES:
+        return "constructed_unverified"
+
+    if status in VERIFIED_EMAIL_STATUSES:
+        return None
+
+    # Unknown provenance is treated as unverified. Failing open here would
+    # readmit every constructed address that simply lacks a label, which is
+    # most of them.
+    return "email_verification_unknown"
+
+
 def qualify(lead: Dict[str, Any],
             confidence_threshold: float = CONFIDENCE_THRESHOLD,
             min_icp_score: int = MIN_ICP_SCORE,
@@ -184,6 +246,15 @@ def qualify(lead: Dict[str, Any],
         return QualificationResult(False, email_problem)
 
     email = lead["email"].strip().lower()
+
+    # --- 1b. Email VERIFICATION --------------------------------------
+    # Separate reason from check_email so the funnel distinguishes "no usable
+    # address" from "an address we invented and never confirmed".
+    verification_problem = check_email_verification(lead)
+    if verification_problem:
+        logger.info("lead=%s not qualified: %s", lead_id, verification_problem)
+        return QualificationResult(False, verification_problem,
+                                   details={"email_status": lead.get("email_status")})
 
     # --- 2. ICP score and bracket -------------------------------------
     score = lead.get("icp_score")

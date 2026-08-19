@@ -43,6 +43,43 @@ opposite of most people's intuition and is the specific misread to pre-empt.
 Once Phase 3 splits caps per entity, each entity draws from its own bucket
 and the regime can differ per brand.
 
+### ⛔ The verification gate takes outbound to ZERO, not "reduced"
+
+**Measured, not projected.** Applying `check_email_verification` to the local
+6,860-row `leads_enriched` copy:
+
+```
+PASS the verification gate              0   (0.00%)
+  blocked: constructed_unverified          3,522
+  blocked: email_verification_unknown      3,338
+
+runway at 200/day cap:  0.0 days
+```
+
+**There is not one verified email address in the dataset.** Every address is
+either constructed from a Hunter domain pattern (`Predicted`) or carries no
+provenance label at all. The pipeline has never sent to a confirmed mailbox —
+which is the direct explanation for why `bounce_recovery.py` needed to exist,
+and for the 45% bounce episode.
+
+So `OUTREACH_REQUIRE_VERIFIED_EMAIL=1` is not a filter. **It is a full stop.**
+
+That is the correct posture right now — all three entities are paused, and
+resuming sends to unverified guesses is what damaged the domains in the first
+place. But it changes the dependency order:
+
+> **Resuming outbound is blocked on building the verification step, not on
+> finishing the identity work.** Verification is a prerequisite for sending,
+> not an optimization. Until it exists, the honest state is "we cannot send",
+> not "we send less".
+
+This supersedes the runway arithmetic below, which assumed the pre-Phase-4
+pool. With the gate on, runway is **0 days** regardless of cap.
+
+**Do not resolve this by setting the flag to 0.** That reopens the exact hole
+the phase exists to close, and the flag defaulting strict is what makes the
+problem visible instead of silent.
+
 ### Phase 5 requirement: ship pool depth as RUNWAY IN DAYS
 
 Because the drop is invisible in send rate, the monitoring has to watch the
