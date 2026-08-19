@@ -3211,7 +3211,15 @@ async def cpx_redirect(request: Request, id: str = Query(..., description="Traff
             is_valid, error_msg = validate_redirect_url(entry_link, require_https=False)
             if not is_valid:
                 print(f"âŒ CPX Redirect: Invalid entry link ({error_msg}): {entry_link[:80]}...")
-                raise HTTPException(status_code=400, detail=f"Invalid survey entry link: {error_msg}")
+                # scheme/host (never the full URL - it carries respondent ids) so a
+                # live 400 names its own cause instead of needing a shell on the box.
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Invalid survey entry link: {error_msg} "
+                        f"[scheme={parsed_entry_link.scheme or '(none)'}, host={entry_host or '(none)'}]"
+                    ),
+                )
 
         # CPX allocations must always redirect to a CPX-owned HTTPS host.
         # Match the apex or a true subdomain, NOT a bare suffix: endswith(
