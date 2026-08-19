@@ -327,7 +327,10 @@ async def get_sync_status() -> Dict[str, Any]:
         from app.services import crm_service
 
     try:
-        total_emails = email_metadata_collection.estimated_document_count()
+        # Exact count, not estimated_document_count(): the estimate is derived
+        # from collection metadata and drifts by a few documents, which made
+        # `processed` (an exact count) come out HIGHER than the total.
+        total_emails = email_metadata_collection.count_documents({})
         # mail_pool_ai stamps each analyzed email with `ai_analysis` — that is
         # the field its own sender query filters on, so count the same one.
         processed = email_metadata_collection.count_documents(
@@ -353,7 +356,14 @@ async def get_sync_status() -> Dict[str, Any]:
             ]
         })
 
-        legacy_rfqs = rfqs_collection.count_documents({"is_deleted": {"$ne": True}})
+        # Only rows still awaiting migration. scripts/backfill_spine_rfqs.py
+        # stamps migrated_to_spine on each row it moves, so counting every
+        # non-deleted row reported 1018 "unmigrated" long after all 1018 had
+        # in fact been migrated.
+        legacy_rfqs = rfqs_collection.count_documents({
+            "is_deleted": {"$ne": True},
+            "migrated_to_spine": {"$ne": True},
+        })
 
         return {
             "success": True,
