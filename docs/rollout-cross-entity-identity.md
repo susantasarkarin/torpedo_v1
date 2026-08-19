@@ -43,6 +43,28 @@ opposite of most people's intuition and is the specific misread to pre-empt.
 Once Phase 3 splits caps per entity, each entity draws from its own bucket
 and the regime can differ per brand.
 
+### Phase 5 requirement: ship pool depth as RUNWAY IN DAYS
+
+Because the drop is invisible in send rate, the monitoring has to watch the
+pool — and the units decide whether anyone acts.
+
+> `eligible_pool = 9,348` reads as healthy to everyone.
+> `runway = 47 days at current cap` gets attention at 30 and forces a
+> decision at 10.
+
+Same data, one behaves like a warning. Emit
+`runway_days = eligible_pool / effective_daily_cap` per entity, alert on
+thresholds in days, and never surface the raw count alone.
+
+This is the specific failure being designed against: a cap-bound system shows
+**nothing** while the pool drains, then hits a cliff whose cause is six weeks
+in the past and which nobody will connect to this remediation.
+
+### Watch `blocked_review_capacity` once the branch is live
+
+Its first firing is the classifier-vs-market signal arriving. If the Basket D
+conversation (§4) has not happened by then, that is the trigger.
+
 ### What needs the replica
 
 (2) and (4) cannot be sized locally — they need the multi-interest
