@@ -7,6 +7,7 @@ Tiered fallback system for discovering email patterns:
 4. Pattern guessing (common patterns)
 """
 
+import logging
 import os
 import re
 import requests
@@ -15,6 +16,8 @@ from datetime import datetime
 from pymongo import MongoClient
 from bson import ObjectId
 from bs4 import BeautifulSoup
+
+logger = logging.getLogger(__name__)
 
 
 class EmailPatternSystem:
@@ -450,15 +453,41 @@ class EmailPatternSystem:
             pattern = pattern_data["pattern"]
             confidence = pattern_data["confidence"]
         
-        # Build email from pattern
+        # A discovered pattern is sometimes stored as a bare local part
+        # ("{f}{last}") with no "@{domain}" suffix. Formatting that verbatim
+        # produces `tdavis` — not an address — and every caller writes the
+        # result straight onto the lead. That is where the bare local parts in
+        # leads_raw/leads_enriched came from.
+        if "@" not in pattern:
+            pattern = pattern + "@{domain}"
+
         email = pattern.format(
             first=first_name.lower(),
             last=last_name.lower(),
             f=first_name[0].lower() if first_name else "",
             l=last_name[0].lower() if last_name else "",
             domain=domain.lower()
-        )
-        
+        ).strip()
+
+        # Never hand back something that is not a usable address. An empty
+        # last name against a "{first}.{last}@{domain}" pattern yields
+        # "angela.@corp.com"; a missing domain yields a bare local part. Every
+        # caller guards with `if built:`, so "" makes them skip the write
+        # instead of persisting a value that can never be delivered.
+        from .system_addresses import is_malformed_address, is_placeholder_address
+
+        if is_malformed_address(email) or is_placeholder_address(email):
+            logger.warning(
+                f"build_email produced an unusable address {email!r} "
+                f"(pattern={pattern!r} domain={domain!r}) - skipping"
+            )
+            return "", 0.0
+
+        local = email.split("@")[0]
+        if not local or local.endswith(".") or local.endswith("_") or ".." in local:
+            logger.warning(f"build_email produced a malformed local part {email!r} - skipping")
+            return "", 0.0
+
         return email, confidence
     
     def analyze_mail_pool(self, limit: int = None) -> Dict:
