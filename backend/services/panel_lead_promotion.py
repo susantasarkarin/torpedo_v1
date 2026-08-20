@@ -161,7 +161,16 @@ def promote_traffic_leads_to_panelists(
         """Upsert one batch. $setOnInsert means existing panelists are never
         overwritten — a CSV-sourced record keeps its own name/country."""
         nonlocal inserted, pending
-        if not pending or dry_run:
+        if not pending:
+            return
+        if dry_run:
+            # Actually determine how many are new. Deriving it from `inserted`
+            # (always 0 without writes) made the preview report every scanned
+            # address as already present — the opposite of the truth, and the
+            # one number the preview exists to provide.
+            emails = [d["email"] for d in pending]
+            existing = panelists_collection.count_documents({"email": {"$in": emails}})
+            inserted += len(emails) - existing
             pending = []
             return
         ops = [
@@ -218,6 +227,7 @@ def promote_traffic_leads_to_panelists(
 
     summary = {
         "scanned": scanned,
+        # In a dry run this is "would_insert" — see _flush.
         "inserted": inserted,
         "already_present": max(0, scanned - inserted),
         "dry_run": dry_run,
