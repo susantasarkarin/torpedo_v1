@@ -657,28 +657,27 @@ async def promote_panelist_leads(
     """Merge parsing-page leads into `panelists` so the invite cron reaches them.
 
     Body (optional):
-    - lookback_days: int — only promote leads captured in the last N days.
-      Omit for a full backfill (use once; it scans the whole traffic table).
     - dry_run: bool — report what would be inserted without writing.
+    - limit: int — cap distinct addresses this run (default
+      PANEL_LEAD_PROMOTION_MAX_PER_RUN). Pass 0 for no cap.
+    - use_watermark: bool — resume from / advance the daily job's watermark.
+      Default false, so a manual run never moves the cron's resume point.
 
     Existing panelists are never modified: the upsert is $setOnInsert on email,
     so a CSV-sourced record keeps its own name, country and invite history.
     """
     verify_admin_session(request)
 
-    lookback_days = data.get("lookback_days")
     dry_run = bool(data.get("dry_run", False))
+    raw_limit = data.get("limit")
+    limit = int(raw_limit) if raw_limit is not None else None
+    use_watermark = bool(data.get("use_watermark", False))
 
     try:
         from services.panel_lead_promotion import promote_traffic_leads_to_panelists
-        from datetime import timedelta
-
-        since = None
-        if lookback_days:
-            since = datetime.utcnow() - timedelta(days=int(lookback_days))
 
         result = await asyncio.to_thread(
-            promote_traffic_leads_to_panelists, since, dry_run
+            promote_traffic_leads_to_panelists, None, dry_run, limit, use_watermark
         )
         # The panelist totals are cached for 3 min; promotion just changed them.
         _lead_total_cache.clear()
