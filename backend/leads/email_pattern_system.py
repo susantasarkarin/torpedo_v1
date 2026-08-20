@@ -1,4 +1,4 @@
-﻿"""
+"""
 Email Pattern Discovery System
 Tiered fallback system for discovering email patterns:
 1. Database lookup (existing patterns)
@@ -18,6 +18,62 @@ from bson import ObjectId
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+
+
+def render_pattern_email(pattern: str, first_name: str, last_name: str, domain: str):
+    """Render an email pattern, or return None when the result is unusable.
+
+    The single place a pattern becomes an address. Two call sites used to
+    format patterns independently — build_email and
+    apply_pattern_to_domain_leads — so a guard added to one silently did not
+    apply to the other, and the unguarded one wrote to both leads_enriched and
+    leads_raw.
+
+    Rejects, rather than persists:
+      - a pattern stored as a bare local part ("{f}{last}") with no
+        "@{domain}" suffix, which renders as `tdavis`
+      - "{first}.{last}@{domain}" against a lead with no surname, which
+        renders as `angela.@corp.com`
+      - RFC 2606 reserved domains and unsubstituted templates
+    """
+    if not pattern or not domain:
+        return None
+
+    first = (first_name or "").lower().strip()
+    last = (last_name or "").lower().strip()
+    if not first:
+        return None
+
+    if "@" not in pattern:
+        pattern = pattern + "@{domain}"
+
+    try:
+        email = pattern.format(
+            first=first,
+            last=last,
+            f=first[0] if first else "",
+            l=last[0] if last else "",
+            domain=domain.lower().strip(),
+        ).strip()
+    except (KeyError, IndexError) as exc:
+        logger.warning(f"email pattern {pattern!r} could not be rendered: {exc}")
+        return None
+
+    from .system_addresses import is_malformed_address, is_placeholder_address
+
+    if is_malformed_address(email) or is_placeholder_address(email):
+        logger.warning(
+            f"email pattern produced an unusable address {email!r} "
+            f"(pattern={pattern!r} domain={domain!r}) - skipping"
+        )
+        return None
+
+    local = email.split("@")[0]
+    if not local or local.endswith((".", "_", "-")) or ".." in local:
+        logger.warning(f"email pattern produced a malformed local part {email!r} - skipping")
+        return None
+
+    return email
 
 
 class EmailPatternSystem:
@@ -453,41 +509,9 @@ class EmailPatternSystem:
             pattern = pattern_data["pattern"]
             confidence = pattern_data["confidence"]
         
-        # A discovered pattern is sometimes stored as a bare local part
-        # ("{f}{last}") with no "@{domain}" suffix. Formatting that verbatim
-        # produces `tdavis` — not an address — and every caller writes the
-        # result straight onto the lead. That is where the bare local parts in
-        # leads_raw/leads_enriched came from.
-        if "@" not in pattern:
-            pattern = pattern + "@{domain}"
-
-        email = pattern.format(
-            first=first_name.lower(),
-            last=last_name.lower(),
-            f=first_name[0].lower() if first_name else "",
-            l=last_name[0].lower() if last_name else "",
-            domain=domain.lower()
-        ).strip()
-
-        # Never hand back something that is not a usable address. An empty
-        # last name against a "{first}.{last}@{domain}" pattern yields
-        # "angela.@corp.com"; a missing domain yields a bare local part. Every
-        # caller guards with `if built:`, so "" makes them skip the write
-        # instead of persisting a value that can never be delivered.
-        from .system_addresses import is_malformed_address, is_placeholder_address
-
-        if is_malformed_address(email) or is_placeholder_address(email):
-            logger.warning(
-                f"build_email produced an unusable address {email!r} "
-                f"(pattern={pattern!r} domain={domain!r}) - skipping"
-            )
+        email = render_pattern_email(pattern, first_name, last_name, domain)
+        if not email:
             return "", 0.0
-
-        local = email.split("@")[0]
-        if not local or local.endswith(".") or local.endswith("_") or ".." in local:
-            logger.warning(f"build_email produced a malformed local part {email!r} - skipping")
-            return "", 0.0
-
         return email, confidence
     
     def analyze_mail_pool(self, limit: int = None) -> Dict:
@@ -761,13 +785,15 @@ class EmailPatternSystem:
             if not first:
                 continue
             try:
-                derived_email = pattern_str.format(
-                    first=first,
-                    last=last,
-                    f=first[0] if first else "",
-                    l=last[0] if last else "",
-                    domain=domain,
-                )
+                # Same renderer as build_email. This used to format the pattern
+                # itself, so every guard added there was bypassed here — and
+                # this path is the more dangerous one: it targets leads with NO
+                # email, which is exactly the state the repair script leaves
+                # behind, so it kept re-filling repaired records with the same
+                # unusable value.
+                derived_email = render_pattern_email(pattern_str, first, last, domain)
+                if not derived_email:
+                    continue
                 enriched.update_one(
                     {"_id": lead["_id"]},
                     {"$set": {

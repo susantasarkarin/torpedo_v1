@@ -130,7 +130,6 @@ celery_app.conf.update(
             # traffic_flow_db and were never mailed.
             'task': 'backend.tasks.panel_tasks.promote_panelist_leads',
             'schedule': crontab(hour=2, minute=50),
-            'kwargs': {'lookback_days': 7},
             'options': {'queue': 'default'},
         },
         'panel-sync-registrations': {
