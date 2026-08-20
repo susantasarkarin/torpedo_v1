@@ -147,7 +147,23 @@ def promote_traffic_leads_to_panelists(
     if use_watermark and since is None:
         since = get_watermark()
 
-    cap = PROMOTION_MAX_PER_RUN if limit is None else limit
+    # Cap semantics, chosen so the dangerous value is not the reachable one:
+    #   None -> configured default
+    #   0    -> promote NOTHING (kill switch)
+    #   < 0  -> unlimited
+    # Previously 0 was falsy and therefore meant "unlimited", so an operator
+    # setting PANEL_LEAD_PROMOTION_MAX_PER_RUN=0 to halt the job would instead
+    # have dumped the entire 37K backlog into the mailable pool in one run.
+    cap = PROMOTION_MAX_PER_RUN if limit is None else int(limit)
+    if cap == 0:
+        logger.info("[lead-promotion] cap is 0 — promotion disabled, nothing to do")
+        return {
+            "scanned": 0, "inserted": 0, "already_present": 0,
+            "dry_run": dry_run, "since": since.isoformat() if since else None,
+            "cap": 0, "capped": False, "disabled": True,
+            "watermark_advanced_to": None, "duration_seconds": 0.0,
+        }
+    unlimited = cap < 0
 
     cursor = traffic_collection.aggregate(_lead_pipeline(since), allowDiskUse=True)
 
@@ -213,7 +229,7 @@ def promote_traffic_leads_to_panelists(
             })
             if len(pending) >= _BATCH_SIZE:
                 _flush()
-            if cap and scanned >= cap:
+            if not unlimited and scanned >= cap:
                 capped = True
                 break
         _flush()

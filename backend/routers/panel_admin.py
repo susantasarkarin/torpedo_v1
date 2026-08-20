@@ -659,7 +659,8 @@ async def promote_panelist_leads(
     Body (optional):
     - dry_run: bool — report what would be inserted without writing.
     - limit: int — cap distinct addresses this run (default
-      PANEL_LEAD_PROMOTION_MAX_PER_RUN). Pass 0 for no cap.
+      PANEL_LEAD_PROMOTION_MAX_PER_RUN). 0 disables promotion entirely
+      (kill switch); a negative value means no cap.
     - use_watermark: bool — resume from / advance the daily job's watermark.
       Default false, so a manual run never moves the cron's resume point.
 
