@@ -67,3 +67,50 @@ def test_placeholder_domain_is_rejected():
     email, conf = ps.build_email("Ken", "Evans", "domain.com")
     assert email == ""
     assert conf == 0.0
+
+
+# ── The shared renderer ────────────────────────────────────────────────────
+# apply_pattern_to_domain_leads used to format patterns itself, so every guard
+# in build_email was bypassed there — and that path writes to BOTH
+# leads_enriched and leads_raw, targeting leads with no email, which is exactly
+# the state the repair script leaves behind. Repair and enrichment were undoing
+# each other. Both now go through render_pattern_email.
+
+from leads.email_pattern_system import render_pattern_email
+
+
+@pytest.mark.parametrize("pattern,first,last,domain,expected", [
+    ("{f}{last}", "Tiffany", "Davis", "nerdwallet.com", "tdavis@nerdwallet.com"),
+    ("{first}.{last}@{domain}", "Marina", "Deiana", "fieldcare.it", "marina.deiana@fieldcare.it"),
+    ("{first}@{domain}", "Erin", "", "greenbook.com", "erin@greenbook.com"),
+])
+def test_renderer_valid_cases(pattern, first, last, domain, expected):
+    assert render_pattern_email(pattern, first, last, domain) == expected
+
+
+@pytest.mark.parametrize("pattern,first,last,domain", [
+    ("{f}{last}", "Tiffany", "Davis", ""),            # no domain -> bare local part
+    ("{first}.{last}@{domain}", "Angela", "", "corp.com"),  # trailing dot
+    ("{first}.{last}@{domain}", "Ken", "Evans", "domain.com"),  # reserved domain
+    ("{first}.{last}@{domain}", "", "Davis", "corp.com"),   # no first name
+    ("{nope}@{domain}", "Ken", "Evans", "corp.com"),        # unknown placeholder
+])
+def test_renderer_rejects_unusable(pattern, first, last, domain):
+    assert render_pattern_email(pattern, first, last, domain) is None
+
+
+def test_renderer_is_what_build_email_uses():
+    """build_email must not re-implement rendering."""
+    import inspect
+    from leads.email_pattern_system import EmailPatternSystem
+    src = inspect.getsource(EmailPatternSystem.build_email)
+    assert "render_pattern_email" in src
+    assert "pattern.format(" not in src
+
+
+def test_bulk_applier_uses_the_renderer():
+    import inspect
+    from leads.email_pattern_system import EmailPatternSystem
+    src = inspect.getsource(EmailPatternSystem.apply_pattern_to_domain_leads)
+    assert "render_pattern_email" in src
+    assert "pattern_str.format(" not in src
