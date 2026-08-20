@@ -10,6 +10,7 @@ from fastapi.responses import Response, RedirectResponse
 from dotenv import load_dotenv
 from pymongo import MongoClient
 from typing import List, Dict, Any, Optional
+from urllib.parse import urlparse
 from bson import ObjectId
 from datetime import datetime, timedelta
 from fastapi import Path
@@ -3684,6 +3685,52 @@ def generate_survey_no():
         if not projects_collection.find_one({"surveyNo": survey_no}):
             return survey_no
         
+# Project link fields that become an HTTP redirect target for a respondent.
+# /cpx/redirect reads liveLink and falls back to clientLink, so both are checked:
+# a bad scheme in either one 400s the respondent instead of reaching the survey.
+_PROJECT_LINK_FIELDS = (("liveLink", "Live Link"), ("clientLink", "Client Link"))
+
+
+def _validate_project_links(project_data: Dict[str, Any]) -> None:
+    """
+    Reject a project link whose scheme is not exactly http or https.
+
+    A project was saved with "ttps://vseinfotech.com/..." - a typo for https -
+    and every respondent routed to it got a 400 from /cpx/redirect instead of
+    the survey, because urlparse reads "ttps" as a valid-looking scheme.
+
+    Deliberately NO auto-repair. These values are redirect targets; silently
+    rewriting one hides bad data rather than fixing it, and a guessed scheme on
+    a redirect is exactly the kind of thing that should stay explicit.
+
+    An empty value is allowed - projects are routinely created before the link
+    exists, and /cpx/redirect reports a missing link as its own distinct error.
+    """
+    for field, label in _PROJECT_LINK_FIELDS:
+        raw = project_data.get(field)
+        if raw is None:
+            continue
+        raw = str(raw)
+        if not raw.strip():
+            continue
+
+        if raw != raw.strip():
+            raise HTTPException(
+                status_code=400,
+                detail=f"{label} ({field}): remove the whitespace around the URL.",
+            )
+
+        scheme = urlparse(raw).scheme
+        if scheme not in ("http", "https"):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"{label} ({field}): must start with http:// or https:// - "
+                    f"got '{scheme or 'no scheme'}'."
+                ),
+            )
+
+
 @app.post("/projects/")
 async def create_project(project_data: Dict[str, Any] = Body(...)):
     try:
@@ -3694,6 +3741,8 @@ async def create_project(project_data: Dict[str, Any] = Body(...)):
             raise HTTPException(status_code=400, detail="Sales person is required")
         if not project_data.get("client") or not project_data["client"].strip():
             raise HTTPException(status_code=400, detail="Client is required")
+
+        _validate_project_links(project_data)
 
         project_data["surveyNo"] = generate_survey_no()
         project_data["createdAt"] = datetime.utcnow()
@@ -3734,10 +3783,15 @@ async def create_project_no_slash(project_data: Dict[str, Any] = Body(...)):
 async def update_project(project_id: str, project_data: Dict[str, Any] = Body(...)):
     try:
         project_data = {k: v for k, v in project_data.items() if k not in ["_id", "surveyNo"]}
+        _validate_project_links(project_data)
         result = projects_collection.update_one({"_id": ObjectId(project_id)}, {"$set": project_data})
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Project not found")
         return {"message": "Project updated successfully"}
+    except HTTPException:
+        # Without this the bare handler below swallowed every deliberate status:
+        # the 404 above, and now the link-validation 400, both surfaced as 500s.
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Project update error: {str(e)}")
 

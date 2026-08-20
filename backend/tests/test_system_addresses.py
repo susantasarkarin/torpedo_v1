@@ -192,3 +192,39 @@ def test_local_part_only_is_unmailable(email):
 ])
 def test_real_addresses_are_mailable(email):
     assert is_mailable(email) is True
+
+
+# ── Address shape ──────────────────────────────────────────────────────────
+# "one @ with something either side" is not enough. A name-derived pattern
+# applied to "Penava, CHRL" produced `vpenava, chrl@blizzard.com` — a space and
+# a comma in the local part — which passed that test and was written to both
+# lead collections.
+
+@pytest.mark.parametrize("email", [
+    "vpenava, chrl@blizzard.com",   # space + comma, seen in production
+    "a b@corp.com",                 # space
+    "a,b@corp.com",                 # comma
+    "a..b@corp.com",                # doubled dot
+    ".lead@corp.com",               # leading dot
+    "lead.@corp.com",               # trailing dot
+    "user@nodot",                   # no TLD
+    "user@-corp.com",               # hyphen-edged label
+    "user@corp-.com",
+    "user@.corp.com",               # empty label
+])
+def test_bad_address_shapes_are_malformed(email):
+    assert is_malformed_address(email) is True
+    assert is_mailable(email) is False
+
+
+@pytest.mark.parametrize("email", [
+    "o'brien@firm.co.uk",           # apostrophe is legal in a local part
+    "mary-jane.smith@sub.corp.co",  # hyphen, dots, subdomain
+    "a+tag@corp.com",               # plus addressing
+    "x_y@corp.io",
+    "celine.vargas@kantar.com",
+    "stacey.lethbridge@ipsos.com",
+])
+def test_legitimate_shapes_still_pass(email):
+    assert is_malformed_address(email) is False
+    assert is_mailable(email) is True

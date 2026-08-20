@@ -121,8 +121,19 @@ def split_address(email: str) -> tuple[str, str]:
     return local.strip(), domain.strip()
 
 
+# RFC 5322 unquoted local part: letters, digits, a defined set of specials, and
+# dots that neither lead, trail, nor double up.
+_LOCAL_ATOM = r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+"
+LOCAL_PART_PATTERN = re.compile(rf"^{_LOCAL_ATOM}(?:\.{_LOCAL_ATOM})*$")
+
+# A domain needs at least one dot and no empty or hyphen-edged labels.
+DOMAIN_PATTERN = re.compile(
+    r"^(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z]{2,}$"
+)
+
+
 def is_malformed_address(email: str) -> bool:
-    """True when the value is not a parseable address at all.
+    """True when the value is not a usable address.
 
     Distinct from `is_system_address` on purpose. Enrichment leaves literal
     placeholders behind — `firstname.lastname`, `firstnamelastname` — on lead
@@ -130,9 +141,21 @@ def is_malformed_address(email: str) -> bool:
     into "system address" made a cleanup script propose deleting a Kantar
     contact as though it were a mailer-daemon. Unmailable and not-a-person are
     different problems and want different handling.
+
+    Checking only for "one @ with something on each side" is not enough: a
+    name-derived pattern applied to "Penava, CHRL" produced
+    `vpenava, chrl@blizzard.com`, which has a space and a comma in the local
+    part and can never be delivered, yet passed that test and was written to
+    both lead collections.
     """
     local, domain = split_address(email)
-    return not local or not domain
+    if not local or not domain:
+        return True
+    if not LOCAL_PART_PATTERN.match(local):
+        return True
+    if not DOMAIN_PATTERN.match(domain):
+        return True
+    return False
 
 
 def is_system_address(email: str) -> bool:
