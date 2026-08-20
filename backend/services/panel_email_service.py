@@ -70,6 +70,23 @@ PANEL_SEND_TIMEZONE = os.getenv("PANEL_SEND_TIMEZONE", "Asia/Kolkata")
 # same-day dedup only, which meant a lead near the front of the rotation could
 # be mailed on consecutive days.
 PANEL_INVITE_MIN_GAP_DAYS = int(os.getenv("PANEL_INVITE_MIN_GAP_DAYS", "3"))
+
+# Lifetime ceiling on register-invites per panelist. The gap above spaces sends
+# out but never stops them, so a lead who never engages was mailed every few
+# days indefinitely: 2.87M sends to 186K people, and 108,148 of them received
+# 14 invites each for a combined 3 clicks.
+#
+# Measured against every clicker on record, 55% clicked by invite 3 and 66% by
+# invite 8; invites 9-14 cost roughly 6,200 emails per additional clicker
+# against 1,500 for the first three. The tail is not empty, so the value is a
+# commercial trade-off rather than a constant — hence an env var.
+#
+# UNSET or a value < 1 means no lifetime cap (previous behaviour). Note this is
+# deliberately NOT the cap=0 convention used for the daily batch size, where 0
+# is the kill switch: here 0 would silently stop the entire invite programme,
+# which is exactly the kind of surprise that convention exists to prevent.
+_max_invites_raw = os.getenv("PANEL_MAX_INVITES_PER_PANELIST", "").strip()
+PANEL_MAX_INVITES_PER_PANELIST = int(_max_invites_raw) if _max_invites_raw.isdigit() else 0
 # Manual safety ceiling only. ses_budget_for_bulk() reads the real quota from
 # AWS each run and takes whichever is lower, so this exists to stop a runaway
 # blast, not to size the daily batch. Held above the live Max24HourSend
@@ -869,6 +886,22 @@ def send_bulk_invitations(
             for doc in suppression_collection.find({"email": {"$in": emails}}, {"email": 1})
         }
 
+        # Lifetime cap. Counted from the send log rather than a counter on the
+        # panelist, so it stays correct for the ~186K people already mailed
+        # before this existed — a fresh counter would reset everyone to zero
+        # and hand the worst offenders another full allowance.
+        exhausted_set = set()
+        if PANEL_MAX_INVITES_PER_PANELIST > 0:
+            exhausted_set = {
+                row["_id"]
+                for row in invitation_log_collection.aggregate([
+                    {"$match": {"email": {"$in": emails},
+                                "sent_at": {"$exists": True, "$ne": None}}},
+                    {"$group": {"_id": "$email", "n": {"$sum": 1}}},
+                    {"$match": {"n": {"$gte": PANEL_MAX_INVITES_PER_PANELIST}}},
+                ])
+            }
+
         if daily_mode:
             # Backstop for the query-level prefilter above: records predating
             # last_invited_at only prove their cooldown through the send log.
@@ -893,6 +926,8 @@ def send_bulk_invitations(
         out = []
         for email, panelist in pairs:
             doc_status = str(panelist.get("status") or "").strip().lower()
+            if email in exhausted_set:
+                continue
             # Skip double opted-in
             if panelist.get("double_opt_in_completed"):
                 continue
