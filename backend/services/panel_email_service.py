@@ -87,6 +87,23 @@ PANEL_INVITE_MIN_GAP_DAYS = int(os.getenv("PANEL_INVITE_MIN_GAP_DAYS", "3"))
 # which is exactly the kind of surprise that convention exists to prevent.
 _max_invites_raw = os.getenv("PANEL_MAX_INVITES_PER_PANELIST", "").strip()
 PANEL_MAX_INVITES_PER_PANELIST = int(_max_invites_raw) if _max_invites_raw.isdigit() else 0
+
+# Register-invites are logged as type="signup". Counting every row instead made
+# the ceiling stricter than its name: login reminders and drip emails, which
+# are governed by their own separate caps, were consuming a panelist's
+# register-invite allowance. Rows predating the type field carry no type at
+# all, so they are counted too — they are historical signup invites.
+INVITE_COUNT_TYPES = ["signup", None]
+
+# Total emails of ANY kind this panelist may receive, across register invites,
+# login reminders and all drip stages. Each of those has its own cap, but
+# nothing bounded the sum: a lead could take 8 register invites, then login
+# reminders, then three separate drip sequences. Audit found people on 14-30
+# lifetime emails still receiving drips.
+#
+# UNSET or < 1 means no global ceiling (previous behaviour).
+_max_total_raw = os.getenv("PANEL_MAX_TOTAL_EMAILS_PER_PANELIST", "").strip()
+PANEL_MAX_TOTAL_EMAILS_PER_PANELIST = int(_max_total_raw) if _max_total_raw.isdigit() else 0
 # Manual safety ceiling only. ses_budget_for_bulk() reads the real quota from
 # AWS each run and takes whichever is lower, so this exists to stop a runaway
 # blast, not to size the daily batch. Held above the live Max24HourSend
@@ -896,9 +913,24 @@ def send_bulk_invitations(
                 row["_id"]
                 for row in invitation_log_collection.aggregate([
                     {"$match": {"email": {"$in": emails},
-                                "sent_at": {"$exists": True, "$ne": None}}},
+                                "sent_at": {"$exists": True, "$ne": None},
+                                "type": {"$in": INVITE_COUNT_TYPES}}},
                     {"$group": {"_id": "$email", "n": {"$sum": 1}}},
                     {"$match": {"n": {"$gte": PANEL_MAX_INVITES_PER_PANELIST}}},
+                ])
+            }
+
+        # Global ceiling across every email type. Applied on top of the
+        # register-invite cap, so narrowing that count by type above cannot
+        # widen total contact.
+        if PANEL_MAX_TOTAL_EMAILS_PER_PANELIST > 0:
+            exhausted_set |= {
+                row["_id"]
+                for row in invitation_log_collection.aggregate([
+                    {"$match": {"email": {"$in": emails},
+                                "sent_at": {"$exists": True, "$ne": None}}},
+                    {"$group": {"_id": "$email", "n": {"$sum": 1}}},
+                    {"$match": {"n": {"$gte": PANEL_MAX_TOTAL_EMAILS_PER_PANELIST}}},
                 ])
             }
 
@@ -1115,9 +1147,26 @@ def send_bulk_login_invitations(
                 {"email": 1}
             )
         }
+        # Global lifetime ceiling across every panel email type. Without it a
+        # registered panelist could keep receiving a daily login reminder
+        # indefinitely, on top of whatever invites and drips they already had.
+        over_ceiling = set()
+        if PANEL_MAX_TOTAL_EMAILS_PER_PANELIST > 0:
+            over_ceiling = {
+                row["_id"]
+                for row in invitation_log_collection.aggregate([
+                    {"$match": {"email": {"$in": emails},
+                                "sent_at": {"$exists": True, "$ne": None}}},
+                    {"$group": {"_id": "$email", "n": {"$sum": 1}}},
+                    {"$match": {"n": {"$gte": PANEL_MAX_TOTAL_EMAILS_PER_PANELIST}}},
+                ])
+            }
+
         return [
             p for e, p in pairs
-            if e not in already_sent_today and e not in suppressed_set
+            if e not in already_sent_today
+            and e not in suppressed_set
+            and e not in over_ceiling
         ]
 
     # Oldest-invited-or-never-invited first — same rotation fix as

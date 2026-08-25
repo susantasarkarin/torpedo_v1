@@ -382,7 +382,7 @@ class TestZeroLLMCallsForSystemEmails:
         mock_db = MagicMock()
         mock_db.__getitem__ = MagicMock(return_value=MagicMock())
         mock_db.client = MagicMock()
-        mock_db.client.__getitem__ = MagicMock(return_value={"leads": MagicMock()})
+        mock_db.client.__getitem__ = MagicMock(return_value={"leads": MagicMock(), "leads_raw": MagicMock()})
         
         classifier = OpenAIEmailClassifier(db=mock_db)
         
@@ -406,7 +406,7 @@ class TestZeroLLMCallsForSystemEmails:
         mock_db = MagicMock()
         mock_db.__getitem__ = MagicMock(return_value=MagicMock())
         mock_db.client = MagicMock()
-        mock_db.client.__getitem__ = MagicMock(return_value={"leads": MagicMock()})
+        mock_db.client.__getitem__ = MagicMock(return_value={"leads": MagicMock(), "leads_raw": MagicMock()})
         
         classifier = OpenAIEmailClassifier(db=mock_db)
         result = classifier.classify_email(ooo_email)

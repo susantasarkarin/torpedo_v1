@@ -36,19 +36,23 @@ from botocore.exceptions import ClientError
 try:
     from services.panel_bounce_handler import (
         log_invitation, panelists_collection, suppression_collection,
+        invitation_log_collection,
     )
     from services.panel_email_service import (
         _apply_unsubscribe, _get_ses_client, _send_batch_concurrently,
         ses_budget_for_bulk, PANEL_LOGO_URL, SES_FROM_EMAIL, SES_FROM_NAME,
+        PANEL_MAX_TOTAL_EMAILS_PER_PANELIST,
     )
     from services.panel_funnel import SEGMENTS
 except ImportError:  # pragma: no cover - flat import when run from backend/
     from backend.services.panel_bounce_handler import (
         log_invitation, panelists_collection, suppression_collection,
+        invitation_log_collection,
     )
     from backend.services.panel_email_service import (
         _apply_unsubscribe, _get_ses_client, _send_batch_concurrently,
         ses_budget_for_bulk, PANEL_LOGO_URL, SES_FROM_EMAIL, SES_FROM_NAME,
+        PANEL_MAX_TOTAL_EMAILS_PER_PANELIST,
     )
     from backend.services.panel_funnel import SEGMENTS
 
@@ -286,9 +290,29 @@ def run_drip_stage(
             for d in suppression_collection.find({"email": {"$in": chunk}}, {"email": 1})
         }
 
+    # Global lifetime ceiling across every panel email type. Each stage already
+    # caps its own sequence, but nothing bounded the sum, so a panelist could
+    # absorb register invites, login reminders and three separate drip
+    # sequences in turn. An audit found drip mail still going to people on
+    # 14-30 lifetime emails.
+    over_ceiling = set()
+    if PANEL_MAX_TOTAL_EMAILS_PER_PANELIST > 0:
+        for start in range(0, len(emails), 2000):
+            chunk = emails[start:start + 2000]
+            over_ceiling |= {
+                r["_id"]
+                for r in invitation_log_collection.aggregate([
+                    {"$match": {"email": {"$in": chunk},
+                                "sent_at": {"$exists": True, "$ne": None}}},
+                    {"$group": {"_id": "$email", "n": {"$sum": 1}}},
+                    {"$match": {"n": {"$gte": PANEL_MAX_TOTAL_EMAILS_PER_PANELIST}}},
+                ])
+            }
+
     to_send = [
         p for p in candidates
         if (p.get("email") or "").lower().strip() not in suppressed
+        and (p.get("email") or "").lower().strip() not in over_ceiling
     ]
     skipped = len(candidates) - len(to_send)
 

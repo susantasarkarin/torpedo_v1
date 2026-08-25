@@ -794,18 +794,25 @@ class EmailPatternSystem:
                 derived_email = render_pattern_email(pattern_str, first, last, domain)
                 if not derived_email:
                     continue
+                # email_status must move off "pending_pattern" here. This wrote
+                # the address but left the old status, so a lead that HAD been
+                # filled in still reported as awaiting a pattern — 22 records
+                # showed a valid address under a "pending" label, which makes
+                # the awaiting-data count untrustworthy.
                 enriched.update_one(
                     {"_id": lead["_id"]},
                     {"$set": {
                         "email": derived_email,
                         "email_source": "pattern_derived",
+                        "email_status": "Predicted",
                         "updated_at": datetime.utcnow(),
                     }},
                 )
                 # Also update leads_raw
                 self.db["leads_raw"].update_one(
                     {"enriched_lead_id": str(lead["_id"])},
-                    {"$set": {"email": derived_email, "email_source": "pattern_derived", "updated_at": datetime.utcnow()}},
+                    {"$set": {"email": derived_email, "email_source": "pattern_derived",
+                              "email_status": "Predicted", "updated_at": datetime.utcnow()}},
                 )
                 updated += 1
             except (KeyError, IndexError):
