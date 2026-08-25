@@ -3210,7 +3210,11 @@ async def cpx_redirect(request: Request, id: str = Query(..., description="Traff
         else:
             is_valid, error_msg = validate_redirect_url(entry_link, require_https=False)
             if not is_valid:
-                print(f"âŒ CPX Redirect: Invalid entry link ({error_msg}): {entry_link[:80]}...")
+                print(
+                    f"❌ CPX Redirect: rejected entry link for traffic record {id}: "
+                    f"{error_msg} [scheme={parsed_entry_link.scheme or '(none)'}, "
+                    f"host={entry_host or '(none)'}] {entry_link[:80]}..."
+                )
                 # scheme/host (never the full URL - it carries respondent ids) so a
                 # live 400 names its own cause instead of needing a shell on the box.
                 raise HTTPException(
