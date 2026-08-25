@@ -263,14 +263,26 @@ def get_panelist_from_session(session_id: str) -> Optional[dict]:
     return panelist
 
 
+# Fields that are impossible to leave blank: PanelistSignupRequest requires
+# first_name/last_name/email/country, and language defaults to "English" when
+# omitted. Every account has all five the instant it exists.
+_PROFILE_COMPLETION_OPTIONAL_FIELDS = [
+    "phone", "date_of_birth", "gender", "address", "city",
+    "postal_code", "occupation", "education", "income_range",
+]
+
+
 def calculate_profile_completion(panelist: dict) -> int:
-    """Calculate profile completion percentage"""
-    fields = [
-        "first_name", "last_name", "email", "country", "language",
-        "phone", "date_of_birth", "gender", "address", "city",
-        "postal_code", "occupation", "education", "income_range"
-    ]
-    
+    """Percentage of the OPTIONAL profile fields a panelist has filled in.
+
+    Previously averaged across all 14 fields including the five that are
+    mandatory at signup, so a brand-new account with nothing else filled in
+    always reported ~36% — the dashboard's "profile completion" number, and
+    the progress ring shown to the panelist, could never read below that
+    floor regardless of actual engagement. Restricting the denominator to
+    fields the user actually chooses to fill in makes 0% mean what it says.
+    """
+    fields = _PROFILE_COMPLETION_OPTIONAL_FIELDS
     filled = sum(1 for f in fields if panelist.get(f))
     return int((filled / len(fields)) * 100)
 
