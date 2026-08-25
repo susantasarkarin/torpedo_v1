@@ -200,6 +200,17 @@ celery_app.conf.update(
             'schedule': crontab(hour=6, minute=0),
             'options': {'queue': 'default'},
         },
+        'panel-health-check': {
+            # Hourly, on the hour. This is what would have caught
+            # lead_promotion logging scanned=0 every night for two weeks: it
+            # flags a cron that has gone stale, a rising send-failure rate, or
+            # SES quota headroom dropping below the transactional reserve, and
+            # logs at ERROR so it shows up in journalctl even with no alert
+            # destination (Slack/email) configured.
+            'task': 'backend.tasks.panel_tasks.check_panel_health',
+            'schedule': crontab(minute=0),
+            'options': {'queue': 'default'},
+        },
     },
     
     # Retry settings

@@ -28,6 +28,8 @@ panelists_collection = _db["panelists"]
 # Ensure indexes
 try:
     suppression_collection.create_index([("email", 1)], unique=True)
+    # panel_health's suppression-velocity check runs this hourly.
+    suppression_collection.create_index([("suppressed_at", -1)], sparse=True)
     invitation_log_collection.create_index([("email", 1)])
     invitation_log_collection.create_index([("batch_id", 1)])
     invitation_log_collection.create_index([("ses_message_id", 1)], sparse=True)
@@ -37,6 +39,9 @@ try:
     # the email-only index made every such probe re-scan an address's whole
     # send history. Compound covers it in one seek per address.
     invitation_log_collection.create_index([("email", 1), ("status", 1), ("sent_at", -1)])
+    # Groups failures by cause for the health/triage view. sparse: most rows
+    # are status=sent and never carry an error_code at all.
+    invitation_log_collection.create_index([("error_code", 1), ("sent_at", -1)], sparse=True)
     # Drives the invite rotation: send_bulk_invitations both filters on and
     # sorts by last_invited_at. Without it the daily run does a 190K-doc
     # collection scan plus an in-memory sort before it can send anything.
@@ -289,8 +294,19 @@ def log_invitation(
     invite_token: str = "",
     template_version: str = "",
     type: str = "signup",
+    error_code: str = "",
+    error_message: str = "",
 ) -> None:
-    """Log a sent invitation for duplicate detection. Type can be 'signup' or 'login'."""
+    """Log a sent invitation for duplicate detection. Type can be 'signup' or 'login'.
+
+    error_code/error_message capture WHY a send failed. Before this every
+    status="failed" row carried zero diagnostic information — 45.6% of all
+    send attempts (1.09M of 2.38M) were logged as failures with nothing to
+    tell an operator whether that was one bad domain hit a million times or a
+    million different invalid addresses. error_code is the SES/botocore error
+    code (e.g. "MessageRejected", "MailFromDomainNotVerified") so failures can
+    be grouped and triaged, not just counted.
+    """
     doc = {
         "email": email.lower().strip(),
         "panelist_id": panelist_id,
@@ -301,6 +317,12 @@ def log_invitation(
         "type": type,
         "sent_at": datetime.utcnow(),
     }
+    if error_code:
+        doc["error_code"] = error_code
+    if error_message:
+        # Truncated: some SES messages echo back the raw MIME payload on
+        # certain rejections, which has no business living in a log document.
+        doc["error_message"] = error_message[:500]
     # Only store invite_token when there actually is one. The index on
     # invite_token is unique+sparse; sparse skips MISSING fields but NOT an
     # empty string, so writing "" made the 2nd tokenless row (e.g. every

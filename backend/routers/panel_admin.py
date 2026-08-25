@@ -966,6 +966,21 @@ async def get_daily_email_stats(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/dashboard/health")
+async def get_panel_health(request: Request):
+    """Cron staleness, send failure rate/breakdown, suppression velocity, SES
+    quota headroom. Same computation the hourly check_panel_health task runs;
+    this just lets the dashboard show it without waiting for the next tick."""
+    verify_admin_session(request)
+
+    try:
+        from services.panel_health import check_panel_health
+        return await asyncio.to_thread(check_panel_health)
+    except Exception as e:
+        logger.error(f"Error computing panel health: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/dashboard/funnel")
 async def get_conversion_funnel(
     request: Request,

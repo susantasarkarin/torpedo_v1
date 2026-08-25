@@ -19,6 +19,19 @@ from backend.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 
+def _heartbeat(job_name: str, **extra) -> None:
+    """Record that `job_name` completed. Never allowed to fail the task —
+    losing the heartbeat write must not be worse than not writing it."""
+    try:
+        try:
+            from services.panel_job_state import record_heartbeat
+        except ImportError:
+            from backend.services.panel_job_state import record_heartbeat
+        record_heartbeat(job_name, extra or None)
+    except Exception as e:
+        logger.warning(f"[panel-heartbeat] failed to record {job_name}: {e}")
+
+
 @celery_app.task(
     name="backend.tasks.panel_tasks.send_daily_panel_invitations",
     bind=True,
@@ -46,6 +59,7 @@ def send_daily_panel_invitations(self):
             f"skipped={result.get('skipped')} failed={result.get('failed')} "
             f"capped={result.get('capped')} batch={result.get('batch_id')}"
         )
+        _heartbeat("invite_cron", sent=result.get("sent"), failed=result.get("failed"))
         return result
     except Exception as exc:
         logger.error(f"[daily-panel-invite] error: {exc}", exc_info=True)
@@ -79,6 +93,7 @@ def sync_ses_suppression(self):
             f"added={result.get('added')} pages={result.get('pages')} "
             f"truncated={result.get('truncated')}"
         )
+        _heartbeat("suppression_sync", added=result.get("added"))
         return result
     except Exception as exc:
         logger.error(f"[panel-suppression-sync] error: {exc}", exc_info=True)
@@ -109,6 +124,7 @@ def sync_panel_registrations(self):
             f"unique={result.get('unique_emails')} newly_marked={result.get('newly_marked')} "
             f"log_confirmed={result.get('log_confirmed')}"
         )
+        _heartbeat("registration_sync", newly_marked=result.get("newly_marked"))
         return result
     except Exception as exc:
         logger.error(f"[panel-sync-registrations] error: {exc}", exc_info=True)
@@ -149,6 +165,7 @@ def promote_panelist_leads(self, limit: int = None):
             f"capped={result.get('capped')} "
             f"watermark={result.get('watermark_advanced_to')}"
         )
+        _heartbeat("lead_promotion", scanned=result.get("scanned"), inserted=result.get("inserted"))
         return result
     except Exception as exc:
         logger.error(f"[panel-lead-promotion] error: {exc}", exc_info=True)
@@ -179,6 +196,7 @@ def run_panel_reengagement_drips(self):
 
         result = run_all_drip_stages()
         logger.info(f"[panel-drips] total_sent={result.get('total_sent')} stages={result.get('stages')}")
+        _heartbeat("drip_cron", total_sent=result.get("total_sent"))
         return result
     except Exception as exc:
         logger.error(f"[panel-drips] error: {exc}", exc_info=True)
@@ -208,7 +226,42 @@ def send_daily_panel_login_invitations(self):
             f"skipped={result.get('skipped')} failed={result.get('failed')} "
             f"capped={result.get('capped')} batch={result.get('batch_id')}"
         )
+        _heartbeat("login_cron", sent=result.get("sent"), failed=result.get("failed"))
         return result
     except Exception as exc:
         logger.error(f"[daily-panel-login-invite] error: {exc}", exc_info=True)
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="backend.tasks.panel_tasks.check_panel_health",
+    bind=True,
+    max_retries=1,
+    default_retry_delay=300,
+    soft_time_limit=120,
+    time_limit=150,
+)
+def check_panel_health(self):
+    """Hourly health snapshot: stale crons, send failure rate, SES quota.
+
+    Logs ERROR/WARNING on threshold breach so it is visible in
+    journalctl -u torpedo-backend and picked up by any future log shipper.
+    This is what would have caught lead_promotion scanning 0 leads every
+    night for two weeks, and is the reason it now can not happen silently
+    again.
+    """
+    try:
+        try:
+            from services.panel_health import check_panel_health as run_check
+        except ImportError:
+            from backend.services.panel_health import check_panel_health as run_check
+
+        result = run_check()
+        logger.info(
+            f"[panel-health] healthy={result.get('healthy')} "
+            f"problems={len(result.get('problems') or [])}"
+        )
+        return result
+    except Exception as exc:
+        logger.error(f"[panel-health] check itself failed: {exc}", exc_info=True)
         raise self.retry(exc=exc)

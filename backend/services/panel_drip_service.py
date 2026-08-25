@@ -315,6 +315,8 @@ def run_drip_stage(
             status="sent" if ok else "failed",
             template_version=f"panel-drip-{stage_key}-v1",
             type=f"drip_{stage_key}",
+            error_code="" if ok else str(details.get("error", "")),
+            error_message="" if ok else str(details.get("message", "")),
         )
         # Counted on attempt, not on success: a repeatedly failing address must
         # still exhaust its cap rather than be retried forever.

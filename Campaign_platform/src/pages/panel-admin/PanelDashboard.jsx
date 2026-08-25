@@ -10,6 +10,56 @@ const COUNTRY_NAMES = {
 }
 function countryName(cc) { return COUNTRY_NAMES[cc] || cc }
 
+function HealthBanner({ health, loading, onRefresh }) {
+  if (loading && !health) return null
+  if (!health) return null
+
+  const problems = health.problems || []
+  const ok = health.healthy
+
+  return (
+    <div
+      style={{
+        marginBottom: "1.5rem",
+        padding: "0.9rem 1.1rem",
+        borderRadius: "10px",
+        border: `1px solid ${ok ? "#a7f3d0" : "#fecaca"}`,
+        backgroundColor: ok ? "#ecfdf5" : "#fef2f2",
+        display: "flex",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        gap: "1rem",
+      }}
+    >
+      <div style={{ flex: 1 }}>
+        <p style={{ margin: 0, fontWeight: 700, color: ok ? "#065f46" : "#991b1b", fontSize: "0.9rem" }}>
+          {ok ? "Panel systems healthy" : `${problems.length} panel health issue${problems.length === 1 ? "" : "s"}`}
+        </p>
+        {!ok && (
+          <ul style={{ margin: "0.4rem 0 0", paddingLeft: "1.1rem", color: "#7f1d1d", fontSize: "0.8rem", lineHeight: 1.6 }}>
+            {problems.map((p, i) => (
+              <li key={i}>{p.replace(/^\[panel-health\]\s*/, "")}</li>
+            ))}
+          </ul>
+        )}
+        <p style={{ margin: "0.4rem 0 0", fontSize: "0.7rem", color: "#9ca3af" }}>
+          Checked {health.generated_at ? new Date(health.generated_at).toLocaleString() : "—"} · runs hourly
+        </p>
+      </div>
+      <button
+        onClick={onRefresh}
+        style={{
+          padding: "0.35rem 0.75rem", fontSize: "0.75rem", fontWeight: 600, borderRadius: "6px",
+          border: `1px solid ${ok ? "#6ee7b7" : "#fca5a5"}`, background: "#fff",
+          color: ok ? "#065f46" : "#991b1b", cursor: "pointer", whiteSpace: "nowrap",
+        }}
+      >
+        Refresh
+      </button>
+    </div>
+  )
+}
+
 function StatCard({ label, value, sub, color }) {
   return (
     <div style={{ padding: "1.5rem", border: "1px solid #e5e7eb", borderRadius: "12px", backgroundColor: "#f9fafb" }}>
@@ -37,6 +87,10 @@ function PanelDashboard() {
   const [sfwCountries, setSfwCountries] = useState([])
   const [sfwLoading, setSfwLoading] = useState(false)
 
+  // Health check: cron staleness, failure rate, SES quota headroom
+  const [health, setHealth] = useState(null)
+  const [healthLoading, setHealthLoading] = useState(false)
+
   // Conversion funnel + re-engagement drips
   const [funnel, setFunnel] = useState(null)
   const [funnelLoading, setFunnelLoading] = useState(false)
@@ -53,7 +107,23 @@ function PanelDashboard() {
     fetchSfwPanelData()
     fetchFunnel()
     fetchDripStatus()
+    fetchHealth()
   }, [])
+
+  const fetchHealth = async () => {
+    setHealthLoading(true)
+    const sessionId = localStorage.getItem("session_id")
+    try {
+      const res = await fetch(buildApiUrl(`${PANEL_ADMIN_API_PREFIX}/dashboard/health`), {
+        headers: { Authorization: sessionId },
+      })
+      if (res.ok) setHealth(await res.json())
+    } catch (err) {
+      console.error("Failed to fetch panel health:", err)
+    } finally {
+      setHealthLoading(false)
+    }
+  }
 
   const fetchFunnel = async (refresh = false) => {
     setFunnelLoading(true)
@@ -181,6 +251,8 @@ function PanelDashboard() {
 
   return (
     <div>
+      <HealthBanner health={health} loading={healthLoading} onRefresh={fetchHealth} />
+
       {/* ── Existing email campaign dashboard ─────────────────────────────── */}
       <div className="card">
         <div className="card-header">

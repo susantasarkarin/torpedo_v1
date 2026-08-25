@@ -973,6 +973,8 @@ def send_bulk_invitations(
             status="sent" if success else "failed",
             invite_token=invite_token,
             template_version=PANEL_TEMPLATE_VERSION,
+            error_code="" if success else str(details.get("error", "")),
+            error_message="" if success else str(details.get("message", "")),
         )
         # Push this lead to the back of tomorrow's queue regardless of outcome,
         # so a bad address can't get permanently stuck at the front and block
@@ -1144,6 +1146,8 @@ def send_bulk_login_invitations(
             status="sent" if success else "failed",
             template_version="panel-login-v1",
             type="login",
+            error_code="" if success else str(details.get("error", "")),
+            error_message="" if success else str(details.get("message", "")),
         )
         panelists_collection.update_one(
             {"_id": panelist["_id"]},
