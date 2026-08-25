@@ -1,21 +1,44 @@
-  const [totalPOs, setTotalPOs] = useState(0)
+"use client"
+
+import { useState, useEffect, useRef, useMemo } from "react"
+import { useNavigate } from "react-router-dom"
+import { API_BASE_URL } from "../../config"
+import { Package, Plus, Search, Eye, FileText, CheckCircle, X, Loader2, Trash2, Upload, Download } from "lucide-react"
+import { buildApiUrl } from "../../config"
+import { authFetch } from "../../utils/api"
+import Pagination from "../../components/ui/Pagination"
+
+function PurchaseOrdersPage() {
+  const navigate = useNavigate()
+  const [purchaseOrders, setPurchaseOrders] = useState([])
+  const [vendors, setVendors] = useState([])
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState("")
+  const [statusFilter, setStatusFilter] = useState("all")
+  const [showModal, setShowModal] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
   const [recordsPerPage, setRecordsPerPage] = useState(100)
+  const [totalPOs, setTotalPOs] = useState(0)
   const totalPages = Math.ceil(totalPOs / recordsPerPage)
+  const fileInputRef = useRef(null)
+  const [formData, setFormData] = useState({
+    vendor_id: "",
+    po_number: "",
+    order_date: new Date().toISOString().split("T")[0],
+    expected_delivery: "",
+    items: [{ item_id: "", description: "", quantity: 1, rate: 0, tax_rate: 18 }],
+    shipping_address: "",
+    notes: "",
+  })
 
   useEffect(() => {
     fetchPurchaseOrders(currentPage, recordsPerPage, searchTerm, statusFilter)
     fetchVendors()
     fetchItems()
   }, [currentPage, recordsPerPage, searchTerm, statusFilter])
-
-  const handleRecordsPerPageChange = (value) => {
-    setRecordsPerPage(parseInt(value))
-    setCurrentPage(1)
-  }
-
-  const handlePageChange = (page) => {
-    setCurrentPage(page)
-  }
 
   const fetchPurchaseOrders = async (page = 1, page_size = 100, search = "", status = "all") => {
     setLoading(true)
@@ -31,67 +54,6 @@
         const data = await response.json()
         setPurchaseOrders(data.items || [])
         setTotalPOs(data.total || 0)
-      }
-    } catch (error) {
-      console.error("Error fetching purchase orders:", error)
-    } finally {
-      setLoading(false)
-    }
-  }
-      <Pagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        totalRecords={totalPOs}
-        pageSize={recordsPerPage}
-        onPageChange={handlePageChange}
-        onPageSizeChange={handleRecordsPerPageChange}
-        loading={loading}
-      />
-"use client"
-
-import { useState, useEffect, useRef, useMemo } from "react"
-import { useNavigate } from "react-router-dom"
-import { API_BASE_URL } from "../../config"
-import { Package, Plus, Search, Eye, FileText, CheckCircle, X, Loader2, Trash2, Upload, Download } from "lucide-react"
-import { buildApiUrl } from "../../config"
-import { authFetch } from "../../utils/api"
-
-function PurchaseOrdersPage() {
-  const navigate = useNavigate()
-  const [purchaseOrders, setPurchaseOrders] = useState([])
-  const [vendors, setVendors] = useState([])
-  const [items, setItems] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
-  const [showModal, setShowModal] = useState(false)
-  const [exporting, setExporting] = useState(false)
-  const [importing, setImporting] = useState(false)
-  const [currentPage, setCurrentPage] = useState(1)
-  const [recordsPerPage, setRecordsPerPage] = useState(10)
-  const fileInputRef = useRef(null)
-  const [formData, setFormData] = useState({
-    vendor_id: "",
-    po_number: "",
-    order_date: new Date().toISOString().split("T")[0],
-    expected_delivery: "",
-    items: [{ item_id: "", description: "", quantity: 1, rate: 0, tax_rate: 18 }],
-    shipping_address: "",
-    notes: "",
-  })
-
-  useEffect(() => {
-    fetchPurchaseOrders()
-    fetchVendors()
-    fetchItems()
-  }, [])
-
-  const fetchPurchaseOrders = async () => {
-    try {
-      const response = await authFetch(buildApiUrl(`/finance/purchase-orders/`))
-      if (response.ok) {
-        const data = await response.json()
-        setPurchaseOrders(data)
       }
     } catch (error) {
       console.error("Error fetching purchase orders:", error)
@@ -257,6 +219,10 @@ function PurchaseOrdersPage() {
   const handleRecordsPerPageChange = (value) => {
     setRecordsPerPage(parseInt(value))
     setCurrentPage(1)
+  }
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page)
   }
 
   // Export purchase orders to CSV
@@ -427,7 +393,7 @@ function PurchaseOrdersPage() {
               </tr>
             </thead>
             <tbody>
-              {paginatedPOs.map((po) => (
+              {purchaseOrders.map((po) => (
                 <tr key={po._id} style={styles.tr}>
                   <td style={styles.td}>
                     <code
@@ -464,7 +430,7 @@ function PurchaseOrdersPage() {
                   </td>
                 </tr>
               ))}
-              {paginatedPOs.length === 0 && filteredPOs.length === 0 && (
+              {purchaseOrders.length === 0 && (
                 <tr>
                   <td colSpan={7} style={styles.emptyState}>
                     <Package style={{ width: "48px", height: "48px", margin: "0 auto 1rem", opacity: 0.5 }} />
@@ -477,7 +443,15 @@ function PurchaseOrdersPage() {
         </div>
       )}
 
-
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalRecords={totalPOs}
+        pageSize={recordsPerPage}
+        onPageChange={handlePageChange}
+        onPageSizeChange={handleRecordsPerPageChange}
+        loading={loading}
+      />
 
       {showModal && (
         <div style={styles.modal} onClick={handleCloseModal}>
