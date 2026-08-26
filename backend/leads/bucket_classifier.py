@@ -469,7 +469,12 @@ def run(dry_run: bool = False, limit: Optional[int] = None,
         query["outreach_bucket"] = {"$exists": False}
 
     cap = min(limit or CLASSIFY_DAILY_CAP, CLASSIFY_DAILY_CAP)
-    cursor = leads_raw.find(query).limit(cap)
+    # Newest first: an unsorted/oldest-first cursor means freshly generated
+    # leads queue behind the entire historical backlog and never get
+    # classified while it's being worked through. Newest-first guarantees new
+    # leads clear within one run; the backlog still drains in the remaining
+    # per-run capacity.
+    cursor = leads_raw.find(query).sort("created_at", -1).limit(cap)
 
     stats = {b: 0 for b in VALID_BUCKETS}
     stats.update({REJECT_BUCKET: 0, REVIEW_BUCKET: 0,

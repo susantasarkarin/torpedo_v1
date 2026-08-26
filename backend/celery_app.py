@@ -34,6 +34,7 @@ celery_app = Celery(
         'backend.tasks.crm_spine_tasks',
         'backend.tasks.yield_tasks',
         'backend.tasks.mail_pool_ai_tasks',
+        'backend.tasks.lead_bucket_tasks',
         'backend.app.tasks.outreach_tasks',
         'backend.campaigns.send_queue',
         'backend.sales.tasks',
@@ -155,6 +156,20 @@ celery_app.conf.update(
             # clears in about a day at 50 senders/run.
             'task': 'backend.tasks.mail_pool_ai_tasks.process_mail_pool_sender_batch',
             'schedule': 600.0,
+            'kwargs': {'limit': 50},
+            'options': {'queue': 'ai_processing'},
+        },
+        'lead-bucket-classification': {
+            # Every 30 min: AI profile-classify newly-generated leads into
+            # SFW/COGENTIX_RESEARCH/BIM/REJECT (leads/bucket_classifier.py).
+            # Previously had NO scheduled job at all — leads only got
+            # classified when someone ran the script by hand, so new leads
+            # from the cold-outreach pipeline never picked up an
+            # outreach_bucket. Query is newest-first (see bucket_classifier.
+            # run()), so new leads clear within one run; the pre-existing
+            # backlog drains in the remaining per-run capacity.
+            'task': 'backend.tasks.lead_bucket_tasks.classify_lead_bucket_batch',
+            'schedule': 1800.0,
             'kwargs': {'limit': 50},
             'options': {'queue': 'ai_processing'},
         },

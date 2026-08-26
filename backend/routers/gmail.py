@@ -2164,6 +2164,8 @@ def get_mail_pool_emails(
             "gmail_thread_id": 1, "gmail_message_id": 1, "synced_at": 1,
             "ai_category": 1, "ai_confidence": 1, "ai_urgency": 1,
             "ai_intent": 1, "ai_tier1_category": 1,
+            "ai_summary": 1, "segment": 1, "segment_source": 1,
+            "ai_analysis.contacts": 1, "ai_analysis.rfq": 1,
         }
 
         # Use cached count for simple direction-only filters (avoids full count scan)
@@ -2232,37 +2234,51 @@ def get_mail_pool_emails(
             # Get body/snippet
             snippet = email_doc.get("snippet", "")
             
-            # Get category/segment
+            # Get category/segment (prefer the AI-derived segment from
+            # mail_pool_ai.py's derive_segment() over the legacy `category`)
             category = email_doc.get("category", "") or ""
+            segment = email_doc.get("segment") or category
             labels = email_doc.get("labels", [])
-            
+
             # Format timestamp
             timestamp = email_doc.get("timestamp")
             date_str = timestamp.isoformat() if timestamp else ""
-            
+
             # Check for attachments
             has_attachments = email_doc.get("has_attachments", False)
             attachment_count = email_doc.get("attachment_count", 0)
-            
+
             # Get mailbox email for account_email field (from pre-fetched map)
             mailbox_id = email_doc.get("mailbox_id")
             account_email = mailbox_map.get(mailbox_id, "") if mailbox_id else ""
-            
+
+            # Pull contact/RFQ info out of the mail_pool_ai.py analysis, if present
+            ai_analysis = email_doc.get("ai_analysis") or {}
+            ai_contacts = ai_analysis.get("contacts") or []
+            sender_contact = next(
+                (c for c in ai_contacts
+                 if (c.get("email") or "").strip().lower() == from_email.strip().lower()),
+                ai_contacts[0] if ai_contacts else {})
+            company = sender_contact.get("company") or ""
+            title = sender_contact.get("title") or ""
+            has_rfq = bool(ai_analysis.get("rfq", {}).get("is_rfq"))
+
             formatted_emails.append({
                 "id": str(email_doc["_id"]),
                 "email": from_email,
                 "name": from_name,
                 "first_name": from_name.split()[0] if from_name else "",
                 "last_name": from_name.split()[-1] if from_name and " " in from_name else "",
-                "company": "",
-                "title": "",
-                "segment": category,
+                "company": company,
+                "title": title,
+                "segment": segment,
                 "snippet": snippet,
                 "subject": email_doc.get("subject", "(no subject)"),
                 "added_on": date_str,
                 "date": date_str,
                 "source": "gmail_workspace",
-                "has_rfq": False,
+                "ai_summary": email_doc.get("ai_summary", ""),
+                "has_rfq": has_rfq,
                 "has_attachments": has_attachments,
                 "attachment_count": attachment_count,
                 "direction": email_direction,
@@ -2470,7 +2486,19 @@ async def get_mail_pool_email_detail(
             except Exception as e:
                 logger.warning(f"Failed to generate AI summary: {e}")
                 ai_summary = ""
-        
+
+        # Pull contact/RFQ info out of the mail_pool_ai.py analysis, if present
+        ai_analysis = email_doc.get("ai_analysis") or {}
+        ai_contacts = ai_analysis.get("contacts") or []
+        ai_rfq = ai_analysis.get("rfq") or {}
+        sender_contact = next(
+            (c for c in ai_contacts
+             if (c.get("email") or "").strip().lower() == from_email.strip().lower()),
+            ai_contacts[0] if ai_contacts else {})
+        company = sender_contact.get("company") or ""
+        title = sender_contact.get("title") or ""
+        segment = email_doc.get("segment") or category
+
         return {
             "success": True,
             "email": {
@@ -2479,19 +2507,21 @@ async def get_mail_pool_email_detail(
                 "name": from_name,
                 "first_name": from_name.split()[0] if from_name else "",
                 "last_name": from_name.split()[-1] if from_name and " " in from_name else "",
-                "company": "",
-                "title": "",
-                "segment": category,
+                "company": company,
+                "title": title,
+                "segment": segment,
                 "category": category,
                 "snippet": email_doc.get("snippet", cleaned_body[:200] if cleaned_body else ""),
                 "subject": email_doc.get("subject", "(no subject)"),
                 "body": cleaned_body or body_html,  # Fallback to HTML if no plain text
                 "body_html": body_html,
                 "ai_summary": ai_summary,
+                "contacts": ai_contacts,
+                "rfq": ai_rfq if ai_rfq.get("is_rfq") else None,
                 "added_on": date_str,
                 "date": date_str,
                 "source": "email_sync",
-                "has_rfq": email_doc.get("crm_rfq_id") is not None,
+                "has_rfq": bool(ai_rfq.get("is_rfq")) or email_doc.get("crm_rfq_id") is not None,
                 "has_attachments": has_attachments,
                 "attachment_count": email_doc.get("attachment_count", len(attachments)),
                 "attachments": attachments,
@@ -2714,19 +2744,30 @@ async def get_mail_pool_contact(
         if not session_id:
             raise HTTPException(status_code=401, detail="Missing session token")
         
-        # Find the most recent email from this contact (new schema)
+        # Find the most recent email from this contact (flat schema:
+        # from_email; fall back to the old nested schema for legacy docs)
         contact_doc = mail_pool_emails.find_one(
-            {"from_address.email": {"$regex": email, "$options": "i"}},
+            {"from_email": {"$regex": email, "$options": "i"}},
             sort=[("timestamp", -1)]
         )
-        
+        if not contact_doc:
+            contact_doc = mail_pool_emails.find_one(
+                {"from_address.email": {"$regex": email, "$options": "i"}},
+                sort=[("timestamp", -1)]
+            )
+
         if not contact_doc:
             # Try to find in to_addresses
             contact_doc = mail_pool_emails.find_one(
-                {"to_addresses.email": {"$regex": email, "$options": "i"}},
+                {"to_emails": {"$regex": email, "$options": "i"}},
                 sort=[("timestamp", -1)]
             )
-        
+            if not contact_doc:
+                contact_doc = mail_pool_emails.find_one(
+                    {"to_addresses.email": {"$regex": email, "$options": "i"}},
+                    sort=[("timestamp", -1)]
+                )
+
         if not contact_doc:
             # Return basic info if no email found
             return {
@@ -2749,34 +2790,61 @@ async def get_mail_pool_contact(
                 }
             }
         
-        # Get from_address (new schema)
-        from_addr = contact_doc.get("from_address", {})
-        if isinstance(from_addr, dict):
-            parsed_email = from_addr.get("email", "")
-            parsed_name = from_addr.get("name", "")
+        # Get sender identity — flat schema (from_email/from_name) first,
+        # fall back to the old nested schema for legacy docs
+        if "from_email" in contact_doc:
+            parsed_email = contact_doc.get("from_email", "")
+            parsed_name = contact_doc.get("from_name", "")
         else:
-            parsed_email, parsed_name = parse_email_address(str(from_addr))
-        
-        # Count emails from this contact
-        email_count = mail_pool_emails.count_documents({"from_address.email": {"$regex": email, "$options": "i"}})
-        
+            from_addr = contact_doc.get("from_address", {})
+            if isinstance(from_addr, dict):
+                parsed_email = from_addr.get("email", "")
+                parsed_name = from_addr.get("name", "")
+            else:
+                parsed_email, parsed_name = parse_email_address(str(from_addr))
+
+        # Count emails from this contact (flat schema)
+        email_count = mail_pool_emails.count_documents(
+            {"from_email": {"$regex": email, "$options": "i"}})
+        if not email_count:
+            email_count = mail_pool_emails.count_documents(
+                {"from_address.email": {"$regex": email, "$options": "i"}})
+
         # Format timestamp
         timestamp = contact_doc.get("timestamp")
         date_str = timestamp.isoformat() if timestamp else ""
-        
+
+        # Pull company/title out of the mail_pool_ai.py contact extraction —
+        # check this doc first, then the most recent doc that has a match.
+        ai_contacts = (contact_doc.get("ai_analysis") or {}).get("contacts") or []
+        matched_contact = next(
+            (c for c in ai_contacts
+             if (c.get("email") or "").strip().lower() == email.strip().lower()),
+            None)
+        if not matched_contact:
+            enriched_doc = mail_pool_emails.find_one(
+                {"ai_analysis.contacts.email": {"$regex": f"^{email}$", "$options": "i"}},
+                sort=[("timestamp", -1)])
+            if enriched_doc:
+                for c in (enriched_doc.get("ai_analysis") or {}).get("contacts") or []:
+                    if (c.get("email") or "").strip().lower() == email.strip().lower():
+                        matched_contact = c
+                        break
+        matched_contact = matched_contact or {}
+
         return {
             "success": True,
             "contact": {
                 "email": parsed_email or email,
-                "name": parsed_name or (email.split("@")[0] if "@" in email else email),
+                "name": parsed_name or matched_contact.get("name") or (email.split("@")[0] if "@" in email else email),
                 "first_name": parsed_name.split()[0] if parsed_name else "",
                 "last_name": parsed_name.split()[-1] if parsed_name and " " in parsed_name else "",
-                "title": "",
-                "company": "",
+                "title": matched_contact.get("title") or "",
+                "company": matched_contact.get("company") or "",
                 "company_website": "",
                 "linkedin": "",
                 "location": "",
-                "phone": "",
+                "phone": matched_contact.get("phone") or "",
                 "added_on": date_str,
                 "last_contacted": date_str,
                 "email_count": email_count,
