@@ -1753,6 +1753,46 @@ mail_pool_email_leads = email_automation_db["email_leads"]
 mail_pool_conversations = email_automation_db["email_conversations"]
 mail_pool_sync_log = gmail_db["email_sync_log"]
 
+# Full per-sender AI analysis (contacts, rfq) — sales/mail_pool_ai.py writes the
+# FULL analysis here, keyed by sender email (_id). The per-email ai_analysis on
+# email_metadata is only a compact stub ({sender_level, summary, category, ...})
+# for the (overwhelmingly common) sender-level processing path — it never
+# carries contacts/rfq itself, so any UI field sourced from those must look
+# here instead.
+mail_sender_analysis = email_automation_db["mail_sender_analysis"]
+
+
+def _sender_contacts_and_rfq(from_email: str) -> tuple:
+    """(contacts, has_rfq) for one sender, from mail_sender_analysis."""
+    doc = mail_sender_analysis.find_one(
+        {"_id": (from_email or "").strip().lower()},
+        {"analysis.contacts": 1, "analysis.rfq": 1, "rfq_scan.ledger": 1})
+    if not doc:
+        return [], False
+    contacts = ((doc.get("analysis") or {}).get("contacts")) or []
+    has_rfq = bool(((doc.get("analysis") or {}).get("rfq") or {}).get("is_rfq"))
+    if not has_rfq:
+        has_rfq = bool((doc.get("rfq_scan") or {}).get("ledger"))
+    return contacts, has_rfq
+
+
+def _batch_sender_contacts_and_rfq(from_emails: list) -> dict:
+    """Batch version of _sender_contacts_and_rfq for a list view page —
+    one query instead of one per row. Returns {email_lower: (contacts, has_rfq)}."""
+    emails_lower = list({(e or "").strip().lower() for e in from_emails if e})
+    if not emails_lower:
+        return {}
+    result = {}
+    for doc in mail_sender_analysis.find(
+            {"_id": {"$in": emails_lower}},
+            {"analysis.contacts": 1, "analysis.rfq": 1, "rfq_scan.ledger": 1}):
+        contacts = ((doc.get("analysis") or {}).get("contacts")) or []
+        has_rfq = bool(((doc.get("analysis") or {}).get("rfq") or {}).get("is_rfq"))
+        if not has_rfq:
+            has_rfq = bool((doc.get("rfq_scan") or {}).get("ledger"))
+        result[doc["_id"]] = (contacts, has_rfq)
+    return result
+
 # MongoDB-backed stats cache (persisted across restarts, shared across workers)
 _stats_cache_col = torpedo_gmail_db["mail_pool_stats_cache"]
 
@@ -2212,7 +2252,15 @@ def get_mail_pool_emails(
                 mailbox_map = {str(m["_id"]): m.get("email", "") for m in mailboxes}
             except Exception:
                 pass
-        
+
+        # Batch-fetch full per-sender contacts/RFQ (the per-email ai_analysis
+        # is usually just a sender-level stub — see mail_sender_analysis above)
+        try:
+            sender_map = _batch_sender_contacts_and_rfq(
+                [e.get("from_email") for e in emails])
+        except Exception:
+            sender_map = {}
+
         # Format for response (adapting email_metadata schema to existing frontend format)
         formatted_emails = []
         for email_doc in emails:
@@ -2252,16 +2300,22 @@ def get_mail_pool_emails(
             mailbox_id = email_doc.get("mailbox_id")
             account_email = mailbox_map.get(mailbox_id, "") if mailbox_id else ""
 
-            # Pull contact/RFQ info out of the mail_pool_ai.py analysis, if present
+            # Pull contact/RFQ info: prefer the per-email ai_analysis (the
+            # per-email processing path carries contacts/rfq directly), fall
+            # back to the full per-sender analysis (the sender-level path —
+            # what the vast majority of the pool was processed with — only
+            # stamps a compact stub per email with no contacts/rfq of its own).
             ai_analysis = email_doc.get("ai_analysis") or {}
             ai_contacts = ai_analysis.get("contacts") or []
+            has_rfq = bool(ai_analysis.get("rfq", {}).get("is_rfq"))
+            if not ai_contacts and not has_rfq:
+                ai_contacts, has_rfq = sender_map.get(from_email.strip().lower(), ([], False))
             sender_contact = next(
                 (c for c in ai_contacts
                  if (c.get("email") or "").strip().lower() == from_email.strip().lower()),
                 ai_contacts[0] if ai_contacts else {})
             company = sender_contact.get("company") or ""
             title = sender_contact.get("title") or ""
-            has_rfq = bool(ai_analysis.get("rfq", {}).get("is_rfq"))
 
             formatted_emails.append({
                 "id": str(email_doc["_id"]),
@@ -2487,10 +2541,16 @@ async def get_mail_pool_email_detail(
                 logger.warning(f"Failed to generate AI summary: {e}")
                 ai_summary = ""
 
-        # Pull contact/RFQ info out of the mail_pool_ai.py analysis, if present
+        # Pull contact/RFQ info: prefer the per-email ai_analysis, fall back to
+        # the full per-sender analysis (see _sender_contacts_and_rfq above —
+        # the sender-level processing path, which covers most of the pool,
+        # only stamps a contacts/rfq-less stub on each individual email).
         ai_analysis = email_doc.get("ai_analysis") or {}
         ai_contacts = ai_analysis.get("contacts") or []
         ai_rfq = ai_analysis.get("rfq") or {}
+        has_rfq_flag = bool(ai_rfq.get("is_rfq"))
+        if not ai_contacts and not has_rfq_flag:
+            ai_contacts, has_rfq_flag = _sender_contacts_and_rfq(from_email)
         sender_contact = next(
             (c for c in ai_contacts
              if (c.get("email") or "").strip().lower() == from_email.strip().lower()),
@@ -2521,7 +2581,7 @@ async def get_mail_pool_email_detail(
                 "added_on": date_str,
                 "date": date_str,
                 "source": "email_sync",
-                "has_rfq": bool(ai_rfq.get("is_rfq")) or email_doc.get("crm_rfq_id") is not None,
+                "has_rfq": has_rfq_flag or email_doc.get("crm_rfq_id") is not None,
                 "has_attachments": has_attachments,
                 "attachment_count": email_doc.get("attachment_count", len(attachments)),
                 "attachments": attachments,
@@ -2814,13 +2874,26 @@ async def get_mail_pool_contact(
         timestamp = contact_doc.get("timestamp")
         date_str = timestamp.isoformat() if timestamp else ""
 
-        # Pull company/title out of the mail_pool_ai.py contact extraction —
-        # check this doc first, then the most recent doc that has a match.
-        ai_contacts = (contact_doc.get("ai_analysis") or {}).get("contacts") or []
-        matched_contact = next(
-            (c for c in ai_contacts
-             if (c.get("email") or "").strip().lower() == email.strip().lower()),
-            None)
+        # Pull company/title out of the mail_pool_ai.py contact extraction.
+        # `email` is usually itself a sender, so mail_sender_analysis (keyed by
+        # sender email) is checked first; that document's own `analysis.contacts`
+        # also covers other people (e.g. co-signers) mentioned in that sender's
+        # mail, and finally fall back to whatever this one email doc carries.
+        matched_contact = None
+        sender_doc = mail_sender_analysis.find_one(
+            {"_id": email.strip().lower()},
+            {"analysis.contacts": 1, "analysis.sender_type": 1})
+        candidate_pools = []
+        if sender_doc:
+            candidate_pools.append((sender_doc.get("analysis") or {}).get("contacts") or [])
+        candidate_pools.append((contact_doc.get("ai_analysis") or {}).get("contacts") or [])
+        for pool in candidate_pools:
+            for c in pool:
+                if (c.get("email") or "").strip().lower() == email.strip().lower():
+                    matched_contact = c
+                    break
+            if matched_contact:
+                break
         if not matched_contact:
             enriched_doc = mail_pool_emails.find_one(
                 {"ai_analysis.contacts.email": {"$regex": f"^{email}$", "$options": "i"}},
