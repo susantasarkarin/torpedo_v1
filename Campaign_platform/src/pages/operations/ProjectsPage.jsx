@@ -55,6 +55,7 @@ function ProjectsPage() {
     vendorName: "",
     vendorId: "",
     vendorNames: [],
+    additionalVendorNames: [],
     vendorCompleteRD: [],
     vendorTerminateRD: [],
     vendorQuotaFullRD: [],
@@ -390,12 +391,12 @@ function ProjectsPage() {
     }
   };
 
-  const handleVendorMultiToggle = (vendorName) => {
+  const handleVendorMultiToggle = (vendorName, field = "vendorNames") => {
     setFormData((prev) => {
-      const vendorNames = prev.vendorNames.includes(vendorName)
-        ? prev.vendorNames.filter((n) => n !== vendorName)
-        : [...prev.vendorNames, vendorName];
-      return { ...prev, vendorNames };
+      const list = prev[field].includes(vendorName)
+        ? prev[field].filter((n) => n !== vendorName)
+        : [...prev[field], vendorName];
+      return { ...prev, [field]: list };
     });
   };
 
@@ -403,11 +404,17 @@ function ProjectsPage() {
   const saveProject = async () => {
     const normalizedLiveLink = normalizeEntryUrl(formData.liveLink);
 
-    // Editing always targets one existing project; creating can fan out to
-    // multiple vendors, each becoming its own project record.
+    // Editing always updates one existing project by its own vendor, but can
+    // also fan out extra checked vendors into new sibling project records.
+    // Creating (no editingId yet) can fan out to multiple vendors directly.
     const selectedVendorNames = editingId
       ? (formData.vendorName ? [formData.vendorName] : [])
       : formData.vendorNames;
+    const additionalVendorNames = editingId
+      ? formData.additionalVendorNames.filter(
+          (n) => n && n !== formData.vendorName
+        )
+      : [];
 
     const errors = [];
 
@@ -455,18 +462,17 @@ function ProjectsPage() {
     }
 
     // Build the per-vendor form: each vendor gets its own vid baked into its
-    // own entryLink, and (for multi-vendor creates) a suffixed project name
-    // so the resulting rows stay distinguishable — mirrors the manual
-    // "_VendorName" convention already used for split projects.
-    const buildVendorForm = (vendorName) => {
+    // own entryLink, and a suffixed project name when it's one of several
+    // vendor-specific records — mirrors the manual "_VendorName" convention
+    // already used for split projects.
+    const buildVendorForm = (vendorName, suffix) => {
       const vendor = vendors.find((v) => v.vendorName === vendorName);
       return applyDerivedFields({
         ...formData,
         liveLink: normalizedLiveLink,
-        projectName:
-          selectedVendorNames.length > 1
-            ? `${formData.projectName} - ${vendorName}`
-            : formData.projectName,
+        projectName: suffix
+          ? `${formData.projectName} - ${vendorName}`
+          : formData.projectName,
         vendorName,
         vendorId: vendor?.vid || formData.vendorId || "",
         vendorCompleteRD: normalizeList(vendor?.completeRD),
@@ -475,10 +481,31 @@ function ProjectsPage() {
       });
     };
 
+    // The primary operation updates the project being edited (or creates the
+    // first/only vendor's project). Any additional checked vendors always
+    // become new sibling project records via POST, whether we're creating
+    // several vendors at once or adding vendors to an existing project.
+    const operations = editingId
+      ? [
+          { method: "PUT", url: buildApiUrl(`/projects/${editingId}`), vendorName: formData.vendorName, suffix: false },
+          ...additionalVendorNames.map((vendorName) => ({
+            method: "POST",
+            url: buildApiUrl(`/projects/`),
+            vendorName,
+            suffix: true,
+          })),
+        ]
+      : selectedVendorNames.map((vendorName) => ({
+          method: "POST",
+          url: buildApiUrl(`/projects/`),
+          vendorName,
+          suffix: selectedVendorNames.length > 1,
+        }));
+
     try {
       const savedProjects = [];
-      for (const vendorName of selectedVendorNames) {
-        const preparedForm = buildVendorForm(vendorName);
+      for (const op of operations) {
+        const preparedForm = buildVendorForm(op.vendorName, op.suffix);
         const payload = {
           ...preparedForm,
           vendorCompleteRD: normalizeList(preparedForm.vendorCompleteRD),
@@ -486,13 +513,8 @@ function ProjectsPage() {
           vendorQuotaFullRD: normalizeList(preparedForm.vendorQuotaFullRD),
         };
 
-        const url = editingId
-          ? buildApiUrl(`/projects/${editingId}`)
-          : buildApiUrl(`/projects/`);
-        const method = editingId ? "PUT" : "POST";
-
-        const res = await fetch(url, {
-          method,
+        const res = await fetch(op.url, {
+          method: op.method,
           headers: {
             "Content-Type": "application/json",
             Authorization: sessionId,
@@ -514,10 +536,11 @@ function ProjectsPage() {
       }
 
       if (editingId) {
-        const updated = savedProjects[0];
-        setProjects((prev) =>
-          prev.map((p) => (p._id === editingId ? updated : p))
-        );
+        const [updated, ...newSiblings] = savedProjects;
+        setProjects((prev) => [
+          ...prev.map((p) => (p._id === editingId ? updated : p)),
+          ...newSiblings,
+        ]);
       } else {
         setProjects((prev) => [...prev, ...savedProjects]);
       }
@@ -989,6 +1012,48 @@ function ProjectsPage() {
                         </div>
                       </div>
                     )}
+
+                    <div className="pp-field" style={{ marginTop: "1rem" }}>
+                      <label>Add more vendors to this project</label>
+                      <small className="pp-hint">
+                        Checking a vendor here does not change the project above — it creates a new sibling project for that vendor (its own entry link) when you save.
+                      </small>
+                      <div className="pp-vendor-checklist">
+                        {vendors
+                          .filter((v) => v.vendorName !== formData.vendorName)
+                          .map((v) => (
+                            <label key={v._id} className="pp-vendor-checkbox">
+                              <input
+                                type="checkbox"
+                                checked={formData.additionalVendorNames.includes(v.vendorName)}
+                                onChange={() => handleVendorMultiToggle(v.vendorName, "additionalVendorNames")}
+                              />
+                              {v.vendorName}
+                            </label>
+                          ))}
+                      </div>
+                    </div>
+                    {formData.additionalVendorNames
+                      .filter((n) => n !== formData.vendorName)
+                      .map((vendorName) => {
+                        const vendor = vendors.find((v) => v.vendorName === vendorName);
+                        return (
+                          <div className="pp-vendor-urls" key={vendorName}>
+                            <div className="pp-vendor-url-row">
+                              <span className="pp-vendor-url-label">{vendorName} — Complete RD</span>
+                              <span className="pp-vendor-url-val">{normalizeList(vendor?.completeRD).join(", ") || "N/A"}</span>
+                            </div>
+                            <div className="pp-vendor-url-row">
+                              <span className="pp-vendor-url-label">{vendorName} — Terminate RD</span>
+                              <span className="pp-vendor-url-val">{normalizeList(vendor?.terminateRD).join(", ") || "N/A"}</span>
+                            </div>
+                            <div className="pp-vendor-url-row">
+                              <span className="pp-vendor-url-label">{vendorName} — QuotaFull RD</span>
+                              <span className="pp-vendor-url-val">{normalizeList(vendor?.quotaRD || vendor?.quotaFullRD).join(", ") || "N/A"}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
                   </>
                 ) : (
                   <>
