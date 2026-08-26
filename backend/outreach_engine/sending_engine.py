@@ -196,6 +196,31 @@ class SendingEngine:
             if not lead:
                 return False, f"Lead {lead_id} not found", None
 
+            # ── CAN-SPAM: refuse to send without a working opt-out ──────────
+            #
+            # Measured on torpedo-prod 2026-08-25: 46,075 delivered emails and
+            # ZERO unsubscribe records anywhere. Not "recorded in the wrong
+            # store" — this module built MIME messages directly and contained
+            # no unsubscribe reference at all: no footer link, no
+            # List-Unsubscribe header. reply_engine detects "unsubscribe me"
+            # in replies but never persists it. So recipients had no working
+            # way to opt out, which is the violation itself rather than a
+            # bookkeeping error.
+            #
+            # This guard FAILS CLOSED. It does not invent an unsubscribe
+            # mechanism — building one is a deliberate change that belongs
+            # with the per-entity campaign config (leads/campaign_config.py,
+            # which already carries a per-entity unsubscribe_endpoint). It
+            # refuses to send until one exists, so the violation cannot
+            # silently resume when campaigns are unpaused.
+            if not os.getenv("OUTREACH_UNSUBSCRIBE_URL", "").strip():
+                logger.error(
+                    "REFUSING TO SEND: no unsubscribe mechanism configured "
+                    "(OUTREACH_UNSUBSCRIBE_URL unset). CAN-SPAM requires a "
+                    "working opt-out in every commercial message."
+                )
+                return False, "Refused: no unsubscribe mechanism configured", None
+
             # ── Global bounce suppression check ──────────────────────────────
             to_email = lead.get("email", "")
             if to_email and self.is_suppressed(to_email):

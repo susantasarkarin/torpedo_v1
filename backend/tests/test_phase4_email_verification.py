@@ -55,6 +55,83 @@ def test_unknown_provenance_is_treated_as_unverified():
     assert oq.check_email_verification({}) == "email_verification_unknown"
 
 
+# --- production email_status values, measured on torpedo-prod 2026-08-25 ----
+# leads_enriched, 21,570 rows. These are the REAL values the gate must handle;
+# the first version of this gate was written against the local dev copy and
+# passed only 554 of them.
+PROD_STATUS_COUNTS = [
+    ("Delivered", 7794), ("bounced", 4807), ("Unknown", 4789),
+    ("Predicted", 2600), ("Valid", 554), ("pending_pattern", 383),
+    ("predicted", 282), ("Catch-All", 243), (None, 78),
+    ("pattern_derived", 40),
+]
+
+
+def test_delivered_passes_the_gate():
+    """
+    REGRESSION. "Delivered" is 7,794 production rows and the strongest evidence
+    available — a message was accepted and delivered to that mailbox, which is
+    better proof than any verification API, since those only predict what
+    delivery demonstrates.
+
+    The first version of this gate omitted it and rejected all 7,794 as
+    "unknown". Safe in direction, but it would have pinned outbound at zero
+    permanently, including after verification was built.
+    """
+    assert oq.check_email_verification({"email_status": "Delivered"}) is None
+
+
+def test_bounced_and_catch_all_get_their_own_reasons():
+    """
+    Both blocked, but the remedies differ and the funnel must say which.
+
+    A bounce must never be retried. A catch-all domain accepts everything, so
+    delivery proves nothing there and NO amount of verification will ever
+    confirm the mailbox — it is unverifiable by construction, not merely
+    unverified.
+    """
+    assert oq.check_email_verification({"email_status": "bounced"}) == "email_bounced"
+    assert oq.check_email_verification({"email_status": "Catch-All"}) == "catch_all_unverifiable"
+
+
+def test_pattern_statuses_are_constructed_not_unknown():
+    """
+    pending_pattern (383) and pattern_derived (40) are live production values.
+    Both are addresses we invented. Filing them as "unknown" gives the right
+    outcome with the wrong reason, and the funnel cannot then distinguish
+    "we made this up" from "we have no idea" — different fixes.
+    """
+    for status in ("pending_pattern", "pattern_derived"):
+        assert oq.check_email_verification({"email_status": status}) == "constructed_unverified"
+
+
+def test_every_production_status_is_classified_deliberately():
+    """
+    No production value may fall through to the catch-all "unknown" bucket
+    unless it genuinely means unknown. Guards against the next new status
+    silently landing in the wrong bucket.
+    """
+    deliberate = {"email_bounced", "catch_all_unverifiable", "constructed_unverified", None}
+    for status, _count in PROD_STATUS_COUNTS:
+        reason = oq.check_email_verification({"email_status": status})
+        if status in (None, "Unknown"):
+            assert reason == "email_verification_unknown", status
+        else:
+            assert reason in deliberate, f"{status!r} fell through as {reason!r}"
+
+
+def test_confirmed_population_matches_production_measurement():
+    """
+    8,348 of 21,570 production addresses are confirmed (Delivered + Valid).
+    This is the number that decides whether resuming outbound is even possible
+    — an earlier report wrongly stated ALL addresses were guesses, which was
+    the local dev copy, not production.
+    """
+    passing = sum(n for s, n in PROD_STATUS_COUNTS
+                  if oq.check_email_verification({"email_status": s}) is None)
+    assert passing == 8348, f"expected 8348 confirmed, got {passing}"
+
+
 def test_the_gate_is_strict_by_default():
     assert oq.REQUIRE_VERIFIED_EMAIL is True, (
         "the flag must default strict; a lax default reopens the hole silently")

@@ -178,14 +178,38 @@ REQUIRE_VERIFIED_EMAIL = (
 
 # email_status values meaning "we made this address up from a domain pattern".
 # Case-insensitive; leads_enriched uses title case ("Predicted").
+#
+# "pending_pattern" and "pattern_derived" are live production values (383 and
+# 40 rows). Both are constructed addresses; before this list included them
+# they fell through to email_verification_unknown, which is the right OUTCOME
+# with the wrong REASON — the funnel could not tell "we invented this" from
+# "we have no idea", and those have different fixes.
 CONSTRUCTED_EMAIL_STATUSES = frozenset({
     "constructed", "predicted", "guessed", "pattern", "inferred",
+    "pending_pattern", "pattern_derived",
 })
 
-# ...and the ones meaning a third party confirmed the mailbox exists.
+# ...and the ones meaning the mailbox is confirmed to exist.
+#
+# "delivered" is the strongest evidence available and is the largest confirmed
+# group in production (7,794 rows). A message was accepted and delivered to
+# that mailbox — better proof than any third-party verification API, which only
+# predicts what delivery demonstrates.
+#
+# Omitting it was a real defect: measured against production, the gate passed
+# 554 of 21,570 addresses and rejected every delivered one as "unknown". Safe
+# in direction (over-blocking never mails a stranger) but it would have held
+# outbound at zero permanently, including after verification was built.
 VERIFIED_EMAIL_STATUSES = frozenset({
-    "verified", "valid", "deliverable", "re_enriched_verified",
+    "verified", "valid", "deliverable", "delivered", "re_enriched_verified",
 })
+
+# Known-bad and unverifiable-by-construction. Both are blocked, but each gets
+# its own reason because the remedy differs: a bounce must never be retried,
+# whereas a catch-all domain accepts everything, so delivery there proves
+# nothing and no amount of verification will ever confirm the mailbox.
+BOUNCED_EMAIL_STATUSES = frozenset({"bounced", "bounce", "hard_bounce", "invalid"})
+CATCH_ALL_EMAIL_STATUSES = frozenset({"catch-all", "catch_all", "catchall"})
 
 
 def check_email_verification(lead: Dict[str, Any]) -> Optional[str]:
@@ -216,11 +240,18 @@ def check_email_verification(lead: Dict[str, Any]) -> Optional[str]:
 
     status = (lead.get("email_status") or "").strip().lower()
 
+    if status in VERIFIED_EMAIL_STATUSES:
+        return None
+
     if status in CONSTRUCTED_EMAIL_STATUSES:
         return "constructed_unverified"
 
-    if status in VERIFIED_EMAIL_STATUSES:
-        return None
+    if status in BOUNCED_EMAIL_STATUSES:
+        return "email_bounced"
+
+    if status in CATCH_ALL_EMAIL_STATUSES:
+        # Never resolvable by verification — the domain accepts everything.
+        return "catch_all_unverifiable"
 
     # Unknown provenance is treated as unverified. Failing open here would
     # readmit every constructed address that simply lacks a label, which is
