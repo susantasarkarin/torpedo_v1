@@ -537,6 +537,28 @@
   word-break: break-all;
 }
 
+.pp-vendor-checklist {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+
+.pp-vendor-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #374151;
+  font-weight: 400;
+  cursor: pointer;
+}
+
 /* Modal footer */
 .pp-modal-footer {
   display: flex;

@@ -54,6 +54,7 @@ function ProjectsPage() {
     countryCode: "",
     vendorName: "",
     vendorId: "",
+    vendorNames: [],
     vendorCompleteRD: [],
     vendorTerminateRD: [],
     vendorQuotaFullRD: [],
@@ -389,57 +390,58 @@ function ProjectsPage() {
     }
   };
 
+  const handleVendorMultiToggle = (vendorName) => {
+    setFormData((prev) => {
+      const vendorNames = prev.vendorNames.includes(vendorName)
+        ? prev.vendorNames.filter((n) => n !== vendorName)
+        : [...prev.vendorNames, vendorName];
+      return { ...prev, vendorNames };
+    });
+  };
+
   // 🔹 Save Project
   const saveProject = async () => {
     const normalizedLiveLink = normalizeEntryUrl(formData.liveLink);
 
-    // Ensure vendorId is populated — if it's missing (e.g. legacy project), derive
-    // it from the vendors list using the stored vendorName.
-    let vendorId = formData.vendorId || "";
-    if (!vendorId && formData.vendorName) {
-      const matched = vendors.find((v) => v.vendorName === formData.vendorName);
-      if (matched) vendorId = matched.vid || "";
-    }
-
-    const preparedForm = applyDerivedFields({
-      ...formData,
-      liveLink: normalizedLiveLink,
-      vendorId,
-    });
+    // Editing always targets one existing project; creating can fan out to
+    // multiple vendors, each becoming its own project record.
+    const selectedVendorNames = editingId
+      ? (formData.vendorName ? [formData.vendorName] : [])
+      : formData.vendorNames;
 
     const errors = [];
-    
-    if (!preparedForm.projectName || !preparedForm.projectName.trim()) {
+
+    if (!formData.projectName || !formData.projectName.trim()) {
       errors.push("Project Name is required");
     }
-    if (!preparedForm.salesPerson || !preparedForm.salesPerson.trim()) {
+    if (!formData.salesPerson || !formData.salesPerson.trim()) {
       errors.push("Sales Person is required");
     }
-    if (!preparedForm.client || !preparedForm.client.trim()) {
+    if (!formData.client || !formData.client.trim()) {
       errors.push("Client is required");
     }
-    if (!preparedForm.projectLaunchDate) {
+    if (!formData.projectLaunchDate) {
       errors.push("Project Launch Date is required");
     }
-    if (!preparedForm.projectCloseDate) {
+    if (!formData.projectCloseDate) {
       errors.push("Project Close Date is required");
     }
-    if (!preparedForm.liveLink || !preparedForm.liveLink.trim()) {
+    if (!normalizedLiveLink) {
       errors.push("Live Link is required");
     }
-    if (!preparedForm.vendorName || !preparedForm.vendorName.trim()) {
-      errors.push("Vendor Name is required");
+    if (!selectedVendorNames.length) {
+      errors.push("At least one Vendor is required");
     }
-    if (!toNumber(preparedForm.totalCompletesRequired)) {
+    if (!toNumber(formData.totalCompletesRequired)) {
       errors.push("Total Completes Required is required and must be greater than 0");
     }
-    if (!toNumber(preparedForm.loi)) {
+    if (!toNumber(formData.loi)) {
       errors.push("LOI (Length of Interview) is required and must be greater than 0");
     }
-    if (!toNumber(preparedForm.cpi)) {
+    if (!toNumber(formData.cpi)) {
       errors.push("CPI (Cost Per Interview) is required and must be greater than 0");
     }
-    
+
     if (errors.length > 0) {
       setError("❌ " + errors.join("\n❌ "));
       return;
@@ -452,46 +454,72 @@ function ProjectsPage() {
       return;
     }
 
-    try {
-      const payload = {
-        ...preparedForm,
-        vendorCompleteRD: normalizeList(preparedForm.vendorCompleteRD),
-        vendorTerminateRD: normalizeList(preparedForm.vendorTerminateRD),
-        vendorQuotaFullRD: normalizeList(preparedForm.vendorQuotaFullRD),
-      };
-
-      const url = editingId
-        ? buildApiUrl(`/projects/${editingId}`)
-        : buildApiUrl(`/projects/`);
-      const method = editingId ? "PUT" : "POST";
-
-      const res = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: sessionId,
-        },
-        body: JSON.stringify(payload),
+    // Build the per-vendor form: each vendor gets its own vid baked into its
+    // own entryLink, and (for multi-vendor creates) a suffixed project name
+    // so the resulting rows stay distinguishable — mirrors the manual
+    // "_VendorName" convention already used for split projects.
+    const buildVendorForm = (vendorName) => {
+      const vendor = vendors.find((v) => v.vendorName === vendorName);
+      return applyDerivedFields({
+        ...formData,
+        liveLink: normalizedLiveLink,
+        projectName:
+          selectedVendorNames.length > 1
+            ? `${formData.projectName} - ${vendorName}`
+            : formData.projectName,
+        vendorName,
+        vendorId: vendor?.vid || formData.vendorId || "",
+        vendorCompleteRD: normalizeList(vendor?.completeRD),
+        vendorTerminateRD: normalizeList(vendor?.terminateRD),
+        vendorQuotaFullRD: normalizeList(vendor?.quotaRD || vendor?.quotaFullRD),
       });
+    };
 
-      if (res.status === 401) {
-        alert("Session expired. Please login again.");
-        localStorage.removeItem("session_id");
-        navigate("/login");
-        return;
+    try {
+      const savedProjects = [];
+      for (const vendorName of selectedVendorNames) {
+        const preparedForm = buildVendorForm(vendorName);
+        const payload = {
+          ...preparedForm,
+          vendorCompleteRD: normalizeList(preparedForm.vendorCompleteRD),
+          vendorTerminateRD: normalizeList(preparedForm.vendorTerminateRD),
+          vendorQuotaFullRD: normalizeList(preparedForm.vendorQuotaFullRD),
+        };
+
+        const url = editingId
+          ? buildApiUrl(`/projects/${editingId}`)
+          : buildApiUrl(`/projects/`);
+        const method = editingId ? "PUT" : "POST";
+
+        const res = await fetch(url, {
+          method,
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: sessionId,
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (res.status === 401) {
+          alert("Session expired. Please login again.");
+          localStorage.removeItem("session_id");
+          navigate("/login");
+          return;
+        }
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Failed to save project");
+
+        savedProjects.push(data.project || { ...formData, ...payload });
       }
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to save project");
-
       if (editingId) {
+        const updated = savedProjects[0];
         setProjects((prev) =>
-          prev.map((p) =>
-            p._id === editingId ? (data.project || { ...p, ...payload }) : p
-          )
+          prev.map((p) => (p._id === editingId ? updated : p))
         );
       } else {
-        setProjects((prev) => [...prev, data.project]);
+        setProjects((prev) => [...prev, ...savedProjects]);
       }
 
       setShowForm(false);
@@ -629,19 +657,27 @@ function ProjectsPage() {
             <tr>
               <th>Project</th>
               <th>Survey #</th>
-              <th>Client</th>
               <th>Status</th>
-              <th>Launch</th>
-              <th>Close</th>
-              <th>Vendor</th>
-              <th>Completes</th>
-              <th>Med. LOI</th>
-              <th>IR</th>
+              <th>Client</th>
+              <th>Completes / LOI / IR (Target)</th>
+              <th>Completes Achieved</th>
+              <th>Mean LOI</th>
+              <th>Completion Rate</th>
               <th className="pp-th-actions">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {paginatedProjects.map(p => (
+            {paginatedProjects.map(p => {
+              const qreStats = p.qreStudyId ? qreStatsMap[p.qreStudyId] : null;
+              const targetCompletes = toNumber(p.totalCompletesRequired || p.totalCompletes);
+              const achievedCompletes = qreStats?.completed != null
+                ? qreStats.completed
+                : toNumber(p.actualCompletes || p.totalCompletes);
+              const meanLoi = qreStats?.median_loi != null ? qreStats.median_loi : null;
+              const completionRate = targetCompletes > 0
+                ? ((achievedCompletes / targetCompletes) * 100).toFixed(1)
+                : null;
+              return (
               <tr key={p._id}>
                 <td>
                   <span
@@ -652,18 +688,18 @@ function ProjectsPage() {
                   </span>
                 </td>
                 <td><code className="pp-survey-no">{p.surveyNo}</code></td>
-                <td className="pp-td-client">{p.client}</td>
                 <td>
                   <span className={`pp-status pp-status-${p.projectStatus || 'close'}`}>
                     {p.projectStatus}
                   </span>
                 </td>
-                <td className="pp-td-date">{p.projectLaunchDate || "—"}</td>
-                <td className="pp-td-date">{p.projectCloseDate || "—"}</td>
-                <td className="pp-td-vendor">{p.vendorName || "—"}</td>
-                <td>{p.qreStudyId && qreStatsMap[p.qreStudyId]?.completed != null ? qreStatsMap[p.qreStudyId].completed : (p.totalCompletes || "—")}</td>
-                <td>{p.qreStudyId && qreStatsMap[p.qreStudyId]?.median_loi != null ? `${qreStatsMap[p.qreStudyId].median_loi} min` : (p.loi ? `${p.loi} min` : "—")}</td>
-                <td>{p.qreStudyId && qreStatsMap[p.qreStudyId]?.incidence_rate != null ? `${qreStatsMap[p.qreStudyId].incidence_rate}%` : (p.actualIR ? `${p.actualIR}%` : "—")}</td>
+                <td className="pp-td-client">{p.client}</td>
+                <td>
+                  {p.totalCompletesRequired || "—"} / {p.loi ? `${p.loi} min` : "—"} / {p.clientIR ? `${p.clientIR}%` : "—"}
+                </td>
+                <td>{achievedCompletes || "—"}</td>
+                <td>{meanLoi != null ? `${meanLoi} min` : "—"}</td>
+                <td>{completionRate != null ? `${completionRate}%` : "—"}</td>
                 <td>
                   <div className="pp-actions">
                     <button
@@ -695,10 +731,11 @@ function ProjectsPage() {
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {paginatedProjects.length === 0 && (
               <tr>
-                  <td colSpan={11} className="pp-empty">
+                  <td colSpan={9} className="pp-empty">
                   <FolderOpen size={32} />
                   <p>No projects found.</p>
                 </td>
@@ -925,30 +962,74 @@ function ProjectsPage() {
               {/* Vendor */}
               <fieldset className="pp-fieldset">
                 <legend>Vendor Assignment</legend>
-                <div className="pp-field">
-                  <label>Vendor <span className="pp-req">*</span></label>
-                  <select name="vendorName" value={formData.vendorName} onChange={handleVendorChange}>
-                    <option value="">Select Vendor</option>
-                    {vendors.map(v => (
-                      <option key={v._id} value={v.vendorName}>{v.vendorName}</option>
-                    ))}
-                  </select>
-                </div>
-                {formData.vendorName && (
-                  <div className="pp-vendor-urls">
-                    <div className="pp-vendor-url-row">
-                      <span className="pp-vendor-url-label">Complete RD</span>
-                      <span className="pp-vendor-url-val">{formData.vendorCompleteRD?.join(", ") || "N/A"}</span>
+                {editingId ? (
+                  <>
+                    <div className="pp-field">
+                      <label>Vendor <span className="pp-req">*</span></label>
+                      <select name="vendorName" value={formData.vendorName} onChange={handleVendorChange}>
+                        <option value="">Select Vendor</option>
+                        {vendors.map(v => (
+                          <option key={v._id} value={v.vendorName}>{v.vendorName}</option>
+                        ))}
+                      </select>
                     </div>
-                    <div className="pp-vendor-url-row">
-                      <span className="pp-vendor-url-label">Terminate RD</span>
-                      <span className="pp-vendor-url-val">{formData.vendorTerminateRD?.join(", ") || "N/A"}</span>
+                    {formData.vendorName && (
+                      <div className="pp-vendor-urls">
+                        <div className="pp-vendor-url-row">
+                          <span className="pp-vendor-url-label">Complete RD</span>
+                          <span className="pp-vendor-url-val">{formData.vendorCompleteRD?.join(", ") || "N/A"}</span>
+                        </div>
+                        <div className="pp-vendor-url-row">
+                          <span className="pp-vendor-url-label">Terminate RD</span>
+                          <span className="pp-vendor-url-val">{formData.vendorTerminateRD?.join(", ") || "N/A"}</span>
+                        </div>
+                        <div className="pp-vendor-url-row">
+                          <span className="pp-vendor-url-label">QuotaFull RD</span>
+                          <span className="pp-vendor-url-val">{formData.vendorQuotaFullRD?.join(", ") || "N/A"}</span>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="pp-field">
+                      <label>Vendors <span className="pp-req">*</span></label>
+                      <small className="pp-hint">
+                        Select one or more vendors. Choosing more than one creates a separate project (with its own vendor-facing entry link) per vendor.
+                      </small>
+                      <div className="pp-vendor-checklist">
+                        {vendors.map(v => (
+                          <label key={v._id} className="pp-vendor-checkbox">
+                            <input
+                              type="checkbox"
+                              checked={formData.vendorNames.includes(v.vendorName)}
+                              onChange={() => handleVendorMultiToggle(v.vendorName)}
+                            />
+                            {v.vendorName}
+                          </label>
+                        ))}
+                      </div>
                     </div>
-                    <div className="pp-vendor-url-row">
-                      <span className="pp-vendor-url-label">QuotaFull RD</span>
-                      <span className="pp-vendor-url-val">{formData.vendorQuotaFullRD?.join(", ") || "N/A"}</span>
-                    </div>
-                  </div>
+                    {formData.vendorNames.map((vendorName) => {
+                      const vendor = vendors.find((v) => v.vendorName === vendorName);
+                      return (
+                        <div className="pp-vendor-urls" key={vendorName}>
+                          <div className="pp-vendor-url-row">
+                            <span className="pp-vendor-url-label">{vendorName} — Complete RD</span>
+                            <span className="pp-vendor-url-val">{normalizeList(vendor?.completeRD).join(", ") || "N/A"}</span>
+                          </div>
+                          <div className="pp-vendor-url-row">
+                            <span className="pp-vendor-url-label">{vendorName} — Terminate RD</span>
+                            <span className="pp-vendor-url-val">{normalizeList(vendor?.terminateRD).join(", ") || "N/A"}</span>
+                          </div>
+                          <div className="pp-vendor-url-row">
+                            <span className="pp-vendor-url-label">{vendorName} — QuotaFull RD</span>
+                            <span className="pp-vendor-url-val">{normalizeList(vendor?.quotaRD || vendor?.quotaFullRD).join(", ") || "N/A"}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
                 )}
               </fieldset>
             </div>
