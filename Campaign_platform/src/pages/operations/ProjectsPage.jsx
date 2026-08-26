@@ -26,6 +26,7 @@ function ProjectsPage() {
   const [recordsPerPage, setRecordsPerPage] = useState(10);
   const [qreStatsMap, setQreStatsMap] = useState({});
   const [qreStudies, setQreStudies] = useState([]);
+  const [trafficStatsMap, setTrafficStatsMap] = useState({});
 
   const emptyForm = {
     projectName: "",
@@ -321,6 +322,26 @@ function ProjectsPage() {
         results.forEach(r => { if (r) map[r[0]] = r[1]; });
         setQreStatsMap(map);
       });
+  }, [projects]);
+
+  useEffect(() => {
+    const sessionId = localStorage.getItem("session_id");
+    if (!sessionId) return;
+    const pids = projects.map(p => p.surveyNo).filter(Boolean);
+    if (!pids.length) return;
+    const unique = [...new Set(pids)];
+    Promise.all(unique.map(pid =>
+      fetch(buildApiUrl(`/api/traffic/project-stats?pid=${encodeURIComponent(pid)}`), {
+        headers: { Authorization: sessionId },
+      })
+        .then(r => (r.ok ? r.json() : null))
+        .then(s => [pid, s])
+        .catch(() => null)
+    )).then(results => {
+      const map = {};
+      results.forEach(r => { if (r && r[1]) map[r[0]] = r[1]; });
+      setTrafficStatsMap(map);
+    });
   }, [projects]);
 
   const handleChange = (e) => {
@@ -692,11 +713,18 @@ function ProjectsPage() {
           <tbody>
             {paginatedProjects.map(p => {
               const qreStats = p.qreStudyId ? qreStatsMap[p.qreStudyId] : null;
+              const trafficStats = p.surveyNo ? trafficStatsMap[p.surveyNo] : null;
               const targetCompletes = toNumber(p.totalCompletesRequired || p.totalCompletes);
               const achievedCompletes = qreStats?.completed != null
                 ? qreStats.completed
+                : trafficStats?.completes != null
+                ? trafficStats.completes
                 : toNumber(p.actualCompletes || p.totalCompletes);
-              const meanLoi = qreStats?.median_loi != null ? qreStats.median_loi : null;
+              const meanLoi = qreStats?.median_loi != null
+                ? qreStats.median_loi
+                : trafficStats?.median_loi != null
+                ? trafficStats.median_loi
+                : null;
               const completionRate = targetCompletes > 0
                 ? ((achievedCompletes / targetCompletes) * 100).toFixed(1)
                 : null;
