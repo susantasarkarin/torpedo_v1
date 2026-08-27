@@ -1996,12 +1996,16 @@ def _compute_and_persist_mail_pool_stats():
         # derive_segment() actually writes on the flat schema; the legacy
         # `category` field this used to group by is unset on essentially
         # every doc in that schema, so it always produced an empty result).
+        # Runs in the background thread (doesn't block any HTTP response), and
+        # this VM is memory/IO constrained enough that even an indexed
+        # aggregation over 447K+ docs can occasionally exceed a tight cap —
+        # give it real headroom rather than silently falling back to {}.
         try:
             category_stats = list(mail_pool_emails.aggregate([
                 {"$group": {"_id": "$segment", "count": {"$sum": 1}}},
                 {"$sort": {"count": -1}},
                 {"$limit": 20}
-            ], maxTimeMS=8000))
+            ], maxTimeMS=30000))
         except Exception:
             category_stats = []
 
