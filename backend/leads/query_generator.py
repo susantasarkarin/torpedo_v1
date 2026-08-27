@@ -145,7 +145,8 @@ def generate_search_plan(
             ],
             source="background",
             endpoint="generate_search_plan",
-            model="gpt-4o-mini",
+            # Qwen-only policy: no explicit model= here so chat_completion()
+            # resolves to its governed default (CHEAP_MODEL = Qwen).
             max_output_tokens=500,
             temperature=0.7,  # Higher for variety
             response_format={"type": "json_object"}

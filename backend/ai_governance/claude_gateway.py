@@ -45,15 +45,18 @@ from .ai_gateway import _get_anthropic_api_key, _get_mongo_client, BEDROCK_BASE_
 logger = logging.getLogger(__name__)
 
 # Anthropic-route base_url for the same Bedrock Mantle deployment — only used
-# by web_search(), since server-side web search is Anthropic-specific and
-# open-weight models (GLM/DeepSeek) don't support it.
+# by web_search(). DELIBERATE, DOCUMENTED EXCEPTION to the Qwen-only policy:
+# server-side web search is Anthropic-specific and Qwen (or any open-weight
+# model) does not support it on Bedrock. Every other call in this codebase
+# must resolve to Qwen; do not extend this exception to any other task.
 BEDROCK_ANTHROPIC_BASE_URL = os.getenv(
     "BEDROCK_MANTLE_ANTHROPIC_BASE_URL", "https://bedrock-mantle.us-east-1.api.aws/anthropic")
 WEB_SEARCH_MODEL = os.getenv("BEDROCK_MODEL_WEB_SEARCH", "anthropic.claude-haiku-4-5")
 
-# Default for generic generation. High-volume cheap tasks (classification)
-# keep using ai_gateway's cheap tier; override per-call or via env.
-DEFAULT_MODEL = os.getenv("BEDROCK_MODEL_PREMIUM", "deepseek.v3.2")
+# Default for generic generation. Qwen-only policy: same model as
+# ai_gateway's cheap tier and bedrock_client's "smart" role — override per-call
+# or via env, but never default to a different provider here.
+DEFAULT_MODEL = os.getenv("BEDROCK_MODEL_PREMIUM", "qwen.qwen3-32b-v1:0")
 
 
 def _strip_markdown_json(text: str) -> str:
@@ -278,8 +281,12 @@ def async_claude_chat_client(*args, **kwargs) -> AsyncClaudeChatClient:
 # Retired leads.openai_wrapper replacements (Bedrock-backed)
 # ======================================================================
 
-PREMIUM_MODEL = os.getenv("BEDROCK_MODEL_PREMIUM", "deepseek.v3.2")
-CHEAP_MODEL = os.getenv("BEDROCK_MODEL_CHEAP", "zai.glm-4.7-flash")
+# Qwen-only policy: both tiers resolve to the same model as ai_gateway.py and
+# bedrock_client.py. PREMIUM_MODEL/CHEAP_MODEL are kept as two names (used by
+# chat_completion_with_escalation's cheap-then-premium retry) but must never
+# default to a different provider.
+PREMIUM_MODEL = os.getenv("BEDROCK_MODEL_PREMIUM", "qwen.qwen3-32b-v1:0")
+CHEAP_MODEL = os.getenv("BEDROCK_MODEL_CHEAP", "qwen.qwen3-32b-v1:0")
 # High-volume email classification default (name kept from the retired wrapper)
 ANTHROPIC_DEFAULT_MODEL = CHEAP_MODEL
 

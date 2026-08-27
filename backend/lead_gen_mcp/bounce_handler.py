@@ -1,12 +1,12 @@
 """
-Bounce re-enrichment using Claude AI.
+Bounce re-enrichment using Qwen (via AWS Bedrock Mantle — see qwen_client.py).
 
 When a sent email hard-bounces, this module:
 
   1. Logs the bounce in bounce_log
   2. Tries cheap pattern variants first (no API cost):
        {first}{last}@domain, {f}.{last}@domain, {first}_{last}@domain, etc.
-  3. If all variants fail → asks Claude to reason about the person and
+  3. If all variants fail → asks the model to reason about the person and
        suggest alternative email formats, nickname expansions, or alias
        patterns specific to this company
   4. Tries each AI candidate in ranked order
@@ -30,19 +30,17 @@ import socket
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-import anthropic
 import httpx
 
 from . import state as st
 from .enricher import apply_pattern, _hunter_domain_search
+from .qwen_client import call_qwen
 from .schemas import EnrichedLead
 
 logger = logging.getLogger(__name__)
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 HUNTER_API_KEY = os.getenv("HUNTER_API_KEY", "")
 HUNTER_BASE = "https://api.hunter.io/v2"
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 
 # Alternative patterns to try before calling any API
 _PATTERN_VARIANTS = [
@@ -108,7 +106,7 @@ def _generate_variants(first: str, last: str, domain: str) -> List[Tuple[str, st
 
 
 # ---------------------------------------------------------------------------
-# Claude AI re-enrichment
+# Qwen re-enrichment
 # ---------------------------------------------------------------------------
 
 _AI_SYSTEM = """You are an expert at B2B email deliverability.
@@ -144,11 +142,9 @@ def _call_claude_for_candidates(
     existing_patterns_at_domain: List[str],
 ) -> List[Dict[str, Any]]:
     """
-    Ask Claude to suggest alternative email candidates.
+    Ask the model to suggest alternative email candidates.
     Returns list of {email, rationale, confidence} dicts, sorted by confidence.
     """
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-
     prompt = f"""
 Person:
   Full name: {first} {last}
@@ -164,14 +160,8 @@ Generate alternative email candidates.
 """
 
     try:
-        response = client.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=1024,
-            system=_AI_SYSTEM,
-            messages=[{"role": "user", "content": prompt.strip()}],
-        )
-        raw = response.content[0].text
-        logger.debug("BounceHandler Claude raw: %s", raw[:400])
+        raw = call_qwen(system=_AI_SYSTEM, user=prompt.strip(), max_tokens=1024)
+        logger.debug("BounceHandler Qwen raw: %s", raw[:400])
 
         # Parse JSON
         text = raw.strip()
@@ -185,7 +175,7 @@ Generate alternative email candidates.
         return sorted(candidates, key=lambda c: c.get("confidence", 0), reverse=True)
 
     except Exception as exc:
-        logger.error("BounceHandler Claude call failed: %s", exc)
+        logger.error("BounceHandler Qwen call failed: %s", exc)
         return []
 
 
@@ -231,7 +221,7 @@ async def handle_bounce(
 
     Lookup order:
       1. Cheap pattern variants (SMTP probe each, no API)
-      2. Claude AI candidates (SMTP probe each)
+      2. Qwen AI candidates (SMTP probe each)
       3. Hunter email-finder (last resort, costs a credit)
 
     Returns a dict describing the outcome:
@@ -301,7 +291,7 @@ async def handle_bounce(
                 "candidates_tried": candidates_tried,
             }
 
-    # 3. Claude AI candidates
+    # 3. Qwen AI candidates
     existing_domain_patterns = [known_pattern] if known_pattern else []
     ai_suggestions = _call_claude_for_candidates(
         first, last, domain, title, company, bounced_email,

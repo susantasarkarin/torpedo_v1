@@ -44,7 +44,9 @@ def chat_completion(
     messages: List[Dict[str, Any]],
     source: str = "background",
     endpoint: str = "generic",
-    model: str = "gpt-4o-mini",
+    # Qwen-only policy: None (not a literal model string) so gateway._call_llm's
+    # `model or ANTHROPIC_MODEL` falls through to the governed Qwen default.
+    model: Optional[str] = None,
     provider: str = "openai",
     max_output_tokens: int = 800,
     temperature: float = 0.2,
@@ -207,7 +209,8 @@ Provide a thorough summary (max 500 words) covering the entire conversation flow
             messages=messages,
             source=source,
             endpoint="email_thread_summary",
-            model="gpt-4o-mini",  # OpenAI gpt-4o-mini
+            # Qwen-only policy: no explicit model= — chat_completion() above
+            # resolves to the governed Qwen default when model is None.
             provider="openai",
             max_output_tokens=800,  # Allow for full 500-word summary + contact info
             temperature=0.2,
@@ -408,7 +411,8 @@ Focus on actionable segmentation that helps sales and marketing teams prioritize
             messages=messages,
             source=source,
             endpoint="bulk_categorization",
-            model="gpt-4o-mini",  # OpenAI gpt-4o-mini
+            # Qwen-only policy: no explicit model= — chat_completion() above
+            # resolves to the governed Qwen default when model is None.
             provider="openai",
             max_output_tokens=2000,  # Need more tokens for batch categorization
             temperature=0.3,

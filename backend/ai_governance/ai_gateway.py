@@ -5,8 +5,9 @@ Task-specific LLM operations live here; generic generation and web search
 live in claude_gateway.py. AWS Bedrock Mantle (OpenAI-compatible, serverless,
 per-token billed) is the AI provider in this codebase.
 
-Uses zai.glm-4.7-flash (fast, cheap) for high-volume classification /
-summarization / extraction tasks.
+Qwen-only policy: uses qwen.qwen3-32b-v1:0 for high-volume classification /
+summarization / extraction tasks — the same model leads/bedrock_client.py
+uses for its "cheap" role. No other model should be substituted here.
 
 Constraints (MANDATORY):
 - Hard limit: 50,000 requests per day (configurable safeguard)
@@ -61,7 +62,9 @@ def _strip_markdown_json(text: str) -> str:
 # separate prepaid wallet. Auth is a Bedrock API key (bearer token).
 
 BEDROCK_BASE_URL = os.getenv("BEDROCK_MANTLE_BASE_URL", "https://bedrock-mantle.us-east-1.api.aws/v1")
-ANTHROPIC_MODEL = os.getenv("BEDROCK_MODEL_CHEAP", "zai.glm-4.7-flash")   # fast + cheap for classification / enrichment
+# Qwen-only policy: same model, same env var, as leads/bedrock_client.py's
+# "cheap" role — this module must never default to a different provider.
+ANTHROPIC_MODEL = os.getenv("BEDROCK_MODEL_CHEAP", "qwen.qwen3-32b-v1:0")
 
 _mongo_client: Optional[MongoClient] = None
 

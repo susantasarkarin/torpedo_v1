@@ -1,5 +1,5 @@
 """
-Claude Sonnet query agent.
+Qwen query agent (via AWS Bedrock Mantle — see qwen_client.py).
 
 On each cycle, the agent reads:
   - ICP definition (titles, industries, geos, size band)
@@ -25,29 +25,16 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-import anthropic
-
+from .qwen_client import call_qwen
 from .schemas import ICPDefinition, QueryProposal
 from . import state as st
 
 logger = logging.getLogger(__name__)
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 MAX_TOKENS = 4096
-
-_client: Optional[anthropic.Anthropic] = None
-
-
-def _get_client() -> anthropic.Anthropic:
-    global _client
-    if _client is None:
-        _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    return _client
 
 
 _SYSTEM = """You are an expert B2B lead-generation strategist.
@@ -120,7 +107,7 @@ async def propose_queries(
     batch_size: int = 20,
 ) -> List[QueryProposal]:
     """
-    Ask Claude to propose a fresh batch of search queries for the given ICP.
+    Ask the model to propose a fresh batch of search queries for the given ICP.
     Returns a list of QueryProposal objects.
     """
     history = st.get_query_history(icp.icp_id, limit=200)
@@ -138,13 +125,7 @@ async def propose_queries(
     )
 
     try:
-        response = _get_client().messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=MAX_TOKENS,
-            system=_SYSTEM,
-            messages=[{"role": "user", "content": user_prompt}],
-        )
-        raw = response.content[0].text
+        raw = call_qwen(system=_SYSTEM, user=user_prompt, max_tokens=MAX_TOKENS)
         logger.debug("QueryAgent raw response: %s", raw[:500])
     except Exception as exc:
         logger.error("QueryAgent LLM call failed: %s", exc)
