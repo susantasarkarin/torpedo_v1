@@ -17,6 +17,9 @@ function VendorLeadsPage() {
   const [selectedIds, setSelectedIds] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [editingLead, setEditingLead] = useState(null)
+  const [showDetail, setShowDetail] = useState(false)
+  const [detailLead, setDetailLead] = useState(null)
+  const [detailLoading, setDetailLoading] = useState(false)
   const [showConvertModal, setShowConvertModal] = useState(false)
   const [convertingLead, setConvertingLead] = useState(null)
   const [convertType, setConvertType] = useState("panel")
@@ -137,6 +140,35 @@ function VendorLeadsPage() {
     setEditingLead(null)
     setFormData(emptyForm)
     setShowForm(true)
+  }
+
+  const openDetail = async (lead) => {
+    setDetailLead(lead)
+    setShowDetail(true)
+    setDetailLoading(true)
+    try {
+      const sessionId = localStorage.getItem("session_id")
+      const res = await fetch(buildApiUrl(`/vendor-leads/${lead._id}`), {
+        headers: { Authorization: sessionId || "" }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setDetailLead(data)
+      }
+    } catch (err) {
+      console.error("Error fetching lead detail:", err)
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return "-"
+    const date = new Date(dateStr)
+    if (isNaN(date.getTime())) return "-"
+    return date.toLocaleDateString("en-US", {
+      day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit"
+    })
   }
 
   const openEdit = (lead) => {
@@ -358,7 +390,7 @@ function VendorLeadsPage() {
                     />
                   </td>
                   <td className="name-cell">
-                    <span className="name-link" onClick={() => openEdit(lead)}>
+                    <span className="name-link" onClick={() => openDetail(lead)}>
                       {lead.name || "-"}
                     </span>
                   </td>
@@ -468,6 +500,151 @@ function VendorLeadsPage() {
                 <button className="btn btn-primary" onClick={saveLead}>
                   {editingLead ? "Update" : "Create"}
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lead Detail Modal */}
+      {showDetail && detailLead && (
+        <div className="modal-overlay" onClick={() => setShowDetail(false)}>
+          <div className="modal-content lead-detail-content" onClick={e => e.stopPropagation()}>
+            <div className="detail-header">
+              <div>
+                <h2>{detailLead.name || "-"}</h2>
+                {detailLead.company && <span className="detail-company">- {detailLead.company}</span>}
+              </div>
+              <div className="detail-header-actions">
+                {detailLead.email && (
+                  <a className="btn btn-primary" href={`mailto:${detailLead.email}`}>
+                    Send Email
+                  </a>
+                )}
+                <button className="btn btn-outline" onClick={() => { setShowDetail(false); openEdit(detailLead) }}>
+                  Edit
+                </button>
+                <button className="btn btn-outline" onClick={() => setShowDetail(false)}>
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="detail-body">
+              {detailLoading && <div className="detail-loading">Loading lead details...</div>}
+
+              <div className="info-section">
+                <div className="section-title-row"><h3>Lead Information</h3></div>
+                <div className="info-grid">
+                  <div className="info-row">
+                    <span className="label">Status</span>
+                    <span className="value">
+                      <span className="stage-badge" style={getStatusBadge(detailLead.status)}>{detailLead.status || "New"}</span>
+                    </span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Email</span>
+                    <span className="value">{detailLead.email ? <a href={`mailto:${detailLead.email}`}>{detailLead.email}</a> : "-"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Title</span>
+                    <span className="value">{detailLead.title || "-"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Phone</span>
+                    <span className="value">{detailLead.phone || "-"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Company</span>
+                    <span className="value">{detailLead.company || "-"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Vendor</span>
+                    <span className="value">{detailLead.vendor_name || "-"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Location</span>
+                    <span className="value">{detailLead.location || "-"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Industry</span>
+                    <span className="value">{detailLead.industry || "-"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">LinkedIn</span>
+                    <span className="value">
+                      {detailLead.linkedin_url
+                        ? <a href={detailLead.linkedin_url} target="_blank" rel="noopener noreferrer">{detailLead.linkedin_url} ↗</a>
+                        : "-"}
+                    </span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Website</span>
+                    <span className="value">
+                      {detailLead.website
+                        ? <a href={detailLead.website.startsWith("http") ? detailLead.website : `https://${detailLead.website}`} target="_blank" rel="noopener noreferrer">{detailLead.website} ↗</a>
+                        : "-"}
+                    </span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Lead Source</span>
+                    <span className="value">{detailLead.source || "-"}</span>
+                  </div>
+                  <div className="info-row">
+                    <span className="label">Created</span>
+                    <span className="value">{formatDate(detailLead.created_at)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {detailLead.notes && (
+                <div className="info-section">
+                  <div className="section-title-row"><h3>Notes</h3></div>
+                  <p className="detail-notes">{detailLead.notes}</p>
+                </div>
+              )}
+
+              <div className="info-section">
+                <div className="section-title-row">
+                  <h3>Emails {detailLead.emails?.length > 0 && <span className="count-badge">{detailLead.emails.length}</span>}</h3>
+                </div>
+                <div className="emails-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Subject</th>
+                        <th>Date</th>
+                        <th>Source</th>
+                        <th>Sent By</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detailLead.emails && detailLead.emails.length > 0 ? (
+                        detailLead.emails.map((email, idx) => (
+                          <tr key={email.id || idx}>
+                            <td>
+                              <div>{email.subject || "(no subject)"}</div>
+                              <div className="email-recipient">{email.recipients || email.to}</div>
+                            </td>
+                            <td>{formatDate(email.date)}</td>
+                            <td>{email.source || "IMAP"}</td>
+                            <td>{email.sent_by || email.from}</td>
+                            <td>
+                              <span className="status-badge">{email.status || "-"}</span>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan="5" style={{ textAlign: "center", padding: "24px", color: "#9ca3af" }}>
+                            {detailLoading ? "Loading emails..." : "No emails found for this lead"}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>

@@ -18,6 +18,11 @@ try:
 except ImportError:  # pragma: no cover - flat import when run from backend/
     from utils import serialize_doc, serialize_docs
 
+try:
+    from ..leads.service import get_emails_for_lead
+except ImportError:  # pragma: no cover - flat import when run from backend/
+    from leads.service import get_emails_for_lead
+
 router = APIRouter(prefix="/vendor-leads", tags=["Vendor Leads"])
 
 # MongoDB connection
@@ -103,18 +108,27 @@ async def get_vendor_leads_stats():
 
 
 @router.get("/{lead_id}")
-async def get_vendor_lead(lead_id: str):
-    """Get a single vendor lead by ID"""
+async def get_vendor_lead(lead_id: str, include_emails: bool = Query(True)):
+    """Get a single vendor lead by ID, with matching mail thread when available"""
     try:
         obj_id = ObjectId(lead_id)
     except:
         raise HTTPException(status_code=400, detail="Invalid lead ID")
-    
+
     lead = vendor_leads_collection.find_one({"_id": obj_id})
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
-    
-    return serialize_doc(lead)
+
+    lead = serialize_doc(lead)
+
+    if include_emails and lead.get("email"):
+        emails = get_emails_for_lead(lead["email"])
+        lead["emails"] = emails
+        lead["email_count"] = len(emails)
+    else:
+        lead["emails"] = lead.get("emails", [])
+
+    return lead
 
 
 @router.post("")
