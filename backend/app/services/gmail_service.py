@@ -181,6 +181,11 @@ class GmailService:
         self.emails.create_index([("mailbox_id", 1), ("ai_department", 1)])
         self.emails.create_index("gmail_thread_id")
         self.emails.create_index("ai_processed_at")
+        # mail_pool_ai.py's derive_segment() writes this flat-schema field;
+        # the /mail-pool/stats segment-breakdown aggregation groups by it and
+        # was timing out (8s cap) on a full unindexed scan of 447K+ docs,
+        # silently falling back to an empty result.
+        self.emails.create_index("segment")
     
     def _get_credentials(self, mailbox: Dict) -> Credentials:
         """Get OAuth credentials from mailbox, refreshing if needed"""
