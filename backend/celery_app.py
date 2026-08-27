@@ -149,17 +149,15 @@ celery_app.conf.update(
             'options': {'queue': 'default'},
         },
         'mail-pool-ai-sender-batch': {
-            # TEMPORARY BACKFILL SPEED-UP (2026-08-27): every 2.5 min / 100
-            # senders/run instead of the normal 10 min / 50, to clear the
-            # full-pool reclassification (all ~6.3K senders reset for a fresh
-            # segregation/summary/contact-extraction pass) in a few hours
-            # instead of a day+. REVERT to schedule=600.0, limit=50 once the
-            # backfill finishes (email_metadata.ai_analysis coverage back to
-            # ~100%) — see torpedo-sales-worker logs for "sender batch done"
-            # entries to track progress.
+            # Every 10 min: AI-process mail-pool SENDERS (summary, contacts,
+            # RFQ -> spine + draft estimate, follow-up drafts). One model call
+            # per sender covers ALL their emails. Was temporarily sped up to
+            # 2.5min/100 on 2026-08-27 to clear a full-pool reclassification
+            # backfill (446,303/447,009 done in ~3h, zero systemic errors);
+            # reverted to normal cadence now that the pool is current.
             'task': 'backend.tasks.mail_pool_ai_tasks.process_mail_pool_sender_batch',
-            'schedule': 150.0,
-            'kwargs': {'limit': 100},
+            'schedule': 600.0,
+            'kwargs': {'limit': 50},
             'options': {'queue': 'ai_processing'},
         },
         'lead-bucket-classification': {
