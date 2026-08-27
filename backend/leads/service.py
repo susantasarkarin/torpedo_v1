@@ -552,8 +552,16 @@ def get_leads(filters: LeadFilterParams) -> Tuple[List[dict], int]:
         else:
             # Allow filtering by specific stage
             query["stage"] = filters.lead_stage
-    else:
-        # Default: exclude 'already_contacted' (gmail/Leads-tab leads) from main AI Database view
+    elif not filters.qualified_only:
+        # Default: exclude 'already_contacted' (gmail/Leads-tab leads) from the
+        # main AI Database view. qualified_only is exempted — its entire
+        # purpose is to surface "Gmail contacts + outreach-replied leads" (see
+        # above), and canonical_ingestion.ingest_lead() stamps every
+        # gmail-sourced lead stage='already_contacted' on creation, so this
+        # exclusion previously made the Sales > Leads page (which always
+        # calls with qualified_only=true) show zero Gmail contacts — 100% of
+        # them were filtered out by this default before qualified_only even
+        # got a chance to matter.
         query["stage"] = {"$ne": "already_contacted"}
     
     if filters.seniority_level:
