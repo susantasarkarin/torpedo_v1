@@ -38,6 +38,7 @@ when AI is unavailable.
 
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -344,15 +345,70 @@ def _run_icp_and_route(lead_id: str, email: str, is_inbound: bool,
         return None
 
 
+# AI category -> destination. "vendor" contacts go to the standalone Vendor
+# Leads collection (email_automation.vendor_leads, the Vendor > Leads page);
+# everything else (rfq/client_inquiry/reply/promotional/transactional/other)
+# keeps going through canonical ingestion into the Sales > Leads pipeline —
+# unchanged from before, this only carves vendor out of that shared path.
+VENDOR_LEADS_COLLECTION = "vendor_leads"   # in email_automation
+
+
+def _ingest_vendor_contact(contact: Dict[str, Any], analysis: Dict[str, Any],
+                           email_doc: Dict[str, Any]) -> bool:
+    """Insert one AI-extracted vendor contact into vendor_leads, deduped by
+    email (same convention as routers/vendor_leads.py's transfer endpoints).
+    Returns True if a new row was inserted."""
+    email = (contact.get("email") or "").strip().lower()
+    if not email:
+        return False
+    col = _get_db("email_automation")[VENDOR_LEADS_COLLECTION]
+    if col.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}}):
+        return False
+    now = datetime.utcnow()
+    name = (contact.get("name") or "").strip()
+    col.insert_one({
+        "name": name or "Unknown",
+        "first_name": name.split()[0] if name else "",
+        "last_name": name.split()[-1] if name and " " in name else "",
+        "email": email,
+        "title": (contact.get("title") or "").strip(),
+        "company": (contact.get("company") or "").strip(),
+        "phone": (contact.get("phone") or "").strip(),
+        "status": "new",
+        "notes": f"Auto-extracted from mail pool ({email_doc.get('subject') or 'email'}). "
+                 f"AI summary: {analysis.get('summary', '')}",
+        "source": "mail_pool_ai",
+        "source_email_id": str(email_doc.get("_id")),
+        "created_at": now, "updated_at": now,
+    })
+    return True
+
+
 def _ingest_contacts(analysis: Dict[str, Any], email_doc: Dict[str, Any]) -> int:
     """
-    Route AI-extracted contacts through canonical ingestion, then run each
-    resulting lead through the ICP bucket classifier and outreach routing.
+    Route AI-extracted contacts to their destination by AI category:
+      - "vendor"                       -> vendor_leads (Vendor > Leads)
+      - everything else (rfq/client_inquiry/reply/promotional/transactional/
+        other) -> canonical ingestion -> leads_raw/leads_enriched
+        (Sales > Leads), then ICP bucket classification + outreach routing.
     The email's own sender is always an inbound correspondent (warm, never
-    cold); other extracted contacts are checked against the pool.
+    cold) on the sales path; other extracted contacts are checked against
+    the pool.
     """
     ingested = 0
     contacts = analysis.get("contacts") or []
+    if not contacts:
+        return 0
+
+    if (analysis.get("category") or "").strip().lower() == "vendor":
+        for c in contacts:
+            try:
+                if _ingest_vendor_contact(c, analysis, email_doc):
+                    ingested += 1
+            except Exception as ce:
+                logger.debug(f"[mail-ai] vendor contact ingest skipped: {ce}")
+        return ingested
+
     sender_email = (email_doc.get("from_email") or email_doc.get("from") or "").strip().lower()
     try:
         try:

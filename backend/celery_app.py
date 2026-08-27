@@ -149,14 +149,17 @@ celery_app.conf.update(
             'options': {'queue': 'default'},
         },
         'mail-pool-ai-sender-batch': {
-            # Every 10 min: AI-process mail-pool SENDERS (summary, contacts,
-            # RFQ -> spine + draft estimate, follow-up drafts). One Haiku call
-            # per sender covers ALL their emails — the 361K-email pool has
-            # only ~6.3K unique senders, so the whole backlog costs ~$50 and
-            # clears in about a day at 50 senders/run.
+            # TEMPORARY BACKFILL SPEED-UP (2026-08-27): every 2.5 min / 100
+            # senders/run instead of the normal 10 min / 50, to clear the
+            # full-pool reclassification (all ~6.3K senders reset for a fresh
+            # segregation/summary/contact-extraction pass) in a few hours
+            # instead of a day+. REVERT to schedule=600.0, limit=50 once the
+            # backfill finishes (email_metadata.ai_analysis coverage back to
+            # ~100%) — see torpedo-sales-worker logs for "sender batch done"
+            # entries to track progress.
             'task': 'backend.tasks.mail_pool_ai_tasks.process_mail_pool_sender_batch',
-            'schedule': 600.0,
-            'kwargs': {'limit': 50},
+            'schedule': 150.0,
+            'kwargs': {'limit': 100},
             'options': {'queue': 'ai_processing'},
         },
         'lead-bucket-classification': {
