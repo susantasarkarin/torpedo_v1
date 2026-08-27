@@ -1992,10 +1992,13 @@ def _compute_and_persist_mail_pool_stats():
         except Exception:
             drafts_count = 0
 
-        # Category breakdown
+        # Segment breakdown — group by `segment` (the field mail_pool_ai.py's
+        # derive_segment() actually writes on the flat schema; the legacy
+        # `category` field this used to group by is unset on essentially
+        # every doc in that schema, so it always produced an empty result).
         try:
             category_stats = list(mail_pool_emails.aggregate([
-                {"$group": {"_id": "$category", "count": {"$sum": 1}}},
+                {"$group": {"_id": "$segment", "count": {"$sum": 1}}},
                 {"$sort": {"count": -1}},
                 {"$limit": 20}
             ], maxTimeMS=8000))
