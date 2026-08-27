@@ -2,63 +2,60 @@
 Qwen-only LLM client for lead_gen_mcp.
 
 lead_gen_mcp runs under its own venv (lead_gen_venv), separate from the main
-backend/venv, and does not have the `openai` package installed — only
-`anthropic` and `httpx`. Rather than add a new dependency or call Anthropic's
-real API directly (both bounce_handler.py and query_agent.py previously did
-the latter, hardcoding a Claude model), this makes a raw HTTP call to the
-same AWS Bedrock Mantle OpenAI-compatible endpoint the rest of the codebase
-uses (see backend/ai_governance/ai_gateway.py, backend/leads/bedrock_client.py)
-so every LLM call in this codebase — this module included — resolves to Qwen.
+backend/venv. bounce_handler.py and query_agent.py previously called the real
+Anthropic API directly with their own anthropic.Anthropic client, hardcoding
+a Claude model — a straight bypass of this codebase's Qwen-only policy.
 
-Auth: AWS_BEARER_TOKEN_BEDROCK, loaded via the shared backend/.env
-(EnvironmentFile= in torpedo-lead-gen-mcp.service).
+This calls AWS Bedrock's `bedrock-runtime.converse` API directly via boto3 —
+the SAME mechanism backend/leads/bedrock_client.py uses for the rest of the
+codebase's Qwen calls (mail_pool_ai.py, bucket_classifier.py), authenticating
+with plain AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY (already in backend/.env,
+loaded via EnvironmentFile= in torpedo-lead-gen-mcp.service) via boto3's
+standard credential chain.
+
+Deliberately NOT using the "Bedrock Mantle" OpenAI-compatible endpoint that
+ai_gateway.py/claude_gateway.py use — verified 2026-08-27 that Mantle's key
+is invalid/unconfigured in this environment (401 invalid_api_key), while the
+boto3 Converse path used here is proven working in production. Importing
+backend.leads.bedrock_client directly was tried and rejected: backend/leads/
+__init__.py eagerly imports the whole leads package (pulls in requests,
+creates Mongo indexes as a side effect) just to reach one function — too much
+surface area for this isolated venv, hence this self-contained duplicate of
+just the Converse call.
 """
 
 from __future__ import annotations
 
-import json
 import os
-from typing import Optional
 
-import httpx
+import boto3
 
-BEDROCK_BASE_URL = os.getenv(
-    "BEDROCK_MANTLE_BASE_URL", "https://bedrock-mantle.us-east-1.api.aws/v1")
 QWEN_MODEL = os.getenv("BEDROCK_MODEL_CHEAP", "qwen.qwen3-32b-v1:0")
 
+_runtime_client = None
 
-def _api_key() -> str:
-    key = os.getenv("AWS_BEARER_TOKEN_BEDROCK", "") or os.getenv("ANTHROPIC_API_KEY", "")
-    if not key:
-        raise RuntimeError(
-            "No Bedrock API key configured — set AWS_BEARER_TOKEN_BEDROCK")
-    return key
+
+def _client():
+    global _runtime_client
+    if _runtime_client is None:
+        _runtime_client = boto3.client(
+            "bedrock-runtime", region_name=os.getenv("AWS_REGION", "ap-south-1"))
+    return _runtime_client
 
 
 def call_qwen(system: str, user: str, max_tokens: int = 1024,
-              temperature: float = 0.3, timeout: float = 60.0) -> str:
-    """One Qwen call via Bedrock Mantle's OpenAI-compatible chat/completions
-    endpoint. Returns the assistant's text. Raises on transport/API failure —
-    callers already wrap this in their own try/except with a fallback."""
-    messages = []
+              temperature: float = 0.3) -> str:
+    """One Qwen call via AWS Bedrock's Converse API. Returns the assistant's
+    text. Raises on transport/API failure — callers already wrap this in
+    their own try/except with a fallback."""
+    kwargs = {
+        "modelId": QWEN_MODEL,
+        "messages": [{"role": "user", "content": [{"text": user}]}],
+        "inferenceConfig": {"maxTokens": max_tokens, "temperature": temperature},
+    }
     if system:
-        messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": user})
+        kwargs["system"] = [{"text": system}]
 
-    response = httpx.post(
-        f"{BEDROCK_BASE_URL}/chat/completions",
-        headers={
-            "Authorization": f"Bearer {_api_key()}",
-            "Content-Type": "application/json",
-        },
-        content=json.dumps({
-            "model": QWEN_MODEL,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-            "messages": messages,
-        }),
-        timeout=timeout,
-    )
-    response.raise_for_status()
-    data = response.json()
-    return (data["choices"][0]["message"]["content"] or "").strip()
+    response = _client().converse(**kwargs)
+    content = response.get("output", {}).get("message", {}).get("content", [])
+    return "".join(block.get("text", "") for block in content).strip()
