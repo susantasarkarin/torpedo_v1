@@ -169,6 +169,45 @@ def test_non_predicted_status_without_confidence_unaffected():
     assert check_email(lead) is None
 
 
+# ============================================================
+# GATE 1c: PROVENANCE (email_source), INDEPENDENT OF STATUS
+# ============================================================
+# email_status is a deliverability label; email_source is a provenance
+# label, and they drift independently. A lead sourced by the disabled
+# bounce_recovery_alt guesser can carry email_status="Delivered"/"Valid"/
+# "Catch-All"/"Unknown"/"bounced" — none of which trip the status-based
+# check above — while its email_source still shows it was a blind guess.
+
+@pytest.mark.parametrize("guessed_source", [
+    "bounce_recovery_alt", "bounce_recovery_skrapp", "pattern_applied",
+    "pattern_reapplied", "pattern_migration", "pattern_derived",
+    "name_domain_guess", "name_domain_inferred", "guess", "claude_web_search",
+])
+@pytest.mark.parametrize("non_predicted_status", [
+    "Delivered", "Valid", "Catch-All", "Unknown", "bounced",
+])
+def test_guessed_source_without_confidence_rejected_regardless_of_status(
+    guessed_source, non_predicted_status
+):
+    lead = _lead(email_status=non_predicted_status, email_source=guessed_source)
+    assert "email_pattern_confidence" not in lead
+    assert check_email(lead) == "unverified_email"
+
+
+def test_guessed_source_with_high_confidence_accepted():
+    lead = _lead(email_status="Delivered", email_source="bounce_recovery_alt",
+                 email_pattern_confidence=0.9)
+    assert check_email(lead) is None
+
+
+def test_untagged_source_with_non_predicted_status_unaffected():
+    """email_source=None (never went through the pattern system — a raw CSV
+    or Gmail-reply address) must not be newly blocked."""
+    lead = _lead(email_status="Valid")
+    assert lead.get("email_source") is None
+    assert check_email(lead) is None
+
+
 # ============================================
 # GATE 2: ICP SCORE + BRACKET
 # ============================================

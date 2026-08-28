@@ -60,6 +60,39 @@ UNVERIFIED_EMAIL_STATUSES = {
     "pending_pattern", "guessed", "unverified", "pattern_guess", "invalid",
 }
 
+# email_status is a DELIVERABILITY label (bounced / delivered / valid / ...).
+# email_source is a PROVENANCE label (how the address was obtained) — and the
+# two drift independently. A lead can carry email_status="Valid" or
+# "Delivered" while its email_source shows it was rendered by our own
+# pattern/guess machinery, never observed anywhere — 2,888 leads sourced from
+# the disabled bounce_recovery_alt guesser alone were sitting under
+# Delivered/Valid/Catch-All/Unknown/bounced, none of which the status-based
+# checks above ever look at. Confirmed against a full enumeration of
+# leads_enriched.email_source (see the commit this set was introduced in) —
+# every currently-observed non-null value is something OUR code rendered or
+# found, not something given to us directly:
+#   - bounce_recovery_alt / bounce_recovery_skrapp: bounce_recovery.py's
+#     recovery guessers (alt_format template guessing, Skrapp lookup)
+#   - pattern_applied / pattern_reapplied / pattern_migration: a stored
+#     domain pattern rendered for this specific person — even
+#     "pattern_applied" is a RENDERED address, not an observed one, which is
+#     why cold_outreach_router.py's own pre-send bounce-risk guard
+#     (line ~2330) already treats it as risky, alongside pattern_derived/
+#     guessed/pattern_guess
+#   - pattern_derived / name_domain_guess / name_domain_inferred: direct
+#     firstname.lastname@domain construction, no pattern verification at all
+#   - guess / claude_web_search: EmailPatternSystem.build_email_with_source's
+#     own tier names for its last-resort guess and its web-search find
+# A null/missing email_source is NOT in this set — that's the untagged
+# population (raw CSV emails, Gmail-reply sender addresses, and other
+# directly-observed addresses that never went through the pattern system).
+GUESSED_EMAIL_SOURCES = {
+    "bounce_recovery_alt", "bounce_recovery_skrapp",
+    "pattern_applied", "pattern_reapplied", "pattern_migration",
+    "pattern_derived", "name_domain_guess", "name_domain_inferred",
+    "guess", "claude_web_search",
+}
+
 EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 
 
@@ -110,16 +143,26 @@ def check_email(lead: Dict[str, Any]) -> Optional[str]:
     # EmailPatternSystem.build_email(); below 0.5 the address is still just a
     # guess (or an unconfirmed web-search hit) and must not qualify.
     #
-    # A "Predicted" lead with NO email_pattern_confidence at all is not a
+    # Gated on status=="predicted" OR email_source in GUESSED_EMAIL_SOURCES,
+    # not status alone: email_status is a DELIVERABILITY label and
+    # email_source is a PROVENANCE label, and they drift independently. 2,888
+    # leads whose email_source shows a guess/pattern-render (bounce_recovery_alt
+    # etc.) were sitting under email_status values of Delivered/Valid/
+    # Catch-All/Unknown/bounced — none of which trip the "predicted" branch —
+    # and sailed through ungated. Checking provenance directly, in addition to
+    # status, closes that.
+    #
+    # A qualifying lead with NO email_pattern_confidence at all is not a
     # verified email either — it's a legacy record from before this field
-    # existed, or a future write path that forgot to set it. Treating missing
-    # the same as high-confidence was the exact hole that let 2,355 leads
-    # with a status of "Predicted" and no confidence value sail through
-    # ungated. Missing must fail closed, not open — so this only ever skips
-    # the check for a status that isn't "Predicted" in the first place
-    # (raw_email leads carry their source's own status, e.g. "Valid" or
-    # "Unknown", and correctly have no pattern confidence to speak of).
-    if status == "predicted":
+    # existed, or a write path that forgot to set it. Treating missing the
+    # same as high-confidence was the exact hole that let 2,355 leads with a
+    # status of "Predicted" and no confidence value sail through ungated.
+    # Missing must fail closed, not open — so this only ever skips the check
+    # when NEITHER trigger applies (a raw_email lead carries its source's own
+    # status, e.g. "Valid", untagged email_source, and correctly has no
+    # pattern confidence to speak of).
+    source = (lead.get("email_source") or "").strip().lower()
+    if status == "predicted" or source in GUESSED_EMAIL_SOURCES:
         confidence = lead.get("email_pattern_confidence")
         if confidence is None:
             return "unverified_email"
