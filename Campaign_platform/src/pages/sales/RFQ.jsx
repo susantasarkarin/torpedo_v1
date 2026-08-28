@@ -361,10 +361,25 @@ function RFQ() {
     }
   }
 
-  const formatCurrency = (value, currency = "USD") => {
+  // Default matches the backend's spine fallback (backend/app/services/spine_rfq.py
+  // defaults extracted_currency to "INR"), so an RFQ with no currency detected
+  // renders the same symbol here as the value the backend actually stored —
+  // it previously defaulted to "$" here while the backend defaulted to "₹",
+  // so an unpriced/uncurrencied RFQ showed a currency symbol nobody set.
+  const formatCurrency = (value, currency = "INR") => {
     if (!value && value !== 0) return "—"
-    const currencyInfo = CURRENCIES.find(c => c.code === currency) || CURRENCIES[0]
+    const currencyInfo = CURRENCIES.find(c => c.code === currency) || CURRENCIES.find(c => c.code === "INR")
     return `${currencyInfo.symbol}${value.toLocaleString()}`
+  }
+
+  // Cost per interview/complete — value ÷ sample size. Not an extracted field;
+  // computed on the fly the same way estimate/invoice line items already do
+  // (backend/routers/rfq.py:_generate_line_items_from_rfq), just surfaced here.
+  const computeCPI = (rfq) => {
+    const value = rfq.manual_value || rfq.extracted_value
+    const n = rfq.sample_size
+    if (!value || !n) return null
+    return value / n
   }
 
   // Load RFQ details for modal
@@ -580,7 +595,19 @@ function RFQ() {
               </thead>
               <tbody>
                 {rfqs.map((rfq) => (
-                  <tr key={rfq.rfq_id} style={{ backgroundColor: selectedIds.includes(rfq.rfq_id) ? '#eff6ff' : 'transparent', cursor: 'pointer' }} onClick={() => loadRfqDetails(rfq.rfq_id)}>
+                  <tr
+                    key={rfq.rfq_id}
+                    className={`rfq-row state-${rfq.state || 'open'}`}
+                    style={{
+                      backgroundColor: selectedIds.includes(rfq.rfq_id)
+                        ? '#eff6ff'
+                        : rfq.state === 'won' ? '#f0fdf4'
+                        : rfq.state === 'lost' ? '#fef2f2'
+                        : 'transparent',
+                      cursor: 'pointer'
+                    }}
+                    onClick={() => loadRfqDetails(rfq.rfq_id)}
+                  >
                     <td onClick={(e) => e.stopPropagation()}>
                       <input 
                         type="checkbox" 
@@ -807,6 +834,14 @@ function RFQ() {
                     <label>Value</label>
                     <span style={{ fontWeight: 'bold', color: '#10b981' }}>
                       {formatCurrency(selectedRfq.manual_value || selectedRfq.extracted_value, selectedRfq.manual_currency || selectedRfq.extracted_currency)}
+                    </span>
+                  </div>
+                  <div className="detail-item">
+                    <label>CPI (per complete)</label>
+                    <span>
+                      {computeCPI(selectedRfq) !== null
+                        ? formatCurrency(computeCPI(selectedRfq), selectedRfq.manual_currency || selectedRfq.extracted_currency)
+                        : "— (needs value + sample size)"}
                     </span>
                   </div>
                   <div className="detail-item">

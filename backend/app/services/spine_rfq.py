@@ -143,6 +143,12 @@ def opportunity_to_rfq(
     contact_email = (contact or {}).get("email") or rfq_payload.get("contact_email") or ""
     contact_name = (contact or {}).get("name") or ""
     account_name = (account or {}).get("name") or rfq_payload.get("account_name") or ""
+    # No account/company was ever linked or extracted for a lot of mail-pool
+    # RFQs (the sender's email just never mentions their company name) — fall
+    # back to the email domain so the Account column reads e.g. "greenbook.org"
+    # instead of a bare "—" for every RFQ that has no linked account.
+    if not account_name and contact_email and "@" in contact_email:
+        account_name = contact_email.split("@", 1)[1]
 
     state = derive_state(opportunity)
     stage = (opportunity.get("stage") or "rfq").strip().lower()

@@ -236,9 +236,15 @@ Return exactly this JSON shape:
     "title": "<short title for the request, or null>",
     "description": "<what is being requested, or null>",
     "budget": <number or null>,
-    "currency": "<ISO code or null>",
+    "currency": "<ISO 4217 code (USD, INR, EUR, GBP...) or null>",
     "items": [{{"description": "<line item>", "quantity": <number>, "rate": <number or 0>}}],
-    "deadline": "<ISO date or null>"
+    "deadline": "<ISO date or null>",
+    "methodology": "<CATI|CAWI|F2F|CAPI|Online Panel|IDI|Focus Group|... or null>",
+    "loi": <length of interview in minutes, integer, or null>,
+    "ir": <incidence rate as a percentage number (e.g. 25 for 25%), or null>,
+    "sample_size": <number of completes/respondents requested, integer, or null>,
+    "country": "<target country/market, or null>",
+    "study_type": "<B2B|B2C|Healthcare|IT|Consumer|Other, or null>"
   }}
 }}
 
@@ -247,7 +253,11 @@ Rules:
   work (sample, surveys, panel, fieldwork, translations etc.). A promotional
   email SELLING something is never an RFQ.
 - contacts: only real external people evident in the email; [] if none.
-- follow_up_needed: true when a reply from us is clearly expected."""
+- follow_up_needed: true when a reply from us is clearly expected.
+- budget/currency: only fill from an explicit number/currency in the email; a
+  request that merely asks for pricing (no figure given yet) is budget: null.
+- loi/ir/sample_size/country/methodology/study_type: extract only what the
+  email actually states; leave null rather than guessing."""
 
 
 def _get_db(name: str):
@@ -550,9 +560,21 @@ def _log_rfq_and_estimate(analysis: Dict[str, Any],
             "account_id": account_id,
             "contact_id": contact_id,
             "budget": budget,
+            # AI-extracted currency was parsed but never carried past this
+            # point, so every RFQ silently fell back to the spine's INR
+            # default regardless of what the buyer actually asked in.
+            "currency": rfq.get("currency"),
             "description": rfq.get("description"),
             "deadline": rfq.get("deadline"),
             "source_email_id": str(email_doc.get("_id")),
+            # Research-brief fields the RFQ page's LOI/IR/N/Country columns
+            # read from metadata.rfq — previously never extracted at all.
+            "methodology": rfq.get("methodology"),
+            "loi": rfq.get("loi"),
+            "ir": rfq.get("ir"),
+            "sample_size": rfq.get("sample_size"),
+            "country": rfq.get("country"),
+            "study_type": rfq.get("study_type"),
         })
         out["opportunity_id"] = rfq_result["opportunity"]["_id"]
         out["project_id"] = rfq_result["project"]["_id"]
@@ -817,7 +839,13 @@ For any email where category is "rfq", replace that email's "rfq": null with:
     "budget": <number or null>,
     "currency": <ISO 4217 code as string, or null>,
     "items": [{{"description": <string>, "quantity": <number>, "rate": <number>}}],
-    "deadline": <ISO 8601 date string or null>
+    "deadline": <ISO 8601 date string or null>,
+    "methodology": <"CATI"|"CAWI"|"F2F"|"CAPI"|"Online Panel"|"IDI"|"Focus Group"|... or null>,
+    "loi": <length of interview in minutes, integer, or null>,
+    "ir": <incidence rate as a percentage number, or null>,
+    "sample_size": <number of completes/respondents requested, integer, or null>,
+    "country": <target country/market, string, or null>,
+    "study_type": <"B2B"|"B2C"|"Healthcare"|"IT"|"Consumer"|"Other", or null>
   }}
 
 Rules:
@@ -909,7 +937,13 @@ Return exactly this JSON shape:
       "items": [{{"description": "<line item>", "quantity": <number>, "rate": <number or 0>}}],
       "deadline": "<ISO date or null>", "email_date": "<date of the email>",
       "status": "open|quoted|won|lost",
-      "evidence": "<one sentence quoting/paraphrasing the deciding email>"}}
+      "evidence": "<one sentence quoting/paraphrasing the deciding email>",
+      "methodology": "<CATI|CAWI|F2F|CAPI|Online Panel|IDI|Focus Group|... or null>",
+      "loi": <length of interview in minutes, integer, or null>,
+      "ir": <incidence rate as a percentage number, or null>,
+      "sample_size": <number of completes/respondents requested, integer, or null>,
+      "country": "<target country/market, or null>",
+      "study_type": "<B2B|B2C|Healthcare|IT|Consumer|Other, or null>"}}
   ],
   "rfq_updates": [
     {{"ref": "<ref of a previously identified RFQ>",
