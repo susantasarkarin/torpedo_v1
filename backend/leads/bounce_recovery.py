@@ -285,7 +285,11 @@ def attempt_recovery(outreach_lead_id: str, bounced_email: str) -> Dict[str, Any
                     {"_id": oid},
                     {"$set": {"bounce_recovery_attempt": 1}}
                 )
-                _update_enriched_email(leads_db, lead_id, new_email, "bounce_recovery_alt")
+                # This template guessing has no verification behind it at
+                # all — same 0.2 confidence as EmailPatternSystem's own
+                # blind-guess tier, so the outreach gate blocks it if this
+                # path is ever re-enabled without also fixing the source.
+                _update_enriched_email(leads_db, lead_id, new_email, "bounce_recovery_alt", confidence=0.2)
                 return {"action": "retry", "email": new_email, "method": "alt_format"}
             else:
                 # All 6 formats already tried â€” skip straight to attempt 3
@@ -298,7 +302,7 @@ def attempt_recovery(outreach_lead_id: str, bounced_email: str) -> Dict[str, Any
         # Attempt 3 â€” Skrapp.io / EmailPatternSystem discovery
         # ----------------------------------------------------------------
         if recovery_attempt < 2:
-            new_email = _attempt_skrapp_discovery(first, last, domain, emails_tried, leads_db)
+            new_email, new_confidence = _attempt_skrapp_discovery(first, last, domain, emails_tried, leads_db)
             if new_email:
                 logger.info(
                     f"[BounceRecovery] Attempt 3 (skrapp): {outreach_lead_id} "
@@ -309,7 +313,7 @@ def attempt_recovery(outreach_lead_id: str, bounced_email: str) -> Dict[str, Any
                     {"_id": oid},
                     {"$set": {"bounce_recovery_attempt": 2}}
                 )
-                _update_enriched_email(leads_db, lead_id, new_email, "bounce_recovery_skrapp")
+                _update_enriched_email(leads_db, lead_id, new_email, "bounce_recovery_skrapp", confidence=new_confidence)
                 return {"action": "retry", "email": new_email, "method": "skrapp"}
 
         # ----------------------------------------------------------------
@@ -373,30 +377,33 @@ def _attempt_skrapp_discovery(
         # Build email for this specific person
         email, confidence = ps.build_email(first, last, domain)
         if email and _is_valid_email(email) and email.lower() not in tried_set:
-            return email
+            return email, confidence
 
     except Exception as e:
         logger.warning(f"[BounceRecovery] Skrapp discovery failed for {domain}: {e}")
 
-    return None
+    return None, None
 
 
 def _update_enriched_email(
-    leads_db, lead_id, new_email: str, source: str
+    leads_db, lead_id, new_email: str, source: str, confidence: Optional[float] = None
 ) -> None:
     """Update the leads_enriched record with the recovery email."""
     if not lead_id:
         return
     try:
+        update = {
+            "email": new_email,
+            "email_status": "Predicted",
+            "email_source": source,
+            "bounce_recovery_status": "recovering",
+            "updated_at": datetime.utcnow(),
+        }
+        if confidence is not None:
+            update["email_pattern_confidence"] = confidence
         leads_db["leads_enriched"].update_one(
             {"_id": ObjectId(str(lead_id))},
-            {"$set": {
-                "email": new_email,
-                "email_status": "Predicted",
-                "email_source": source,
-                "bounce_recovery_status": "recovering",
-                "updated_at": datetime.utcnow(),
-            }}
+            {"$set": update}
         )
     except Exception as e:
         logger.debug(f"[BounceRecovery] Could not update leads_enriched: {e}")

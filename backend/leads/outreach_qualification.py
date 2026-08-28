@@ -103,6 +103,20 @@ def check_email(lead: Dict[str, Any]) -> Optional[str]:
     if lead.get("email_is_guess") or lead.get("email_candidate") == email:
         return "guessed_email"
 
+    # "Predicted" covers everything from a Hunter/Skrapp-verified pattern
+    # (confidence ~0.9) down to a blind firstname.lastname guess with nobody
+    # ever confirming it (confidence 0.2-0.3) — the status alone doesn't
+    # distinguish them. email_pattern_confidence is set at build time by
+    # EmailPatternSystem.build_email(); below 0.5 the address is still just a
+    # guess (or an unconfirmed web-search hit) and must not qualify.
+    confidence = lead.get("email_pattern_confidence")
+    if confidence is not None:
+        try:
+            if float(confidence) < 0.5:
+                return "unverified_email"
+        except (TypeError, ValueError):
+            pass
+
     if is_generic_mailbox(email):
         return "generic_email"
 

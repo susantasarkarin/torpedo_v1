@@ -4347,14 +4347,17 @@ async def _run_backfill_name_domain_job():
                     continue
 
                 try:
+                    _update = {
+                        "email": guessed,
+                        "email_status": stub.get("email_status", "predicted"),
+                        "email_source": stub.get("email_source", "name_domain_guess"),
+                        "updated_at": datetime.utcnow(),
+                    }
+                    if stub.get("email_pattern_confidence") is not None:
+                        _update["email_pattern_confidence"] = stub["email_pattern_confidence"]
                     leads_enriched_collection.update_one(
                         {"_id": doc["_id"]},
-                        {"$set": {
-                            "email": guessed,
-                            "email_status": stub.get("email_status", "predicted"),
-                            "email_source": stub.get("email_source", "name_domain_guess"),
-                            "updated_at": datetime.utcnow(),
-                        }},
+                        {"$set": _update},
                     )
                 except Exception as _dup_err:
                     # E11000 duplicate key — another lead already has this email, skip
@@ -4471,7 +4474,9 @@ async def _run_gemini_domain_backfill():
         if guessed_email and "@" in guessed_email and EMAIL_RE.match(guessed_email):
             update_fields["email"] = guessed_email
             update_fields["email_status"] = stub.get("email_status", "predicted")
-            update_fields["email_source"] = "name_domain_inferred"
+            update_fields["email_source"] = stub.get("email_source", "name_domain_inferred")
+            if stub.get("email_pattern_confidence") is not None:
+                update_fields["email_pattern_confidence"] = stub["email_pattern_confidence"]
             email_found += 1
 
         try:

@@ -542,7 +542,13 @@ class AIClassificationLog(BaseModel):
     # ["company_size='Unknown'->Unknown"]. Populated by ai_classifier._coerce_enum.
     # Queryable so model drift is measurable rather than only greppable in logs.
     enum_drift: Optional[List[str]] = None
-    
+
+    # True when at least one company_* field was overwritten by a real web
+    # search (ai_classifier.enrich_company_via_websearch) rather than left as
+    # the classifier model's own recall/guess. Queryable so grounding
+    # coverage is measurable.
+    company_data_grounded: Optional[bool] = None
+
     # Performance
     tokens_used: int = 0
     latency_ms: int = 0

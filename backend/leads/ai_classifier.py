@@ -299,6 +299,37 @@ def classify_lead(lead: LeadRaw, source: str = "api",
             # Record on the log doc so drift is queryable, not just greppable.
             log.enum_drift = _drift
 
+        # Ground the LLM-guessed company_* fields with a real web search once
+        # we have a domain to search on. This runs after classify's own model
+        # call (which is deliberately cheap/no-search) so we only pay for a
+        # search when there's a concrete domain to verify — and the 30-day
+        # per-domain cache in enrich_company_via_websearch means every other
+        # lead at the same company reuses this one search, not a fresh call.
+        if result.company_domain:
+            try:
+                grounded = enrich_company_via_websearch(result.company_domain, source=source)
+                field_map = {
+                    "company_name": "company_name",
+                    "company_website": "company_website",
+                    "company_employee_count": "company_employee_count",
+                    "company_employee_range": "company_employee_count_range",
+                    "company_industry": "company_industry",
+                    "company_type": "company_type",
+                    "company_headquarters": "company_headquarters",
+                    "company_revenue_range": "company_revenue_range",
+                    "company_linkedin_url": "company_linkedin_url",
+                }
+                grounded_any = False
+                for src_key, dst_field in field_map.items():
+                    value = grounded.get(src_key)
+                    if value:
+                        setattr(result, dst_field, str(value))
+                        grounded_any = True
+                if grounded_any:
+                    log.company_data_grounded = True
+            except Exception as e:
+                logger.debug(f"Company grounding skipped for {result.company_domain}: {e}")
+
         log.parsed_output = result.model_dump()
         log.success = True
         log.confidence_score = result.confidence_score
@@ -366,39 +397,58 @@ Return JSON with company data (null if unknown):
 
 def enrich_company_via_websearch(domain: str, source: str = "background") -> Dict[str, Any]:
     """
-    Use OpenAI to enrich company data based on domain.
-    COST CONTROL: Uses gpt-4o-mini by default, caches for 30 days.
-    
+    Ground company data via real web search instead of LLM recall.
+    COST CONTROL: caches for 30 days per domain, so leads sharing a company
+    reuse one search instead of paying for it per-lead.
+
+    Previously this called gateway._call_llm() — pure model recall despite the
+    function name — which is why smaller/less-known companies routinely got
+    hallucinated or blank company_domain/revenue/employee_count fields (see
+    the SYSTEM_PROMPT instruction "Use knowledge for known companies" a few
+    lines up: the model was explicitly told to guess from memory). This now
+    uses the governed Claude web-search client so unfamiliar companies return
+    null instead of a fabricated guess.
+
     Args:
         domain: Company domain (e.g., 'example.com')
         source: Request source for rate limiting
-        
+
     Returns:
         Dictionary with company enrichment data
     """
     if not domain:
         return {}
-    
+
     # Check cache first - COST CONTROL: Avoid redundant API calls
     cached = _company_cache.find_one({"domain": domain})
     if cached and cached.get("fetched_at"):
         cache_age = datetime.utcnow() - cached["fetched_at"]
         if cache_age < timedelta(days=30):
             return cached.get("data", {})
-    
+
     try:
-        # Use OpenAI via AI governance gateway
-        gateway = get_ai_gateway()
-        full_prompt = f"Business research assistant. JSON only.\n\n{COMPANY_ENRICHMENT_PROMPT.format(domain=domain)}"
-        raw_content = gateway._call_llm(full_prompt, max_tokens=300, temperature=0.1)
+        from ai_governance.claude_gateway import get_claude_gateway
+        gateway = get_claude_gateway()
+        query = (
+            f"Search the web for real, current company information about the "
+            f"organization that owns the domain {domain}.\n\n"
+            f"{COMPANY_ENRICHMENT_PROMPT.format(domain=domain)}\n\n"
+            f"Only report facts you actually found via search results. Use null "
+            f"for anything you could not verify — do not guess or recall from "
+            f"memory, and do not fabricate a plausible-sounding value."
+        )
+        raw_content = gateway.web_search(query, num_results=6, caller=source or "company_enrichment")["answer"]
 
         # Parse response
         clean_content = raw_content.strip()
         if clean_content.startswith("```"):
             clean_content = re.sub(r"^```(?:json)?\s*", "", clean_content)
             clean_content = re.sub(r"\s*```$", "", clean_content)
-        data = json.loads(clean_content)
-        
+        json_match = re.search(r"\{[\s\S]*\}", clean_content)
+        if not json_match:
+            return {}
+        data = json.loads(json_match.group())
+
         # Cache the result
         _company_cache.update_one(
             {"domain": domain},
@@ -407,14 +457,14 @@ def enrich_company_via_websearch(domain: str, source: str = "background") -> Dic
                     "domain": domain,
                     "data": data,
                     "fetched_at": datetime.utcnow(),
-                    "source": "openai_websearch"
+                    "source": "claude_websearch"
                 }
             },
             upsert=True
         )
-        
+
         return data
-        
+
     except Exception as e:
         print(f"Error enriching company {domain}: {e}")
         return {}

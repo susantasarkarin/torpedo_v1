@@ -249,6 +249,12 @@ def _build_enriched_doc(lead_data: Dict[str, Any], raw_lead_id: str) -> Dict[str
             'last_name': _last or None,
             'email': lead_data.get('email'),
             'email_status': lead_data.get('email_status', 'Unknown'),
+            'email_source': lead_data.get('email_source'),
+            # Gates outreach_qualification.check_email — below 0.5 an email is
+            # treated as an unconfirmed guess regardless of email_status.
+            # Dropped silently before this field existed, so nothing here
+            # blocked a guess produced by _discover_and_apply_email_pattern.
+            'email_pattern_confidence': lead_data.get('email_pattern_confidence'),
             'title': _clean_title,
             'linkedin_url': lead_data.get('linkedin_url'),
             'location': lead_data.get('location') or lead_data.get('inferred_location'),
@@ -726,68 +732,48 @@ def _store_csv_email_pattern(normalized: Dict[str, Any]) -> None:
 
 def _discover_and_apply_email_pattern(normalized: Dict[str, Any]) -> None:
     """
-    For leads without an email: try to discover the org email pattern via
-    Skrapp.io (Tier 2.5) and apply it to this lead + other leads of the
-    same domain.  Falls back to firstname.lastname@domain guess if Skrapp
-    has no result or is unavailable.
-    """
-    import re as _re
-    EMAIL_RE = _re.compile(r'^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$')
+    For leads without an email: run the full tiered EmailPatternSystem
+    (DB pattern -> CSV-derived pattern -> website scrape -> Skrapp -> Hunter
+    -> Claude web search for this specific person -> last-resort
+    firstname.lastname guess) and record whatever confidence comes back.
 
+    This used to construct "{first}.{last}@{domain}" directly with no
+    EmailPatternSystem involvement at all whenever Skrapp had no result —
+    bypassing render_pattern_email's malformed/placeholder guards AND never
+    writing email_pattern_confidence, so the outreach qualification gate
+    (which rejects confidence < 0.5) had nothing to check and every blind
+    guess from this path — called from 6 places including the bulk backfill
+    endpoints — passed straight through as "verified enough".
+    """
     domain = normalized.get('company_domain')
     if not domain or domain in PERSONAL_EMAIL_PROVIDERS:
         return
+    if normalized.get('email') or not normalized.get('first_name'):
+        return
 
-    # â”€â”€ Tier 1: Skrapp pattern lookup / discovery â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     try:
         from .email_pattern_system import get_pattern_system
         ps = get_pattern_system()
+        first = normalized.get('first_name') or ''
+        last = normalized.get('last_name') or ''
 
-        existing = ps._lookup_database(domain)
-        if existing:
-            pattern_str = existing.get("pattern")
-        else:
-            first = normalized.get('first_name') or 'test'
-            last = normalized.get('last_name') or 'user'
-            pattern_str = ps.discover_company_email_pattern(domain, first, last)
+        built_email, confidence, source = ps.build_email_with_source(
+            first, last, domain, company_name=normalized.get('company_name', ''),
+        )
+        if built_email:
+            normalized['email'] = built_email
+            normalized['email_status'] = 'Predicted'
+            normalized['email_pattern_confidence'] = confidence
+            normalized['email_source'] = source
 
-        if pattern_str and not normalized.get('email') and normalized.get('first_name'):
-            first = (normalized.get('first_name') or '').lower().strip()
-            last = (normalized.get('last_name') or '').lower().strip()
-            try:
-                derived = pattern_str.format(
-                    first=first, last=last,
-                    f=first[0] if first else '',
-                    l=last[0] if last else '',
-                    domain=domain,
-                )
-                if '@' in derived and EMAIL_RE.match(derived):
-                    normalized['email'] = derived
-                    normalized['email_status'] = 'pattern_derived'
-                    normalized['email_source'] = 'pattern_derived'
-            except (KeyError, IndexError):
-                pass
-
-        if pattern_str:
-            ps.apply_pattern_to_domain_leads(domain, pattern_str)
+        # Propagate a confidently-discovered domain-wide pattern to other
+        # leads at the same company that are still missing an email.
+        pattern_doc = ps._lookup_database(domain)
+        if pattern_doc and pattern_doc.get('confidence', 0) >= 0.5:
+            ps.apply_pattern_to_domain_leads(domain, pattern_doc['pattern'])
 
     except Exception as e:
-        logger.debug(f"Skrapp pattern lookup skipped for {domain}: {e}")
-
-    # â”€â”€ Tier 2 fallback: construct firstname.lastname@domain â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    # Runs regardless of whether Skrapp succeeded or threw an exception.
-    if not normalized.get('email') and normalized.get('first_name') and domain:
-        first = (normalized.get('first_name') or '').lower().strip()
-        last = (normalized.get('last_name') or '').lower().strip()
-        # Strip non-email chars (e.g. unicode marks, spaces) from name parts
-        first = _re.sub(r'[^a-z0-9]', '', first)
-        last = _re.sub(r'[^a-z0-9]', '', last)
-        if first:
-            guessed = f"{first}.{last}@{domain}" if last else f"{first}@{domain}"
-            if EMAIL_RE.match(guessed):
-                normalized['email'] = guessed
-                normalized['email_status'] = 'predicted'
-                normalized['email_source'] = 'name_domain_guess'
+        logger.debug(f"Email pattern discovery skipped for {domain}: {e}")
 
 
 _torpedo_db_cached = None

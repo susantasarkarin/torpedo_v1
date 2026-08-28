@@ -7,6 +7,7 @@ Cost Optimization:
     - Tracks dedup index for fast lookups
 """
 
+import logging
 import os
 from datetime import datetime
 from typing import Optional, List, Tuple
@@ -30,6 +31,8 @@ from .deduplication import (
 )
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # ============== DATABASE CONNECTION ==============
 
@@ -314,12 +317,49 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
         raw_email = raw_lead.get("email")
         predicted_email = getattr(result, 'predicted_email', None)
         final_email = raw_email or predicted_email
-        
+        email_pattern_confidence = None
+        email_source = None
+
         # Set email status based on source
         if raw_email:
             email_status = EmailStatus(raw_lead.get("email_status", "Unknown")) if raw_lead.get("email_status") else EmailStatus.UNKNOWN
         elif predicted_email:
             email_status = EmailStatus.PREDICTED
+            # `predicted_email` above is the classifier's own raw guess (its
+            # system prompt literally tells it to output
+            # "firstname.lastname@domain.com" when it doesn't know the real
+            # address) — nothing has verified it. Route it through the same
+            # tiered EmailPatternSystem used elsewhere (DB pattern -> Skrapp
+            # -> Hunter -> Claude web search -> guess) so a domain-level
+            # pattern or a web-search-found real address can replace the
+            # blind guess, and so a real confidence gets recorded — without
+            # this, email_pattern_confidence stays unset and the outreach
+            # qualification gate can't tell this apart from a verified email.
+            email_domain = result.company_domain or raw_lead.get("company_domain")
+            if email_domain and result.first_name:
+                try:
+                    from .email_pattern_system import get_pattern_system
+                    ps = get_pattern_system()
+                    built_email, built_conf, built_source = ps.build_email_with_source(
+                        result.first_name, result.last_name or "", email_domain,
+                        company_name=result.company_name or raw_lead.get("company_name", ""),
+                    )
+                    if built_email:
+                        final_email = built_email
+                        email_pattern_confidence = built_conf
+                        email_source = built_source
+                    else:
+                        email_pattern_confidence = 0.2
+                        email_source = "guess"
+                except Exception as _email_err:
+                    logger.warning(f"EmailPatternSystem lookup failed for {raw_lead_id}: {_email_err}")
+                    email_pattern_confidence = 0.2
+                    email_source = "guess"
+            else:
+                # No domain to search against — this is exactly the blind
+                # firstname.lastname guess with nothing to verify it.
+                email_pattern_confidence = 0.2
+                email_source = "guess"
         else:
             email_status = EmailStatus.UNKNOWN
         
@@ -365,6 +405,10 @@ def classify_single_lead(raw_lead_id: str) -> Tuple[bool, Optional[str]]:
         # Upsert enriched lead — prefer email as dedup key; fall back to linkedin_url
         _dedup_key = {"linkedin_url": lead.linkedin_url} if lead.linkedin_url else {"email": final_email}
         enriched_dict = enriched.model_dump()
+        if email_pattern_confidence is not None:
+            enriched_dict["email_pattern_confidence"] = email_pattern_confidence
+        if email_source is not None:
+            enriched_dict["email_source"] = email_source
 
         # Merge ICP basket classification (rule-based, must be in every enriched doc)
         try:
