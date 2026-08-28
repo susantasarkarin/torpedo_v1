@@ -119,6 +119,57 @@ def test_explicit_guess_flag_rejected():
 
 
 # ============================================
+# GATE 1b: PREDICTED-STATUS CONFIDENCE
+# ============================================
+# "Predicted" covers everything from a Hunter/Skrapp-verified pattern
+# (confidence ~0.9) down to a blind firstname.lastname guess (confidence
+# 0.2-0.3). A missing email_pattern_confidence on a "Predicted" lead must
+# fail closed (blocked), not open (passed) — 2,355 legacy leads written
+# before this field existed were passing ungated until this was fixed.
+
+def test_predicted_with_null_confidence_rejected():
+    """The exact hole: status=Predicted, email_pattern_confidence absent."""
+    lead = _lead(email_status="Predicted")
+    assert "email_pattern_confidence" not in lead
+    assert check_email(lead) == "unverified_email"
+
+
+def test_predicted_with_none_confidence_rejected():
+    lead = _lead(email_status="Predicted", email_pattern_confidence=None)
+    assert check_email(lead) == "unverified_email"
+
+
+def test_predicted_with_low_confidence_rejected():
+    lead = _lead(email_status="Predicted", email_pattern_confidence=0.2)
+    assert check_email(lead) == "unverified_email"
+
+
+def test_predicted_with_unparseable_confidence_rejected():
+    lead = _lead(email_status="Predicted", email_pattern_confidence="not-a-number")
+    assert check_email(lead) == "unverified_email"
+
+
+def test_predicted_with_high_confidence_accepted():
+    lead = _lead(email_status="Predicted", email_pattern_confidence=0.9)
+    assert check_email(lead) is None
+
+
+def test_predicted_at_confidence_boundary_accepted():
+    """Exactly 0.5 must pass — the gate rejects strictly < 0.5."""
+    lead = _lead(email_status="Predicted", email_pattern_confidence=0.5)
+    assert check_email(lead) is None
+
+
+def test_non_predicted_status_without_confidence_unaffected():
+    """A raw-sourced email (status e.g. 'verified') never carries a pattern
+    confidence and must not be newly blocked by this check — only
+    email_status == 'Predicted' triggers the confidence requirement."""
+    lead = _lead(email_status="verified")
+    assert "email_pattern_confidence" not in lead
+    assert check_email(lead) is None
+
+
+# ============================================
 # GATE 2: ICP SCORE + BRACKET
 # ============================================
 

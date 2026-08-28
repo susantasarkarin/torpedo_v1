@@ -109,13 +109,25 @@ def check_email(lead: Dict[str, Any]) -> Optional[str]:
     # distinguish them. email_pattern_confidence is set at build time by
     # EmailPatternSystem.build_email(); below 0.5 the address is still just a
     # guess (or an unconfirmed web-search hit) and must not qualify.
-    confidence = lead.get("email_pattern_confidence")
-    if confidence is not None:
+    #
+    # A "Predicted" lead with NO email_pattern_confidence at all is not a
+    # verified email either — it's a legacy record from before this field
+    # existed, or a future write path that forgot to set it. Treating missing
+    # the same as high-confidence was the exact hole that let 2,355 leads
+    # with a status of "Predicted" and no confidence value sail through
+    # ungated. Missing must fail closed, not open — so this only ever skips
+    # the check for a status that isn't "Predicted" in the first place
+    # (raw_email leads carry their source's own status, e.g. "Valid" or
+    # "Unknown", and correctly have no pattern confidence to speak of).
+    if status == "predicted":
+        confidence = lead.get("email_pattern_confidence")
+        if confidence is None:
+            return "unverified_email"
         try:
             if float(confidence) < 0.5:
                 return "unverified_email"
         except (TypeError, ValueError):
-            pass
+            return "unverified_email"
 
     if is_generic_mailbox(email):
         return "generic_email"
