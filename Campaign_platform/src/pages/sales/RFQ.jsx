@@ -32,6 +32,28 @@ function RFQ() {
   const [rfqs, setRfqs] = useState([])
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState(null)
+  // Inbound = a client asking us for a quote (the historical/default RFQ).
+  // Outbound = us asking a vendor for pricing/feasibility to source a project.
+  const [direction, setDirection] = useState("inbound")
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const emptyCreateForm = {
+    direction: "inbound",
+    title: "",
+    contact_email: "",
+    vendor_name: "",
+    client_name: "",
+    manual_value: "",
+    manual_currency: "INR",
+    priority: "medium",
+    methodology: "",
+    loi: "",
+    ir: "",
+    country: "",
+    sample_size: "",
+    description: ""
+  }
+  const [createForm, setCreateForm] = useState(emptyCreateForm)
   const [filters, setFilters] = useState({
     state: "",      // open | won | lost | closed
     status: "",     // detailed pipeline stage
@@ -80,18 +102,24 @@ function RFQ() {
     loadRFQs(page)
   }, [page]) // eslint-disable-line
 
+  useEffect(() => {
+    setPage(1)
+    loadRFQs(1)
+    loadStats()
+  }, [direction]) // eslint-disable-line
+
   const loadRFQs = async (pageNum) => {
     const currentPage = pageNum ?? page
     setLoading(true)
     try {
       const token = localStorage.getItem("session_id")
-      const params = new URLSearchParams({ page: String(currentPage), limit: "25" })
-      
+      const params = new URLSearchParams({ page: String(currentPage), limit: "25", direction })
+
       if (filters.state) params.append("state", filters.state)
       if (filters.status) params.append("status", filters.status)
       if (filters.priority) params.append("priority", filters.priority)
       if (filters.search) params.append("search", filters.search)
-      
+
       const url = buildApiUrl(`/api/rfq/?${params.toString()}`)
       const response = await fetch(url, {
         headers: { Authorization: token }
@@ -114,7 +142,7 @@ function RFQ() {
   const loadStats = async () => {
     try {
       const token = localStorage.getItem("session_id")
-      const response = await fetch(buildApiUrl(`/api/rfq/stats`), {
+      const response = await fetch(buildApiUrl(`/api/rfq/stats?direction=${direction}`), {
         headers: { Authorization: token }
       })
       
@@ -311,6 +339,61 @@ function RFQ() {
     }
   }
 
+  const openCreateModal = () => {
+    setCreateForm({ ...emptyCreateForm, direction })
+    setShowCreateModal(true)
+  }
+
+  const createRfq = async () => {
+    if (!createForm.title.trim()) {
+      setMessage({ type: "error", text: "Title is required" })
+      return
+    }
+    if (createForm.direction === "outbound" && !createForm.vendor_name.trim()) {
+      setMessage({ type: "error", text: "Vendor name is required for an outbound RFQ" })
+      return
+    }
+    if (createForm.direction === "inbound" && !createForm.contact_email.trim()) {
+      setMessage({ type: "error", text: "Contact email is required for an inbound RFQ" })
+      return
+    }
+
+    setCreating(true)
+    try {
+      const token = localStorage.getItem("session_id")
+      const response = await fetch(buildApiUrl(`/api/rfq/`), {
+        method: "POST",
+        headers: {
+          Authorization: token,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          ...createForm,
+          manual_value: createForm.manual_value ? parseFloat(createForm.manual_value) : null,
+          loi: createForm.loi ? parseInt(createForm.loi) : null,
+          ir: createForm.ir ? parseFloat(createForm.ir) : null,
+          sample_size: createForm.sample_size ? parseInt(createForm.sample_size) : null,
+        })
+      })
+
+      if (response.ok) {
+        setMessage({ type: "success", text: "RFQ created" })
+        setShowCreateModal(false)
+        setDirection(createForm.direction) // jump to the tab that will show it
+        loadRFQs(1)
+        loadStats()
+      } else {
+        const err = await response.json().catch(() => ({}))
+        setMessage({ type: "error", text: err.detail || "Failed to create RFQ" })
+      }
+    } catch (error) {
+      console.error("Error creating RFQ:", error)
+      setMessage({ type: "error", text: "Failed to create RFQ" })
+    } finally {
+      setCreating(false)
+    }
+  }
+
   // Bulk delete RFQs
   const bulkDeleteRFQs = async () => {
     if (selectedIds.length === 0) return
@@ -496,11 +579,43 @@ function RFQ() {
       )}
 
       <div className="card">
-        <div className="card-header">
-          <h2 className="card-title">Request for Quotation (RFQ)</h2>
-          <p className="card-description">
-            Manage quotation requests detected from email conversations and track proposal status.
-          </p>
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <h2 className="card-title">Request for Quotation (RFQ)</h2>
+            <p className="card-description">
+              {direction === "outbound"
+                ? "Requests your team sent to vendors for sourcing pricing/feasibility."
+                : "Manage quotation requests detected from email conversations and track proposal status."}
+            </p>
+          </div>
+          <button className="btn btn-primary" onClick={openCreateModal}>
+            + Add RFQ
+          </button>
+        </div>
+
+        {/* Direction tabs: inbound (client -> us) vs outbound (us -> vendor) */}
+        <div className="rfq-direction-tabs" style={{ display: 'flex', gap: '4px', padding: '0 20px', borderBottom: '1px solid #e5e7eb' }}>
+          {[
+            { value: "inbound", label: "Inbound (Client RFQs)" },
+            { value: "outbound", label: "Outbound (To Vendors)" },
+          ].map(tab => (
+            <button
+              key={tab.value}
+              onClick={() => setDirection(tab.value)}
+              style={{
+                padding: '10px 16px',
+                border: 'none',
+                borderBottom: direction === tab.value ? '2px solid #2563eb' : '2px solid transparent',
+                background: 'transparent',
+                color: direction === tab.value ? '#2563eb' : '#6b7280',
+                fontWeight: direction === tab.value ? 600 : 500,
+                cursor: 'pointer',
+                fontSize: '0.9rem'
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
         {/* Filters */}
@@ -590,8 +705,8 @@ function RFQ() {
                     />
                   </th>
                   <th>Title / Subject</th>
-                  <th>Lead</th>
-                  <th>Account</th>
+                  <th>{direction === "outbound" ? "Vendor Contact" : "Lead"}</th>
+                  <th>{direction === "outbound" ? "Vendor" : "Account"}</th>
                   <th>Country</th>
                   <th>LOI</th>
                   <th>IR</th>
@@ -627,6 +742,11 @@ function RFQ() {
                     </td>
                     <td className="rfq-title-cell">
                       <div className="rfq-title">{rfq.title || "Untitled RFQ"}</div>
+                      {rfq.direction === "outbound" && rfq.client_name && (
+                        <div className="rfq-subtitle" style={{ color: '#8b5cf6', fontSize: '0.75rem' }}>
+                          Client: {rfq.client_name}
+                        </div>
+                      )}
                       {rfq.methodology && (
                         <div className="rfq-subtitle" style={{ color: '#6b7280', fontSize: '0.75rem' }}>
                           {rfq.methodology} {rfq.study_type && `• ${rfq.study_type}`}
@@ -839,6 +959,22 @@ function RFQ() {
                     <label>Title</label>
                     <span>{selectedRfq.title || "Untitled"}</span>
                   </div>
+                  <div className="detail-item">
+                    <label>Direction</label>
+                    <span style={{
+                      padding: '4px 12px', borderRadius: '12px', fontWeight: 600,
+                      backgroundColor: selectedRfq.direction === 'outbound' ? '#f3e8ff' : '#dbeafe',
+                      color: selectedRfq.direction === 'outbound' ? '#7c3aed' : '#1e40af'
+                    }}>
+                      {selectedRfq.direction === 'outbound' ? '↗ Outbound (to vendor)' : '↙ Inbound (from client)'}
+                    </span>
+                  </div>
+                  {selectedRfq.direction === 'outbound' && (
+                    <div className="detail-item">
+                      <label>Client</label>
+                      <span>{selectedRfq.client_name || "—"}</span>
+                    </div>
+                  )}
                   <div className="detail-item">
                     <label>Value</label>
                     <span style={{ fontWeight: 'bold', color: '#10b981' }}>
@@ -1296,6 +1432,208 @@ function RFQ() {
                 disabled={converting}
               >
                 {converting ? 'Creating...' : `Create ${convertType === "estimate" ? "Estimate" : "Invoice"}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create RFQ Modal — handles both directions (inbound client RFQ /
+          outbound vendor-sourcing RFQ); POSTs straight to /api/rfq/, which
+          already supported full manual creation but had no UI entry point. */}
+      {showCreateModal && (
+        <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
+          <div className="modal-content" style={{ maxWidth: '600px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>+ Add RFQ</h2>
+              <button className="modal-close" onClick={() => setShowCreateModal(false)}>×</button>
+            </div>
+
+            <div className="modal-body">
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', marginBottom: '6px', fontWeight: '500' }}>Direction *</label>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="createDirection"
+                      checked={createForm.direction === "inbound"}
+                      onChange={() => setCreateForm(prev => ({ ...prev, direction: "inbound" }))}
+                    />
+                    Inbound — a client is asking us for a quote
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="createDirection"
+                      checked={createForm.direction === "outbound"}
+                      onChange={() => setCreateForm(prev => ({ ...prev, direction: "outbound" }))}
+                    />
+                    Outbound — we're asking a vendor for pricing
+                  </label>
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Title *</label>
+                <input
+                  type="text"
+                  value={createForm.title}
+                  onChange={(e) => setCreateForm(prev => ({ ...prev, title: e.target.value }))}
+                  placeholder={createForm.direction === "outbound" ? "e.g. RFQ_Mac Upgraders_HRG_SFW" : "e.g. Healthcare survey, US"}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                />
+              </div>
+
+              {createForm.direction === "outbound" ? (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                  <div className="form-group">
+                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Vendor *</label>
+                    <input
+                      type="text"
+                      value={createForm.vendor_name}
+                      onChange={(e) => setCreateForm(prev => ({ ...prev, vendor_name: e.target.value }))}
+                      placeholder="e.g. SFW"
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Client</label>
+                    <input
+                      type="text"
+                      value={createForm.client_name}
+                      onChange={(e) => setCreateForm(prev => ({ ...prev, client_name: e.target.value }))}
+                      placeholder="e.g. HRG"
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                    />
+                  </div>
+                  <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Vendor contact email (optional)</label>
+                    <input
+                      type="email"
+                      value={createForm.contact_email}
+                      onChange={(e) => setCreateForm(prev => ({ ...prev, contact_email: e.target.value }))}
+                      placeholder="vendor.contact@example.com"
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="form-group" style={{ marginBottom: '16px' }}>
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Contact email *</label>
+                  <input
+                    type="email"
+                    value={createForm.contact_email}
+                    onChange={(e) => setCreateForm(prev => ({ ...prev, contact_email: e.target.value }))}
+                    placeholder="client@example.com"
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  />
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Value</label>
+                  <input
+                    type="number"
+                    value={createForm.manual_value}
+                    onChange={(e) => setCreateForm(prev => ({ ...prev, manual_value: e.target.value }))}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Currency</label>
+                  <select
+                    value={createForm.manual_currency}
+                    onChange={(e) => setCreateForm(prev => ({ ...prev, manual_currency: e.target.value }))}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  >
+                    {CURRENCIES.map(c => (
+                      <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Methodology</label>
+                  <select
+                    value={createForm.methodology}
+                    onChange={(e) => setCreateForm(prev => ({ ...prev, methodology: e.target.value }))}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  >
+                    <option value="">Select...</option>
+                    {METHODOLOGIES.map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Country</label>
+                  <input
+                    type="text"
+                    value={createForm.country}
+                    onChange={(e) => setCreateForm(prev => ({ ...prev, country: e.target.value }))}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>LOI (minutes)</label>
+                  <input
+                    type="number"
+                    value={createForm.loi}
+                    onChange={(e) => setCreateForm(prev => ({ ...prev, loi: e.target.value }))}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>IR (%)</label>
+                  <input
+                    type="number"
+                    value={createForm.ir}
+                    onChange={(e) => setCreateForm(prev => ({ ...prev, ir: e.target.value }))}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Sample size (N)</label>
+                  <input
+                    type="number"
+                    value={createForm.sample_size}
+                    onChange={(e) => setCreateForm(prev => ({ ...prev, sample_size: e.target.value }))}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Priority</label>
+                  <select
+                    value={createForm.priority}
+                    onChange={(e) => setCreateForm(prev => ({ ...prev, priority: e.target.value }))}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label style={{ display: 'block', marginBottom: '4px', fontWeight: '500' }}>Description</label>
+                <textarea
+                  value={createForm.description}
+                  onChange={(e) => setCreateForm(prev => ({ ...prev, description: e.target.value }))}
+                  rows={3}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #d1d5db' }}
+                />
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setShowCreateModal(false)} disabled={creating}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={createRfq} disabled={creating}>
+                {creating ? "Creating..." : "Create RFQ"}
               </button>
             </div>
           </div>

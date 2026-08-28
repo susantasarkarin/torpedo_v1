@@ -65,7 +65,15 @@ except ImportError:  # pragma: no cover - flat import when run from backend/
 
 class RFQCreate(BaseModel):
     """Request model for creating RFQ manually"""
-    contact_email: str = Field(..., description="Lead's email address")
+    # Inbound (a client asking us for a quote): contact_email identifies the
+    # lead. Outbound (we're asking a vendor for pricing/feasibility):
+    # vendor_name identifies the counterparty instead — there's often no
+    # specific contact email on hand yet, so contact_email is optional and
+    # validated against `direction` in the create_rfq handler below.
+    direction: str = Field("inbound", description="inbound (client -> us) or outbound (us -> vendor)")
+    contact_email: Optional[str] = Field(None, description="Lead's email address (inbound RFQs)")
+    vendor_name: Optional[str] = Field(None, description="Vendor being asked for pricing (outbound RFQs)")
+    client_name: Optional[str] = Field(None, description="Underlying client this outbound sourcing is for")
     lead_id: Optional[str] = Field(None, description="ObjectId reference to lead")
     title: str = Field(..., description="RFQ title")
     description: str = Field("", description="RFQ description")
@@ -92,6 +100,7 @@ class RFQUpdate(BaseModel):
     due_date: Optional[str] = None
     # Required by the spine when moving an RFQ to "lost", so losses stay analyzable.
     loss_reason: Optional[str] = None
+    direction: Optional[str] = None
     # New fields for enhanced RFQ
     methodology: Optional[str] = None
     loi: Optional[int] = None
@@ -103,6 +112,7 @@ class RFQUpdate(BaseModel):
     study_type: Optional[str] = None
     budget: Optional[float] = None
     additional_requirements: Optional[str] = None
+    client_name: Optional[str] = None
 
 
 class RFQResponse(BaseModel):
@@ -188,6 +198,9 @@ async def list_rfqs(
     account_id: Optional[str] = Query(None, description="Filter to one spine account"),
     priority: Optional[str] = Query(None, description="Filter by priority"),
     search: Optional[str] = Query(None, description="Search in title/description"),
+    direction: Optional[str] = Query(
+        None, description="inbound (client -> us, default) | outbound (us -> vendor)"
+    ),
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(50, ge=1, le=200, description="Items per page")
 ) -> Dict[str, Any]:
@@ -204,6 +217,7 @@ async def list_rfqs(
         status=status,
         account_id=account_id,
         search=search,
+        direction=direction,
         page=page,
         limit=limit,
     )
@@ -217,12 +231,16 @@ async def list_rfqs(
 
 
 @router.get("/stats")
-async def get_rfq_stats() -> Dict[str, Any]:
+async def get_rfq_stats(
+    direction: Optional[str] = Query(
+        None, description="inbound (client -> us, default) | outbound (us -> vendor)"
+    )
+) -> Dict[str, Any]:
     """
     RFQ counts and pipeline value, grouped by both the coarse open/won/lost/closed
     state and the detailed pipeline stage.
     """
-    spine_stats = spine_rfq.get_stats()
+    spine_stats = spine_rfq.get_stats(direction=direction)
 
     # Keep the legacy per-status shape the existing RFQ page renders, alongside
     # the new state rollup.
@@ -449,6 +467,9 @@ async def create_rfq(rfq_data: RFQCreate) -> Dict[str, Any]:
         from app.services import crm_service
 
     rfq_id = generate_rfq_id()
+    direction = (rfq_data.direction or "inbound").strip().lower()
+    if direction not in ("inbound", "outbound"):
+        raise HTTPException(status_code=400, detail="direction must be 'inbound' or 'outbound'")
 
     due_date = None
     if rfq_data.due_date:
@@ -457,13 +478,39 @@ async def create_rfq(rfq_data: RFQCreate) -> Dict[str, Any]:
         except ValueError:
             logger.warning(f"RFQ {rfq_id}: unparseable due_date {rfq_data.due_date!r}")
 
-    # Resolve (or create) the account and contact this RFQ belongs to, so it
-    # lands on the Account 360 page rather than floating unattached.
+    # Resolve (or create) the counterparty this RFQ belongs to, so it lands on
+    # the Account 360 page rather than floating unattached. Inbound: the
+    # counterparty is the client lead (contact_email). Outbound: it's the
+    # vendor we're asking for pricing (vendor_name) — there's often no
+    # specific contact email on hand yet, only a vendor/company name.
     account_id = None
     contact_id = None
     contact_email = (rfq_data.contact_email or "").strip().lower()
+    vendor_name = (rfq_data.vendor_name or "").strip()
 
-    if contact_email:
+    if direction == "outbound":
+        if not vendor_name:
+            raise HTTPException(
+                status_code=400,
+                detail="vendor_name is required for an outbound RFQ",
+            )
+        account, _ = crm_service.get_or_create_account(
+            vendor_name,
+            defaults={"account_type": "vendor", "metadata": {"source": "manual_rfq"}},
+        )
+        account_id = account["_id"]
+        if contact_email:
+            contact, _ = crm_service.get_or_create_contact(
+                contact_email,
+                defaults={"account_id": account_id, "metadata": {"source": "manual_rfq"}},
+            )
+            contact_id = contact["_id"]
+    else:
+        if not contact_email:
+            raise HTTPException(
+                status_code=400,
+                detail="contact_email is required for an inbound RFQ",
+            )
         contact, _ = crm_service.get_or_create_contact(
             contact_email,
             defaults={"metadata": {"source": "manual_rfq"}},
@@ -480,6 +527,8 @@ async def create_rfq(rfq_data: RFQCreate) -> Dict[str, Any]:
         "deadline": due_date,
         # Everything spine_rfq surfaces from metadata.rfq.
         "rfq_id": rfq_id,
+        "direction": direction,
+        "client_name": rfq_data.client_name,
         "currency": rfq_data.manual_currency,
         "priority": rfq_data.priority,
         "methodology": rfq_data.methodology,
@@ -563,6 +612,8 @@ async def update_rfq(rfq_id: str, rfq_data: RFQUpdate) -> Dict[str, Any]:
         "study_type": rfq_data.study_type,
         "budget": rfq_data.budget,
         "additional_requirements": rfq_data.additional_requirements,
+        "direction": rfq_data.direction,
+        "client_name": rfq_data.client_name,
     }
     brief_updates = {
         f"metadata.rfq.{k}": v for k, v in brief_fields.items() if v is not None

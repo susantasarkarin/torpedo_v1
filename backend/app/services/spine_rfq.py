@@ -180,6 +180,11 @@ def opportunity_to_rfq(
         "final_value": amount,
         "final_currency": opportunity.get("currency") or rfq_payload.get("currency") or "INR",
         "budget": rfq_payload.get("budget"),
+        # --- direction: inbound (client -> us, the historical default — every
+        # record before this field existed has no metadata.rfq.direction and
+        # reads as inbound) vs outbound (us -> a vendor, asking for pricing) ---
+        "direction": rfq_payload.get("direction") or "inbound",
+        "client_name": rfq_payload.get("client_name"),
         # --- status ---
         "state": state,                                   # open | won | lost | closed
         "status": _STAGE_TO_LEGACY_STATUS.get(stage, "pending"),
@@ -231,6 +236,7 @@ def _rfq_query(
     status: Optional[str] = None,
     account_id: Optional[str] = None,
     search: Optional[str] = None,
+    direction: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Build the opportunities filter for RFQ-sourced deals.
@@ -268,6 +274,20 @@ def _rfq_query(
         stage = legacy_status_to_stage(status)
         if stage:
             conditions.append({"stage": stage})
+
+    if direction:
+        direction = direction.strip().lower()
+        if direction == "outbound":
+            conditions.append({"metadata.rfq.direction": "outbound"})
+        elif direction == "inbound":
+            # No direction stamped == inbound (every record predates this
+            # field), so "inbound" matches absent OR explicitly "inbound".
+            conditions.append({
+                "$or": [
+                    {"metadata.rfq.direction": {"$exists": False}},
+                    {"metadata.rfq.direction": "inbound"},
+                ]
+            })
 
     if account_id:
         conditions.append({"account_id": account_id})
@@ -318,11 +338,12 @@ def list_rfqs(
     status: Optional[str] = None,
     account_id: Optional[str] = None,
     search: Optional[str] = None,
+    direction: Optional[str] = None,
     page: int = 1,
     limit: int = 50,
 ) -> Dict[str, Any]:
     """Paginated RFQ list read off crm_db.opportunities."""
-    query = _rfq_query(state=state, status=status, account_id=account_id, search=search)
+    query = _rfq_query(state=state, status=status, account_id=account_id, search=search, direction=direction)
     col = crm_service._col("opportunities")
 
     total = col.count_documents(query)
@@ -368,10 +389,10 @@ def get_rfq(rfq_id: str) -> Optional[Dict[str, Any]]:
     return opportunity_to_rfq(opportunity)
 
 
-def get_stats() -> Dict[str, Any]:
+def get_stats(direction: Optional[str] = None) -> Dict[str, Any]:
     """RFQ counts and pipeline value grouped by the coarse open/won/lost/closed state."""
     col = crm_service._col("opportunities")
-    base = _rfq_query()
+    base = _rfq_query(direction=direction)
 
     stats = {
         "total": col.count_documents(base),
@@ -383,7 +404,7 @@ def get_stats() -> Dict[str, Any]:
 
     for state in ("open", "won", "lost", "closed"):
         stats["by_state"][state] = col.count_documents(
-            _rfq_query(state=state)
+            _rfq_query(state=state, direction=direction)
         )
 
     for stage in crm_service.OPPORTUNITY_STAGES:
@@ -397,7 +418,7 @@ def get_stats() -> Dict[str, Any]:
         docs = list(cursor)
         return float(docs[0]["total"]) if docs else 0.0
 
-    stats["pipeline_value"] = _sum(_rfq_query(state="open"))
-    stats["won_value"] = _sum(_rfq_query(state="won"))
+    stats["pipeline_value"] = _sum(_rfq_query(state="open", direction=direction))
+    stats["won_value"] = _sum(_rfq_query(state="won", direction=direction))
 
     return stats
