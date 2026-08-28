@@ -39,6 +39,7 @@ mongo_client = MongoClient(MONGO_URI)
 db = mongo_client["email_automation"]
 rfqs_collection = db["rfqs"]
 email_leads_collection = db["email_leads"]
+mail_sender_analysis_collection = db["mail_sender_analysis"]
 
 # Gmail API database (torpedo_gmail)
 gmail_db = mongo_client["torpedo_gmail"]
@@ -328,6 +329,60 @@ async def resync_rfqs_from_mail(
             status_code=503,
             detail=f"Could not queue the sync task (is the Celery worker up?): {e}",
         )
+
+
+@router.post("/resync-all")
+async def resync_all_rfqs_from_mail_pool(
+    limit: int = Query(50, ge=1, le=200, description="Senders to (re)scan this pass")
+) -> Dict[str, Any]:
+    """
+    One-time RFQ rebuild backfill: re-scans every sender whose rfq_scan
+    ledger is empty (via deep_scan_sender_rfqs), instead of only newly
+    arriving mail like POST /rfq/resync does.
+
+    Intended to run after scripts/clear_rfq_data.py, which deletes inbound
+    RFQ-tagged opportunities and resets the affected senders' rfq_scan
+    ledgers. Resumable and rate-limited — call repeatedly with a small
+    `limit`; check GET /rfq/rebuild-status for how many senders remain.
+    """
+    try:
+        from ..tasks.mail_pool_ai_tasks import rebuild_rfqs_all_senders_batch
+    except ImportError:  # pragma: no cover
+        from tasks.mail_pool_ai_tasks import rebuild_rfqs_all_senders_batch
+
+    try:
+        task = rebuild_rfqs_all_senders_batch.delay(limit=limit)
+        return {
+            "success": True,
+            "message": f"RFQ rebuild pass queued for up to {limit} senders",
+            "task_id": task.id,
+        }
+    except Exception as e:
+        logger.error(f"Failed to queue RFQ rebuild pass: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Could not queue the sync task (is the Celery worker up?): {e}",
+        )
+
+
+@router.get("/rebuild-status")
+async def get_rebuild_status() -> Dict[str, Any]:
+    """
+    Cheap poll for the POST /rfq/resync-all backfill: how many senders still
+    need a rebuild scan. No AI calls — just counts against mail_sender_analysis.
+    """
+    try:
+        from ..sales.mail_pool_ai import _REBUILD_CANDIDATE_QUERY
+    except ImportError:  # pragma: no cover
+        from sales.mail_pool_ai import _REBUILD_CANDIDATE_QUERY
+
+    remaining = mail_sender_analysis_collection.count_documents(_REBUILD_CANDIDATE_QUERY)
+    done = mail_sender_analysis_collection.count_documents({"rfq_rebuild_done": True})
+    return {
+        "success": True,
+        "senders_remaining": remaining,
+        "senders_rebuilt": done,
+    }
 
 
 @router.get("/sync-status")

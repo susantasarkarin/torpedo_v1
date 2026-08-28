@@ -73,6 +73,33 @@ def process_mail_pool_sender_batch(self, limit: int = 50):
 
 
 @celery_app.task(
+    name="backend.tasks.mail_pool_ai_tasks.rebuild_rfqs_all_senders_batch",
+    bind=True,
+    queue="ai_processing",
+    max_retries=1,
+    default_retry_delay=600,
+    rate_limit="2/m",
+)
+def rebuild_rfqs_all_senders_batch(self, limit: int = 50):
+    """One-time RFQ rebuild backfill (POST /rfq/resync-all): re-scan up to
+    `limit` senders whose rfq_scan ledger is empty (fresh, or reset by
+    scripts/clear_rfq_data.py) via deep_scan_sender_rfqs. Same rate limit as
+    the regular sender batch above — call repeatedly to drain the backlog.
+    """
+    try:
+        try:
+            from sales.mail_pool_ai import rebuild_rfqs_for_all_senders
+        except ImportError:
+            from backend.sales.mail_pool_ai import rebuild_rfqs_for_all_senders
+        result = rebuild_rfqs_for_all_senders(limit=limit)
+        logger.info(f"[mail-ai] rebuild batch done: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"[mail-ai] rebuild batch failed: {e}", exc_info=True)
+        raise self.retry(exc=e)
+
+
+@celery_app.task(
     name="backend.tasks.mail_pool_ai_tasks.audit_prefiltered_mail",
     bind=True,
     queue="ai_processing",

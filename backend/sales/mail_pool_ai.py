@@ -1312,6 +1312,64 @@ def process_sender_batch(limit: int = 50) -> Dict[str, Any]:
             "rfqs_won": rfqs_won, "aborted_systemic": aborted}
 
 
+# Senders needing a rebuild scan: no rfq_scan ledger yet, or it was emptied
+# by scripts/clear_rfq_data.py (which unsets ledger/last_scanned_date but
+# leaves the sender doc — including its ai_analysis/segment work — intact).
+_REBUILD_CANDIDATE_QUERY = {
+    "$or": [
+        {"rfq_scan.ledger": {"$exists": False}},
+        {"rfq_scan.ledger": []},
+    ],
+    "rfq_rebuild_done": {"$ne": True},
+}
+
+
+def rebuild_rfqs_for_all_senders(limit: int = 50) -> Dict[str, Any]:
+    """
+    One-time backfill driver for POST /rfq/resync-all.
+
+    Re-runs deep_scan_sender_rfqs() — unchanged, same extraction/logging/
+    won-lost-stage logic process_sender() already uses for new mail — across
+    every sender whose rfq_scan ledger is empty, instead of only newly
+    arriving mail. Intended to run after scripts/clear_rfq_data.py, which
+    resets the ledger on senders whose RFQs it deleted.
+
+    Resumable and rate-limited the same way as process_sender_batch: call
+    this repeatedly (e.g. every 30s from a small loop, or via a few manual
+    POSTs) with a small `limit`; it naturally drains as `rfq_rebuild_done`
+    gets stamped on each sender, and `remaining` in the return value tells
+    the caller when to stop.
+    """
+    col = _get_db(MAIL_DB)[MAIL_COLLECTION]
+    sender_col = _get_db("email_automation")[SENDER_ANALYSIS_COLLECTION]
+
+    candidates = list(sender_col.find(_REBUILD_CANDIDATE_QUERY, {"_id": 1}).limit(limit))
+
+    scanned = logged = won = failed = 0
+    for cand in candidates:
+        sender = cand["_id"]
+        try:
+            from_doc = col.find_one({"from_email": sender}, {"from_name": 1})
+            from_name = (from_doc or {}).get("from_name") or ""
+            result = deep_scan_sender_rfqs(sender, from_name, col, sender_col)
+            scanned += 1
+            logged += result.get("rfqs_logged", 0)
+            won += result.get("rfqs_won", 0)
+            # Stamp done even at 0 RFQs found, so a non-RFQ sender is never
+            # rescanned (and re-billed) on a later call.
+            sender_col.update_one({"_id": sender}, {"$set": {"rfq_rebuild_done": True}})
+        except Exception as e:
+            failed += 1
+            logger.warning(f"[mail-ai] rebuild scan failed for {sender}: {e}")
+
+    remaining = sender_col.count_documents(_REBUILD_CANDIDATE_QUERY)
+    return {
+        "senders_scanned": scanned, "failed": failed,
+        "rfqs_logged": logged, "rfqs_won": won,
+        "remaining": remaining,
+    }
+
+
 def ai_stats() -> Dict[str, Any]:
     """
     Operational stats for GET /api/mail/ai-stats:
