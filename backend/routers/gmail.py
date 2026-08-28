@@ -2324,6 +2324,7 @@ def get_mail_pool_emails(
             company = sender_contact.get("company") or ""
             title = sender_contact.get("title") or ""
 
+            email_ai_summary = email_doc.get("ai_summary", "")
             formatted_emails.append({
                 "id": str(email_doc["_id"]),
                 "email": from_email,
@@ -2338,7 +2339,14 @@ def get_mail_pool_emails(
                 "added_on": date_str,
                 "date": date_str,
                 "source": "gmail_workspace",
-                "ai_summary": email_doc.get("ai_summary", ""),
+                "ai_summary": email_ai_summary,
+                # Frontend's single source of truth for what to display as the
+                # preview (list row + detail panel) — was never sent by this
+                # endpoint, so the UI always fell back to the raw snippet and
+                # the detail panel's whole "AI Summary" section never rendered
+                # (it's gated on resolved_preview being truthy).
+                "resolved_preview": email_ai_summary or snippet,
+                "preview_source": "ai_summary" if email_ai_summary else "snippet",
                 "has_rfq": has_rfq,
                 "has_attachments": has_attachments,
                 "attachment_count": attachment_count,
@@ -2565,6 +2573,7 @@ async def get_mail_pool_email_detail(
         company = sender_contact.get("company") or ""
         title = sender_contact.get("title") or ""
         segment = email_doc.get("segment") or category
+        detail_snippet = email_doc.get("snippet", cleaned_body[:200] if cleaned_body else "")
 
         return {
             "success": True,
@@ -2578,11 +2587,15 @@ async def get_mail_pool_email_detail(
                 "title": title,
                 "segment": segment,
                 "category": category,
-                "snippet": email_doc.get("snippet", cleaned_body[:200] if cleaned_body else ""),
+                "snippet": detail_snippet,
                 "subject": email_doc.get("subject", "(no subject)"),
                 "body": cleaned_body or body_html,  # Fallback to HTML if no plain text
                 "body_html": body_html,
                 "ai_summary": ai_summary,
+                # See /mail-pool/emails above — the detail panel's whole "AI
+                # Summary" section is gated on this field being truthy.
+                "resolved_preview": ai_summary or detail_snippet,
+                "preview_source": "ai_summary" if ai_summary else "snippet",
                 "contacts": ai_contacts,
                 "rfq": ai_rfq if ai_rfq.get("is_rfq") else None,
                 "added_on": date_str,
