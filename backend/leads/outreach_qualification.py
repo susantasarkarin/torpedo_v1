@@ -55,6 +55,19 @@ MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 _client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 _db = _client["email_automation"]
 
+# The real outreach send/bounce data does NOT live in email_automation.
+# is_previously_contacted() and check_suppression() below were reading
+# _db (email_automation) for outreach_sends_v2 (doesn't exist there — the
+# real 60,309-doc collection is on torpedo) and via SuppressionListManager
+# for suppression_list (exists on email_automation but has 0 documents —
+# nothing has ever written to it; not itself a wrong-pointer bug, just an
+# unfed explicit-suppression store). Neither ever consulted
+# torpedo.outreach_bounce_suppression, the 11,508-doc collection
+# cold_outreach_router.py's own enrollment check actually reads and writes.
+# This was never correct — git history shows no prior commit where these
+# pointed at torpedo; it was written wrong from the start.
+_torpedo_db = _client["torpedo"]
+
 # Email statuses that mean "this address was inferred, not verified".
 UNVERIFIED_EMAIL_STATUSES = {
     "pending_pattern", "guessed", "unverified", "pattern_guess", "invalid",
@@ -214,8 +227,33 @@ def is_previously_contacted(email: str) -> bool:
     return False
 
 
+def is_bounce_suppressed(email: str) -> bool:
+    """
+    True when this address is on the real bounce-suppression list.
+
+    Reads torpedo.outreach_bounce_suppression — the collection
+    cold_outreach_router.py's own enrollment check (_enroll_basket_leads)
+    populates and consults directly. Nothing in this module ever checked it
+    before; SuppressionListManager's email_automation.suppression_list is a
+    separate, currently-unfed explicit-suppression store (unsubscribe/
+    complaint additions via .add()), not a wrong pointer to the same data —
+    kept as-is below.
+    """
+    email_lower = (email or "").lower().strip()
+    if not email_lower:
+        return False
+    try:
+        return bool(_torpedo_db["outreach_bounce_suppression"].count_documents(
+            {"email": email_lower}, limit=1))
+    except Exception as e:
+        logger.debug("bounce-suppression check failed: %s", e)
+        return False
+
+
 def check_suppression(email: str) -> Optional[str]:
     """Return a rejection reason, or None when the address is clear to email."""
+    if is_bounce_suppressed(email):
+        return "suppressed_bounced"
     try:
         manager = _get_suppression_manager()
         if manager.is_suppressed(email):
