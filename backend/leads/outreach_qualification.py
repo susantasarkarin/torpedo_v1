@@ -214,29 +214,16 @@ def is_previously_contacted(email: str) -> bool:
     """
     True when we have already sent this address something. The suppression list
     intentionally does not track this — it is derived from the send log.
-
-    Reads torpedo.outreach_sends_v2 — the collection that actually holds
-    send history (60,309 docs as of 2026-08-28). The previous version read
-    email_automation.outreach_sends_v2 and .outreach_send_logs, neither of
-    which exists in that database, so this always returned False.
-
-    HELD, NOT DEPLOYED: any-send-ever is the wrong predicate as written.
-    Of 15,334 leads_enriched docs matching some prior send, 14,793 are
-    purely historical (no active enrollment) and 541 are currently
-    mid-sequence elsewhere (torpedo.outreach_leads_v2 workflow_status in
-    in_sequence/not_started/recovering/replied) — blocking those here
-    risks a different kind of damage than an unverified email. See review
-    notes for the full breakdown and recommended recency/reply-based
-    predicate before this ships.
     """
     email_lower = (email or "").lower().strip()
     if not email_lower:
         return False
-    try:
-        if _torpedo_db["outreach_sends_v2"].count_documents({"email": email_lower}, limit=1):
-            return True
-    except Exception as e:
-        logger.debug("send-history check failed: %s", e)
+    for collection in ("outreach_sends_v2", "outreach_send_logs"):
+        try:
+            if _db[collection].count_documents({"email": email_lower}, limit=1):
+                return True
+        except Exception as e:
+            logger.debug("send-history check failed on %s: %s", collection, e)
     return False
 
 
