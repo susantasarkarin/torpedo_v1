@@ -435,188 +435,47 @@
   color: #1f2937;
 }
 
-/* ============== LEAD DETAIL MODAL ============== */
-.vendor-page .lead-detail-content {
-  max-width: 900px;
-  max-height: 90vh;
-}
-
-.vendor-page .detail-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding: 18px 24px;
-  border-bottom: 1px solid #e5e7eb;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.vendor-page .detail-header h2 {
-  padding: 0;
-  border: none;
-  display: inline;
-  font-size: 1.15rem;
-}
-
-.vendor-page .detail-company {
-  color: #6b7280;
-  font-size: 0.9rem;
-  margin-left: 6px;
-}
-
-.vendor-page .detail-header-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.vendor-page .detail-body {
-  padding: 20px 24px;
-  overflow-y: auto;
-}
-
-.vendor-page .detail-loading {
-  text-align: center;
-  color: #6b7280;
-  font-size: 0.8rem;
-  padding: 6px 0 14px;
-}
-
-.vendor-page .detail-notes {
-  padding: 14px 20px;
-  margin: 0;
-  font-size: 0.85rem;
-  color: #374151;
-  line-height: 1.6;
-  white-space: pre-wrap;
-}
-
-.vendor-page .info-section {
-  background: #fff;
+/* ============== LEAD DETAIL MODAL ==============
+   The inner markup/classes (.lead-detail-zoho, .top-header, .left-sidebar,
+   .info-grid, .emails-table, etc.) come verbatim from AILeadDetail.css so
+   the popup is a pixel match for the AI Lead Detail page. This block only
+   sizes the modal panel that wraps it and fixes scrolling within a modal
+   (the original page relies on the browser viewport; here that's the panel). */
+.vendor-lead-modal-panel {
+  width: 95vw;
+  max-width: 1400px;
+  height: 92vh;
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
-  margin-bottom: 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+.vendor-lead-modal-panel .lead-detail-zoho {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.vendor-lead-modal-panel .top-header {
+  position: static;
+  flex-shrink: 0;
+}
+
+.vendor-lead-modal-panel .main-layout {
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
-.vendor-page .section-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px;
-  background: #f8fafc;
-  border-bottom: 1px solid #e5e7eb;
+.vendor-lead-modal-panel .left-sidebar {
+  height: 100%;
+  position: static;
 }
 
-.vendor-page .section-title-row h3 {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #374151;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.vendor-page .count-badge {
-  background: #eff6ff;
-  color: #2563eb;
-  border-radius: 10px;
-  padding: 1px 8px;
-  font-size: 0.7rem;
-  font-weight: 600;
-}
-
-.vendor-page .info-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-}
-
-.vendor-page .info-grid .info-row {
-  display: flex;
-  padding: 10px 20px;
-  border-bottom: 1px solid #f1f5f9;
-}
-
-.vendor-page .info-grid .info-row:nth-child(odd) {
-  border-right: 1px solid #f1f5f9;
-}
-
-.vendor-page .info-grid .info-row:nth-last-child(-n+2) {
-  border-bottom: none;
-}
-
-.vendor-page .info-grid .label {
-  width: 140px;
-  min-width: 140px;
-  font-size: 0.78rem;
-  color: #6b7280;
-}
-
-.vendor-page .info-grid .value {
-  flex: 1;
-  font-size: 0.82rem;
-  color: #1f2937;
-  word-break: break-word;
-}
-
-.vendor-page .info-grid .value a {
-  color: #2563eb;
-  text-decoration: none;
-}
-
-.vendor-page .info-grid .value a:hover {
-  text-decoration: underline;
-}
-
-.vendor-page .emails-table {
-  overflow-x: auto;
-}
-
-.vendor-page .emails-table table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.vendor-page .emails-table th {
-  text-align: left;
-  padding: 8px 20px;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  color: #6b7280;
-  background: #f8fafc;
-  border-bottom: 1px solid #e5e7eb;
-  white-space: nowrap;
-}
-
-.vendor-page .emails-table td {
-  padding: 10px 20px;
-  font-size: 0.82rem;
-  color: #374151;
-  border-bottom: 1px solid #f1f5f9;
-  vertical-align: top;
-}
-
-.vendor-page .email-recipient {
-  font-size: 0.72rem;
-  color: #9ca3af;
-  margin-top: 2px;
-}
-
-@media (max-width: 640px) {
-  .vendor-page .info-grid {
-    grid-template-columns: 1fr;
-  }
-  .vendor-page .info-grid .info-row:nth-child(odd) {
-    border-right: none;
-  }
-  .vendor-page .info-grid .info-row:nth-last-child(-n+2) {
-    border-bottom: 1px solid #f1f5f9;
-  }
-  .vendor-page .info-grid .info-row:last-child {
-    border-bottom: none;
-  }
+.vendor-lead-modal-panel .main-content {
+  height: 100%;
+  overflow-y: auto;
 }
 
 /* ============== SECTION CARD ============== */

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { API_BASE_URL } from "../../config"
 import "./VendorPages.css"
+import "../sales/campaign/AILeadDetail.css"
 import { buildApiUrl } from "../../config"
 
 function VendorLeadsPage() {
@@ -20,6 +21,7 @@ function VendorLeadsPage() {
   const [showDetail, setShowDetail] = useState(false)
   const [detailLead, setDetailLead] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [activeDetailSection, setActiveDetailSection] = useState("notes")
   const [showConvertModal, setShowConvertModal] = useState(false)
   const [convertingLead, setConvertingLead] = useState(null)
   const [convertType, setConvertType] = useState("panel")
@@ -169,6 +171,14 @@ function VendorLeadsPage() {
     return date.toLocaleDateString("en-US", {
       day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit"
     })
+  }
+
+  const scrollToDetailSection = (sectionId) => {
+    setActiveDetailSection(sectionId)
+    const element = document.getElementById(`vlead-section-${sectionId}`)
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "start" })
+    }
   }
 
   const openEdit = (lead) => {
@@ -506,145 +516,261 @@ function VendorLeadsPage() {
         </div>
       )}
 
-      {/* Lead Detail Modal */}
+      {/* Lead Detail Modal — exact layout/CSS reuse of the AI Lead Detail (Zoho-style) page */}
       {showDetail && detailLead && (
         <div className="modal-overlay" onClick={() => setShowDetail(false)}>
-          <div className="modal-content lead-detail-content" onClick={e => e.stopPropagation()}>
-            <div className="detail-header">
-              <div>
-                <h2>{detailLead.name || "-"}</h2>
-                {detailLead.company && <span className="detail-company">- {detailLead.company}</span>}
-              </div>
-              <div className="detail-header-actions">
-                {detailLead.email && (
-                  <a className="btn btn-primary" href={`mailto:${detailLead.email}`}>
-                    Send Email
-                  </a>
-                )}
-                <button className="btn btn-outline" onClick={() => { setShowDetail(false); openEdit(detailLead) }}>
-                  Edit
-                </button>
-                <button className="btn btn-outline" onClick={() => setShowDetail(false)}>
-                  Close
-                </button>
-              </div>
-            </div>
-
-            <div className="detail-body">
-              {detailLoading && <div className="detail-loading">Loading lead details...</div>}
-
-              <div className="info-section">
-                <div className="section-title-row"><h3>Lead Information</h3></div>
-                <div className="info-grid">
-                  <div className="info-row">
-                    <span className="label">Status</span>
-                    <span className="value">
-                      <span className="stage-badge" style={getStatusBadge(detailLead.status)}>{detailLead.status || "New"}</span>
-                    </span>
+          <div className="vendor-lead-modal-panel" onClick={e => e.stopPropagation()}>
+            <div className="lead-detail-zoho">
+              {/* Top Header Bar */}
+              <div className="top-header">
+                <div className="header-left">
+                  <button className="back-btn" onClick={() => setShowDetail(false)}>×</button>
+                  <div className="lead-identity">
+                    <h1>{detailLead.name || "Unknown"}</h1>
+                    {detailLead.company && <span className="company-tag">- {detailLead.company}</span>}
                   </div>
-                  <div className="info-row">
-                    <span className="label">Email</span>
-                    <span className="value">{detailLead.email ? <a href={`mailto:${detailLead.email}`}>{detailLead.email}</a> : "-"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Title</span>
-                    <span className="value">{detailLead.title || "-"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Phone</span>
-                    <span className="value">{detailLead.phone || "-"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Company</span>
-                    <span className="value">{detailLead.company || "-"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Vendor</span>
-                    <span className="value">{detailLead.vendor_name || "-"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Location</span>
-                    <span className="value">{detailLead.location || "-"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Industry</span>
-                    <span className="value">{detailLead.industry || "-"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">LinkedIn</span>
-                    <span className="value">
-                      {detailLead.linkedin_url
-                        ? <a href={detailLead.linkedin_url} target="_blank" rel="noopener noreferrer">{detailLead.linkedin_url} ↗</a>
-                        : "-"}
-                    </span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Website</span>
-                    <span className="value">
-                      {detailLead.website
-                        ? <a href={detailLead.website.startsWith("http") ? detailLead.website : `https://${detailLead.website}`} target="_blank" rel="noopener noreferrer">{detailLead.website} ↗</a>
-                        : "-"}
-                    </span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Lead Source</span>
-                    <span className="value">{detailLead.source || "-"}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="label">Created</span>
-                    <span className="value">{formatDate(detailLead.created_at)}</span>
-                  </div>
+                </div>
+                <div className="header-actions">
+                  {detailLead.email && (
+                    <a className="action-btn primary" href={`mailto:${detailLead.email}`}>
+                      Send Email
+                    </a>
+                  )}
+                  <button className="action-btn secondary" onClick={() => { setShowDetail(false); openEdit(detailLead) }}>
+                    Edit
+                  </button>
+                  {detailLead.status === "qualified" && (
+                    <button className="action-btn secondary" onClick={() => { setShowDetail(false); openConvertModal(detailLead) }}>
+                      Convert
+                    </button>
+                  )}
+                  {detailLead.linkedin_url && (
+                    <a href={detailLead.linkedin_url} target="_blank" rel="noopener noreferrer" className="action-btn linkedin">
+                      LinkedIn
+                    </a>
+                  )}
                 </div>
               </div>
 
-              {detailLead.notes && (
-                <div className="info-section">
-                  <div className="section-title-row"><h3>Notes</h3></div>
-                  <p className="detail-notes">{detailLead.notes}</p>
-                </div>
-              )}
-
-              <div className="info-section">
-                <div className="section-title-row">
-                  <h3>Emails {detailLead.emails?.length > 0 && <span className="count-badge">{detailLead.emails.length}</span>}</h3>
-                </div>
-                <div className="emails-table">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Subject</th>
-                        <th>Date</th>
-                        <th>Source</th>
-                        <th>Sent By</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detailLead.emails && detailLead.emails.length > 0 ? (
-                        detailLead.emails.map((email, idx) => (
-                          <tr key={email.id || idx}>
-                            <td>
-                              <div>{email.subject || "(no subject)"}</div>
-                              <div className="email-recipient">{email.recipients || email.to}</div>
-                            </td>
-                            <td>{formatDate(email.date)}</td>
-                            <td>{email.source || "IMAP"}</td>
-                            <td>{email.sent_by || email.from}</td>
-                            <td>
-                              <span className="status-badge">{email.status || "-"}</span>
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan="5" style={{ textAlign: "center", padding: "24px", color: "#9ca3af" }}>
-                            {detailLoading ? "Loading emails..." : "No emails found for this lead"}
-                          </td>
-                        </tr>
+              {/* Main Layout */}
+              <div className="main-layout">
+                {/* Left Sidebar */}
+                <aside className="left-sidebar">
+                  <div className="sidebar-section">
+                    <h3>Related List</h3>
+                    <ul className="related-list">
+                      <li className={activeDetailSection === "notes" ? "active" : ""} onClick={() => scrollToDetailSection("notes")}>Notes</li>
+                      <li className={activeDetailSection === "connected" ? "active" : ""} onClick={() => scrollToDetailSection("connected")}>Connected Records</li>
+                      <li className={activeDetailSection === "attachments" ? "active" : ""} onClick={() => scrollToDetailSection("attachments")}>Attachments</li>
+                      <li className={activeDetailSection === "activities" ? "active" : ""} onClick={() => scrollToDetailSection("activities")}>Open Activities</li>
+                      <li className={activeDetailSection === "closed" ? "active" : ""} onClick={() => scrollToDetailSection("closed")}>Closed Activities</li>
+                      <li className={activeDetailSection === "meetings" ? "active" : ""} onClick={() => scrollToDetailSection("meetings")}>Invited Meetings</li>
+                      <li className={activeDetailSection === "emails" ? "active" : ""} onClick={() => scrollToDetailSection("emails")}>
+                        Emails {detailLead.emails?.length > 0 && <span className="count-badge">{detailLead.emails.length}</span>}
+                      </li>
+                    </ul>
+                  </div>
+                  <div className="sidebar-section">
+                    <h3>Links</h3>
+                    <ul className="links-list">
+                      {detailLead.linkedin_url ? (
+                        <li>
+                          <a href={detailLead.linkedin_url} target="_blank" rel="noopener noreferrer">🔗 LinkedIn Profile</a>
+                        </li>
+                      ) : null}
+                      {detailLead.website && (
+                        <li>
+                          <a href={detailLead.website.startsWith("http") ? detailLead.website : `https://${detailLead.website}`} target="_blank" rel="noopener noreferrer">
+                            🌐 Company Website
+                          </a>
+                        </li>
                       )}
-                    </tbody>
-                  </table>
-                </div>
+                      {!detailLead.linkedin_url && !detailLead.website && (
+                        <li className="no-links">No Links Found</li>
+                      )}
+                    </ul>
+                  </div>
+                </aside>
+
+                {/* Main Content */}
+                <main className="main-content">
+                  <div className="content-header">
+                    <div className="tabs">
+                      <button className="tab active">Overview</button>
+                    </div>
+                    <div className="last-update">
+                      🕐 Last Update : {formatDate(detailLead.updated_at || detailLead.created_at)}
+                    </div>
+                  </div>
+
+                  <div className="overview-content">
+                    {detailLoading && <p className="empty-state">Loading lead details...</p>}
+
+                    {/* Lead Information */}
+                    <div className="info-section">
+                      <div className="section-title-row"><h3>Lead Information</h3></div>
+                      <div className="info-grid">
+                        <div className="info-row">
+                          <span className="label">Status</span>
+                          <span className="value">
+                            <span className="stage-badge" style={getStatusBadge(detailLead.status)}>{detailLead.status || "New"}</span>
+                          </span>
+                        </div>
+                        <div className="info-row">
+                          <span className="label">Email</span>
+                          <span className="value link">{detailLead.email || "—"}</span>
+                        </div>
+                        <div className="info-row">
+                          <span className="label">Lead Name</span>
+                          <span className="value">{detailLead.name || "—"}</span>
+                        </div>
+                        <div className="info-row">
+                          <span className="label">Phone</span>
+                          <span className="value">{detailLead.phone || "—"}</span>
+                        </div>
+                        <div className="info-row">
+                          <span className="label">Title</span>
+                          <span className="value">{detailLead.title || "—"}</span>
+                        </div>
+                        <div className="info-row">
+                          <span className="label">Lead Source</span>
+                          <span className="value">{detailLead.source === "ai_database" ? "AI Database" : detailLead.source === "manual" ? "Manual" : detailLead.source || "—"}</span>
+                        </div>
+                        <div className="info-row">
+                          <span className="label">LinkedIn</span>
+                          <span className="value">{detailLead.linkedin_url ? <a href={detailLead.linkedin_url} target="_blank" rel="noopener noreferrer" className="url-link">{detailLead.linkedin_url} ↗</a> : "—"}</span>
+                        </div>
+                        <div className="info-row">
+                          <span className="label">Created</span>
+                          <span className="value">{formatDate(detailLead.created_at)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Company Details */}
+                    <div className="info-section">
+                      <div className="section-title-row"><h3>Company Details</h3></div>
+                      <div className="info-grid">
+                        {detailLead.company && <div className="info-row"><span className="label">Company</span><span className="value">{detailLead.company}</span></div>}
+                        {detailLead.vendor_name && <div className="info-row"><span className="label">Vendor</span><span className="value">{detailLead.vendor_name}</span></div>}
+                        {detailLead.industry && <div className="info-row"><span className="label">Industry</span><span className="value">{detailLead.industry}</span></div>}
+                        {detailLead.location && <div className="info-row"><span className="label">Location</span><span className="value">{detailLead.location}</span></div>}
+                        {detailLead.website && <div className="info-row"><span className="label">Company Website</span><span className="value"><a href={detailLead.website.startsWith("http") ? detailLead.website : `https://${detailLead.website}`} target="_blank" rel="noopener noreferrer">{detailLead.website} ↗</a></span></div>}
+                        {!detailLead.company && !detailLead.vendor_name && !detailLead.industry && !detailLead.location && !detailLead.website && (
+                          <div className="info-row"><span className="value" style={{ color: "#aaa", fontStyle: "italic" }}>No company details available</span></div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Notes */}
+                    <div className="related-section" id="vlead-section-notes">
+                      <div className="section-header">
+                        <h3>Notes</h3>
+                      </div>
+                      <div className="notes-content">
+                        {detailLead.notes ? (
+                          <div className="ai-summary-note">
+                            <div className="note-header">
+                              <span className="note-icon">📝</span>
+                              <span className="note-title">Note</span>
+                              <span className="note-date">{formatDate(detailLead.updated_at || detailLead.created_at)}</span>
+                            </div>
+                            <div className="note-body">{detailLead.notes}</div>
+                          </div>
+                        ) : (
+                          <p className="empty-state">No notes available</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Connected Records */}
+                    <div className="related-section" id="vlead-section-connected">
+                      <div className="section-header"><h3>Connected Records</h3></div>
+                      <p className="empty-state">No records found</p>
+                    </div>
+
+                    {/* Attachments */}
+                    <div className="related-section" id="vlead-section-attachments">
+                      <div className="section-header"><h3>Attachments</h3></div>
+                      <p className="empty-state">No Attachment</p>
+                    </div>
+
+                    {/* Open Activities */}
+                    <div className="related-section" id="vlead-section-activities">
+                      <div className="section-header"><h3>Open Activities</h3></div>
+                      <p className="empty-state">No records found</p>
+                    </div>
+
+                    {/* Closed Activities */}
+                    <div className="related-section" id="vlead-section-closed">
+                      <div className="section-header"><h3>Closed Activities</h3></div>
+                      <p className="empty-state">No records found</p>
+                    </div>
+
+                    {/* Invited Meetings */}
+                    <div className="related-section" id="vlead-section-meetings">
+                      <div className="section-header"><h3>Invited Meetings</h3></div>
+                      <p className="empty-state">No records found</p>
+                    </div>
+
+                    {/* Emails */}
+                    <div className="related-section emails-section" id="vlead-section-emails">
+                      <div className="section-header">
+                        <h3>Emails</h3>
+                        <div className="section-header-actions">
+                          <select className="filter-select">
+                            <option>ALL</option>
+                            <option>Sent</option>
+                            <option>Received</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="email-tabs">
+                        <button className="email-tab active">Mails</button>
+                      </div>
+                      <div className="emails-table">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th></th>
+                              <th>Subject</th>
+                              <th>Date</th>
+                              <th>Source</th>
+                              <th>Sent By</th>
+                              <th>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {detailLead.emails && detailLead.emails.length > 0 ? (
+                              detailLead.emails.map((email, idx) => (
+                                <tr key={email.id || idx}>
+                                  <td className="email-icon">{email.has_attachment ? "📎" : "✉️"}</td>
+                                  <td className="email-subject">
+                                    <div className="subject-line">
+                                      <span className="subject-text">{email.subject || "(no subject)"}</span>
+                                      {email.has_reply && <span className="reply-icon">↩</span>}
+                                    </div>
+                                    <div className="recipient-preview">{email.recipients || email.to}</div>
+                                  </td>
+                                  <td className="email-date">{formatDate(email.date)}</td>
+                                  <td className="email-source">{email.source || "IMAP"}</td>
+                                  <td className="email-sender">{email.sent_by || email.from}</td>
+                                  <td className="email-status">
+                                    <span className={`status-badge ${email.status?.toLowerCase()}`}>{email.status || "—"}</span>
+                                  </td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td colSpan="6" className="empty-state">{detailLoading ? "Loading emails..." : "No emails found"}</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </main>
               </div>
             </div>
           </div>
