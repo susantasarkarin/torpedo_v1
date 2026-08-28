@@ -171,9 +171,9 @@ function RFQ() {
     setConverting(true)
     try {
       const token = localStorage.getItem("session_id")
-      const endpoint = convertType === "estimate" 
-        ? buildApiUrl(`/api/rfq/${selectedRfq.rfq_id}/convert-to-estimate`)
-        : buildApiUrl(`/api/rfq/${selectedRfq.rfq_id}/convert-to-invoice`)
+      const endpoint = convertType === "estimate"
+        ? buildApiUrl(`/api/rfq/${selectedRfq.opportunity_id}/convert-to-estimate`)
+        : buildApiUrl(`/api/rfq/${selectedRfq.opportunity_id}/convert-to-invoice`)
       
       const body = {
         ...conversionForm,
@@ -352,7 +352,7 @@ function RFQ() {
 
   // Toggle select all
   const toggleSelectAll = () => {
-    const allIds = rfqs.map((r) => r.rfq_id)
+    const allIds = rfqs.map((r) => r.opportunity_id)
     const allSelected = allIds.every((id) => selectedIds.includes(id))
     if (allSelected) {
       setSelectedIds([])
@@ -419,7 +419,7 @@ function RFQ() {
       if (response.ok) {
         loadRFQs()
         loadStats()
-        if (selectedRfq && selectedRfq.rfq_id === rfqId) {
+        if (selectedRfq && selectedRfq.opportunity_id === rfqId) {
           loadRfqDetails(rfqId)
         }
       }
@@ -428,6 +428,15 @@ function RFQ() {
     }
   }
 
+  // The frontend must call the RFQ API with the opportunity's real Mongo
+  // _id (opportunity_id), never the display-only rfq.rfq_id: for mail-pool
+  // sourced RFQs (the vast majority — created by backend/sales/mail_pool_ai.py)
+  // no rfq_id is ever persisted, so spine_rfq._rfq_display_id() synthesizes
+  // one on the fly purely for display ("RFQ-2026-abc123"). Calling GET/PUT/
+  // DELETE /api/rfq/{that synthesized id} can never match anything in Mongo,
+  // so every click, status change, value edit, and delete silently 404'd —
+  // this is why RFQ rows looked unclickable. opportunity_id is always the
+  // real _id and is always present.
   const formatDate = (dateStr) => {
     if (!dateStr) return "—"
     return new Date(dateStr).toLocaleDateString()
@@ -575,7 +584,7 @@ function RFQ() {
                   <th style={{ width: '40px' }}>
                     <input 
                       type="checkbox" 
-                      checked={rfqs.length > 0 && rfqs.every(r => selectedIds.includes(r.rfq_id))}
+                      checked={rfqs.length > 0 && rfqs.every(r => selectedIds.includes(r.opportunity_id))}
                       onChange={toggleSelectAll}
                       style={{ cursor: 'pointer' }}
                     />
@@ -596,23 +605,23 @@ function RFQ() {
               <tbody>
                 {rfqs.map((rfq) => (
                   <tr
-                    key={rfq.rfq_id}
+                    key={rfq.opportunity_id || rfq.rfq_id}
                     className={`rfq-row state-${rfq.state || 'open'}`}
                     style={{
-                      backgroundColor: selectedIds.includes(rfq.rfq_id)
+                      backgroundColor: selectedIds.includes(rfq.opportunity_id)
                         ? '#eff6ff'
                         : rfq.state === 'won' ? '#f0fdf4'
                         : rfq.state === 'lost' ? '#fef2f2'
                         : 'transparent',
                       cursor: 'pointer'
                     }}
-                    onClick={() => loadRfqDetails(rfq.rfq_id)}
+                    onClick={() => loadRfqDetails(rfq.opportunity_id)}
                   >
                     <td onClick={(e) => e.stopPropagation()}>
                       <input 
                         type="checkbox" 
-                        checked={selectedIds.includes(rfq.rfq_id)}
-                        onChange={() => toggleSelect(rfq.rfq_id)}
+                        checked={selectedIds.includes(rfq.opportunity_id)}
+                        onChange={() => toggleSelect(rfq.opportunity_id)}
                         style={{ cursor: 'pointer' }}
                       />
                     </td>
@@ -672,7 +681,7 @@ function RFQ() {
                       )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      {editingValue?.rfq_id === rfq.rfq_id ? (
+                      {editingValue?.rfq_id === rfq.opportunity_id ? (
                         <div className="value-edit">
                           <input
                             type="number"
@@ -683,7 +692,7 @@ function RFQ() {
                           />
                           <button 
                             className="value-save"
-                            onClick={() => updateRFQValue(rfq.rfq_id)}
+                            onClick={() => updateRFQValue(rfq.opportunity_id)}
                             disabled={saving}
                           >
                             ✓
@@ -698,7 +707,7 @@ function RFQ() {
                       ) : (
                         <div 
                           className="rfq-value"
-                          onClick={() => setEditingValue({ rfq_id: rfq.rfq_id, value: rfq.manual_value || rfq.extracted_value || 0 })}
+                          onClick={() => setEditingValue({ rfq_id: rfq.opportunity_id, value: rfq.manual_value || rfq.extracted_value || 0 })}
                           title="Click to edit value"
                         >
                           {formatCurrency(rfq.manual_value || rfq.extracted_value, rfq.manual_currency || rfq.extracted_currency || "USD")}
@@ -709,7 +718,7 @@ function RFQ() {
                     <td onClick={(e) => e.stopPropagation()}>
                       <select
                         value={rfq.status}
-                        onChange={(e) => updateRFQStatus(rfq.rfq_id, e.target.value)}
+                        onChange={(e) => updateRFQStatus(rfq.opportunity_id, e.target.value)}
                         className="status-select"
                         style={{ 
                           backgroundColor: getStatusColor(rfq.status).bg,
@@ -735,7 +744,7 @@ function RFQ() {
                       <div className="rfq-actions">
                         <button
                           className="btn btn-outline btn-sm"
-                          onClick={() => loadRfqDetails(rfq.rfq_id)}
+                          onClick={() => loadRfqDetails(rfq.opportunity_id)}
                           title="View Details"
                         >
                           👁️
@@ -749,7 +758,7 @@ function RFQ() {
                         </Link>
                         <button
                           className="btn btn-outline btn-sm btn-danger"
-                          onClick={() => deleteRFQ(rfq.rfq_id)}
+                          onClick={() => deleteRFQ(rfq.opportunity_id)}
                           title="Delete RFQ"
                         >
                           🗑️
@@ -848,7 +857,7 @@ function RFQ() {
                     <label>Currency</label>
                     <select
                       value={selectedRfq.manual_currency || selectedRfq.extracted_currency || "USD"}
-                      onChange={(e) => updateRfqField(selectedRfq.rfq_id, "manual_currency", e.target.value)}
+                      onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "manual_currency", e.target.value)}
                       style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
                     >
                       {CURRENCIES.map(c => (
@@ -889,7 +898,7 @@ function RFQ() {
                     <label>Methodology</label>
                     <select
                       value={selectedRfq.methodology || ""}
-                      onChange={(e) => updateRfqField(selectedRfq.rfq_id, "methodology", e.target.value)}
+                      onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "methodology", e.target.value)}
                       style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
                     >
                       <option value="">Select...</option>
@@ -903,7 +912,7 @@ function RFQ() {
                     <input
                       type="number"
                       value={selectedRfq.loi || ""}
-                      onChange={(e) => updateRfqField(selectedRfq.rfq_id, "loi", parseInt(e.target.value) || null)}
+                      onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "loi", parseInt(e.target.value) || null)}
                       placeholder="Length of Interview"
                       style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db', width: '100px' }}
                     />
@@ -913,7 +922,7 @@ function RFQ() {
                     <input
                       type="number"
                       value={selectedRfq.ir || ""}
-                      onChange={(e) => updateRfqField(selectedRfq.rfq_id, "ir", parseFloat(e.target.value) || null)}
+                      onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "ir", parseFloat(e.target.value) || null)}
                       placeholder="Incidence Rate"
                       style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db', width: '100px' }}
                     />
@@ -923,7 +932,7 @@ function RFQ() {
                     <input
                       type="text"
                       value={selectedRfq.country || ""}
-                      onChange={(e) => updateRfqField(selectedRfq.rfq_id, "country", e.target.value)}
+                      onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "country", e.target.value)}
                       placeholder="Target country"
                       style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
                     />
@@ -933,7 +942,7 @@ function RFQ() {
                     <input
                       type="number"
                       value={selectedRfq.sample_size || ""}
-                      onChange={(e) => updateRfqField(selectedRfq.rfq_id, "sample_size", parseInt(e.target.value) || null)}
+                      onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "sample_size", parseInt(e.target.value) || null)}
                       placeholder="Required completes"
                       style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db', width: '100px' }}
                     />
@@ -942,7 +951,7 @@ function RFQ() {
                     <label>Study Type</label>
                     <select
                       value={selectedRfq.study_type || ""}
-                      onChange={(e) => updateRfqField(selectedRfq.rfq_id, "study_type", e.target.value)}
+                      onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "study_type", e.target.value)}
                       style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
                     >
                       <option value="">Select...</option>
@@ -959,7 +968,7 @@ function RFQ() {
                     <input
                       type="text"
                       value={selectedRfq.timeline || ""}
-                      onChange={(e) => updateRfqField(selectedRfq.rfq_id, "timeline", e.target.value)}
+                      onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "timeline", e.target.value)}
                       placeholder="Project timeline"
                       style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
                     />
@@ -970,7 +979,7 @@ function RFQ() {
                   <label style={{ display: 'block', fontSize: '0.8rem', color: '#6b7280', marginBottom: '4px' }}>Target Audience</label>
                   <textarea
                     value={selectedRfq.target_audience || ""}
-                    onChange={(e) => updateRfqField(selectedRfq.rfq_id, "target_audience", e.target.value)}
+                    onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "target_audience", e.target.value)}
                     placeholder="Describe the target audience/respondent profile..."
                     style={{ 
                       width: '100%', 
@@ -989,7 +998,7 @@ function RFQ() {
                 <h3>📝 Description</h3>
                 <textarea
                   value={selectedRfq.description || ""}
-                  onChange={(e) => updateRfqField(selectedRfq.rfq_id, "description", e.target.value)}
+                  onChange={(e) => updateRfqField(selectedRfq.opportunity_id, "description", e.target.value)}
                   placeholder="Add RFQ description..."
                   style={{ 
                     width: '100%', 
