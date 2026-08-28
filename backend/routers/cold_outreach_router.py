@@ -1149,6 +1149,29 @@ def _enroll_basket_leads(campaign_id: str, basket: str):
             if (lead.get("lead_status") or "") == "Negative":
                 skipped_suppressed += 1
                 continue
+            # CONTAINMENT (2026-08-28): this enrollment path had zero
+            # awareness of email provenance — only email_status, which drifts
+            # independently from email_source. 947 leads sourced from the
+            # disabled bounce_recovery_alt guesser were enrolled here despite
+            # carrying Delivered/Valid/Catch-All/Unknown status, because none
+            # of those trip the check above. Same GUESSED_EMAIL_SOURCES set
+            # and same fail-closed-on-missing-confidence rule as
+            # leads.outreach_qualification.check_email(), reused rather than
+            # duplicated.
+            try:
+                from leads.outreach_qualification import GUESSED_EMAIL_SOURCES as _GUESSED_SOURCES
+            except ImportError:
+                from backend.leads.outreach_qualification import GUESSED_EMAIL_SOURCES as _GUESSED_SOURCES
+            _lead_source = (lead.get("email_source") or "").strip().lower()
+            if _lead_source in _GUESSED_SOURCES:
+                _lead_conf = lead.get("email_pattern_confidence")
+                try:
+                    _blocked = _lead_conf is None or float(_lead_conf) < 0.5
+                except (TypeError, ValueError):
+                    _blocked = True
+                if _blocked:
+                    skipped_suppressed += 1
+                    continue
             if email in enrolled_emails:
                 skipped_duplicate += 1
                 continue
@@ -2316,18 +2339,65 @@ def _process_one_outreach_lead(db, lead_record: dict) -> bool:
         # Blacklisted domains are skipped entirely; high-risk domains require a
         # minimum confidence of 0.55 before we proceed.
         email_source_flag = lead_record.get("email_source", "")
+        email_pattern_confidence = lead_record.get("email_pattern_confidence")
         if not email_source_flag and lead_record.get("lead_id"):
             # Backward compatibility: older outreach_leads_v2 rows may not carry
             # email_source yet, so pull it from the canonical leads collection.
             try:
                 canonical = get_leads_db()["leads_enriched"].find_one(
                     {"_id": ObjectId(lead_record.get("lead_id"))},
-                    {"email_source": 1},
+                    {"email_source": 1, "email_pattern_confidence": 1},
                 )
                 email_source_flag = (canonical or {}).get("email_source", "")
+                email_pattern_confidence = (canonical or {}).get("email_pattern_confidence")
             except Exception:
                 email_source_flag = ""
-        if email_source_flag in ("pattern_derived", "pattern_applied", "guessed", "pattern_guess"):
+
+        # CONTAINMENT (2026-08-28): a per-send equivalent of the enrollment
+        # check in _enroll_basket_leads, for leads that were enrolled before
+        # that check existed. Hard, unconditional skip - distinct from the
+        # reactive domain-blacklist logic below, which only trips once a
+        # domain has already accumulated enough bounces; a guessed address
+        # at a domain with no send history yet would otherwise sail through
+        # on its very first attempt. Reuses GUESSED_EMAIL_SOURCES from
+        # leads.outreach_qualification rather than duplicating the list.
+        try:
+            from leads.outreach_qualification import GUESSED_EMAIL_SOURCES as _GUESSED_SOURCES
+        except ImportError:
+            from backend.leads.outreach_qualification import GUESSED_EMAIL_SOURCES as _GUESSED_SOURCES
+        _source_norm = (email_source_flag or "").strip().lower()
+        if _source_norm in _GUESSED_SOURCES:
+            try:
+                _confident_enough = (
+                    email_pattern_confidence is not None
+                    and float(email_pattern_confidence) >= 0.5
+                )
+            except (TypeError, ValueError):
+                _confident_enough = False
+            if not _confident_enough:
+                skip_reason = (
+                    f"email_source={email_source_flag!r} has no confirmed confidence "
+                    f"(email_pattern_confidence={email_pattern_confidence!r}) - unverified "
+                    f"provenance, blocked before send."
+                )
+                logger.warning(f"[Outreach] Skipping {email}: {skip_reason}")
+                db["outreach_leads_v2"].update_one(
+                    {"_id": lead_record["_id"]},
+                    {"$set": {
+                        "workflow_status": "skipped_unverified_provenance",
+                        "last_send_error": skip_reason[:300],
+                        "last_send_error_at": datetime.utcnow(),
+                        "updated_at": datetime.utcnow(),
+                    }},
+                )
+                _release_daily_send_slot(db, from_email)
+                return False
+
+        # Extended (2026-08-28) from the original 4-value tuple to the full
+        # GUESSED_EMAIL_SOURCES set, so this reactive domain-risk check also
+        # covers bounce_recovery_alt and the other sources the hard
+        # confidence gate above already covers.
+        if email_source_flag in _GUESSED_SOURCES:
             try:
                 from leads.email_pattern_system import get_pattern_system as _get_ps
                 _send_domain = email.split("@")[1] if "@" in email else ""
