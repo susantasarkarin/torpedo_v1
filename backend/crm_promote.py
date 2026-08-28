@@ -261,10 +261,22 @@ async def promote_repliers_to_leads(dry_run: bool):
                 "company_headquarters": classification.company_headquarters,
             })
 
-        leads_raw_coll.update_one({"_id": raw_doc["_id"]}, {"$set": {
+        # Same class of bug as service.py before commit a411707: writing
+        # "Failed" with no last_error and no attempts increment left it
+        # indistinguishable from "never tried" while still blocking retry
+        # logic that filters on classification_attempts. Match the
+        # convention service.py/background_job_scheduler.py already use on
+        # this same collection.
+        _failure_update = {
             "classification_status": "Classified" if classification else "Failed",
             "enriched_lead_id": None,
-        }})
+        }
+        if classification:
+            _failure_update["last_error"] = None
+        else:
+            _failure_update["last_error"] = (_log.error_message or "unknown classification failure")[:300]
+            _failure_update["classification_attempts"] = raw_doc.get("classification_attempts", 0) + 1
+        leads_raw_coll.update_one({"_id": raw_doc["_id"]}, {"$set": _failure_update})
         result = leads_enriched_coll.insert_one(enriched_doc)
         leads_raw_coll.update_one({"_id": raw_doc["_id"]}, {"$set": {"enriched_lead_id": str(result.inserted_id)}})
 

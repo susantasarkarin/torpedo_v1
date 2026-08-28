@@ -386,9 +386,17 @@ def _attempt_skrapp_discovery(
 
 
 def _update_enriched_email(
-    leads_db, lead_id, new_email: str, source: str, confidence: Optional[float] = None
+    leads_db, lead_id, new_email: str, source: str, confidence: float
 ) -> None:
-    """Update the leads_enriched record with the recovery email."""
+    """Update the leads_enriched record with the recovery email.
+
+    confidence is required, not Optional[float] = None, on purpose: a
+    default of None would silently write email_status="Predicted" with no
+    email_pattern_confidence the moment some future caller forgets the
+    argument — exactly the shape of the hole outreach_qualification.check_email
+    had to be fixed to close. Both current call sites already pass a real
+    value; this just stops a future one from reopening it by omission.
+    """
     if not lead_id:
         return
     try:
@@ -396,11 +404,10 @@ def _update_enriched_email(
             "email": new_email,
             "email_status": "Predicted",
             "email_source": source,
+            "email_pattern_confidence": confidence,
             "bounce_recovery_status": "recovering",
             "updated_at": datetime.utcnow(),
         }
-        if confidence is not None:
-            update["email_pattern_confidence"] = confidence
         leads_db["leads_enriched"].update_one(
             {"_id": ObjectId(str(lead_id))},
             {"$set": update}
