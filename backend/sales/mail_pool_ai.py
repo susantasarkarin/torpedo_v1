@@ -904,8 +904,16 @@ def analyze_sender(from_email: str, from_name: str, total_count: int,
     )
     result, meta = _analysis_json(
         prompt, MAIL_AI_ANALYSIS_MAX_TOKENS, caller="analyze_sender")
-    if result is None or not isinstance(result.get("emails"), list) \
-            or not isinstance(result.get("sender"), dict):
+    if result is not None and (not isinstance(result.get("emails"), list)
+                               or not isinstance(result.get("sender"), dict)):
+        # Valid JSON, wrong shape — distinct from _analysis_json's own
+        # "unparseable" log (which only fires on a JSON *parse* failure).
+        # Log this too, or a shape mismatch fails silently with no trail.
+        logger.warning("[mail-ai] analyze_sender got valid JSON in an "
+                       "unexpected shape (missing emails/sender): keys=%s",
+                       list(result.keys()) if isinstance(result, dict) else type(result))
+        return None
+    if result is None:
         return None
     result["analyzed_at"] = datetime.utcnow().isoformat()
     result["model_source"] = "bedrock"
