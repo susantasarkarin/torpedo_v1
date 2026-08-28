@@ -492,6 +492,21 @@ async def background_enrich_leads():
                                                     ps.apply_pattern_to_domain_leads(domain, new_pattern)
                                                 except Exception:
                                                     pass
+                                        else:
+                                            # Step 3: no company-wide pattern found — try to
+                                            # find THIS person's real email via Claude web
+                                            # search before falling back to a blind guess.
+                                            built, conf = ps.build_email(
+                                                first, last, domain,
+                                                company_name=merged.get('company_name', ''),
+                                            )
+                                            if built:
+                                                update_fields['email'] = built
+                                                update_fields['email_source'] = (
+                                                    'claude_web_search' if conf >= 0.5 else 'guess'
+                                                )
+                                                update_fields['email_status'] = 'Predicted'
+                                                update_fields['email_pattern_confidence'] = conf
                             except Exception as _ep:
                                 logger.debug(f"[Enrichment] Email pattern generation skipped: {_ep}")
 
@@ -564,6 +579,18 @@ async def background_enrich_leads():
                                         if built:
                                             fallback_update['email'] = built
                                             fallback_update['email_source'] = 'pattern_discovered'
+                                            fallback_update['email_status'] = 'Predicted'
+                                            fallback_update['email_pattern_confidence'] = conf
+                                    else:
+                                        built, conf = ps.build_email(
+                                            first_for_pattern, last_for_pattern, domain_for_pattern,
+                                            company_name=lead.get('company_name', ''),
+                                        )
+                                        if built:
+                                            fallback_update['email'] = built
+                                            fallback_update['email_source'] = (
+                                                'claude_web_search' if conf >= 0.5 else 'guess'
+                                            )
                                             fallback_update['email_status'] = 'Predicted'
                                             fallback_update['email_pattern_confidence'] = conf
                             except Exception as _fp_err:

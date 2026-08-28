@@ -7,6 +7,7 @@ Tiered fallback system for discovering email patterns:
 4. Pattern guessing (common patterns)
 """
 
+import json
 import logging
 import os
 import re
@@ -487,20 +488,37 @@ class EmailPatternSystem:
             existing = self.patterns_collection.find_one({"domain": pattern_data["domain"]})
             return str(existing["_id"]) if existing else None
     
-    def build_email(self, first_name: str, last_name: str, domain: str) -> Tuple[str, float]:
+    def build_email(self, first_name: str, last_name: str, domain: str,
+                    company_name: str = "", use_web_search: bool = True) -> Tuple[str, float]:
         """
         Build email address using discovered pattern
-        
+
         Args:
             first_name: Person's first name
             last_name: Person's last name
             domain: Company domain
-            
+            company_name: Optional company name, improves web-search precision
+            use_web_search: When the domain has no confident stored pattern,
+                try to find THIS person's real email via Claude web search
+                before falling back to a blind firstname.lastname guess
+
         Returns:
             (email_address, confidence)
         """
         pattern_data = self.get_pattern(domain)
-        
+
+        if pattern_data and pattern_data.get("source") != "guess":
+            email = render_pattern_email(pattern_data["pattern"], first_name, last_name, domain)
+            if email:
+                return email, pattern_data["confidence"]
+
+        # No confident pattern on file for this domain — before guessing,
+        # try to find this specific person's real, publicly-listed email.
+        if use_web_search and domain:
+            found = self._web_search_lookup(first_name, last_name, domain, company_name)
+            if found:
+                return found["email"], found["confidence"]
+
         if not pattern_data:
             # Fallback to most common pattern
             pattern = "{first}.{last}@{domain}"
@@ -508,11 +526,85 @@ class EmailPatternSystem:
         else:
             pattern = pattern_data["pattern"]
             confidence = pattern_data["confidence"]
-        
+
         email = render_pattern_email(pattern, first_name, last_name, domain)
         if not email:
             return "", 0.0
         return email, confidence
+
+    def _web_search_lookup(self, first_name: str, last_name: str, domain: str,
+                           company_name: str = "") -> Optional[Dict]:
+        """
+        Ask a Claude model with real web search to find THIS person's actual
+        publicly-listed email, instead of guessing a firstname.lastname
+        pattern. Must never fabricate an address — returns None (caller then
+        falls back to a low-confidence guess) unless the model reports a
+        specific address it found, at the target domain, backed by a source.
+        """
+        first = (first_name or "").strip()
+        last = (last_name or "").strip()
+        domain = self._extract_domain(domain)
+        if not first or not domain:
+            return None
+
+        full_name = f"{first} {last}".strip()
+        try:
+            from ai_governance.claude_gateway import get_claude_gateway
+        except ImportError:
+            from backend.ai_governance.claude_gateway import get_claude_gateway
+
+        query = (
+            f"Search the web for the real, publicly listed work email address of "
+            f"{full_name}"
+            f"{f' at {company_name}' if company_name else ''} "
+            f"(company domain: {domain}). Only report an email address you actually "
+            f"found stated somewhere (company website, press release, conference bio, "
+            f"published paper, GitHub, official directory, etc.) — never invent or "
+            f"guess a firstname.lastname@{domain} pattern.\n\n"
+            f'Respond with JSON only: {{"email": "found@domain.com, or empty string '
+            f'if you found nothing", "found": true or false, "confidence": 0.0-1.0, '
+            f'"source": "brief description of where you found it"}}'
+        )
+
+        try:
+            gateway = get_claude_gateway()
+            result = gateway.web_search(query, num_results=5, caller="email_pattern_system.web_search_lookup")
+            answer = result.get("answer", "") if isinstance(result, dict) else ""
+            match = re.search(r"\{[\s\S]*\}", answer)
+            if not match:
+                return None
+            data = json.loads(match.group())
+            if not data.get("found") or not data.get("email"):
+                return None
+
+            email = str(data["email"]).lower().strip()
+            if "@" not in email:
+                return None
+            found_domain = email.split("@")[1].strip()
+            # Only trust it if it's actually at the target company's domain —
+            # a personal Gmail or a different company's address is not a
+            # substitute for this lead's work email.
+            if found_domain != domain:
+                return None
+
+            from .system_addresses import is_malformed_address, is_placeholder_address
+            if is_malformed_address(email) or is_placeholder_address(email):
+                return None
+
+            confidence = max(0.5, min(0.9, float(data.get("confidence", 0.6))))
+            logger.info(
+                f"[EmailPattern] web-search found {email} for {full_name}@{domain} "
+                f"(confidence={confidence:.2f}, source={data.get('source', '')!r})"
+            )
+            return {
+                "email": email,
+                "confidence": confidence,
+                "source": "claude_web_search",
+                "source_note": data.get("source", ""),
+            }
+        except Exception as e:
+            logger.warning(f"claude web-search email lookup failed for {full_name}@{domain}: {e}")
+            return None
     
     def analyze_mail_pool(self, limit: int = None) -> Dict:
         """
