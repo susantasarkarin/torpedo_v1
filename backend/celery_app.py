@@ -149,15 +149,15 @@ celery_app.conf.update(
             'options': {'queue': 'default'},
         },
         'mail-pool-ai-sender-batch': {
-            # Every 10 min: AI-process mail-pool SENDERS (summary, contacts,
-            # RFQ -> spine + draft estimate, follow-up drafts). One model call
-            # per sender covers ALL their emails. Was temporarily sped up to
-            # 2.5min/100 on 2026-08-27 to clear a full-pool reclassification
-            # backfill (446,303/447,009 done in ~3h, zero systemic errors);
-            # reverted to normal cadence now that the pool is current.
+            # TEMPORARY BACKFILL SPEED-UP (2026-08-28): every 2.5 min / 100
+            # senders/run instead of the normal 10 min / 50 -- re-running the
+            # full pool through the new per-email classification prompt
+            # (2026-08-28's fix for the RFQ-behind-newsletters miss). The
+            # 2026-08-27 backfill used the old single-verdict prompt.
+            # REVERT to schedule=600.0, limit=50 once this finishes.
             'task': 'backend.tasks.mail_pool_ai_tasks.process_mail_pool_sender_batch',
-            'schedule': 600.0,
-            'kwargs': {'limit': 50},
+            'schedule': 150.0,
+            'kwargs': {'limit': 100},
             'options': {'queue': 'ai_processing'},
         },
         'lead-bucket-classification': {
