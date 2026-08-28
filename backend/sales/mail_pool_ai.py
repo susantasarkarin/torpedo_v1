@@ -87,9 +87,8 @@ _MEANINGFUL_AI_CATEGORIES = frozenset({"rfq", "client_inquiry", "reply", "vendor
 
 # --- AI category -> UI segment mapping (single source of truth) ---
 # The `segment` field the MailPool UI reads is derived from the AI category
-# once Stage 2 runs. Internal / Bank / Govt are NOT here: those are decided by
-# domain matching (rules), which is more reliable than semantics. An AI
-# category of "other" (or anything unmapped) keeps the rule segment.
+# once Stage 2 runs. An AI category of "other" (or anything unmapped) keeps
+# the rule segment.
 AI_CATEGORY_TO_SEGMENT = {
     "rfq": "Client",
     "client_inquiry": "Client",
@@ -97,8 +96,21 @@ AI_CATEGORY_TO_SEGMENT = {
     "vendor": "Vendor",
     "promotional": "Promotion",
     "transactional": "Transactional",
+    # Labels match mail_segregation_agent.py's rule-derived display strings
+    # for the same concepts (_result("internal", "Internal", ...) etc.) so
+    # the AI-detected and rule-detected paths agree on what the UI shows.
+    "internal": "Internal",
+    "bank": "Bank",
+    "gov_tax": "GST/IT/Govt",
 }
-# Rule segments that always win over the AI category (domain-based, reliable).
+# Rule segments that always win over the AI category (domain-based, reliable)
+# — IN THEORY. In practice, process_sender() (the only scheduled path) always
+# calls derive_segment(category, None), so rule_result is never populated
+# here and this override never fires on live traffic (confirmed: prod
+# segment_source is ~447K "ai" vs. only ~284 "rules"). The AI's own
+# internal/bank/gov_tax categories above are today's only real signal for
+# these buckets on the sender path — rewiring the rule engine into
+# process_sender() is a separate, bigger change.
 RULE_AUTHORITATIVE_SEGMENTS = frozenset({"internal", "bank", "gst_it_govt"})
 
 
@@ -158,7 +170,8 @@ def prefilter_decision(email_doc: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
 
 _MAIL_AI_SYSTEM = ("You are the mail-desk analyst for a market-research company "
                    "(surveys, panels, fieldwork). You return only valid JSON — "
-                   "no markdown fences, no preamble, no commentary.")
+                   "no markdown fences, no preamble, no commentary. Use JSON null "
+                   "for missing values, never the string \"null\".")
 
 
 def _bedrock():
@@ -189,7 +202,11 @@ def _analysis_json(prompt: str, max_tokens: int,
         # Content/JSON failure -> this specific email is the problem.
         logger.warning("[mail-ai] %s analysis unparseable: %s", caller, e)
         return None, {"error": str(e), "role": MAIL_AI_ANALYSIS_ROLE}
-    if not isinstance(result, dict) or "summary" not in result:
+    # Shared by analyze_email() (flat shape, top-level "summary") and
+    # analyze_sender() (nested {emails, sender} shape, summary lives under
+    # "sender") — only isinstance is checkable here; each caller validates
+    # its own shape further.
+    if not isinstance(result, dict):
         return None, meta
     return result, meta
 
@@ -751,60 +768,106 @@ RFQ_SCAN_CHUNK = int(os.getenv("MAIL_POOL_RFQ_SCAN_CHUNK", "10"))
 MAX_SCAN_EMAILS_PER_SENDER = int(os.getenv("MAIL_POOL_MAX_SCAN_EMAILS", "1000"))
 _HUMAN_SENDER_TYPES = {"client", "prospect", "vendor", "other"}
 
-_SENDER_ANALYSIS_PROMPT = """You are the mail-desk analyst for a market-research company (surveys, panels, fieldwork).
-Analyze this SENDER based on their recent emails to us and return ONLY valid JSON, no markdown.
+_SENDER_ANALYSIS_PROMPT = """Analyze each email below on its own merits, then summarize the sender.
+Return ONLY valid JSON.
 
 Sender: {from_line}
 Total emails from this sender in our inbox: {total_count}
-Most recent emails (newest first):
+Emails (index 1 = newest):
 {samples}
+
+Each email body may be truncated and may contain quoted reply history,
+signatures, and legal disclaimers. Classify based on what THIS sender wrote
+in THIS email — ignore quoted text below reply markers, ignore signature
+blocks, ignore boilerplate footers. If the new content is empty or unreadable,
+set category_confidence to "low".
 
 Return exactly this JSON shape:
 {{
-  "summary": "<2-3 sentences: who this sender is and what they want from us>",
-  "key_points": ["<point>", "..."],
-  "sender_type": "client|prospect|vendor|automated|newsletter|spam|other",
-  "sentiment": "positive|neutral|negative",
-  "category": "rfq|client_inquiry|vendor|reply|promotional|transactional|other",
-  "priority": "high|medium|low",
-  "action_required": true/false,
-  "follow_up_needed": true/false,
-  "contacts": [
-    {{"name": "<full name or null>", "email": "<email>", "phone": "<or null>",
-      "company": "<or null>", "title": "<or null>"}}
+  "emails": [
+    {{
+      "index": <integer, matching the index above>,
+      "category": "rfq|client_inquiry|vendor|reply|promotional|transactional|internal|bank|gov_tax|other",
+      "category_confidence": "high|medium|low",
+      "evidence": "<up to 12 words from this email that justify the category>",
+      "sentiment": "positive|neutral|negative",
+      "priority": "high|medium|low",
+      "action_required": true|false,
+      "follow_up_needed": true|false,
+      "rfq": null
+    }}
   ],
-  "rfq": {{
-    "is_rfq": true/false,
-    "title": "<short title for the request, or null>",
-    "description": "<what is being requested, or null>",
-    "budget": <number or null>,
-    "currency": "<ISO code or null>",
-    "items": [{{"description": "<line item>", "quantity": <number>, "rate": <number or 0>}}],
-    "deadline": "<ISO date or null>"
+  "sender": {{
+    "summary": "<2-3 sentences: who this sender is and what they want from us>",
+    "key_points": ["<point>"],
+    "sender_type": "client|prospect|vendor|internal|bank|gov_tax|automated|newsletter|spam|other",
+    "sender_type_confidence": "high|medium|low",
+    "mixed_mode": true|false,
+    "contacts": [
+      {{"name": <string or null>, "email": <string or null>, "phone": <string or null>,
+       "company": <string or null>, "title": <string or null>}}
+    ]
   }}
 }}
 
+For any email where category is "rfq", replace that email's "rfq": null with:
+  {{
+    "title": <string or null>,
+    "description": <string or null>,
+    "budget": <number or null>,
+    "currency": <ISO 4217 code as string, or null>,
+    "items": [{{"description": <string>, "quantity": <number>, "rate": <number>}}],
+    "deadline": <ISO 8601 date string or null>
+  }}
+
 Rules:
-- "rfq" refers to the newest emails: is the sender currently requesting a
-  quotation/proposal/pricing for research work? A promotional email SELLING
-  something is never an RFQ.
-- sender_type "automated"/"newsletter"/"spam": machine-generated or bulk mail;
-  for these set follow_up_needed=false and contacts=[].
-- contacts: only real people evident in the emails; [] if none.
-- follow_up_needed: true when a reply from us is clearly expected on the
-  newest email."""
+- "rfq" means the sender is asking US to quote or propose for research work
+  (sample, surveys, panel, fieldwork, translations, tabulation, incentives).
+  An email SELLING us something is "vendor" or "promotional", never "rfq".
+- Set category_confidence "low" rather than guessing. Never invent a category
+  to avoid saying "other".
+- "evidence" must be text actually present in that email. If you cannot find
+  supporting text, the confidence is "low".
+- "internal" = from our own organisation. "bank" = banking/payment
+  notifications. "gov_tax" = GST, income tax, or other government filings.
+  Judge these from the email content, not only the domain.
+- "mixed_mode": true when these emails do not all serve the same purpose
+  (e.g. a vendor who also sends RFQs, or a client whose mail is mostly
+  automated notifications).
+- follow_up_needed: true only when a reply from us is expected on that
+  specific email. For automated, newsletter, or spam emails set
+  follow_up_needed false and action_required false.
+- contacts: only real people identifiable from the emails; [] if none.
+- budget, quantity, rate: bare numbers only — no currency symbols, no commas,
+  no ranges. If a range is given, use the lower bound. If unclear, use null."""
+
+
+def _clean_email_body(body: str) -> str:
+    """Strip quoted reply history / signatures / footers BEFORE truncation —
+    doing this only via prompt instruction is not enough: if truncation cuts
+    off the new content first, there's nothing left for the model to work
+    with. Falls back to a plain slice if the cleaner is unavailable for any
+    reason (never blocks analysis on this being importable)."""
+    try:
+        try:
+            from outreach_engine.reply_engine.cleaner import clean_reply_text
+        except ImportError:
+            from backend.outreach_engine.reply_engine.cleaner import clean_reply_text
+        return clean_reply_text(str(body))
+    except Exception:
+        return str(body)[:2000]
 
 
 def analyze_sender(from_email: str, from_name: str, total_count: int,
                    sample_docs) -> Optional[Dict[str, Any]]:
-    """One AI call covering a sender's recent emails."""
+    """One AI call covering a sender's recent emails, classified individually."""
     parts = []
-    for d in sample_docs:
+    for idx, d in enumerate(sample_docs, start=1):
         body = (d.get("body_plain") or d.get("body") or d.get("snippet") or "")
         parts.append(
-            f"--- Email dated {d.get('date', 'unknown')} ---\n"
+            f"--- Email {idx} (dated {d.get('date', 'unknown')}) ---\n"
             f"Subject: {d.get('subject') or '(no subject)'}\n"
-            f"{str(body)[:2000]}"
+            f"{_clean_email_body(body)}"
         )
     prompt = _SENDER_ANALYSIS_PROMPT.format(
         from_line=f"{from_name} <{from_email}>".strip(),
@@ -813,7 +876,8 @@ def analyze_sender(from_email: str, from_name: str, total_count: int,
     )
     result, meta = _analysis_json(
         prompt, MAIL_AI_ANALYSIS_MAX_TOKENS, caller="analyze_sender")
-    if result is None:
+    if result is None or not isinstance(result.get("emails"), list) \
+            or not isinstance(result.get("sender"), dict):
         return None
     result["analyzed_at"] = datetime.utcnow().isoformat()
     result["model_source"] = "bedrock"
@@ -997,10 +1061,51 @@ def deep_scan_sender_rfqs(from_email: str, from_name: str, col,
             "rfqs_total": len(ledger)}
 
 
+def _rollup_from_sender_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Reduce the new per-email {emails: [...], sender: {...}} shape down to the
+    flat dict _ingest_contacts()/_log_rfq_and_estimate()/_draft_follow_up()
+    already expect (the same shape process_email() and
+    deep_scan_sender_rfqs()'s synthesized dicts use) — a single normalization
+    point so those three functions never need to know about the nested shape.
+
+    Rollup rule: the newest sampled email's category wins, UNLESS any sampled
+    email is an "rfq" — an RFQ anywhere in the sample always wins, so a
+    request hiding behind newer newsletters is never diluted away.
+    """
+    emails = analysis.get("emails") or []
+    sender = analysis.get("sender") or {}
+    rfq_emails = [e for e in emails if e.get("category") == "rfq" and e.get("rfq")]
+
+    if rfq_emails:
+        category = "rfq"
+    elif emails:
+        category = emails[0].get("category")
+    else:
+        category = None
+
+    if rfq_emails:
+        rfq = {**rfq_emails[0]["rfq"], "is_rfq": True}
+    else:
+        rfq = {"is_rfq": False}
+
+    return {
+        "category": category,
+        "sender_type": sender.get("sender_type"),
+        "summary": sender.get("summary"),
+        "key_points": sender.get("key_points"),
+        "contacts": sender.get("contacts") or [],
+        "follow_up_needed": bool(emails[0].get("follow_up_needed")) if emails else False,
+        "rfq": rfq,
+        "rfq_emails": rfq_emails,
+    }
+
+
 def process_sender(from_email: str, col) -> Dict[str, Any]:
     """Full AI pipeline for one sender: analyze a sample of their newest
-    emails, run downstream actions once, then stamp ALL their unanalyzed
-    emails so they never re-enter the queue."""
+    emails (classified individually), run downstream actions once from the
+    code-derived rollup, then stamp ALL their unanalyzed emails so they never
+    re-enter the queue."""
     base_query = {"from_email": from_email,
                   "ai_analysis": {"$exists": False},
                   "internal": {"$ne": True}}
@@ -1016,11 +1121,17 @@ def process_sender(from_email: str, col) -> Dict[str, Any]:
     if analysis is None:
         return {"success": False, "error": "ai_analysis_failed"}
 
+    flat = _rollup_from_sender_analysis(analysis)
+
     # Downstream actions run once per sender, anchored on their newest email.
     actions: Dict[str, Any] = {}
-    actions["contacts_ingested"] = _ingest_contacts(analysis, newest)
+    actions["contacts_ingested"] = _ingest_contacts(flat, newest)
     sender_col = _get_db("email_automation")[SENDER_ANALYSIS_COLLECTION]
-    if analysis.get("sender_type") in _HUMAN_SENDER_TYPES:
+    # An RFQ anywhere in the sample forces the human/deep-scan path even when
+    # the sender's overall type reads as newsletter/automated — this is the
+    # actual fix for "an RFQ behind three newsletters" getting missed.
+    is_human = flat["sender_type"] in _HUMAN_SENDER_TYPES or bool(flat["rfq_emails"])
+    if is_human:
         # Real correspondent: read their FULL history for RFQs and outcomes.
         # This supersedes the sample-based rfq field (which would only
         # double-log the newest request).
@@ -1031,16 +1142,37 @@ def process_sender(from_email: str, col) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"[mail-ai] deep RFQ scan failed for {from_email}: {e}")
     else:
-        actions.update(_log_rfq_and_estimate(analysis, newest))
-    followup_id = _draft_follow_up(analysis, newest)
+        # Not deep-scanned, so the sampled emails are the only chance to log
+        # any RFQs in them — log each one, not just the rollup winner.
+        for rfq_email in flat["rfq_emails"]:
+            rfq_flat = {**flat, "rfq": {**rfq_email["rfq"], "is_rfq": True}}
+            actions.update(_log_rfq_and_estimate(rfq_flat, newest))
+    followup_id = _draft_follow_up(flat, newest)
     if followup_id:
         actions["followup_draft_id"] = followup_id
     analysis["actions"] = actions
+
+    # Single source of truth for the UI (sender path has no per-email rule
+    # prefilter, so the segment derives from the AI category alone).
+    segment, segment_source = derive_segment(flat["category"], None)
+    segment_ai_raw = flat["category"]
+    override_applied = segment_source == "rules" and flat["category"] not in (None, "", "other")
+
+    # Flat mirror onto the same `analysis` doc so gmail.py's
+    # _sender_contacts_and_rfq()/_batch_sender_contacts_and_rfq() (which read
+    # analysis.contacts / analysis.rfq as plain dotted paths) keep working
+    # unchanged — analysis carries both the raw emails/sender detail AND this
+    # flat mirror.
+    analysis["contacts"] = flat["contacts"]
+    analysis["rfq"] = flat["rfq"]
+    analysis["category"] = flat["category"]
 
     # Full analysis lives in one doc per sender ...
     sender_col.update_one(
         {"_id": from_email},
         {"$set": {"analysis": analysis, "status": "analyzed",
+                  "segment_ai_raw": segment_ai_raw,
+                  "override_applied": override_applied,
                   "updated_at": datetime.utcnow()},
          "$unset": {"failed_attempts": ""}},
         upsert=True)
@@ -1049,18 +1181,17 @@ def process_sender(from_email: str, col) -> Dict[str, Any]:
     # per-email consumers (ai_analysis-exists queries, ai_summary display)
     # keep working without duplicating the full analysis 175K times.
     stub = {"sender_level": True, "sender": from_email,
-            "summary": analysis.get("summary"),
-            "sender_type": analysis.get("sender_type"),
-            "category": analysis.get("category"),
+            "summary": flat.get("summary"),
+            "sender_type": flat.get("sender_type"),
+            "category": flat.get("category"),
             "analyzed_at": analysis["analyzed_at"],
-            "meta": analysis.get("meta")}   # model_id + tokens for cost auditing
-    # Single source of truth for the UI (sender path has no per-email rule
-    # prefilter, so the segment derives from the AI category alone).
-    segment, segment_source = derive_segment(analysis.get("category"), None)
+            "meta": analysis.get("meta"),   # model_id + tokens for cost auditing
+            "segment_ai_raw": segment_ai_raw,
+            "override_applied": override_applied}
     marked = col.update_many(
         base_query,
         {"$set": {"ai_analysis": stub,
-                  "ai_summary": analysis.get("summary"),
+                  "ai_summary": flat.get("summary"),
                   "segment": segment,
                   "segment_source": segment_source,
                   "ai_processed_at": datetime.utcnow()}}).modified_count
