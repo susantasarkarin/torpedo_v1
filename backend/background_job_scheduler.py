@@ -496,15 +496,13 @@ async def background_enrich_leads():
                                             # Step 3: no company-wide pattern found — try to
                                             # find THIS person's real email via Claude web
                                             # search before falling back to a blind guess.
-                                            built, conf = ps.build_email(
+                                            built, conf, built_source = ps.build_email_with_source(
                                                 first, last, domain,
                                                 company_name=merged.get('company_name', ''),
                                             )
                                             if built:
                                                 update_fields['email'] = built
-                                                update_fields['email_source'] = (
-                                                    'claude_web_search' if conf >= 0.5 else 'guess'
-                                                )
+                                                update_fields['email_source'] = built_source
                                                 update_fields['email_status'] = 'Predicted'
                                                 update_fields['email_pattern_confidence'] = conf
                             except Exception as _ep:
@@ -582,15 +580,13 @@ async def background_enrich_leads():
                                             fallback_update['email_status'] = 'Predicted'
                                             fallback_update['email_pattern_confidence'] = conf
                                     else:
-                                        built, conf = ps.build_email(
+                                        built, conf, built_source = ps.build_email_with_source(
                                             first_for_pattern, last_for_pattern, domain_for_pattern,
                                             company_name=lead.get('company_name', ''),
                                         )
                                         if built:
                                             fallback_update['email'] = built
-                                            fallback_update['email_source'] = (
-                                                'claude_web_search' if conf >= 0.5 else 'guess'
-                                            )
+                                            fallback_update['email_source'] = built_source
                                             fallback_update['email_status'] = 'Predicted'
                                             fallback_update['email_pattern_confidence'] = conf
                             except Exception as _fp_err:

@@ -491,7 +491,31 @@ class EmailPatternSystem:
     def build_email(self, first_name: str, last_name: str, domain: str,
                     company_name: str = "", use_web_search: bool = True) -> Tuple[str, float]:
         """
-        Build email address using discovered pattern
+        Build email address using discovered pattern. Backward-compatible
+        2-tuple wrapper around build_email_with_source() — most existing
+        callers only need (email, confidence). Callers that need to report
+        which tier actually produced the address (e.g. distinguishing
+        Hunter/Skrapp/DB-pattern hits from a Claude web-search find or a
+        blind guess) should call build_email_with_source() instead.
+
+        Returns:
+            (email_address, confidence)
+        """
+        email, confidence, _source = self.build_email_with_source(
+            first_name, last_name, domain, company_name=company_name,
+            use_web_search=use_web_search,
+        )
+        return email, confidence
+
+    def build_email_with_source(self, first_name: str, last_name: str, domain: str,
+                                company_name: str = "", use_web_search: bool = True
+                                ) -> Tuple[str, float, str]:
+        """
+        Same as build_email(), but also reports which tier produced the
+        address — needed to tell "found via Hunter/Skrapp/stored pattern" and
+        "found via Claude web search for this specific person" apart from
+        a blind firstname.lastname guess, rather than collapsing all of them
+        into a confidence number.
 
         Args:
             first_name: Person's first name
@@ -503,21 +527,25 @@ class EmailPatternSystem:
                 before falling back to a blind firstname.lastname guess
 
         Returns:
-            (email_address, confidence)
+            (email_address, confidence, source) — source is one of the
+            pattern-system tier names (e.g. "hunter_io", "skrapp",
+            "csv_leads_analysis", "website_scrape"), "claude_web_search", or
+            "guess". email is "" (confidence 0.0, source "none") when nothing
+            renderable was found.
         """
         pattern_data = self.get_pattern(domain)
 
         if pattern_data and pattern_data.get("source") != "guess":
             email = render_pattern_email(pattern_data["pattern"], first_name, last_name, domain)
             if email:
-                return email, pattern_data["confidence"]
+                return email, pattern_data["confidence"], pattern_data.get("source", "pattern")
 
         # No confident pattern on file for this domain — before guessing,
         # try to find this specific person's real, publicly-listed email.
         if use_web_search and domain:
             found = self._web_search_lookup(first_name, last_name, domain, company_name)
             if found:
-                return found["email"], found["confidence"]
+                return found["email"], found["confidence"], "claude_web_search"
 
         if not pattern_data:
             # Fallback to most common pattern
@@ -529,8 +557,8 @@ class EmailPatternSystem:
 
         email = render_pattern_email(pattern, first_name, last_name, domain)
         if not email:
-            return "", 0.0
-        return email, confidence
+            return "", 0.0, "none"
+        return email, confidence, "guess"
 
     def _web_search_lookup(self, first_name: str, last_name: str, domain: str,
                            company_name: str = "") -> Optional[Dict]:

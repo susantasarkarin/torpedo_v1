@@ -100,12 +100,22 @@ def test_renderer_rejects_unusable(pattern, first, last, domain):
 
 
 def test_renderer_is_what_build_email_uses():
-    """build_email must not re-implement rendering."""
+    """build_email must not re-implement rendering.
+
+    build_email() is a thin 2-tuple wrapper around
+    build_email_with_source() (added so callers can also learn which tier —
+    Hunter/Skrapp/web-search/guess — produced the address), so the actual
+    rendering call now lives there rather than in build_email() itself.
+    """
     import inspect
     from leads.email_pattern_system import EmailPatternSystem
-    src = inspect.getsource(EmailPatternSystem.build_email)
-    assert "render_pattern_email" in src
-    assert "pattern.format(" not in src
+    build_email_src = inspect.getsource(EmailPatternSystem.build_email)
+    assert "build_email_with_source" in build_email_src
+    assert "pattern.format(" not in build_email_src
+
+    with_source_src = inspect.getsource(EmailPatternSystem.build_email_with_source)
+    assert "render_pattern_email" in with_source_src
+    assert "pattern.format(" not in with_source_src
 
 
 def test_bulk_applier_uses_the_renderer():
